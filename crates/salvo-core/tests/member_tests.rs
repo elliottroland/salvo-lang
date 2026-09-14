@@ -403,25 +403,145 @@ fn use_still_registers_handlers() {
 #[test]
 fn handler_dependencies_are_accepted() {
     let src = "effect Logger {\n    fn log(m: Str) -> None => m\n}\n\n\
-               handler CountingLogger(counter: Counter) of Logger {\n    \
+               handler CountingLogger [Counter] of Logger {\n    \
                fn log(m: Str) -> None => m {\n        let n = bump()\n    }\n}\n";
     let errs = effect_messages(src);
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// [effect-handler-deps] A handler cannot depend on the effect it
-/// implements: registering it would require itself.
+/// [effect-handler-deps] A handler declares its dependencies as an effect
+/// list, exactly as a fn does — and a *constructor parameter* of effect type
+/// is now the plain [effect-not-data] error, with no exception left anywhere
+/// in the language (user decision 2026-09-14: the old names could not be
+/// used for anything).
 #[test]
-fn handler_cannot_depend_on_its_own_effect() {
-    let errs = effect_messages(
-        "handler Wrapper(inner: Counter) of Counter {\n    \
-         fn bump() -> Int {\n        return 0\n    }\n}\n",
+fn handler_dependencies_are_an_effect_list() {
+    let ok = effect_messages(
+        "handler CountingLogger [Counter] of Logger {\n    \
+         fn log(m: Str) -> None => m {\n        let n = bump()\n    }\n}\n\n\
+         effect Logger {\n    fn log(m: Str) -> None => m\n}\n",
+    );
+    assert!(ok.is_empty(), "got {ok:?}");
+
+    let as_param = effect_messages(
+        "handler CountingLogger(counter: Counter) of Logger {\n    \
+         fn log(m: Str) -> None => m {\n    }\n}\n\n\
+         effect Logger {\n    fn log(m: Str) -> None => m\n}\n",
     );
     assert!(
-        errs.iter().any(|m| m
-            == "handler `Wrapper` cannot depend on `Counter`, the effect it implements"),
-        "got {errs:?}"
+        as_param
+            .iter()
+            .any(|m| m.starts_with("`Counter` is an effect, not a data type")),
+        "got {as_param:?}"
     );
+}
+
+/// [effect-handler-deps] What may *not* be in the list: `use` (a handler
+/// registers nothing) and `Throw` (a throw needs a delimiter, not a
+/// handler), and no effect twice.
+#[test]
+fn a_handler_effect_list_is_validated() {
+    let cases = [
+        ("[use]", "cannot depend on `use`"),
+        ("[Throw<Str>]", "cannot depend on `Throw`"),
+        ("[Counter, Counter]", "declares `Counter` twice"),
+    ];
+    for (list, expected) in cases {
+        let errs = effect_messages(&format!(
+            "handler H {list} of Logger {{\n    \
+             fn log(m: Str) -> None => m {{\n    }}\n}}\n\n\
+             effect Logger {{\n    fn log(m: Str) -> None => m\n}}\n"
+        ));
+        assert!(
+            errs.iter().any(|m| m.contains(expected)),
+            "`{list}` should be rejected with `{expected}`: {errs:?}"
+        );
+    }
+}
+
+/// [effect-handler-deps] A handler member cannot call **its own** effect's
+/// members: self-dispatch does not exist, and the diagnostic says so rather
+/// than naming two remedies a member cannot use (a member may not declare
+/// effects [effect-member-no-effects] and may not `use`). Recorded as a gap
+/// in ROADMAP.md — this test is what pins the wording until it is filled.
+#[test]
+fn a_handler_member_cannot_dispatch_to_itself() {
+    let errs = effect_messages(
+        "handler Twice of Counter {\n    \
+         fn bump() -> Int {\n        return bump() + bump()\n    }\n}\n",
+    );
+    let diag = errs
+        .iter()
+        .find(|m| m.contains("a handler member cannot call `bump`"))
+        .unwrap_or_else(|| panic!("got {errs:?}"));
+    assert!(
+        diag.contains("cannot dispatch to itself")
+            && diag.contains("Move the shared logic into a function"),
+        "the diagnostic should name the situation and the remedy: {diag}"
+    );
+}
+
+/// [effect-intercept] A handler *may* depend on the effect it implements —
+/// that is interception — and the declaration alone says nothing about
+/// availability: the binding rule lives at the `use`.
+#[test]
+fn handler_may_intercept_its_own_effect() {
+    let errs = effect_messages(
+        "handler Wrapper [Counter] of Counter {\n    \
+         fn bump() -> Int {\n        return bump() + 1\n    }\n}\n",
+    );
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
+/// [effect-intercept] [use-no-dup] An intercepting `use` **binds strictly
+/// outward**: it wraps the instance registered before it, so registering it
+/// with nothing to wrap is the error — and shadowing an instance that *is*
+/// there is not.
+#[test]
+fn interception_binds_strictly_outward() {
+    let prelude = "handler Wrapper [Counter] of Counter {\n    \
+                   fn bump() -> Int {\n        return bump() + 1\n    }\n}\n";
+    // Nothing to intercept: rejected at the registration, in interception's
+    // own words.
+    let alone = effect_messages(&format!(
+        "{prelude}\nfn main() [use] -> Int {{\n    use Wrapper()\n    \
+         return bump()\n}}\n"
+    ));
+    assert!(
+        alone.iter().any(|m| m.contains(
+            "handler `Wrapper` intercepts `Counter` — it depends on the effect it \
+             implements"
+        ) && m.contains("wraps the instance already in scope")),
+        "got {alone:?}"
+    );
+
+    // Over an instance already in scope: accepted, and the *same* effect
+    // being registered twice is no longer an error [use-no-dup].
+    let wrapped = effect_messages(&format!(
+        "{prelude}\nfn main() [use] -> Int {{\n    use MemCounter()\n    \
+         use Wrapper()\n    return bump()\n}}\n"
+    ));
+    assert!(wrapped.is_empty(), "got {wrapped:?}");
+
+    // And it stacks: an interceptor may wrap an interceptor.
+    let twice = effect_messages(&format!(
+        "{prelude}\nfn main() [use] -> Int {{\n    use MemCounter()\n    \
+         use Wrapper()\n    use Wrapper()\n    return bump()\n}}\n"
+    ));
+    assert!(twice.is_empty(), "got {twice:?}");
+}
+
+/// [use-no-dup] Shadowing needs no dependency: a second `use` for an effect
+/// instance already in scope registers a handler that wins for the rest of
+/// the scope, rather than being rejected (which is what it was until
+/// 2026-09-14).
+#[test]
+fn a_use_may_shadow_an_earlier_registration() {
+    let errs = effect_messages(
+        "fn main() [use] -> Int {\n    use MemCounter()\n    \
+         use MemCounter()\n    return bump()\n}\n",
+    );
+    assert!(errs.is_empty(), "got {errs:?}");
 }
 
 /// [effect-handler-deps] Dependency *cycles* need no separate check: a
@@ -433,9 +553,9 @@ fn dependency_cycles_cannot_be_registered() {
     let cyclic = "\n\
         effect Alpha {\n    fn a(m: Str) -> None => m\n}\n\n\
         effect Beta {\n    fn b(m: Str) -> None => m\n}\n\n\
-        handler AlphaViaBeta(beta: Beta) of Alpha {\n    \
+        handler AlphaViaBeta [Beta] of Alpha {\n    \
         fn a(m: Str) -> None => m {\n        b(m)\n    }\n}\n\n\
-        handler BetaViaAlpha(alpha: Alpha) of Beta {\n    \
+        handler BetaViaAlpha [Alpha] of Beta {\n    \
         fn b(m: Str) -> None => m {\n        a(m)\n    }\n}\n";
     for (first, second, blamed) in [
         ("AlphaViaBeta", "BetaViaAlpha", "Beta"),
@@ -461,7 +581,7 @@ fn dependency_cycles_cannot_be_registered() {
 #[test]
 fn handler_dependencies_come_from_the_use_scope() {
     let prelude = "effect Logger {\n    fn log(m: Str) -> None => m\n}\n\n\
-                   handler CountingLogger(counter: Counter) of Logger {\n    \
+                   handler CountingLogger [Counter] of Logger {\n    \
                    fn log(m: Str) -> None => m {\n        let n = bump()\n    }\n}\n";
     // Registered *after* its dependency: fine, and no argument is written.
     let ok = effect_messages(&format!(

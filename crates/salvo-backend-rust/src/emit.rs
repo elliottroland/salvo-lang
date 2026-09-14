@@ -786,32 +786,18 @@ fn module_produces_code(module: &Module) -> bool {
 }
 
 /// [rs-effect-fusion] Does any handler in the program declare an effect
-/// dependency (a constructor parameter of effect type,
-/// [effect-handler-deps])? If so the whole program switches to the fusion
-/// emission; otherwise effects thread as one `&mut dyn` parameter each
-/// [rs-effects] and nothing below this line runs.
+/// dependency ([effect-handler-deps])? If so the whole program switches to
+/// the fusion emission; otherwise effects thread as one `&mut dyn` parameter
+/// each [rs-effects] and nothing below this line runs.
+///
+/// Purely syntactic since 2026-09-14: a dependency is an entry in the
+/// handler's own effect list (`handler Stamped [Logger, Clock] of Logger`),
+/// so nothing has to be resolved to answer the question.
 fn program_needs_fusion(symbols: &Symbols<'_>) -> bool {
     symbols
         .handlers
         .values()
-        .any(|h| !handler_dep_params(h, symbols).is_empty())
-}
-
-/// The constructor parameters of `h` that are effect dependencies, in
-/// declaration order [effect-handler-deps]. Matches the checker's rule
-/// exactly — a *bare* effect name; a qualified or optional one is data, and
-/// the checker has already rejected it ([effect-not-data]) — so the fusion
-/// never has to render a dependency it cannot name.
-fn handler_dep_params<'a>(h: &'a HandlerDecl, symbols: &Symbols<'_>) -> Vec<&'a Param> {
-    h.params
-        .iter()
-        .filter(|p| match &p.ty {
-            Type::Named { qualifiers, base } => {
-                qualifiers.is_empty() && symbols.effects.contains_key(base.name.name.as_str())
-            }
-            _ => false,
-        })
-        .collect()
+        .any(|h| h.effects.iter().flatten().count() > 0)
 }
 
 /// Rust reserved words that need escaping as identifiers.
@@ -819,6 +805,14 @@ fn handler_dep_params<'a>(h: &'a HandlerDecl, symbols: &Symbols<'_>) -> Vec<&'a 
 /// emitted under. Rust requires `fn main` in the crate root, so the host's
 /// entry takes that name and calls this.
 pub const SALVO_ENTRY: &str = "salvo_main";
+
+/// [rs-effect-fusion] The stand-in a fusion struct is built under, so two
+/// identical fusions can be recognized as one by comparing their text
+/// (user decision 2026-09-14 — several `use` sites routinely produce the
+/// same struct). Not a valid Rust identifier fragment on purpose: a
+/// placeholder that survived substitution would be a loud compile error
+/// rather than a silently odd name.
+const FUSION_PLACEHOLDER: &str = "__Fx__PLACEHOLDER__";
 
 const RUST_KEYWORDS: &[&str] = &[
     "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
@@ -1019,6 +1013,10 @@ struct Emitter<'p> {
     conj_traits: BTreeMap<String, String>,
     /// Fusion-struct counter for this file.
     fusion_id: usize,
+    /// [rs-effect-fusion] Fusion structs emitted in this file, keyed by
+    /// their text under the placeholder name → the name they got, so one
+    /// shape is one struct however many `use` sites need it.
+    fusion_structs: HashMap<String, String>,
     /// Hoisted-temporary counter for the current fn [rs-effect-fusion].
     hoist_id: usize,
     /// The fn currently being emitted, for readable generated names.
@@ -1208,6 +1206,7 @@ impl<'p> Emitter<'p> {
             generated_items: Vec::new(),
             conj_traits: BTreeMap::new(),
             fusion_id: 0,
+            fusion_structs: HashMap::new(),
             hoist_id: 0,
             current_fn: String::new(),
             type_subst: HashMap::new(),
@@ -1874,14 +1873,11 @@ impl<'p> Emitter<'p> {
         if h.intrinsic {
             return self.emit_intrinsic_handler(h);
         }
-        // [effect-handler-deps] A dependency is a constructor parameter of
-        // effect type. The compiler supplies it, so it is neither a field
-        // nor a `new` parameter: the member bodies receive it as a fused
-        // value from the `use` site's fusion [rs-effect-fusion].
-        let deps: Vec<Param> = handler_dep_params(h, self.symbols)
-            .into_iter()
-            .cloned()
-            .collect();
+        // [effect-handler-deps] Dependencies are the handler's own effect
+        // list. The compiler supplies them, so they are neither fields nor
+        // `new` parameters: the member bodies receive them as a fused value
+        // from the `use` site's fusion [rs-effect-fusion].
+        let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(h);
         if !deps.is_empty() && !self.fusion {
             // The gate is *exactly* "some handler declares a dependency",
             // so this is an internal inconsistency, not a language cut.
@@ -1897,12 +1893,9 @@ impl<'p> Emitter<'p> {
         let generic_args = self.emit_generic_args_plain(&h.generics);
         let of = self.emit_type(&h.of);
         let name = rs_ident(&h.name.name);
-        let own: Vec<Param> = h
-            .params
-            .iter()
-            .filter(|p| !deps.iter().any(|d| d.name.name == p.name.name))
-            .cloned()
-            .collect();
+        // Every constructor parameter is data now: dependencies moved to the
+        // handler's effect list [effect-handler-deps].
+        let own: Vec<Param> = h.params.to_vec();
 
         // Struct: own ctor params + state fields.
         let mut out = format!("\npub struct {name}{generics} {{\n");
@@ -2027,20 +2020,19 @@ impl<'p> Emitter<'p> {
     /// decision 2026-09-14: consistency over a special case). The
     /// `__Deps_H` adapter is what makes such a value out of the fusion's
     /// single provider field.
-    fn emit_dependent_members(&mut self, h: &HandlerDecl, deps: &[Param]) -> String {
+    fn emit_dependent_members(
+        &mut self,
+        h: &HandlerDecl,
+        deps: &[(String, Vec<String>)],
+    ) -> String {
         let name = rs_ident(&h.name.name);
         let generics = self.emit_generic_params(&h.generics);
         let generic_args = self.emit_generic_args_plain(&h.generics);
-        let mut dep_effects: Vec<(String, Vec<String>)> = Vec::new();
-        for p in deps {
-            if let Some(parts) = self.named_type_parts(&p.ty) {
-                dep_effects.push(parts);
-            }
-        }
+        let dep_effects: Vec<(String, Vec<String>)> = deps.to_vec();
         let trait_name = format!("__Impl_{name}");
         let mut sigs = String::new();
         for f in &h.fns {
-            sigs.push_str(&self.emit_fn_inner(f, FnStyle::DepMemberSig(h, deps), 1));
+            sigs.push_str(&self.emit_fn_inner(f, FnStyle::DepMemberSig(h), 1));
         }
         // The generated trait is *not* generic: the fusion owns the handler
         // behind an opaque `__H` and never derives its type arguments, so it
@@ -2065,7 +2057,7 @@ impl<'p> Emitter<'p> {
             "\nimpl{generics} {trait_name} for {name}{generic_args} {{\n"
         ));
         for f in &h.fns {
-            out.push_str(&self.emit_fn_inner(f, FnStyle::DepMember(h, deps), 1));
+            out.push_str(&self.emit_fn_inner(f, FnStyle::DepMember(h), 1));
         }
         out.push_str("}\n");
         out
@@ -2144,7 +2136,14 @@ impl<'p> Emitter<'p> {
                 .params
                 .iter()
                 .filter(|p| !p.implicit)
-                .map(|p| rs_ident(&p.name.name))
+                .map(|p| {
+                    let name = rs_ident(&p.name.name);
+                    if self.forward_arg_needs_deref(p) {
+                        format!("*{name}")
+                    } else {
+                        name
+                    }
+                })
                 .collect();
             for imp in &self.implicits_of(f) {
                 arg_names.push(format!("&mut *{}", rs_ident(&imp.name)));
@@ -2174,6 +2173,57 @@ impl<'p> Emitter<'p> {
         self.type_subst = saved_subst;
         self.generics = saved_generics;
         out
+    }
+
+    /// [rs-effect-fusion] A forwarded member argument that the *trait*
+    /// passes as `&T` but the handler's generated `__Impl_H` member takes
+    /// **by value**: the effect declares the parameter as one of its own
+    /// generics — borrowed at the declaration, since nothing is known about
+    /// a `T` [rs-borrows] — while the instance binds that generic to a Copy
+    /// scalar, which the handler's *concrete* member declaration therefore
+    /// takes owned. The forward has to deref.
+    ///
+    /// Found 2026-09-14 while building interception, and pre-dating it: any
+    /// dependent handler of a generic effect instance whose member parameter
+    /// lands on a scalar (`handler Reporting(n: Note) of Store<Int>`) emitted
+    /// a raw rustc E0308 — loud, never wrong, but a cut with no reason to
+    /// exist.
+    fn forward_arg_needs_deref(&mut self, p: &Param) -> bool {
+        if p.variadic {
+            return false; // a variadic is owned on both sides
+        }
+        let Type::Named { qualifiers, base } = &p.ty else {
+            return false;
+        };
+        if !qualifiers.is_empty() || !base.args.is_empty() {
+            return false;
+        }
+        self.type_subst
+            .get(base.name.name.as_str())
+            .is_some_and(|rendered| is_copy_rendered(rendered))
+    }
+
+    /// [effect-handler-deps] The effects `h` declares as dependencies, as
+    /// (base name, rendered type arguments) in declaration order — the
+    /// handler's own effect list since 2026-09-14 (user decision), which is
+    /// why this needs no filtering: every entry is a dependency, and the
+    /// checker has already refused `use` and `Throw` there.
+    fn handler_dep_effects(&mut self, h: &HandlerDecl) -> Vec<(String, Vec<String>)> {
+        let refs: Vec<TypeRef> = h
+            .effects
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EffectRef::Effect(r) => Some(r.clone()),
+                EffectRef::Use(_) => None,
+            })
+            .collect();
+        refs.iter()
+            .map(|r| {
+                let args: Vec<String> = r.args.iter().map(|a| self.emit_type(a)).collect();
+                (r.name.name.clone(), args)
+            })
+            .collect()
     }
 
     /// The base name and rendered type arguments of a named type
@@ -2468,19 +2518,17 @@ impl<'p> Emitter<'p> {
         let saved_fn = std::mem::replace(&mut self.current_fn, f.name.name.clone());
         let saved_hoist = std::mem::replace(&mut self.hoist_id, 0);
 
-        // Handler members see ctor params and state as `self.` fields —
-        // except a dependency, which is not a field at all under the fusion
-        // [rs-effect-fusion]: it arrives as the fused parameter.
+        // Handler members see ctor params and state as `self.` fields. A
+        // dependency is not a field at all under the fusion
+        // [rs-effect-fusion]: it arrives as the fused parameter, and it has
+        // no name in the source either [effect-handler-deps].
         let handler_of_style = match style {
-            FnStyle::HandlerMember(h) => Some((h, &[] as &[Param])),
-            FnStyle::DepMember(h, deps) | FnStyle::DepMemberSig(h, deps) => Some((h, deps)),
+            FnStyle::HandlerMember(h) => Some(h),
+            FnStyle::DepMember(h) | FnStyle::DepMemberSig(h) => Some(h),
             _ => None,
         };
-        if let Some((h, deps)) = handler_of_style {
+        if let Some(h) = handler_of_style {
             for p in &h.params {
-                if deps.iter().any(|d| d.name.name == p.name.name) {
-                    continue;
-                }
                 self.bindings
                     .insert(p.name.name.clone(), BindKind::SelfField);
             }
@@ -2513,13 +2561,14 @@ impl<'p> Emitter<'p> {
         // (checker-`Ty` keys; the AST rendering is the unchecked fallback).
         // Under the fusion they collapse into *one* value [rs-effect-fusion].
         let mut body_prelude = String::new();
-        if let Some((_, deps)) = handler_of_style.filter(|(_, d)| !d.is_empty()) {
-            let mut dep_effects: Vec<(String, Vec<String>)> = Vec::new();
-            for p in deps {
-                if let Some(parts) = self.named_type_parts(&p.ty) {
-                    dep_effects.push(parts);
-                }
+        let style_deps: Vec<(String, Vec<String>)> = match handler_of_style {
+            Some(h) if matches!(style, FnStyle::DepMember(_) | FnStyle::DepMemberSig(_)) => {
+                self.handler_dep_effects(h)
             }
+            _ => Vec::new(),
+        };
+        if !style_deps.is_empty() {
+            let dep_effects = style_deps;
             // Uniformly a Has-bounded generic, single dependency included
             // (user decision 2026-09-14: consistency over a special case):
             // the `__Deps_H` adapter is what the forwarding impl passes.
@@ -2753,7 +2802,7 @@ impl<'p> Emitter<'p> {
         // constructor parameters — after the signature, since they are
         // *fields* (`Box<dyn FnMut>`), called through `self`, not trailing
         // parameters of the member.
-        if let Some((h, _)) = handler_of_style {
+        if let Some(h) = handler_of_style {
             for p in h.params.iter().filter(|p| p.implicit) {
                 if let Some(ty) = self
                     .checked
@@ -3899,7 +3948,17 @@ enum Forward {
     /// A dependent handler: destructure `&mut self` into disjoint field
     /// borrows, then call through the handler's `__Impl_H` trait with a
     /// `__Deps_H` adapter over the provider.
-    Dependent { trait_name: String, deps: usize },
+    Dependent { trait_name: String, deps: usize },}
+
+/// Is a *rendered* Rust type one of the Copy scalars a member parameter
+/// passes by value [rs-borrows]? The rendered form is what a substituted
+/// effect generic leaves behind, where the AST-level check
+/// (`is_copy_ast_type`) sees only the type parameter's name.
+fn is_copy_rendered(rendered: &str) -> bool {
+    matches!(
+        rendered,
+        "i32" | "i64" | "f32" | "f64" | "bool" | "char" | "u8"
+    )
 }
 
 /// An effect as a *type* (impl target, trait bound): `Random<i32>`.
@@ -3995,9 +4054,11 @@ enum FnStyle<'p> {
     HandlerMember(&'p HandlerDecl),
     /// [rs-effect-fusion] A *dependent* handler's member, emitted into
     /// `impl __Impl_H for H` with the dependencies as one fused parameter.
-    DepMember(&'p HandlerDecl, &'p [Param]),
+    /// The dependencies are the handler's own effect list, so the handler is
+    /// all this needs to carry [effect-handler-deps].
+    DepMember(&'p HandlerDecl),
     /// The same, signature only, for the generated `trait __Impl_H`.
-    DepMemberSig(&'p HandlerDecl, &'p [Param]),
+    DepMemberSig(&'p HandlerDecl),
 }
 
 impl<'p> Emitter<'p> {
@@ -4829,12 +4890,21 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
-        let covered: Vec<EffectEntry> = self.effect_env.clone();
+        // [use-no-dup] [effect-intercept] The effects this fusion inherits,
+        // innermost first and **deduplicated by instance**: a `use` may
+        // shadow an earlier registration of the same effect, and two
+        // `__Has_E` impls on one fusion struct is E0119. The entries are
+        // re-listed outermost-first afterwards so field order and the
+        // provider trait stay stable against the non-shadowing case.
+        let mut covered: Vec<EffectEntry> = Vec::new();
+        for entry in self.effect_env.iter().rev() {
+            if !covered.iter().any(|e| self.same_instance(e, entry)) {
+                covered.push(entry.clone());
+            }
+        }
+        covered.reverse();
         let provider = self.fused_recv();
-        let deps: Vec<Param> = handler_dep_params(decl, self.symbols)
-            .into_iter()
-            .cloned()
-            .collect();
+        let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(decl);
         if !deps.is_empty() && covered.is_empty() {
             self.error(format!(
                 "internal: handler `{handler_name}` has dependencies but no \
@@ -4898,12 +4968,12 @@ impl<'p> Emitter<'p> {
                 Some(self.prov_trait(&keys))
             }
         };
-        self.fusion_id += 1;
-        let struct_name = format!(
-            "__Fx_{}_{}",
-            sanitize_ident(&self.current_fn),
-            self.fusion_id
-        );
+        // [rs-effect-fusion] The struct is built under a *placeholder* name
+        // so identical fusions can be deduplicated by their text (user
+        // decision 2026-09-14): several `use` sites — in one fn or across
+        // fns — routinely register the same handler over the same inherited
+        // set, and each was emitting its own struct and impls.
+        let struct_name = FUSION_PLACEHOLDER.to_string();
         let (impl_generics, self_ty) = match &outer_ty {
             Some(_) => ("<'a, __H>".to_string(), format!("{struct_name}<'a, __H>")),
             None => ("<__H>".to_string(), format!("{struct_name}<__H>")),
@@ -4919,14 +4989,25 @@ impl<'p> Emitter<'p> {
         // provider. UFCS with the trait's turbofish — supertrait
         // elaboration makes `dyn __Prov_…: __Has_E<…>` hold, and the
         // turbofish disambiguates two instances of a generic effect.
-        for entry in &covered {
-            let (base, args) = self.entry_effect_parts(entry);
+        // [effect-intercept] The instance this `use` *shadows* is skipped:
+        // its accessor is the new handler's (below), while `__outer` still
+        // carries the shadowed one so the handler's own dependency reaches
+        // it — which is the whole of "binds strictly outward" in emission.
+        let mut inherited: Vec<(String, Vec<String>)> = covered
+            .iter()
+            .map(|e| self.entry_effect_parts(e))
+            .filter(|(base, args)| !(*base == new_effect.0 && *args == new_effect.1))
+            .collect();
+        // Canonical order, so two orderings of one inherited set are one
+        // struct after deduplication.
+        inherited.sort();
+        for (base, args) in &inherited {
             let body = format!(
                 "{}::{}(&mut *self.__outer)",
-                has_trait_path(&base, &args),
-                has_getter_name(&base)
+                has_trait_path(base, args),
+                has_getter_name(base)
             );
-            item.push_str(&emit_has_impl(&impl_generics, &self_ty, &base, &args, &body));
+            item.push_str(&emit_has_impl(&impl_generics, &self_ty, base, args, &body));
         }
         // The new effect's accessor reaches the owned handler: directly for
         // an independent one; for a dependent one the *fusion itself* is
@@ -4970,7 +5051,24 @@ impl<'p> Emitter<'p> {
                 "self",
             ));
         }
-        self.generated_items.push(item);
+        // Deduplicate: an identical fusion (same inherited accessors, same
+        // new effect, same handler kind) is one struct, named after the fn
+        // that needed it first.
+        let struct_name = match self.fusion_structs.get(&item) {
+            Some(existing) => existing.clone(),
+            None => {
+                self.fusion_id += 1;
+                let name = format!(
+                    "__Fx_{}_{}",
+                    sanitize_ident(&self.current_fn),
+                    self.fusion_id
+                );
+                self.fusion_structs.insert(item.clone(), name.clone());
+                self.generated_items
+                    .push(item.replace(FUSION_PLACEHOLDER, &name));
+                name
+            }
+        };
 
         // The fusion local. Constructor arguments that reach the provider
         // must be evaluated before the struct literal borrows it.
@@ -9558,6 +9656,17 @@ impl<'p> Emitter<'p> {
                 ));
                 "todo!()".to_string()
             }
+        }
+    }
+
+    /// [use-no-dup] Do two environment entries name the same effect
+    /// *instance*? The checker's type is the primary key, as everywhere
+    /// else; entries that exist only as AST renderings compare by their
+    /// rendered key. Used to hide a registration another one shadows.
+    fn same_instance(&self, a: &EffectEntry, b: &EffectEntry) -> bool {
+        match (&a.ty, &b.ty) {
+            (Some(x), Some(y)) => x == y,
+            _ => a.key == b.key,
         }
     }
 

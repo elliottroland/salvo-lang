@@ -1,6 +1,9 @@
 # The filesystem — the phase-4 option space (working document)
 
 Status: **DECIDED** (2026-09-14, six rounds of user decisions — see §5;
+handler-dependency syntax updated in place the same day, when the surface
+became an effect list on the declaration — `handler DefaultFs [RawFs] of Fs`
+— rather than constructor parameters of effect type;
 §5.9 has the full decided list, the agreed implementation sequence, and
 the propagation owed to ROADMAP.md/COMPLETED.md/the specs once the
 session's read-only restriction lifts). §§1–4 are kept as written for the
@@ -262,7 +265,7 @@ default handler. Two existing rules forbid the direct reading:
 
 - **[effect-handler-deps]: a handler may not depend on the effect it
   implements** — registering it would require itself. So
-  `handler RestrictedFs(root: Str, fs: Fs) of Fs` is illegal as written.
+  `handler RestrictedFs(root: Str) [Fs] of Fs` is illegal as written.
 - **[use-no-dup]: registering a second handler for an effect instance already
   in scope is an error** — there is no innermost-wins shadowing for effects
   (unlike `try`). So even `use DefaultFs()` then `use RestrictedFs(root)` in a
@@ -278,8 +281,8 @@ effect RawFs { … }                             // one member per host op, no p
 intrinsic handler HostFs of RawFs              // FS-1's utility class
 
 effect Fs { … }                                // the public surface
-handler DefaultFs(raw: RawFs) of Fs { … }      // thin pass-through, written in Salvo
-handler RestrictedFs(root: Str, raw: RawFs) of Fs { … }   // path-checks, then delegates
+handler DefaultFs [RawFs] of Fs { … }          // thin pass-through, written in Salvo
+handler RestrictedFs(root: Str) [RawFs] of Fs { … }   // path-checks, then delegates
 ```
 
 Both public handlers *depend on* `RawFs` — a different effect than the one
@@ -638,7 +641,7 @@ the boundary should be stated when the shared-member-name decision is made).
 
 ### FS-8 — Restricted handler semantics
 
-`RestrictedFs(root: Str, raw: RawFs)`, pure Salvo. The decisions hiding in
+`RestrictedFs(root: Str) [RawFs] of Fs`, pure Salvo. The decisions hiding in
 "scoped to a root directory":
 
 **(a) What the root check means.** Lexical resolution (normalize
@@ -827,13 +830,21 @@ deferred):
 4. **Sub-decision (resolved 2026-09-14, second round): the `RawFs` layer
    is dead.** With FS-3 flipped to O-P1 (§5.7), there is **one effect,
    `Fs`, all the way down**: `DefaultFs` is FS-1's `platform handler` at
-   the bottom; `RestrictedFs(root, fs: Fs) of Fs` and `MemFs of Fs` are
+   the bottom; `RestrictedFs(root: Str) [Fs] of Fs` and `MemFs of Fs` are
    written in Salvo. The audit story is the handler stack at the
    composition root, not a grep — accepted with the flip.
 5. **Scheduling (resolved with 4)**: interception is **load-bearing for
    phase 4** — `RestrictedFs of Fs` depending on `Fs` requires the
    binds-outward rule and shadowing, so O-R2 ships in (or before) the
-   filesystem phase.
+   filesystem phase. ***Built 2026-09-14***, *ahead of the filesystem: the
+   binds-outward clause as stated above, shadowing with the
+   duplicate-instance clause retained as future-proofing, innermost-wins
+   lookups through the checker and both emitters, and one shared
+   compile-and-run demo (stacked interceptors, a stateful interceptor,
+   block-scoped expiry, one instance of a generic effect intercepted) to
+   identical stdout on both backends. The as-built record is COMPLETED.md's
+   decision log ("Effect interception"); the rules are LANGUAGE_SPEC.md
+   [effect-intercept] and the restated [use-no-dup].*
 
 ### 5.2 FS-3 under the MemFs requirement
 
@@ -1175,7 +1186,7 @@ fn close(s: InStream) [RawFs] {          // the discharger [linear-group]
 }
 
 // std: the public handler — path policy only, delegates down
-handler DefaultFs(raw: RawFs) of Fs {    // dependency [effect-handler-deps]
+handler DefaultFs [RawFs] of Fs {        // dependency [effect-handler-deps]
     fn open_read(path: Str) -> Ok InStream | Err FsError {
         let r = raw_open_read(path)
         when r {
@@ -1241,7 +1252,7 @@ fn test_first_line() [use] {
 
 `first_line`, `DefaultFs`, the `InStream` linearity, `read_line`, `close`
 — all identical in both runs; `raw_read_line(s.handle)` dispatches to
-whichever `RawFs` was registered. `RestrictedFs(root, raw: RawFs)` slots
+whichever `RawFs` was registered. `RestrictedFs(root) [RawFs]` slots
 into either stack the same way, so the restriction logic is also
 unit-testable over memory — all without interception.
 
@@ -1310,7 +1321,7 @@ double declaration. The architecture as now decided:
   stream operations. No raw layer.
 - **`DefaultFs` is the bottom**: FS-1's `platform handler`, host-backed,
   one per backend.
-- **`RestrictedFs(root: Str, fs: Fs) of Fs` and `MemFs of Fs` are written
+- **`RestrictedFs(root: Str) [Fs] of Fs` and `MemFs of Fs` are written
   in Salvo.** `RestrictedFs` is the interception customer: it depends on
   the effect it implements, under §5.1's binds-outward rule and shadowing
   — **O-R2 is load-bearing for phase 4**.
@@ -1413,10 +1424,10 @@ platform handler HostRawFs of RawFs   // FS-1's O-M2 target moves HERE:
 
 effect Fs { … }                       // path members + stream members,
                                       //   linear InStream/OutStream tokens
-handler DefaultFs(raw: RawFs) of Fs { … }        // Salvo: mints/discharges tokens,
+handler DefaultFs [RawFs] of Fs { … }            // Salvo: mints/discharges tokens,
                                                  //   delegates to raw underneath
 handler MemFs of Fs { … }                        // Salvo: pure, Mut Map state, no dep
-handler RestrictedFs(root: Str, fs: Fs) of Fs { … }  // Salvo: interception (§5.1)
+handler RestrictedFs(root: Str) [Fs] of Fs { … }     // Salvo: interception (§5.1)
 ```
 
 Why this does **not** resurrect the double-declaration problem that
@@ -1449,13 +1460,13 @@ What it settles and what it needs:
   (the `shutdown(t) { stop(t) }` shape).
 - **Sub-question: what does `RestrictedFs` depend on?** The
   user's phrasing was "Fs handlers … depending on the RawFs", but
-  `RestrictedFs(root, fs: Fs)` (interception) is recommended over
-  `RestrictedFs(root, raw: RawFs)`: on `Fs` it composes over *any* inner
+  `RestrictedFs(root) [Fs]` (interception) is recommended over
+  `RestrictedFs(root) [RawFs]`: on `Fs` it composes over *any* inner
   handler (`MemFs` in tests of the restriction logic — the §FS-2 O-R2
   motivation), and it inherits token minting from the inner handler
   instead of duplicating `DefaultFs`'s bookkeeping. On `RawFs` it is a
-  second `DefaultFs` with path checks. Recommend: `fs: Fs`.
-  *Decided 2026-09-14 (fourth round): `fs: Fs`, as recommended.*
+  second `DefaultFs` with path checks. Recommend: `[Fs]`.
+  *Decided 2026-09-14 (fourth round): `[Fs]`, as recommended.*
 - **Token plumbing under interception, verified by inspection**: an open
   through `RestrictedFs` forwards to the inner `Fs`, which mints the
   token in *its* namespace; subsequent reads dispatch to the innermost
@@ -1561,7 +1572,7 @@ through a single `dyn` provider.*
 interception: binds-outward, shadowing, duplicate-instance error
 retained; load-bearing), FS-3 (O-P1 bare members; `@Effect`
 disambiguation with generics-when-ambiguous), the §5.8 layering
-(linearity above the platform), `RestrictedFs(root, fs: Fs)`, the
+(linearity above the platform), `RestrictedFs(root) [Fs]`, the
 Has-trait fusion (§5.8.1 — **adopted, sequenced before the filesystem
 work**), FS-4 (a) `InStream`/`OutStream`, (b) buffered, (d) strict
 UTF-8, (e) terminator rules, FS-5(a) `FsError` union payload, (b)
@@ -1587,7 +1598,10 @@ Rust shapes rustc-verified first) — ✅ built 2026-09-14, (2) the
 `platform handler` mechanism (FS-1/O-M2, possibly its own decoupled
 session), (3) the filesystem itself** — with operator typing (§5.10.3)
 landing before or inside phase 4 as its prerequisite, and the
-two-deliverable byte sequencing (§5.10.2 E) inside it.
+two-deliverable byte sequencing (§5.10.2 E) inside it. **Also built
+2026-09-14, ahead of (2)**: the operator-typing slice, the `@Effect`
+member-disambiguation grammar, and **O-R2 interception** (§5.1) — see
+ROADMAP.md's S-IO list and COMPLETED.md's decision log.
 
 **Propagation done 2026-09-14** (with the fusion milestone, once the
 read-only restriction lifted): COMPLETED.md carries the decision-log

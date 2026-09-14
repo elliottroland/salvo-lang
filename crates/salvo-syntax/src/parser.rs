@@ -1007,6 +1007,15 @@ impl<'s> Parser<'s> {
             // reports one written here [implicit-fn-only].
             params = self.parse_params()?.0;
         }
+        // [effect-handler-deps] The effects the handler depends on, written
+        // exactly as a fn's: `handler Stamped [Logger, Clock] of Logger`.
+        // They have no names because nothing can refer to them — a member
+        // body calls their members like any other code.
+        let effects = if self.at(&TokenKind::LBracket) {
+            Some(self.parse_effect_list()?)
+        } else {
+            None
+        };
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
         let mut state = Vec::new();
@@ -1030,6 +1039,7 @@ impl<'s> Parser<'s> {
             name,
             generics,
             params,
+            effects,
             of,
             state,
             fns,

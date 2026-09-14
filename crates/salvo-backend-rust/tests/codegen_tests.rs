@@ -1788,7 +1788,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
@@ -1914,6 +1914,215 @@ fn rustc_compiles_and_runs_handler_dependencies() {
     run_rust_files(&files, "handler-deps", "LOG: from work\nLOG: from main\n");
 }
 
+// ===== interception [effect-intercept] =====
+// A handler that depends on the effect it implements wraps the instance
+// registered before it (binds strictly outward), and a `use` may shadow an
+// earlier registration — innermost wins [use-no-dup]. Both are new in
+// 2026-09-14; the emission constraint is that a fusion must carry exactly
+// **one** `__Has_E` impl per effect (two is E0119), so the shadowed
+// instance loses its inherited accessor while staying reachable through
+// `__outer` for the intercepting handler's own dependency.
+
+const INTERCEPTION_DEMO: &str = r#"
+effect Greeter {
+    fn greet(name: Str) -> Str => name
+}
+
+effect Store<T> {
+    fn keep(value: T) -> Str => value
+}
+
+handler Plain of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "hello ${name}"
+    }
+}
+
+handler Formal of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "Good day, ${name}"
+    }
+}
+
+handler Loud [Greeter] of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "${greet(name)}!"
+    }
+}
+
+handler Counting [Greeter] of Greeter {
+    count: Int = 0
+    fn greet(name: Str) -> Str => name {
+        count = count + 1
+        return "${greet(name)} (${count})"
+    }
+}
+
+handler MemStore<T> of Store<T> {
+    fn keep(value: T) -> Str => value {
+        return "kept"
+    }
+}
+
+handler Twice [Store<Int>] of Store<Int> {
+    fn keep(value: Int) -> Str => value {
+        return "${keep(value)} ${keep(value)}"
+    }
+}
+
+fn shout(name: Str) [Greeter, Console] -> None => name {
+    println(greet(name))
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use Plain
+    shout("a")
+    use Formal
+    shout("b")
+    use Counting
+    shout("c")
+    if true {
+        use Loud
+        shout("d")
+    }
+    shout("e")
+    use MemStore<Int>()
+    use MemStore<Str>()
+    println(keep(1))
+    println(keep("x"))
+    use Twice
+    println(keep(2))
+    println(keep("y"))
+}
+"#;
+
+/// [effect-intercept] [use-no-dup] [rs-effect-fusion] The shapes
+/// interception needs from the fusion.
+#[test]
+fn interception_shapes() {
+    let files = generate(&[("main.sv", INTERCEPTION_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    // One `__Has_E` impl per effect per fusion struct. Two is E0119, and it
+    // is exactly what a shadowing `use` produced before the accessor for the
+    // shadowed instance was suppressed.
+    let mut checked = 0;
+    for n in 1..=12 {
+        for effect in ["Greeter", "Store<i32>", "Store<String>"] {
+            let needle = format!("__Has_{effect} for __Fx_main_{n}<");
+            let count = c.matches(needle.as_str()).count();
+            checked += count;
+            assert!(
+                count <= 1,
+                "fusion `__Fx_main_{n}` has {count} `{needle}` impls — a \
+                 shadowed instance must lose its inherited accessor:\n{c}"
+            );
+        }
+    }
+    assert!(
+        checked >= 8,
+        "the impl scan found only {checked} accessors, so it is not testing \
+         what it claims:\n{c}"
+    );
+    // The intercepting handler still reaches the shadowed instance, through
+    // the provider it was handed: that is "binds strictly outward".
+    assert!(
+        c.contains("let mut __deps = __Deps_Loud{ __p: &mut **__outer };")
+            && c.contains("__Impl_Loud::greet(__h, &mut __deps, name)"),
+        "an intercepting member must be handed the outer instance through \
+         `__outer`:\n{c}"
+    );
+    assert!(
+        c.contains("impl<'a, __P: __Has_Greeter + ?Sized> __Has_Greeter for __Deps_Loud"),
+        "the adapter's accessor forwards to the provider, not to the fusion \
+         that owns the intercepting handler:\n{c}"
+    );
+    // A shadowed instance stays in the provider conjunction, or the
+    // dependency above would have nothing to bind to.
+    assert!(
+        c.contains("__Has_Greeter") && c.contains("__outer: &'a mut dyn __Prov_"),
+        "expected the shadowed effect to remain reachable through a provider \
+         trait:\n{c}"
+    );
+    // [effect-intercept] Only one instance of a generic effect is
+    // intercepted; the sibling keeps the handler it had.
+    assert!(
+        c.contains("__Deps_Twice") && c.contains("__Has_Store<i32>"),
+        "expected the interception of one instance of a generic effect:\n{c}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_interception() {
+    if Command::new("rustc").arg("--version").output().is_err() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", INTERCEPTION_DEMO)]);
+    // The same stdout the Kotlin backend produces for this program.
+    run_rust_files(
+        &files,
+        "interception",
+        "hello a\nGood day, b\nGood day, c (1)\nGood day, d (2)!\n\
+         Good day, e (3)\nkept\nkept\nkept kept\nkept\n",
+    );
+}
+
+/// [rs-effect-fusion] Identical fusions are **one** struct (user decision
+/// 2026-09-14): two fns registering the same handler over the same inherited
+/// set were emitting a struct and a full set of impls each.
+#[test]
+fn identical_fusions_are_one_struct() {
+    let src = r#"
+effect Logger {
+    fn log(m: Str) -> None => m
+}
+
+handler PlainLogger [Console] of Logger {
+    fn log(m: Str) -> None => m {
+        println("log: ${m}")
+    }
+}
+
+fn first() [Console, use] -> None {
+    use PlainLogger()
+    log("first")
+}
+
+fn second() [Console, use] -> None {
+    use PlainLogger()
+    log("second")
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    first()
+    second()
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    assert_eq!(
+        c.matches("pub struct __Fx_").count(),
+        2,
+        "expected one fusion struct per *shape* — one for each `use` site \
+         shape, not one per site:\n{c}"
+    );
+    assert_eq!(
+        c.matches("__Fx_first_1 { __outer:").count(),
+        2,
+        "both fns should construct the shared struct:\n{c}"
+    );
+}
+
 // ===== the fusion in anger [rs-effect-fusion] =====
 // Handler state behind a dependency, a *two*-dependency handler whose
 // second dependency is another handler's effect, a fn needing two effects
@@ -1955,7 +2164,7 @@ handler MemCounter of Counter {
     fn total() -> Int { return n }
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     seen: Int = 0
     fn log(message: Str) -> None => message {
         seen = seen + 1
@@ -1963,7 +2172,7 @@ handler ConsoleLogger(console: Console) of Logger {
     }
 }
 
-handler CountingAudit(console: Console, counter: Counter) of Audit {
+handler CountingAudit [Console, Counter] of Audit {
     fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
@@ -2075,7 +2284,7 @@ effect Sink<T> {
     fn accept(value: T) -> None => value
 }
 
-handler Relay<T>(console: Console) of Sink<T> {
+handler Relay<T> [Console] of Sink<T> {
     fn accept(value: T) -> None => value {
         println("relayed")
     }
@@ -2127,13 +2336,13 @@ handler MemTally of Tally {
     fn tally() -> Int { return sum }
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-handler LoggingAudit(logger: Logger) of Audit {
+handler LoggingAudit [Logger] of Audit {
     count: Int = 0
     fn note(message: Str) -> None => message {
         count = count + 1
@@ -2194,7 +2403,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     tag: Str = "M"
     fn log(message: Str) -> None => message {
         println("${tag}: ${message}")
@@ -2254,7 +2463,7 @@ effect Counter {
     fn total() -> Int
 }
 
-handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
+handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("${prefix}[${level}] ${message}")
         tallied(message)
@@ -2338,7 +2547,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
@@ -3187,7 +3396,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }

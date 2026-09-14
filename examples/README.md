@@ -7,6 +7,7 @@ compiler generated for it and the output it prints.
 | example | what it shows |
 |---|---|
 | [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written pass, an `iter fn`, a combinator of your own, and the sequence functions |
+| [`effects/`](effects/) | several effects at once: handler state, a handler that depends on another effect, interception (a handler wrapping the effect it implements), shadowing, one member name on two effects, and two instances of one generic effect |
 | [`throw-and-release/`](throw-and-release/) | `throw`/`try` and the `Ok T \| Thrown M` outcome, with a linear resource released on every path — including before a call that may throw |
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
 | [`collections/`](collections/) | the four collections: the literals, insertion versus key order, what may be a key, equality versus ordering, the generated constructors, and the `NonEmpty`/`Sorted`/`Distinct` claims a list can carry |

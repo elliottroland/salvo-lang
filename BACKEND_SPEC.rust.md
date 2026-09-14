@@ -924,8 +924,45 @@ sibling field: it had to be registered before its dependent
 ([effect-handler-deps]), so it is always in the outer set. That is the
 same acyclicity guarantee the strategy rested on, now doing a second job.
 
-**Dependent handlers.** The dependency is neither a struct field nor a
-`new` parameter — the compiler supplies it per call. The member bodies
+**Interception and shadowing** [effect-intercept] [use-no-dup] (2026-09-14).
+A `use` may shadow an earlier registration of the same effect instance, and
+the shadowing handler may be the one that *depends* on that instance. Two
+emission rules follow, and nothing else changes:
+
+* **Exactly one `__Has_E` impl per effect per fusion struct.** The
+  environment is deduplicated innermost-first before the inherited
+  accessors are emitted, and the instance the new handler shadows is
+  skipped — its accessor is the new handler's. Two impls is `E0119`, which
+  is precisely what a shadowing `use` produced before.
+* **The shadowed instance stays in `__outer`.** It remains in the provider
+  trait's conjunction (or *is* the single `__Has_E` the field is typed as),
+  so `__Deps_H{ __p: &mut **__outer }` binds the intercepting handler's
+  dependency to the handler it wraps. That is "binds strictly outward" in
+  emission: the accessor the *body* reaches goes through the provider, while
+  the accessor *callers* reach returns the fusion.
+
+Both shapes were rustc-verified by hand before the emitter learned them
+(the precedent this whole strategy follows), including two-layer
+interception and the outer fusion staying usable after the inner block.
+
+**A forwarded argument may need a deref.** The generated `impl Effect for
+<fusion>` renders its signature from the *effect's* member declaration,
+where a parameter of the effect's own generic type is borrowed (`&T` →
+`&i32`) because nothing is known about a `T` [rs-borrows]; the handler's
+`__Impl_H` member renders from the *handler's* declaration, where the same
+parameter is concrete and a Copy scalar passes by value. The forward
+derefs. Found 2026-09-14 while building interception and pre-dating it —
+any dependent handler of a generic effect instance whose member parameter
+landed on a scalar emitted a raw `E0308`.
+
+**Dependent handlers.** The dependencies are the handler's own effect list
+([effect-handler-deps], 2026-09-14), and neither a struct field nor a `new`
+parameter — the compiler supplies them per call. Rust cannot do what Kotlin
+does and *store* them ([kt-effect-fusion]): a stored `&mut` would borrow the
+fusion for the handler's lifetime, which is the `E0499` the whole strategy is
+built to avoid, and the handler is constructed inside the very struct literal
+that borrows the provider. The per-call adapter is a single reference anyway,
+so there is nothing to amortize. The member bodies
 cannot live in `impl Effect for H` (the trait signature has no room for
 it), so they move into a generated trait:
 
@@ -985,6 +1022,13 @@ and each opens by rebuilding a Sized fused value:
   value gets the same combiner inside its adapter closure. The caller
   threads its fused value into the position by plain unsizing (the
   blanket impl makes any fused value a provider).
+
+**Identical fusions are one struct** (user decision 2026-09-14). A fusion
+is built under a placeholder name and deduplicated by its text — same
+inherited accessors (emitted in canonical order), same new effect, same
+handler kind — so two fns registering the same handler over the same
+inherited set share one struct and one set of impls, named after whichever
+fn needed it first.
 
 **Arguments that reach the fused value are hoisted** into a temporary:
 

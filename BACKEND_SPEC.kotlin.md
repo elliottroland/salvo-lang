@@ -464,17 +464,26 @@ where Rust had to build the fusion to get the same programs running
 * **Gated program-wide, on the same predicate as Rust**: any handler
   declaring an effect dependency switches the whole program; otherwise
   effects thread as one handler parameter each [kt-effect-params] and
-  nothing below is emitted.
-* [effect-handler-deps] A constructor parameter of effect type emits as the
-  `private val` it already was — `class ConsoleLogger(private val console: Console) : Logger`
-  — and the handler's member bodies resolve that effect to the *field*
-  rather than to a leading parameter, since an `override` signature must
-  match the interface (`override fun log(message: String)`). Under the
-  fusion the member body also opens with a combiner over the dependency
-  fields (below), so calls to fused callees inside it have a carrier.
-* The `use` site supplies the dependency from the effect environment, in the
-  handler's declaration order, interleaved with any written constructor
-  arguments. Callers of the outer effect never mention it.
+  nothing below is emitted. The predicate is *syntactic* since 2026-09-14 —
+  a non-empty effect list on a handler [effect-handler-deps] — and it must
+  stay identical to [rs-effect-fusion]'s, or the two backends stop running
+  the same programs through the same shapes (a stale gate here emitted
+  handler carriers into an un-fused program: caught the same day).
+* [effect-handler-deps] A handler's dependencies emit as **one stored fused
+  value**, built at the `use` site and held for the handler's lifetime (user
+  decision 2026-09-14):
+  `class ConsoleLogger(private val __fx: __Fx_1) : Logger`, registered as
+  `ConsoleLogger(__Fx_1(__fx.__fx_Console))`. Member bodies resolve a
+  dependency to a property of that field (`__fx.__fx_Console`) — an
+  `override` signature must match the interface, so nothing can arrive as a
+  parameter — and pass the field itself to a fused callee. It replaced a
+  field per dependency plus a combiner rebuilt **per member call**: a handler
+  holds its environment for its lifetime, so there was nothing to rebuild.
+  The field name is the emitter's (`__fx`), since the dependencies are
+  unnamed in Salvo.
+* The carrier goes **after** the written constructor arguments, so those keep
+  the positions the source wrote. Callers of the outer effect never mention
+  any of it.
 * **Has-accessor interfaces, per effect *instance***, generated once per
   program into `fx.kt` (root `salvo` package, wildcard-importing every
   emitted module):
@@ -499,6 +508,17 @@ where Rust had to build the fusion to get the same programs running
 
   Subset forwarding is generic instantiation (`shout(__fx)`); member
   dispatch reads the property (`__fx.__fx_Logger.log(…)`).
+* **One class per effect *set*, not per site** (user decision
+  2026-09-14): fused classes are emitted under a canonical ordering of
+  their effects and deduplicated by text, so a program that fuses
+  `{Console, Logger}` in six places gets one class. The property names are
+  derived from the effect instance, not from position, so only the
+  *constructor argument order* follows the canonical order. Before this,
+  the effects example emitted 15 classes where 9 were distinct.
+* A fused class **cannot be generic**: an effect instance that still
+  mentions a type parameter is reported (`an effect set fused here is still
+  generic`), which is the same cut [rs-effect-fusion] states. Until
+  2026-09-14 it leaked out as a kotlinc "unresolved reference 'T'".
 * **Nested `use` scopes rebuild flat** (user decision): one generated
   class per `use` site with an `override val` per effect in scope —
   inherited ones initialized from their current expressions (objects
@@ -519,6 +539,20 @@ where Rust had to build the fusion to get the same programs running
   restore at scope exit is a full clone**, not a depth truncation: a
   `use` *rebases* the enclosing entries onto its fused value, and that
   mutation must roll back with the scope (found the hard way, 2026-09-14).
+* **Interception and shadowing** [effect-intercept] [use-no-dup]
+  (2026-09-14) need no new machinery here — a dependency is a constructor
+  field, so an intercepting handler is constructed with the property of the
+  *previous* fused value (`Loud(__fx4.__fx_Greeter)`), which is the outward
+  binding — but they did force the **lookups**: resolution reads the
+  environment innermost-first with shadowed entries hidden, and repeats of
+  one instance are shadowing rather than the "ambiguous effect call" error
+  ([effect-disambiguation] keeps that for *different* instances of a generic
+  effect). Reading the environment as a set instead made the shadowed
+  handler answer calls the inner one owned — the same program printed the
+  outer greeting on Kotlin and the inner one on Rust, a silent divergence
+  rather than a diagnostic. The fused class itself was already right: it
+  carries one property per *instance*, so a shadowed effect is not a second
+  field.
 * **The dyn boundaries** keep per-effect values and open with a combiner
   (a fused class with no new handler): **platform `main`** keeps one
   parameter per platform effect (the host ABI [kt-platform-host]);

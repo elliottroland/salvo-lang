@@ -181,6 +181,7 @@ Module {
                         span: 140..151,
                     },
                 ],
+                effects: None,
                 of: Named {
                     qualifiers: [],
                     base: TypeRef {
@@ -357,6 +358,7 @@ Module {
                 },
                 generics: [],
                 params: [],
+                effects: None,
                 of: Named {
                     qualifiers: [],
                     base: TypeRef {

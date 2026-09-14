@@ -1842,12 +1842,12 @@ Conventions:
   extra handler args. Members must still declare their deductions and
   return type [decl-explicit].
   * Roadmap E1 lifts this for *handlers*, whose dependencies are declared
-    as constructor parameters of effect type and supplied by the per-scope
-    fusion (user decision 2026-09-04; mechanism in
+    as an effect list on the handler and supplied by the per-scope fusion
+    (user decisions 2026-09-04 and 2026-09-14; mechanism in
     [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
     effects stays an error: the dependency belongs to the implementation,
     not the interface.
-* [effect-handler] `handler H<G>(ctor params) of E<G> { state fns }`
+* [effect-handler] `handler H<G>(ctor params) [effects] of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
   * A state field's initializer is **checked against its declared type**,
@@ -1871,13 +1871,15 @@ Conventions:
     mutations visible) while Rust cloned it — the same program printed 2 and
     1.
 * [effect-not-data] An effect names a *capability*, not a type of values.
-  It may appear in a fn's effect list (`[Console]`) and in a handler's `of`
-  clause; every data position — struct field, parameter, return type,
-  `let` annotation, type alias, union or tuple component — is an error
-  (user decision 2026-09-03). The value would have to be a handler
+  It may appear in a fn's effect list (`[Console]`), in a **handler's** effect
+  list and its `of` clause; every data position — struct field, parameter,
+  return type, `let` annotation, type alias, union or tuple component — is an
+  error (user decision 2026-09-03). The value would have to be a handler
   instance, and those are reached through `use`.
-  * The one exception is a handler *dependency*
-    ([effect-handler-deps]).
+  * **No exceptions.** A handler dependency used to be one — a constructor
+    parameter of effect type — and since 2026-09-14 it is an effect list on
+    the declaration ([effect-handler-deps]), so an effect in a data position
+    is always this error.
 * [handler-not-value] A handler instance is produced by `use` and lives in
   the effect environment; a handler constructor call in any other position
   is an error naming the `use` remedy. (Rust could not render one anyway:
@@ -1894,20 +1896,34 @@ Conventions:
     a language-level rule, not a rendering detail. Both backends then have to
     construct the handler *at* that type, since neither target can infer a
     class's parameter from an empty argument list.
-* [effect-handler-deps] A handler constructor parameter of **effect type**
-  is a *dependency*: the one position where an effect names something a
-  handler holds ([effect-not-data]). It is declared on the *handler*, not
-  the effect — implementations differ in what they need (user decision
-  2026-09-04).
-  * The handler's member bodies may use that effect, exactly as if they had
-    declared it — which they may not ([effect-member-no-effects]): the
+* [effect-handler-deps] A handler declares the effects it *depends on* as an
+  **effect list on the declaration**, exactly as a fn does:
+  `handler Stamped [Logger, Clock] of Logger` (user decision 2026-09-14,
+  replacing constructor parameters of effect type — the names could not be
+  used for anything, and an effect in a data position is now always
+  [effect-not-data]). Declared on the *handler*, not the effect —
+  implementations differ in what they need (user decision 2026-09-04).
+  * The handler's member bodies may use those effects, exactly as if they had
+    declared them — which they may not ([effect-member-no-effects]): the
     dependency belongs to the implementation, so it is stated once.
+  * The entries are **unnamed**, because nothing could refer to one: a member
+    body reaches an effect by calling its members, like all Salvo code. So
+    the list says only what the handler needs in order to run.
+  * `use` and `Throw` are refused in the list (a handler registers no
+    handlers; a throw wants a delimiter, not a handler [throw]), as is the
+    same effect twice.
   * A dependency is **not written at the `use` site**: the compiler supplies
-    it from the enclosing scope, so it does not count as a constructor
-    argument, and a `use` whose dependency has no handler in scope is an
-    error naming it ("register one before it").
-  * A handler may not depend on the effect it implements — registering it
-    would require itself.
+    it from the enclosing scope, so it is not a constructor argument, and a
+    `use` whose dependency has no handler in scope is an error naming it
+    ("register one before it").
+  * A handler **may** depend on the effect it implements — that is
+    *interception* — and the dependency binds **strictly outward**
+    ([effect-intercept]).
+  * A handler member may **not** call another member of its *own* effect:
+    there is no self-dispatch, and declaring the effect as a dependency means
+    the handler registered before this one. Diagnosed as such (a member can
+    use neither remedy the general "no handler" message names), and recorded
+    as a gap in ROADMAP.md.
   * Dependency **cycles need no separate check**: a dependency must already
     be registered when its dependent is, so a cycle cannot be constructed
     in any order (verified both ways). The availability rule *is* the
@@ -1939,8 +1955,50 @@ Conventions:
     in `use_effects`.
 * [use-requires-use] `use` is only legal in functions declaring the
   special `use` effect (`main() [use]` is the conventional entry point).
-* [use-no-dup] Registering a second handler for an effect instance already
-  in scope is an error.
+* [use-no-dup] A `use` may **shadow** an earlier registration for the same
+  effect instance: the innermost wins for the rest of the scope, and the
+  shadowed handler comes back when the shadowing `use`'s block ends
+  [effect-scope]. Later-in-block over earlier-in-block is shadowing too
+  (`use DefaultFs(); use RestrictedFs(root)` in one statement list is
+  legal). What stays an error is registering the same handler *instance*
+  twice — and under [handler-not-value] an instance exists only at its
+  `use`, so that clause is future-proofing for nameable handler values
+  rather than a check today. (Until 2026-09-14 the rule was the opposite:
+  a second registration for an instance already in scope was an error,
+  which made interception unwritable — user decision, FILE_SYSTEM.md §5.1.)
+  * Consequence for every lookup: the effect environment is a **scope**, not
+    a set. The checker's `effect_env` and both emitters' environments
+    resolve innermost-first with shadowed entries hidden; reading them as
+    sets made an outer handler answer a call the inner one owned, which is
+    a silent divergence rather than a diagnostic (found exactly that way in
+    the Kotlin emitter, 2026-09-14).
+* [effect-intercept] A handler constructor parameter of the **same** effect
+  the handler implements is *interception*: `handler RestrictedFs(root: Str) [Fs] of Fs`. The dependency binds **strictly outward** — to the
+  instance in scope *before* this handler's own `use` — so an interceptor
+  wraps the handler it shadows, and interceptors stack (an interceptor may
+  wrap an interceptor). User decision 2026-09-14 (FILE_SYSTEM.md §5.1,
+  option O-R2), where `RestrictedFs of Fs` over a `MemFs`/`DefaultFs` is
+  the customer that made it load-bearing.
+  * **Acyclicity survives unchanged.** Every dependency edge still points
+    at a registration that precedes this one, and "precedes" is
+    well-founded, so no cycle can be constructed in any order — the
+    argument [effect-handler-deps] already rests on, with the outward
+    binding as its self-dependency clause.
+  * With **nothing** registered for that effect before the `use`, there is
+    nothing to intercept: the registration is an error in interception's
+    own words ("handler `H` intercepts `E` … an intercepting handler wraps
+    the instance already in scope"), which is the self-dependency case of
+    [effect-handler-deps]'s "register one before it".
+  * Inside the handler's members the effect resolves to the **dependency**,
+    never to the handler itself — a member call is an outward call, so
+    nothing recurses. This is the ordinary [effect-handler-deps] rule; it
+    reads as a special case only because the effect names match.
+  * Interception is per **instance** of a generic effect: intercepting
+    `Store<Int>` leaves `Store<Str>` with the handler it had.
+  * Emission: the fusion of the shadowing `use` carries exactly *one*
+    accessor per effect — the new handler's — while the shadowed instance
+    stays reachable through the provider the intercepting handler is handed
+    ([rs-effect-fusion], [kt-effect-fusion]).
 * [effect-available] Calling an effect member requires an instance of its
   effect in scope; otherwise "no handler for effect" (a spanned checker
   error since M5).
@@ -1949,6 +2007,9 @@ Conventions:
   (`next_random<Int>()`), argument types, the expected type
   (`let i: Int = next_random()`). Still >1 → "ambiguous effect call"
   error; 0 → "no handler" error.
+  * Repeats of *one* instance are not ambiguity: they are shadowing, and
+    the innermost answers [use-no-dup]. Only *different* instances of a
+    generic effect can be ambiguous.
   * The resolved instance is recorded per call site (`effect_calls`).
   * Emitter effect environments are keyed by the *checker's* effect types
     (`fn_effects` for declared lists, `use_effects` for registrations,
@@ -1958,9 +2019,12 @@ Conventions:
     a generic callee effect (`Random<T>`) against a concrete instance in
     scope.
 * [effect-scope] `use` registrations are block-scoped: they expire at the
-  end of the enclosing block.
-  * Checker `effect_env` and emitter environments truncate at block
-    boundaries identically.
+  end of the enclosing block — a shadowing one included, so the handler it
+  shadowed answers again afterwards [use-no-dup].
+  * Checker `effect_env` and emitter environments end the block with the
+    same entries they began it with. The checker truncates (a `use` only
+    pushes); an emitter whose `use` *rewrites* the entries already in scope
+    saves and restores the whole environment instead.
 
 ### Non-resumption: `throw` and `try`
 

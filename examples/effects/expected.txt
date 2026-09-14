@@ -1,0 +1,19 @@
+1. the clock reads 5, then 10
+2. two effects in one signature:
+   2. a labelled moment at t=15
+3. a logger whose handler needs the console:
+   3. logged through the console
+4. interception — each `use` wraps the one before it:
+   4. plain
+   [t=20] 4. stamped
+   [t=25] #1 4. numbered, then stamped
+   [t=30] #2 4. and again
+5. shadowing is not wrapping:
+   5. before the block
+   5. after the block, logging again
+6. two effects, one member name:
+   audit: 6. audited only
+   audit: 6. audited and measured
+   metric: 6. audited and measured
+7. two instances of one generic effect:
+   retries=3 region=eu-west-1

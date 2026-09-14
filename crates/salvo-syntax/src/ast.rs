@@ -298,6 +298,12 @@ pub struct HandlerDecl {
     pub generics: Vec<Ident>,
     /// Constructor parameters, e.g. `(values: T[])`.
     pub params: Vec<Param>,
+    /// The effects this handler *depends on*, written like a fn's
+    /// ([effect-handler-deps]): `handler Stamped [Logger, Clock] of Logger`.
+    /// They are supplied by the compiler at the `use` site, so they are
+    /// unnamed — the members reach them by calling their members, exactly as
+    /// any other code does. `None` when the list is absent, as on a fn.
+    pub effects: Option<Vec<EffectRef>>,
     pub of: Type,
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,

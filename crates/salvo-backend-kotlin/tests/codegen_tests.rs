@@ -1535,17 +1535,28 @@ fn duplicate_effect_in_list_is_rejected() {
     );
 }
 
-// [use-no-dup]
+// [use-no-dup] [effect-intercept]
 #[test]
-fn duplicate_use_registration_is_rejected() {
-    let errors = expect_errors(
+fn a_use_may_shadow_an_earlier_registration() {
+    // Until 2026-09-14 this was "a handler for `Console` is already
+    // registered in this scope"; shadowing is now how interception is
+    // written, so a second registration is legal and the innermost wins.
+    let program = build_program(&[(
+        "main.sv",
         "fn main() [use] -> None {\n    use StdOutConsole\n    use StdOutConsole\n}\n",
-    );
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.contains("a handler for `Console` is already registered")),
-        "unexpected errors: {errors:?}"
+    )]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert_eq!(
+        main.content.matches("StdOutConsole()").count(),
+        2,
+        "both registrations should be emitted:\n{}",
+        main.content
     );
 }
 
@@ -1574,6 +1585,59 @@ fn f() [Random<Int>, Random<Double>] -> None {
     let errors = expect_errors(src);
     assert!(
         errors.iter().any(|e| e.contains("ambiguous effect call")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [effect-disambiguation] [use-no-dup] Shadowing collapses repeats of *one*
+// instance, and must not collapse two *different* instances of a generic
+// effect: those are still ambiguous, registered by `use` as much as by an
+// effect list.
+#[test]
+fn two_registered_instances_are_still_ambiguous() {
+    let src = r#"
+effect Random<T> {
+    fn next_random() -> T
+}
+
+handler Fixed<T>(value: T) of Random<T> {
+    fn next_random() -> T {
+        return value
+    }
+}
+
+fn main() [use] -> None {
+    use Fixed(1)
+    use Fixed("a")
+    let x = next_random()
+}
+"#;
+    let errors = expect_errors(src);
+    assert!(
+        errors.iter().any(|e| e.contains("ambiguous effect call")),
+        "unexpected errors: {errors:?}"
+    );
+}
+
+// [kt-effect-fusion] A generic effect instance cannot be a fused class's
+// property: the class has no type parameters, so this is reported rather
+// than emitted as an undeclared name (Rust states the same cut). Until
+// 2026-09-14 it leaked out as a kotlinc "unresolved reference 'T'".
+#[test]
+fn a_generic_dependency_is_refused() {
+    let errors = expect_errors(
+        "effect Store<T> {\n    fn keep(value: T) -> Str => value\n}\n\n\
+         handler MemStore<T> of Store<T> {\n    \
+         fn keep(value: T) -> Str => value {\n        return \"kept\"\n    }\n}\n\n\
+         handler Twice<T> [Store<T>] of Store<T> {\n    \
+         fn keep(value: T) -> Str => value {\n        return \"twice\"\n    }\n}\n\n\
+         fn main() [use] -> None {\n    use MemStore<Int>()\n    \
+         use Twice<Int>()\n}\n",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("an effect set fused here is still generic")),
         "unexpected errors: {errors:?}"
     );
 }
@@ -1925,6 +1989,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_mixed_spread,
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_handler_dependencies,
+    kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_handler_deps_in_anger,
     kotlinc_compiles_and_runs_handler_deps_chain,
     kotlinc_compiles_and_runs_handler_deps_mixed,
@@ -4041,6 +4106,152 @@ fn main() [use] -> None {
      assigned 9 size 3\n")
 }
 
+// ===== interception [effect-intercept] =====
+// A handler may depend on the effect it implements, binding strictly
+// outward, and a `use` may shadow an earlier registration [use-no-dup].
+// Kotlin needs no new machinery for either — a dependency is a constructor
+// field, and the fused class keeps one property per instance — but the
+// *lookups* had to become innermost-first: reading the environment as a set
+// made a shadowed handler answer calls the inner one owned, which printed
+// the outer greeting here and the inner one on Rust (found 2026-09-14).
+// The program and its expected stdout are shared with the Rust backend.
+
+const INTERCEPTION_DEMO: &str = r#"
+effect Greeter {
+    fn greet(name: Str) -> Str => name
+}
+
+effect Store<T> {
+    fn keep(value: T) -> Str => value
+}
+
+handler Plain of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "hello ${name}"
+    }
+}
+
+handler Formal of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "Good day, ${name}"
+    }
+}
+
+handler Loud [Greeter] of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "${greet(name)}!"
+    }
+}
+
+handler Counting [Greeter] of Greeter {
+    count: Int = 0
+    fn greet(name: Str) -> Str => name {
+        count = count + 1
+        return "${greet(name)} (${count})"
+    }
+}
+
+handler MemStore<T> of Store<T> {
+    fn keep(value: T) -> Str => value {
+        return "kept"
+    }
+}
+
+handler Twice [Store<Int>] of Store<Int> {
+    fn keep(value: Int) -> Str => value {
+        return "${keep(value)} ${keep(value)}"
+    }
+}
+
+fn shout(name: Str) [Greeter, Console] -> None => name {
+    println(greet(name))
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use Plain
+    shout("a")
+    use Formal
+    shout("b")
+    use Counting
+    shout("c")
+    if true {
+        use Loud
+        shout("d")
+    }
+    shout("e")
+    use MemStore<Int>()
+    use MemStore<Str>()
+    println(keep(1))
+    println(keep("x"))
+    use Twice
+    println(keep(2))
+    println(keep("y"))
+}
+"#;
+
+/// [effect-intercept] [use-no-dup] [kt-effect-fusion] An intercepting
+/// handler is constructed with the instance registered *before* it, and the
+/// fused class carries one property per instance — the shadowed one is not
+/// duplicated.
+#[test]
+fn interception_binds_outward_and_shadows() {
+    let program = build_program(&[("main.sv", INTERCEPTION_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    let c = &main.content;
+    // Each interceptor is handed a fused environment built from the
+    // *previous* registration, and each `shout` reads the newest one.
+    assert!(
+        c.contains("Counting(__Fx_1(__fx3.__fx_Greeter))")
+            && c.contains("shout(__fx4, \"c\")")
+            && c.contains("Loud(__Fx_1(__fx4.__fx_Greeter))")
+            && c.contains("shout(__fx5, \"d\")"),
+        "an interceptor must bind the instance registered before it, and \
+         later calls must reach the interceptor:\n{c}"
+    );
+    // Out of the block, calls go back to the fusion that outlived it.
+    assert!(
+        c.contains("shout(__fx4, \"e\")"),
+        "a shadowing registration expires with its block:\n{c}"
+    );
+    // One property per instance: a shadowed `Greeter` is not a second field,
+    // and one effect *set* is one class however many scopes need it.
+    for class in c.split("class __Fx_") {
+        let count = class.matches("__fx_Greeter: Greeter").count();
+        assert!(count <= 1, "duplicated property in a fused class:\n{c}");
+    }
+    let classes: Vec<&str> = c.match_indices("\nclass __Fx_").map(|(_, s)| s).collect();
+    let bodies: std::collections::HashSet<&str> = c
+        .split("\nclass __Fx_")
+        .skip(1)
+        .map(|rest| rest.split_once('(').map(|(_, b)| b).unwrap_or(rest))
+        .collect();
+    assert_eq!(
+        classes.len(),
+        bodies.len(),
+        "two fused classes with the same effect set were emitted:\n{c}"
+    );
+}
+
+fn kotlinc_compiles_and_runs_interception() -> KotlinCase {
+    let program = build_program(&[("main.sv", INTERCEPTION_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "interception",
+        "hello a\nGood day, b\nGood day, c (1)\nGood day, d (2)!\n\
+         Good day, e (3)\nkept\nkept\nkept kept\nkept\n",
+    )
+}
+
 // ===== effect dependencies on handlers [effect-handler-deps] =====
 // A handler constructor parameter of effect type is a dependency: the
 // member body may use that effect, the `use` site supplies it from scope,
@@ -4051,7 +4262,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
@@ -4069,11 +4280,11 @@ fn main() [use] -> None {
 }
 "#;
 
-/// [effect-handler-deps] The dependency becomes a constructor field, the
-/// member reaches it through that field (its signature must match the
-/// interface), the `use` site passes the handler in scope, and `work` takes
-/// only the Logger — behind its Has bound, since dependency programs fuse
-/// [kt-effect-fusion].
+/// [effect-handler-deps] [kt-effect-fusion] The dependencies arrive as **one
+/// fused value, built at the `use` site and stored** for the handler's
+/// lifetime; the member reaches them through that field (its signature must
+/// match the interface), and `work` takes only the Logger — behind its Has
+/// bound, since dependency programs fuse.
 #[test]
 fn handler_dependencies_inject_at_construction() {
     let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
@@ -4086,8 +4297,9 @@ fn handler_dependencies_inject_at_construction() {
         .unwrap();
     assert!(
         main.content
-            .contains("class ConsoleLogger(private val console: Console) : Logger"),
-        "expected the dependency as a constructor field in:\n{}",
+            .contains("class ConsoleLogger(private val __fx: __Fx_1) : Logger"),
+        "expected one stored fused value rather than a field per dependency \
+         in:\n{}",
         main.content
     );
     assert!(
@@ -4095,10 +4307,17 @@ fn handler_dependencies_inject_at_construction() {
         "the member signature must match the interface in:\n{}",
         main.content
     );
+    // No per-call combiner: the member body opens with its own statements.
     assert!(
-        main.content.contains("ConsoleLogger(console)")
-            || main.content.contains("ConsoleLogger(__fx.__fx_Console)"),
-        "expected the `use` site to supply the dependency in:\n{}",
+        !main
+            .content
+            .contains("override fun log(message: String) {\n        val __fx"),
+        "a member body must not rebuild the fused value per call in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("ConsoleLogger(__Fx_1(__fx.__fx_Console))"),
+        "expected the `use` site to build the handler's environment in:\n{}",
         main.content
     );
     assert!(
@@ -4168,7 +4387,7 @@ handler MemCounter of Counter {
     fn total() -> Int { return n }
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     seen: Int = 0
     fn log(message: Str) -> None => message {
         seen = seen + 1
@@ -4176,7 +4395,7 @@ handler ConsoleLogger(console: Console) of Logger {
     }
 }
 
-handler CountingAudit(console: Console, counter: Counter) of Audit {
+handler CountingAudit [Console, Counter] of Audit {
     fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
@@ -4248,13 +4467,13 @@ handler MemTally of Tally {
     fn tally() -> Int { return sum }
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-handler LoggingAudit(logger: Logger) of Audit {
+handler LoggingAudit [Logger] of Audit {
     count: Int = 0
     fn note(message: Str) -> None => message {
         count = count + 1
@@ -4320,7 +4539,7 @@ effect Counter {
     fn total() -> Int
 }
 
-handler PrefixLogger(prefix: Str, console: Console, level: Int) of Logger {
+handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("${prefix}[${level}] ${message}")
         tallied(message)
@@ -5116,7 +5335,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger(console: Console) of Logger {
+handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }

@@ -299,7 +299,12 @@ pub struct Checked {
     /// Effect instances resolved for a `use`d handler's *dependencies*
     /// [effect-handler-deps], in the handler's declaration order (keyed by
     /// the `use` statement span). Only present when the handler declares
-    /// dependencies: the emitters supply these at construction.
+    /// dependencies. Nothing consumes it since the surface became an effect
+    /// list on the declaration (2026-09-14): both emitters derive the list
+    /// from the declaration and resolve each entry through their own
+    /// environment. Kept because it is the only record of the *resolved
+    /// instance* — which is what a generic dependency would need, and both
+    /// backends refuse those today.
     pub use_deps: HashMap<Key, Vec<Ty>>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
@@ -721,6 +726,8 @@ fn check_once<'p>(
             ret_ty: Ty::none(),
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
+            handler_deps: Vec::new(),
+            handler_of: None,
             can_use: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
@@ -1093,6 +1100,17 @@ struct Checker<'p, 'r> {
     /// fn's declared effect dependencies plus `use`d handlers. Entries
     /// added by `use` are truncated at block boundaries.
     effect_env: Vec<Ty>,
+    /// [effect-handler-deps] The effects declared by the handler whose
+    /// members are being checked (`handler H [E1, E2] of E`), empty
+    /// elsewhere. A member may use them exactly as if it had declared them,
+    /// which it may not ([effect-member-no-effects]).
+    handler_deps: Vec<Ty>,
+    /// [effect-handler-deps] The effect implemented by the handler whose
+    /// members are being checked, so a member calling *its own* effect can be
+    /// told what is actually wrong: self-dispatch is not a feature yet, and
+    /// neither remedy the general "no handler" diagnostic names is available
+    /// inside a member.
+    handler_of: Option<Ty>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
     /// Enclosing loops of the code being checked; `break`/`continue`
@@ -1470,29 +1488,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                     for p in &h.params {
-                        // [effect-handler-deps] A constructor parameter of
-                        // effect type is a *dependency*, not data: the one
-                        // position where an effect names something a handler
-                        // may hold ([effect-not-data]).
-                        match self.handler_dep_effect(&p.ty) {
-                            Some(dep) => {
-                                // A handler cannot depend on the effect it
-                                // implements: registering it would need
-                                // itself.
-                                if dep.strip_quals() == of_ty.strip_quals() {
-                                    self.error(
-                                        p.name.span,
-                                        format!(
-                                            "handler `{}` cannot depend on `{dep}`, \
-                                             the effect it implements",
-                                            h.name.name
-                                        ),
-                                    );
-                                }
-                            }
-                            None => self.validate_type(&p.ty),
-                        }
+                        // [effect-handler-deps] Dependencies are declared in
+                        // the handler's own effect list now (user decision
+                        // 2026-09-14), so a constructor parameter is always
+                        // ordinary data — and an effect-typed one is the
+                        // plain [effect-not-data] error, with no exception
+                        // left anywhere in the language.
+                        self.validate_type(&p.ty);
                     }
+                    // [effect-handler-deps] `handler H [E1, E2] of E`: the
+                    // dependencies, validated here and supplied at the `use`.
+                    let handler_deps = self.handler_dep_effects(h);
+                    let saved_deps =
+                        std::mem::replace(&mut self.handler_deps, handler_deps);
+                    let saved_of =
+                        std::mem::replace(&mut self.handler_of, Some(of_ty.clone()));
                     for field in &h.state {
                         self.validate_type(&field.ty);
                         self.check_proj_field(&h.name.name, field);
@@ -1521,6 +1531,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.reject_member_effects(f, "handler member functions");
                         self.check_fn(f, &h.params, &h.state);
                     }
+                    self.handler_deps = saved_deps;
+                    self.handler_of = saved_of;
                     self.generics = saved;
                 }
                 Item::Effect(e) => {
@@ -3613,15 +3625,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // [effect-handler-deps] A handler member body may use the effects
-        // its handler declares as constructor dependencies, exactly as if
-        // the member had declared them — which it may not
+        // its handler declares in its effect list, exactly as if the member
+        // had declared them — which it may not
         // ([effect-member-no-effects]): the dependency belongs to the
         // implementation, so it is declared once on the handler.
-        for p in extra_params {
-            if let Some(dep) = self.handler_dep_effect(&p.ty) {
-                if !fn_effects.contains(&dep) {
-                    fn_effects.push(dep);
-                }
+        for dep in &self.handler_deps {
+            if !fn_effects.contains(dep) {
+                fn_effects.push(dep.clone());
             }
         }
         if let Some(key) = self.own_fn {
@@ -3855,8 +3865,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Checks a `use Handler(...)` statement [effect-use]: resolves the
     /// handler, types its constructor arguments (inferring the handler's
     /// generics from them), and registers the concrete effect instance in
-    /// the current scope. Registering two handlers for the same effect
-    /// instance is an error [use-no-dup].
+    /// the current scope. A registration may **shadow** an earlier one for
+    /// the same instance — innermost wins [use-no-dup] — which is what makes
+    /// interception writable [effect-intercept].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
         let (id, args, written_type_args): (&Ident, &'p [Expr], &'p [ast::Type]) = match handler {
             Expr::Ident(id) => (id, &[], &[]),
@@ -3893,21 +3904,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved = self.enter_generics(&decl.generics);
         // [effect-handler-deps] Split the constructor parameters: those of
         // effect type are *dependencies* the compiler supplies from the
-        // enclosing scope, and are not written at the `use` site; the rest
-        // are ordinary arguments.
-        let deps: Vec<(usize, Ty)> = decl
-            .params
-            .iter()
-            .enumerate()
-            .filter_map(|(i, p)| self.handler_dep_effect(&p.ty).map(|d| (i, d)))
-            .collect();
-        let value_params: Vec<&Param> = decl
-            .params
-            .iter()
-            .enumerate()
-            .filter(|(i, p)| !deps.iter().any(|(d, _)| d == i) && !p.implicit)
-            .map(|(_, p)| p)
-            .collect();
+        // enclosing scope, and are not written at the `use` site; every
+        // constructor parameter is therefore ordinary data.
+        let deps: Vec<Ty> = self.handler_dep_effects(decl);
+        let value_params: Vec<&Param> = decl.params.iter().filter(|p| !p.implicit).collect();
         let param_tys: Vec<Ty> = value_params
             .iter()
             .map(|p| self.lower_type(&p.ty))
@@ -4033,38 +4033,50 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fill_implicits(&ctor_implicits, &id.name, &subst, &generic_set, &[], span);
         }
         let concrete = substitute_vars(&of_ty, &subst, &generic_set);
-        if self.effect_env.contains(&concrete) {
-            self.error(
-                span,
-                format!("a handler for `{concrete}` is already registered in this scope"),
-            );
-            return;
-        }
+        // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
+        // registration for the same effect instance: the innermost wins for
+        // the rest of the scope, which is what makes interception writable
+        // (`use DefaultFs()` then `use RestrictedFs(root)`). What stays an
+        // error is registering the same handler *instance* twice — and under
+        // [handler-not-value] an instance exists only at its `use`, so that
+        // clause is future-proofing rather than a check.
         // [effect-handler-deps] Every dependency must already have a handler
         // here: the registration is what wires them together, so this is the
         // point where "who provides it" is decided. Resolved instances are
-        // recorded for the emitters, in declaration order.
+        // recorded for the emitters, in declaration order. The lookup runs
+        // *before* this `use` is registered, which is exactly the
+        // binds-outward rule for a self-dependency [effect-intercept].
         let mut resolved_deps: Vec<Ty> = Vec::new();
-        for (_, dep) in &deps {
+        let visible = self.visible_effects();
+        for dep in &deps {
             let want = substitute_vars(dep, &subst, &generic_set);
-            let found = self
-                .effect_env
-                .iter()
-                .find(|c| **c == want)
-                .cloned()
-                .or_else(|| {
-                    let compatible: Vec<&Ty> = self
-                        .effect_env
-                        .iter()
-                        .filter(|c| unify(&want, c, &mut HashMap::new()))
-                        .collect();
-                    match compatible.len() {
-                        1 => Some(compatible[0].clone()),
-                        _ => None,
-                    }
-                });
+            let found = visible.iter().find(|c| **c == want).cloned().or_else(|| {
+                let compatible: Vec<&Ty> = visible
+                    .iter()
+                    .filter(|c| unify(&want, c, &mut HashMap::new()))
+                    .collect();
+                match compatible.len() {
+                    1 => Some(compatible[0].clone()),
+                    _ => None,
+                }
+            });
             match found {
                 Some(instance) => resolved_deps.push(instance),
+                // [effect-intercept] A self-dependency binds *outward*, so
+                // "nothing in scope" means there is nothing to intercept —
+                // worth its own wording, since the remedy is not "register a
+                // different handler first" but "register the one you are
+                // wrapping".
+                None if want == concrete => self.error(
+                    span,
+                    format!(
+                        "handler `{}` intercepts `{want}` — it depends on the effect \
+                         it implements — but no handler for `{want}` is registered \
+                         before this `use`: an intercepting handler wraps the \
+                         instance already in scope",
+                        id.name
+                    ),
+                ),
                 None => self.error(
                     span,
                     format!(
@@ -4085,6 +4097,24 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     // ================= scopes, locals, narrowing =================
+
+    /// [use-no-dup] [effect-intercept] The effect instances visible here,
+    /// **innermost first, shadowed duplicates hidden**. `effect_env` is a
+    /// stack that a `use` pushes onto and a block truncates
+    /// ([effect-scope]); since a `use` may shadow an earlier registration
+    /// of the same instance, every lookup has to read it as a scope rather
+    /// than as a set — otherwise the *outer* handler would answer a member
+    /// call the inner one shadowed, and an intercepting handler would
+    /// silently never run.
+    fn visible_effects(&self) -> Vec<Ty> {
+        let mut out: Vec<Ty> = Vec::new();
+        for ty in self.effect_env.iter().rev() {
+            if !out.contains(ty) {
+                out.push(ty.clone());
+            }
+        }
+        out
+    }
 
     fn enter_generics(&mut self, generics: &[Ident]) -> HashSet<String> {
         let saved = self.generics.clone();
@@ -6866,11 +6896,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let mut resolved: Vec<Ty> = Vec::new();
+        // [use-no-dup] Innermost first, shadowed duplicates hidden.
+        let visible = self.visible_effects();
         for want in effects {
-            let found = self.effect_env.iter().find(|c| *c == want).cloned();
+            let found = visible.iter().find(|c| *c == want).cloned();
             let found = found.or_else(|| {
-                let compatible: Vec<&Ty> = self
-                    .effect_env
+                let compatible: Vec<&Ty> = visible
                     .iter()
                     .filter(|c| unify(want, c, &mut HashMap::new()))
                     .collect();
@@ -8266,32 +8297,69 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.error_unresolved(r.span, format!("unknown {what} `{name}`{hint}"), &name);
     }
 
-    /// [effect-handler-deps] The effect a handler constructor parameter
-    /// declares as a *dependency*, or `None` when the parameter is ordinary
-    /// data. A dependency is a bare effect name (arity-validated here);
-    /// a *qualified* effect type falls through to [effect-not-data], since
-    /// qualifiers describe values and an effect is not one.
-    fn handler_dep_effect(&mut self, ty: &ast::Type) -> Option<Ty> {
-        let ast::Type::Named { qualifiers, base } = ty else {
-            return None;
-        };
-        if !qualifiers.is_empty() || !self.scope.effects.contains_key(base.name.name.as_str()) {
-            return None;
+    /// [effect-handler-deps] The effects a handler declares as dependencies
+    /// (`handler Stamped [Logger, Clock] of Logger`), lowered and validated:
+    /// they are supplied by the compiler at the `use` site, so the list is
+    /// unnamed and every entry must be an effect a `use` could provide.
+    /// `use` and `Throw` are refused — a handler registers nothing, and a
+    /// throw needs a delimiter rather than a handler [throw].
+    fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<Ty> {
+        let mut out: Vec<Ty> = Vec::new();
+        for eff in h.effects.iter().flatten() {
+            let r = match eff {
+                EffectRef::Use(span) => {
+                    self.error(
+                        *span,
+                        format!(
+                            "handler `{}` cannot depend on `use`: a handler registers \
+                             no handlers of its own",
+                            h.name.name
+                        ),
+                    );
+                    continue;
+                }
+                EffectRef::Effect(r) => r,
+            };
+            if r.name.name == THROW_EFFECT {
+                self.error(
+                    r.span,
+                    format!(
+                        "handler `{}` cannot depend on `{THROW_EFFECT}`: a throw is \
+                         delimited by a `try {{ ... }}` block, not supplied by a \
+                         handler",
+                        h.name.name
+                    ),
+                );
+                continue;
+            }
+            let Some(ty) = self.lower_effect_ref(r) else {
+                continue;
+            };
+            if out.contains(&ty) {
+                self.error(
+                    r.span,
+                    format!("handler `{}` declares `{ty}` twice", h.name.name),
+                );
+                continue;
+            }
+            out.push(ty);
         }
-        self.lower_effect_ref(base)
+        out
     }
 
     // ================= qualifier validation =================
 
     /// [effect-not-data] An effect names a *capability*, not a type of
-    /// values: it may appear in a fn's effect list, in a handler's `of`
-    /// clause, and nowhere else. Using one as a struct field, parameter,
-    /// return, or `let` annotation is an error — the value would have to be
-    /// a handler instance, which only `use` produces, and neither backend
-    /// can render it (Rust emits a bare trait, `E0782`).
+    /// values: it may appear in a fn's effect list, in a handler's effect
+    /// list and its `of` clause, and nowhere else. Using one as a struct
+    /// field, parameter, return, or `let` annotation is an error — the value
+    /// would have to be a handler instance, which only `use` produces, and
+    /// neither backend can render it (Rust emits a bare trait, `E0782`).
     ///
-    /// Handler *dependencies* — a handler constructor parameter of effect
-    /// type — are the one exception, handled before this runs
+    /// There is no exception anywhere: handler *dependencies* used to be
+    /// constructor parameters of effect type, and since 2026-09-14 they are
+    /// an effect list on the declaration (user decision), so an effect in a
+    /// data position is always this error.
     /// ([effect-handler-deps]).
     fn reject_effect_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
@@ -15043,6 +15111,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.generics = saved;
         }
+        // [use-no-dup] Innermost first, shadowed duplicates hidden.
+        let visible = self.visible_effects();
         for lowered in wants {
             let want = substitute_vars(&lowered, subst, callee_generics);
             // [throw] A callee that may throw does not need a handler — it
@@ -15057,10 +15127,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // Exact instance first, then a unique compatible match (the
             // callee's requirement may still contain unresolved parts).
-            let found = self.effect_env.iter().find(|c| **c == want).cloned();
+            let found = visible.iter().find(|c| **c == want).cloned();
             let found = found.or_else(|| {
-                let compatible: Vec<&Ty> = self
-                    .effect_env
+                let compatible: Vec<&Ty> = visible
                     .iter()
                     .filter(|c| unify(&want, c, &mut HashMap::new()))
                     .collect();
@@ -15153,12 +15222,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
 
-        // Instances of this effect currently available.
+        // Instances of this effect currently available — innermost first,
+        // with a shadowed registration hidden by the one that shadows it
+        // [use-no-dup], so interception does not read as ambiguity.
         let candidates: Vec<Ty> = self
-            .effect_env
-            .iter()
+            .visible_effects()
+            .into_iter()
             .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect.name.name))
-            .cloned()
             .collect();
 
         // Argument types when they had to be computed for disambiguation
@@ -15191,14 +15261,39 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else if candidates.len() == 1 {
             Some(candidates[0].clone())
         } else if candidates.is_empty() {
-            self.error(
-                span,
-                format!(
-                    "no handler for effect `{}` in scope (declare it in the \
-                     function's effect list or `use` a handler)",
-                    effect.name.name
-                ),
+            // [effect-handler-deps] Inside a handler member, "no handler for
+            // its own effect" is not a missing registration: it is
+            // *self-dispatch*, which does not exist yet. Neither remedy the
+            // general diagnostic names is even available here — a member may
+            // not declare effects [effect-member-no-effects] and may not
+            // `use` — and declaring the effect as a dependency would bind
+            // outward to the handler registered before this one
+            // [effect-intercept], not to this one. Recorded as a gap in
+            // ROADMAP.md.
+            let own = self.handler_of.clone().filter(
+                |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == effect.name.name),
             );
+            match own {
+                Some(of) => self.error(
+                    span,
+                    format!(
+                        "a handler member cannot call `{}`, a member of `{of}` — the \
+                         effect its own handler implements: a handler cannot dispatch \
+                         to itself, and declaring `{of}` as a dependency would bind to \
+                         the handler registered *before* this one. Move the shared \
+                         logic into a function both members call",
+                        member.name.name
+                    ),
+                ),
+                None => self.error(
+                    span,
+                    format!(
+                        "no handler for effect `{}` in scope (declare it in the \
+                         function's effect list or `use` a handler)",
+                        effect.name.name
+                    ),
+                ),
+            }
             None
         } else {
             // Multiple instances in scope: disambiguate by the argument

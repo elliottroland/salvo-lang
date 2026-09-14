@@ -1,0 +1,668 @@
+#![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
+#[path = "unions.rs"]
+pub mod unions;
+#[path = "collections.rs"]
+pub mod collections;
+#[path = "core/array.rs"]
+pub mod core_array;
+#[path = "core/console.rs"]
+pub mod core_console;
+#[path = "core/iterator.rs"]
+pub mod core_iterator;
+#[path = "core/list.rs"]
+pub mod core_list;
+#[path = "core/map.rs"]
+pub mod core_map;
+#[path = "core/nonempty.rs"]
+pub mod core_nonempty;
+#[path = "core/seq.rs"]
+pub mod core_seq;
+#[path = "core/set.rs"]
+pub mod core_set;
+#[path = "core/sorted.rs"]
+pub mod core_sorted;
+#[path = "core/string.rs"]
+pub mod core_string;
+
+use crate::core_console::*;
+use crate::core_iterator::*;
+use crate::core_string::*;
+
+pub trait Clock {
+    fn now(&mut self) -> i32;
+}
+
+pub trait __Has_Clock {
+    fn __get_Clock(&mut self) -> &mut dyn Clock;
+}
+
+pub struct TickingClock {
+    tick: i32,
+}
+
+impl TickingClock {
+    pub fn new() -> Self {
+        Self {
+            tick: 0,
+        }
+    }
+}
+
+impl Clock for TickingClock {
+
+    fn now(&mut self) -> i32 {
+        self.tick = self.tick + 5;
+        return self.tick;
+    }
+}
+
+pub fn stamp<__Fx: __Has_Clock + __Has_Console>(__fx: &mut __Fx, label: &String) {
+    let mut t = __Has_Clock::__get_Clock(&mut *__fx).now();
+    banner(&mut *__fx, &(format!("{} at t={}", label.clone(), t)));
+}
+
+pub fn banner<__Fx: __Has_Console>(__fx: &mut __Fx, text: &String) {
+    println(&mut *__fx, &(format!("   {}", text.clone())));
+}
+
+pub trait Logger {
+    fn log(&mut self, message: &String);
+}
+
+pub trait __Has_Logger {
+    fn __get_Logger(&mut self) -> &mut dyn Logger;
+}
+
+pub struct PlainLogger {
+}
+
+impl PlainLogger {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
+pub struct __Deps_PlainLogger<'a, __P: ?Sized> {
+    pub __p: &'a mut __P,
+}
+
+impl<'a, __P: __Has_Console + ?Sized> __Has_Console for __Deps_PlainLogger<'a, __P> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__p)
+    }
+}
+
+pub trait __Impl_PlainLogger {
+
+    fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String);
+}
+
+impl __Impl_PlainLogger for PlainLogger {
+
+    fn log<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, message: &String) {
+        println(&mut *__fx, &(format!("   {}", message.clone())));
+    }
+}
+
+pub struct QuietLogger {
+}
+
+impl QuietLogger {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
+impl Logger for QuietLogger {
+
+    fn log(&mut self, message: &String) {
+    }
+}
+
+pub struct Stamped {
+}
+
+impl Stamped {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
+pub struct __Deps_Stamped<'a, __P: ?Sized> {
+    pub __p: &'a mut __P,
+}
+
+impl<'a, __P: __Has_Logger + ?Sized> __Has_Logger for __Deps_Stamped<'a, __P> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__p)
+    }
+}
+
+impl<'a, __P: __Has_Clock + ?Sized> __Has_Clock for __Deps_Stamped<'a, __P> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__p)
+    }
+}
+
+pub trait __Impl_Stamped {
+
+    fn log<__Fx: __Has_Logger + __Has_Clock>(&mut self, __fx: &mut __Fx, message: &String);
+}
+
+impl __Impl_Stamped for Stamped {
+
+    fn log<__Fx: __Has_Logger + __Has_Clock>(&mut self, __fx: &mut __Fx, message: &String) {
+        { let __a1 = &(format!("[t={}] {}", __Has_Clock::__get_Clock(&mut *__fx).now(), message.clone())); __Has_Logger::__get_Logger(&mut *__fx).log(__a1) };
+    }
+}
+
+pub struct Numbered {
+    seen: i32,
+}
+
+impl Numbered {
+    pub fn new() -> Self {
+        Self {
+            seen: 0,
+        }
+    }
+}
+
+pub struct __Deps_Numbered<'a, __P: ?Sized> {
+    pub __p: &'a mut __P,
+}
+
+impl<'a, __P: __Has_Logger + ?Sized> __Has_Logger for __Deps_Numbered<'a, __P> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__p)
+    }
+}
+
+pub trait __Impl_Numbered {
+
+    fn log<__Fx: __Has_Logger>(&mut self, __fx: &mut __Fx, message: &String);
+}
+
+impl __Impl_Numbered for Numbered {
+
+    fn log<__Fx: __Has_Logger>(&mut self, __fx: &mut __Fx, message: &String) {
+        self.seen = self.seen + 1;
+        __Has_Logger::__get_Logger(&mut *__fx).log(&(format!("#{} {}", self.seen, message.clone())));
+    }
+}
+
+pub fn work<__Fx: __Has_Logger>(__fx: &mut __Fx, step: &String) {
+    __Has_Logger::__get_Logger(&mut *__fx).log(step);
+}
+
+pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx) {
+    work(&mut *__fx, &("4. plain".to_string()));
+    let mut __fx2 = __Fx_interception_1 { __outer: &mut *__fx, __h: Stamped::new() };
+    work(&mut __fx2, &("4. stamped".to_string()));
+    let mut __fx3 = __Fx_interception_2 { __outer: &mut __fx2, __h: Numbered::new() };
+    work(&mut __fx3, &("4. numbered, then stamped".to_string()));
+    work(&mut __fx3, &("4. and again".to_string()));
+}
+
+pub fn scoping<__Fx: __Has_Logger>(__fx: &mut __Fx) {
+    work(&mut *__fx, &("5. before the block".to_string()));
+    if true {
+        let mut __fx2 = __Fx_scoping_3 { __outer: &mut *__fx, __h: QuietLogger::new() };
+        work(&mut __fx2, &("5. this line is swallowed".to_string()));
+    }
+    work(&mut *__fx, &("5. after the block, logging again".to_string()));
+}
+
+pub trait Audit {
+    fn record(&mut self, what: &String);
+}
+
+pub trait __Has_Audit {
+    fn __get_Audit(&mut self) -> &mut dyn Audit;
+}
+
+pub trait Metrics {
+    fn record(&mut self, what: &String);
+}
+
+pub trait __Has_Metrics {
+    fn __get_Metrics(&mut self) -> &mut dyn Metrics;
+}
+
+pub struct ConsoleAudit {
+}
+
+impl ConsoleAudit {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
+pub struct __Deps_ConsoleAudit<'a, __P: ?Sized> {
+    pub __p: &'a mut __P,
+}
+
+impl<'a, __P: __Has_Console + ?Sized> __Has_Console for __Deps_ConsoleAudit<'a, __P> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__p)
+    }
+}
+
+pub trait __Impl_ConsoleAudit {
+
+    fn record<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, what: &String);
+}
+
+impl __Impl_ConsoleAudit for ConsoleAudit {
+
+    fn record<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, what: &String) {
+        println(&mut *__fx, &(format!("   audit: {}", what.clone())));
+    }
+}
+
+pub struct ConsoleMetrics {
+}
+
+impl ConsoleMetrics {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
+pub struct __Deps_ConsoleMetrics<'a, __P: ?Sized> {
+    pub __p: &'a mut __P,
+}
+
+impl<'a, __P: __Has_Console + ?Sized> __Has_Console for __Deps_ConsoleMetrics<'a, __P> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__p)
+    }
+}
+
+pub trait __Impl_ConsoleMetrics {
+
+    fn record<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, what: &String);
+}
+
+impl __Impl_ConsoleMetrics for ConsoleMetrics {
+
+    fn record<__Fx: __Has_Console>(&mut self, __fx: &mut __Fx, what: &String) {
+        println(&mut *__fx, &(format!("   metric: {}", what.clone())));
+    }
+}
+
+pub fn audit_only<__Fx: __Has_Audit>(__fx: &mut __Fx, what: &String) {
+    __Has_Audit::__get_Audit(&mut *__fx).record(what);
+}
+
+pub fn audit_and_measure<__Fx: __Has_Audit + __Has_Metrics>(__fx: &mut __Fx, what: &String) {
+    __Has_Audit::__get_Audit(&mut *__fx).record(what);
+    __Has_Metrics::__get_Metrics(&mut *__fx).record(what);
+}
+
+pub trait Setting<T> {
+    fn setting(&mut self) -> T;
+}
+
+pub trait __Has_Setting<T> {
+    fn __get_Setting(&mut self) -> &mut dyn Setting<T>;
+}
+
+pub struct Fixed<T: Clone + 'static> {
+    value: T,
+}
+
+impl<T: Clone + 'static> Fixed<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+        }
+    }
+}
+
+impl<T: Clone + 'static> Setting<T> for Fixed<T> {
+
+    fn setting(&mut self) -> T {
+        return self.value.clone();
+    }
+}
+
+pub fn settings<__Fx: __Has_Setting<i32> + __Has_Setting<String> + __Has_Console>(__fx: &mut __Fx) {
+    let mut retries: i32 = __Has_Setting::<i32>::__get_Setting(&mut *__fx).setting();
+    let mut region = __Has_Setting::<String>::__get_Setting(&mut *__fx).setting();
+    println(&mut *__fx, &(format!("   retries={} region={}", retries, region)));
+}
+
+pub fn main() {
+    let mut __fx = __Fx_main_4 { __h: StdOutConsole::new() };
+    let mut __fx2 = __Fx_main_5 { __outer: &mut __fx, __h: TickingClock::new() };
+    { let __a1 = &(format!("1. the clock reads {}, then {}", __Has_Clock::__get_Clock(&mut __fx2).now(), __Has_Clock::__get_Clock(&mut __fx2).now())); println(&mut __fx2, __a1) };
+    println(&mut __fx2, &("2. two effects in one signature:".to_string()));
+    stamp(&mut __fx2, &("2. a labelled moment".to_string()));
+    println(&mut __fx2, &("3. a logger whose handler needs the console:".to_string()));
+    let mut __fx3 = __Fx_main_6 { __outer: &mut __fx2, __h: PlainLogger::new() };
+    work(&mut __fx3, &("3. logged through the console".to_string()));
+    println(&mut __fx3, &("4. interception — each `use` wraps the one before it:".to_string()));
+    interception(&mut __fx3);
+    println(&mut __fx3, &("5. shadowing is not wrapping:".to_string()));
+    scoping(&mut __fx3);
+    println(&mut __fx3, &("6. two effects, one member name:".to_string()));
+    let mut __fx4 = __Fx_main_7 { __outer: &mut __fx3, __h: ConsoleAudit::new() };
+    audit_only(&mut __fx4, &("6. audited only".to_string()));
+    let mut __fx5 = __Fx_main_8 { __outer: &mut __fx4, __h: ConsoleMetrics::new() };
+    audit_and_measure(&mut __fx5, &("6. audited and measured".to_string()));
+    println(&mut __fx5, &("7. two instances of one generic effect:".to_string()));
+    let mut __fx6 = __Fx_main_9 { __outer: &mut __fx5, __h: Fixed::<i32>::new(3) };
+    let mut __fx7 = __Fx_main_10 { __outer: &mut __fx6, __h: Fixed::<String>::new("eu-west-1".to_string()) };
+    settings(&mut __fx7);
+}
+
+pub trait __Prov_Clock_Logger: __Has_Clock + __Has_Logger {}
+impl<T: __Has_Clock + __Has_Logger + ?Sized> __Prov_Clock_Logger for T {}
+
+pub struct __Fx_interception_1<'a, __H> {
+    __outer: &'a mut dyn __Prov_Clock_Logger,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Clock for __Fx_interception_1<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: __Impl_Stamped> Logger for __Fx_interception_1<'a, __H> {
+    fn log(&mut self, message: &String) {
+        let Self { __outer, __h } = self;
+        let mut __deps = __Deps_Stamped{ __p: &mut **__outer };
+        __Impl_Stamped::log(__h, &mut __deps, message)
+    }
+}
+
+impl<'a, __H: __Impl_Stamped> __Has_Logger for __Fx_interception_1<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        self
+    }
+}
+
+pub struct __Fx_interception_2<'a, __H> {
+    __outer: &'a mut dyn __Prov_Clock_Logger,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Clock for __Fx_interception_2<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: __Impl_Numbered> Logger for __Fx_interception_2<'a, __H> {
+    fn log(&mut self, message: &String) {
+        let Self { __outer, __h } = self;
+        let mut __deps = __Deps_Numbered{ __p: &mut **__outer };
+        __Impl_Numbered::log(__h, &mut __deps, message)
+    }
+}
+
+impl<'a, __H: __Impl_Numbered> __Has_Logger for __Fx_interception_2<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        self
+    }
+}
+
+pub struct __Fx_scoping_3<'a, __H> {
+    __outer: &'a mut dyn __Has_Logger,
+    __h: __H,
+}
+
+impl<'a, __H: Logger> __Has_Logger for __Fx_scoping_3<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        &mut self.__h
+    }
+}
+
+pub struct __Fx_main_4<__H> {
+    __h: __H,
+}
+
+impl<__H: Console> __Has_Console for __Fx_main_4<__H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        &mut self.__h
+    }
+}
+
+pub struct __Fx_main_5<'a, __H> {
+    __outer: &'a mut dyn __Has_Console,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_5<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: Clock> __Has_Clock for __Fx_main_5<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        &mut self.__h
+    }
+}
+
+pub trait __Prov_Clock_Console: __Has_Clock + __Has_Console {}
+impl<T: __Has_Clock + __Has_Console + ?Sized> __Prov_Clock_Console for T {}
+
+pub struct __Fx_main_6<'a, __H> {
+    __outer: &'a mut dyn __Prov_Clock_Console,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Clock for __Fx_main_6<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_6<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: __Impl_PlainLogger> Logger for __Fx_main_6<'a, __H> {
+    fn log(&mut self, message: &String) {
+        let Self { __outer, __h } = self;
+        let mut __deps = __Deps_PlainLogger{ __p: &mut **__outer };
+        __Impl_PlainLogger::log(__h, &mut __deps, message)
+    }
+}
+
+impl<'a, __H: __Impl_PlainLogger> __Has_Logger for __Fx_main_6<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        self
+    }
+}
+
+pub trait __Prov_Clock_Console_Logger: __Has_Clock + __Has_Console + __Has_Logger {}
+impl<T: __Has_Clock + __Has_Console + __Has_Logger + ?Sized> __Prov_Clock_Console_Logger for T {}
+
+pub struct __Fx_main_7<'a, __H> {
+    __outer: &'a mut dyn __Prov_Clock_Console_Logger,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Clock for __Fx_main_7<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_7<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Logger for __Fx_main_7<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: __Impl_ConsoleAudit> Audit for __Fx_main_7<'a, __H> {
+    fn record(&mut self, what: &String) {
+        let Self { __outer, __h } = self;
+        let mut __deps = __Deps_ConsoleAudit{ __p: &mut **__outer };
+        __Impl_ConsoleAudit::record(__h, &mut __deps, what)
+    }
+}
+
+impl<'a, __H: __Impl_ConsoleAudit> __Has_Audit for __Fx_main_7<'a, __H> {
+    fn __get_Audit(&mut self) -> &mut dyn Audit {
+        self
+    }
+}
+
+pub trait __Prov_Audit_Clock_Console_Logger: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger {}
+impl<T: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger + ?Sized> __Prov_Audit_Clock_Console_Logger for T {}
+
+pub struct __Fx_main_8<'a, __H> {
+    __outer: &'a mut dyn __Prov_Audit_Clock_Console_Logger,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Audit for __Fx_main_8<'a, __H> {
+    fn __get_Audit(&mut self) -> &mut dyn Audit {
+        __Has_Audit::__get_Audit(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Clock for __Fx_main_8<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_8<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Logger for __Fx_main_8<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: __Impl_ConsoleMetrics> Metrics for __Fx_main_8<'a, __H> {
+    fn record(&mut self, what: &String) {
+        let Self { __outer, __h } = self;
+        let mut __deps = __Deps_ConsoleMetrics{ __p: &mut **__outer };
+        __Impl_ConsoleMetrics::record(__h, &mut __deps, what)
+    }
+}
+
+impl<'a, __H: __Impl_ConsoleMetrics> __Has_Metrics for __Fx_main_8<'a, __H> {
+    fn __get_Metrics(&mut self) -> &mut dyn Metrics {
+        self
+    }
+}
+
+pub trait __Prov_Audit_Clock_Console_Logger_Metrics: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger + __Has_Metrics {}
+impl<T: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger + __Has_Metrics + ?Sized> __Prov_Audit_Clock_Console_Logger_Metrics for T {}
+
+pub struct __Fx_main_9<'a, __H> {
+    __outer: &'a mut dyn __Prov_Audit_Clock_Console_Logger_Metrics,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Audit for __Fx_main_9<'a, __H> {
+    fn __get_Audit(&mut self) -> &mut dyn Audit {
+        __Has_Audit::__get_Audit(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Clock for __Fx_main_9<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_9<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Logger for __Fx_main_9<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Metrics for __Fx_main_9<'a, __H> {
+    fn __get_Metrics(&mut self) -> &mut dyn Metrics {
+        __Has_Metrics::__get_Metrics(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: Setting<i32>> __Has_Setting<i32> for __Fx_main_9<'a, __H> {
+    fn __get_Setting(&mut self) -> &mut dyn Setting<i32> {
+        &mut self.__h
+    }
+}
+
+pub trait __Prov_Audit_Clock_Console_Logger_Metrics_Setting_i32: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger + __Has_Metrics + __Has_Setting<i32> {}
+impl<T: __Has_Audit + __Has_Clock + __Has_Console + __Has_Logger + __Has_Metrics + __Has_Setting<i32> + ?Sized> __Prov_Audit_Clock_Console_Logger_Metrics_Setting_i32 for T {}
+
+pub struct __Fx_main_10<'a, __H> {
+    __outer: &'a mut dyn __Prov_Audit_Clock_Console_Logger_Metrics_Setting_i32,
+    __h: __H,
+}
+
+impl<'a, __H> __Has_Audit for __Fx_main_10<'a, __H> {
+    fn __get_Audit(&mut self) -> &mut dyn Audit {
+        __Has_Audit::__get_Audit(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Clock for __Fx_main_10<'a, __H> {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        __Has_Clock::__get_Clock(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Console for __Fx_main_10<'a, __H> {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        __Has_Console::__get_Console(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Logger for __Fx_main_10<'a, __H> {
+    fn __get_Logger(&mut self) -> &mut dyn Logger {
+        __Has_Logger::__get_Logger(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Metrics for __Fx_main_10<'a, __H> {
+    fn __get_Metrics(&mut self) -> &mut dyn Metrics {
+        __Has_Metrics::__get_Metrics(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H> __Has_Setting<i32> for __Fx_main_10<'a, __H> {
+    fn __get_Setting(&mut self) -> &mut dyn Setting<i32> {
+        __Has_Setting::<i32>::__get_Setting(&mut *self.__outer)
+    }
+}
+
+impl<'a, __H: Setting<String>> __Has_Setting<String> for __Fx_main_10<'a, __H> {
+    fn __get_Setting(&mut self) -> &mut dyn Setting<String> {
+        &mut self.__h
+    }
+}

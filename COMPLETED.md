@@ -47,12 +47,12 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 849 tests, complete: the toolchain tests are
+cargo test                  # 881 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
                             # FULL: every test, nothing taken from the cache
-                            # (~50s), with per-test timings; the pre-commit /
+                            # (~55-70s), with per-test timings; the pre-commit /
                             # handover check (fall back to `cargo test` if
                             # nextest is not installed)
 SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
@@ -121,6 +121,140 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Handler dependencies become an effect list, and the fusion stops
+duplicating itself (user decisions 2026-09-14, from reading the generated
+Kotlin).** Four calls, all four built:
+
+1. **The surface**: `handler Stamped [Logger, Clock] of Logger` replaces
+   constructor parameters of effect type [effect-handler-deps]. The old form
+   made you *name* something you could never use — a member body reaches an
+   effect by calling its members — so the names are gone and the list reads
+   like a fn's. It also removes the last exception from [effect-not-data]:
+   an effect in a data position is now always that error, with no special
+   case anywhere. `use` and `Throw` in the list, and a repeated effect, are
+   refused where they are written. Parser + AST + checker + both emitters,
+   swept across every `.sv` source, test program and spec snippet.
+2. **Kotlin stores one fused value per handler instance**, built at the
+   `use` site (`class Stamped(private val __fx: __Fx_2)`, registered as
+   `Stamped(__Fx_2(__fx.__fx_Clock, __fx.__fx_Logger))`), replacing a
+   combiner rebuilt on **every member call**. A handler holds its
+   environment for its lifetime, so there was nothing to rebuild.
+   **Rust deliberately does not follow**: a stored `&mut` would borrow the
+   fusion for the handler's lifetime — the `E0499` the whole strategy exists
+   to avoid — and the handler is constructed inside the very struct literal
+   that borrows the provider; its per-call `__Deps_H` is one reference, so
+   there is nothing to amortize. Stated in both backend specs.
+3. **Self-dispatch is a recorded gap, now with an honest diagnostic.** A
+   handler member calling another member of its *own* effect used to report
+   "no handler for effect `E` in scope (declare it… or `use` a handler)" —
+   both remedies impossible inside a member. It now says a handler cannot
+   dispatch to itself, that declaring the effect as a dependency would bind
+   to the handler registered *before* this one [effect-intercept], and to
+   move the shared logic into a fn. ROADMAP.md carries the gap, the repro and
+   the DECISION it will force: phase 4's `MemFs.read_all` wants to call its
+   own `read_line`.
+4. **Fused values are deduplicated.** Kotlin sorts each effect set into a
+   canonical order and reuses an identical class (the effects example went
+   from 15 fused classes to 9); Rust builds each fusion struct under a
+   placeholder name and reuses an identical one, so two fns registering the
+   same handler over the same inherited set share one struct and one set of
+   impls. Property names derive from the effect instance rather than from
+   position, so only constructor-argument order follows the canonical order.
+
+Two things fell out. The Kotlin **fusion gate** was still the old syntactic
+test (a ctor param of effect type), so after (1) it silently switched the
+whole program out of fusion mode while handlers kept their carriers — caught
+by reading the generated code, and the reason both gates are now the same
+one-line predicate over the effect list. And a handler whose **dependency
+mentions its own generics** (`handler Twice<T> [Store<T>] of Store<T>`) was a
+kotlinc "unresolved reference 'T'" leak: a fused class has no type parameters,
+so Kotlin now reports it in Salvo's words, which is the cut Rust already
+stated. Tests: 881 passing (from 876), fresh; `examples/effects/` rewritten to
+the new surface with its generated code regenerated.
+
+**Effect interception, both backends (S-IO item 4, from the phase-4
+decisions — 2026-09-14).** A handler may now depend on **the effect it
+implements** [effect-intercept], and a `use` may **shadow** an earlier
+registration of the same effect instance [use-no-dup] — the two halves of
+FILE_SYSTEM.md's O-R2, and what makes `RestrictedFs(root, fs: Fs) of Fs`
+writable. The binding rule is the user's from §5.1: a self-dependency binds
+**strictly outward**, to the instance in scope *before* this `use`, which
+leaves the acyclicity argument [effect-handler-deps] rests on untouched
+(every edge still points at an earlier registration) without any new
+creation restriction — [handler-not-value] already makes "created where
+used" a theorem. Interceptors therefore stack, an interceptor's own member
+calls go one layer out rather than recursing, and interception is per
+*instance* of a generic effect.
+
+What it cost was small in the checker and almost entirely about **reading
+the effect environment as a scope rather than as a set**. The declaration
+ban and the duplicate-registration error were deleted; a new
+`visible_effects()` (innermost-first, shadowed duplicates hidden) now feeds
+every lookup — `use`-dependency resolution, `check_effects_available`,
+per-call effect resolution, and `check_effect_call`'s candidate list, where
+the dedup is also what keeps a repeat from reading as "ambiguous effect
+call" (that error survives for *different* instances of a generic effect,
+tested). Dependency resolution already ran before the new instance was
+pushed, so the outward binding needed no new code — only its own
+diagnostic, since "nothing in scope" now means "nothing to intercept":
+*handler `H` intercepts `E` … an intercepting handler wraps the instance
+already in scope*.
+
+**Rust** needed one emission rule, verified by hand with rustc first (the
+precedent [rs-effect-fusion] has followed since E1): a fusion must carry
+**exactly one `__Has_E` impl per effect**, so the inherited accessor for the
+instance the new handler shadows is suppressed while the shadowed instance
+stays in `__outer`'s provider conjunction — which is precisely what
+`__Deps_H{ __p: &mut **__outer }` binds the interceptor's dependency to.
+Two impls is `E0119`, and that is exactly what a shadowing `use` produced
+before. Everything else — chaining, the adapter, `dyn` in `__outer` — was
+already the right shape.
+
+**Kotlin** needed no new machinery (a dependency is a constructor field, so
+an interceptor is constructed with the previous fused value's property —
+`Loud(__fx4.__fx_Greeter)` — which *is* the outward binding, and the fused
+class already carried one property per instance) but it had the real
+divergence: its lookups read the environment as a set, so under shadowing
+the **outer** handler answered calls the inner one owned. The same program
+printed `hello world` twice on Kotlin and `hello world` / `Good day, world.`
+on Rust — silently, not as a diagnostic. All five resolution paths now read
+an innermost-first `visible_effects()`.
+
+**A pre-existing defect fell out on the way** and is fixed: a *dependent*
+handler of a **generic** effect instance whose member parameter substitutes
+to a Copy scalar (`handler Reporting(n: Note) of Store<Int>` with
+`keep(value: Int)`) emitted a raw rustc `E0308`. The forwarding impl renders
+its signature from the *effect's* declaration, where a `T` parameter is
+borrowed because nothing is known about a `T`, while `__Impl_H` renders from
+the *handler's* declaration, where `Int` passes by value; the forward now
+derefs. Loud rather than wrong, so not a [backend-never-wrong] breach — but
+interception is what made the shape easy to reach.
+
+Both backends compile and run one shared `INTERCEPTION_DEMO` — stateless and
+stateful interceptors, an interceptor over an interceptor, a plain shadowing
+`use` with no dependency at all, block-scoped expiry restoring the handler
+that was shadowed, and one instance of a generic effect intercepted while
+its sibling keeps its handler — to identical stdout. Tests: 876 passing
+(from 870), fresh. The rules are LANGUAGE_SPEC.md [effect-intercept] and the
+restated [use-no-dup]; LANGUAGE.md gained a "Handlers with dependencies, and
+interception" section, which is also where handler dependencies get their
+first narrative treatment outside the platform-interop section.
+
+**`examples/effects/` is new** (same day, user request): the effects surface
+run *together*, which is where the interesting behavior is. Seven sections —
+handler state, several effects in one signature with a subset callee, a
+handler depending on another effect, interception (two interceptors stacking,
+one of them depending on a second effect as well), shadowing shown as
+distinct from wrapping, one member name on two effects with the `@` selector,
+and two instances of one generic effect — plus a "composition root" note,
+since `main` is the only function in the program that names a handler. It
+also documents the two lowerings, because effects are the feature whose
+generated code is least obvious: Kotlin's interception is object references
+(`Stamped(__fx.__fx_Logger, __fx.__fx_Clock)`), Rust's is the chained fusion
+with exactly one `__Has_Logger` impl per struct. Filling the last obvious hole
+in `examples/` — effects had no worked example at all — and it needed no
+compiler change to write, which was the point of writing it.
 
 **Operator typing and the `@Effect` selector, built (2026-09-14, from the
 phase-4 decisions).** The two work items between the fusion milestone and the
@@ -9314,7 +9448,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 849)
+## Test inventory (all green: 881)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -9322,7 +9456,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 458 - 19 unit tests (file classification, including the
+- `salvo-core`: 479 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -9413,16 +9547,20 @@ cache, with per-test timings.
   rejected while arrays still work, `for` over a non-iterable rejected
   while arrays still iterate, and — the leniency that remains — a member
   read off an un-inferred value adding *no* second diagnostic
-  [type-unknown-lenient]; and 5 effect/handler-as-data tests
+  [type-unknown-lenient]; and 7 effect/handler-as-data tests
   [effect-not-data] [handler-not-value]: an effect rejected in five data
   positions with the diagnostic naming `use`, effect lists and `of` clauses
   still accepting effects, a handler constructor rejected as a value while
-  `use` still registers it, and a handler dependency — E1's future feature
-  accepted with its effect available in the member body, a handler
-  depending on its own effect rejected, and dependencies resolved from the
-  `use` scope — absent one, an error at the registration; and a mutual
+  `use` still registers it, and a handler dependency accepted with its
+  effect available in the member body, dependencies resolved from the
+  `use` scope — absent one, an error at the registration — and a mutual
   dependency unregisterable in *either* order, so cycles need no check
-  [effect-handler-deps]; and 2 handler-state tests [effect-handler]: a
+  [effect-handler-deps]; plus interception [effect-intercept]
+  [use-no-dup]: a handler depending on the effect it implements accepted at
+  the declaration, an intercepting `use` binding strictly outward — refused
+  with nothing to wrap, accepted over an instance in scope, stacking over
+  another interceptor — and a plain `use` shadowing an earlier registration
+  with no dependency anywhere; and 2 handler-state tests [effect-handler]: a
   state field initializer checked against its declared type, a well-typed
   one accepted)
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
@@ -9842,7 +9980,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 76 (three parser tests for the scope selector and
+- `salvo-syntax`: 78 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -9903,13 +10041,13 @@ cache, with per-test timings.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 85 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 88 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 82 cases as of the variadic representation change). The remaining tests: golden snapshots of the M2 demo, the M3
+  (2026-09-12; 83 cases as of the interception work). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -10081,7 +10219,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 143 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 149 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -10272,6 +10410,34 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **An effect environment is a scope, not a set — and "same effect twice"
+  is the case that proves it.** Both emitters and the checker had lookups
+  that took the *first* matching entry, which was indistinguishable from
+  the last while only one registration per instance existed. The moment
+  shadowing became legal ([use-no-dup], interception), the Kotlin emitter
+  answered member calls with the **outer** handler — silently, and only on
+  that backend (2026-09-14). Rust was already innermost-first, so the
+  divergence was invisible until the same program was run on both. When a
+  rule relaxes uniqueness anywhere, grep every lookup of the thing that was
+  unique and check its *direction*: a set-shaped read of a stack is a bug
+  the tests cannot see until a duplicate exists.
+- **Two impls of one generated trait on one generated type is the fusion's
+  failure mode.** Rust's fusion emits an accessor impl per effect in scope;
+  a shadowing `use` made two `__Has_E` impls for one struct (`E0119`).
+  Suppressing the *inherited* one is right, but only because the shadowed
+  instance stays reachable through `__outer` — which is what the
+  intercepting handler's own dependency binds to. Emission for a shadowing
+  construct has to keep the shadowed thing reachable *somewhere*, or the
+  wrapper has nothing to wrap (2026-09-14).
+- **A generated trait impl and a generated forwarding body can disagree
+  about parameter modes.** The fusion's `impl Effect for <fusion>` renders
+  its signature from the *effect's* member declaration, where a parameter
+  of the effect's own generic type is borrowed; `__Impl_H` renders from the
+  *handler's*, where the same parameter may be a Copy scalar passed by
+  value. Any place two independently-rendered signatures meet needs the
+  bridge written explicitly (here a deref) — it had been an `E0308` since
+  the fusion landed, reachable by any dependent handler of a generic effect
+  instance (2026-09-14).
 - **A green e2e test can hide a misparenthesized emission — shape-assert
   the exact text when an emitter inserts casts.** The first promotion cast
   emitted `(n * 2 as i64)`, which Rust parses as `n * (2 as i64)` because

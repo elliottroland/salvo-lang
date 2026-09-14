@@ -127,7 +127,7 @@ runner, where cross-binary scheduling wins and the timings matter):
 |---|---|---|
 | `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~4s |
 | `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~5s warm, ~1min cold |
-| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~50s |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~55–70s |
 
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
   the fresh nextest run before anything that gets committed or handed over.

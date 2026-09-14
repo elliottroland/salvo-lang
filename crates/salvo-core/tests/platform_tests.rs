@@ -96,7 +96,7 @@ fn a_handler_may_depend_on_a_platform_effect() {
         "platform effect Telemetry {\n    \
              fn record(name: Str) [] -> None => name\n}\n\n\
          effect Logger {\n    fn log(message: Str) -> None => message\n}\n\n\
-         handler AuditLogger(telemetry: Telemetry) of Logger {\n    \
+         handler AuditLogger [Telemetry] of Logger {\n    \
              fn log(message: Str) -> None => message {\n        \
                  record(message)\n    }\n}\n\n\
          fn main() [use, Telemetry] {\n    use AuditLogger()\n}\n",

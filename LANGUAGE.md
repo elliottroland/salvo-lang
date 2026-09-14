@@ -1429,7 +1429,7 @@ A handler can be "registered" in the current context using the `use` keyword. Th
 ```
 fn main() [use] -> None {
     // Register the CyclicRandom as the implementation of Random<Int> for the rest of this function.
-    // Attempts to register another Random<Int> will fail.
+    // A later `use` for the same effect shadows this one from that point on.
     use CyclicRandom(array_of(1,2,3,4))
 
     // Here we can call the function next_random()
@@ -1504,6 +1504,53 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
     let number = next_random<Int>()
 }
 ```
+
+### Handlers with dependencies, and interception
+
+A handler may need an effect of its own to do its job. It declares that the way a function does — an effect list before the `of` clause — and the compiler supplies it where the handler is registered. Callers never mention it:
+
+```
+handler ConsoleLogger [Console] of Logger {
+    fn log(message: Str) -> None => message {
+        println("LOG: ${message}")      // Console reaches the body
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use ConsoleLogger                   // the Console is not written here
+    log("hello")
+}
+```
+
+The dependencies have no names, because there would be nothing to do with one: code inside a handler reaches an effect the way all Salvo code does, by calling its members. So the list says only *what the handler needs to run*, which is exactly what a function's effect list says.
+
+The dependency is declared on the *handler*, not on the effect: two implementations of one effect need different things, and a `Logger` that writes to a file has no business making every `Logger` mention a console. A `use` whose dependency has no handler in scope is an error that names it, so a dependency is always registered before its dependent — which is also why dependency cycles need no separate check: `A` needing `B` and `B` needing `A` fails at whichever is registered first.
+
+The list may name **the very effect the handler implements**, which is *interception*: a handler that wraps the one already in scope.
+
+```
+handler Loud [Greeter] of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return "${greet(name)}!"        // the *wrapped* greeter
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use Plain                           // greet -> "hello world"
+    use Loud                            // greet -> "hello world!"
+    println(greet("world"))
+}
+```
+
+The rule that makes this well-defined is that such a dependency **binds strictly outward**: it is the instance registered *before* this `use`, never the handler being registered. So a call inside `Loud.greet` goes one layer out rather than back to itself, interceptors stack (`use Loud` twice gives `"hello world!!"`), and the acyclicity argument is untouched — every dependency still points at an earlier registration. Registering an interceptor with nothing to intercept is an error that says so.
+
+Interception is what makes a *policy* handler writable in Salvo: a restricting file system that checks paths and then delegates, a logging or retrying handler over whatever was there before, a test double wrapped around a real implementation. It is per instance of a generic effect, so intercepting `Store<Int>` leaves `Store<Str>` alone.
+
+Both of these rest on shadowing, which is worth stating on its own: a `use` for an effect instance already in scope is not an error — it takes over for the rest of the block, and the handler it shadowed answers again when that block ends. Shadowing needs no dependency (registering a second, unrelated `Greeter` simply replaces the first), and the innermost registration always wins, exactly as a shadowing local variable does.
+
+One thing a handler cannot do yet: call **its own** effect's other members. `Twice.greet` cannot call `greet` on itself — a handler does not dispatch to itself, and declaring the effect as a dependency means the handler *outside*, not this one. Move the shared logic into a function both members call; the diagnostic says as much.
 
 ### Two effects, one member name
 
@@ -2387,7 +2434,7 @@ This is the point of the design: because the interface is generated and the impl
 A Salvo handler may *depend* on a platform effect, which is how a handler written in Salvo reaches the host:
 
 ```
-handler AuditLogger(telemetry: Telemetry) of Logger {
+handler AuditLogger [Telemetry] of Logger {
     fn log(message: Str) -> None => message {
         record(message)
     }

@@ -165,10 +165,10 @@ int↔float, literal adoption, `Bool`-only logicals — decided 2026-09-14,
 **implementation still owed before or inside phase 4**) and shared member
 names (`@Effect` call disambiguation — decided 2026-09-14, the grammar rule
 to be drafted with phase 4). What remains here is *work*, not decisions:
-the operator-typing checker slice, the `@Effect` grammar, O-R2
-interception (checker + both backends), the `platform handler` mechanism
-(possibly its own decoupled session), then the fs surface itself with the
-two-deliverable byte sequencing.
+the `platform handler` mechanism (possibly its own decoupled session),
+then the fs surface itself with the two-deliverable byte sequencing. The
+operator-typing checker slice, the `@Effect` grammar and O-R2
+interception are **built** (2026-09-14; see S-IO below).
 
 **S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
 day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
@@ -445,15 +445,51 @@ O-M2, user decision 2026-09-14 — see FILE_SYSTEM.md), so `platform handler`
 is now S-IO work item 5, possibly its own decoupled session. `platform type`
 remains deferred; `platform effect` remains the interop path until then.
 
-### Two cuts inside the Rust effect fusion
+### A handler cannot dispatch to itself — recorded gap (found 2026-09-14)
 
-Both are live divergences — Kotlin accepts them, because generics erase — and
-both are *reported* rather than mis-emitted [rs-effect-fusion]:
+A handler member may not call **another member of its own effect**. Repro:
+
+```
+handler Twice of Counter {
+    fn bump() -> Int {
+        return bump() + bump()      // error: a handler member cannot call
+    }                               // `bump`, a member of `Counter` — the
+}                                   // effect its own handler implements
+```
+
+Root cause, and why it is a design question rather than a bug: inside a
+handler member the effect environment is the handler's *dependencies*
+[effect-handler-deps], and the bare member name is already taken — declaring
+the effect it implements means the handler registered **before** this one
+[effect-intercept]. So self-dispatch needs a *different* spelling, and that
+spelling is a language call (`self.bump()`, `bump@self()`, …). Neither remedy
+the general "no handler" diagnostic used to name is available in a member
+either (a member may not declare effects, and may not `use`), so the
+diagnostic now says what is actually wrong and names the workaround.
+
+**The workaround is a function**: move the shared logic into an ordinary fn
+that both members call, passing what it needs. That is what std does today.
+
+Worth deciding before it bites in anger: **phase 4's `MemFs.read_all` wants
+to call its own `read_line`** (FILE_SYSTEM.md §5.10.2's member list has
+several such pairs), so the fs surface will either take the fn workaround or
+force this decision. **DECISION** when it does: the spelling, and whether a
+self-call may be recursive at all (a member calling itself is unbounded
+recursion the checker would not diagnose).
+
+### Two cuts inside the effect fusion
+
+Both are *reported* rather than mis-emitted [rs-effect-fusion]:
 
 - a dependent handler using its own generic parameters in a member signature;
 - a `use` whose effect instance is still generic.
 
-Each needs the fusion to derive type arguments it does not derive today.
+Each needs the fusion to derive type arguments it does not derive today. They
+used to be **divergences** (Kotlin accepted them, because generics erase);
+since 2026-09-14 Kotlin refuses a still-generic fused effect set too, in its
+own words — a fused class has no type parameters to spell a `Store<T>`
+property with, and before that the leak surfaced as a kotlinc "unresolved
+reference 'T'" [kt-effect-fusion].
 
 ## Iterators
 
@@ -972,10 +1008,12 @@ what is left is implementation, in the agreed order:
    [effect-member-overload]): shared member names across effects,
    availability-resolved bare calls, `close@Fs(h)` / `h.close@Net()` /
    `next_random@Random<Int>()`.
-4. **O-R2 interception**: a handler may depend on the effect it
-   implements, binding strictly outward; shadowing allowed (same-scope
-   duplicate-instance registration stays an error). Checker + both
-   backends + diagnostics.
+4. ~~**O-R2 interception**~~ — **✅ built 2026-09-14** (COMPLETED.md
+   decision log; [effect-intercept], restated [use-no-dup]): a handler may
+   depend on the effect it implements, binding strictly outward; `use`
+   shadows an earlier registration, innermost wins; checker + both
+   backends + diagnostics. It also closed a pre-existing Rust `E0308` for
+   dependent handlers of generic effect instances.
 5. **The `platform handler` mechanism** (FS-1/O-M2), possibly its own
    decoupled session; `HostRawFs` is its first customer.
 6. **The filesystem itself**, per
@@ -1369,7 +1407,8 @@ blocking, and several are "revisit only if a customer appears".
 
 - **Fresh-suite speed, remaining steps toward ~10–15s** (goal set by the
   user 2026-09-12; the kotlinc batching landed the same day — see
-  COMPLETED.md decision log — bringing a fresh run to ~50s). What is left,
+  COMPLETED.md decision log — bringing a fresh run to ~50s, ~55–70s
+  since the interception case joined the batch). What is left,
   in impact order: the CLI suites (`run_tests`, `platform_tests`,
   `analyze_tests`: ~16s max single test; each spawns `salvo run`/`compile`
   which pays its own kotlinc), the rust codegen suite (~4.8s max under

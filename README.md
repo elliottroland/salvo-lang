@@ -147,13 +147,16 @@ fn main() [use] {
   declaring one function.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible
-  in signatures. A handler may itself depend on another effect (declared as
-  a constructor parameter of effect type); the compiler supplies it from
-  the enclosing scope, so callers never mention it. A function *value* that
-  performs an effect declares it in its type (`(s: Str) [Logger] -> Str`),
-  and the effect is supplied by whoever calls the value — so a higher-order
-  function inherits its callback's effects and needs no annotation of its
-  own.
+  in signatures. A handler may itself depend on an effect (declared as an
+  effect list on the handler, like a function's); the compiler supplies it
+  from the enclosing scope, so callers never mention it. That effect may be
+  **the one the handler implements**, which is interception: the
+  dependency binds strictly outward, so a policy handler wraps the one
+  already registered, and a later `use` shadows an earlier one. A function
+  *value* that performs an effect declares it in its type
+  (`(s: Str) [Logger] -> Str`), and the effect is supplied by whoever calls
+  the value — so a higher-order function inherits its callback's effects
+  and needs no annotation of its own.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
   `Nothing`, so intermediate frames stay silent. The delimiter is
