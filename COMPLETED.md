@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 923 tests, complete: the toolchain tests are
+cargo test                  # 930 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,6 +122,57 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**One overload set: an effect member and a fn of the same name compete
+(user decision 2026-09-14, option (a) of three).** A name that is both a
+member of an *available* effect and an ordinary fn now resolves as one
+overload set, ranked by signature specificity exactly as two fn overloads are
+[effect-available]. std is the customer that forced the question: `close` is
+an `Fs` member per stream token *and* the `Lines` pass's discharger, so it
+shipped as `close_lines` for one afternoon and is `close` again.
+
+**What the rule is.** The chosen effect's members and the fn overloads are
+compared as one pool; the more specific signature wins, so a concrete fn beats
+a generic member. A tie — both fitting, neither dominating — is an error
+naming both remedies (`close@Fs(…)` / `close@module(…)`), never a silent
+preference; a call fitting neither side is *one* diagnostic listing both
+sides' signatures. `@module` now skips the member set whole, which is how a
+shadowed fn is called by hand (before, it was hijacked by the member too —
+the bug that made option (c) look worse than it was).
+
+**How it is built, and why the blast radius is small.** Where a name has
+candidates on one side only, that side's path runs untouched, so only
+colliding names take the new route. There, the arguments are typed **once**
+and handed to whichever path wins, which needed three things: a shared
+`arg_fits_param` predicate (a call routed by a *different* fit test than the
+path applies would report "no overload" for something that fits), a
+`fitting_members`/`fitting_fns` pair returning the patterns that were
+compared, and `pre_typed` parameters on `check_effect_call` and the fn path so
+neither types an argument twice. Recorded cut: a colliding call has no lead
+candidate, so a lambda argument needing its parameter type from the position
+falls back to [type-unknown-lenient] — it still ran identically on both
+backends in the cases tried, but the checker is not proving it. ROADMAP.md
+carries it.
+
+**A pre-existing Rust defect fell out of testing it**: a fn-typed *parameter*
+whose name matched a program-wide fn was emitted as a module call —
+`self::keep(x)` inside `core/seq.rs` when the program declared any
+`fn keep(…)`, which does not resolve there. The member branch already
+consulted `local_calls` for exactly this hazard; the fn branch now does too.
+It was reachable before any of this work (a program with `fn f(…)` broke
+`map`), and Kotlin was unaffected because a local shadows a top-level name
+there.
+
+Tests: 930 passing (from 923), fresh. Seven checker tests in
+`effect_at_tests.rs` — the two sides coexisting, the fn reachable while the
+effect is available, a concrete fn beating a generic member, the ambiguous
+tie, both selectors, the fits-neither diagnostic, and availability still
+deciding first — plus each backend's fs case now calling `close(p)` (the fn)
+and `close(s)` (the member) in one program, with the emitted fn asserted in
+the golden test. Three golden assertions moved to `close__2`, because a user's
+`close` is now the *second* overload of that name program-wide (std declares
+the first). Rules: LANGUAGE_SPEC.md [effect-available] rewritten; LANGUAGE.md
+"Two effects, one member name" gained the member-versus-fn half.
+
 **The filesystem surface — `core.fs` and `core.hostfs` (phase 4 item 6.3;
 user decision on the token shape, 2026-09-14).** std has a filesystem: an
 `Fs` effect carrying path *and* stream operations, linear stream tokens, a
@@ -188,12 +239,10 @@ already read availability this way; this is the single-owner case of the same
 rule, recorded for the emitters as `fn_over_member_calls` for the same reason
 `local_calls` exists.
 
-**Still open, and it is a language call**: where the effect *is* available, a
-fitting free fn does not compete with the member set, so `close(p: Lines)`
-cannot be called while an `Fs` is in scope. std ships the pass discharger as
-`close_lines` to work today; the options (one overload set, a
-no-fitting-member fallback, or distinct names forever) are a **DECISION** in
-ROADMAP.md.
+**One thing was left open here and answered the same day**: where the effect
+*is* available, a fitting free fn did not compete with the member set, so
+`close(p: Lines)` could not be called while an `Fs` was in scope. The user
+chose one overload set (option (a)) — see the entry above.
 
 Smaller findings, recorded rather than fixed: `rename` is a keyword, so the
 member is `rename_path`; `core.fs` is emitted (dead) in programs that never

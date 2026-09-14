@@ -55,6 +55,16 @@ enum Picked<'p> {
     None,
 }
 
+/// [effect-available] Which side of a name's **one overload set** a call
+/// belongs to (user decision 2026-09-14), carrying the argument types typed
+/// while deciding so neither path types them again. `Neither` means a
+/// diagnostic naming both sides has already been reported.
+enum Route {
+    Member(Vec<Ty>),
+    Fn(Vec<Ty>),
+    Neither,
+}
+
 /// [fn-overload-rank] One candidate that *fits* a call: the declaration, the
 /// bindings and coercion targets its match produced, and everything the
 /// selection needs — the ranking view of its parameters, and the rung of the
@@ -3263,6 +3273,223 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn render_signature(name: &str, v: &Viable<'p>) -> String {
         let ps: Vec<String> = v.rank.patterns.iter().map(|p| p.to_string()).collect();
         format!("`{name}({})`", ps.join(", "))
+    }
+
+    /// [proj-type] [fn-overload-rank] Whether an argument of type `arg` fits
+    /// a parameter whose (substituted) type is `param`.
+    ///
+    /// One predicate, shared by fn-overload selection and by the
+    /// member-versus-fn ranking [effect-available], because a call routed to
+    /// one path by a *different* fit test than that path applies is a call
+    /// that reports "no overload" for something that fits. A kept,
+    /// non-`Mut` position reads its argument, so a top-level projection fits
+    /// it; a consumed or `Mut` position needs the owned value.
+    fn arg_fits_param(&self, arg: &Ty, param: &Ty, kept: bool) -> bool {
+        is_subtype(arg, param)
+            || (kept
+                && !Self::carries_mut(param)
+                && arg.is_proj()
+                && is_subtype(&arg.strip_top_proj(), param))
+    }
+
+    /// [effect-available] Where a name's **one overload set** sends a call
+    /// (user decision 2026-09-14): an effect member of an available effect,
+    /// or an ordinary fn. The arguments are typed here, once, and handed to
+    /// whichever path runs.
+    fn route_member_or_fn(
+        &mut self,
+        name: &str,
+        effect: &'p EffectDecl,
+        members: &[&'p FnDecl],
+        fn_cands: &[crate::resolve::FnEntry<'p>],
+        args: &[&'p Expr],
+        span: Span,
+    ) -> Route {
+        // Typed without expected types: the lead-candidate machinery belongs
+        // to the fn path and cannot run before the side is known. A bare
+        // lambda in a *colliding* call therefore needs an annotation — an
+        // error, never a silent difference (recorded cut, ROADMAP.md).
+        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
+        let m = self.fitting_members(effect, members, &arg_tys);
+        let f = self.fitting_fns(fn_cands, &arg_tys);
+        let shown = |tys: &[Ty]| -> String {
+            tys.iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        match (m.is_empty(), f.is_empty()) {
+            // Neither side accepts the arguments: one diagnostic listing
+            // both, since to the caller they are one name.
+            (true, true) => {
+                let mut sigs: Vec<String> = Vec::new();
+                for decl in members {
+                    sigs.push(format!(
+                        "`{}.{name}({})`",
+                        effect.name.name,
+                        shown(&self.declared_param_tys(decl))
+                    ));
+                }
+                for entry in fn_cands {
+                    sigs.push(format!(
+                        "`{name}({})`",
+                        shown(&self.declared_param_tys(entry.decl))
+                    ));
+                }
+                self.error(
+                    span,
+                    format!(
+                        "no `{name}` accepts ({}): the candidates are {}",
+                        shown(&arg_tys),
+                        sigs.join(", ")
+                    ),
+                );
+                Route::Neither
+            }
+            (false, true) => Route::Member(arg_tys),
+            (true, false) => Route::Fn(arg_tys),
+            // Both fit: the more specific signature wins, exactly as two fn
+            // overloads settle it [fn-overload-rank]. Each side's own best
+            // stands for it — an internally ambiguous side reports that
+            // itself, on the path it belongs to.
+            (false, false) => {
+                let m_ranks: Vec<crate::types::RankedCandidate> =
+                    m.iter().map(|(_, r)| r.clone()).collect();
+                let f_ranks: Vec<crate::types::RankedCandidate> =
+                    f.iter().map(|(_, r)| r.clone()).collect();
+                let mb = crate::types::most_specific(&m_ranks).unwrap_or(0);
+                let fb = crate::types::most_specific(&f_ranks).unwrap_or(0);
+                let pair = vec![m_ranks[mb].clone(), f_ranks[fb].clone()];
+                match crate::types::most_specific(&pair) {
+                    Some(0) => Route::Member(arg_tys),
+                    Some(_) => Route::Fn(arg_tys),
+                    None => {
+                        let module = fn_cands[f[fb].0].module;
+                        self.error(
+                            span,
+                            format!(
+                                "ambiguous call to `{name}`: the member \
+                                 `{}.{name}({})` and the function `{name}({})` \
+                                 both accept ({}), and neither is more specific — \
+                                 write `{name}@{}(…)` for the member or \
+                                 `{name}@{module}(…)` for the function",
+                                effect.name.name,
+                                shown(&m_ranks[mb].patterns),
+                                shown(&f_ranks[fb].patterns),
+                                shown(&arg_tys),
+                                effect.name.name,
+                            ),
+                        );
+                        // Recover as the member: that is what the call meant
+                        // before the two competed, so the rest of the check
+                        // sees the same types it used to.
+                        Route::Member(arg_tys)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The declared parameter types of a fn or member, for a diagnostic that
+    /// has no fitting patterns to show.
+    fn declared_param_tys(&mut self, decl: &'p FnDecl) -> Vec<Ty> {
+        let saved = self.enter_generics(&decl.generics);
+        let tys: Vec<Ty> = decl
+            .params
+            .iter()
+            .filter(|p| !p.variadic && !p.implicit)
+            .map(|p| self.lower_type(&p.ty))
+            .collect();
+        self.generics = saved;
+        tys
+    }
+
+    /// [effect-available] [fn-overload-rank] Which fn overloads of a name
+    /// accept `arg_tys`, with the patterns compared — the fn side of the
+    /// member-versus-fn comparison, and deliberately the *same* test the fn
+    /// path itself applies (`arg_fits_param`, the callee's contract for
+    /// `kept`, `unify` for generics), so a call is never routed to a path
+    /// that then reports "no overload" for something that fits.
+    ///
+    /// Returned as (index into `candidates`, patterns). Selection proper —
+    /// rungs, variadic collection, projection diagnostics — stays in the fn
+    /// path: this answers only "does this side have a candidate, and how
+    /// specific is its best one".
+    fn fitting_fns(
+        &mut self,
+        candidates: &[crate::resolve::FnEntry<'p>],
+        arg_tys: &[Ty],
+    ) -> Vec<(usize, crate::types::RankedCandidate)> {
+        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
+        for (i, entry) in candidates.iter().enumerate() {
+            let decl = entry.decl;
+            let fixed: Vec<&Param> = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .collect();
+            let variadic = decl.params.iter().find(|p| p.variadic);
+            let arity_ok = if variadic.is_some() {
+                arg_tys.len() >= fixed.len()
+            } else {
+                arg_tys.len() == fixed.len()
+            };
+            if !arity_ok {
+                continue;
+            }
+            let saved = self.enter_generics(&decl.generics);
+            let mut patterns: Vec<Ty> = Vec::with_capacity(arg_tys.len());
+            for i in 0..arg_tys.len() {
+                if i < fixed.len() {
+                    patterns.push(self.lower_type(&fixed[i].ty));
+                } else if let Some(vp) = variadic {
+                    let arr = self.lower_type(&vp.ty);
+                    patterns.push(match &arr {
+                        Ty::Array(e) => (**e).clone(),
+                        _ => arr.clone(),
+                    });
+                }
+            }
+            self.generics = saved;
+            let callee_generics: HashSet<String> =
+                decl.generics.iter().map(|g| g.name.clone()).collect();
+            let mut subst: HashMap<String, Ty> = HashMap::new();
+            if !patterns
+                .iter()
+                .zip(arg_tys)
+                .all(|(p, a)| unify(p, a, &mut subst))
+            {
+                continue;
+            }
+            let contract = self.effective_contract(Some(entry.key), decl);
+            let mut fits = true;
+            for (slot, pattern) in patterns.iter().enumerate() {
+                let sp = substitute_vars(pattern, &subst, &callee_generics);
+                let kept = contract
+                    .as_ref()
+                    .and_then(|c| {
+                        let pname = fixed.get(slot).map(|fp| fp.name.name.as_str());
+                        c.iter()
+                            .find(|d| Some(d.param.as_str()) == pname)
+                            .map(|d| d.kept)
+                    })
+                    .unwrap_or(true);
+                if !self.arg_fits_param(&arg_tys[slot], &sp, kept) {
+                    fits = false;
+                    break;
+                }
+            }
+            if fits {
+                viable.push((
+                    i,
+                    crate::types::RankedCandidate {
+                        patterns,
+                        variadic: variadic.is_some() && arg_tys.len() >= fixed.len(),
+                    },
+                ));
+            }
+        }
+        viable
     }
 
     /// [fn-overload-rank] The pool of candidates that may *lead* a
@@ -14018,7 +14245,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.record_def_ref(name.span, &name.name);
             return self.check_effect_call(
-                decl, &members, type_args, &all_args, named, expected, span,
+                decl, &members, type_args, &all_args, named, expected, None, span,
             );
         }
 
@@ -14234,13 +14461,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         at: Option<&'p [ast::Ident]>,
         span: Span,
     ) -> Ty {
+        // Argument types computed while deciding *which* overload set a
+        // colliding name belongs to [effect-available]: the fn path below
+        // takes them as they are instead of typing the arguments twice.
+        let mut pre_typed: Option<Vec<Ty>> = None;
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
         // effects). [effect-member-overload] Several effects may declare
         // the member name: the one with an instance available wins; two
         // available (or none) is an error naming the `member@Effect(…)`
         // form [effect-at].
-        if let Some(members) = self.scope.effect_members.get(name) {
+        //
+        // [effect-available] A written `@module` selector names a *module's
+        // overloads*, which no member ever is, so it skips this block whole:
+        // that is how a fn shadowed by a member is called by hand.
+        if let Some(members) = self.scope.effect_members.get(name).filter(|_| at.is_none()) {
             let members = members.clone();
             // [effect-available] **Availability decides first** (2026-09-14):
             // a member call needs an instance, so a name that is *also* an
@@ -14333,9 +14568,38 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-member-overload] The effect is chosen; its overloads of
             // this name are what the argument types choose between.
             let overloads = crate::effect_members_named(effect, name);
-            return self.check_effect_call(
-                effect, &overloads, type_args, args, named, expected, span,
-            );
+            // [effect-available] **One overload set** (user decision
+            // 2026-09-14): where the name is *also* a fn, both sides compete
+            // and the more specific signature wins. Only the colliding case
+            // takes this route — with candidates on one side only, that
+            // side's path runs exactly as it always did.
+            let fn_cands = self.overloads_of(name);
+            if fn_cands.is_empty() {
+                return self.check_effect_call(
+                    effect, &overloads, type_args, args, named, expected, None, span,
+                );
+            }
+            match self.route_member_or_fn(name, effect, &overloads, &fn_cands, args, span) {
+                Route::Member(arg_tys) => {
+                    return self.check_effect_call(
+                        effect,
+                        &overloads,
+                        type_args,
+                        args,
+                        named,
+                        expected,
+                        Some(arg_tys),
+                        span,
+                    );
+                }
+                Route::Fn(arg_tys) => {
+                    // The fn side won: fall through, with the types already
+                    // in hand and the emitters told [effect-available].
+                    self.out.fn_over_member_calls.insert(self.key(span));
+                    pre_typed = Some(arg_tys);
+                }
+                Route::Neither => return Ty::Unknown,
+            }
             }
         }
 
@@ -14424,9 +14688,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`map(xs.iter(), n -> n * 2)` reported as
         // `map(Iter<Int>, (T) -> T)`). The same progressive rule effect
         // member generics already use [effect-member-generics].
-        let mut pool: Vec<LeadCandidate> = self.lead_pool(&candidates, args.len(), type_args);
-        let mut arg_tys: Vec<Ty> = Vec::with_capacity(args.len());
+        // [effect-available] Already typed, because this name's member and fn
+        // candidates were ranked as one overload set: type them again and
+        // every argument is checked twice and every mistake reported twice.
+        // A colliding call therefore has no lead candidate and no expected
+        // types — the recorded cut on that rule.
+        let mut pool: Vec<LeadCandidate> = if pre_typed.is_some() {
+            Vec::new()
+        } else {
+            self.lead_pool(&candidates, args.len(), type_args)
+        };
+        let typed_already = pre_typed.is_some();
+        let mut arg_tys: Vec<Ty> = pre_typed.unwrap_or_else(|| Vec::with_capacity(args.len()));
         for (i, a) in args.iter().enumerate() {
+            if typed_already {
+                break;
+            }
             let lead = Self::dominant_lead(&pool);
             let exp: Option<Ty> = match lead {
                 Some(pi) => {
@@ -14584,11 +14861,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .map(|d| d.kept)
                     })
                     .unwrap_or(true);
-                let fits = is_subtype(&arg_tys[i], &sp)
-                    || (kept
-                        && !Self::carries_mut(&sp)
-                        && arg_tys[i].is_proj()
-                        && is_subtype(&arg_tys[i].strip_top_proj(), &sp));
+                let fits = self.arg_fits_param(&arg_tys[i], &sp, kept);
                 if !fits {
                     // Remember when *only* the projection stood in the way,
                     // for the diagnostic below.
@@ -15456,6 +15729,56 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [effect-member-overload] [effect-available] Which of `members` accept
+    /// `arg_tys`, with the patterns that were compared — the ranking material
+    /// for both the within-effect overload choice and the member-versus-fn
+    /// comparison, so the two cannot disagree about what fits.
+    ///
+    /// Returned as (index into `members`, patterns).
+    fn fitting_members(
+        &mut self,
+        effect: &'p EffectDecl,
+        members: &[&'p FnDecl],
+        arg_tys: &[Ty],
+    ) -> Vec<(usize, crate::types::RankedCandidate)> {
+        let saved = self.enter_generics(&effect.generics);
+        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
+        for (i, f) in members.iter().enumerate() {
+            let inner = self.enter_generics(&f.generics);
+            let patterns: Vec<Ty> = f
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .map(|p| self.lower_type(&p.ty))
+                .collect();
+            self.generics = inner;
+            let generic_set: HashSet<String> = effect
+                .generics
+                .iter()
+                .chain(&f.generics)
+                .map(|g| g.name.clone())
+                .collect();
+            let fits = patterns.len() == arg_tys.len()
+                && patterns.iter().zip(arg_tys).all(|(p, a)| {
+                    let mut subst: HashMap<String, Ty> = HashMap::new();
+                    a.is_unknown()
+                        || is_subtype(a, p)
+                        || (!generic_set.is_empty() && unify(p, a, &mut subst))
+                });
+            if fits {
+                viable.push((
+                    i,
+                    crate::types::RankedCandidate {
+                        patterns,
+                        variadic: false,
+                    },
+                ));
+            }
+        }
+        self.generics = saved;
+        viable
+    }
+
     /// [effect-member-overload] Picks the overload a member call means, out
     /// of every member of `effect` with that name.
     ///
@@ -15469,11 +15792,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         effect: &'p EffectDecl,
         members: &[&'p FnDecl],
         args: &[&'p Expr],
+        // [effect-available] The argument types, when the caller has already
+        // computed them — which it has whenever a name's member and fn
+        // candidates were ranked as one set. Typing them again would check
+        // every argument twice and report every mistake twice.
+        pre_typed: Option<Vec<Ty>>,
         span: Span,
     ) -> Picked<'p> {
         match members {
             [] => return Picked::None,
-            [only] => return Picked::Only(only),
+            [only] => {
+                return match pre_typed {
+                    Some(tys) => Picked::ByArgs(only, tys),
+                    None => Picked::Only(only),
+                }
+            }
             _ => {}
         }
         let fixed = |f: &FnDecl| -> usize {
@@ -15495,42 +15828,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             by_arity
         };
-        let arg_tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
-        let saved = self.enter_generics(&effect.generics);
-        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
-        for (i, f) in pool.iter().enumerate() {
-            let inner = self.enter_generics(&f.generics);
-            let patterns: Vec<Ty> = f
-                .params
-                .iter()
-                .filter(|p| !p.variadic && !p.implicit)
-                .map(|p| self.lower_type(&p.ty))
-                .collect();
-            self.generics = inner;
-            let generic_set: HashSet<String> = effect
-                .generics
-                .iter()
-                .chain(&f.generics)
-                .map(|g| g.name.clone())
-                .collect();
-            let fits = patterns.len() == arg_tys.len()
-                && patterns.iter().zip(&arg_tys).all(|(p, a)| {
-                    let mut subst: HashMap<String, Ty> = HashMap::new();
-                    a.is_unknown()
-                        || is_subtype(a, p)
-                        || (!generic_set.is_empty() && unify(p, a, &mut subst))
-                });
-            if fits {
-                viable.push((
-                    i,
-                    crate::types::RankedCandidate {
-                        patterns,
-                        variadic: false,
-                    },
-                ));
-            }
-        }
-        self.generics = saved;
+        let arg_tys: Vec<Ty> = match pre_typed {
+            Some(tys) => tys,
+            None => args.iter().map(|a| self.check_expr(a, None)).collect(),
+        };
+        let viable = self.fitting_members(effect, &pool, &arg_tys);
         let shown = || -> String {
             arg_tys
                 .iter()
@@ -15586,6 +15888,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (`close(InStream)` / `close(OutStream)`). The overload is picked here,
     /// before the instance is resolved, since the signature is what the rest
     /// of the check runs on.
+    #[allow(clippy::too_many_arguments)]
     fn check_effect_call(
         &mut self,
         effect: &'p EffectDecl,
@@ -15594,13 +15897,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         args: &[&'p Expr],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
+        // [effect-available] Argument types the caller already computed,
+        // because it ranked this effect's members against same-named fns as
+        // one overload set.
+        pre_typed: Option<Vec<Ty>>,
         span: Span,
     ) -> Ty {
         // Argument types when they had to be computed early — for picking an
         // overload here, or for disambiguating instances below. Recorded once
         // so the arguments are never checked twice.
         let mut typed_args: Option<Vec<Ty>> = None;
-        let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, span) {
+        let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, pre_typed, span) {
             Picked::Only(m) => m,
             Picked::ByArgs(m, arg_tys) => {
                 typed_args = Some(arg_tys);

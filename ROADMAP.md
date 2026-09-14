@@ -201,7 +201,7 @@ links to the section that states the options.
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| **One name, member or fn?** — a *fitting* free fn does not compete with an available effect's member set, so `close(lines)` beside an `Fs` in scope is an error. Merge them into one overload set (a), fall back to fns when no member fits (b, recommended), or keep distinct names in std (c, shipped today as `close_lines`) | phase 4, before the fs surface is called *done* | "S-IO" item 6.3 |
+| *(none open — the member-vs-fn question was decided 2026-09-14: **one overload set**, option (a); the plan is under "S-IO" item 6.4)* | — | — |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
 (The three phase-4 rows this table used to carry — operator typing, shared
@@ -1048,24 +1048,11 @@ what is left is implementation, in the agreed order:
       2026-09-14, option (b)); the split into two modules is load-bearing
       [fs-host-split].
    4. **What is left of the fs**, in this order:
-      * **DECISION, and the only thing between the surface and "done":**
-        std's pass discharger ships as `close_lines(p: Lines)` because a
-        *fitting* free fn does not compete with an available effect's member
-        set — `close(p)` with an `Fs` in scope is an error naming `Fs.close`'s
-        overloads. Options, with cost: (a) **one overload set** — members and
-        fns ranked together by specificity, `@` as the tie-breaker
-        (principled, the largest change, some ambiguity-diagnostic risk);
-        (b) **fall back when no member fits** — the member set is tried
-        first, and a call no member accepts goes to the fns, so every
-        program that compiles today keeps its meaning and `close(lines)`
-        starts working (recommended; argument typing has to be shared
-        between the two paths so nothing is checked twice); (c) **keep
-        distinct names in std** — zero compiler work, and every user who
-        writes a linear pass with a `close` hits the same wall. Note the
-        *un*available case is already fixed and is not part of this: a name
-        that is both a member and a fn resolves to the fn wherever no
-        handler is in scope [effect-available], which is what keeps a
-        program with its own `close` compiling at all.
+      * ~~One overload set: members and fns compete~~ — **✅ built
+        2026-09-14** (user decision, option (a) of three; COMPLETED.md's
+        decision log): members of an available effect and fns of the name are
+        ranked together by specificity, a tie is an error naming both `@`
+        remedies, and std's pass discharger went back to being `close`.
       * **`MemFs of Fs`** — the in-memory double (`Mut Map<Long, MemOpen>`
         handler state), and the round-trip hazard from §5.5.1: byte offsets
         must match the host's, or unit tests pass while production breaks.
@@ -1115,6 +1102,13 @@ phase 4, and retires into COMPLETED.md when the fs is done.
   of something the value already has. Invisible in std (`core.*` is
   implicit); worth a better diagnostic, or a rule that the subject's own
   declaration is enough.
+- **A colliding call types its arguments without expected types**
+  [effect-available]: the lead-candidate machinery belongs to the fn path, so
+  inside a call whose name is both an available member and a fn, a lambda that
+  needs its parameter type from the position falls back to
+  [type-unknown-lenient]. Both backends still emit working code for the cases
+  tried (a field read through such a lambda runs identically on both), but the
+  checker is not proving it. The fix is a lead pool shared by both kinds.
 - **Kotlin's `USELESS_CAST` is suppressed rather than avoided**
   [kt-suppress-cast]: the emitter could skip the payload cast where kotlinc's
   smart cast already types it, but knowing exactly when is subtle, and the

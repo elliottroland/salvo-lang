@@ -1249,14 +1249,17 @@ fn discard_lowers_to_drop() {
         .expect("main.rs emitted");
     // [linear-discard] A linear value's discharge is its own `close`; what
     // `discard` still lowers to is `drop`, for the non-linear values it is
-    // now the escape hatch for.
+    // now the escape hatch for. The name carries a suffix because std
+    // declares a `close` too (the `Lines` discharger [fs-surface]) — one
+    // name, one overload set, and the emitters spell every overload after
+    // the first apart.
     assert!(
-        main.content.contains("close(h)"),
+        main.content.contains("close__2(h)"),
         "generated:\n{}",
         main.content
     );
     assert!(
-        main.content.contains("close(temp)"),
+        main.content.contains("close__2(temp)"),
         "generated:\n{}",
         main.content
     );
@@ -4372,7 +4375,8 @@ fn a_raw_pass_is_driven_in_place_and_closed_explicitly() {
         main.content
     );
     assert!(
-        main.content.contains("close(console, lines);"),
+        // Suffixed: std declares a `close` too [fs-surface].
+        main.content.contains("close__2(console, lines);"),
         "expected the program's own explicit close:\n{}",
         main.content
     );
@@ -7791,7 +7795,7 @@ fn main() [use] -> None {
             for line in p {
                 println("line: ${line}")
             }
-            let closed = close_lines(p)
+            let closed = close(p)
             when closed {
                 is Ok { println("closed") }
                 is Err { println("closed: ${describe(closed)}") ignore(closed) }
@@ -7875,6 +7879,10 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
         "fn close(&mut self, s: InStream)",
         // …and kept members borrow it.
         "fn read_line(&mut self, s: &InStream) -> Option<String>",
+        // [effect-available] One overload set: the pass's discharger is a
+        // *fn* named `close`, beside the two members of that name, and the
+        // program calls both.
+        "pub fn close<__Fx: __Has_Fs>(__fx: &mut __Fx, p: Lines)",
     ] {
         assert!(
             surface.contains(expected),

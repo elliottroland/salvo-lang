@@ -8701,7 +8701,19 @@ impl<'p> Emitter<'p> {
         // 3. Known function (unchecked contexts): arity narrowed by the
         // checked argument types; ambiguous dispatch is a codegen error,
         // never a guess [backend-never-wrong] [fn-overload].
-        let fn_cands = self.symbols.fns_matching_arity(name, args.len());
+        //
+        // [call-resolve] Not when the checker resolved the callee to a
+        // fn-typed **local**: `Symbols::fns` is program-wide and scope-blind,
+        // so a program declaring `fn keep(…)` made std's
+        // `filter(it, keep: (T) -> Bool)` call *the program's* fn from inside
+        // `core/seq.rs` — `self::keep(x)`, which does not even resolve there.
+        // The same record the member branch above reads answers it (found
+        // 2026-09-14, pre-existing).
+        let fn_cands = if self.checked.local_calls.contains(&(self.file_idx, span)) {
+            Vec::new()
+        } else {
+            self.symbols.fns_matching_arity(name, args.len())
+        };
         if !fn_cands.is_empty() {
             let Some(f) = disambiguate_unchecked(self, &fn_cands, |f| f.params.as_slice(), args)
             else {

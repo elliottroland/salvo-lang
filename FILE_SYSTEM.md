@@ -1761,9 +1761,9 @@ effect Fs {
 >   (`RawFs`, `HostRawFs`, `DefaultFs`), because a dependent handler in a
 >   module every program reaches would fuse every program's effect emission
 >   [fs-host-split].
-> * **`close(p: Lines)` ships as `close_lines`** pending the member-vs-fn
->   resolution DECISION in ROADMAP.md: a fitting free fn does not compete
->   with an available effect's member set.
+> * **`close(p: Lines)` is spelled `close`**: members and fns of one name are
+>   one overload set (user decision 2026-09-14, built the same day), so the
+>   pass's discharger needs no distinct name.
 > * **Bytes, `MemFs` and `RestrictedFs` are not in this deliverable** — the
 >   agreed sequencing (§5.10.2 E and ROADMAP's S-IO list).
 > * `raw_*` member names split where only the token type distinguished them

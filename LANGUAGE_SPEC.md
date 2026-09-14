@@ -2029,12 +2029,34 @@ Conventions:
     * Recorded for the emitters as `fn_over_member_calls`, since their own
       "is this a member?" question is asked of a program-wide, scope-blind
       map (`Symbols::effect_of_fn`) — the same reason `local_calls` exists.
-    * **Still open** where the effect *is* available: a fitting free fn
-      does not compete with the member set, so `close(lines)` beside an
-      `Fs` in scope is an error naming `Fs.close`'s overloads. The remedy
-      today is a distinct name (std's pass discharger is `close_lines`);
-      making the two one overload set is a decision, not a defect
-      (ROADMAP.md).
+  * **One overload set where the effect *is* available** (user decision
+    2026-09-14): the chosen effect's members and the fn overloads of the
+    name are ranked **together**, by the same specificity order two fn
+    overloads use [fn-overload-rank], and the more specific signature wins —
+    a *generic* member loses to a concrete fn, and `close(InStream)`,
+    `close(OutStream)` and `close(Lines)` are three overloads of one name
+    across two kinds of declaration. std needs exactly that: `close` is an
+    `Fs` member per stream token *and* the `Lines` pass's discharger
+    [fs-surface].
+    * A **tie** — both sides fitting, neither more specific — is an error
+      naming both remedies (`close@Fs(…)` for the member,
+      `close@module(…)` for the fn), never a silent preference. A call
+      fitting *neither* side is one diagnostic listing both sides'
+      signatures, since to the caller they are one name.
+    * `@module` skips the member set whole: it names a module's overloads,
+      which no member is. That is how a fn shadowed by an equally specific
+      member is called by hand.
+    * Where a name has candidates on **one** side only, that side resolves
+      exactly as it always did — the ranking step exists for the colliding
+      case alone, so nothing else could change meaning.
+    * The arguments are typed **once**, while the side is decided, and
+      handed to whichever path runs. They are typed *without* expected
+      types, because the lead-candidate machinery belongs to the fn path
+      [fn-overload-rank]: in a colliding call a lambda argument that needs
+      its parameter type from the position falls back to
+      [type-unknown-lenient] instead of being checked against it. Sharing
+      the lead pool across both kinds is the improvement; nothing in std or
+      the tests depends on it.
 * [effect-disambiguation] With multiple instances of a generic effect in
   scope, a member call disambiguates by (in order): explicit type args
   (`next_random<Int>()`), argument types, the expected type

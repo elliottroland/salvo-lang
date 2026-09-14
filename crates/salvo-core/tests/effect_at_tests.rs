@@ -273,3 +273,127 @@ fn member_overloads_may_differ_only_in_arity() {
          fn stamp() [Clock] -> Int {\n    return now() + now(5)\n}\n",
     );
 }
+
+// ===== [effect-available] one overload set: members and fns compete =====
+//
+// User decision 2026-09-14 (option (a) of three): a name that is both an
+// available effect's member and an ordinary fn resolves as *one* set, ranked
+// by signature specificity. std needs it — `close` is an `Fs` member per
+// stream token *and* the `Lines` pass's discharger — and so does anyone who
+// writes a linear pass while a filesystem is in scope.
+
+/// A `Store` with a `close` per handle type, and a module-level `close` of
+/// its own. The argument types tell all three apart.
+const ONE_SET: &str = r#"
+struct Note { text: Str }
+
+effect Store {
+    fn close(handle: Int) -> Str
+}
+
+handler MemStore of Store {
+    fn close(handle: Int) -> Str {
+        return "store"
+    }
+}
+
+fn close(n: Note) -> Str => !n {
+    return n.text
+}
+"#;
+
+/// The member and the fn coexist: `close(1)` is the member, `close(note)` is
+/// the fn, in one scope with the handler registered.
+#[test]
+fn a_member_and_a_fn_of_one_name_resolve_by_argument_type() {
+    assert_ok(&format!(
+        "{ONE_SET}\nfn work(n: Note) [Store] -> Str => !n {{\n    \
+         let a = close(1)\n    return \"${{a}}${{close(n)}}\"\n}}\n"
+    ));
+}
+
+/// The fn is reachable where it used to be shadowed outright: before the
+/// rule, an available `Store` claimed the name and the call was an error
+/// naming `Store.close`'s overloads.
+#[test]
+fn the_fn_side_is_reachable_while_the_effect_is_available() {
+    let errs = errors(&format!(
+        "{ONE_SET}\nfn work(n: Note) [Store] -> Str => !n {{\n    return close(n)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got: {errs:?}");
+}
+
+/// A **more specific fn** wins over a generic member: specificity decides,
+/// exactly as it does between two fn overloads [fn-overload-rank].
+#[test]
+fn the_more_specific_signature_wins_across_the_two_kinds() {
+    assert_ok(
+        "effect Sink {\n    fn keep<T>(x: T) -> Str => x\n}\n\n\
+         handler Bin of Sink {\n    fn keep<T>(x: T) -> Str => x {\n        \
+         return \"any\"\n    }\n}\n\n\
+         fn keep(x: Int) -> Str => x {\n    return \"int\"\n}\n\n\
+         fn use_it() [Sink] -> Str {\n    return keep(1)\n}\n",
+    );
+}
+
+/// A genuine tie — same parameter type on both sides — is an error naming
+/// both remedies rather than a silent preference.
+#[test]
+fn an_equally_specific_member_and_fn_are_ambiguous() {
+    let errs = errors(
+        "effect Store {\n    fn close(handle: Int) -> Str\n}\n\n\
+         handler MemStore of Store {\n    fn close(handle: Int) -> Str {\n        \
+         return \"store\"\n    }\n}\n\n\
+         fn close(handle: Int) -> Str => handle {\n    return \"fn\"\n}\n\n\
+         fn work() [Store] -> Str {\n    return close(1)\n}\n",
+    );
+    assert!(
+        errs.iter().any(|m| {
+            m.contains("ambiguous call to `close`")
+                && m.contains("close@Store")
+                && m.contains("close@main")
+        }),
+        "got {errs:?}"
+    );
+}
+
+/// The selectors settle it by hand, each picking its own side: `@Effect` the
+/// member, `@module` the fn — and `@module` skips the member set whole, which
+/// is what makes a shadowed fn callable at all.
+#[test]
+fn the_selectors_pick_a_side() {
+    assert_ok(
+        "effect Store {\n    fn close(handle: Int) -> Str\n}\n\n\
+         handler MemStore of Store {\n    fn close(handle: Int) -> Str {\n        \
+         return \"store\"\n    }\n}\n\n\
+         fn close(handle: Int) -> Str => handle {\n    return \"fn\"\n}\n\n\
+         fn work() [Store] -> Str {\n    \
+         let a = close@Store(1)\n    let b = close@main(1)\n    return \"${a}${b}\"\n}\n",
+    );
+}
+
+/// Neither side accepting the arguments is **one** diagnostic listing both:
+/// to the caller they are one name.
+#[test]
+fn a_call_that_fits_neither_side_names_both() {
+    let errs = errors(&format!(
+        "{ONE_SET}\nfn work() [Store] -> Str {{\n    return close(\"nope\")\n}}\n"
+    ));
+    assert!(
+        errs.iter().any(|m| {
+            m.contains("no `close` accepts (Str)")
+                && m.contains("`Store.close(Int)`")
+                && m.contains("`close(Note)`")
+        }),
+        "got {errs:?}"
+    );
+}
+
+/// [effect-available] Availability still decides first: with no handler in
+/// scope the member set is not a candidate at all, so the fn answers.
+#[test]
+fn without_a_handler_the_fn_answers() {
+    assert_ok(&format!(
+        "{ONE_SET}\nfn work(n: Note) -> Str => !n {{\n    return close(n)\n}}\n"
+    ));
+}

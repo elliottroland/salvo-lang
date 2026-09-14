@@ -1580,6 +1580,19 @@ effect Fs {
 
 Two members with the same name *and* the same parameter types are the error they look like — no call could tell them apart. The selector and the overload compose: `@Fs` picks the effect, the arguments pick the member.
 
+A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` pass.
+
+```
+fn close(p: Lines) [Fs] -> Ok None | Err FsError => !p {   // a function
+    return close(p.s)                                      // ...calling the member
+}
+```
+
+The argument types decide, ranked exactly as two function overloads are: the more specific signature wins, so a concrete function beats a generic member. Two rules keep it predictable:
+
+* **Availability first.** A member is a candidate only where its effect has a handler in scope. Without one, the name is the function — no `@` needed. That is what lets you write a `close` of your own in a program that never opens a file.
+* **A tie is an error.** If both sides fit and neither is more specific, the call must say which it means: `close@Fs(…)` for the member, `close@my.module(…)` for the function. Nothing is preferred silently.
+
 ### Throwing: leaving early with a message
 
 Handlers so far always *resume*: an effect operation runs and control comes back. `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
@@ -2546,7 +2559,7 @@ fn print_file(path: Str) [Fs, Console] -> None => path {
     for line in p {
         println(line)
     }
-    let closed = close_lines(p)          // closing the pass closes the stream
+    let closed = close(p)          // closing the pass closes the stream
     if closed is Err {
         ignore(closed)
     }

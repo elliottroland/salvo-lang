@@ -189,8 +189,10 @@ fn next(p: Mut Lines) [Fs] -> Emitted Str | Finished => p: Mut {
     }
 }
 
-// Closes the stream the pass reads, reporting what reading recorded.
-fn close_lines(p: Lines) [Fs] -> Ok None | Err FsError => !p {
+// Closes the stream the pass reads, reporting what reading recorded. Named
+// `close` like every other discharger: a member and a fn of one name are one
+// overload set, and the argument type picks [effect-available].
+fn close(p: Lines) [Fs] -> Ok None | Err FsError => !p {
     return close(p.s)
 }
 
@@ -240,7 +242,7 @@ fn read_lines(path: Str) [Fs] -> Ok List<Str> | Err FsError => path {
     for line in p {
         out.add(line)
     }
-    let closed = close_lines(p)
+    let closed = close(p)
     if closed is Err {
         return closed
     }

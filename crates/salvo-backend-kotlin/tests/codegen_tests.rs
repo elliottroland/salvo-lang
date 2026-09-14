@@ -1160,7 +1160,8 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
         "expected no finally splice and no loop local, got:\n{src}"
     );
     assert!(
-        src.contains("close(console, lines)"),
+        // Suffixed: std declares a `close` too [fs-surface].
+        src.contains("close__2(console, lines)"),
         "expected the program's own explicit close:\n{src}"
     );
 }
@@ -8218,7 +8219,7 @@ fn main() [use] -> None {
             for line in p {
                 println("line: ${line}")
             }
-            let closed = close_lines(p)
+            let closed = close(p)
             when closed {
                 is Ok { println("closed") }
                 is Err { println("closed: ${describe(closed)}") ignore(closed) }
@@ -8300,6 +8301,12 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     assert!(
         surface.contains("interface Fs {"),
         "expected the effect interface in:\n{surface}"
+    );
+    // [effect-available] One overload set: the pass's discharger is a *fn*
+    // named `close`, beside the two members of that name.
+    assert!(
+        surface.contains("fun<__Fx> close(__fx: __Fx, p: Lines)"),
+        "expected the pass discharger as a fn named `close` in:\n{surface}"
     );
     // The host seam is its own module [mod-used-only]: a program that never
     // opens a file links none of it.
