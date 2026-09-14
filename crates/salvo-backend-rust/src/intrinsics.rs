@@ -341,6 +341,9 @@ pub fn fn_call(
         // Characters, not bytes: `Str` is a `String`, whose `len()` counts
         // UTF-8 bytes, which is not what Salvo's `size` means.
         ("size", Some("Str")) => format!("({}.chars().count() as i32)", a(0)),
+        // …and `byte_size` *is* that byte count, which is what the
+        // filesystem's offsets are in [fs-token].
+        ("byte_size", Some("Str")) => format!("({}.len() as i64)", a(0)),
         ("char_at", Some("Str")) => {
             format!("{}.chars().nth(({}) as usize)", a(0), a(1))
         }

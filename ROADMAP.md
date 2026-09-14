@@ -1053,12 +1053,15 @@ what is left is implementation, in the agreed order:
         decision log): members of an available effect and fns of the name are
         ranked together by specificity, a tie is an error naming both `@`
         remedies, and std's pass discharger went back to being `close`.
-      * **`MemFs of Fs`** — the in-memory double (`Mut Map<Long, MemOpen>`
-        handler state), and the round-trip hazard from §5.5.1: byte offsets
-        must match the host's, or unit tests pass while production breaks.
-      * **`RestrictedFs(root) [Fs] of Fs`** — the interception customer
-        (§5.10.1, FS-8: lexical containment, rebased paths,
-        `Err PathEscapes`).
+      * ~~`MemFs of Fs`~~ — **✅ built 2026-09-14** ([fs-double]): pure Salvo,
+        no dependency, no host; byte offsets converted through the new
+        `byte_size` so they match the host's to the byte (the §5.5.1 hazard),
+        with a mid-codepoint ranged open answering `Err InvalidUtf8`.
+      * ~~`RestrictedFs(root) [Fs] of Fs`~~ — **✅ built 2026-09-14**
+        ([fs-restricted]): the interception customer, lexical containment
+        resolved right to left (`a/../b` stays inside), rebased paths,
+        absolute paths refused, `Err PathEscapes`, and the restriction tested
+        over `MemFs` as well as over the host.
       * **Bytes** (§5.10.2 E): `read_bytes`/`write_bytes` with boxed
         `List<Byte>` first, then `Byte` → Kotlin `UByte` and the
         specialized `UByteArray`/`Vec<u8>` rendering as the second
@@ -1102,6 +1105,15 @@ phase 4, and retires into COMPLETED.md when the fs is done.
   of something the value already has. Invisible in std (`core.*` is
   implicit); worth a better diagnostic, or a rule that the subject's own
   declaration is enough.
+- **`size(Str)` disagrees between the backends outside ASCII** (found
+  2026-09-14, pre-existing): Kotlin lowers it to `String.length` (UTF-16 code
+  units) and Rust to `chars().count()` (code points), so a string containing a
+  non-BMP character — an emoji — makes the same program print different
+  numbers, and `char_at` indexes differently with it. `byte_size` was added
+  beside it for the filesystem's offsets and is parity-safe by construction,
+  but `size`/`char_at` need a **decision**: what a `Str` index means (code
+  points, UTF-16 units, or bytes), and then one lowering per backend that says
+  so. Repro: `println("${size("a😀b")}")` prints 3 on Rust and 4 on Kotlin.
 - **A colliding call types its arguments without expected types**
   [effect-available]: the lead-candidate machinery belongs to the fn path, so
   inside a call whose name is both an available member and a fn, a lambda that

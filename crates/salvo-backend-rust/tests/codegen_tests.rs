@@ -7925,3 +7925,111 @@ fn rustc_compiles_and_runs_the_fs_surface() {
     let files = generate(&[("main.sv", &fs_program())]);
     run_rust_files(&files, "fs-surface", FS_OUTPUT);
 }
+
+// ===== std's in-memory filesystem and the restriction over it =====
+
+/// [fs-double] [effect-intercept] `MemFs` fakes the whole of `Fs` — streams
+/// included — so this program has **no host handler at all** and touches no
+/// disk, which is the point of putting the stream operations on the effect.
+/// Then `RestrictedFs("notes")` intercepts it for the length of a block, so
+/// the containment logic is tested over memory too.
+///
+/// The byte offsets are the hazard the fake exists to get right: `position`
+/// answers eleven here exactly as it does against real files (the fs case
+/// above asserts the same number), because `MemFs` counts UTF-8 bytes with
+/// `byte_size` while slicing its content by characters. A fake that counted
+/// characters would let this test pass and production break.
+const MEMFS_PROGRAM: &str = r#"
+fn describe(e: FsError) [] -> Str => e {
+    if e.kind is NotFound {
+        return "not found"
+    }
+    if e.kind is PathEscapes {
+        return "escapes"
+    }
+    if e.kind is NotADirectory {
+        return "not a directory"
+    }
+    return "other"
+}
+
+fn read_and_say(label: Str, path: Str) [Fs, Console] -> None => label, path {
+    let text = read_to_str(path)
+    when text {
+        is Ok { println("${label}: ${size(text)}") }
+        is Err { println("${label}: ${describe(text)}") ignore(text) }
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    // No host handler anywhere: `MemFs` fakes the whole of `Fs`, streams
+    // included, so this program touches no disk.
+    use MemFs()
+
+    let wrote = write_str("notes/a.txt", "alpha\nbeta\ngamma\n")
+    when wrote {
+        is Ok { println("wrote ${wrote}") }
+        is Err { println("wrote: ${describe(wrote)}") ignore(wrote) }
+    }
+
+    let lines = read_lines("notes/a.txt")
+    when lines {
+        is Ok { println("lines: ${lines}") }
+        is Err { println("lines: ${describe(lines)}") ignore(lines) }
+    }
+
+    // The byte offset the fake has to agree with the host about: "alpha\n" is
+    // six bytes, and the position after reading "beta\n" is eleven.
+    let tail = open_read_at("notes/a.txt", 6)
+    when tail {
+        is Ok {
+            let s: InStream = tail
+            let line = read_line(s)
+            when line {
+                is Str { println("at 6: ${line}") }
+                is None { println("at 6: end") }
+            }
+            println("position: ${position(s)}")
+            let shut = close(s)
+            when shut {
+                is Ok { println("closed") }
+                is Err { println("close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("at 6: ${describe(tail)}") ignore(tail) }
+    }
+
+    let listed = list_dir("notes")
+    when listed {
+        is Ok { println("dir: ${listed}") }
+        is Err { println("dir: ${describe(listed)}") ignore(listed) }
+    }
+
+    // The restriction, over the same memory, for the length of the block: an
+    // interceptor wraps the handler already registered.
+    if true {
+        use RestrictedFs("notes")
+        read_and_say("inside", "a.txt")
+        read_and_say("through ..", "sub/../a.txt")
+        read_and_say("escape", "../secret.txt")
+        read_and_say("absolute", "/etc/hosts")
+    }
+    // Out of the block the unrestricted filesystem answers again.
+    read_and_say("unrestricted", "notes/a.txt")
+}
+"#;
+
+const MEMFS_OUTPUT: &str = "wrote 17\nlines: [alpha, beta, gamma]\nat 6: beta\nposition: 11\n\
+                         closed\ndir: [a.txt]\ninside: 17\nthrough ..: 17\n\
+                         escape: escapes\nabsolute: escapes\nunrestricted: 17\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_memory_filesystem() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MEMFS_PROGRAM)]);
+    run_rust_files(&files, "memfs", MEMFS_OUTPUT);
+}

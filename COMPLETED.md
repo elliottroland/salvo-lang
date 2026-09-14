@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 930 tests, complete: the toolchain tests are
+cargo test                  # 931 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,66 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`MemFs` and `RestrictedFs` — the fs doubles (phase 4 item 6.4,
+2026-09-14).** std can now run a filesystem in memory and scope one to a
+directory, both in pure Salvo: `core.memfs`'s `MemFs of Fs` (no dependency, no
+host — a test registering it touches no disk) and `core.restrictedfs`'s
+`RestrictedFs(root: Str) [Fs] of Fs`, the interception customer O-R2 was built
+for. Each is its own module, so a program links neither unless it names it
+[mod-used-only], and `RestrictedFs` *must* be separate anyway: a dependent
+handler switches the program to the fused emission [fs-host-split].
+
+**What they are.** `MemFs` keeps `Mut Map`s of files and open streams and
+fakes the whole surface, streams included — which is what putting the stream
+operations on the effect bought [fs-double]. Directories are implicit (a path
+is a key; a directory exists while something under it does), and a fresh
+`MemFs` is empty, because seeding it from a constructor argument would need an
+immutable `Map` to become a `Mut Map` and std has no route for that.
+`RestrictedFs` rebases every path under its root, refuses an escape
+*distinguishably* as `Err PathEscapes`, and resolves `..` right to left so
+`a/../b` stays inside while `../b` does not — lexically, and documented as not
+symlink-safe [fs-restricted]. Its stream members are pass-throughs: the policy
+is in the opens, and a token it forwarded goes back to the handler that minted
+it.
+
+**One std addition, forced by §5.5.1's hazard**: `byte_size(str) -> Long`, the
+UTF-8 byte count [str-byte-size]. Every offset in the fs surface is in bytes,
+so a fake that counted *characters* would let unit tests pass and production
+break; `MemFs` slices by characters and converts through `byte_size`, and a
+ranged open landing between the bytes of a character answers
+`Err InvalidUtf8` exactly as the host's strict decode does. Both backends
+report `position: 11` for the same read — the memory case and the real-files
+case assert the same number.
+
+**Three defects found on the way, two fixed:**
+
+* **`for k in map` was broken on both backends** — and *silently* on one,
+  which is the class [backend-never-wrong] exists to prevent. Salvo iterates a
+  map's **keys** (`iter(map)` answers a `MapKeyYield`); Rust emitted
+  `for k in map.clone()`, which does not compile (`SalvoMap` is no
+  `IntoIterator`), while Kotlin compiled and iterated **entries**, binding
+  `a=1` where the program asked for `a`. Both now ask for the keys
+  (`.keys().cloned().collect()`, `.keys`), through one helper per backend.
+* **`copy(get(list, i)!)` did not compile on Rust**: a call answering a
+  *projection* renders as a borrow, so the "a call result is already owned"
+  reading in the `copy` lowering pushed an `&String` where a `String` was
+  wanted (E0308). It now clones when the argument's type is a projection
+  [rs-copy]. Found writing `RestrictedFs`'s path resolver.
+* **`size(Str)` disagrees between the backends outside ASCII** — Kotlin's
+  UTF-16 units against Rust's code points, so `size("a😀b")` prints 4 and 3.
+  Left open with its repro in ROADMAP.md: what a `Str` index *means* is a
+  language decision, not a lowering bug, and `byte_size` gave the filesystem
+  the one length that cannot drift.
+
+Tests: 931 passing (from 930), fresh. Per backend one compile-and-run case
+over a program with **no host handler at all** — `MemFs` written, read,
+listed, a ranged open with its byte position, then `RestrictedFs("notes")`
+intercepting it inside an `if true` block (inside, through `..`, an escape and
+an absolute path) and the unrestricted filesystem answering again after it.
+Rules: LANGUAGE_SPEC.md gained [fs-double], [fs-restricted] and
+[str-byte-size]; LANGUAGE.md's "Files" section gained both handlers;
+ROADMAP.md's S-IO list is down to bytes and an example.
 
 **One overload set: an effect member and a fn of the same name compete
 (user decision 2026-09-14, option (a) of three).** A name that is both a

@@ -491,6 +491,13 @@ Conventions:
     `Mut Str` to `StringBuilder` (through `mut_type_name`), while Rust
     erases `Mut` — mutability lives in the binding (`mut` bindings and
     `&mut` references) instead.
+* [str-byte-size] `byte_size(str) -> Long` is the **UTF-8 byte count**, and
+  the unit every byte offset in the filesystem surface is in: `write` answers
+  one, `position` reports one, `open_read_at` takes one [fs-token]. A separate
+  name from `size` (which counts characters) on purpose — the two differ the
+  moment a string leaves ASCII, and confusing them silently corrupts an
+  offset. Lowered per backend (`String::len`, `toByteArray(UTF_8).size`),
+  which is also the one length that cannot drift between them.
 * [str-drop-mut] **Dropping `Mut` may be a conversion.** Every other
   qualifier erases [qual-erasure], so widening is free; `Mut` is the one a
   backend may render as a *different type* [type-canbe-mut], and where it
@@ -2129,6 +2136,44 @@ Conventions:
     `core.fs` is what keeps a program that never opens a file unfused.
   * `[RawFs]` stays greppable as the audit: nothing but a composition root
     (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
+* [fs-double] `core.memfs` ships **`MemFs of Fs`**: an in-memory filesystem
+  in pure Salvo, with no dependency and no host anywhere, so a test that
+  registers it touches no disk. It fakes the *whole* surface — streams
+  included — which is what putting the stream operations on the effect buys
+  [fs-surface].
+  * A fresh `MemFs` is **empty**; write into it with the ordinary surface.
+    (Seeding it from a constructor argument would need an immutable `Map` to
+    become a `Mut Map`, which std has no route for [type-canbe-mut].)
+  * Directories are **implicit**: a path is a key, and a directory exists
+    exactly while something under it does. `create_dirs` therefore succeeds
+    without doing anything, `list_dir` answers the immediate child names, and
+    deleting a non-empty directory is the `IoError` the host reports.
+  * **Byte offsets are counted in bytes**, as on the host: `MemFs` slices its
+    content by characters but converts through `byte_size`
+    [str-byte-size], so `position` and `open_read_at` agree with a real
+    filesystem to the byte. A ranged open landing *between* the bytes of a
+    character is `Err InvalidUtf8`, which is the host's strict-decode failure
+    reported the same way. This is the hazard the type exists to get right: a
+    fake counting characters would let unit tests pass while production broke.
+* [fs-restricted] `core.restrictedfs` ships **`RestrictedFs(root: Str) [Fs]
+  of Fs`**: an *interceptor* [effect-intercept], so it wraps whichever
+  filesystem is already registered — the host's in production, a `MemFs` in a
+  test of the restriction itself.
+  * Paths are **rebased**: the code under it writes `"notes/a.txt"` and never
+    learns where it really runs. A path that resolves outside the root is
+    refused **distinguishably**, as `Err PathEscapes` — this is a
+    least-authority tool for honest code, not a boundary against an adversary
+    inside the process, so debuggability wins. `exists` answers `false` there,
+    having nowhere to put a reason.
+  * Resolution is **lexical**: `..` segments are resolved right to left, so
+    `a/../b` stays inside while `../b` does not, and an absolute path is
+    refused outright rather than rebased. It is therefore **not
+    symlink-safe** — a symlink inside the root pointing out of it escapes.
+    Closing that needs the host (`openat2(RESOLVE_BENEATH)`, cap-std), which
+    under this layering belongs to `RawFs`; recorded as the hardening path.
+  * The policy lives entirely in the **opens**: the stream members are
+    pass-throughs, and a token it forwarded was minted by the handler it
+    wraps, which is where the token goes back to.
 * [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
   (a ranged `open_read_at` replaces it, so streams stay forward-only),
   byte payloads (`read_bytes`/`write_bytes` are the next deliverable),

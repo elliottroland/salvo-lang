@@ -7786,13 +7786,24 @@ impl<'p> Emitter<'p> {
     /// `String` has no `IntoIterator`, so the characters are asked for. The
     /// pass protocol never reaches here: a pass is driven by its own header.
     fn native_for_subject(&mut self, iterable: &Expr, code: String) -> String {
-        let is_str = self
-            .ty_of(iterable.span())
-            .is_some_and(|t| matches!(t.strip_quals(), Ty::Named { name, .. } if name == "Str"));
-        if is_str {
-            format!("{code}.chars()")
-        } else {
-            code
+        let base: Option<String> = self.ty_of(iterable.span()).and_then(|t| {
+            match t.strip_quals() {
+                Ty::Named { name, .. } => Some(name.clone()),
+                _ => None,
+            }
+        });
+        match base.as_deref() {
+            Some("Str") => format!("{code}.chars()"),
+            // [col-map-iter] A map iterates its **keys** — that is what
+            // `iter(map)` answers ([`MapKeyYield`]), and a `SalvoMap` is not
+            // an iterator at all, so before this the emitted code did not
+            // compile (found 2026-09-14 while writing `MemFs`; Kotlin
+            // compiled *and* iterated entries, printing `a=1` for `a`).
+            // Collected because the keys are borrowed out of the map.
+            Some("Map") | Some("SortedMap") => {
+                format!("{code}.keys().cloned().collect::<Vec<_>>()")
+            }
+            _ => code,
         }
     }
 
@@ -9093,6 +9104,16 @@ impl<'p> Emitter<'p> {
             // Field/index reads already clone in owned position.
             Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 self.emit_owned(arg)
+            }
+            // [rs-copy] [proj-type] A call that answers a **projection**
+            // renders as a borrow — `get(list, i)!` is `.get(i).unwrap()`, an
+            // `&T` — so the "a call result is already owned" reading does not
+            // hold for it and the clone is the whole point of the `copy`.
+            // Found 2026-09-14 writing std's `RestrictedFs`
+            // (`parts.add(copy(get(kept, j)!))` pushed an `&String`, E0308).
+            other if self.ty_of(other.span()).is_some_and(|t| t.is_proj()) => {
+                let code = self.emit_expr(other);
+                format!("{code}.clone()")
             }
             other => self.emit_expr(other),
         }

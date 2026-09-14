@@ -2585,7 +2585,24 @@ fn main() [use] {
 
 `DefaultFs` depends on `RawFs` and says so on its declaration, so nothing above it mentions the raw layer; `RawFs` trades in `Long` handles and droppable error kinds, so the host class never holds a Salvo obligation — the `close` that discharges a token is Salvo code, checked. Swapping the bottom swaps the filesystem: a handler of your own that implements `Fs` fakes the whole surface, streams included, because the stream operations are *members* rather than free functions.
 
-Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. There is no seek — streams are forward-only — and text is decoded strictly, so a wrong offset lands mid-codepoint and comes back as `Err InvalidUtf8` rather than as mojibake.
+Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. Byte counts are `byte_size(str)`, deliberately a different function from `size(str)`, which counts characters. There is no seek — streams are forward-only — and text is decoded strictly, so a wrong offset lands mid-codepoint and comes back as `Err InvalidUtf8` rather than as mojibake.
+
+Two more handlers come with the surface, and neither is a special case of anything:
+
+```
+fn main() [use] {
+    use StdOutConsole()
+    use MemFs()                      // a filesystem in memory: no host, no disk
+    if true {
+        use RestrictedFs("notes")    // ...scoped to one directory, for this block
+        // code in here writes "a.txt" and cannot reach "../secret.txt"
+    }
+}
+```
+
+`MemFs` fakes the *whole* of `Fs`, streams included — which is what putting the stream operations on the effect bought — so a test needs no filesystem at all. It counts byte offsets exactly as the host does, because a fake that counted characters would let tests pass while production broke.
+
+`RestrictedFs(root)` is an **interceptor**: it declares the effect it implements, so it wraps whichever filesystem is already registered, and the same handler restricts the host's files in production and a `MemFs` in a test of the restriction itself. Paths are rebased — code under it never learns where it is really running — and one that resolves outside the root comes back as `Err PathEscapes` rather than pretending not to exist. The check is lexical, so it is not symlink-safe; that hardening belongs to the host layer and is not pretended away here.
 
 ## Specific backend details
 

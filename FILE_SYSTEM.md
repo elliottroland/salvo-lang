@@ -1,12 +1,14 @@
 # The filesystem — the phase-4 option space (working document)
 
-> **Status 2026-09-14: the surface is built.** `std/core/fs.sv`,
-> `std/core/hostfs.sv` and `std/platform/core/hostfs.{kt,rs}` implement
-> §5.7–5.10 as decided, with the token-`Mut` question closed (tokens are never
-> `Mut`) and the deviations listed at §5.10.2's signature block. What is left
-> of phase 4 — the member-vs-fn naming DECISION, `MemFs`,
-> `RestrictedFs(root)`, bytes, an example — is in ROADMAP.md's S-IO list; this
-> document retires into COMPLETED.md when that is done.
+> **Status 2026-09-14: everything but the bytes is built.** `std/core/fs.sv`,
+> `std/core/hostfs.sv`, `std/platform/core/hostfs.{kt,rs}`,
+> `std/core/memfs.sv` and `std/core/restrictedfs.sv` implement §5.7–5.10 as
+> decided — tokens are never `Mut`, `MemFs` fakes the whole surface with
+> byte-exact offsets, `RestrictedFs` intercepts with lexical containment and
+> rebased paths — and the deviations are listed at §5.10.2's signature block.
+> What is left of phase 4 is the **byte payload deliverable** (§5.10.2 E) and a
+> worked example; ROADMAP.md's S-IO list carries both. This document retires
+> into COMPLETED.md when they land.
 
 Status: **DECIDED** (2026-09-14, six rounds of user decisions — see §5;
 handler-dependency syntax updated in place the same day, when the surface

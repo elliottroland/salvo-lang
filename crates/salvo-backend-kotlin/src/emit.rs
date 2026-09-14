@@ -3018,7 +3018,8 @@ impl<'p> Emitter<'p> {
                     self.for_pattern_var(pattern)
                 };
                 let iter = if pass.is_none() && claiming.is_none() {
-                    self.emit_expr(iterable)
+                    let code = self.emit_expr(iterable);
+                    self.native_for_subject(iterable, code)
                 } else {
                     String::new()
                 };
@@ -4402,7 +4403,8 @@ impl<'p> Emitter<'p> {
                     Some(header) => out.push_str(header),
                     None => {
                         let var = self.for_pattern_var(pattern);
-                        let iter = self.emit_expr(iterable);
+                        let code = self.emit_expr(iterable);
+                        let iter = self.native_for_subject(iterable, code);
                         out.push_str(&format!("for ({var} in {iter}) {{\n"));
                     }
                 }
@@ -5799,6 +5801,25 @@ impl<'p> Emitter<'p> {
             }
         }
         (iface, prop)
+    }
+
+    /// [iter-for-native] [col-map-iter] The subject of a *native* `for`, as
+    /// Kotlin iterates it. A list, an array, a `Set` and a `Str` iterate their
+    /// elements already; a **map** iterates its entries, where Salvo iterates
+    /// its **keys** (`iter(map)` answers a `MapKeyYield`) — so the keys are
+    /// asked for. Without this a `for k in m` bound each key to a whole
+    /// `k=v` entry and printed it, while the Rust backend did not compile at
+    /// all: found 2026-09-14 while writing `MemFs`, and the silent half is
+    /// exactly what [backend-never-wrong] forbids.
+    fn native_for_subject(&mut self, iterable: &Expr, code: String) -> String {
+        let base = match self.ty_of(iterable.span()).map(|t| t.strip_quals()) {
+            Some(Ty::Named { name, .. }) => Some(name.clone()),
+            _ => None,
+        };
+        match base.as_deref() {
+            Some("Map") | Some("SortedMap") => format!("{code}.keys"),
+            _ => code,
+        }
     }
 
     /// [kt-effect-fusion] Whether an effect set can be fused *here*: the

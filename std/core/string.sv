@@ -20,6 +20,14 @@ intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts
 // Returns the number of characters in the string
 intrinsic fn size(str: Str) [] -> Int => str
 
+// The number of **bytes** [str] takes in UTF-8 — the unit every byte offset in
+// the filesystem surface is counted in [fs-token]: `write` answers one,
+// `position` reports one, `open_read_at` takes one. Deliberately a different
+// name from [size], which counts characters, because the two differ the
+// moment a string leaves ASCII and confusing them silently corrupts an
+// offset.
+intrinsic fn byte_size(str: Str) [] -> Long => str
+
 // Returns the character at the given index, or null if it is beyond the length
 // of the string.
 intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index

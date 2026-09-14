@@ -289,6 +289,11 @@ pub fn fn_call(
             format!("StringBuilder(listOf({}).joinToString(\"\"))", args.join(", "))
         }
         ("size", Some("Str")) => format!("{}.length", a(0)),
+        // The UTF-8 byte count — encoded explicitly, since the JVM's own
+        // string length is neither bytes nor code points [fs-token].
+        ("byte_size", Some("Str")) => {
+            format!("{}.toByteArray(Charsets.UTF_8).size.toLong()", a(0))
+        }
         ("char_at", Some("Str")) => format!("{}.getOrNull({})", a(0), a(1)),
         ("split", Some("Str")) => format!("{}.split({})", a(0), a(1)),
         // No `-1` sentinel: absence is `null` [type-nullable].
