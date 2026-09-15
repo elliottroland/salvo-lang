@@ -369,6 +369,16 @@ pub struct Checked {
     /// none. The clause items themselves stay in the AST; this records what
     /// each *resolved to*, which is what the child's construction needs.
     pub spawn_deps: HashMap<Key, Vec<Ty>>,
+    /// [async-spawn-expr] **Which clause item satisfied which declared
+    /// dependency**: one index into the spawn's written `use` clause per
+    /// declared dependency, in the *handler's declaration* order (keyed by
+    /// the spawn's span). The two orders differ routinely — the declaration
+    /// order fixes the child's provider fields and carrier arguments, the
+    /// written order is what the program says — and `check_spawn` is where
+    /// the matching happens, so recording it here is what keeps both
+    /// emitters from re-deriving it (and from disagreeing about it).
+    /// Parallel to `spawn_deps`: same length, same order.
+    pub spawn_dep_items: HashMap<Key, Vec<usize>>,
     /// [async-replyto] The enclosing handler's member each `replyto`
     /// delivers to, keyed by the `replyto` span. The name, because that is
     /// what identifies a continuation target; an overloaded send member is
@@ -8447,26 +8457,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [async-effect-kind] Only a process protocol may be spawned. Checked
         // after the construction, so argument errors still surface.
         self.require_async_effect(&effect, span, "spawn");
-        let mut supplied: Vec<(Ty, Span)> = Vec::new();
-        for u in uses {
+        // The clause item's own index travels with the effect it supplies:
+        // the matching below drains this list, so the position in it is not
+        // the position the program wrote.
+        let mut supplied: Vec<(Ty, Span, usize)> = Vec::new();
+        for (at, u) in uses.iter().enumerate() {
             if let Some(eff) = self.check_spawn_dep(u) {
-                supplied.push((eff, u.span()));
+                supplied.push((eff, u.span(), at));
             }
         }
         let mut resolved: Vec<Ty> = Vec::new();
+        let mut items: Vec<usize> = Vec::new();
         for want in &declared {
             let found = supplied
                 .iter()
-                .position(|(eff, _)| eff == want)
+                .position(|(eff, _, _)| eff == want)
                 .or_else(|| {
                     supplied
                         .iter()
-                        .position(|(eff, _)| unify(want, eff, &mut HashMap::new()))
+                        .position(|(eff, _, _)| unify(want, eff, &mut HashMap::new()))
                 });
             match found {
                 Some(i) => {
-                    let (eff, _) = supplied.remove(i);
+                    let (eff, _, at) = supplied.remove(i);
                     resolved.push(eff);
+                    items.push(at);
                 }
                 None => self.error(
                     span,
@@ -8482,7 +8497,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // Anything left over was supplied for nothing — a mistake worth
         // naming, since the reader believes it is being used.
-        for (eff, sp) in &supplied {
+        for (eff, sp, _) in &supplied {
             self.error(
                 *sp,
                 format!(
@@ -8494,6 +8509,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if !resolved.is_empty() {
             self.out.spawn_deps.insert(self.key(span), resolved);
+            self.out.spawn_dep_items.insert(self.key(span), items);
         }
         self.out.spawn_effects.insert(self.key(span), effect.clone());
         Ty::Named {
@@ -11958,6 +11974,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let (var_id, links) = (var.id, var.links.clone());
         let name = id.name.clone();
+        // [effect-state-store] A handler's **storage** — a state field or a
+        // constructor parameter — outlives every member call, so a member
+        // cannot move a value out of it: the handler still owns it after the
+        // call returns. The mirror of the store rule, and owed for the same
+        // reason it was: the two backends cannot agree otherwise. Rust
+        // silently `.clone()`d (so the handler kept a *copy* and mutable data
+        // diverged observably — and a `linear` value had its obligation
+        // duplicated), Kotlin shared the reference, and where the clone was
+        // missing — the consuming *intrinsics*, `send` and `add` — rustc
+        // reported a raw E0507 with no Salvo diagnostic at all. Found
+        // 2026-09-15; a `Copy` state field hides every part of it.
+        //
+        // `copy` is the remedy, and the diagnostic says so — except for a
+        // linear value, which has none: taking one out of a composite is the
+        // interim refusal [linear-composite], and here the composite is the
+        // handler.
+        if self.consume_of_handler_storage(&name, action, id.span) {
+            return;
+        }
         if !links.is_empty() {
             // [proj-infer] A held view travels as an owned object (see the
             // value case above); a wholesale projection or alias cannot.
@@ -11987,8 +12022,69 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    // ================= expressions =================
+    /// [effect-state-store] Is `name` one of the *enclosing handler's* stored
+    /// values — a state field or a constructor parameter — being consumed?
+    /// Reports if so and answers whether it did.
+    ///
+    /// Both kinds are storage the handler keeps across every activation, so a
+    /// member has nothing to move out of: what the caller of the member would
+    /// leave behind is a handler with a hole in it. The remedy is `copy`, and
+    /// a linear value has none.
+    fn consume_of_handler_storage(&mut self, name: &str, action: &str, span: Span) -> bool {
+        let Some(h) = self.own_handler else {
+            return false;
+        };
+        let kind = if h.state.iter().any(|f| f.name.name == name) {
+            "state field"
+        } else if h.params.iter().any(|p| p.name.name == name) {
+            "constructor parameter"
+        } else {
+            return false;
+        };
+        let ty = self
+            .lookup(name)
+            .map(|v| v.declared.clone())
+            .unwrap_or(Ty::Unknown);
+        // [copy-scalar-free] A native scalar's copy is free and
+        // indistinguishable from a move, so a member may hand one over: the
+        // handler keeps its own, both backends agree, and nothing is cloned
+        // that the reader would care about. This is the exemption the
+        // deduction rules already grant, and it is why the first asynchronous
+        // test (`sum: Int`) never saw the rule below.
+        if crate::types::is_copy_scalar(&ty.strip_quals()) {
+            return false;
+        }
+        // [linear-composite] Linearity is deliberately *not* transitive
+        // through composites, so the type's own obligation is the whole
+        // question here.
+        let linear = self.ty_own_linear(&ty);
+        let handler = h.name.name.clone();
+        if linear {
+            self.error(
+                span,
+                format!(
+                    "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, \
+                     which owns it for its whole lifetime — and a linear value cannot \
+                     be copied out of it, so there is nothing to hand over here \
+                     [linear-composite]. Discharge it where the handler itself is \
+                     settled"
+                ),
+            );
+        } else {
+            self.error(
+                span,
+                format!(
+                    "cannot {action} `{name}`: it is a {kind} of handler `{handler}`, \
+                     which still owns it after this member returns — so the value \
+                     cannot move out. Use `copy({name})` to hand over an independent \
+                     value"
+                ),
+            );
+        }
+        true
+    }
 
+    // ================= expressions =================
     fn check_expr(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
         let ty = self.check_expr_inner(expr, expected);
         self.out.expr_ty.insert(self.key(expr.span()), ty.clone());
@@ -16060,6 +16156,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
 
+        // [effect-available] The fn path is committed, so tell the emitters —
+        // whose own "is this name an effect member?" question is asked of the
+        // **program-wide, scope-blind** `Symbols::effect_of_fn`, while the
+        // checker has just resolved a fn declaration.
+        //
+        // The two fall-throughs inside the member block above record the case
+        // where the member *was* in this scope and lost. This records the
+        // cases where that block never ran at all: the name is a member of an
+        // effect not in scope here, or the call wrote an explicit `@module`
+        // selector to reach the fn on purpose. The first is a user effect's
+        // member name colliding with a std fn — `effect Tally { fn add(n: Int)
+        // }` made *std's* `core/seq.sv` emit a member dispatch for its own
+        // `add(out, x)`, reported as "no handler for effect `Tally`" from
+        // inside std (found 2026-09-15). The checker was right and silent; the
+        // record is what makes the emitters agree.
+        if self.symbols.effect_of_fn.contains_key(name) {
+            self.out.fn_over_member_calls.insert(self.key(span));
+        }
+
         // Type the arguments once, then match candidates against them.
         // The **lead** candidate's parameter types flow into the arguments
         // as expected types — which is what lets lambda literals infer
@@ -16739,6 +16854,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                         continue;
                     }
                     let name = id.name.clone();
+                    // [effect-state-store] A member cannot move a value out
+                    // of its handler's storage — the handler still owns it
+                    // after the call returns.
+                    if self.consume_of_handler_storage(&name, "move", id.span) {
+                        continue;
+                    }
                     // A lambda cannot consume a capture [fate-lambda].
                     if let Some(frame) = self.frame_of_id(var_id) {
                         if self.capture_move_violation(frame, &name, id.span) {

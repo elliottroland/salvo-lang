@@ -2044,6 +2044,8 @@ fn main() [use] {
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_process,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
+    kotlinc_compiles_and_runs_a_dependent_spawn,
+    kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -8949,6 +8951,71 @@ fn kotlinc_compiles_and_runs_the_memory_filesystem() -> KotlinCase {
     kotlin_case(files, "memfs", MEMFS_OUTPUT)
 }
 
+// ===== [effect-available] a member name that is also a std fn =====
+
+/// The same program the Rust backend runs, with the same expected output. The
+/// two bugs it pins were both *emitter*-side and identical on both backends:
+/// std's own `core/seq.sv` emitting a member dispatch for its `add(out, x)`
+/// (loud — "no handler for effect `Tally`" from inside std), and
+/// `to_upper@core.string("hi")` running the **member** and printing `hi!` where
+/// `HI` was asked for (silent). Running it is what catches the second.
+const MEMBER_NAME_COLLISION: &str = r#"
+effect Tally {
+    fn add(n: Int) -> None => !n
+    fn read() -> Int
+}
+
+handler Summing() of Tally {
+    sum: Int = 0
+
+    fn add(n: Int) -> None {
+        sum = sum + n
+    }
+
+    fn read() -> Int {
+        return sum
+    }
+}
+
+effect Shout {
+    fn to_upper(s: Str) -> Str => !s
+}
+
+handler Excited() of Shout {
+    fn to_upper(s: Str) -> Str {
+        return "${s}!"
+    }
+}
+
+fn double(x: Int) [] -> Int {
+    return x * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Summing()
+    use Excited()
+    add(4)
+    add(5)
+    println("tally ${read()}")
+    let xs: Mut List<Int> = mut_list_of()
+    add@core.list(xs, 7)
+    let mapped = map(iter([1, 2, 3]), double)
+    println("list ${size(xs)} mapped ${size(mapped)}")
+    let mine = to_upper@Shout("hi")
+    let theirs = to_upper@core.string("hi")
+    println("member ${mine} std ${theirs}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_member_named_like_a_std_fn() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", MEMBER_NAME_COLLISION)]),
+        "member-name-collision",
+        "tally 9\nlist 1 mapped 3\nmember hi! std HI\n",
+    )
+}
+
 // ===== [kt-process] asynchronous effect handlers =====
 
 /// [async-spawn-expr] [async-use-addr] [async-waitfor] The same program the
@@ -9088,5 +9155,118 @@ fn a_stub_implements_the_effect_by_sending_kotlin() {
         main.content.contains("__Stub_Log("),
         "`use addr` does not build the stub:\n{}",
         main.content
+    );
+}
+
+// ===== [async-spawn-expr] dependent-handler spawns =====
+
+/// The same program the Rust backend runs, with the same expected output: a
+/// child declaring `[Log, Tally]` whose spawn clause supplies one dependency as
+/// a **construction** and one as an **`Addr`**. The parity assertion for the
+/// binding swap — one handler, compiled once, with a local instance behind one
+/// of its effects and a process behind the other.
+const DEP_SPAWN: &str = r#"
+async effect Log {
+    send fn note(what: Str) => !what
+    send fn dump(out: Reply<Str>) => !out
+}
+
+async effect Tally {
+    send fn tick(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+async effect Counter {
+    send fn bump(n: Int) => !n
+    send fn report(out: Reply<Str>) => !out
+}
+
+handler Recording() of Log {
+    last: Str = "none"
+
+    send fn note(what: Str) {
+        last = what
+    }
+
+    send fn dump(out: Reply<Str>) {
+        out.send(copy(last))
+    }
+}
+
+handler Summing() of Tally {
+    sum: Int = 0
+
+    send fn tick(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+handler Counting() [Log, Tally] of Counter {
+    send fn bump(n: Int) {
+        note("bumped ${n}")
+        tick(n)
+    }
+
+    send fn report(out: Reply<Str>) {
+        dump(out)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let tally = spawn Summing() capacity 8 on pool(1)
+    let counter = spawn Counting() use Recording(), tally capacity 8 on pool(1)
+    counter.bump(2)
+    counter.bump(3)
+    let last = waitfor out: Reply<Str> {
+        counter.report(out)
+    }
+    println("last ${last}")
+    let sum = waitfor out: Reply<Int> {
+        tally.total(out)
+    }
+    println("sum ${sum}")
+}
+"#;
+
+fn generate_dep_spawn_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", DEP_SPAWN)])
+}
+
+fn kotlinc_compiles_and_runs_a_dependent_spawn() -> KotlinCase {
+    kotlin_case(
+        generate_dep_spawn_demo(),
+        "dep-spawn",
+        "last bumped 3\nsum 5\n",
+    )
+}
+
+/// [kt-process] [kt-effect-fusion] The shape: the process is generic in the
+/// **same carrier** the handler stores, and the spawn site builds one of the
+/// generated `__Fx_N` classes out of its clause — a construction for one
+/// dependency, a forwarding stub for the addr. Kotlin needs no provider of its
+/// own, because the handler already holds the carrier.
+#[test]
+fn a_dependent_spawn_builds_the_childs_carrier() {
+    let files = generate_dep_spawn_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains(
+            "class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) : \
+             salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally"
+        ),
+        "the process class does not carry the handler's carrier:\n{text}"
+    );
+    assert!(
+        text.contains("__Proc_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))"),
+        "the spawn does not build the carrier from its clause:\n{text}"
     );
 }

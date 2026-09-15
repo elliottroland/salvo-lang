@@ -498,8 +498,13 @@ handler Plain<T> of Show<T> {
     fn show(v: T) -> Str => v { return "plain" }
 }
 
+// [effect-state-store] The member does not *return* `prefix`: a handler's own
+// storage outlives every member call, so handing it out is `copy(prefix)` —
+// which these tests cannot write (their prelude has no std). What they are
+// about is the type argument a constructor argument binds, so a literal answer
+// says the same thing.
 handler Prefixed<T>(prefix: Str) of Show<T> {
-    fn show(v: T) -> Str => v { return prefix }
+    fn show(v: T) -> Str => v { return "p" }
 }
 "#;
 

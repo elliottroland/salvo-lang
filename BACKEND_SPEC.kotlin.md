@@ -904,13 +904,37 @@ where Rust had to build the fusion to get the same programs running
     SalvoProcess`, beside the handler: `handle` casts the message and calls the
     member the class names, in a `when` over the sealed type — exhaustive by
     construction. `resume` is where parked continuations will dispatch.
+  * **A dependent handler's process is generic in the same carrier the handler
+    stores.** A dependent handler holds its environment as a bounded type
+    parameter (`class Counting<__Fx>(private val __fx: __Fx) : Counter where
+    __Fx : __Has_Log` [kt-effect-fusion]), so the process repeats it:
+    `class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) :
+    salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally`. Nothing is
+    threaded per activation and no provider is generated — where Rust has to
+    own one and rebuild the view per member call ([rs-process]), Kotlin's
+    objects alias, so the handler already holds everything.
+    * The **spawn site** builds the carrier, exactly as a `use` site does:
+      `emit_fx_class` over the handler's declared dependencies, instantiated
+      with the clause's instances and passed as the handler's trailing `__fx`
+      argument — `__Proc_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))`.
+      A construction is `D(args)`, an addr is `__Stub_D(addr)`.
+    * The carrier's constructor takes its effects in the fused class's
+      canonical order, which is neither the handler's declaration order nor the
+      program's clause order; the checker's clause-to-dependency matching
+      resolves the second, `emit_fx_class` the first ([async-spawn-expr]).
+    * Kotlin infers `__Fx` at the spawn from the constructor argument, so no
+      type-argument list is written — unlike the `use` path, which appends the
+      carrier class for a *generic* handler because Kotlin takes such a list
+      whole or not at all. A generic handler is refused as a process anyway.
   * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
     `Int` ids, `Reply<T>` is `salvo.SalvoReply` — and the runtime speaks the same
     word (`SalvoSched.send(addr, …)`, `SalvoCtx.addr`), as the Rust mirror does; the Salvo type arguments have
     no rendering, since the runtime is untyped (`Any?`) and the message classes
     carry the payload types.
   * **The forms**: `spawn H(args) capacity N on P` →
-    `SalvoSched.spawn(P, N, __Proc_H(H(args)))`; `addr.member(args)` →
+    `SalvoSched.spawn(P, N, __Proc_H(H(args)))`, with the child's carrier as a
+    trailing constructor argument when the handler has dependencies;
+    `addr.member(args)` →
     `SalvoSched.send(addr, __Msg_E.Member(args))`; `waitfor out: Reply<T> { … }`
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
@@ -918,10 +942,10 @@ where Rust had to build the fusion to get the same programs running
   * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
     beside the effect: `use addr` builds one and binds it through the same path
     a handler instance takes (`bind_effect_instance`, extracted for exactly
-    this), fusion included [async-use-addr].
-  * **Still refused**, matching the Rust backend one for one: a handler with
-    effect dependencies, a generic handler, a generic effect as a protocol,
-    `replyto`, and a self-send.
+    this), fusion included [async-use-addr]. A spawn clause's addr becomes the
+    same stub, inside the child's carrier.
+  * **Still refused**, matching the Rust backend one for one: a generic
+    handler, a generic effect as a protocol, `replyto`, and a self-send.
   * Pool threads are **daemon** threads, which is what makes "the program ends
     when `main` returns" true on the JVM without any shutdown handshake.
 

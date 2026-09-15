@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1003 tests, complete: the toolchain tests are
+cargo test                  # 1012 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,74 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5, sequence item 4: dependent-handler spawns (2026-09-15).** A spawned
+child can now have effect dependencies, supplied by its own `use` clause as
+handler constructions, as addrs, or a mix — on **both backends, with identical
+output**. It was the biggest remaining piece of the phase and it landed exactly
+as the survey predicted, which is the useful part of the record: reading both
+backends first turned a refactor into three additive changes. Tests: **1006
+(+3)**, and the two "not emitted yet" refusals in `emit_spawn` are gone —
+`emit_spawn` now refuses only a generic handler.
+
+**One checker table, then one shape per backend.** `spawn_dep_items` records
+*which clause item satisfied which declared dependency* — a clause index per
+declared dependency, in the handler's declaration order, beside `spawn_deps`.
+`check_spawn` already computed the matching while draining its `supplied` list;
+without the table both emitters would have re-derived it, which is two chances
+to disagree about an ordering that differs routinely (`use tally, Recording()`
+and `use Recording(), tally` are one program, and the child's slots are in
+neither of those orders on Kotlin, where the fused class sorts them
+canonically).
+
+**Rust: the child owns a flat provider.** `__Prov_H<__D0, …>`, one `pub` field
+per dependency, with a Has-accessor impl per dependency, emitted beside the
+handler; `__Proc_H<__D0, …>` holds `handler` **and** `prov`; and `handle`
+builds the *existing* `__Deps_H` view over the provider and calls through
+`__Impl_H`. `__Deps_H` needed no change at all — it is a view over **one**
+provider, and a flat struct is a provider. What the generic version did cost is
+one thing the survey did not name: `SalvoProcess: Send`, so the impl has to
+*say* `__D0: Log + Send + 'static` where a non-generic body gets `Send` from
+the auto trait.
+
+**Kotlin: nothing new is generated.** A dependent handler already stores its
+carrier as a bounded type parameter, so the process repeats it
+(`class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) :
+salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally`) and the *spawn
+site* calls `emit_fx_class` exactly as a `use` site does. Kotlin infers `__Fx`
+from the constructor argument, so unlike the `use` path there is no
+type-argument list to append. The asymmetry between the backends is the same
+one the fusion has everywhere: Rust must own and rebuild a view per activation,
+Kotlin's objects alias.
+
+**Item 3's refactor is what made a clause item uniform.** A construction is
+`D::new(args)` / `D(args)`, an addr is the forwarding stub
+`__Stub_D::new(addr)` / `__Stub_D(addr)` — and both go into the same slot, so
+the child cannot tell which of its dependencies is a process. That is Example
+6's binding swap, executed: the compile-and-run case per backend gives
+`Counting [Log, Tally]` a constructed `Recording()` for one and an
+`Addr<Tally>` for the other, and prints `last bumped 3` / `sum 5` on both.
+The test's ordering is deterministic without synchronisation, which is worth
+copying: everything is chained through **one** process's arrival order, and
+`report` forwards `main`'s own reply token to the child's local `Log` instance,
+so the answer comes from inside the child.
+
+**Two defects surfaced while writing that test, and both were fixed the same
+day** (records with repros under "Defects found and closed"; both pre-existing
+and unrelated to concurrency, and each had a *silently wrong output* half that
+the loud half hid). An **effect member whose name is also a std fn** broke
+std's own emission — the checker's [effect-available] rule is import-scoped, the
+emitters' `effect_of_fn` map is program-wide, and `fn_over_member_calls`, the set
+that bridges them, was only filled when the member lost a contest *in scope*;
+filling it wherever the fn path commits also fixed `to_upper@core.string("hi")`,
+which had been running the member and printing `hi!`. And **consuming a
+handler's stored values** — a state field or a constructor parameter — was a
+silent clone on Rust and a share on Kotlin (`eaten 3 kept 2` versus
+`kept 3`), up to and including duplicating a *linear* obligation; it is now the
+read direction of [effect-state-store], with `copy` as the remedy, linear values
+refused outright and Copy scalars exempt. The first defect cost the test its
+`add` member (renamed `tick`), the second its `copy(last)` — which the checker
+now requires rather than rustc.
 
 **Phase 5, sequence item 3: the `use addr` forwarding stub (2026-09-15).**
 Both backends now bind an effect to a process: `__Stub_E` holds an addr and
@@ -317,12 +385,14 @@ runtime is untyped and the message type is what carries payloads across.
   for the library underneath.
 
 **Deliberately still refused, each a named diagnostic** (the compiler's output
-is the next slice's work list): spawning a handler with effect **dependencies**
-— its members take a fused value the child would have to hold and thread, which
-is the biggest remaining piece — a **generic** handler, a **generic effect** as
-a protocol, `replyto` (needs the parked-continuation table `resume` dispatches
-on), a **self-send** (needs the activation's own addr), and `use addr` (needs the
-forwarding stub).
+is the next slice's work list) — *as of this slice*: spawning a handler with
+effect **dependencies** — its members take a fused value the child would have
+to hold and thread, which is the biggest remaining piece — a **generic**
+handler, a **generic effect** as a protocol, `replyto` (needs the
+parked-continuation table `resume` dispatches on), a **self-send** (needs the
+activation's own addr), and `use addr` (needs the forwarding stub). Sequence
+item 3 closed `use addr` and item 4 the dependencies, both later the same day;
+the current list is in [rs-process] / [kt-process].
 
 **Phase 5 step two, slice four's leftovers closed the same day
 (2026-09-15).** Three of the four gaps the checker slice recorded are gone;
@@ -5912,6 +5982,145 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
+### ~~An effect member named like a std fn breaks std's emission — and `@module` runs the wrong one~~ — found and closed 2026-09-15
+
+**Was reproduced** by an ordinary effect, no concurrency involved — found while
+writing the dependent-spawn test, whose child wanted a member called `add`:
+
+```
+effect Tally {
+    fn add(n: Int) -> None => !n
+}
+handler Summing() of Tally {
+    sum: Int = 0
+    fn add(n: Int) -> None { sum = sum + n }
+}
+fn double(x: Int) [] -> Int { return x * 2 }
+fn main() [use] {
+    use StdOutConsole()
+    use Summing()
+    add(4)
+    let ys = map(iter([1, 2, 3]), double)
+    println("size ${size(ys)}")
+}
+```
+
+Both backends, twice: `std/core/seq.sv: no handler for effect 'Tally' in scope`.
+`salvo analyze` was **clean** — the checker was right and silent.
+
+**The second half was silently wrong output**, which the first half's noise hid:
+
+```
+effect Shout { fn to_upper(s: Str) -> Str => !s }
+handler Excited() of Shout { fn to_upper(s: Str) -> Str { return "${s}!" } }
+fn main() [use] {
+    use StdOutConsole()
+    use Excited()
+    let mine = to_upper@Shout("hi")
+    let theirs = to_upper@core.string("hi")     // ran the *member*
+    println("member ${mine} std ${theirs}")     // "member hi! std hi!"
+}
+```
+
+`std HI` was expected; both backends printed `std hi!` — a
+[backend-never-wrong] violation, and the reason the fix is verified by a
+compile-and-run case rather than a text assertion.
+
+**Root cause: the checker and the emitters asked different questions.** The
+checker's availability rule [effect-available] consults `scope.effect_members`,
+which is **import-scoped** — inside `std/core/seq.sv` a program's `Tally` is not
+there at all, so `add(out, x)` resolved to std's own `add` and the fall-through
+that records `fn_over_member_calls` was never reached. The emitters consult
+`Symbols::effect_of_fn`, which is **program-wide**, and take the member path
+unless that set says otherwise. `@module` was the same hole from the other side:
+it skips the member block *deliberately*, so nothing was recorded there either.
+
+**The fix is one condition, in the place the fn path commits**: record
+`fn_over_member_calls` whenever a call resolves to a fn declaration and the name
+is a member *anywhere in the program*. That covers all three routes — member
+not in scope, `@module` written, and the two existing contests — with one rule
+instead of three, and it makes the emitters' scope-blind map harmless by
+construction. The alternative (giving the emitters the checker's scope) was not
+tried: the record already exists for exactly this hazard, it was just
+underfilled.
+
+**The lesson**, which is the one `local_calls` taught and this repeated: when
+two passes answer one question from *different tables*, the narrower table must
+publish its answer for **every** case, not only the interesting one. A
+"resolved to a fn" record that fires only on collisions-in-scope is a record
+with a hole exactly where the tables disagree most.
+
+### ~~Consuming a handler's stored values is a silent clone on Rust and a share on Kotlin~~ — found and closed 2026-09-15
+
+**Was reproduced** three ways, each worse than it looks. The loud one, which is
+how it was found (writing the dependent-spawn test):
+
+```
+handler Holding() of Sink {
+    last: Str = "abc"
+    send fn peek(out: Reply<Str>) { out.send(last) }
+}
+```
+
+Checker-clean; rustc reports `E0507: cannot move out of 'self.last' which is
+behind a mutable reference`, naming `.clone()`. Kotlin runs it. The same shape
+through `add(out, last)`. A `Copy` state field hides it entirely, which is why
+the first process test (`sum: Int`) never met it.
+
+**The silent ones were the real defect.** An ordinary consuming call and a
+`return` both *did* have Rust's clone inserted, and it diverges:
+
+```
+fn eat(xs: Mut List<Int>) [] -> Int => !xs { add(xs, 99) return size(xs) }
+handler Holding() of Bag {
+    items: Mut List<Int> = mut_list_of(1, 2)
+    fn go() -> Int { return eat(items) }
+    fn count() -> Int { return size(items) }
+}
+// println("eaten ${go()} kept ${count()}")
+//   Rust:   eaten 3 kept 2      (the handler kept a *copy*)
+//   Kotlin: eaten 3 kept 3      (the handler kept the same list)
+```
+
+The same with a getter (`fn label() -> Mut List<Int> { return items }`), and
+worst of all with a **linear** value: `close(t)` on a `linear struct` handler
+constructor parameter emitted `close__3(self.t.clone())` — an obligation
+*duplicated*, silently, by the backend whose whole job is to refuse that.
+
+**Root cause: handler storage was invisible to the flow analysis as a
+lifetime.** A state field and a handler constructor parameter are registered as
+ordinary locals, so a move out of one looked like a move out of any local —
+legal, since nothing read it afterwards *in that member*. But the handler still
+owns the value when the member returns, so there is nothing to move: Rust
+cloned to make the borrow check pass, Kotlin shared, and neither is what the
+program said.
+
+**The fix is the mirror of a rule already decided.** [effect-state-store]
+already said that assigning *into* a state field is a **store** rather than a
+link, for this exact reason and on this exact evidence (a 2-versus-1 divergence
+found 2026-09-14). The read direction is now the same rule: a member may not
+move a value out of the handler's storage, and the diagnostic names
+`copy(held)`. A **linear** stored value is refused outright (there is no `copy`,
+and taking one out of a composite is [linear-composite]'s interim refusal); a
+**Copy scalar** is exempt ([copy-scalar-free]), which is what keeps `out.send(sum)`
+on an `Int` field working and what hid the whole thing.
+
+Beside it, the Rust backend's `intrinsic_arg_code` now renders a **consumed**
+intrinsic argument owned rather than as a bare place, so the intrinsic path
+matches the ordinary-call path instead of being the one consuming position that
+emitted a place into a moving one.
+
+**This tightened the language**: `return held` and `eat(held)` used to compile.
+Under phase 2b's "copies only by opt-in" they were a copy nobody wrote, which is
+what makes the tightening a fix rather than a new rule — but it is a visible
+change, and two checker tests had to write `copy` (or stop returning storage) to
+keep passing.
+
+**The lesson**: a rule about one direction of a lifetime asymmetry is owed in
+the other. "Assigning in is a store" and "moving out is impossible" are one
+fact about handler storage, and shipping half of it left the half that produces
+wrong output.
+
 ### ~~Mutation through a narrowed place borrows a clone on Rust~~ — found and closed 2026-09-10
 
 **Was reproduced** by *running* both backends — `analyze` is silent, and the
@@ -10557,7 +10766,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1003)
+## Test inventory (all green: 1012)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10565,7 +10774,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 512 - 19 unit tests (file classification, including the
+- `salvo-core`: 561 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -10574,7 +10783,7 @@ cache, with per-test timings.
   `narrowable` accepting field chains only) + 2 source
   discovery tests (`tests/source_tests.rs` [mod-ignore]: `.svignore`
   skips listed files/subtrees; hidden and `CACHEDIR.TAG` directories
-  skipped with the root exempt) + 19 deduction
+  skipped with the root exempt) + 24 deduction
   tests (`tests/deduce_tests.rs`: exhaustive lists dropping *undeclared*
   qualifiers and delta lists passing them through, mutating bodies
   requiring the exhaustive form, `Nothing` meaning moved
@@ -10582,7 +10791,10 @@ cache, with per-test timings.
   transitivity, effect-member contracts reaching inference [call-resolve]
   and a keeping member still borrowing, handler *state* stores counting as
   moves so a keeping member that stores its parameter is rejected while a
-  moving one is accepted [effect-state-store], written-list body
+  moving one is accepted [effect-state-store] — plus its **read** direction
+  (added 2026-09-15): a member consuming or returning the handler's storage
+  (a state field, a constructor parameter) refused naming `copy`, `copy`
+  settling it, and a Copy scalar exempt [copy-scalar-free] — written-list body
   validation,
   written-list shape validation, stricter-than-body lists,
   `let`-bindings linking instead of moving — the parameter stays kept,
@@ -11191,14 +11403,18 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 97 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 99 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 84 cases as of the process case, which runs the first
-  asynchronous program and asserts the same `sum 5` the Rust backend does
+  (2026-09-12; 86 cases as of the member-name-collision case, which pins both
+  halves of that defect by *running* — a member named `add` beside std's own,
+  and `to_upper@core.string` versus `to_upper@Shout` [effect-available]. Beside
+  it, the dependent-spawn case runs a child whose `[Log, Tally]` arrive as a
+  construction and an addr, asserting the same `last bumped 3` / `sum 5` the
+  Rust backend does, and the plain process case asserts `sum 5`
   [kt-process]). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
@@ -11371,11 +11587,17 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 171 - including three [rs-process] tests (the first
+- `salvo-backend-rust`: 176 - including five [rs-process] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
-  asserted on the generated text; and the dependent-spawn cut reported as a
-  codegen error) - golden snapshots of the same five demos
+  asserted on the generated text; a **dependent spawn** compiled and run —
+  one dependency a construction, the other an addr — printing the
+  `last bumped 3` / `sum 5` Kotlin prints; its flat provider, `__Deps_H`
+  view and `__Impl_H` dispatch asserted on the generated text; and the
+  generic-handler cut reported as a codegen error) - and the
+  member-name-collision case [effect-available], which is a compile-and-run
+  test precisely because one half of the defect it pins was silently wrong
+  *output* - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -11565,6 +11787,76 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **When two passes answer one question from different tables, the narrower
+  table must publish for *every* case.** The checker resolves a call with an
+  **import-scoped** member table; the emitters ask a **program-wide** one, and
+  `fn_over_member_calls` exists to bridge them — but it was only written where
+  the member lost a contest *in scope*, which is the one case where the two
+  tables already agree. Every case where they disagree (a member of an effect
+  not in scope, an explicit `@module`) went unrecorded, and one of them emitted
+  the wrong function silently. A "which did this resolve to?" record with a
+  condition on it is a record with a hole exactly where it is needed
+  (2026-09-15).
+- **A rule about one direction of a lifetime asymmetry is owed in the other.**
+  "Assigning into handler state is a store, not a link" shipped 2026-09-14 with
+  a 2-versus-1 divergence as its evidence. The *read* direction — moving a
+  value out of that same storage — was left alone for a day, and it produced
+  the same divergence in the same shape, plus a duplicated linear obligation.
+  When a rule is justified by "this thing outlives the call", grep for the
+  other direction before closing it (2026-09-15).
+- **A loud error can be the least of a defect.** The reported symptom was a
+  raw rustc E0507 from one intrinsic; the same root cause was *silently*
+  cloning through every ordinary consuming call and every `return`, where the
+  clone existed and made the backends disagree. Before fixing the loud
+  instance, look for the shape where the compiler already inserted the thing
+  it was missing — that is where the wrong output lives (2026-09-15).
+- **The exemption is part of the rule, and its absence is why nobody saw the
+  bug.** `copy`-or-refuse on handler storage would have made `out.send(sum)`
+  on an `Int` field an error, which is noise: a Copy scalar's copy is
+  indistinguishable from a move. That same exemption is why the rule went
+  unnoticed for a day — the first process handler's state was
+  `sum: Int`. Write the exemption and the rule together, and treat "all our
+  tests use scalars" as a coverage gap (2026-09-15).
+
+- **A generic type parameter has to *say* what an auto trait gives a concrete
+  one.** `SalvoProcess: Send`, and a non-generic `impl SalvoProcess for
+  __Proc_H` proves it for free — the compiler derives `Send` from the fields.
+  Making the process generic in its dependency instances
+  (`__Proc_H<__D0>`) moved that proof out of reach: rustc wants
+  `__D0: Send` written on the impl, and `'static` too once the value is
+  boxed as `Box<dyn SalvoProcess>`. Any time a concrete generated type
+  becomes generic, re-derive the *bounds it was getting silently*
+  (2026-09-15).
+- **The pair of names for one concept is where a program's own names can
+  collide with the compiler's.** `__Prov_H` (the process's flat provider,
+  named after a handler) and `__Prov_A_B` (the fusion's provider trait,
+  named after an effect set) share a prefix and a Rust namespace, so a
+  handler named like a sanitized effect set would define the type twice.
+  It is *safe* only because a duplicate definition is a rustc error rather
+  than a silent reuse — which is exactly the distinction the existing
+  provider-trait collision check is built on, and worth checking whenever a
+  generated name is derived from user text (2026-09-15).
+- **Write the ordering test, not just the feature test.** A dependent spawn
+  has two orders — the handler's declaration order and the clause's written
+  order — and a matching table between them; a test that writes them in the
+  same order proves nothing about the table. `use tally, Recording()` versus
+  `use Recording(), tally` is the one-line check, and on Kotlin there is a
+  *third* order (the fused class sorts its effects canonically) that only
+  shows up if the first two differ (2026-09-15).
+- **A deterministic concurrency test chains through one process, not
+  several.** The temptation is to send to two processes and then ask both;
+  arrival order is only a guarantee *per process*, so that races. What works:
+  make everything travel through one mailbox, and get the second fact out by
+  **forwarding the caller's own reply token** to whatever holds it — the
+  token is a value, so a handler can pass it to a dependency and let the
+  answer come from inside the child. Every later query is then ordered by the
+  activation that already finished (2026-09-15).
+- **A `Copy` state field hides a whole class of bug in a process test.** The
+  first process test's handler state was `sum: Int`, so `out.send(sum)`
+  copied; the first test with a `Str` field found E0507 immediately. When a
+  surface's tests are all built on scalars, one non-scalar field is the
+  cheapest coverage there is (2026-09-15).
 
 - **Never write a Rust string literal through a shell heredoc.** Python eats
   `\`-continuations inside its own triple-quoted strings, so a diagnostic

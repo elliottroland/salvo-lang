@@ -1931,6 +1931,28 @@ Conventions:
     observably: Kotlin aliased the list into the state (later caller
     mutations visible) while Rust cloned it — the same program printed 2 and
     1.
+  * **The read direction, same rule** (2026-09-15): a member may not move a
+    value **out** of the handler's storage either — a `state` field or a
+    *constructor parameter*, both of which the handler still owns when the
+    member returns. So consuming one (a `=> !p` parameter, a `send`, an `add`,
+    a struct literal) or `return`ing it is an error naming `copy`, and
+    `copy(held)` is the whole remedy. The evidence is the store rule's,
+    mirrored: Rust silently `.clone()`d, so the handler kept a *copy* and
+    mutable data diverged (`eat(items)` then `size(items)` printed 2 on Rust
+    and 3 on Kotlin) — and a **linear** value had its obligation *duplicated*
+    — while Kotlin shared the reference; where the clone was missing (the
+    consuming *intrinsics*) rustc reported a bare `E0507` with no Salvo
+    diagnostic at all.
+    * A **linear** stored value has no `copy`, so it is refused outright:
+      taking one out of a composite is the interim refusal
+      ([linear-composite]), and here the composite is the handler.
+    * A **Copy scalar** is exempt ([copy-scalar-free]): its copy is free and
+      indistinguishable from a move, both backends agree, and `copy` around
+      every `Int` a member answers with would be noise. Which is exactly why
+      the rule went unnoticed — the first process handler's state was
+      `sum: Int`.
+    * This is a *tightening*: `return held` and `eat(held)` used to compile.
+      Under "copies only by opt-in" they were a copy nobody wrote.
 * [effect-not-data] An effect names a *capability*, not a type of values.
   It may appear in a fn's effect list (`[Console]`), in a **handler's** effect
   list and its `of` clause; every data position — struct field, parameter,
@@ -2074,6 +2096,17 @@ Conventions:
     * Recorded for the emitters as `fn_over_member_calls`, since their own
       "is this a member?" question is asked of a program-wide, scope-blind
       map (`Symbols::effect_of_fn`) — the same reason `local_calls` exists.
+      **The record is made wherever the fn path wins, not only where the
+      member lost a contest** (fixed 2026-09-15): a member of an effect that
+      is not in scope *at all* never reaches the availability rule, and a
+      written `@module` skips it deliberately, so both used to leave the
+      emitters guessing. Two bugs came of it, and only one was loud —
+      declaring `effect Tally { fn add(n: Int) }` made *std's* own
+      `core/seq.sv` emit a member dispatch for its `add(out, x)` ("no handler
+      for effect `Tally`", from inside std, for any program with such a
+      member whether or not it called the name), while
+      `to_upper@core.string("hi")` **ran the member** and printed `hi!` where
+      `HI` was asked for, silently and on both backends.
   * **One overload set where the effect *is* available** (user decision
     2026-09-14): the chosen effect's members and the fn overloads of the
     name are ranked **together**, by the same specificity order two fn
@@ -2448,6 +2481,13 @@ LANGUAGE.md remains the source of truth for everything that does.
     spawning scope); and constructing a clause item that has dependencies *of
     its own*, since there is no scope on the child to resolve those from — a
     `Addr` of a process already serving the effect is the remedy.
+  * **Two orders, and they differ routinely**: the *handler's declaration*
+    order is what the child's dependency slots are in, and the *written*
+    clause order is what the program says. The checker matches the two while
+    resolving the clause and records the matching, so both backends build
+    the child's environment in declaration order without re-deriving it
+    (and without disagreeing about it) — `use tally, Recording()` and
+    `use Recording(), tally` are one program.
   * `capacity` must be an `Int` and `on` a `Pool`.
 * [async-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
   and `main`'s only token source (`replyto` targets a member of the enclosing
@@ -2588,20 +2628,21 @@ LANGUAGE.md remains the source of truth for everything that does.
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
 * **Built so far, and what is refused meanwhile.** The surface **runs**: as of
-  2026-09-15 a program can spawn a handler, send to it through its `Addr`, and
-  bridge with `waitfor` — on **both backends, with identical output**
-  ([rs-process], [kt-process]). Everything above checks; what is still refused
-  at emission, each with a diagnostic naming it: spawning a handler with effect
-  **dependencies** (its members take a fused value the child would have to
-  hold), spawning a **generic** handler, a **generic effect** as a protocol,
-  `replyto` (needs the process body's resume table) and a **self-send** (needs
-  the activation's own address). `use addr` **runs**: it binds a generated
-  forwarding stub, so a function declaring `[Log]` never learns that its
-  capability is a process. Also still open on the checking side:
-  **sendability** (C-4(a)'s structural rule over everything that crosses a
-  seam). The sugar tower — member `-> T` with call syntax, `then`/`then!`,
-  `defer`, merge/join, the gate's member-set generalization — is later passes,
-  each with its own decision surface.
+  2026-09-15 a program can spawn a handler — a **dependent** one included,
+  its dependencies supplied by its own `use` clause as constructions, as
+  addrs, or a mix — send to it through its `Addr`, and bridge with `waitfor`,
+  on **both backends, with identical output** ([rs-process], [kt-process]).
+  `use addr` **runs**: it binds a generated forwarding stub, so a function
+  declaring `[Log]` never learns that its capability is a process — and the
+  same stub is what a spawn clause's addr becomes, which is how a child's
+  dependency swaps between a local handler and a process without the child
+  changing at all. Everything above checks; what is still refused at
+  emission, each with a diagnostic naming it: spawning a **generic** handler,
+  a **generic effect** as a protocol, `replyto` (needs the process body's
+  resume table) and a **self-send** (needs the activation's own address).
+  The sugar tower — member `-> T` with call syntax, `then`/`then!`, `defer`,
+  merge/join, the gate's member-set generalization — is later passes, each
+  with its own decision surface.
 
 ## Deductions
 

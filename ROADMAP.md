@@ -53,9 +53,9 @@ below, grouped by theme; **"The sequence" is the order it will be done in**,
 and each themed section is tagged with the phase it belongs to. **Phase 5
 (threading) is under way**: its design is settled (CONCURRENCY.md,
 SUPERVISION.md, LINEARITY_COLLECTIONS.md — the decision space is empty), the
-scheduler library is built, and the surface is landing in slices — the
-declaration and expression forms parse today. See "Threading and
-concurrency" for what remains.
+scheduler library is built, and the surface is landing in slices — processes
+spawn, send and bridge on both backends today, dependent handlers included.
+See "Threading and concurrency" for what remains.
 
 ## The sequence (user decision 2026-09-09)
 
@@ -173,11 +173,11 @@ collections it needs.
 **5 — Threading: asynchronous effect handlers.** ("Threading and concurrency",
 below.) Designed (user decisions 2026-09-14/15) and **being built**: the
 scheduler library, the whole surface's syntax, its types and its checker rules
-are in, and a process **runs on both backends with identical output**. What is
-left is an agreed eight-item sequence — the `Addr`/`@self` respelling, the
-`async effect` kind, then the remaining emission (stub, dependent spawns,
-`replyto`) and `watch`, the deadlock baseline, linearity in collections, and
-propagation. **The sugar pass leaves the phase** (user decision 2026-09-15;
+are in, and processes **run on both backends with identical output** —
+including a **dependent** handler whose dependencies its spawn clause supplies.
+What is left of the agreed eight-item sequence: `replyto`/`@self` emission and
+`watch`, the deadlock baseline, linearity in collections, and propagation.
+**The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
 call syntax, `then`, `defer` and merge/join become later items with their own
 decision surfaces. [fate-lambda] goes with them — no first-pass form crosses
@@ -237,7 +237,10 @@ the form** — user decision 2026-09-13. Mixing a plain argument with a
 which also let std's `non_empty_list` go back to being ordinary Salvo. A
 user-declared variadic of a *primitive* element type no longer breaks on
 Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
-[kt-variadic].)
+[kt-variadic]. **Closed 2026-09-15**: an effect member whose name is also a
+std fn — one loud half inside std's own emission and one *silently wrong
+output* half through `@module` — and consuming a handler's stored values,
+which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
@@ -1153,14 +1156,17 @@ report, supervision as a pattern with no syntax). Its opening requirement
 **The implementation**, per the first-pass plan in CONCURRENCY.md. **A
 program spawns, sends and bridges — on both backends, with identical output**
 (2026-09-15; the build records and what each slice cost are in COMPLETED.md's
-decision log). Five slices landed the same day: the scheduler library, the
+decision log). Six slices landed the same day: the scheduler library, the
 declaration forms, the expression forms, the types, the checker rules, then
-the emitters' first cut. The smallest running program is the counter in both
-backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
-`counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
-`sum 5` from Kotlin and Rust alike. As-built rules: LANGUAGE_SPEC.md's
-"Asynchronous effect handlers" ([async-process] … [async-types]) plus
-[linear-opaque], [rs-process] and [kt-process].
+the emitters' first cut — and on top of it the respelling sweep, the
+`async effect` kind, the forwarding stub and **dependent-handler spawns**.
+The smallest running program is the counter in both backends' codegen tests:
+`spawn Counting() capacity 8 on pool(1)`, `counter.bump(2)`,
+`waitfor out: Reply<Int> { counter.total(out) }`, printing
+`sum 5` from Kotlin and Rust alike; the largest is the dependent spawn beside
+it, whose child's `[Log, Tally]` are a construction and an addr. As-built
+rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers" ([async-process] …
+[async-types]) plus [linear-opaque], [rs-process] and [kt-process].
 
 **The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
 after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
@@ -1195,11 +1201,28 @@ compiler today, so its own output is the work list.
    compile-and-run case per backend, with `[Log]` travelling down an ordinary
    effect list into a function that never learns it is a process
    ([async-use-addr], [rs-process], [kt-process]).
-4. **Dependent-handler spawns.** The biggest remaining emitter piece: the
-   child holds the fused dependency value, built at the spawn from the clause
-   — constructions built on the child, addrs wrapped in item 3's stub. Every
-   realistic handler needs it (`Counting [Log]`, std's `DefaultFs [RawFs]`),
-   so it is what makes the feature usable rather than demonstrable.
+4. ✅ **Dependent-handler spawns — done 2026-09-15.** Every realistic handler
+   needed it (`Counting [Log]`, std's `DefaultFs [RawFs]`), and it landed as
+   the survey predicted: one **checker table** (`spawn_dep_items` — which
+   clause item satisfied which declared dependency, which `check_spawn`
+   already knew while matching), then each backend's own shape for "the child
+   owns its environment". Rust emits a **generic flat provider** `__Prov_H<__D0,
+   …>` beside the handler, `__Proc_H` holds it, and `handle` builds the
+   existing `__Deps_H` view over it ([rs-process]); Kotlin repeats the
+   handler's carrier type parameter on `__Proc_H` and has the *spawn site*
+   build an `__Fx_N` from the clause ([kt-process]). Both make a clause item
+   into an instance the way item 3's refactor made one — a construction is
+   `D(args)`, an addr is the forwarding stub — so a dependency swaps between a
+   local handler and a process with no change to the child. Verified by a
+   compile-and-run case per backend with one dependency supplied as a
+   construction and another as an addr, identical output on both, plus the
+   written-order swap and a plain-effect dependency with a constructor
+   argument. **The two "not emitted yet" refusals in `emit_spawn` are gone**;
+   what `emit_spawn` still refuses is a generic handler. Two defects surfaced
+   on the way and were **both fixed the same day** — an effect member name
+   colliding with a std fn, and consuming a handler's stored values; each
+   turned out to have a *silently wrong output* half, and both records are in
+   COMPLETED.md.
 5. **`replyto` and `@self` emission.** The parked-continuation table (slot →
    member plus captures) that `resume` dispatches on, and the self-send's two
    readings (an enqueue when the handler was spawned, the ordinary inline

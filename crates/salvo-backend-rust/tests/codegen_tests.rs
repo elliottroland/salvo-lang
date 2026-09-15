@@ -8519,6 +8519,91 @@ fn rustc_compiles_and_runs_the_memory_filesystem() {
     run_rust_files(&files, "memfs", MEMFS_OUTPUT);
 }
 
+// ===== [effect-available] a member name that is also a std fn =====
+
+/// [effect-available] A user effect may name a member after a std function, and
+/// both must keep working — the member where an instance is in scope, the
+/// function everywhere else and wherever `@module` says so. Two bugs lived here
+/// until 2026-09-15, both from the checker and the emitters asking *different
+/// questions*: the checker's availability rule reads an **import-scoped**
+/// table, and inside `std/core/seq.sv` a program's `Tally` is not in it, so
+/// `add(out, x)` resolved to std's own `add` and nothing was recorded; the
+/// emitters read the **program-wide** `Symbols::effect_of_fn` and emitted a
+/// member dispatch anyway.
+///
+/// The first symptom was loud — "`std/core/seq.sv`: no handler for effect
+/// `Tally`" from inside std, for any program declaring such a member, whether
+/// or not it ever called the colliding name. The second was **silently wrong
+/// output**: `to_upper@core.string("hi")` ran the *member* and printed `hi!`
+/// where `HI` was asked for, on both backends. Hence a compile-and-run case
+/// rather than a text assertion — only running it catches the second.
+///
+/// Same program and same expected output on the Kotlin backend.
+const MEMBER_NAME_COLLISION: &str = r#"
+effect Tally {
+    fn add(n: Int) -> None => !n
+    fn read() -> Int
+}
+
+handler Summing() of Tally {
+    sum: Int = 0
+
+    fn add(n: Int) -> None {
+        sum = sum + n
+    }
+
+    fn read() -> Int {
+        return sum
+    }
+}
+
+effect Shout {
+    fn to_upper(s: Str) -> Str => !s
+}
+
+handler Excited() of Shout {
+    fn to_upper(s: Str) -> Str {
+        return "${s}!"
+    }
+}
+
+fn double(x: Int) [] -> Int {
+    return x * 2
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Summing()
+    use Excited()
+    // The member: an instance is in scope, so the bare name is the member.
+    add(4)
+    add(5)
+    println("tally ${read()}")
+    // std's own `add`, reached by hand — and std's internals, which call
+    // `add(out, x)` inside `map`, reached without the program saying anything.
+    let xs: Mut List<Int> = mut_list_of()
+    add@core.list(xs, 7)
+    let mapped = map(iter([1, 2, 3]), double)
+    println("list ${size(xs)} mapped ${size(mapped)}")
+    // Both spellings of a name owned by an effect *and* by std.
+    let mine = to_upper@Shout("hi")
+    let theirs = to_upper@core.string("hi")
+    println("member ${mine} std ${theirs}")
+}
+"#;
+
+const MEMBER_NAME_COLLISION_OUTPUT: &str = "tally 9\nlist 1 mapped 3\nmember hi! std HI\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_member_named_like_a_std_fn() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MEMBER_NAME_COLLISION)]);
+    run_rust_files(&files, "member-name-collision", MEMBER_NAME_COLLISION_OUTPUT);
+}
+
 // ===== [rs-process] asynchronous effect handlers =====
 
 /// [async-spawn-expr] [async-use-addr] [async-waitfor] The first program that
@@ -8603,39 +8688,174 @@ fn a_process_lowers_to_a_message_enum_and_a_body() {
     );
 }
 
-/// [backend-never-wrong] The cuts this slice leaves are *diagnostics*: a
-/// dependent handler's child would have to hold a fused value, and `replyto`
-/// needs the resume table.
-#[test]
-fn the_remaining_process_cuts_are_errors() {
-    let deps = expect_errors(
-        r#"
+/// [async-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
+/// declares `[Log, Tally]` and the spawn's `use` clause supplies one of each
+/// kind — `Recording()` as a **construction**, built on the child, and `tally`
+/// as an **`Addr`**, bound to a forwarding stub. That is the binding swap
+/// executed: `Counting` is compiled once and neither of its member bodies can
+/// tell which of its two dependencies is a process.
+///
+/// The ordering is deterministic without any synchronisation, and that is the
+/// point of arrival order: `bump`, `bump`, `report` are served in that order by
+/// one process, `report` forwards `main`'s own token to the child's `Log`
+/// instance (so the answer comes from *inside* the child), and the two `tick`s
+/// the bumps sent are already in `tally`'s queue by the time `main` asks it for
+/// a total. The expected output is identical on the Kotlin backend.
+const DEP_SPAWN: &str = r#"
 async effect Log {
     send fn note(what: Str) => !what
+    send fn dump(out: Reply<Str>) => !out
+}
+
+async effect Tally {
+    send fn tick(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
 }
 
 async effect Counter {
     send fn bump(n: Int) => !n
+    send fn report(out: Reply<Str>) => !out
 }
 
-handler Printing() of Log {
-    send fn note(what: Str) {}
+handler Recording() of Log {
+    last: Str = "none"
+
+    send fn note(what: Str) {
+        last = what
+    }
+
+    send fn dump(out: Reply<Str>) {
+        out.send(copy(last))
+    }
 }
 
-handler Counting() [Log] of Counter {
+handler Summing() of Tally {
+    sum: Int = 0
+
+    send fn tick(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+handler Counting() [Log, Tally] of Counter {
     send fn bump(n: Int) {
-        note("bumped")
+        note("bumped ${n}")
+        tick(n)
+    }
+
+    send fn report(out: Reply<Str>) {
+        dump(out)
     }
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    use StdOutConsole()
+    let tally = spawn Summing() capacity 8 on pool(1)
+    let counter = spawn Counting() use Recording(), tally capacity 8 on pool(1)
+    counter.bump(2)
+    counter.bump(3)
+    let last = waitfor out: Reply<Str> {
+        counter.report(out)
+    }
+    println("last ${last}")
+    let sum = waitfor out: Reply<Int> {
+        tally.total(out)
+    }
+    println("sum ${sum}")
+}
+"#;
+
+const DEP_SPAWN_OUTPUT: &str = "last bumped 3\nsum 5\n";
+
+fn generate_dep_spawn_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", DEP_SPAWN)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_dependent_spawn() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate_dep_spawn_demo();
+    run_rust_files(&files, "dep-spawn", DEP_SPAWN_OUTPUT);
+}
+
+/// [rs-process] [rs-effect-fusion] The shape a dependent spawn lowers to: a
+/// **flat provider** owning one dependency instance per declared dependency,
+/// implementing each one's Has-accessor trait; a process generic in those
+/// instances; and a `handle` that builds the same `__Deps_H` view a fusion's
+/// forwarding impl builds, over the provider instead of over `__outer`.
+#[test]
+fn a_dependent_spawn_lowers_to_a_flat_provider() {
+    let files = generate_dep_spawn_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    assert!(
+        text.contains("pub struct __Prov_Counting<__D0, __D1> {"),
+        "the flat provider is missing:\n{text}"
+    );
+    assert!(
+        text.contains("impl<__D0: Log, __D1: Tally> __Has_Log for __Prov_Counting<__D0, __D1>")
+            && text.contains(
+                "impl<__D0: Log, __D1: Tally> __Has_Tally for __Prov_Counting<__D0, __D1>"
+            ),
+        "the provider's Has-accessor impls are missing:\n{text}"
+    );
+    assert!(
+        text.contains("prov: __Prov_Counting<__D0, __D1>,"),
+        "the process does not own its provider:\n{text}"
+    );
+    assert!(
+        text.contains("let mut __deps = __Deps_Counting{ __p: &mut self.prov };"),
+        "the activation does not build the deps view:\n{text}"
+    );
+    assert!(
+        text.contains("__Impl_Counting::bump(&mut self.handler, &mut __deps, n)"),
+        "the dispatch does not go through the dependent-member trait:\n{text}"
+    );
+    // The clause's two kinds, in the handler's declaration order: a
+    // construction for `Log`, a forwarding stub for the `Addr<Tally>`.
+    assert!(
+        text.contains(
+            "__Prov_Counting { __d0: Recording::new(), __d1: __Stub_Tally::new(tally) }"
+        ),
+        "the spawn does not build the provider from its clause:\n{text}"
+    );
+}
+
+/// [backend-never-wrong] What this slice still refuses, and does not
+/// mis-emit: a **generic** handler as a process. (The dependent-handler
+/// refusal that used to live here is gone — the feature landed.)
+#[test]
+fn the_remaining_process_cuts_are_errors() {
+    let generic = expect_errors(
+        r#"
+async effect Counter {
+    send fn bump(n: Int) => !n
+}
+
+handler Counting<T>(seed: T) of Counter {
+    send fn bump(n: Int) {}
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting(1) capacity 1 on pool(1)
 }
 "#,
     );
     assert!(
-        deps.iter().any(|e| e.contains("needs the child to hold its fused dependencies")),
-        "expected the dependent-spawn refusal, got {deps:?}"
+        generic
+            .iter()
+            .any(|e| e.contains("spawning generic handler `Counting` is not supported yet")),
+        "expected the generic-handler refusal, got {generic:?}"
     );
 }
 

@@ -431,6 +431,163 @@ handler Bin of Sink {{
     assert!(messages.is_empty(), "got {messages:?}");
 }
 
+// [effect-state-store] The **read** direction of the same rule, and the same
+// evidence: a member cannot move a value *out* of the handler's storage
+// either, because the handler still owns it when the member returns. Rust
+// silently `.clone()`d it (so the handler kept a copy and mutable data
+// diverged: `eat(items)` then `size(items)` printed 2 on Rust and 3 on Kotlin)
+// while Kotlin shared the reference, and where the clone was missing — the
+// consuming *intrinsics* — rustc reported a bare E0507 with no Salvo
+// diagnostic at all. Found 2026-09-15. Both kinds of storage are covered: a
+// `state` field and a constructor parameter.
+#[test]
+fn a_member_cannot_move_a_value_out_of_handler_state() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+fn eat(list: List<Int>) -> None => !list {{ }}
+
+effect Sink {{
+    fn go() -> None
+}}
+
+handler Bin of Sink {{
+    held: List<Int> = fresh()
+
+    fn go() -> None {{
+        eat(held)
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(
+        messages.iter().any(|m| m.contains(
+            "cannot move `held`: it is a state field of handler `Bin`"
+        ) && m.contains("copy(held)")),
+        "got {messages:?}"
+    );
+}
+
+#[test]
+fn a_member_cannot_move_a_value_out_of_a_constructor_parameter() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+fn eat(list: List<Int>) -> None => !list {{ }}
+
+effect Sink {{
+    fn go() -> None
+}}
+
+handler Bin(seed: List<Int>) of Sink {{
+    fn go() -> None {{
+        eat(seed)
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(
+        messages.iter().any(|m| m.contains(
+            "cannot move `seed`: it is a constructor parameter of handler `Bin`"
+        )),
+        "got {messages:?}"
+    );
+}
+
+// [effect-state-store] Returning it is the same move, and the shape most
+// likely to be written: a getter. `copy` is the remedy there too.
+#[test]
+fn a_member_cannot_return_handler_storage_uncopied() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+effect Sink {{
+    fn read() -> List<Int>
+}}
+
+handler Bin of Sink {{
+    held: List<Int> = fresh()
+
+    fn read() -> List<Int> {{
+        return held
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("cannot return `held`") && m.contains("copy(held)")),
+        "got {messages:?}"
+    );
+}
+
+// [effect-state-store] …and `copy` settles it, on both counts.
+#[test]
+fn copying_handler_storage_out_is_accepted() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+fn eat(list: List<Int>) -> None => !list {{ }}
+
+effect Sink {{
+    fn read() -> List<Int>
+    fn go() -> None
+}}
+
+handler Bin(seed: List<Int>) of Sink {{
+    held: List<Int> = fresh()
+
+    fn read() -> List<Int> {{
+        return copy(held)
+    }}
+
+    fn go() -> None {{
+        eat(copy(seed))
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(messages.is_empty(), "got {messages:?}");
+}
+
+// [copy-scalar-free] A native scalar is exempt: its copy is free and
+// indistinguishable from a move, both backends agree, and requiring `copy`
+// around every `Int` a member answers with would be noise. This is why the
+// first asynchronous test (`sum: Int`, `out.send(sum)`) never met the rule.
+#[test]
+fn a_copy_scalar_state_field_may_be_handed_over() {
+    let src = format!(
+        r#"{QUALIFIED_LISTS}
+fn eat(n: Int) -> None => !n {{ }}
+
+effect Sink {{
+    fn read() -> Int
+    fn go() -> None
+}}
+
+handler Bin of Sink {{
+    count: Int = 0
+
+    fn read() -> Int {{
+        return count
+    }}
+
+    fn go() -> None {{
+        eat(count)
+    }}
+}}
+"#
+    );
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert!(messages.is_empty(), "got {messages:?}");
+}
+
 // [deduce-syntax] A written list promising a parameter back that the body
 // moves is an error; so is promising a qualifier the body may remove.
 #[test]

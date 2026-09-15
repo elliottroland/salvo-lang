@@ -419,6 +419,18 @@ fn stub_class_name(effect: &str) -> String {
     format!("__Stub_{effect}")
 }
 
+/// The base name of a *rendered* effect instance (`Store<Int>` → `Store`) —
+/// what a generated class named after the effect declaration needs. An async
+/// effect is never generic today ([async-effect-kind] refuses one as a
+/// protocol), so this only ever strips nothing; it is written for the day one
+/// is allowed.
+fn base_of_rendered(rendered: &str) -> &str {
+    match rendered.find('<') {
+        Some(at) => rendered[..at].trim(),
+        None => rendered.trim(),
+    }
+}
+
 /// [kt-process] The message class of a protocol: `__Msg_Counter`, named after
 /// the *effect*, since that is what a sender knows [async-types].
 fn msg_class_name(effect: &str) -> String {
@@ -1755,11 +1767,13 @@ impl<'p> Emitter<'p> {
     /// handler's — and `handle` casts the protocol's message and calls the
     /// member the class names.
     ///
-    /// Emitted for a handler whose effect has send members and no
-    /// dependencies. A **dependent** handler stores a fused value built at its
-    /// `use` site [kt-effect-fusion]; building one on the child is the next
-    /// slice, and a spawn of such a handler is refused meanwhile rather than
-    /// mis-emitted [backend-never-wrong].
+    /// A **dependent** handler *stores* its fused environment
+    /// ([kt-effect-fusion]), as a constructor argument whose type is the
+    /// handler's extra type parameter. So a process over one is generic in the
+    /// same carrier and passes it nowhere: the handler already holds it, and
+    /// the spawn site builds it. That is the whole of the difference here —
+    /// where Rust has to own a provider and rebuild the view per activation
+    /// ([rs-process]), Kotlin's objects alias.
     fn emit_process_body(&mut self, h: &HandlerDecl, deps: &[String]) -> String {
         let Some(effect_name) = type_base_name(&h.of).map(|n| n.to_string()) else {
             return String::new();
@@ -1774,17 +1788,33 @@ impl<'p> Emitter<'p> {
             .filter(|(_, f)| f.is_send)
             .collect();
         // [async-effect-kind] Only a process protocol gets a process body.
-        if !effect.is_async || sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
+        if !effect.is_async || sends.is_empty() || !h.generics.is_empty() {
             return String::new();
         }
         self.needs_scheduler = true;
         let proc_name = process_class_name(&h.name.name);
         let msg = msg_class_name(&effect_name);
+        // The carrier's type parameter and its bounds, repeated from the
+        // handler's own declaration: a `Counting<__Fx>` field needs the same
+        // `where` clause the class was declared with.
+        let (proc_generics, handler_ty, where_clause) = if deps.is_empty() {
+            (String::new(), h.name.name.clone(), String::new())
+        } else {
+            let bounds: Vec<String> = deps
+                .iter()
+                .map(|rendered| format!("{HANDLER_FX} : {}", self.has_iface(rendered).0))
+                .collect();
+            (
+                format!("<{HANDLER_FX}>"),
+                format!("{}<{HANDLER_FX}>", h.name.name),
+                format!(" where {}", bounds.join(", ")),
+            )
+        };
         let mut out = format!(
-            "\nclass {proc_name}(private val handler: {}) : salvo.SalvoProcess {{\n    \
+            "\nclass {proc_name}{proc_generics}(private val handler: {handler_ty}) : \
+             salvo.SalvoProcess{where_clause} {{\n    \
              override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {{\n        \
-             when (val m = msg as {msg}) {{\n",
-            h.name.name
+             when (val m = msg as {msg}) {{\n"
         );
         for (i, f) in &sends {
             let member = salvo_core::effect_member_name(effect, *i);
@@ -3086,24 +3116,25 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "TODO()".to_string();
         };
-        // [kt-effect-fusion] A dependent handler stores a fused value built at
-        // its `use` site; building one on the *child* is the next slice, so a
-        // spawn of one is refused rather than mis-emitted.
-        if !uses.is_empty() || decl.effects.iter().flatten().next().is_some() {
-            self.error(format!(
-                "spawning `{handler_name}` is not emitted yet: a handler with effect \
-                 dependencies needs the child to hold its fused dependencies, which \
-                 is the next slice"
-            ));
-            return "TODO()".to_string();
-        }
         if !decl.generics.is_empty() {
             self.error(format!(
                 "spawning generic handler `{handler_name}` is not supported yet"
             ));
             return "TODO()".to_string();
         }
-        let _ = span;
+        // [effect-handler-deps] [kt-effect-fusion] The child's carrier, built
+        // here instead of at a `use` site: the same generated `__Fx_N` class,
+        // its arguments the clause's instances in the handler's *declaration*
+        // order — which is what the checker's `spawn_dep_items` records, since
+        // the program wrote them in its own.
+        let mut args = args;
+        let deps = self.handler_dep_effects(decl);
+        if !deps.is_empty() {
+            match self.spawn_carrier(&handler_name, &deps, uses, span) {
+                Some(code) => args.push(code),
+                None => return "TODO()".to_string(),
+            }
+        }
         let ctor = self.handler_ctor_name(&handler_name, decl);
         let bound = self.emit_expr(capacity);
         let pool_code = self.emit_expr(pool);
@@ -3112,6 +3143,71 @@ impl<'p> Emitter<'p> {
             process_class_name(&handler_name),
             args.join(", ")
         )
+    }
+
+    /// [async-spawn-expr] [kt-process] The carrier a spawned dependent handler
+    /// stores: `__Fx_N(d0, d1)` over the clause's instances, in the handler's
+    /// declaration order (the fused class takes them in its own canonical
+    /// order, which is what `emit_fx_class` answers).
+    fn spawn_carrier(
+        &mut self,
+        handler_name: &str,
+        deps: &[String],
+        uses: &[Expr],
+        span: Span,
+    ) -> Option<String> {
+        let items = match self.checked.spawn_dep_items.get(&(self.file_idx, span)) {
+            Some(items) if items.len() == deps.len() => items.clone(),
+            _ => {
+                self.error(format!(
+                    "internal: spawning `{handler_name}` has no resolved dependency \
+                     items for its {} declared dependencies",
+                    deps.len()
+                ));
+                return None;
+            }
+        };
+        let mut instances: Vec<String> = Vec::new();
+        for (i, at) in items.iter().enumerate() {
+            let Some(item) = uses.get(*at) else {
+                self.error(format!(
+                    "internal: spawning `{handler_name}` names clause item {at}, which \
+                     the form does not have"
+                ));
+                return None;
+            };
+            instances.push(self.spawn_dep_instance(item, &deps[i]));
+        }
+        let (class, _props, order) = self.emit_fx_class(deps);
+        let ordered: Vec<String> = order.iter().map(|i| instances[*i].clone()).collect();
+        Some(format!("{class}({})", ordered.join(", ")))
+    }
+
+    /// [async-spawn-expr] One clause item as the expression that *makes* an
+    /// instance: a handler construction is `D(args)`, an `Addr` is the
+    /// forwarding stub over it (`__Stub_D(addr)`) — the same two shapes `use`
+    /// binds, which is what lets a child's dependency be a local handler in
+    /// one program and a process in the next.
+    fn spawn_dep_instance(&mut self, item: &Expr, dep: &str) -> String {
+        let named = match item {
+            Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => Some((id.name.clone(), args.iter().collect::<Vec<_>>())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((name, args)) = named {
+            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+                let arg_code: Vec<String> =
+                    args.iter().map(|a| self.emit_expr(a)).collect();
+                let ctor = self.handler_ctor_name(&name, decl);
+                return format!("{ctor}({})", arg_code.join(", "));
+            }
+        }
+        // Not a handler name, so it is an addr: the stub is the instance.
+        let addr_code = self.emit_expr(item);
+        format!("{}({addr_code})", stub_class_name(base_of_rendered(dep)))
     }
 
     /// [async-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:

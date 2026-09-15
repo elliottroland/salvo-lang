@@ -441,6 +441,16 @@ the blanket rule:
     as a *value* in intrinsic argument positions (`*i`): lowerings use
     scalars in casts (`(i) as usize`), which a `&i32` place fails
     (E0606; found live 2026-09-12).
+  * An intrinsic argument whose parameter the declaration **consumes**
+    (`=> !value` — `send`, `discard`, `add`, `add_sorted`, `put`, `reduce`'s
+    seed) renders **owned**, not as a place: the lowering takes ownership, so
+    the same rendering an ordinary consuming call gets applies (a real partial
+    move stays a move [fate-move-mode], a read the caller keeps clones).
+    Without it the intrinsic path was the *only* consuming position emitting a
+    bare place into a moving one, which rustc reported as E0507 with no Salvo
+    diagnostic (`send(out, last)`, `add(xs, last)` on a handler's own
+    non-Copy field; fixed 2026-09-15, with the checker rule that refuses that
+    shape outright — [effect-state-store]'s read direction).
 * [rs-proj-struct] A struct with a `proj` field — or an owned field whose
   type has one, transitively — is a **borrowing struct**: `struct
   ListYield<'s, T> { items: &'s Vec<T>, at: i32 }`, with `<'s>` on owned
@@ -1306,6 +1316,40 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     handler instance (a process's state *is* the handler's) whose
     `SalvoProcess::handle` downcasts the message enum and calls the member the
     variant names. `resume` is where parked continuations will dispatch.
+  * **A dependent handler's child owns a flat provider.** A dependent
+    handler's members do not read their dependencies from a scope: they take a
+    fused value, one per member call ([rs-effect-fusion]). A `use` site builds
+    that from the effects around it; a child has no such scope, so `__Proc_H`
+    holds the dependencies itself —
+    `pub struct __Prov_H<__D0, __D1> { pub __d0: __D0, pub __d1: __D1 }`,
+    emitted beside the handler with one **Has-accessor impl per dependency**
+    (`impl<__D0: Log, __D1: Tally> __Has_Log for __Prov_H<…> { … &mut self.__d0 }`),
+    and `__Proc_H<__D0, __D1> { handler, prov }` generic in the instances the
+    spawn supplied. `handle` then does exactly what a fusion's forwarding impl
+    does — build the Sized view over the one provider and call through the
+    dependent-member trait:
+    `let mut __deps = __Deps_H{ __p: &mut self.prov }; __Impl_H::m(&mut self.handler, &mut __deps, args)`.
+    * `__Deps_H` needs nothing new: it is a view over **one** provider
+      ([rs-effect-fusion]), and the flat struct is that provider. The two
+      borrows are of disjoint fields, which is why both are live in one call.
+    * Generic in the instances rather than `Box<dyn D>` for the fusion's own
+      reason: a Sized generic needs no allocation and no indirection, and the
+      instance types are concrete at the spawn. The price is that
+      `SalvoProcess: Send` must be *said* — the impl carries
+      `__D0: Log + Send + 'static` per dependency, where a non-generic body
+      gets `Send` from the auto trait.
+    * The fields are in the handler's **declaration** order, and the clause is
+      in the program's; the checker's matching record is what keeps them
+      straight ([async-spawn-expr]).
+    * A clause item becomes an instance the same way `use` makes one: a
+      construction is `D::new(args)`, an addr is `__Stub_D::new(addr)`. So a
+      dependency can be a local handler in one program and a process in the
+      next with no change to the child.
+    * `__Prov_H` is named after the *handler* while the provider **traits** of
+      [rs-effect-fusion] are named after their effect sets (`__Prov_A_B`). Two
+      generated types could therefore collide on a handler named exactly like
+      a sanitized effect set — a duplicate definition, which rustc rejects
+      outright, so it cannot become wrong code.
   * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
     `usize` indices, `Reply<T>` is `crate::scheduler::SalvoReply`. Their Salvo
     type arguments have no rendering — the effect an addr serves and the payload
@@ -1320,7 +1364,10 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     addr names, so `SalvoProcess` and `procs` are untouched.
   * **The forms**: `spawn H(args) capacity N on P` →
     `salvo_spawn(P, N as usize, Box::new(__Proc_H::new(H::new(args))))`, whose
-    value is the addr; `addr.member(args)` →
+    value is the addr — with the child's provider as a second constructor
+    argument when the handler has dependencies
+    (`__Proc_H::new(H::new(args), __Prov_H { __d0: …, __d1: … })`);
+    `addr.member(args)` →
     `salvo_send(addr, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
     { … }` → a block expression that mints a waiter, runs the block, then
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
@@ -1330,13 +1377,11 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     binds it exactly as a handler instance is bound — under the fusion too,
     since `emit_fusion_instance` takes the *expression* that makes the instance
     and no longer cares which kind it is. That indifference is the point: a
-    handler is compiled once and bound many ways [async-use-addr].
-  * **Still refused** (each a diagnostic, none silent): spawning a handler
-    with effect **dependencies** (its members take a fused value
-    [rs-effect-fusion], which the child would have to hold and thread),
-    spawning a **generic** handler, a **generic effect** as a protocol,
-    `replyto` (needs the resume table), a **self-send**, and `use addr` (needs
-    the forwarding stub).
+    handler is compiled once and bound many ways [async-use-addr]. A spawn
+    clause's addr becomes the same stub, in the child's provider.
+  * **Still refused** (each a diagnostic, none silent): spawning a **generic**
+    handler, a **generic effect** as a protocol, `replyto` (needs the resume
+    table) and a **self-send**.
 
 ## Deliberate cuts ([backend-never-wrong])
 

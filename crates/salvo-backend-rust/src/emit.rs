@@ -2404,12 +2404,15 @@ impl<'p> Emitter<'p> {
     /// handler's — and its `handle` downcasts the protocol's message enum and
     /// calls the member the variant names.
     ///
-    /// Emitted for a handler whose effect has send members and no
-    /// dependencies. A **dependent** handler's members take their
-    /// dependencies as a fused value [rs-effect-fusion], which the child
-    /// would have to hold and thread; that is the next slice, and a spawn of
-    /// one is refused meanwhile rather than mis-emitted
-    /// [backend-never-wrong].
+    /// A **dependent** handler's members do not take their dependencies from
+    /// a scope: they take a fused value, one per member call
+    /// ([rs-effect-fusion]). A `use` site builds that out of the effects
+    /// around it; a child has no such scope, so the process **owns** its
+    /// dependencies — a generated flat provider `__Prov_H<__D0, …>`, one field
+    /// per declared dependency in declaration order, implementing each
+    /// dependency's Has-accessor trait. `handle` then does exactly what a
+    /// fusion's forwarding impl does: build the Sized `__Deps_H` view over
+    /// that one provider and call through `__Impl_H`.
     fn emit_process_body(
         &mut self,
         h: &HandlerDecl,
@@ -2429,7 +2432,7 @@ impl<'p> Emitter<'p> {
             .filter(|(_, f)| f.is_send)
             .collect();
         // [async-effect-kind] Only a process protocol gets a process body.
-        if !effect.is_async || sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
+        if !effect.is_async || sends.is_empty() || !h.generics.is_empty() {
             return String::new();
         }
         self.needs_scheduler = true;
@@ -2438,15 +2441,78 @@ impl<'p> Emitter<'p> {
         let msg = msg_enum_name(&effect_name);
         let msg_path = self.effect_path(&effect_name, &msg);
         let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
-        let mut out = format!(
-            "\npub struct {proc_name} {{\n    handler: {name},\n}}\n\
-             \nimpl {proc_name} {{\n    pub fn new(handler: {name}) -> Self {{\n        \
-             Self {{ handler }}\n    }}\n}}\n\
-             \nimpl crate::scheduler::SalvoProcess for {proc_name} {{\n    \
+        // The provider: emitted only for a dependent handler, and generic in
+        // its dependency instances so a construction and a forwarding stub
+        // both fit without a `Box` (the fusion's own reason for preferring a
+        // Sized generic to a `dyn` [rs-effect-fusion]).
+        let dep_params: Vec<String> = (0..deps.len()).map(|i| format!("__D{i}")).collect();
+        let mut out = String::new();
+        let (proc_generics, proc_impl_generics, prov_field, prov_ty) = if deps.is_empty() {
+            (String::new(), String::new(), String::new(), String::new())
+        } else {
+            let prov = prov_struct_name(&h.name.name);
+            let bounds: Vec<String> = deps
+                .iter()
+                .zip(&dep_params)
+                .map(|((base, args), p)| format!("{p}: {}", trait_type(base, args)))
+                .collect();
+            let params = dep_params.join(", ");
+            let prov_ty = format!("{prov}<{params}>");
+            out.push_str(&format!("\npub struct {prov}<{params}> {{\n"));
+            for (i, p) in dep_params.iter().enumerate() {
+                // `pub`: the provider is declared beside its handler and
+                // *built* at whichever spawn site supplies the dependencies.
+                out.push_str(&format!("    pub __d{i}: {p},\n"));
+            }
+            out.push_str("}\n");
+            for (i, (base, args)) in deps.iter().enumerate() {
+                out.push_str(&emit_has_impl(
+                    &format!("<{}>", bounds.join(", ")),
+                    &prov_ty,
+                    base,
+                    args,
+                    &format!("&mut self.__d{i}"),
+                ));
+            }
+            // `SalvoProcess: Send`, so the impl must prove it — which for a
+            // generic provider means saying so.
+            let send_bounds: Vec<String> = bounds
+                .iter()
+                .map(|b| format!("{b} + Send + 'static"))
+                .collect();
+            (
+                format!("<{params}>"),
+                format!("<{}>", send_bounds.join(", ")),
+                format!("    prov: {prov_ty},\n"),
+                prov_ty,
+            )
+        };
+        let ctor_params = if deps.is_empty() {
+            format!("handler: {name}")
+        } else {
+            format!("handler: {name}, prov: {prov_ty}")
+        };
+        let ctor_fields = if deps.is_empty() { "handler" } else { "handler, prov" };
+        out.push_str(&format!(
+            "\npub struct {proc_name}{proc_generics} {{\n    handler: {name},\n{prov_field}}}\n\
+             \nimpl{proc_generics} {proc_name}{proc_generics} {{\n    \
+             pub fn new({ctor_params}) -> Self {{\n        \
+             Self {{ {ctor_fields} }}\n    }}\n}}\n\
+             \nimpl{proc_impl_generics} crate::scheduler::SalvoProcess for \
+             {proc_name}{proc_generics} {{\n    \
              fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {{\n        \
-             let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n        \
-             match msg {{\n"
-        );
+             let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n"
+        ));
+        // [rs-effect-fusion] The adapter: a Sized Has-implementing view over
+        // the one provider field, exactly as a forwarding impl builds one over
+        // `__outer`. Disjoint from `&mut self.handler`, which is why both
+        // borrows can be live in the same call.
+        if !deps.is_empty() {
+            out.push_str(&format!(
+                "        let mut __deps = __Deps_{name}{{ __p: &mut self.prov }};\n"
+            ));
+        }
+        out.push_str("        match msg {\n");
         for (i, f) in &sends {
             let member = salvo_core::effect_member_name(effect, *i);
             let variant = msg_variant_name(&member);
@@ -2461,12 +2527,23 @@ impl<'p> Emitter<'p> {
             } else {
                 format!("({})", params.join(", "))
             };
-            let call_args: Vec<String> = params.clone();
+            // A dependent handler's members live in the generated
+            // `__Impl_H` trait, not in `impl Effect for H`, and take the
+            // fused value as their first argument after `self`.
+            let mut call_args: Vec<String> = vec!["&mut self.handler".to_string()];
+            if !deps.is_empty() {
+                call_args.push("&mut __deps".to_string());
+            }
+            call_args.extend(params);
+            let path = if deps.is_empty() {
+                trait_path.clone()
+            } else {
+                format!("__Impl_{name}")
+            };
             out.push_str(&format!(
                 "            {msg_path}::{variant}{bind} => \
-                 {trait_path}::{}(&mut self.handler{}{}),\n",
+                 {path}::{}({}),\n",
                 rs_ident(&member),
-                if call_args.is_empty() { "" } else { ", " },
                 call_args.join(", ")
             ));
         }
@@ -4588,6 +4665,15 @@ fn process_struct_name(handler: &str) -> String {
     format!("__Proc_{}", rs_ident(handler))
 }
 
+/// [rs-process] The **flat provider** of a dependent handler's process:
+/// `__Prov_Counting<__D0, …>`, one field per declared dependency, generic in
+/// the instance each spawn supplies and implementing every dependency's
+/// Has-accessor trait. It is what a child holds in place of the fusion a
+/// `use` site would have built around it [rs-effect-fusion].
+fn prov_struct_name(handler: &str) -> String {
+    format!("__Prov_{}", rs_ident(handler))
+}
+
 /// The accessor method of an effect's Has trait: `__get_Random`. One per
 /// trait, so two *instances* of a generic effect disambiguate with the
 /// trait's turbofish, never by name mangling.
@@ -5432,24 +5518,25 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `spawn`"));
             return "todo!()".to_string();
         };
-        // [rs-effect-fusion] A dependent handler's members take their
-        // dependencies as a fused value, which the *child* would have to hold
-        // and thread into every activation. Refused until that is built, so a
-        // spawn either runs correctly or says why not.
-        if !uses.is_empty() || decl.effects.iter().flatten().next().is_some() {
-            self.error(format!(
-                "spawning `{handler_name}` is not emitted yet: a handler with effect \
-                 dependencies needs the child to hold its fused dependencies, which \
-                 is the next slice"
-            ));
-            return "todo!()".to_string();
-        }
         if !decl.generics.is_empty() {
             self.error(format!(
                 "spawning generic handler `{handler_name}` is not supported yet"
             ));
             return "todo!()".to_string();
         }
+        // [effect-handler-deps] [rs-effect-fusion] A dependent child owns its
+        // dependencies rather than reaching a fusion: the clause's instances
+        // go into the generated flat provider, in the *handler's declaration*
+        // order, which is what the checker's `spawn_dep_items` records.
+        let deps = self.handler_dep_effects(decl);
+        let prov = if deps.is_empty() {
+            None
+        } else {
+            match self.spawn_provider(&handler_name, &deps, uses, span) {
+                Some(code) => Some(code),
+                None => return "todo!()".to_string(),
+            }
+        };
         let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         let saved_producer = self.emitting_producer_args;
         self.emitting_producer_args = true;
@@ -5459,15 +5546,85 @@ impl<'p> Emitter<'p> {
         // The process body is emitted beside its handler, and generated
         // `use crate::<module>::*` globs bring both into scope unqualified —
         // the same reason `handler_ctor_path` answers a bare name.
-        let body = format!(
-            "{}::new({}::new({}))",
-            process_struct_name(&handler_name),
-            ctor,
-            arg_code.join(", ")
-        );
+        let held = format!("{}::new({})", ctor, arg_code.join(", "));
+        let body = match prov {
+            Some(prov) => format!(
+                "{}::new({held}, {prov})",
+                process_struct_name(&handler_name)
+            ),
+            None => format!("{}::new({held})", process_struct_name(&handler_name)),
+        };
         let bound = self.emit_owned(capacity);
         let pool_code = self.emit_owned(pool);
         format!("crate::scheduler::salvo_spawn({pool_code}, ({bound}) as usize, Box::new({body}))")
+    }
+
+    /// [async-spawn-expr] [rs-process] The child's flat provider, built from
+    /// the spawn's `use` clause: `__Prov_H { __d0: <instance>, … }`, its
+    /// fields in the handler's *declaration* order while the clause items are
+    /// in the order the program wrote them. The checker's `spawn_dep_items`
+    /// is the map between the two.
+    fn spawn_provider(
+        &mut self,
+        handler_name: &str,
+        deps: &[(String, Vec<String>)],
+        uses: &[Expr],
+        span: Span,
+    ) -> Option<String> {
+        let items = match self.checked.spawn_dep_items.get(&(self.file_idx, span)) {
+            Some(items) if items.len() == deps.len() => items.clone(),
+            _ => {
+                self.error(format!(
+                    "internal: spawning `{handler_name}` has no resolved dependency \
+                     items for its {} declared dependencies",
+                    deps.len()
+                ));
+                return None;
+            }
+        };
+        let mut fields: Vec<String> = Vec::new();
+        for (i, at) in items.iter().enumerate() {
+            let Some(item) = uses.get(*at) else {
+                self.error(format!(
+                    "internal: spawning `{handler_name}` names clause item {at}, which \
+                     the form does not have"
+                ));
+                return None;
+            };
+            let instance = self.spawn_dep_instance(item, &deps[i])?;
+            fields.push(format!("__d{i}: {instance}"));
+        }
+        Some(format!(
+            "{} {{ {} }}",
+            prov_struct_name(handler_name),
+            fields.join(", ")
+        ))
+    }
+
+    /// [async-spawn-expr] One clause item as the expression that *makes* an
+    /// instance: a handler construction is `D::new(args)`, an `Addr` is the
+    /// forwarding stub over it (`__Stub_D::new(addr)`) — the same two shapes
+    /// `use` binds, which is what makes a dependency swappable between a
+    /// local handler and a process without touching the child.
+    fn spawn_dep_instance(&mut self, item: &Expr, dep: &(String, Vec<String>)) -> Option<String> {
+        let named = match item {
+            Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => Some((id.name.clone(), args.iter().collect())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((name, args)) = named {
+            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+                let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+                let ctor = self.handler_ctor_path(&name, decl);
+                return Some(format!("{ctor}::new({})", arg_code.join(", ")));
+            }
+        }
+        // Not a handler name, so it is an addr: the stub is the instance.
+        let addr_code = self.emit_owned(item);
+        Some(format!("{}::new({addr_code})", stub_struct_name(&dep.0)))
     }
 
     /// [async-waitfor] `waitfor out: Reply<T> { … }` → a block expression:
@@ -9753,6 +9910,24 @@ impl<'p> Emitter<'p> {
                 !kept
             });
         let fixed: Vec<Param> = f.params.iter().filter(|p| !p.implicit).cloned().collect();
+        // [deduce-syntax] Which fixed parameters the declaration says are
+        // **consumed** (`=> !p`, equivalently `p: Nothing`). An intrinsic has
+        // no body, so its written clause is the whole truth — and it must
+        // mention every non-Copy, non-variadic parameter, so an unmentioned
+        // one is genuinely kept. Six-odd std declarations are in this set
+        // (`send`, `discard`, `add`, `add_sorted`, `put`, `reduce`'s seed),
+        // and each of them needs its argument *owned* rather than borrowed.
+        let consumed: Vec<bool> = fixed
+            .iter()
+            .map(|p| {
+                f.deductions.as_ref().is_some_and(|ds| {
+                    ds.iter().any(|d| {
+                        matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+                            && d.param_name().is_some_and(|n| n.name == p.name.name)
+                    })
+                })
+            })
+            .collect();
         let mut out: Vec<String> = Vec::with_capacity(args.len());
         for (i, arg) in args.iter().enumerate() {
             let is_variadic_part = variadic_at.is_some_and(|v| i >= v);
@@ -9817,6 +9992,28 @@ impl<'p> Emitter<'p> {
                         && self.ty_of(id.span).is_some_and(|t| Self::is_copy_ty(t)) =>
                 {
                     format!("*{}", self.binding_place(&id.name))
+                }
+                Expr::Ident(_)
+                | Expr::Field { .. }
+                | Expr::TupleIndex { .. }
+                | Expr::Index { .. }
+                    if !is_variadic_part && consumed.get(i).copied().unwrap_or(false) =>
+                {
+                    // The declaration says this parameter is **consumed**
+                    // (`=> !value`), so the lowering takes ownership: a place
+                    // is not enough. `emit_owned` is what knows how to make
+                    // one — a real partial move stays a move
+                    // [fate-move-mode], and a read the caller keeps (a field
+                    // of the enclosing handler, a borrowed binding) clones.
+                    //
+                    // Without this, `send(out, last)` and `add(xs, last)` on a
+                    // handler's own `Str` state field emitted `self.last` into
+                    // a moving position and rustc reported E0507 with no Salvo
+                    // diagnostic — loud, but a [backend-never-wrong] gap all
+                    // the same. A `Copy` state field hid it: the first
+                    // asynchronous test's `sum: Int` copied (found
+                    // 2026-09-15).
+                    self.emit_owned(arg)
                 }
                 Expr::Ident(_)
                 | Expr::Field { .. }
