@@ -967,7 +967,7 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::LBrace)?;
         let mut fns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            fns.push(self.parse_fn(false)?);
+            fns.push(self.parse_member_fn()?);
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(EffectDecl {
@@ -1043,8 +1043,12 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-                if self.at(&TokenKind::KwFn) {
-                    fns.push(self.parse_fn(false)?);
+                // [async-send-fn] `send fn` is a member too; anything else
+                // that is not a `fn` is a state field.
+                let is_send_member = matches!(self.kind(), TokenKind::Ident(name) if name == "send")
+                    && matches!(self.peek_at(1).kind, TokenKind::KwFn);
+                if self.at(&TokenKind::KwFn) || is_send_member {
+                    fns.push(self.parse_member_fn()?);
                 } else {
                     state.push(self.parse_field_decl()?);
                     self.eat(&TokenKind::Comma);
@@ -1075,8 +1079,24 @@ impl<'s> Parser<'s> {
 
     /// [iter-fn] `iter fn` is the generated-pass form; the flavour is carried on
     /// the declaration rather than inferred from the body.
-    fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {
-        let is_iter = flavor == FnFlavor::Iter;
+    /// [async-send-fn] A member of an effect or a handler, with the
+    /// contextual `send` modifier: `send fn bump(n: Int)`. Contextual for
+    /// the reason `iter fn` is (a member named `send` must stay declarable,
+    /// and `r.send(v)` is how a reply token is discharged), and unambiguous
+    /// with no lookahead beyond the next token: inside a member list a bare
+    /// identifier is otherwise a parse error.
+    fn parse_member_fn(&mut self) -> Option<FnDecl> {
+        if matches!(self.kind(), TokenKind::Ident(name) if name == "send")
+            && matches!(self.peek_at(1).kind, TokenKind::KwFn)
+        {
+            self.bump();
+            return self.parse_fn_flavored(false, FnFlavor::Send);
+        }
+        self.parse_fn(false)
+    }
+
+    fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {        let is_iter = flavor == FnFlavor::Iter;
+        let is_send = flavor == FnFlavor::Send;
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
         // whether or not the modifier was already consumed [doc-comment].
@@ -1150,6 +1170,7 @@ impl<'s> Parser<'s> {
             docs,
             intrinsic,
             is_iter,
+            is_send,
             iter_state,
             name,
             generics,
@@ -1260,6 +1281,13 @@ impl<'s> Parser<'s> {
                 TokenKind::KwUse => {
                     let tok = self.bump();
                     effects.push(EffectRef::Use(tok.span));
+                }
+                // [async-spawn-effect] `[spawn]`: the process-creation
+                // capability, lowercase and compiler-owned like `use`.
+                // Contextual, so `spawn` stays available as a name.
+                TokenKind::Ident(name) if name == "spawn" => {
+                    let tok = self.bump();
+                    effects.push(EffectRef::Spawn(tok.span));
                 }
                 _ => match self.parse_type_ref() {
                     Some(r) => effects.push(EffectRef::Effect(r)),
@@ -3401,6 +3429,9 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
 enum FnFlavor {
     Plain,
     Iter,
+    /// [async-send-fn] `send fn`: an asynchronous member of a process
+    /// protocol — legal only inside an effect or a handler.
+    Send,
 }
 
 /// [proj-anywhere] The source parameter of the first `proj[from: p]` in a

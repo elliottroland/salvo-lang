@@ -21,6 +21,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "print",
                             span: 80..85,
@@ -125,6 +126,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "println",
                     span: 169..176,

@@ -91,6 +91,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "ok",
                     span: 1079..1081,
@@ -201,6 +202,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "err",
                     span: 1216..1219,

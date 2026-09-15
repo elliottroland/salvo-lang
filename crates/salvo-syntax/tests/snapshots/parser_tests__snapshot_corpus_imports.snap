@@ -87,6 +87,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "copy",
                     span: 258..262,
@@ -166,6 +167,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "chars",
                     span: 297..302,
@@ -258,6 +260,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "complicated_func",
                     span: 355..371,

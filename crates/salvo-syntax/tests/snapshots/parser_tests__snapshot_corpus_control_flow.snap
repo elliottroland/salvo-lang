@@ -10,6 +10,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "full_name",
                     span: 3..12,
@@ -192,6 +193,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "union_moves",
                     span: 166..177,
@@ -406,6 +408,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "describe",
                     span: 379..387,
@@ -655,6 +658,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "precise_checks",
                     span: 632..646,
@@ -909,6 +913,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "classify",
                     span: 1040..1048,
@@ -1065,6 +1070,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "describe",
                     span: 1310..1318,
@@ -1267,6 +1273,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "last_number",
                     span: 1468..1479,
@@ -1447,6 +1454,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "count",
                     span: 1634..1639,
@@ -1621,6 +1629,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "full_name_expr",
                     span: 1782..1796,
@@ -1808,6 +1817,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "read_config",
                     span: 2176..2187,

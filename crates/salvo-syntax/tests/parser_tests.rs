@@ -1510,3 +1510,124 @@ fn obligation_keywords_are_reserved() {
         "expected `let proj` to be a parse error"
     );
 }
+
+/// [async-send-fn] [async-spawn-effect] The asynchronous surface's
+/// declaration forms: `send fn` members of an effect and of a handler, and
+/// the `[spawn]` capability in an effect list. Both new words are
+/// **contextual** — the test below also declares a *state field* named
+/// `send` and an ordinary `fn` named `spawn` to prove nothing was reserved.
+#[test]
+fn send_members_and_the_spawn_capability_parse() {
+    let source = "\
+effect Counter {
+    send fn bump(n: Int)
+    send fn report(out: Reply<Int>)
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    send fn report(out: Reply<Int>) {
+        send(out, sum)
+    }
+}
+
+fn main() [use, spawn] {
+    let c = 0
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    let mut send_members = Vec::new();
+    let mut plain_members = Vec::new();
+    for item in &module.items {
+        match item {
+            salvo_syntax::ast::Item::Effect(e) => {
+                for f in &e.fns {
+                    if f.is_send {
+                        send_members.push(format!("effect {}.{}", e.name.name, f.name.name));
+                    } else {
+                        plain_members.push(format!("effect {}.{}", e.name.name, f.name.name));
+                    }
+                }
+            }
+            salvo_syntax::ast::Item::Handler(h) => {
+                for f in &h.fns {
+                    if f.is_send {
+                        send_members.push(format!("handler {}.{}", h.name.name, f.name.name));
+                    } else {
+                        plain_members.push(format!("handler {}.{}", h.name.name, f.name.name));
+                    }
+                }
+                // The state field is still a field, not swallowed by the
+                // member loop's new `send` case.
+                assert_eq!(h.state.len(), 1, "the handler's state field is lost");
+                assert_eq!(h.state[0].name.name, "sum");
+            }
+            salvo_syntax::ast::Item::Fn(f) if f.name.name == "main" => {
+                let effects = f.effects.as_ref().expect("main declares effects");
+                assert!(
+                    effects
+                        .iter()
+                        .any(|e| matches!(e, salvo_syntax::ast::EffectRef::Use(_))),
+                    "the `use` effect is lost"
+                );
+                assert!(
+                    effects
+                        .iter()
+                        .any(|e| matches!(e, salvo_syntax::ast::EffectRef::Spawn(_))),
+                    "the `spawn` capability is lost"
+                );
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(
+        send_members,
+        vec![
+            "effect Counter.bump",
+            "effect Counter.report",
+            "handler Counting.bump",
+            "handler Counting.report",
+        ]
+    );
+    assert!(
+        plain_members.is_empty(),
+        "these members lost their `send`: {plain_members:?}"
+    );
+}
+
+/// [async-send-fn] Neither new word is reserved: `send` remains usable as a
+/// field and a function name, and `spawn` as a function name — which is what
+/// makes `r.send(v)` (a reply's discharge) and a user's own `spawn` legal.
+#[test]
+fn send_and_spawn_are_not_reserved_words() {
+    let source = "\
+struct Mailer {
+    send: Int
+}
+
+fn send(to: Int, what: Str) -> Int {
+    return to
+}
+
+fn spawn(n: Int) -> Int {
+    return n
+}
+
+fn use_them(m: Mailer) -> Int {
+    let a = send(1, \"hi\")
+    let b = spawn(2)
+    return m.send + a + b
+}
+";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}

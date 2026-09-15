@@ -2445,6 +2445,9 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 EffectRef::Effect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
+                // [async-spawn-effect] A capability, not an effect type: no
+                // handler parameter is threaded for it.
+                EffectRef::Spawn(_) => None,
             })
             .collect();
         refs.iter()

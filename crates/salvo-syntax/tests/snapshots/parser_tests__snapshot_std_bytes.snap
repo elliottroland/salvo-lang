@@ -59,6 +59,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "bytes_of",
                     span: 1362..1370,
@@ -126,6 +127,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "mut_bytes",
                     span: 1628..1637,
@@ -202,6 +204,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_bytes",
                     span: 1791..1799,
@@ -281,6 +284,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "str_of_bytes",
                     span: 2101..2113,
@@ -360,6 +364,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "size",
                     span: 2194..2198,
@@ -436,6 +441,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "get",
                     span: 2314..2317,
@@ -549,6 +555,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "slice",
                     span: 2611..2616,
@@ -693,6 +700,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "index_of",
                     span: 2837..2845,
@@ -804,6 +812,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "add",
                     span: 2941..2944,
@@ -934,6 +943,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "append",
                     span: 3061..3067,
@@ -1066,6 +1076,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "set",
                     span: 3322..3325,
@@ -1229,6 +1240,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "clear",
                     span: 3559..3564,
@@ -1329,6 +1341,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_str",
                     span: 3816..3822,
@@ -1406,6 +1419,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_hex",
                     span: 4002..4008,
@@ -1483,6 +1497,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "iter",
                     span: 4195..4199,
@@ -1760,6 +1775,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "next",
                     span: 4683..4687,

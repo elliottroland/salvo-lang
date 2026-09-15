@@ -47,6 +47,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "list_of",
                     span: 461..468,
@@ -146,6 +147,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "mut_list_of",
                     span: 551..562,
@@ -257,6 +259,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "list_by",
                     span: 790..797,
@@ -405,6 +408,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "mut_list_by",
                     span: 891..902,
@@ -563,6 +567,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "get",
                     span: 1060..1063,
@@ -714,6 +719,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "add",
                     span: 1348..1351,
@@ -876,6 +882,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "first",
                     span: 1441..1446,
@@ -1042,6 +1049,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "qualifies",
                             span: 1990..1999,
@@ -1265,6 +1273,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "non_empty_list",
                     span: 2522..2536,
@@ -1424,6 +1433,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "first",
                     span: 3040..3045,
@@ -1586,6 +1596,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "size",
                     span: 3195..3199,
@@ -1699,6 +1710,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "iter",
                     span: 3552..3556,
@@ -2055,6 +2067,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "next",
                     span: 4662..4666,
@@ -2396,6 +2409,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_str",
                     span: 5273..5279,
@@ -2561,6 +2575,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "sort",
                     span: 6291..6295,
@@ -2680,6 +2695,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "mut_sort",
                     span: 6545..6553,
@@ -2817,6 +2833,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "add_sorted",
                     span: 7356..7366,
@@ -2986,6 +3003,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "binary_search",
                     span: 7745..7758,

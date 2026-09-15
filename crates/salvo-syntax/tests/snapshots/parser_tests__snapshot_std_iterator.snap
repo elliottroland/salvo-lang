@@ -75,6 +75,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "emitted",
                     span: 1555..1562,
@@ -185,6 +186,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "finished",
                     span: 1659..1667,
@@ -292,6 +294,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "next",
                             span: 3084..3088,

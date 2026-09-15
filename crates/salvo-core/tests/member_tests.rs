@@ -765,3 +765,119 @@ fn an_unused_parameter_does_not_warn() {
         "expected no parameter warning: {msgs:?}"
     );
 }
+
+// ===== [async-send-fn] Send members: what they may declare =====
+
+/// A `send fn` is a *message*: sending it enqueues an invocation and answers
+/// nothing, so a written return type is an error naming the shape that does
+/// carry an answer — a `Reply<T>` parameter. Checked on the effect's
+/// declaration and on a handler's implementation of it, because either can
+/// be where the mistake is written.
+#[test]
+fn a_send_member_cannot_declare_a_return_type() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn total() -> Int
+}
+",
+    );
+    assert!(
+        errors.iter().any(|m| m.contains("cannot declare a return type")
+            && m.contains("out: Reply<T>")),
+        "expected the send-member return-type error, got: {errors:?}"
+    );
+}
+
+#[test]
+fn a_send_member_in_a_handler_cannot_declare_a_return_type() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn bump(n: Int)
+}
+
+handler Counting() of Counter {
+    send fn bump(n: Int) -> Int {
+        return n
+    }
+}
+",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("cannot declare a return type")),
+        "expected the send-member return-type error, got: {errors:?}"
+    );
+}
+
+/// The legal shape: no return type, and a reply travels as a parameter. This
+/// must stay *clean* — it is the first-pass surface every later slice builds
+/// on, so an accidental error here would block the whole feature.
+#[test]
+fn send_members_without_a_return_type_are_accepted() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn bump(n: Int)
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+}
+",
+    );
+    assert!(
+        errors.is_empty(),
+        "the legal send-member shape must check clean, got: {errors:?}"
+    );
+}
+
+/// [async-spawn-effect] `[spawn]` is accepted where a body may create a
+/// process — on a function, and on a handler's dependency list (a supervisor
+/// spawns its children) — and refused on a fn *type*, exactly as `use` is:
+/// the capability belongs to the body that spawns, not to a value's type.
+#[test]
+fn the_spawn_capability_is_accepted_on_fns_and_handlers() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn bump(n: Int)
+}
+
+handler Counting() [spawn] of Counter {
+    send fn bump(n: Int) {}
+}
+
+fn start() [use, spawn] {
+    let n = 0
+}
+",
+    );
+    assert!(
+        errors.is_empty(),
+        "`[spawn]` must be accepted on a fn and on a handler, got: {errors:?}"
+    );
+}
+
+#[test]
+fn a_fn_type_cannot_declare_the_spawn_capability() {
+    let errors = messages(
+        "\
+fn run(f: (Int) [spawn] -> Int) -> Int {
+    return f(1)
+}
+",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("fn type cannot declare `spawn`")),
+        "expected the fn-type spawn refusal, got: {errors:?}"
+    );
+}

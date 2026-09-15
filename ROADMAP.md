@@ -1153,9 +1153,25 @@ back-pressure with a reply through the `waitfor` bridge, the gate deferring
 a user message until the awaited reply, a faulted activation reported to a
 `watch`er with sends-to-the-dead as no-ops, and the
 idle-with-parked-gates report exiting non-zero. No compiler cooperation was
-needed, so nothing was flagged. What remains: members/spawn/queues wiring in
-the emitters (the `send fn`/`spawn`/`use pid` surface), tokens and the gate
-at the language level, `waitfor` and program-end, the LC collection surface
+needed, so nothing was flagged. **Step two is under way — the surface, in
+slices.** Landed 2026-09-15: the *declaration* forms — `send fn` members of
+effects and handlers [async-send-fn] and the `[spawn]` capability in effect
+lists [async-spawn-effect], both **contextual** (nothing reserved: a field
+named `send` and a fn named `spawn` still parse, which `r.send(v)` needs),
+with `FnDecl.is_send`, `EffectRef::Spawn`, and two parser tests; `[spawn]`
+is accepted on fns and on handler dependency lists (a supervisor spawns) and
+refused on fn *types* like `use`. The first checker rules came with them: a
+`send fn` **answers nothing**, so a written return type is an error naming
+the shape that does carry an answer (`out: Reply<T>`, minted with `replyto`)
+— and, the collision worth knowing, a send member is *exempt* from
+[decl-explicit]'s "an effect member must declare its return type", since it
+has none to declare. Still to come in step two: the
+*expression* forms (`spawn H(args) use … capacity N on pool`, `replyto` /
+`replyto!`, `waitfor`, `use pid`, dot-call through a `Pid`), the `Pid<T>` /
+`Reply<T>` std types, the checker rules (a `send fn` answers nothing; the
+capability gate; token linearity), and the two emitters' process classes
+(message types + `handle`/`resume` dispatch onto the scheduler library).
+After step two: the LC collection surface
 (std's first customer), `watch`, the deadlock baseline. Spec rules (fresh
 labels) and the examples-file respelling land with that work.
 

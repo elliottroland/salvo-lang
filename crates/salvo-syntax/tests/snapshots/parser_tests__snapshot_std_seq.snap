@@ -12,6 +12,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "map",
                     span: 1385..1388,
@@ -355,6 +356,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "filter",
                     span: 1996..2002,
@@ -743,6 +745,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "reduce",
                     span: 2379..2385,
@@ -1070,6 +1073,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "map",
                     span: 2864..2867,
@@ -1243,6 +1247,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "filter",
                     span: 2944..2950,
@@ -1434,6 +1439,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "reduce",
                     span: 3056..3062,
@@ -1637,6 +1643,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "map_to",
                     span: 3632..3638,
@@ -2078,6 +2085,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "filter_to",
                     span: 4177..4186,
@@ -2600,6 +2608,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "drop",
                     span: 4978..4982,

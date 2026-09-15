@@ -1088,16 +1088,31 @@ passes add layers of the tower, each with its own decision surface.
   **Not in the first pass** (later sugar passes, each with its own
   decisions): `then`, `defer`, member `-> T`, caller-side call syntax, and
   merge/join.
-- **Spawn syntax (decided this round):** dependencies are **ordinary
-  constructor parameters** — of `Pid` type for process-backed capabilities,
-  or plain sendable values (C-4 governs both); no binding brackets. Pool
-  assignment is an **`on <pool>` clause**, with pools created via the spawn
-  effect's **`pool(n)`** member and a default pool when `on` is omitted:
-  `spawn Shard(i, db) on pool(2)`. A child gets ambient handlers by
-  **constructing its own**: `use` declarations in the handler body run once
-  at spawn, on the child, top-to-bottom with the field initializers, and
-  scope over all members (the C-8 corollary — construction crosses, handlers
-  do not).
+- **Spawn syntax (decided this round; clause spelling settled 2026-09-15,
+  third round):** `spawn H(args) [use D1(...), pid, …] capacity N on POOL`.
+  Dependencies are **ordinary constructor parameters** or the spawn-site
+  `use` clause; **`capacity N`** is the process's own mailbox bound
+  (explicit, required, no default — it is a property of *this instance*, so
+  it sits at the spawn site); **`on POOL`** takes an ordinary expression,
+  and `pool(n)` is an **ordinary function** (declared `[spawn]`), not
+  syntax. `spawn` and the three clause words are *contextual* — nothing is
+  reserved, following the `iter fn` precedent. Read left to right: what to
+  run, what it depends on, how deep its queue is, where it runs.
+  * **Rejected: `spawn` as an intrinsic function with named parameters**
+    (user asked 2026-09-15). Two blockers: Salvo has no named arguments at
+    all (calls are positional plus variadics and `?`-implicits), and —
+    load-bearing — **handlers are not values**, so `Counting()` in
+    `spawn Counting()` is a *construction* only `use`/`spawn` may perform,
+    not an argument. Making it a call would mean making handler
+    constructions first-class, against "effects are capabilities, not
+    values". The clause keywords *are* the named parameters.
+  * **Rejected: `capacity` on the handler declaration** (option (E)): it
+    would be meaningless for a `use`d handler, and marking handlers
+    async-only re-introduces the sync/async split at the handler that C-10
+    removed — Example 6's binding swap depends on the same handler working
+    both ways. It could never live on an *effect*, which sync handlers share.
+  * The spelling is revisitable (user, 2026-09-15) — nothing downstream
+    depends on the words.
 - **Prerequisite sequencing** (user): the **linearity-in-collections design
   comes first**, with this as its first customer; **[fate-lambda]** rides with
   it; and **the monitors/supervision story is designed before full

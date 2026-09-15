@@ -24,6 +24,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "next_random",
                             span: 26..37,
@@ -72,6 +73,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "println",
                             span: 72..79,
@@ -243,6 +245,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "next_random",
                             span: 191..202,
@@ -380,6 +383,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "println",
                             span: 324..331,
@@ -446,6 +450,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "main",
                     span: 368..372,
@@ -557,6 +562,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "age_prediction",
                     span: 460..474,
@@ -804,6 +810,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "parse_length",
                     span: 812..824,
@@ -988,6 +995,7 @@ Module {
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "describe_length",
                     span: 1055..1070,

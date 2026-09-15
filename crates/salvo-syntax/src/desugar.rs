@@ -550,6 +550,7 @@ fn expand(
         )],
         intrinsic: false,
         is_iter: false,
+        is_send: false,
         iter_state: vec![],
         name: Ident {
             name: "iter".to_string(),
@@ -614,6 +615,7 @@ fn expand(
         docs: f.docs.clone(),
         intrinsic: false,
         is_iter: false,
+        is_send: false,
         iter_state: vec![],
         name: f.name.clone(),
         generics: f.generics.clone(),

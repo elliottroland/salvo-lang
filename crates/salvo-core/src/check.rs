@@ -1551,6 +1551,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
+                        // [async-send-fn] A handler's `send fn` answers
+                        // nothing, exactly as the effect's declaration does.
+                        self.check_send_member(f);
                         // [linear-group] [linear-discard] A handler member
                         // implementing a **consuming** effect member is a
                         // discharge context: discharger status attaches to
@@ -1951,6 +1954,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Lowered fixed-parameter lists, in declaration order.
         let mut seen: Vec<(&str, Vec<Ty>)> = Vec::new();
         for f in &e.fns {
+            self.check_send_member(f);
             let inner = self.enter_generics(&f.generics);
             let params: Vec<Ty> = f
                 .params
@@ -1974,6 +1978,32 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
             seen.push((f.name.name.as_str(), params));
+        }
+    }
+
+    /// [async-send-fn] What a `send fn` may declare. A send member is a
+    /// *message*: sending it enqueues an invocation and returns immediately,
+    /// so there is no value to answer with — a reply travels as a `Reply<T>`
+    /// parameter the sender mints with `replyto`. A written return type is
+    /// therefore an error naming that shape, rather than a silently ignored
+    /// annotation. (The later call-member sugar goes the other way: a `-> T`
+    /// member desugars *into* a send member with a trailing token, so the
+    /// two spellings must not both mean something here.)
+    fn check_send_member(&mut self, f: &'p FnDecl) {
+        if !f.is_send {
+            return;
+        }
+        if let Some(ret) = &f.return_type {
+            self.error(
+                ret.span(),
+                format!(
+                    "`send fn {}` cannot declare a return type: sending a member \
+                     enqueues it and answers nothing, so a reply travels as a \
+                     parameter — `send fn {}(…, out: Reply<T>)`, which the sender \
+                     mints with `replyto`",
+                    f.name.name, f.name.name
+                ),
+            );
         }
     }
 
@@ -2091,7 +2121,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn require_explicit(&mut self, f: &FnDecl, kind: &str, want_effects: bool) {
         let name = &f.name.name;
-        if f.return_type.is_none() {
+        // [async-send-fn] A `send fn` answers nothing — the reply, if there
+        // is one, is a `Reply<T>` parameter — so there is no return type to
+        // require, and writing one is its own error (`check_send_member`).
+        if f.return_type.is_none() && !f.is_send {
             self.error(
                 f.name.span,
                 format!(
@@ -4166,6 +4199,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         for eff in f.effects.iter().flatten() {
             match eff {
                 EffectRef::Use(_) => can_use = true,
+                // [async-spawn-effect] The process-creation capability. It
+                // names no effect type, so there is nothing to lower and
+                // nothing to thread; the *gate* (a `spawn` expression
+                // requires it) arrives with that expression.
+                EffectRef::Spawn(_) => {}
                 EffectRef::Effect(r) => {
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
@@ -4219,6 +4257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for eff in f.effects.iter().flatten() {
             let span = match eff {
                 EffectRef::Use(s) => *s,
+                EffectRef::Spawn(s) => *s,
                 EffectRef::Effect(r) => r.span,
             };
             self.error(
@@ -7232,11 +7271,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "a fn type cannot declare `use`: registering a handler is                      local to a body, so a lambda may `use` exactly when the                      function containing it may"
                         .to_string(),
                 ),
+                // [async-spawn-effect] Same reasoning: the capability is a
+                // property of the body that spawns, not of a value's type.
+                EffectRef::Spawn(span) => self.error(
+                    *span,
+                    "a fn type cannot declare `spawn`: creating a process is \
+                     local to a body, so a lambda may spawn exactly when the \
+                     function containing it may"
+                        .to_string(),
+                ),
                 EffectRef::Effect(r) => {
                     if let Some(ty) = self.lower_effect_ref(r) {
                         if !out.contains(&ty) {
-                            out.push(ty);
-                        }
+                            out.push(ty);                        }
                     }
                 }
             }
@@ -8771,6 +8818,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
+                // [async-spawn-effect] A handler *may* depend on `spawn` — a
+                // supervisor spawns and re-spawns its children. It names no
+                // effect type, so there is nothing to lower here; the gate
+                // arrives with the `spawn` expression.
+                EffectRef::Spawn(_) => continue,
                 EffectRef::Effect(r) => r,
             };
             if r.name.name == THROW_EFFECT {

@@ -352,6 +352,16 @@ pub struct FnDecl {
     /// [effect-handler]; the initializer may read the subject and runs when the
     /// pass is minted.
     pub iter_state: Vec<FieldDecl>,
+    /// [async-send-fn] `send fn bump(n: Int)`: an **asynchronous** member —
+    /// a message, not a call. Sending one enqueues an invocation on the
+    /// target process and returns immediately, so the member answers
+    /// nothing: a reply travels as a `Reply<T>` parameter the sender mints
+    /// with `replyto`. In the first pass every member of a process protocol
+    /// is one, and the unmarked `fn` spelling stays reserved for the later
+    /// call-member sugar (a `-> T` member desugars *to* a `send fn` with a
+    /// trailing token). Contextual, like `iter fn`: `send` is not a
+    /// reserved word.
+    pub is_send: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
@@ -403,6 +413,12 @@ pub struct Param {
 pub enum EffectRef {
     /// The special `use` effect, allowing handler registration.
     Use(Span),
+    /// [async-spawn-effect] The special `spawn` effect, allowing process
+    /// creation. Lowercase and compiler-owned like `use`: it names a
+    /// capability rather than a declared effect, so there is no handler to
+    /// resolve and nothing to thread — `fn main() [use, spawn]` is the
+    /// typical entry point.
+    Spawn(Span),
     /// A named effect, possibly generic: `Random<Int>`.
     Effect(TypeRef),
 }
@@ -625,6 +641,7 @@ impl fmt::Display for EffectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EffectRef::Use(_) => write!(f, "use"),
+            EffectRef::Spawn(_) => write!(f, "spawn"),
             EffectRef::Effect(r) => write!(f, "{r}"),
         }
     }

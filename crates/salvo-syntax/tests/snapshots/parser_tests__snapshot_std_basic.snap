@@ -211,6 +211,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_int",
                     span: 617..623,
@@ -285,6 +286,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_int",
                     span: 669..675,
@@ -359,6 +361,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_int",
                     span: 723..729,
@@ -433,6 +436,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_long",
                     span: 776..783,
@@ -507,6 +511,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_long",
                     span: 829..836,
@@ -581,6 +586,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_long",
                     span: 885..892,
@@ -655,6 +661,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_double",
                     span: 940..949,
@@ -729,6 +736,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_double",
                     span: 997..1006,
@@ -803,6 +811,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_double",
                     span: 1055..1064,
@@ -877,6 +886,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_float",
                     span: 1114..1122,
@@ -951,6 +961,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_float",
                     span: 1169..1177,
@@ -1025,6 +1036,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_float",
                     span: 1225..1233,
@@ -1105,6 +1117,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_byte",
                     span: 1634..1641,
@@ -1179,6 +1192,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "to_int",
                     span: 1687..1693,
@@ -1259,6 +1273,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "copy",
                     span: 2078..2082,
@@ -1363,6 +1378,7 @@ Module {
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
+                is_send: false,
                 name: Ident {
                     name: "discard",
                     span: 3012..3019,
@@ -1477,6 +1493,7 @@ Module {
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
+                        is_send: false,
                         name: Ident {
                             name: "to_str",
                             span: 3456..3462,
