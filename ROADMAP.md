@@ -219,7 +219,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Four open.** (Closed in the sessions before this one, with repros and
+**Five open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -231,6 +231,38 @@ which also let std's `non_empty_list` go back to being ordinary Salvo. A
 user-declared variadic of a *primitive* element type no longer breaks on
 Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
 [kt-variadic].)
+
+- **The Kotlin case driver costs ~17s on every run, cached or skipped**
+  (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
+  and the reason a warm `cargo test` is ~30s against AGENTS.md's ~5s
+  budget). Repro:
+
+  ```bash
+  # identical timings, three ways — the cache and the skip both no-op:
+  cargo test -p salvo-backend-kotlin --test codegen_tests            # 18.3s
+  cargo test -p salvo-backend-kotlin --test codegen_tests            # 18.2s
+  SALVO_SKIP_E2E=1 cargo test -p salvo-backend-kotlin --test codegen_tests  # 17.7s
+  cargo nextest run -p salvo-backend-kotlin --test codegen_tests
+  #   PASS [ 16.827s] kotlinc_compiles_and_runs_every_case
+  ```
+
+  Root cause: `kotlinc_compiles_and_runs_every_case` builds **every**
+  `KOTLIN_CASES` entry up front (`cases = KOTLIN_CASES.iter().map(|f| f())`),
+  and each case function runs the whole pipeline — parse + check + emit over
+  `std` — before any gate is consulted. So the cost is paid whether or not
+  `kotlinc` is available, whether or not the stamps hit, and whether or not
+  `SALVO_SKIP_E2E` is set. It is *not* toolchain time: the 17s survives
+  skipping.
+
+  Two fixes, in increasing order of value: (1) consult the availability /
+  skip gate **before** building the cases — restores `SALVO_SKIP_E2E`'s
+  documented ~4s and costs three lines; (2) make the stamp key cheap enough
+  to check without emitting (hash the `.sv` source plus an emitter-version
+  token instead of the generated files), which is what would restore the warm
+  budget. (2) is a testkit design change and wants its own think: the current
+  key's virtue is that it cannot go stale, and a source-plus-version key
+  trades that for speed. The Rust backend's per-test runner does not have the
+  problem (its cases build one at a time, inside their own gate).
 
 - **A whole-valued `Double`/`Float` interpolates differently per backend**
   (found 2026-09-14 while testing the operator slice; pre-existing). Repro:
@@ -1111,14 +1143,21 @@ sends/fulfils as silent no-ops plus the idle-with-parked-gates runtime
 report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
-**The implementation**, per the first-pass plan in CONCURRENCY.md: scheduler
-library in **backend runtime files** (anything needing compiler-specific
-cooperation is flagged to the user first — user decision 2026-09-15),
-including the per-activation fault catch and the idle-with-parked-gates
-report; then members/spawn/queues, tokens and the gate, `waitfor` and
-program-end, the LC collection surface (std's first customer), `watch`, the
-deadlock baseline. Spec rules (fresh labels) and the examples-file
-respelling land with implementation.
+**The implementation**, per the first-pass plan in CONCURRENCY.md.
+**Step one is built (2026-09-15): the scheduler library**, in both backends'
+runtime files — `crates/salvo-backend-rust/runtime/scheduler.rs` and
+`crates/salvo-backend-kotlin/runtime/scheduler.kt`, mirrored APIs, each
+compiled warning-free and *behaviour*-tested by four scenarios per backend
+with **identical expected output** (the parity assertion): bounded-queue
+back-pressure with a reply through the `waitfor` bridge, the gate deferring
+a user message until the awaited reply, a faulted activation reported to a
+`watch`er with sends-to-the-dead as no-ops, and the
+idle-with-parked-gates report exiting non-zero. No compiler cooperation was
+needed, so nothing was flagged. What remains: members/spawn/queues wiring in
+the emitters (the `send fn`/`spawn`/`use pid` surface), tokens and the gate
+at the language level, `waitfor` and program-end, the LC collection surface
+(std's first customer), `watch`, the deadlock baseline. Spec rules (fresh
+labels) and the examples-file respelling land with that work.
 
 **Deferred out of the phase**: [fate-lambda] moves to the call-sugar pass —
 no first-pass form crosses a closure (spawn-`use` arguments, `replyto`

@@ -12,7 +12,10 @@
 use std::process::Command;
 
 /// Every static runtime module. A new one belongs here as soon as it exists.
-const RUNTIME_MODULES: &[&str] = &["throw.kt", "compare.kt"];
+/// (`bytes.kt` was added by the filesystem work without joining this list;
+/// it is here now, which is what makes this test complete rather than a
+/// sample.)
+const RUNTIME_MODULES: &[&str] = &["throw.kt", "compare.kt", "bytes.kt", "scheduler.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -90,4 +93,309 @@ fn runtime_modules_carry_the_generated_header() {
             "runtime/{file} must end with a newline"
         );
     }
+}
+
+// ===== The scheduler's *behaviour* — asynchronous effect handlers' runtime
+// (CONCURRENCY.md "The first pass", SUPERVISION.md) =====
+//
+// **The scenarios and the expected output are verbatim the Rust backend's
+// `runtime_tests.rs`** — that equality is the parity assertion: the two
+// schedulers implement one decided design (run-to-completion activations,
+// per-process bounded queues that block the sender, replies with reserved
+// capacity, the gate, death by faulted activation with `watch`, sends to
+// the dead as no-ops, the idle-with-parked-gates report), so they must
+// answer identically.
+//
+// All the drivers are compiled in **one** `kotlinc` invocation and then run
+// in sequence: a `kotlinc` start-up costs about as much as a small compile
+// (COMPLETED.md's gotchas), so one invocation per case would dominate the
+// suite. Each driver gets its own package, since every one of them declares
+// `MainKt`.
+
+/// One behaviour case: a driver program, its expected stdout, whether the
+/// program is expected to succeed, and a stderr marker to look for.
+struct SchedulerCase {
+    tag: &'static str,
+    driver: &'static str,
+    expected_stdout: &'static str,
+    expect_success: bool,
+    stderr_contains: &'static str,
+}
+
+/// Runs a child process with a wall-clock limit, so a scheduler bug shows
+/// up as a failing test rather than a hung suite (AGENTS.md: watch the
+/// clock).
+fn wait_with_timeout(mut child: std::process::Child, secs: u64) -> std::process::Output {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(_status) = child.try_wait().expect("failed to poll the child") {
+            return child
+                .wait_with_output()
+                .expect("failed to collect the child's output");
+        }
+        if start.elapsed() > std::time::Duration::from_secs(secs) {
+            let _ = child.kill();
+            let out = child
+                .wait_with_output()
+                .expect("failed to collect the child's output");
+            panic!(
+                "the scheduler program did not finish within {secs}s (deadlock or lost wakeup)\
+                 \nstdout so far:\n{}\nstderr so far:\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn scheduler_behaves_as_decided() {
+    let cases = &[
+        // Sends, a bounded queue the sender has to wait on, a reply token,
+        // and the `waitfor` bridge: six messages through a queue bounded at
+        // four, then a request whose reply crosses back into `main`.
+        SchedulerCase {
+            tag: "queue-and-reply",
+            driver: r#"
+class Adder : SalvoProcess {
+    var sum = 0L
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is Long) {
+            sum += msg
+            return
+        }
+        if (msg is SalvoReply) {
+            msg.send(sum)
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(2)
+    val adder = SalvoSched.spawn(pool, 4, Adder())
+    // Six user messages through a queue bounded at four: the sender blocks
+    // twice and nothing is lost.
+    for (n in 1L..6L) {
+        SalvoSched.send(adder, n)
+    }
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.send(adder, token)
+    println("sum: ${SalvoSched.awaitReply(wid)}")
+}
+"#,
+            expected_stdout: "sum: 21\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // The gate: while a gated continuation is outstanding, the process
+        // serves *only* the awaited reply — a user message that arrived
+        // first waits.
+        SchedulerCase {
+            tag: "gate",
+            driver: r#"
+class Caller(val echo: Int) : SalvoProcess {
+    val log = mutableListOf<String>()
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        when {
+            msg == "go" -> {
+                val token = SalvoSched.mintGated(ctx.pid)
+                SalvoSched.send(echo, token)
+            }
+            msg is String -> log.add("user $msg")
+            msg is SalvoReply -> msg.send(log.joinToString(", "))
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {
+        log.add("reply $value")
+    }
+}
+
+class Echo : SalvoProcess {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is SalvoReply) {
+            Thread.sleep(120)
+            msg.send("R")
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(3)
+    val echo = SalvoSched.spawn(pool, 4, Echo())
+    val caller = SalvoSched.spawn(pool, 4, Caller(echo))
+    SalvoSched.send(caller, "go")
+    SalvoSched.send(caller, "late")
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.send(caller, token)
+    // The reply is served before the user message that was enqueued first.
+    println("order: ${SalvoSched.awaitReply(wid)}")
+}
+"#,
+            expected_stdout: "order: reply R, user late\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // Death: a faulted activation kills the process, `watch` reports the
+        // reason as an ordinary one-shot reply, and later sends to the
+        // corpse are silent no-ops rather than errors.
+        SchedulerCase {
+            tag: "fault-and-watch",
+            driver: r#"
+class Fragile : SalvoProcess {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg == "boom") {
+            throw RuntimeException("boom")
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(2)
+    val fragile = SalvoSched.spawn(pool, 4, Fragile())
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.watch(fragile, token)
+    SalvoSched.send(fragile, "boom")
+    println("exit: ${SalvoSched.awaitReply(wid)}")
+    // A send to the dead is a no-op: this neither blocks nor fails.
+    SalvoSched.send(fragile, "ignored")
+    // And a watch registered after the death answers immediately.
+    val (lateToken, lateWid) = SalvoSched.waiter()
+    SalvoSched.watch(fragile, lateToken)
+    println("late watch: ${SalvoSched.awaitReply(lateWid)}")
+}
+"#,
+            expected_stdout: "exit: fault: boom\nlate watch: fault\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // The idle-with-parked-gates report: `main` waits for a reply
+        // nothing can ever send, and the scheduler says so and exits
+        // non-zero instead of hanging (SUPERVISION.md S-3).
+        SchedulerCase {
+            tag: "idle-report",
+            driver: r#"
+class Idle : SalvoProcess {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {}
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(1)
+    SalvoSched.spawn(pool, 2, Idle())
+    println("waiting")
+    // Nobody holds this token, so nothing can ever fulfil it.
+    val (_, wid) = SalvoSched.waiter()
+    SalvoSched.awaitReply(wid)
+    println("unreachable")
+}
+"#,
+            expected_stdout: "waiting\n",
+            expect_success: false,
+            stderr_contains: "salvo: deadlock: all processes idle while main waits",
+        },
+    ];
+
+    let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));
+    if !kotlinc.available {
+        return;
+    }
+    let module = runtime_source("scheduler.kt");
+    let mut parts: Vec<Vec<u8>> = vec![
+        b"kotlin-scheduler-behaviour".to_vec(),
+        kotlinc.version.as_bytes().to_vec(),
+        module.as_bytes().to_vec(),
+    ];
+    for case in cases {
+        parts.push(case.tag.as_bytes().to_vec());
+        parts.push(case.driver.as_bytes().to_vec());
+        parts.push(case.expected_stdout.as_bytes().to_vec());
+        parts.push(case.stderr_contains.as_bytes().to_vec());
+    }
+    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
+    let Some(stamp) =
+        salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), "kotlin-scheduler", &refs)
+    else {
+        return;
+    };
+
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), "sched-kt");
+    let module_path = dir.join("scheduler.kt");
+    std::fs::write(&module_path, &module).expect("failed to write the scheduler module");
+    let mut sources = vec![module_path];
+    for case in cases {
+        // Its own package and directory, since every driver declares
+        // `main`. `internal` members stay visible: one `kotlinc` invocation
+        // is one module.
+        let pkg = format!("sched_{}", case.tag.replace('-', "_"));
+        // The file's *name* decides the facade class, so each driver is a
+        // `main.kt` in its own directory: `<pkg>.MainKt`.
+        let case_dir = dir.join(&pkg);
+        std::fs::create_dir_all(&case_dir).expect("failed to create a driver directory");
+        let path = case_dir.join("main.kt");
+        std::fs::write(
+            &path,
+            format!("package {pkg}\n\nimport salvo.*\n{}", case.driver),
+        )
+        .expect("failed to write a scheduler driver");
+        sources.push(path);
+    }
+    let classes = dir.join("classes");
+    let compile = Command::new("kotlinc")
+        .args(&sources)
+        .arg("-d")
+        .arg(&classes)
+        .output()
+        .expect("failed to run kotlinc");
+    let noise = String::from_utf8_lossy(&compile.stderr);
+    assert!(
+        compile.status.success(),
+        "kotlinc rejected the scheduler programs:\n{noise}"
+    );
+
+    for case in cases {
+        let pkg = format!("sched_{}", case.tag.replace('-', "_"));
+        let child = Command::new("kotlin")
+            .arg("-cp")
+            .arg(&classes)
+            .arg(format!("{pkg}.MainKt"))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to start the scheduler program");
+        let run = wait_with_timeout(child, 60);
+        let stdout = String::from_utf8_lossy(&run.stdout);
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        assert_eq!(
+            stdout, case.expected_stdout,
+            "unexpected stdout from the scheduler program {}\nstderr:\n{stderr}",
+            case.tag
+        );
+        assert_eq!(
+            run.status.success(),
+            case.expect_success,
+            "unexpected exit status from the scheduler program {}\nstderr:\n{stderr}",
+            case.tag
+        );
+        if !case.stderr_contains.is_empty() {
+            assert!(
+                stderr.contains(case.stderr_contains),
+                "the scheduler program {} did not report {:?}:\nstderr:\n{stderr}",
+                case.tag,
+                case.stderr_contains
+            );
+        }
+    }
+    stamp.verified();
+    let _ = std::fs::remove_dir_all(&dir);
 }

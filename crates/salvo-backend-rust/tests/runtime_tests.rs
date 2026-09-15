@@ -20,7 +20,7 @@ use std::process::Command;
 /// Every static runtime module, with the emitter accessor that ships it.
 /// A new one belongs here the moment it exists — the list is what makes
 /// this test complete rather than a sample.
-const RUNTIME_MODULES: &[&str] = &["strings.rs", "seq.rs", "collections.rs"];
+const RUNTIME_MODULES: &[&str] = &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -104,4 +104,323 @@ fn runtime_modules_are_not_empty_and_are_generated_headers() {
             "runtime/{file} must end with a newline"
         );
     }
+}
+
+// ===== The scheduler's *behaviour* — asynchronous effect handlers' runtime
+// (CONCURRENCY.md "The first pass", SUPERVISION.md) =====
+//
+// The module above is only compiled; a scheduler also has to *behave*, and
+// the semantics are decided ones: run-to-completion activations, per-process
+// bounded queues that block the sender, replies with reserved capacity, the
+// gate (while gated, only the awaited reply is delivered), death by faulted
+// activation with `watch` notification, sends to the dead as silent no-ops,
+// and the idle-with-parked-gates report instead of a hang. Each case below
+// compiles the real runtime module together with a small driver `main` and
+// asserts the program's output.
+//
+// **The same scenarios, with the same expected output, exist in the Kotlin
+// backend's `runtime_tests.rs`** — that equality is the parity assertion:
+// the two schedulers must be one design, not two implementations.
+
+/// Runs a child process with a wall-clock limit, so a scheduler bug shows
+/// up as a failing test rather than a hung suite (AGENTS.md: watch the
+/// clock).
+fn wait_with_timeout(mut child: std::process::Child, secs: u64) -> std::process::Output {
+    let start = std::time::Instant::now();
+    loop {
+        if let Some(_status) = child.try_wait().expect("failed to poll the child") {
+            return child
+                .wait_with_output()
+                .expect("failed to collect the child's output");
+        }
+        if start.elapsed() > std::time::Duration::from_secs(secs) {
+            let _ = child.kill();
+            let out = child
+                .wait_with_output()
+                .expect("failed to collect the child's output");
+            panic!(
+                "the scheduler program did not finish within {secs}s (deadlock or lost wakeup)\
+                 \nstdout so far:\n{}\nstderr so far:\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// Compiles `scheduler.rs` plus a driver `main` and runs it, asserting the
+/// exact stdout, whether the run succeeded, and a stderr marker.
+fn run_scheduler_program(
+    tag: &str,
+    driver: &str,
+    expected_stdout: &str,
+    expect_success: bool,
+    stderr_contains: &str,
+) {
+    let rustc = salvo_testkit::rustc();
+    if !rustc.available {
+        return;
+    }
+    let module = runtime_source("scheduler.rs");
+    // `dead_code` is allowed because a driver exercises one slice of the
+    // runtime's surface; the module itself is warning-checked above.
+    let source = format!("#![allow(dead_code)]\n{module}\n{driver}");
+    let parts: Vec<&[u8]> = vec![
+        b"rust-scheduler-behaviour",
+        rustc.version.as_bytes(),
+        tag.as_bytes(),
+        source.as_bytes(),
+        expected_stdout.as_bytes(),
+        stderr_contains.as_bytes(),
+    ];
+    let Some(stamp) = salvo_testkit::cached(
+        env!("CARGO_TARGET_TMPDIR"),
+        &format!("rust-scheduler {tag}"),
+        &parts,
+    ) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("sched-{tag}"));
+    let src = dir.join("main.rs");
+    std::fs::write(&src, &source).expect("failed to write the scheduler program");
+    let bin = dir.join("program");
+    let compile = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg(&src)
+        .arg("-o")
+        .arg(&bin)
+        .output()
+        .expect("failed to run rustc");
+    assert!(
+        compile.status.success(),
+        "rustc rejected the scheduler program {tag}:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let child = Command::new(&bin)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to start the scheduler program");
+    let run = wait_with_timeout(child, 30);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        stdout, expected_stdout,
+        "unexpected stdout from the scheduler program {tag}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        run.status.success(),
+        expect_success,
+        "unexpected exit status from the scheduler program {tag}\nstderr:\n{stderr}"
+    );
+    if !stderr_contains.is_empty() {
+        assert!(
+            stderr.contains(stderr_contains),
+            "the scheduler program {tag} did not report {stderr_contains:?}:\nstderr:\n{stderr}"
+        );
+    }
+    stamp.verified();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Sends, a bounded queue the sender has to wait on, a reply token, and the
+/// `waitfor` bridge: six messages through a queue bounded at four, then a
+/// request whose reply crosses back into `main`.
+#[test]
+fn scheduler_delivers_sends_and_replies_through_a_bounded_queue() {
+    run_scheduler_program(
+        "queue-and-reply",
+        r#"
+struct Adder {
+    sum: i64,
+}
+
+impl SalvoProcess for Adder {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        match msg.downcast::<i64>() {
+            Ok(n) => self.sum += *n,
+            Err(other) => {
+                if let Ok(reply) = other.downcast::<SalvoReply>() {
+                    reply.send(Box::new(self.sum));
+                }
+            }
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(2);
+    let adder = salvo_spawn(pool, 4, Box::new(Adder { sum: 0 }));
+    // Six user messages through a queue bounded at four: the sender blocks
+    // twice and nothing is lost.
+    for n in 1..=6i64 {
+        salvo_send(adder, Box::new(n));
+    }
+    let (token, wid) = salvo_waiter();
+    salvo_send(adder, Box::new(token));
+    let total = salvo_wait(wid);
+    println!("sum: {}", total.downcast_ref::<i64>().unwrap());
+}
+"#,
+        "sum: 21\n",
+        true,
+        "",
+    );
+}
+
+/// The gate: while a gated continuation is outstanding, the process serves
+/// *only* the awaited reply — a user message that arrived first waits.
+#[test]
+fn scheduler_gate_defers_user_messages_until_the_awaited_reply() {
+    run_scheduler_program(
+        "gate",
+        r#"
+/// The gated caller: on "go" it parks on a gated reply from the echo
+/// process; "late" must not be served until the reply has landed.
+struct Caller {
+    echo: usize,
+    log: Vec<String>,
+}
+
+impl SalvoProcess for Caller {
+    fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg) {
+        let text = msg.downcast::<String>();
+        match text {
+            Ok(word) => {
+                if *word == "go" {
+                    let (token, _slot) = salvo_mint_gated(ctx.pid);
+                    salvo_send(self.echo, Box::new(token));
+                } else {
+                    self.log.push(format!("user {word}"));
+                }
+            }
+            Err(other) => {
+                if let Ok(reply) = other.downcast::<SalvoReply>() {
+                    // The finishing request: report the order things ran in.
+                    reply.send(Box::new(self.log.join(", ")));
+                }
+            }
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, value: SalvoMsg) {
+        let word = value.downcast::<String>().unwrap();
+        self.log.push(format!("reply {word}"));
+    }
+}
+
+/// Answers any reply token it is sent, after a beat so the "late" user
+/// message is certainly queued first.
+struct Echo;
+
+impl SalvoProcess for Echo {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        if let Ok(reply) = msg.downcast::<SalvoReply>() {
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            reply.send(Box::new("R".to_string()));
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(3);
+    let echo = salvo_spawn(pool, 4, Box::new(Echo));
+    let caller = salvo_spawn(
+        pool,
+        4,
+        Box::new(Caller {
+            echo,
+            log: Vec::new(),
+        }),
+    );
+    salvo_send(caller, Box::new("go".to_string()));
+    salvo_send(caller, Box::new("late".to_string()));
+    let (token, wid) = salvo_waiter();
+    salvo_send(caller, Box::new(token));
+    let order = salvo_wait(wid);
+    // The reply is served before the user message that was enqueued first.
+    println!("order: {}", order.downcast_ref::<String>().unwrap());
+}
+"#,
+        "order: reply R, user late\n",
+        true,
+        "",
+    );
+}
+
+/// Death: a faulted activation kills the process, `watch` reports the
+/// reason as an ordinary one-shot reply, and later sends to the corpse are
+/// silent no-ops rather than errors.
+#[test]
+fn scheduler_reports_a_faulted_activation_to_watchers() {
+    run_scheduler_program(
+        "fault-and-watch",
+        r#"
+struct Fragile;
+
+impl SalvoProcess for Fragile {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        let word = msg.downcast::<String>().unwrap();
+        if *word == "boom" {
+            panic!("boom");
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(2);
+    let fragile = salvo_spawn(pool, 4, Box::new(Fragile));
+    let (token, wid) = salvo_waiter();
+    salvo_watch(fragile, token);
+    salvo_send(fragile, Box::new("boom".to_string()));
+    let exit = salvo_wait(wid);
+    println!("exit: {}", exit.downcast_ref::<String>().unwrap());
+    // A send to the dead is a no-op: this neither blocks nor fails.
+    salvo_send(fragile, Box::new("ignored".to_string()));
+    // And a watch registered after the death answers immediately.
+    let (late_token, late_wid) = salvo_waiter();
+    salvo_watch(fragile, late_token);
+    let late = salvo_wait(late_wid);
+    println!("late watch: {}", late.downcast_ref::<String>().unwrap());
+}
+"#,
+        "exit: fault: boom\nlate watch: fault\n",
+        true,
+        "",
+    );
+}
+
+/// The idle-with-parked-gates report: `main` waits for a reply nothing can
+/// ever send, and the scheduler says so and exits non-zero instead of
+/// hanging (SUPERVISION.md S-3).
+#[test]
+fn scheduler_reports_idle_while_main_waits() {
+    run_scheduler_program(
+        "idle-report",
+        r#"
+struct Idle;
+
+impl SalvoProcess for Idle {
+    fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {}
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(1);
+    let _idle = salvo_spawn(pool, 2, Box::new(Idle));
+    println!("waiting");
+    // Nobody holds this token, so nothing can ever fulfil it.
+    let (_token, wid) = salvo_waiter();
+    let _never = salvo_wait(wid);
+    println!("unreachable");
+}
+"#,
+        "waiting\n",
+        false,
+        "salvo: deadlock: all processes idle while main waits",
+    );
 }

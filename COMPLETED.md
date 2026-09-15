@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 941 tests, complete: the toolchain tests are
+cargo test                  # 946 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,41 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5 step one built: the scheduler library (2026-09-15).** The first
+piece of asynchronous effect handlers, and it needed **no compiler
+cooperation** — as designed, it is a library in each backend's runtime
+files: `salvo-backend-rust/runtime/scheduler.rs` and
+`salvo-backend-kotlin/runtime/scheduler.kt`, mirrored APIs (`salvo_pool` /
+`SalvoSched.pool`, `salvo_spawn` / `spawn`, `salvo_send` / `send`,
+`salvo_mint`+`salvo_mint_gated` / `mint`+`mintGated`, `SalvoReply::send` /
+`SalvoReply.send`, `salvo_watch` / `watch`, `salvo_waiter`+`salvo_wait` /
+`waiter`+`awaitReply`). Both implement the decided semantics: run-to-completion
+activations on pool threads (Kotlin's are daemon threads — the program ends
+when `main` returns), one arrival-order queue per process with an explicit
+required bound that blocks a full sender, replies with reserved capacity (a
+reply never blocks and never counts against the bound), the gate (at most one
+outstanding; while gated only the awaited reply is delivered), death by
+faulted activation caught at the dispatch boundary with watcher notification
+and silent no-op sends to the corpse, and the idle-with-parked-gates report
+(stderr + exit 1) instead of a hang. Tests: **946 (+5)** — four behaviour
+scenarios per backend, *with identical expected output on both*, which is the
+parity assertion made executable, plus the modules joining the
+compile-warning-free registries (`bytes.kt` was missing from Kotlin's list
+and is now in it).
+
+Three things worth keeping. **Kotlin's `Object()` monitor is a warning**
+("this class is not recommended for use in Kotlin"), and the runtime tests
+reject warnings because they land in user output — so the lock is a
+`ReentrantLock` + `Condition` (`withLock`/`await`/`signalAll`), which mirrors
+Rust's `Mutex` + `Condvar` one-for-one anyway. **A Kotlin file's *name*
+decides its facade class**, so batched driver programs live as `main.kt` in
+per-case directories to be `<pkg>.MainKt`. And the scheduler method that
+blocks `main` is `awaitReply`, not `wait`: an object's `wait(Int)` sits
+beside `java.lang.Object.wait`, which is a trap for generated call sites.
+Both behaviour harnesses kill a child that overruns 30s (60s on the JVM) and
+report its partial output, so a lost wakeup fails a test instead of hanging
+the suite.
 
 **Supervision and process death decided (user decision 2026-09-15, same day
 as the design; nothing built yet).** The last phase-5 design prerequisite
