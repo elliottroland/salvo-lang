@@ -283,6 +283,18 @@ pub struct EffectDecl {
     /// apply to one: the two sets are disjoint, so keeping them apart makes
     /// the invariant structural.
     pub platform: bool,
+    /// [async-effect-kind] True for `async effect` — a **process protocol**
+    /// (user decision 2026-09-15, EU-5). The kind is declared on the effect
+    /// rather than diagnosed at a binding, because it is a design-time choice:
+    /// an async effect's members give up what cannot cross a seam (kept
+    /// parameters, `Mut` parameters, `proj` returns, non-sendable payloads),
+    /// and only an async effect may be bound with `spawn` or `use addr`. A
+    /// plain effect is never process-backed.
+    ///
+    /// Like `platform`, a flag rather than a shared enum: the two are
+    /// independent (a `platform effect` is a host interface, an `async effect`
+    /// a message protocol) and nothing yet is both.
+    pub is_async: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     pub fns: Vec<FnDecl>,

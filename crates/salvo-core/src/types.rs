@@ -663,17 +663,20 @@ pub fn qual_drop_block(name: &str) -> Option<&'static str> {
     match name {
         // [once-fn] A once-callable fn is not a many-callable fn.
         "once" => Some(
-            "`once` restricts rather than refines: dropping it would make a              once-callable value callable again",
+            "`once` restricts rather than refines: dropping it would make a \
+             once-callable value callable again",
         ),
         // [linear-obligation] Declared on the type, never written at a use
         // site, so there is nothing to remove — and removing it would drop
         // a use obligation.
         "Linear" | "linear" => Some(
-            "linearity is declared on the type, not applied at a use site, and              it carries a use obligation that cannot be dropped",
+            "linearity is declared on the type, not applied at a use site, \
+             and it carries a use obligation that cannot be dropped",
         ),
         // [readonly-return] The value is borrowed from somewhere else.
         "proj" => Some(
-            "`proj` marks a value derived from another: dropping it would              claim ownership the value does not have",
+            "`proj` marks a value derived from another: dropping it would \
+             claim ownership the value does not have",
         ),
         _ => None,
     }

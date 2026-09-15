@@ -32,12 +32,12 @@ intrinsic fn pool(size: Int) [spawn] -> Pool => size
 /// The effects and handlers the cases share: a `Counter` protocol with a
 /// request/response pair, a `Log` dependency, and handlers for both.
 const PRELUDE: &str = r#"
-effect Counter {
+async effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
 
-effect Log {
+async effect Log {
     send fn note(what: Str) => !what
 }
 
@@ -237,7 +237,7 @@ fn main() [use, spawn] {
 /// and as a receiver. Checked through a *wrong* annotation, so the message
 /// states the type.
 #[test]
-fn a_spawn_answers_a_pid_of_the_handlers_effect() {
+fn a_spawn_answers_a_addr_of_the_handlers_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -257,7 +257,7 @@ fn main() [use, spawn] {
 /// with the receiver naming *where* the message goes rather than being the
 /// first argument.
 #[test]
-fn a_pid_call_resolves_against_the_served_effect() {
+fn a_addr_call_resolves_against_the_served_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -274,7 +274,7 @@ fn main() [use, spawn] {
 }
 
 #[test]
-fn a_pid_call_checks_its_arguments() {
+fn a_addr_call_checks_its_arguments() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -294,7 +294,7 @@ fn main() [use, spawn] {
 /// unqualified — and an addr is *not* consumed by binding it, because an addr is
 /// freely copyable.
 #[test]
-fn use_pid_binds_the_effect_and_keeps_the_pid() {
+fn use_addr_binds_the_effect_and_keeps_the_addr() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -369,7 +369,7 @@ handler Asking() [Counter] of Log {
 
     let not_send = errors(
         "\
-effect Ask {
+async effect Ask {
     send fn go(out: Reply<Int>) => !out
     fn ready() -> Bool
 }
@@ -401,7 +401,7 @@ handler Asker() [Counter] of Ask {
 fn replyto_captures_are_the_members_leading_parameters() {
     let errs = errors(
         "\
-effect Ask {
+async effect Ask {
     send fn go() 
     send fn arrived(id: Int, sum: Int) => !id, !sum
 }
@@ -429,7 +429,7 @@ handler Asker() [Counter] of Ask {
 fn a_replyto_types_its_token_from_the_answer_parameter() {
     let errs = errors(
         "\
-effect Ask {
+async effect Ask {
     send fn go()
     send fn arrived(id: Int, sum: Int) => !id, !sum
     send fn wrong(id: Int, text: Str) => !id, !text
@@ -450,7 +450,7 @@ handler Asker() [Counter] of Ask {
 
     let mismatch = errors(
         "\
-effect Ask {
+async effect Ask {
     send fn go()
     send fn wrong(id: Int, text: Str) => !id, !text
 }
@@ -562,7 +562,7 @@ fn main() [use, spawn] {
 /// and an array element both work, which is what a program holding several
 /// processes writes.
 #[test]
-fn a_pid_place_of_any_shape_is_a_receiver() {
+fn a_addr_place_of_any_shape_is_a_receiver() {
     let errs = errors(
         "\
 struct Registry {
@@ -623,7 +623,7 @@ fn main() [use, spawn] {
 
     let minted = errors(
         "\
-effect Ask {
+async effect Ask {
     send fn go()
     send fn arrived(sum: Int) => !sum
 }
@@ -653,7 +653,7 @@ handler Asker() [Counter] of Ask {
 fn an_overloaded_send_member_is_picked_by_arity() {
     let ok = errors(
         "\
-effect Sink {
+async effect Sink {
     send fn put(a: Int) => !a
     send fn put(a: Int, b: Int) => !a, !b
 }
@@ -674,7 +674,7 @@ fn main() [use, spawn] {
 
     let tie = errors(
         "\
-effect Sink {
+async effect Sink {
     send fn put(a: Int) => !a
     send fn put(a: Str) => !a
 }
@@ -707,7 +707,7 @@ fn main() [use, spawn] {
 fn a_member_can_send_to_its_own_process() {
     let errs = errors(
         "\
-effect Work {
+async effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }
@@ -750,7 +750,7 @@ handler Working() of Log {
 
     let not_send = errors(
         "\
-effect Work {
+async effect Work {
     send fn start(n: Int) => !n
     fn ready() -> Bool
 }
@@ -799,7 +799,7 @@ fn main() [use, spawn] {
 fn a_self_send_types_and_consumes_its_arguments() {
     let errs = errors(
         "\
-effect Work {
+async effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }
@@ -890,4 +890,139 @@ handler Counting2() of Counter {
             .any(|m| m.contains("send it to this process instead: `bump@self(…)`")),
         "expected the diagnostic to name the self-send: {errs:?}"
     );
+}
+
+// ===== [async-effect-kind] [async-sendable] The effect kind =====
+
+/// The kind is declared, not diagnosed (user decision 2026-09-15, EU-5): an
+/// author choosing between `effect` and `async effect` is deciding whether the
+/// protocol crosses threads, so `send fn` needs the async kind and the
+/// diagnostic names the marker.
+#[test]
+fn a_send_member_needs_an_async_effect() {
+    let errs = errors(
+        "\
+effect Plain {
+    send fn nope(n: Int) => !n
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("needs an `async effect`") && m.contains("async effect Plain")),
+        "expected the kind requirement: {errs:?}"
+    );
+}
+
+/// And inside an `async effect`, everything a seam cannot carry is refused
+/// **at the declaration**, where the choice is being made: a kept parameter, a
+/// `Mut` parameter, and a non-sendable payload — each naming the law rather
+/// than the symptom.
+#[test]
+fn an_async_effect_refuses_what_cannot_cross_a_seam() {
+    let errs = errors(
+        "\
+struct Job {
+    name: Str,
+    run: () -> Int
+}
+
+async effect Bad {
+    send fn keeps(s: Str) => s
+    send fn mutates(xs: Mut List<Int>) => !xs
+    send fn unsendable(j: Job) => !j
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("cannot keep `s`") && m.contains("always consumed")),
+        "expected the kept-parameter refusal: {errs:?}"
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("cannot take a `Mut` parameter")),
+        "expected the Mut-parameter refusal: {errs:?}"
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("cannot carry `Job`")
+            && m.contains("holds a function value")),
+        "expected the sendability refusal: {errs:?}"
+    );
+}
+
+/// [async-sendable] The other half of C-4(a): a `proj` view borrows the
+/// sender's value, so it cannot cross either.
+#[test]
+fn a_view_is_not_sendable() {
+    let errs = errors(
+        "\
+struct Window {
+    over: proj List<Int>
+}
+
+async effect Peek {
+    send fn look(w: Window) => !w
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("cannot carry `Window`")
+            && m.contains("holds a `proj` view")),
+        "expected the view refusal: {errs:?}"
+    );
+}
+
+/// [async-effect-kind] The binding gate, which is what closes the design's
+/// carried named question: a plain effect is **never** process-backed, so
+/// `spawn`, `use addr` and even naming `Addr<E>` require the async kind. The
+/// last is reported where the type is written, before any spawn exists.
+#[test]
+fn only_an_async_effect_can_be_bound_to_a_process() {
+    let errs = errors(
+        "\
+effect Plain {
+    fn ping() -> Int
+}
+
+handler Pinging() of Plain {
+    fn ping() -> Int {
+        return 1
+    }
+}
+
+fn hold(a: Addr<Plain>) -> Int => a {
+    return 1
+}
+
+fn main() [use, spawn] {
+    let p = spawn Pinging() capacity 1 on pool(1)
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("`Addr<Plain>` needs an `async effect`")),
+        "expected the addr-type gate: {errs:?}"
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("`spawn` cannot bind `Plain` to a process")
+            && m.contains("no mailbox")),
+        "expected the spawn gate: {errs:?}"
+    );
+}
+
+/// A **plain** handler binding of an async effect stays legal — that is
+/// Example 6's binding swap, and the reason the kind sits on the effect rather
+/// than on the handler.
+#[test]
+fn an_async_effect_can_still_be_used_synchronously() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    use Printing()
+    note(\"inline\")
+}
+",
+    );
+    assert!(errs.is_empty(), "the binding swap must stay legal: {errs:?}");
 }

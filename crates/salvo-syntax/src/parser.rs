@@ -50,6 +50,12 @@ struct Snapshot {
 /// everywhere else, and it is only special immediately after `@`.
 pub const SELF_SELECTOR: &str = "self";
 
+/// [async-effect-kind] The contextual modifier that makes an effect a process
+/// protocol: `async effect E { … }`. Contextual, not reserved — and the only
+/// place the word appears in the language, since the phase decided against
+/// colouring functions.
+pub const ASYNC_MODIFIER: &str = "async";
+
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
         let mut line_starts = vec![0u32];
@@ -492,6 +498,16 @@ impl<'s> Parser<'s> {
                 }
             }
             TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
+            // [async-effect-kind] `async effect E { … }`: a process protocol.
+            // Contextual — at item level a bare identifier is otherwise a
+            // parse error, which is what makes one token of lookahead enough
+            // (the `iter fn` precedent).
+            TokenKind::Ident(name)
+                if name == ASYNC_MODIFIER && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
+            {
+                self.bump();
+                self.parse_effect_kinded(false, true).map(Item::Effect)
+            }
             TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
             // [qual-refn] A top-level refinement: the consumer's own
             // statement about a function, which is how conflicting
@@ -1023,6 +1039,15 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_effect(&mut self, platform: bool) -> Option<EffectDecl> {
+        self.parse_effect_kinded(platform, false)
+    }
+
+    /// [async-effect-kind] `async effect E { … }` — a process protocol. The
+    /// modifier is **contextual** (`async` followed by `effect`), like every
+    /// other word this phase added: nothing is reserved, so `async` stays a
+    /// legal name. There is deliberately no `async fn` — the phase decided
+    /// against colouring — so this is the only place the word appears.
+    fn parse_effect_kinded(&mut self, platform: bool, is_async: bool) -> Option<EffectDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
@@ -1036,6 +1061,7 @@ impl<'s> Parser<'s> {
         Some(EffectDecl {
             docs,
             platform,
+            is_async,
             name,
             generics,
             fns,
@@ -2331,7 +2357,8 @@ impl<'s> Parser<'s> {
                     let (quals, binding) = self.parse_is_check()?;
                     if let Some(b) = &binding {
                         self.error(
-                            "`^` takes no binding: the subject itself reads without                              the qualifier in the checked branch",
+                            "`^` takes no binding: the subject itself reads \
+                             without the qualifier in the checked branch",
                             b.span,
                         );
                     }
@@ -3180,7 +3207,9 @@ impl<'s> Parser<'s> {
                 if self.eat(&TokenKind::Colon).is_none() {
                     let span = self.peek().span;
                     self.error(
-                        "expected `:` after a map literal's key — a `{...}`                          whose first entry has one is a map, so every entry                          needs a value",
+                        "expected `:` after a map literal's key — a `{...}` \
+                         whose first entry has one is a map, so every entry \
+                         needs a value",
                         span,
                     );
                     self.group_depth -= 1;
@@ -3485,7 +3514,8 @@ impl<'s> Parser<'s> {
             if widen {
                 if let Some(b) = &binding {
                     self.error(
-                        "a `^` branch takes no binding: the subject itself reads                          without the qualifier inside the branch",
+                        "a `^` branch takes no binding: the subject itself \
+                         reads without the qualifier inside the branch",
                         b.span,
                     );
                 }

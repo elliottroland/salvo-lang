@@ -1519,7 +1519,7 @@ fn obligation_keywords_are_reserved() {
 #[test]
 fn send_members_and_the_spawn_capability_parse() {
     let source = "\
-effect Counter {
+async effect Counter {
     send fn bump(n: Int)
     send fn report(out: Reply<Int>)
 }
@@ -1641,7 +1641,7 @@ fn the_asynchronous_expression_forms_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
 
     let source = "\
-effect Counter {
+async effect Counter {
     send fn bump(n: Int)
     send fn total(out: Reply<Int>)
     send fn totalled(n: Int)
@@ -1900,7 +1900,7 @@ fn the_self_selector_parses_and_the_receiver_form_does_not() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
 
     let source = "\
-effect Work {
+async effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }

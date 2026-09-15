@@ -2349,6 +2349,48 @@ LANGUAGE.md remains the source of truth for everything that does.
   * A process **is a region**, so sendability and region-escape are one
     check (user, 2026-09-10, confirmed 2026-09-15). **Handlers never cross
     into a spawn — construction does** [async-spawn-expr].
+* [async-effect-kind] **`async effect E { … }` declares a process protocol**
+  (user decision 2026-09-15, EU-5 of the effect-unification design). The kind
+  is *declared*, not diagnosed at a binding, because it is a design-time
+  choice: sync effects can keep arguments and async ones cannot, and that is
+  something an author reckons with when deciding which effect to write.
+  * A **plain effect is never process-backed** — which is how the design's
+    carried named question ("may an ordinary member be process-backed?")
+    closes: *forbid*, with the async kind as the sanctioned spelling. So
+    `spawn`, `use addr` and even *naming* `Addr<E>` require an async effect,
+    the last reported where the type is written rather than at a spawn that
+    could never have produced it.
+  * `send fn` requires the async kind, and is refused in a plain effect.
+  * **Mixed kinds are refused outright**, not per member: the same handler
+    state would be reachable from two threads, and a synchronous reader can
+    observe state mid-activation — precisely what scheduler serialization
+    exists to prevent.
+  * Inside an `async effect`, a member may **not**: keep a parameter (a send
+    payload always crosses, so it is always consumed — the clause must say
+    `=> !p`), take a **`Mut`** parameter (mutating across a boundary would
+    share what a process owns alone), return a **`proj` view** (a borrow of
+    state the process keeps mutating), or carry a **non-sendable** payload
+    [async-sendable]. Each is checked at the declaration and names the law
+    rather than the symptom.
+  * A handler of an async effect is still **bindable both ways** — `use H()`
+    runs its member bodies inline, `spawn H(…)` runs them as activations. That
+    is Example 6's binding swap, and the reason the kind sits on the *effect*
+    and not on the handler.
+  * `async` is **contextual** (`async` followed by `effect`), and it is the
+    only place the word appears in the language: there is no `async fn`, since
+    the phase decided against colouring.
+* [async-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
+  structural rule (a)): a value may not transitively hold
+  * a **function value** — a callback is shared rather than owned, and the
+    Rust backend holds one in an `Rc`, which is not `Send` [rs-fn-field];
+  * a **`proj` view** — a borrow of a value the sender still owns.
+  Checked structurally, through struct fields, type arguments, arrays, tuples
+  and unions, with a depth guard. The check's *site* is the async effect's
+  declaration for member payloads — where the author is choosing — and the
+  crossing site for `replyto` captures and spawn arguments.
+  * `Arc`-where-sent inference is the recorded growth point (C-4(c)), for when
+    sent closures and pipeline functions become real; until then the answer is
+    a diagnostic naming the field.
 * [async-send-fn] An **asynchronous member** is declared `send fn`, in an
   effect and in the handlers implementing it. Sending it *enqueues* an
   invocation, so it **answers nothing**: a written return type is an error

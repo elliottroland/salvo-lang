@@ -1177,25 +1177,14 @@ compiler today, so its own output is the work list.
    COMPLETED.md's log; the one thing worth carrying: `@self` as a *selector*
    deleted the rule that a handler member may not declare a variable named
    `self`, because nothing can shadow a selector.
-2. **`async effect` and its refusal list** (EU-5). Second because it changes
-   the *gate* the emitters key on — a message type and a process body are
-   generated today for "an effect with send members", which becomes "an async
-   effect" — and because its blast radius is small *now*: std declares no send
-   members by design, so only the async tests move. `send fn` becomes legal
-   only inside an `async effect` and refused in a plain one; the refusal list
-   (keep deductions, `Mut` parameters, `proj` returns, non-sendable payloads)
-   is checked at the declaration, where the author is choosing; `spawn` and
-   `use addr` require an async effect. **This closes CONCURRENCY.md's carried
-   named question** — a sync effect is never process-backed; declare the
-   protocol async if you want one.
-   * **Sendability is part of this list, not a slice of its own** (user
-     decision 2026-09-15): C-4(a)'s structural rule refuses a payload that
-     transitively holds a **fn-typed field** ([rs-fn-field] lowers one to
-     `Rc`, which is not `Send`) or a **`proj` view** (a borrow cannot cross a
-     seam). Checked at the *declaration* for member payloads — its natural
-     home, since that is where the author decides — and at the site for
-     `replyto` captures and spawn arguments. `Arc`-where-sent inference stays
-     the recorded growth point (C-4(c)), for when sent closures become real.
+2. ✅ **`async effect` and its refusal list — done 2026-09-15.** The kind
+   marker, `send fn` requiring it, the declaration-site refusals (kept
+   parameters, `Mut` parameters, `proj` returns, non-sendable payloads) and the
+   binding gate on `spawn` / `use addr` / `Addr<E>` — which **closes
+   CONCURRENCY.md's carried named question**: a plain effect is never
+   process-backed. Sendability landed with it, as decided. Rules:
+   [async-effect-kind], [async-sendable]. The emitters' gates now key on the
+   kind rather than on "has send members".
 3. **The forwarding stub for `use addr`.** Small, self-contained, and a
    **prerequisite for item 4** rather than a sibling: a handler is compiled
    once and bound many ways, so whether a dependency is a local construction

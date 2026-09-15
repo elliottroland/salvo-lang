@@ -306,6 +306,13 @@ handler MemCounter of Counter {
         return n
     }
 }
+
+// [async-effect-kind] An `Addr` needs a *process* protocol behind it, so the
+// addr cases below have one to name; `Counter` stays plain, which is what the
+// narrowness case needs.
+async effect Chatter {
+    send fn say(what: Str) => !what
+}
 "#;
 
 fn effect_messages(src: &str) -> Vec<String> {
@@ -373,28 +380,28 @@ fn effect_types_are_rejected_in_data_positions() {
 /// name. Accepted in every ordinary data position, since an addr is an ordinary
 /// value.
 #[test]
-fn an_effect_is_legal_as_a_pid_type_argument() {
+fn an_effect_is_legal_as_an_addr_type_argument() {
     let cases = [
-        ("struct S {\n    c: Addr<Counter>\n}\n", "struct field"),
+        ("struct S {\n    c: Addr<Chatter>\n}\n", "struct field"),
         (
-            "fn f(c: Addr<Counter>) -> Int => c {\n    return 1\n}\n",
+            "fn f(c: Addr<Chatter>) -> Int => c {\n    return 1\n}\n",
             "parameter",
         ),
         (
-            "fn f(c: Addr<Counter>) -> Addr<Counter> => !c {\n    return c\n}\n",
+            "fn f(c: Addr<Chatter>) -> Addr<Chatter> => !c {\n    return c\n}\n",
             "return type",
         ),
     ];
     for (src, what) in cases {
         let errs = effect_messages(src);
-        assert!(errs.is_empty(), "`Addr<Counter>` refused as a {what}: {errs:?}");
+        assert!(errs.is_empty(), "`Addr<Chatter>` refused as a {what}: {errs:?}");
     }
 }
 
 /// And the exception is *only* that: the effect is still refused as any other
 /// type argument, so nothing else was widened by granting it.
 #[test]
-fn the_pid_exception_does_not_extend_to_other_type_arguments() {
+fn the_addr_exception_does_not_extend_to_other_type_arguments() {
     let errs = effect_messages("fn f(xs: List<Counter>) -> Int => xs {\n    return 1\n}\n");
     assert!(
         errs.iter()
@@ -819,7 +826,7 @@ fn an_unused_parameter_does_not_warn() {
 fn a_send_member_cannot_declare_a_return_type() {
     let errors = messages(
         "\
-effect Counter {
+async effect Counter {
     send fn total() -> Int
 }
 ",
@@ -835,7 +842,7 @@ effect Counter {
 fn a_send_member_in_a_handler_cannot_declare_a_return_type() {
     let errors = messages(
         "\
-effect Counter {
+async effect Counter {
     send fn bump(n: Int)
 }
 
@@ -861,7 +868,7 @@ handler Counting() of Counter {
 fn send_members_without_a_return_type_are_accepted() {
     let errors = messages(
         "\
-effect Counter {
+async effect Counter {
     send fn bump(n: Int)
 }
 
@@ -888,7 +895,7 @@ handler Counting() of Counter {
 fn the_spawn_capability_is_accepted_on_fns_and_handlers() {
     let errors = messages(
         "\
-effect Counter {
+async effect Counter {
     send fn bump(n: Int)
 }
 

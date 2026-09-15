@@ -1506,7 +1506,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.error(
                                 f.name.span,
                                 format!(
-                                    "`{}.{}` is a signature, not an implementation: a                                      `params` group declares what a caller must supply,                                      and the default comes from a matching top-level fn",
+                                    "`{}.{}` is a signature, not an \
+                                     implementation: a `params` group \
+                                     declares what a caller must supply, and \
+                                     the default comes from a matching top- \
+                                     level fn",
                                     g.name.name, f.name.name
                                 ),
                             );
@@ -1662,6 +1666,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Effect(e) => {
                     self.check_platform_effect(e);
                     self.check_effect_member_signatures(e);
+                    // [async-effect-kind] The kind's own rules: what an
+                    // `async effect` may declare, and that `send fn` needs one.
+                    self.check_effect_kind(e);
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
                         self.reject_member_effects(f, "effect member functions");
@@ -2079,6 +2086,199 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// annotation. (The later call-member sugar goes the other way: a `-> T`
     /// member desugars *into* a send member with a trailing token, so the
     /// two spellings must not both mean something here.)
+    /// [async-effect-kind] The effect-level kind rules (user decision
+    /// 2026-09-15, EU-5). The kind is declared, not diagnosed: an author
+    /// choosing between `effect` and `async effect` is choosing whether the
+    /// protocol crosses threads, and everything that cannot cross is refused
+    /// **here**, where the choice is being made, rather than at some later
+    /// binding.
+    ///
+    /// Two directions:
+    /// * `send fn` needs an `async effect` — a message has nowhere to go in a
+    ///   synchronous protocol.
+    /// * inside an `async effect`, a member may not **keep** a parameter, take
+    ///   a `Mut` one, return a `proj` view, or carry a **non-sendable** payload
+    ///   [async-sendable]. Each is a borrow or a share that a seam cannot
+    ///   carry.
+    fn check_effect_kind(&mut self, e: &'p EffectDecl) {
+        let saved = self.enter_generics(&e.generics);
+        for f in &e.fns {
+            if f.is_send && !e.is_async {
+                self.error(
+                    f.name.span,
+                    format!(
+                        "`send fn {}` needs an `async effect`: a message is \
+                         enqueued on a process, which a synchronous effect \
+                         never has — declare `async effect {}` if this \
+                         protocol is meant to be spawned",
+                        f.name.name, e.name.name
+                    ),
+                );
+            }
+            if e.is_async {
+                self.check_async_member(e, f);
+            }
+        }
+        self.generics = saved;
+    }
+
+    /// [async-effect-kind] [async-sendable] One member of an `async effect`,
+    /// against the refusal list. The diagnostics name the *law* rather than the
+    /// symptom ("a `Mut` parameter in an `async effect`"), because the remedy
+    /// is a design decision — send a copy, or make the protocol synchronous.
+    fn check_async_member(&mut self, e: &'p EffectDecl, f: &'p FnDecl) {
+        let inner = self.enter_generics(&f.generics);
+        // A kept parameter is a borrow that outlives the call, which a
+        // message cannot carry: the payload crosses the seam and the sender
+        // gives it up.
+        for d in f.deductions.iter().flatten() {
+            // Every entry but `Moved` keeps the parameter: a bare `=> p`, an
+            // exhaustive or subtractive qualifier list, or a projection.
+            if matches!(d.kind, ast::DeductionKind::Moved) {
+                continue;
+            }
+            let Some(name) = d.param_name() else { continue };
+            self.error(
+                d.span,
+                format!(
+                    "member `{}` of `async effect {}` cannot keep `{}`: a \
+                     message payload crosses to another process, so it is \
+                     always consumed — write `=> !{}`, or make `{}` a plain \
+                     effect",
+                    f.name.name, e.name.name, name.name, name.name, e.name.name
+                ),
+            );
+        }
+        for p in f.params.iter().filter(|p| !p.implicit) {
+            // A `Mut` parameter is an exclusive borrow of the caller's value.
+            if let ast::Type::Named { qualifiers, .. } = &p.ty {
+                if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
+                    self.error(
+                        q.span,
+                        format!(
+                            "member `{}` of `async effect {}` cannot take a \
+                             `Mut` parameter: mutating a value across a \
+                             process boundary would share it, and a process \
+                             owns its state alone",
+                            f.name.name, e.name.name
+                        ),
+                    );
+                }
+            }
+            // [async-sendable] C-4(a)'s structural rule, at the declaration.
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    p.ty.span(),
+                    format!(
+                        "member `{}` of `async effect {}` cannot carry \
+                         `{ty}`: {why}, and everything crossing to another \
+                         process must be sendable",
+                        f.name.name, e.name.name
+                    ),
+                );
+            }
+        }
+        // A `proj` return is a borrow of something the process owns.
+        if let Some(rt) = &f.return_type {
+            if let Some(span) = first_proj_span(rt) {
+                self.error(
+                    span,
+                    format!(
+                        "member `{}` of `async effect {}` cannot return a \
+                         `proj` view: it would borrow state the process owns \
+                         and keeps mutating",
+                        f.name.name, e.name.name
+                    ),
+                );
+            }
+        }
+        self.generics = inner;
+    }
+
+    /// [async-sendable] Why a value of this type may not cross a seam, or
+    /// `None` when it may (user decision 2026-09-15, C-4(a) as the structural
+    /// rule). Two kinds of contents are refused, both because the *other* side
+    /// could never own what it received:
+    ///
+    /// * a **function-typed** field or component — a callback is shared, and
+    ///   the Rust backend holds one in an `Rc`, which is not `Send`
+    ///   [rs-fn-field];
+    /// * a **`proj` view** — a borrow of a value the sender still owns.
+    ///
+    /// `Arc`-where-sent inference is the recorded growth point (C-4(c)) for
+    /// when sent closures become real; until then the answer is a diagnostic.
+    fn unsendable_reason(&self, ty: &Ty) -> Option<&'static str> {
+        if self.ty_holds_fn(ty, 0) {
+            return Some("it holds a function value, which is shared rather than owned");
+        }
+        if self.ty_holds_proj(ty) {
+            return Some("it holds a `proj` view, which borrows the sender's value");
+        }
+        None
+    }
+
+    /// [async-sendable] Whether a (lowered) type is, or transitively holds, a
+    /// function value. Structural like `ty_holds_proj`, with the same depth
+    /// guard against a recursive struct.
+    fn ty_holds_fn(&self, ty: &Ty, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match ty.strip_quals() {
+            Ty::Fn { .. } => true,
+            Ty::Union(arms) | Ty::Tuple(arms) => {
+                arms.iter().any(|a| self.ty_holds_fn(a, depth + 1))
+            }
+            Ty::Array(elem) => self.ty_holds_fn(elem, depth + 1),
+            Ty::Named { name, args } => {
+                if args.iter().any(|a| self.ty_holds_fn(a, depth + 1)) {
+                    return true;
+                }
+                let Some(decl) = self.scope.structs.get(name.as_str()) else {
+                    return false;
+                };
+                // A field's *written* type is enough: a fn type is syntactic
+                // (`(T) -> U`), so no lowering is needed to recognise one, and
+                // a named field type recurses through the same map.
+                let fields: Vec<&ast::Type> = decl.fields.iter().map(|f| &f.ty).collect();
+                fields.iter().any(|t| self.ast_type_holds_fn(t, depth + 1))
+            }
+            _ => false,
+        }
+    }
+
+    /// [async-sendable] The written-type half of `ty_holds_fn`: a struct
+    /// field's declared type, without lowering it (a fn type is syntactic, and
+    /// lowering here would need the declaring scope's generics).
+    fn ast_type_holds_fn(&self, ty: &ast::Type, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match ty {
+            ast::Type::Fn { .. } => true,
+            ast::Type::Union { arms, .. } => arms.iter().any(|a| self.ast_type_holds_fn(a, depth + 1)),
+            ast::Type::Tuple { elems, .. } => {
+                elems.iter().any(|e| self.ast_type_holds_fn(e, depth + 1))
+            }
+            ast::Type::Array { elem, .. } => self.ast_type_holds_fn(elem, depth + 1),
+            ast::Type::Nullable { inner, .. } => self.ast_type_holds_fn(inner, depth + 1),
+            ast::Type::QualifiedGroup { base, .. } => self.ast_type_holds_fn(base, depth + 1),
+            ast::Type::Named { base, .. } => {
+                if base.args.iter().any(|a| self.ast_type_holds_fn(a, depth + 1)) {
+                    return true;
+                }
+                match self.scope.structs.get(base.name.name.as_str()) {
+                    Some(decl) => decl
+                        .fields
+                        .iter()
+                        .any(|f| self.ast_type_holds_fn(&f.ty, depth + 1)),
+                    None => false,
+                }
+            }
+        }
+    }
+
     fn check_send_member(&mut self, f: &'p FnDecl) {
         if !f.is_send {
             return;
@@ -4419,6 +4619,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return;
         };
+        // [async-effect-kind] Binding an addr binds a process's protocol.
+        self.require_async_effect(&effect, span, "use");
         self.out.use_addrs.insert(self.key(span), effect.clone());
         self.out.use_effects.insert(self.key(span), effect.clone());
         self.effect_env.push(effect);
@@ -7504,7 +7706,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             match eff {
                 EffectRef::Use(span) => self.error(
                     *span,
-                    "a fn type cannot declare `use`: registering a handler is                      local to a body, so a lambda may `use` exactly when the                      function containing it may"
+                    "a fn type cannot declare `use`: registering a handler \
+                     is local to a body, so a lambda may `use` exactly when \
+                     the function containing it may"
                         .to_string(),
                 ),
                 // [async-spawn-effect] Same reasoning: the capability is a
@@ -8240,6 +8444,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
         // (built on the child) or an `Addr` (an effect another process serves).
+        // [async-effect-kind] Only a process protocol may be spawned. Checked
+        // after the construction, so argument errors still surface.
+        self.require_async_effect(&effect, span, "spawn");
         let mut supplied: Vec<(Ty, Span)> = Vec::new();
         for u in uses {
             if let Some(eff) = self.check_spawn_dep(u) {
@@ -9805,7 +10012,61 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// must be a bare name that a visible effect declares. Anything else
     /// (`Addr<Int>`, a second argument, an effect elsewhere) goes down the
     /// ordinary path and is validated — or refused — as before.
-    fn is_pid_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
+    /// [async-effect-kind] The binding gate: `spawn` and `use addr` are the two
+    /// ways a process is reached, and both need an `async effect`. This is what
+    /// closes the design's carried named question — "may an ordinary member be
+    /// process-backed?" — as *forbid*, with the async kind as the sanctioned
+    /// spelling (user decision 2026-09-15).
+    fn require_async_effect(&mut self, effect: &Ty, span: Span, form: &str) {
+        let Ty::Named { name, .. } = effect.strip_quals() else {
+            return;
+        };
+        let name = name.clone();
+        let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
+            return;
+        };
+        if decl.is_async {
+            return;
+        }
+        self.error(
+            span,
+            format!(
+                "`{form}` cannot bind `{name}` to a process: it is a plain effect, and \
+                 a synchronous protocol has no mailbox — declare `async effect {name}` \
+                 (its members then give up kept and `Mut` parameters, `proj` returns \
+                 and non-sendable payloads)"
+            ),
+        );
+    }
+
+    /// [async-effect-kind] The kind gate on an `Addr`'s argument: only an
+    /// `async effect` can sit behind one, because only an async effect can be
+    /// spawned. Reported where the type is *written*, which is earlier and
+    /// clearer than at a spawn that could never have produced it.
+    fn check_addr_effect_kind(&mut self, base: &TypeRef, arg: &ast::Type) {
+        if base.name.name != ADDR_TYPE {
+            return;
+        }
+        let ast::Type::Named { base: eff, .. } = arg else {
+            return;
+        };
+        let name = eff.name.name.clone();
+        let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
+            return;
+        };
+        if !decl.is_async {
+            self.error(
+                eff.span,
+                format!(
+                    "`{ADDR_TYPE}<{name}>` needs an `async effect`: an addr names a \
+                     process, and a plain effect is never process-backed — declare \
+                     `async effect {name}` if it is meant to be spawned"
+                ),
+            );
+        }
+    }
+
+    fn is_addr_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
         if base.name.name != ADDR_TYPE || index != 0 || base.args.len() != 1 {
             return false;
         }
@@ -10031,7 +10292,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // type-argument (user decision 2026-09-15). Validated
                     // here rather than in `reject_effect_as_data`, because
                     // only this walk knows what the argument belongs to.
-                    if self.is_pid_effect_arg(base, i, a) {
+                    if self.is_addr_effect_arg(base, i, a) {
+                        // [async-effect-kind] Legal *as* an effect here, but
+                        // only an async one can sit behind an addr.
+                        self.check_addr_effect_kind(base, a);
                         continue;
                     }
                     self.validate_type(a);
@@ -11012,7 +11276,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if pat.base.is_some() || pat.is_none {
             self.error(
                 span,
-                "`^` removes qualifiers, so its right side is qualifier names only                  (use `is` to check a type)"
+                "`^` removes qualifiers, so its right side is qualifier \
+                 names only (use `is` to check a type)"
                     .to_string(),
             );
             return unchanged;
@@ -11049,7 +11314,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         span,
                         format!(
-                            "`^ {}` matches more than one arm of `{subj_ty}`: widening                              removes a qualifier from a single arm",
+                            "`^ {}` matches more than one arm of \
+                             `{subj_ty}`: widening removes a qualifier from \
+                             a single arm",
                             pat.quals.join(" ")
                         ),
                     );
@@ -11063,7 +11330,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         span,
                         format!(
-                            "no arm of `{subj_ty}` carries `{}`, so there is nothing                              for `^` to remove",
+                            "no arm of `{subj_ty}` carries `{}`, so there is \
+                             nothing for `^` to remove",
                             pat.quals.join(" ")
                         ),
                     );
@@ -11080,7 +11348,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             span,
                             format!(
-                                "`{other}` does not carry `{}`, so there is nothing                                  for `^` to remove",
+                                "`{other}` does not carry `{}`, so there is \
+                                 nothing for `^` to remove",
                                 pat.quals.join(" ")
                             ),
                         );
@@ -14419,7 +14688,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if pat.base.is_some() || pat.is_none {
                     self.error(
                         branch.span,
-                        "a `^` branch removes qualifiers, so its head is qualifier                          names only (use `is` to match a type)"
+                        "a `^` branch removes qualifiers, so its head is \
+                         qualifier names only (use `is` to match a type)"
                             .to_string(),
                     );
                     ok = false;
@@ -14444,7 +14714,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             branch.span,
                             format!(
-                                "this arm does not carry `{}`, so there is nothing for                                  `^` to remove",
+                                "this arm does not carry `{}`, so there is \
+                                 nothing for `^` to remove",
                                 pat.quals.join(" ")
                             ),
                         );

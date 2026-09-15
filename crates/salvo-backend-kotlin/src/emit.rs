@@ -1405,6 +1405,10 @@ impl<'p> Emitter<'p> {
     /// — the messages a process serving `E` receives, and the whole of what
     /// crosses the seam at runtime (the scheduler is untyped: `Any?`).
     fn emit_message_classes(&mut self, e: &EffectDecl) -> String {
+        // [async-effect-kind] The kind is the gate, as in the Rust backend.
+        if !e.is_async {
+            return String::new();
+        }
         let sends: Vec<(usize, &FnDecl)> = e
             .fns
             .iter()
@@ -1717,7 +1721,8 @@ impl<'p> Emitter<'p> {
             .enumerate()
             .filter(|(_, f)| f.is_send)
             .collect();
-        if sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
+        // [async-effect-kind] Only a process protocol gets a process body.
+        if !effect.is_async || sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
             return String::new();
         }
         self.needs_scheduler = true;
@@ -3552,7 +3557,10 @@ impl<'p> Emitter<'p> {
                         other => {
                             let place = self.emit_expr_raw(other);
                             self.error(format!(
-                                "`^` on a projection is not supported yet: widening                                  materializes a local for the branch, which needs a                                  plain variable — bind `{place}` to one first"
+                                "`^` on a projection is not supported yet: \
+                                 widening materializes a local for the \
+                                 branch, which needs a plain variable — bind \
+                                 `{place}` to one first"
                             ));
                         }
                     }
@@ -3624,7 +3632,9 @@ impl<'p> Emitter<'p> {
             let Expr::Ident(id) = subject else {
                 let place = self.emit_expr_raw(subject);
                 self.error(format!(
-                    "`^` on a projection is not supported yet: widening                      materializes a local for the branch, which needs a plain                      variable — bind `{place}` to one first"
+                    "`^` on a projection is not supported yet: widening \
+                     materializes a local for the branch, which needs a \
+                     plain variable — bind `{place}` to one first"
                 ));
                 continue;
             };
@@ -4985,7 +4995,9 @@ impl<'p> Emitter<'p> {
                     // Unreachable under the checker's fits rule
                     // [fn-effects] [backend-never-wrong].
                     self.error(format!(
-                        "internal error: `{name}` needs effect `{rendered}`, which the                          function type it is passed as does not declare"
+                        "internal error: `{name}` needs effect `{rendered}`, \
+                         which the function type it is passed as does not \
+                         declare"
                     ));
                 }
             }

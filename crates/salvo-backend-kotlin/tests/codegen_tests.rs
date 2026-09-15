@@ -8954,7 +8954,7 @@ fn kotlinc_compiles_and_runs_the_memory_filesystem() -> KotlinCase {
 /// Rust backend runs, with **the same expected output** — the parity assertion
 /// for the surface, not just for the scheduler library underneath it.
 const PROCESS: &str = r#"
-effect Counter {
+async effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }

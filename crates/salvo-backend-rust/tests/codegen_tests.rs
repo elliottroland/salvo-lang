@@ -8527,7 +8527,7 @@ fn rustc_compiles_and_runs_the_memory_filesystem() {
 /// the Kotlin backend — the parity assertion for the whole surface, not just
 /// the scheduler library it rests on.
 const PROCESS: &str = r#"
-effect Counter {
+async effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
@@ -8610,11 +8610,11 @@ fn a_process_lowers_to_a_message_enum_and_a_body() {
 fn the_remaining_process_cuts_are_errors() {
     let deps = expect_errors(
         r#"
-effect Log {
+async effect Log {
     send fn note(what: Str) => !what
 }
 
-effect Counter {
+async effect Counter {
     send fn bump(n: Int) => !n
 }
 

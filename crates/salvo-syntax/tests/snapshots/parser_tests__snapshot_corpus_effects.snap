@@ -8,6 +8,7 @@ Module {
             EffectDecl {
                 docs: [],
                 platform: false,
+                is_async: false,
                 name: Ident {
                     name: "Random",
                     span: 7..13,
@@ -62,6 +63,7 @@ Module {
             EffectDecl {
                 docs: [],
                 platform: false,
+                is_async: false,
                 name: Ident {
                     name: "Console",
                     span: 55..62,

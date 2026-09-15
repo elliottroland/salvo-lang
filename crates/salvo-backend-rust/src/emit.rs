@@ -1899,6 +1899,12 @@ impl<'p> Emitter<'p> {
     /// Emitted only for an effect with at least one `send fn`; a synchronous
     /// effect never becomes messages.
     fn emit_message_enum(&mut self, e: &EffectDecl) -> String {
+        // [async-effect-kind] The kind is the gate: a plain effect never
+        // becomes messages, and an async one always does (its members are all
+        // sends in this pass).
+        if !e.is_async {
+            return String::new();
+        }
         let sends: Vec<(usize, &FnDecl)> = e
             .fns
             .iter()
@@ -2365,7 +2371,8 @@ impl<'p> Emitter<'p> {
             .enumerate()
             .filter(|(_, f)| f.is_send)
             .collect();
-        if sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
+        // [async-effect-kind] Only a process protocol gets a process body.
+        if !effect.is_async || sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
             return String::new();
         }
         self.needs_scheduler = true;
@@ -6203,7 +6210,9 @@ impl<'p> Emitter<'p> {
             let Expr::Ident(id) = subject else {
                 let place = self.emit_raw(subject);
                 self.error(format!(
-                    "`^` on a projection is not supported yet: widening                      materializes a local for the branch, which needs a plain                      variable — bind `{place}` to one first"
+                    "`^` on a projection is not supported yet: widening \
+                     materializes a local for the branch, which needs a \
+                     plain variable — bind `{place}` to one first"
                 ));
                 continue;
             };
@@ -8133,7 +8142,10 @@ impl<'p> Emitter<'p> {
                         other => {
                             let place = self.emit_raw(other);
                             self.error(format!(
-                                "`^` on a projection is not supported yet: widening                                  materializes a local for the branch, which needs a                                  plain variable — bind `{place}` to one first"
+                                "`^` on a projection is not supported yet: \
+                                 widening materializes a local for the \
+                                 branch, which needs a plain variable — bind \
+                                 `{place}` to one first"
                             ));
                         }
                     }

@@ -8,6 +8,7 @@ Module {
             EffectDecl {
                 docs: [],
                 platform: false,
+                is_async: false,
                 name: Ident {
                     name: "Console",
                     span: 7..14,

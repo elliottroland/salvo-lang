@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 995 tests, complete: the toolchain tests are
+cargo test                  # 1000 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,48 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5, sequence item 2: the `async effect` kind and sendability
+(2026-09-15).** The kind marker, its refusal list, and the binding gate that
+closes the design's carried named question. Tests: **1000 (+5)**.
+
+**What the kind buys is a *declaration-time* answer.** Before it, "can this
+protocol be a process?" was answerable only by trying to spawn it; now
+`async effect` says so, and everything a seam cannot carry is refused where the
+author is choosing: a **kept** parameter (a send payload always crosses, so the
+clause must say `=> !p`), a **`Mut`** parameter, a **`proj` return**, and a
+**non-sendable** payload [async-sendable]. `send fn` requires the kind, and
+`spawn`, `use addr` and even *naming* `Addr<E>` refuse a plain effect — the
+last reported where the type is written rather than at a spawn that could never
+have produced it. What stays legal is the binding swap: `use H()` on an
+async-effect handler still runs its members inline, which is why the kind sits
+on the effect and not the handler.
+
+**Sendability, as decided**: a payload may not transitively hold a **function
+value** (shared, and `Rc` in Rust — not `Send` [rs-fn-field]) or a **`proj`
+view** (a borrow of the sender's value), checked structurally through fields,
+type arguments, arrays, tuples and unions with a depth guard. `Arc`-where-sent
+inference stays C-4(c)'s growth point.
+
+**The lesson of the slice was not about effects at all: never let a script
+write a Rust string literal.** Several diagnostics in this session were written
+through Python heredocs, and Python ate the `\`-continuations inside its own
+triple-quoted strings — so the *Rust* source got one long line with runs of
+indentation baked into the message ("a message is enqueued on&nbsp;&nbsp;…&nbsp;&nbsp;a
+process"). Repairing that mechanically then went wrong twice more: adding a
+space before every continuation corrupted **code templates** in the emitters
+(`{{\n\` became `{{\n \`, and `{own_path}::\` grew a space), and a
+"revert" that dropped the character before the space deleted `)` and `;` from
+three generated-code templates — caught only because the golden and
+compile-and-run tests failed. The way out was to stop patching and restore the
+damaged lines from `HEAD` by diffing against it. Three rules for next time:
+**write diagnostics by hand or with a real editor tool, never through a shell
+heredoc**; **never apply a blanket regex to string literals in the emitters**
+(their strings are *code*); and when a repair script's second attempt is also
+wrong, **restore from git rather than patching a third time**. The one good
+side effect: the sweep found and fixed six *pre-existing* diagnostics that had
+been damaged the same way in earlier sessions (`^`-on-a-projection, three
+qualifier-widening messages, two `once`/`linear` ones).
 
 **Phase 5, sequence item 1: the respelling sweep — `Addr` and `@self`
 (2026-09-15).** Both surface changes EFFECT_UNIFICATION.md decided, landed
@@ -10491,7 +10533,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 995)
+## Test inventory (all green: 1000)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11499,6 +11541,17 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Never write a Rust string literal through a shell heredoc.** Python eats
+  `\`-continuations inside its own triple-quoted strings, so a diagnostic
+  written that way reaches the *Rust* source as one long line with the
+  indentation baked into the message. Worse, repairing it mechanically is a
+  trap: a blanket "space before every continuation" corrupts the emitters'
+  **code templates** (their strings are generated code), and a revert that
+  drops the character before the space deletes `)` and `;` from them — caught
+  only by the golden and compile-and-run tests. Write diagnostics with a real
+  editor tool; if a repair script is wrong twice, restore the lines from `HEAD`
+  by diffing rather than patching a third time (2026-09-15).
 
 - **Trust nextest's summary line, not a hand-rolled count.** Summing
   `cargo test`'s `test result:` lines with awk once reported "0 failed" while
