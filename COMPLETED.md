@@ -122,6 +122,95 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Supervision and process death decided (user decision 2026-09-15, same day
+as the design; nothing built yet).** The last phase-5 design prerequisite
+(SUPERVISION.md, S-1…S-4, accepted as recommended): **death is a faulted
+activation** — and only that, since [effect-member-no-effects] makes
+Salvo-level uncaught throws impossible by construction (the fault sources
+are backend runtime faults and platform-handler failures); no `kill`
+(ask-to-stop plus stop-forwarding covers its useful half). **The monitor
+surface is one member**: `watch(pid, on_exit: Reply<Exit>)` — the death
+notification is itself a linear token, so the kernel's four pieces still
+suffice and an unhandled watch is a leak diagnostic. **The corpse's
+obligations are lost** (the monitor is the recovery mechanism, at the domain
+level — LC-4's guarantee worded as decided); sends and fulfils to a dead
+target are silent no-ops (Erlang's rule); the scheduler reports
+**idle-with-parked-gates** as a named runtime error, catching orphaned
+requesters and a hung `waitfor` in `main`. **Supervision is a pattern, not a
+construct**: interceptor + `watch` + `spawn`, clients hold the supervisor's
+pid and never observe the death; strategies are handler logic; a std
+`Supervisor` handler waits for real usage. With this, **the phase-5 decision
+space ahead of implementation is empty**; the plan is ROADMAP.md's
+"Threading and concurrency" step 2.
+
+**Phase 5 designed: asynchronous effect handlers (user decisions
+2026-09-14/15, across one extended session; nothing built yet).** The design
+pass ROADMAP.md's phase 5 called for ran ahead of schedule and went further
+than its four questions: the user took a **direction** — *the effect surface
+is the concurrency model* — and then decided the first implementation pass in
+full. The working documents carry the detail and stay alive until
+implementation lands (the FILE_SYSTEM.md pattern): **CONCURRENCY.md** (the
+option space, the direction, the first pass, the remaining opens),
+**CONCURRENCY_EXAMPLES.md** / **CONCURRENCY_EXAMPLES.effects.md** (worked
+examples: message-passing form and effect form, the kernel and sugar tower,
+the deadlock example and its statics), **LINEARITY_COLLECTIONS.md** (the
+first prerequisite, decided — below), **DESIGN_DOC.md** (the reusable
+working-document template these follow). The shortest honest summary:
+
+- **The model** ("asynchronous effect handlers", after Ahman & Pretnar's Æff,
+  its closest formal relative): a process is an effect handler bound
+  asynchronously — state struct + one function per member, run-to-completion
+  on a small scheduler library (no runtime in generated code, full backend
+  parity). The kernel is four pieces — process state; `send` (enqueue a
+  member invocation, the only send); `replyto k(captures)` (allocate a parked
+  one-shot continuation, yielding a **linear** `Reply<T>` [linear-obligation]
+  — statically enforced where OCaml checks dynamically); and the gate
+  (`replyto!` — bounded selective receive, at most one outstanding per
+  process). Everything else — call syntax, `then`, `defer`, futures,
+  merge/join — is a strict sugar tower over the kernel, deferred to later
+  passes each with its own decision surface.
+- **The four ROADMAP DECISIONs, answered**: sendability = structural rule +
+  diagnostic (C-4(a); `Arc`-where-sent inference recorded as the growth
+  point); effects of a spawned process = handler dependencies
+  [effect-handler-deps] supplied at the spawn site; substrate =
+  run-to-completion on pools (an `on pool(n)` clause; one arrival-order
+  queue per process, **bound explicit and required at spawn**; a blocking
+  send from inside a handler is allowed and its load-conditioned edges join
+  the deadlock graph); async **dissolves** — no colouring, honouring the
+  2026-09-04 record by making the question moot.
+- **First-pass surface (grammar frozen)**: `send fn` members with explicit
+  `Reply<T>` parameters; `replyto`/`replyto!`; `r.send(v)` discharges (no
+  `fulfil` verb — consumption says it); `Pid<T>`; `spawn H(args) use
+  Handler(...), pid, ... on pool(n)` (dependencies as constructor params or
+  spawn-site `use` clause — handlers never cross, *construction* crosses; no
+  `fork`); lowercase `[use, spawn]`; `use pid` binds an effect to a
+  forwarding stub; **`waitfor`** is main's explicit blocking bridge and the
+  program ends when `main` returns (no run-to-quiescence ambience).
+  Supervision = interception (a policy handler wrapping a process — the
+  existing mechanism across the scheduler boundary). The deadlock baseline
+  is the effect-graph cycle check (awaits *are* effect calls); stratification
+  and fallbacks wait for observed false positives.
+- **Linearity in collections decided** (LC-1…5, LINEARITY_COLLECTIONS.md,
+  closing the intrinsic-containers deferral of 2026-09-12 and retiring
+  [linear-composite]'s interim refusal for collections *when built*):
+  phase 3's conditional-container machinery (`Box<T canbe linear>`,
+  settle-by-decomposition) **extends to the intrinsic collections** —
+  an instantiation is linear iff an opted argument is; take-by-move
+  APIs returning the [linear-union-arm] `T?` shape; `drain`+`for` as the
+  discharge terminal; `Set` and map keys refused (dedup *is* dropping);
+  struct fields require declared `linear struct`, destructuring discharges;
+  handler state owns obligations across activations with the guarantee
+  honestly weakened to "the process owes until it ends" — end-of-life handed
+  to the supervision design as its opening requirement.
+- **Sequencing** (user): supervision/monitors is designed *before*
+  implementation (SUPERVISION.md); **[fate-lambda] is deferred to the
+  call-sugar pass** — every first-pass form crosses values, not closures
+  (spawn-`use` args, `replyto` captures, `waitfor`'s token), so the hole is
+  not on the critical path. The scheduler library lives in **backend runtime
+  files** (the emitted-support precedent), with anything needing compiler
+  cooperation flagged to the user. Spec rules and examples-file respelling
+  land with implementation.
+
 **`Bytes`, `read_to` and the copy one-shots — the last of phase 4
 (user decision 2026-09-15, built the same day).** The previous entry left one
 question open (Kotlin boxes a `List<Byte>` payload and cannot render

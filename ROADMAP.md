@@ -167,11 +167,15 @@ universal struct `==`, `canbe hashed`/`canbe ordered`, and the
 filesystem (`MemFs`) was to be its first internal customer and now has the
 collections it needs.
 
-**5 — Threading: the Erlang/Gleam/OTP model.** ("Threading and concurrency",
-below.) A design pass first: four questions the existing implementation forces,
-starting with sendability — generated Rust holds a fn-typed field as
-`Rc<dyn Fn…>`, which is every composed pass. The capture-carrying-closure hole
-surfaces at `spawn`, so it is fixed here rather than left as a leftover.
+**5 — Threading: asynchronous effect handlers.** ("Threading and concurrency",
+below.) The design pass is **done** (user decisions 2026-09-14/15; see
+COMPLETED.md's decision log and CONCURRENCY.md): the direction is the effect
+surface itself — processes are effect handlers bound asynchronously, on a
+run-to-completion scheduler library — and the first pass's grammar is frozen.
+What remains before implementation: the **supervision/monitors design**
+(SUPERVISION.md; user-sequenced ahead of implementation), then the build.
+[fate-lambda] is deferred to the call-sugar pass — no first-pass form crosses
+a closure.
 
 **Not before then: `Cell`.** It exists to make shared mutable state
 expressible, and the OTP answer is that processes own their state and
@@ -192,16 +196,17 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| Sendability, per-process effect scopes, OS threads versus a runtime, async's fate | phase 5 | "Threading and concurrency" |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
-(The three phase-4 rows this table used to carry — operator typing, shared
-member names, and the S-IO design itself — were **all decided 2026-09-14**;
-see "The sequence" phase 4, S-IO, and COMPLETED.md's decision log.)
+(The phase-5 rows this table used to carry were **all decided 2026-09-14/15**
+— the four original DECISIONs with the whole first-pass design, and the
+supervision/monitors story that followed; see "The sequence" phase 5,
+"Threading and concurrency" below, and COMPLETED.md's decision log. Phase 5
+is fully designed; only the build remains.)
 
 One further proposal is **deferred by decision** rather than waiting:
 `platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
@@ -383,6 +388,11 @@ linear source) runs on both backends. What the phase leaves open:
   Pre-existing; surfaced by the conditional-container work.
 - **Intrinsic containers** (`List<linear T>` with drain-style discharges)
   — deferred by decision (2026-09-12); user structs and unions first.
+  **Decided 2026-09-15** (LINEARITY_COLLECTIONS.md, LC-1…LC-5, user):
+  `List`/`Map` values opt in, take-by-move APIs returning `T?`,
+  `drain`+`for` as the terminal, `Set`/keys refused (dedup is dropping),
+  handler state owns obligations across activations. Built with phase 5 —
+  the concurrency first pass is the first customer.
 
 
 ## Effects
@@ -1056,61 +1066,73 @@ and the rules [bytes-type], [fs-read-to], [kt-bytes].
   annotation costs nothing.
 
 
-## Threading and concurrency — the OTP model (phase 5)
+## Threading and concurrency — asynchronous effect handlers (phase 5)
 
-The intended shape (user, 2026-09-09): the Erlang/Gleam/OTP model — processes
-that own their state, message passing, supervision. Nothing is designed yet, so
-what follows is not a plan but the list of questions the *existing*
-implementation forces, written down so the answers are chosen rather than
-discovered mid-phase. All four are **DECISION**s.
+**Designed** (user decisions 2026-09-14/15; the four **DECISION**s this
+section used to carry are all answered — the argument trails live in
+CONCURRENCY.md, the decided summary in COMPLETED.md's decision log). The
+intended shape (user, 2026-09-09) was the Erlang/Gleam/OTP model; the design
+pass landed somewhere better: **the effect surface is the model**. A process
+is an effect handler bound asynchronously — a state struct plus one function
+per member, run-to-completion on a small scheduler library (no runtime in
+generated code, full backend parity). Named *asynchronous effect handlers*
+after Ahman & Pretnar's Æff, its closest formal relative.
 
-**Regions ride along** (user, 2026-09-10): the region design (see "Regions",
-below) is already decided and is built with this phase, with "a process is a
-region" as the null hypothesis for how the two integrate.
+**The documents**: CONCURRENCY.md (option space → the direction → the frozen
+first pass → remaining opens), CONCURRENCY_EXAMPLES.md and
+CONCURRENCY_EXAMPLES.effects.md (worked examples, the kernel and sugar tower,
+the deadlock example), LINEARITY_COLLECTIONS.md (prerequisite 1, **decided**),
+DESIGN_DOC.md (the template). They stay alive until implementation lands, as
+FILE_SYSTEM.md did for phase 4.
 
-- **Sendability, and the `Rc` in generated code.** `Sendable` is already on the
-  intrinsic-capability watch list under D7 ("the moment concurrency lands":
-  structurally inferred, asymmetric between backends, never user-authored). The
-  concrete blocker is representational rather than notational: generated Rust
-  holds a fn-typed field as `Rc<dyn Fn…>` [rs-fn-field] — which is *every*
-  composed pass — and `Rc` is not `Send`. Either a value that crosses a process
-  boundary may not hold one (a rule, and a diagnostic), or the representation
-  becomes `Arc`, or fn-typed fields go away again. Removing std's lazy pair
-  (2026-09-10) means nothing in std has such a field any more, so the question
-  arrives with the laziness design rather than before it — which is one of the
-  reasons that design waits for this phase.
-- **What effects a spawned process has.** An effect reaches a function as
-  `&mut dyn E` borrowed for the call, and the Rust fusion is one value per `use`
-  scope holding borrows of the handlers registered in it. Neither crosses a
-  thread boundary, so a process cannot inherit its parent's handler set by
-  reference. The likely answer — a process starts its own `use` scope — has to be
-  stated, because it decides whether `spawn` takes a handler set, and because a
-  handler *shared* between processes is the `Cell` question arriving from the
-  other side.
-- **Processes: OS threads or a runtime.** The JVM has threads and coroutines;
-  Rust has threads and no runtime in std. A green-thread model needs a scheduler
-  inside generated code on at least one backend, which would be the largest piece
-  of machinery the two backends do not share. One OS thread per process with a
-  blocking `receive` is the cheapest thing that is *the same* on both, and the
-  parity principle is the reason to prefer it until something forces otherwise.
-- **Whether async survives at all.** Recorded 2026-09-04: async arrives later as
-  an *explicit* effect, never as silent `async`/`suspend` colouring. If a process
-  blocks on `receive`, the OTP model may remove the need for it entirely — worth
-  answering before building either, since the two designs overlap.
+**The four answers, one line each**: sendability = structural rule +
+diagnostic (C-4(a), `Arc`-where-sent inference as growth); a spawned process's
+effects = handler dependencies supplied at the spawn site
+([effect-handler-deps] at a distance — construction crosses, handlers never
+do); substrate = run-to-completion on pools (`on pool(n)`, one arrival-order
+queue per process, **bound explicit and required**); async **dissolves** (no
+colouring — the 2026-09-04 record honoured by making the question moot).
 
-**A prerequisite that will surface immediately**: returning or storing a
-capture-carrying closure is a rustc lifetime error the checker does not reject
-[fate-lambda] — and `spawn(() -> …)` is exactly that shape. The recorded
-refinement is `move`-closure emission with hoisted clones, plus a treatment for
-captured effect-handler locals. It is phase-5 work rather than a leftover.
+**First-pass grammar (frozen)**: `send fn` members with explicit `Reply<T>`
+parameters (linear, statically one-shot); `replyto k(captures)` /
+`replyto! k(captures)` (the gate: bounded selective receive, one outstanding
+per process); `r.send(v)` discharges; `spawn H(args) use Handler(...), pid
+on pool(n)`; lowercase `[use, spawn]`; `use pid`; `waitfor` as main's
+explicit bridge, and **the program ends when `main` returns**. Deadlock
+baseline: the effect-graph cycle check. The sugar tower (`-> T` + call
+syntax, `then`/`then!`, `defer`, merge/join, the gate member-set
+generalization) comes in later passes, each with its own decision surface.
 
-**What is already in place, and should not be re-invented.** Message *ownership
-transfer* is ordinary consumption: a `send` that moves its argument is a plain
-deduction list, and the flow analysis already rejects use-after-send with a
-diagnostic that names the call. Linearity composes with it for free — "whoever
-ends up with this handle must close it" survives a send, because moves transfer
-the obligation [linear-obligation]. Effects give supervision somewhere to live
-without new machinery: a supervisor is a handler.
+**What remains before the build: nothing — the decision space is empty.**
+The supervision/monitors design was the last prerequisite and is **decided**
+(user, 2026-09-15; SUPERVISION.md — death = a faulted activation, `watch`
+with a linear `Exit` token as the whole monitor surface, dead-target
+sends/fulfils as silent no-ops plus the idle-with-parked-gates runtime
+report, supervision as a pattern with no syntax). Its opening requirement
+(LC-4's dying-with-obligations) is answered there.
+
+**The implementation**, per the first-pass plan in CONCURRENCY.md: scheduler
+library in **backend runtime files** (anything needing compiler-specific
+cooperation is flagged to the user first — user decision 2026-09-15),
+including the per-activation fault catch and the idle-with-parked-gates
+report; then members/spawn/queues, tokens and the gate, `waitfor` and
+program-end, the LC collection surface (std's first customer), `watch`, the
+deadlock baseline. Spec rules (fresh labels) and the examples-file
+respelling land with implementation.
+
+**Deferred out of the phase**: [fate-lambda] moves to the call-sugar pass —
+no first-pass form crosses a closure (spawn-`use` arguments, `replyto`
+captures, and `waitfor`'s token are all *values*). The recorded refinement
+(`move`-closure emission with hoisted clones, treatment for captured
+effect-handler locals) is unchanged, just re-scheduled.
+
+**Regions rode along as planned** (user, 2026-09-10, confirmed 2026-09-15):
+a process **is** a region; sendability and region-escape are one check.
+
+**What was already in place carried its weight**: send-as-move was ordinary
+consumption; linearity survived sends [linear-obligation] and became the
+reply-token guarantee; supervision-as-handler became interception across the
+scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
 
 ## Laziness, after concurrency (user decision 2026-09-10)
 

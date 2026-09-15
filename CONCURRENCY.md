@@ -17,12 +17,17 @@ and DESIGN_DOC.md distils that shape from these two instances. It lays out the
 design in the style OBLIGATIONS.md and FILE_SYSTEM.md used: options,
 trade-offs, and recommendations, with the decisions left to the user.
 
-**Propagation owed once the read-only restriction lifts.** This session writes
-only this file, CONCURRENCY_EXAMPLES.md and CONCURRENCY_EXAMPLES.effects.md
-(worked examples for C-5(d)/C-9, and their C-10 effect-surface parallels), and
-DESIGN_DOC.md. **The 2026-09-15 direction ("The direction", below) is a user
-decision owed to COMPLETED.md's decision log.** When the remaining calls are
-made, the
+**Propagation status (updated 2026-09-15, write-enabled).** The decided
+outcomes are **in COMPLETED.md's decision log** ("Phase 5 designed:
+asynchronous effect handlers") and **ROADMAP.md is updated** (the sequence's
+phase 5, the "Threading and concurrency" section rewritten from four open
+DECISIONs into the plan, the decisions-waiting table, L8's intrinsic-container
+bullet). Still owed, landing **with implementation**: fresh rule labels into
+LANGUAGE.md/LANGUAGE_SPEC.md and the backend specs, the examples-files
+respelling sweep (Examples 1–5 of both files into the frozen grammar), and
+this document's deletion once the code and specs carry its content. The
+supervision design (SUPERVISION.md) is the remaining prerequisite. When the
+remaining calls are made, the
 outcomes must be propagated by a later session: fold the decided list into
 COMPLETED.md's decision log, turn the four ROADMAP **DECISION**s (see §1) from
 open questions into a plan (they stop being **DECISION**s the moment they are
@@ -1138,7 +1143,8 @@ the kernel spellings, and the prerequisite sequencing. What remains:
 
 | Question | Status / note |
 |---|---|
-| **Design prerequisites, sequenced** | 1. linearity-in-collections — **working document written: LINEARITY_COLLECTIONS.md** (LC-1…LC-5, open); 2. [fate-lambda] move-closure emission; 3. the monitors/supervision story — designed *before* full implementation starts (user, 2026-09-15); its opening requirement is handed to it by LINEARITY_COLLECTIONS.md LC-4 (a process dying while holding obligations) |
+| **Design prerequisites, sequenced** | **All resolved 2026-09-15**: 1. linearity-in-collections **DECIDED** (LINEARITY_COLLECTIONS.md; the intrinsic extension of phase 3's conditional containers); 2. [fate-lambda] **deferred to the call-sugar pass** (no first-pass form crosses a closure); 3. supervision/monitors **DECIDED** (SUPERVISION.md — death = faulted activation, `watch` + linear `Exit` token, silent no-ops to the dead + idle-with-parked-gates report, supervision as a pattern). **The decision space ahead of implementation is empty** |
+| **Implementation placement** (user, 2026-09-15) | The scheduler library lives in **backend runtime files** (the emitted-support precedent); anything that turns out to need compiler-specific cooperation is **flagged to the user** before being built that way. The per-process queue bound is **explicit and required** at spawn — no default |
 | **Later sugar passes** (each with its own decision surface) | member `-> T` + call syntax — including the named question: may an ordinary member be process-backed (the IO-actor pattern)?; `then`/`then!`; `defer` (or the desugared-signature rule); merge/join; the gate member-set generalization; the `use`-block spawn form |
 | **Deferred checker work** | qualifier-invalidation across seams (checkable reentrancy); stratification (c) and fallbacks (d) for deadlock statics, when the baseline's false positives are real |
 

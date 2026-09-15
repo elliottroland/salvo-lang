@@ -1,11 +1,33 @@
 # Linearity in collections — the option space (working document)
 
-Status: **OPEN** — nothing here is decided. This is the first of the three
-design prerequisites the user sequenced ahead of implementing asynchronous
-effect handlers (CONCURRENCY.md, "The first pass", 2026-09-15): the
-linearity-in-collections design comes first, **with the concurrency first
-pass as its first customer**. The recommendations are recommendations; the
-calls are the user's (AGENTS.md's first invariant).
+Status: **DECIDED** (user, 2026-09-15) — all five recommendations accepted as
+written: LC-1 conditional contagion via `canbe linear` on type parameters,
+LC-2 the take-by-move API with `drain`+`for` as the terminal, LC-3 the
+container list with the `Set`/key refusal, LC-4 process-owned obligations
+with the end-of-life question handed to the supervision design, LC-5 the
+structural conditional-linearity judgment. §§0–2 and the section argument
+trails are kept as written. Propagation (below) remains owed; the LC-2 flag
+(`for`-exhausts vs. any future early-exit construct) resolves during
+implementation. This document was the first of the three sequenced design
+prerequisites (CONCURRENCY.md, "The first pass"); the
+recommendations-are-recommendations framing below is now historical.
+
+**Correction found during propagation (2026-09-15):** phase 3 already built
+the conditional-container machinery for *user* structs (`Box<T canbe
+linear>`, settle-by-decomposition — ROADMAP L8 is ✅ since 2026-09-12); what
+it deferred, and what this document actually decides, is the **intrinsic
+collections** extension (the "Intrinsic containers" bullet under L8) plus
+the API surface (LC-2/LC-3) and the handler-state rule (LC-4). LC-1's
+"extend `canbe linear` to type declarations" is therefore *already the
+language* for user types; the checker work is the intrinsic instantiation
+judgment and the audited std surface. Less to build than §LC-1's framing
+implies.
+
+**Propagation status:** the decision-log entry is in COMPLETED.md and
+ROADMAP's L8 bullet updated (2026-09-15, this session). Spec-rule updates
+([linear-composite]'s retirement for collections, the LC-2 surface) land
+with implementation, at which point this document folds into the log and is
+deleted per the charter.
 
 Written 2026-09-15 by the same read-only session that wrote CONCURRENCY.md,
 in the DESIGN_DOC.md shape. This document answers the question ROADMAP.md
