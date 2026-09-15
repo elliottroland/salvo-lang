@@ -200,17 +200,21 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
+| **Sendability** — what counts as non-sendable (a fn-typed field, a `proj` view, …), C-4(a)'s structural rule | with phase 5's last checking slice | "Threading and concurrency" → step two |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
-(The phase-5 rows this table used to carry were **all decided 2026-09-14/15**
-— the four original DECISIONs with the whole first-pass design, and the
-supervision/monitors story that followed; see "The sequence" phase 5,
-"Threading and concurrency" below, and COMPLETED.md's decision log. Phase 5
-is fully designed; only the build remains.)
+(The phase-5 *design* rows this table used to carry were **all decided
+2026-09-14/15** — the four original DECISIONs with the whole first-pass
+design, and the supervision/monitors story that followed; see "The sequence"
+phase 5, "Threading and concurrency" below, and COMPLETED.md's decision log.
+The phase-5 row above is a **new question the build surfaced**, not reopened
+design: it is about a rule nothing had to state until the surface existed.
+Self-sends were the other, and were decided the same day — `self.k(args)`,
+option (a).)
 
 One further proposal is **deferred by decision** rather than waiting:
 `platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
@@ -1148,31 +1152,38 @@ report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
 **The implementation**, per the first-pass plan in CONCURRENCY.md. **Step
-one (the scheduler library) and step two's first three slices — the
-declaration forms, the expression forms, then the types — are built**
-(2026-09-15; build records and what each cost in COMPLETED.md's decision
-log). Where that leaves the surface: `send fn` and `[spawn]` **check**;
-`Pid<E>`, `Reply<T>` and `Pool` are declared in `core.process` and usable in
-ordinary signatures; `spawn … capacity … on …`, `replyto`, `replyto!`,
-`waitfor` and `use pid` **parse**, and the checker refuses each with one
-diagnostic naming the form. Naming one of the three types in *emitted* code
-is refused as well, since no backend has a mapping for it yet, so nothing
-half-built can become output [backend-never-wrong]. The as-built rules are
-LANGUAGE_SPEC.md's "Asynchronous effect handlers" section ([async-process] …
-[async-use-pid]) plus [linear-opaque].
+one (the scheduler library) and step two's first four slices — the
+declaration forms, the expression forms, the types, then the checker rules —
+are built** (2026-09-15; build records and what each cost in COMPLETED.md's
+decision log). Where that leaves the surface: **the whole first-pass surface
+checks**, and a program using it is refused only at *emission*. The as-built
+rules are LANGUAGE_SPEC.md's "Asynchronous effect handlers" section
+([async-process] … [async-types]) plus [linear-opaque].
 
 **Still to come in step two, in order**:
 
-1. **The checker rules**: `replyto` resolves against the *enclosing
-   handler*'s members and types the token from the target member's payload
-   parameter; the `[spawn]` capability gate on a spawn site; `spawn`'s value
-   typed as `Pid<E>` for the handler's effect, with the `use` clause checked
-   for dependency exhaustiveness the way a `use` scope is; `waitfor` only in
-   `main`, binding its token as a linear local and taking its value from the
-   token's payload; the `use pid` binding and dot-call through a `Pid`;
-   sendability (C-4(a)'s structural rule) over everything that crosses.
-   **Delete the three pending-refusal tests** in `member_tests.rs` as each
-   form starts checking.
+1. **The two emitters' process classes** — message types + `handle`/`resume`
+   dispatch onto the scheduler library, the three types' backend mappings
+   (`Pid`, `Reply`, `Pool` are deliberately unmapped: what they should be is a
+   consequence of the process class's shape), a spawn's construction, a send
+   through a pid, a **self-send** (an enqueue on the running process's own
+   mailbox when spawned, an inline member call when `use`d), `use pid`'s
+   forwarding stub, and `waitfor`'s bridge. The checker's side tables are the
+   hand-over: `spawn_effects`, `spawn_deps`, `replyto_members`, `use_pids`,
+   `pid_calls`, `self_sends` — plus `use_handler_args`, which a spawn reuses. Both emitters currently refuse each of these with a
+   named diagnostic, so the seams are already marked; **delete those
+   refusals** as each lands, and keep the parity assertion the scheduler
+   library's own tests already make.
+2. **Sendability — C-4(a)'s structural rule**, the last checking rule of the
+   first pass: a sent or captured value may not transitively hold a
+   non-sendable field, over send payloads, `replyto` captures and spawn
+   arguments (the three places a value crosses a seam, all of which already
+   consume it, so the *sites* are known — `pid_calls`, `replyto_members`, and
+   a spawn's construction). What counts as non-sendable needs stating: a
+   fn-typed field is the motivating case ([rs-fn-field] lowers one to `Rc`,
+   which is not `Send`), a view (`proj` fields) is another. Recorded as
+   (c)'s growth point — `Arc`-where-sent inference — for when sent closures
+   become real.
    * **A send member still writes its deduction clause** (user decision
      2026-09-15, on the question the syntax build surfaced): a bodiless
      `send fn go(c: Config)` in an *effect* is rejected by [decl-explicit]
@@ -1183,11 +1194,33 @@ LANGUAGE_SPEC.md's "Asynchronous effect handlers" section ([async-process] …
      noise or documentation. (The return-type half of [decl-explicit] *was*
      lifted for send members, because there a member has nothing to
      declare; here it has something true to say.)
-2. **The two emitters' process classes** — message types + `handle`/`resume`
-   dispatch onto the scheduler library, and with them the three types'
-   backend mappings (`Pid`, `Reply`, `Pool` are deliberately unmapped until
-   the shape of a process class decides what they should be), with the parity
-   assertion the library's own tests already make.
+
+**Leftovers found while building the checker rules — all closed 2026-09-15**
+(the last of them, self-sends, by a user decision taken the same day):
+
+- ✅ **A pid receiver may be any place**, not just a variable: a field chain
+  (`registry.child.bump(1)`) and an array element (`many[0].bump(1)`) both
+  resolve, read through a side-effect-free type peek so the receiver is never
+  checked twice. A receiver that is a *call* still needs a `let` first, which
+  is recorded in [async-use-pid] rather than left as a surprise.
+- ✅ **The asynchronous forms stop at a closure** [async-no-closure]:
+  `spawn`, `waitfor` and `replyto` inside a lambda body are errors, each
+  worded in the closure's terms — the general remedies ("add it to the effect
+  list") are not available to a lambda. This is [fate-lambda]'s deferral made
+  checkable rather than assumed.
+- ✅ **An overloaded send member through a pid is picked by arity**, with a
+  same-arity tie refused rather than guessed. Typing the arguments to choose
+  and again against the winner would double-report every mistake in them.
+
+- ✅ **Self-sends: `self.k(args)`** (user decision 2026-09-15, option (a) —
+  the spelling the sugar tower's merge/join form already assumes). A message
+  to the process the enclosing member belongs to, so "finish this activation,
+  then continue with `k`" is writable; defined for both bindings (enqueue when
+  spawned, the ordinary inline member call when `use`d). No new syntax —
+  `self.k(args)` already parses as a dot-call — and a handler member may not
+  declare a variable named `self`, so the form cannot be shadowed silently.
+  [async-self-send]; the self-dispatch diagnostic now names it as the remedy
+  for a `send fn`.
 
 After step two: the LC collection surface (std's first customer — a handler's
 `waiting: Mut List<Reply<T>>` needs it), `watch`, the deadlock baseline, and

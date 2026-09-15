@@ -5117,6 +5117,16 @@ impl<'p> Emitter<'p> {
     /// `&mut local`.
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
+        // [async-use-pid] As in the Kotlin backend: refused here, so a
+        // correct program is not reported as an unknown handler
+        // [backend-never-wrong].
+        if self.checked.use_pids.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "`use` of a `Pid` is not emitted yet: binding an effect to a \
+                 process needs its generated process class",
+            );
+            return String::new();
+        }
         let (handler_name, args): (String, Vec<&Expr>) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -8438,6 +8448,23 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
+        // [async-use-pid] As in the Kotlin backend: a send to a process needs
+        // the process struct the next slice generates.
+        if self.checked.pid_calls.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "a send to a process is not emitted yet: calling a member \
+                 through a `Pid` needs its generated process struct",
+            );
+            return "todo!()".to_string();
+        }
+        // [async-self-send] As in the Kotlin backend.
+        if self.checked.self_sends.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "a self-send is not emitted yet: `self.k(…)` needs the \
+                 generated process struct its member belongs to",
+            );
+            return "todo!()".to_string();
+        }
         // [throw] [rs-throw-controlflow] A call that may throw is not an
         // ordinary call: `throw` itself *is* the control transfer, and a
         // call that propagates one unwraps its `ControlFlow`.

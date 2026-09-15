@@ -2395,22 +2395,29 @@ LANGUAGE.md remains the source of truth for everything that does.
     is still callable. A handler construction is **not a value** — only
     `use` and `spawn` may write one — which is why this is a form with
     clause keywords rather than a call with named arguments.
-* [async-replyto] `replyto k(captures)` mints a parked one-shot continuation
-  targeting member `k` of the **enclosing handler** and yields its `Reply<T>`
-  token, which is **linear** [linear-obligation] and discharged by sending to
-  it: `r.send(v)`. The arguments are the continuation's *captures* — what the
-  member needs besides the answer — and are positional; the parentheses are
-  part of the form even when empty.
-  * `replyto!` is the same mint **plus the gate**: bounded selective
-    receive, at most one outstanding per process, so the process serves
-    nothing else until the answer arrives.
-  * A token is one-shot *statically*, which is what linearity buys over the
-    dynamic enforcement the effects literature settles for.
+  * **A spawn is a `use` whose dependencies come from its own clause.** The
+    construction is checked identically (arguments typed and *stored*, so a
+    bare name moves; generics inferred from the arguments and any written
+    type list; the constructor's implicits filled), and what differs is only
+    where the dependencies come from — which is what "handlers never cross,
+    construction does" means in practice. Consequences, each an error:
+    supplying a dependency the handler does not declare; leaving one
+    unsupplied (the diagnostic says the clause is where it belongs, never the
+    spawning scope); and constructing a clause item that has dependencies *of
+    its own*, since there is no scope on the child to resolve those from — a
+    `Pid` of a process already serving the effect is the remedy.
+  * `capacity` must be an `Int` and `on` a `Pool`.
 * [async-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
   and `main`'s only token source (`replyto` targets a member of the enclosing
   handler, and `main` has none): it mints a token, requires the block to
   consume it, blocks main's real thread until it is sent to, and yields what
   was sent. Legal only in `main`.
+  * "The block must consume it" is **not a rule of its own**: the binding is
+    an ordinary linear local, so [linear-obligation] reports a token the
+    block never sent to, naming `send` as the discharge. The expression's
+    value is the token's *payload* — `waitfor out: Reply<Int>` is an `Int` —
+    and a binding whose written type is not a `Reply<T>` is an error about
+    what the form does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
@@ -2419,8 +2426,85 @@ LANGUAGE.md remains the source of truth for everything that does.
   no new syntax: the `use` statement already takes an expression, and whether
   a bare name is a handler construction or a `Pid` is a checker question. Its
   value is unqualified calls and, above all, passing the capability *down*
-  through ordinary effect lists (`fn drive() [Roll]`). Dot-call through a
-  `Pid` (`counter.total(out)`) is the inline form of the same binding.
+  through ordinary effect lists (`fn drive() [Roll]`).
+  * Binding **does not consume** the pid: a pid is freely copyable, so the
+    holder keeps it and may send through it directly as well.
+  * **Dot-call through a pid** (`counter.total(out)`) is the inline form of
+    the same binding: the receiver names *where* the message goes rather than
+    being the member's first argument, the member is resolved against the
+    effect the process serves, and the payload is *consumed* — which is how a
+    reply token's linearity is discharged by sending it onward. Only a
+    `send fn` is reachable this way in the first pass: a member that answers
+    would have to park its caller, which is the call-sugar pass (and the
+    named question of whether an ordinary member may be process-backed at
+    all).
+  * The receiver may be any **place** whose type is a pid — a variable, a
+    field chain (`registry.child`), a tuple element, an array element — since
+    a place has a type the checker can read without checking the expression
+    twice. A receiver that is a *call* (`get(pids, 0).bump(1)`) needs a `let`
+    first; nothing is lost but a line.
+  * An overloaded send member is picked by **argument count**
+    [effect-member-overload]. Typing the arguments to choose the overload and
+    again against the winner's parameters would report every mistake in them
+    twice; arity settles every overload the first pass can express, and a
+    same-arity tie is refused rather than guessed.
+* [async-self-send] `self.k(args)` — send a message to **the process the
+  enclosing member belongs to** (user decision 2026-09-15, option (a) of
+  three). The one thing an unqualified call cannot say: that would be
+  self-dispatch, which a handler has no way to perform, and it would run `k`
+  *now* rather than as its own later activation. So the form's point is
+  **ordering** — "finish this activation, then continue with `k`" — which is
+  otherwise unwritable, since extracting a function runs the work
+  immediately.
+  * Defined for **both bindings**, like everything else on this surface: an
+    enqueue on the process's own mailbox when the handler was spawned, and the
+    ordinary inline member call when it was `use`d (which is what a local
+    binding of a `send` protocol already does).
+  * `k` must be a member of the enclosing handler and a **`send fn`**: a
+    member that answers would have to wait for itself. Arguments are typed
+    against its parameters and *consumed* — the message outlives this
+    activation even though it never leaves the process.
+  * **No new syntax**: `self.k(args)` already parses as a dot-call, so `self`
+    is recognised contextually as the base of one. It is the spelling the
+    sugar tower's merge/join form already assumes
+    (`self.k(c, reply e1, reply e2)`). A handler member may not declare a
+    variable named `self` — that would shadow the form silently — and the word
+    stays an ordinary name everywhere else.
+  * The self-dispatch diagnostic names this form as the remedy when the member
+    it refused was a `send fn`.
+* [async-no-closure] **No first-pass form crosses a closure**: `spawn`,
+  `waitfor` and `replyto` are all errors inside a lambda body, and so is
+  `self.k(…)` — `self` names nothing there. A function
+  value's body runs wherever it is *called*, and none of the three can travel
+  with it — a fn type cannot declare `spawn` [async-spawn-effect], `waitfor`
+  blocks the thread it runs on and only `main` has one to block, and a
+  continuation belongs to the handler that minted it. Each diagnostic says so
+  in the closure's terms, since "add the capability to the effect list" is not
+  available for a lambda. ([fate-lambda], the escaping-closure work, is
+  deferred to the call-sugar pass for exactly this reason: nothing in the
+  first pass needs a form to cross one.)
+* [async-replyto] `replyto k(captures)` mints a parked one-shot continuation
+  targeting member `k` of the **enclosing handler** and yields its `Reply<T>`
+  token, which is **linear** [linear-obligation] and discharged by sending to
+  it: `r.send(v)`. The arguments are the continuation's *captures* — what the
+  member needs besides the answer — and are positional; the parentheses are
+  part of the form even when empty.
+  * **`k`'s parameters are the captures, then the answer**: the *trailing*
+    parameter is what the token carries, so `send fn arrived(id: Int, sum:
+    Int)` minted as `replyto arrived(7)` is a `Reply<Int>` (the trailing-token
+    convention the sugar tower's `-> T` also follows). Writing the wrong
+    number of captures is an error stating how many the member wants.
+  * `k` must be a member of the handler the `replyto` is written in, and a
+    **`send fn`**: an answer arrives as a message. Outside a handler the form
+    is an error naming `main`'s alternative, `waitfor` — `main` has no members
+    for a continuation to target.
+  * A capture is *stored* in the continuation, so passing a bare name moves
+    it ([deduce-consume]), like a `use` constructor argument.
+  * `replyto!` is the same mint **plus the gate**: bounded selective
+    receive, at most one outstanding per process, so the process serves
+    nothing else until the answer arrives.
+  * A token is one-shot *statically*, which is what linearity buys over the
+    dynamic enforcement the effects literature settles for.
 * [async-types] The three types the forms produce and consume live in
   **`core.process`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:
@@ -2443,20 +2527,18 @@ LANGUAGE.md remains the source of truth for everything that does.
   * A pid is **never linear and freely copied**: a send to a dead process is
     a silent no-op, so a stale pid is safe to hold and death is *observed*
     with `watch` rather than tripped over.
-* **Built so far, and what is refused meanwhile.** The declaration forms
-  ([async-send-fn], [async-spawn-effect]) check, and the three types
-  ([async-types]) are declared and usable in ordinary signatures. The
-  expression forms ([async-spawn-expr], [async-replyto], [async-waitfor])
-  **parse**, and the checker refuses each with one diagnostic naming the form
-  until the slice that types them lands — `replyto` against the enclosing
-  handler's members, the capability gate, token linearity at the seam, then
-  the two emitters' process classes. Naming one of the three types in emitted
-  code is refused too ("not supported by the … backend yet"), since no
-  backend mapping exists until those classes do — so a half-built form can
-  never become silent output [backend-never-wrong]. The sugar tower — member
-  `-> T` with call syntax, `then`/`then!`, `defer`, merge/join, the gate's
-  member-set generalization — is later passes, each with its own decision
-  surface.
+* **Built so far, and what is refused meanwhile.** Everything above
+  **checks**: the declaration forms, the three types, and all four expression
+  forms with their placement and typing rules. What remains is **emission** —
+  the two backends' process classes (message types + `handle`/`resume`
+  dispatch onto the scheduler library) and the three types' backend mappings
+  — so naming any of them in emitted code is refused with a diagnostic saying
+  so, rather than passed through [backend-never-wrong]. Also still open on the
+  checking side: **sendability** (C-4(a)'s structural rule over everything
+  that crosses a seam), which is why a payload holding a non-sendable field is
+  accepted today. The sugar tower — member `-> T` with call syntax,
+  `then`/`then!`, `defer`, merge/join, the gate's member-set generalization —
+  is later passes, each with its own decision surface.
 
 ## Deductions
 

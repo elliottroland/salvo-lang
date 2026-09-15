@@ -255,6 +255,26 @@ pub const THROWN_QUALIFIER: &str = "Thrown";
 /// which is the one sanctioned exception to [effect-not-data] (user decision
 /// 2026-09-15).
 pub const PID_TYPE: &str = "Pid";
+/// [async-replyto] The linear one-shot answer token, from `core.process`.
+pub const REPLY_TYPE: &str = "Reply";
+/// [async-self-send] The receiver that names the handler a member belongs to:
+/// `self.k(args)` is a message to this process. Contextual, like the rest of
+/// the asynchronous surface — it is only special as the base of a dot-call,
+/// and a handler member may not declare a local of this name.
+pub const SELF_NAME: &str = "self";
+/// [async-spawn-expr] The thread pool a spawn names in its `on` clause,
+/// from `core.process`.
+pub const POOL_TYPE: &str = "Pool";
+
+/// [async-spawn-expr] The effect a `Pid<E>` serves, or `None` for anything
+/// that is not a pid. What `use pid`, a dot-call through a pid, and a spawn's
+/// `use` clause all ask.
+fn pid_effect(ty: &Ty) -> Option<Ty> {
+    match ty.strip_quals() {
+        Ty::Named { name, args } if name == PID_TYPE && args.len() == 1 => Some(args[0].clone()),
+        _ => None,
+    }
+}
 
 /// One site that may throw [throw]: the `throw` operation itself, or a
 /// call to a fn declaring `[Throw<M>]` that propagates one.
@@ -343,6 +363,39 @@ pub struct Checked {
     /// instance* — which is what a generic dependency would need, and both
     /// backends refuse those today.
     pub use_deps: HashMap<Key, Vec<Ty>>,
+    /// [async-spawn-expr] The effect instance each `spawn` expression's child
+    /// serves, keyed by the spawn's span — which is also the type of its
+    /// value, a `Pid<E>`. The emitters' entry point for building a process
+    /// class.
+    pub spawn_effects: HashMap<Key, Ty>,
+    /// [async-spawn-expr] The effect instances a spawn's `use` clause
+    /// supplies for the child's dependencies, in the handler's declaration
+    /// order (keyed by the spawn's span). Absent when the handler declares
+    /// none. The clause items themselves stay in the AST; this records what
+    /// each *resolved to*, which is what the child's construction needs.
+    pub spawn_deps: HashMap<Key, Vec<Ty>>,
+    /// [async-replyto] The enclosing handler's member each `replyto`
+    /// delivers to, keyed by the `replyto` span. The name, because that is
+    /// what identifies a continuation target; an overloaded send member is
+    /// not expressible yet and will need the index instead.
+    pub replyto_members: HashMap<Key, String>,
+    /// [async-use-pid] The effect each `use pid` statement binds, keyed by
+    /// the statement's span: the emitters generate a forwarding stub over
+    /// the pid rather than constructing a handler.
+    pub use_pids: HashMap<Key, Ty>,
+    /// [async-use-pid] Dot-calls that are **sends to a process** rather than
+    /// dispatches through a handler in scope, keyed by the call span and
+    /// mapped to the effect instance the pid serves. The emitters need the
+    /// distinction: the same written call is a method call on a handler in one
+    /// case and an enqueue on a mailbox in the other.
+    pub pid_calls: HashMap<Key, Ty>,
+    /// [async-self-send] `self.k(args)` sites, keyed by the call span and
+    /// mapped to the member's name: a message to the process the enclosing
+    /// member belongs to. Distinct from `pid_calls` because there is no pid to
+    /// read — the target is "this process", which each backend spells its own
+    /// way (an enqueue on the running activation's own mailbox, or, under a
+    /// synchronous binding, an ordinary member call).
+    pub self_sends: HashMap<Key, String>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -783,7 +836,11 @@ fn check_once<'p>(
             effect_env: Vec::new(),
             handler_deps: Vec::new(),
             handler_of: None,
+            own_handler: None,
+            handler_spawns: false,
             can_use: false,
+            can_spawn: false,
+            in_main: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
             next_var_id: 0,
@@ -1135,8 +1192,25 @@ struct Checker<'p, 'r> {
     /// neither remedy the general "no handler" diagnostic names is available
     /// inside a member.
     handler_of: Option<Ty>,
+    /// [async-replyto] The handler whose members are being checked, so a
+    /// `replyto k(...)` can find `k`: a continuation targets a member of the
+    /// *enclosing* handler, which is what makes the form legal only inside
+    /// one.
+    own_handler: Option<&'p ast::HandlerDecl>,
+    /// [async-spawn-effect] Whether the handler whose members are being
+    /// checked declared `spawn` among its dependencies. Its members inherit
+    /// the capability, exactly as they inherit its effects.
+    handler_spawns: bool,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
+    /// [async-spawn-effect] Whether the current fn (or the handler whose
+    /// member it is) declared the `spawn` capability — the gate a `spawn`
+    /// expression checks.
+    can_spawn: bool,
+    /// [async-waitfor] Whether the fn being checked is the entry point, the
+    /// only place `waitfor` is legal: it blocks a real thread, and `main` is
+    /// the one frame that has one to block.
+    in_main: bool,
     /// Enclosing loops of the code being checked; `break`/`continue`
     /// statements record their value contributions into the innermost
     /// entry [while-value]. Lambda bodies are a barrier.
@@ -1528,6 +1602,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let handler_deps = self.handler_dep_effects(h);
                     let saved_deps =
                         std::mem::replace(&mut self.handler_deps, handler_deps);
+                    // [async-spawn-effect] [async-replyto] The handler its
+                    // members belong to: `spawn` in its dependency list is a
+                    // capability they inherit, and `replyto` resolves its
+                    // target member against this declaration.
+                    let spawns = h
+                        .effects
+                        .iter()
+                        .flatten()
+                        .any(|e| matches!(e, EffectRef::Spawn(_)));
+                    let saved_spawns = std::mem::replace(&mut self.handler_spawns, spawns);
+                    let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
                     let saved_of =
                         std::mem::replace(&mut self.handler_of, Some(of_ty.clone()));
                     for field in &h.state {
@@ -1574,6 +1659,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.own_discharges = saved_discharges;
                     }
                     self.handler_deps = saved_deps;
+                    self.handler_spawns = saved_spawns;
+                    self.own_handler = saved_own_handler;
                     self.handler_of = saved_of;
                     self.generics = saved;
                 }
@@ -4006,7 +4093,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
-        let (mut fn_effects, can_use) = self.check_effect_list(f);
+        let (mut fn_effects, can_use, mut can_spawn) = self.check_effect_list(f);
+        // [async-spawn-effect] A handler member inherits its handler's
+        // dependency list, and `[spawn]` is part of that list — a supervisor
+        // spawns its children from a member body.
+        can_spawn = can_spawn || self.handler_spawns;
         // [throw-not-main] The entry point has nowhere to throw *to*: Rust
         // cannot express a `main` returning `ControlFlow` and Kotlin would
         // die on an uncaught signal, so the delimiter must be inside.
@@ -4050,6 +4141,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
         let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
+        let saved_can_spawn = std::mem::replace(&mut self.can_spawn, can_spawn);
+        // [async-waitfor] `waitfor` is legal only in the entry point, and
+        // `own_fn` being set is what distinguishes the *program's* `main`
+        // from a member or lambda being checked under it.
+        let saved_in_main =
+            std::mem::replace(&mut self.in_main, f.name.name == "main" && self.own_fn.is_some());
         // [implicit-forward] What this body can forward to the calls it makes.
         let saved_implicits = std::mem::replace(&mut self.own_implicits, implicits.clone());
         // Inside a qualifier constructor (`-> T as Qual`) return points
@@ -4179,6 +4276,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.effect_env = saved_env;
         self.can_use = saved_can_use;
+        self.can_spawn = saved_can_spawn;
+        self.in_main = saved_in_main;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
     }
@@ -4187,10 +4286,11 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Validates a fn's declared effect list and lowers it into the
     /// starting effect environment [effect-fn-deps] [effect-no-dup].
-    /// Returns `(env, can_use)`.
-    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool) {
+    /// Returns `(env, can_use, can_spawn)`.
+    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool, bool) {
         let mut env: Vec<Ty> = Vec::new();
         let mut can_use = false;
+        let mut can_spawn = false;
         // [fn-effects] A fn-typed parameter's effects are the enclosing fn's
         // too (user decision 2026-09-04): the only reason to take `f` is to
         // call it, and calling it needs those effects here — so they are
@@ -4209,9 +4309,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 EffectRef::Use(_) => can_use = true,
                 // [async-spawn-effect] The process-creation capability. It
                 // names no effect type, so there is nothing to lower and
-                // nothing to thread; the *gate* (a `spawn` expression
-                // requires it) arrives with that expression.
-                EffectRef::Spawn(_) => {}
+                // nothing to thread; what it does is open the *gate* a
+                // `spawn` expression checks [async-spawn-expr].
+                EffectRef::Spawn(_) => can_spawn = true,
                 EffectRef::Effect(r) => {
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
@@ -4233,7 +4333,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        (env, can_use)
+        (env, can_use, can_spawn)
     }
 
     /// Lowers one named entry of an effect list, validating that it refers
@@ -4282,37 +4382,117 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
-        let (id, args, written_type_args): (&Ident, &'p [Expr], &'p [ast::Type]) = match handler {
-            Expr::Ident(id) => (id, &[], &[]),
+        // [async-use-pid] `use pid` binds an effect to a forwarding stub over
+        // a `Pid` instead of constructing a handler: first-pass surface, and
+        // no new syntax — which means telling the two apart is this
+        // statement's job.
+        if let Expr::Ident(id) = handler {
+            if !self.scope.handlers.contains_key(id.name.as_str()) && self.lookup(&id.name).is_some()
+            {
+                self.check_use_pid(handler, span);
+                return;
+            }
+        }
+        let Some((id, args, written_type_args)) = self.handler_construction(handler, "use") else {
+            return;
+        };
+        let Some((concrete, deps)) =
+            self.check_handler_construction(id, args, written_type_args, "use", span)
+        else {
+            return;
+        };
+        self.finish_use(id, concrete, deps, span);
+    }
+
+    /// [async-use-pid] `use pid` — bind the effect a process serves in this
+    /// scope, so its members are callable unqualified *and* can travel down
+    /// through ordinary effect lists (`fn drive() [Roll]`). The pid is not
+    /// consumed: a pid is freely copyable, and a send to a dead process is a
+    /// no-op, so binding one takes nothing away from the holder.
+    fn check_use_pid(&mut self, pid: &'p Expr, span: Span) {
+        let ty = self.check_expr(pid, None);
+        let Some(effect) = pid_effect(&ty) else {
+            if !ty.is_unknown() {
+                self.error(
+                    span,
+                    format!(
+                        "`use` registers a handler or binds a `{PID_TYPE}`, and `{ty}` is \
+                         neither: write a handler construction (`use SomeHandler(...)`), \
+                         or bind the pid a `spawn` answered"
+                    ),
+                );
+            }
+            return;
+        };
+        self.out.use_pids.insert(self.key(span), effect.clone());
+        self.out.use_effects.insert(self.key(span), effect.clone());
+        self.effect_env.push(effect);
+    }
+
+    /// The written shape of a handler construction — a name, or a name with
+    /// constructor arguments — shared by `use` and `spawn`, since only those
+    /// two may write one ([handler-not-value] means it is not an expression).
+    fn handler_construction(
+        &mut self,
+        handler: &'p Expr,
+        form: &str,
+    ) -> Option<(&'p Ident, &'p [Expr], &'p [ast::Type])> {
+        match handler {
+            Expr::Ident(id) => Some((id, &[], &[])),
             Expr::Call {
                 callee,
                 args,
                 type_args,
                 ..
             } => match callee.as_ref() {
-                Expr::Ident(id) => (id, args.as_slice(), type_args.as_slice()),
+                Expr::Ident(id) => Some((id, args.as_slice(), type_args.as_slice())),
                 _ => {
-                    self.error(span, "`use` expects a handler name or constructor call");
+                    let span = handler.span();
+                    self.error(
+                        span,
+                        format!("`{form}` expects a handler name or constructor call"),
+                    );
                     self.check_expr(handler, None);
-                    return;
+                    None
                 }
             },
             _ => {
-                self.error(span, "`use` expects a handler name or constructor call");
+                let span = handler.span();
+                self.error(
+                    span,
+                    format!("`{form}` expects a handler name or constructor call"),
+                );
                 self.check_expr(handler, None);
-                return;
+                None
             }
-        };
+        }
+    }
+
+    /// Checks a handler *construction*: resolves the handler, types its
+    /// constructor arguments (inferring its generics from them and from any
+    /// written type arguments), consumes what it stores, and fills the
+    /// constructor's implicits. Answers the concrete effect instance it
+    /// implements and its **dependencies, already substituted** — everything
+    /// both `use` and `spawn` need before they part ways over *where* those
+    /// dependencies come from.
+    fn check_handler_construction(
+        &mut self,
+        id: &'p Ident,
+        args: &'p [Expr],
+        written_type_args: &'p [ast::Type],
+        form: &str,
+        span: Span,
+    ) -> Option<(Ty, Vec<Ty>)> {
         let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
             self.error_unresolved(
                 id.span,
-                format!("unknown handler `{}` in `use`", id.name),
+                format!("unknown handler `{}` in `{form}`", id.name),
                 &id.name,
             );
             for a in args {
                 self.check_expr(a, None);
             }
-            return;
+            return None;
         };
         let saved = self.enter_generics(&decl.generics);
         // [effect-handler-deps] Split the constructor parameters: those of
@@ -4446,6 +4626,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fill_implicits(&ctor_implicits, &id.name, &subst, &generic_set, &[], span);
         }
         let concrete = substitute_vars(&of_ty, &subst, &generic_set);
+        let deps: Vec<Ty> = deps
+            .iter()
+            .map(|d| substitute_vars(d, &subst, &generic_set))
+            .collect();
+        Some((concrete, deps))
+    }
+
+    /// The `use`-specific half: resolve the handler's dependencies from the
+    /// **enclosing scope** and register the instance for the rest of it.
+    fn finish_use(&mut self, id: &'p Ident, concrete: Ty, deps: Vec<Ty>, span: Span) {
         // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
         // registration for the same effect instance: the innermost wins for
         // the rest of the scope, which is what makes interception writable
@@ -4461,8 +4651,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // binds-outward rule for a self-dependency [effect-intercept].
         let mut resolved_deps: Vec<Ty> = Vec::new();
         let visible = self.visible_effects();
-        for dep in &deps {
-            let want = substitute_vars(dep, &subst, &generic_set);
+        for want in &deps {
+            let want = want.clone();
             let found = visible.iter().find(|c| **c == want).cloned().or_else(|| {
                 let compatible: Vec<&Ty> = visible
                     .iter()
@@ -4616,6 +4806,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "`{}` is already declared (shadowing is not allowed)",
                     name.name
                 ),
+            );
+        }
+        // [async-self-send] Inside a handler member `self` names the handler,
+        // so a variable of that name would silently shadow the self-send form
+        // — the kind of trap the language avoids by construction. Refused
+        // there and legal everywhere else, which is what "contextual" means
+        // here.
+        if name.name == SELF_NAME && self.own_handler.is_some() {
+            self.error(
+                name.span,
+                "`self` names the handler a member belongs to (`self.k(…)` sends it a \
+                 message), so it cannot also be a variable here: rename the binding",
             );
         }
         // [fate-move-mode] A move-mode binding takes ownership: its
@@ -7658,24 +7860,671 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the union of their message types (user decision 2026-09-04) — which
     /// is why the outcome is an ordinary union: `is`, `when` and
     /// exhaustiveness need no new rules.
-    /// [async-spawn-expr] [async-replyto] [async-waitfor] The asynchronous
-    /// expression forms parse, but the surface they need — `Pid<T>`,
-    /// `Reply<T>`, the `[spawn]` gate on the enclosing effect list, and the
-    /// tokens' linearity — is the next slice of phase 5. Until it lands, one
-    /// diagnostic per form, with `Unknown` as its type so nothing cascades
-    /// [type-unknown-lenient]. Both emitters refuse them too: a form that
-    /// checks clean and emits nothing would be silently wrong output
-    /// [backend-never-wrong].
-    fn pending_async(&mut self, form: &str, span: Span) -> Ty {
-        self.error(
-            span,
-            format!(
-                "`{form}` parses, but asynchronous effect handlers are not \
-                 implemented yet — nothing runs a process, so this cannot be \
-                 checked or emitted"
-            ),
-        );
-        Ty::Unknown
+    /// Whether the code being checked is inside a lambda body: a function
+    /// value's body runs wherever it is *called*, which is why the
+    /// asynchronous forms stop at that boundary [fate-lambda].
+    fn in_lambda(&self) -> bool {
+        !self.lambda_ctx.is_empty()
+    }
+
+    /// [async-self-send] `self.k(args)` — send a message to **the process this
+    /// member belongs to**: the one thing a member cannot say with an
+    /// unqualified call, since that would be self-dispatch (a handler has no
+    /// way to reach its own instance) rather than a message.
+    ///
+    /// Its point is *ordering*, not reach: an unqualified call would run `k`
+    /// now, inside this activation; a self-send runs it as its own later one,
+    /// which is how "finish this, then continue with `k`" is written. Defined
+    /// for both bindings, like every other form: an enqueue on the process's
+    /// own mailbox when the handler is spawned, and the ordinary inline member
+    /// call when it is `use`d — which is what a local binding of a `send`
+    /// protocol already does.
+    fn check_self_send(&mut self, member: &'p Ident, args: &'p [Expr], span: Span) -> Ty {
+        let Some(h) = self.own_handler else {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            let detail = if self.in_lambda() {
+                " — and a lambda is not one: a function value runs wherever it is \
+                 called, so `self` names nothing there"
+            } else {
+                ""
+            };
+            self.error(
+                span,
+                format!(
+                    "`self` names the handler a member belongs to, so `self.{}(…)` is \
+                     legal only inside a handler member{detail}",
+                    member.name
+                ),
+            );
+            return Ty::Unknown;
+        };
+        let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error_unresolved(
+                member.span,
+                format!(
+                    "handler `{}` has no member `{}` to send to",
+                    h.name.name, member.name
+                ),
+                &member.name,
+            );
+            return Ty::Unknown;
+        };
+        // A self-send is a *message*, so its target is a send member: an
+        // ordinary member would have to answer, and a member cannot wait for
+        // itself.
+        if !target.is_send {
+            self.error(
+                span,
+                format!(
+                    "`{}` is not a `send fn`, so `self.{}(…)` cannot reach it: a \
+                     self-send is a message, and a member that answers would have to \
+                     wait for itself",
+                    member.name, member.name
+                ),
+            );
+        }
+        let saved = self.enter_generics(&h.generics);
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        if args.len() != param_tys.len() {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} argument(s), found {}",
+                    member.name,
+                    param_tys.len(),
+                    args.len()
+                ),
+            );
+            return Ty::none();
+        }
+        for (i, a) in args.iter().enumerate() {
+            let want = &param_tys[i];
+            let got = self.check_expr(a, Some(want));
+            if !got.is_unknown() && !is_subtype(&got, want) {
+                self.error(a.span(), format!("expected `{want}`, found `{got}`"));
+            }
+            let repr = self.repr_of(a, &got);
+            self.maybe_coerce(a.span(), &got, &repr, want);
+            // A payload crosses the seam even when both ends are the same
+            // process: the message outlives this activation, so the sender
+            // gives it up [deduce-consume].
+            self.fate_move(a, "send", "a send to this process", a.span());
+        }
+        self.record_def_ref(member.span, &member.name);
+        self.out
+            .self_sends
+            .insert(self.key(span), member.name.clone());
+        // [async-send-fn] A send answers nothing.
+        Ty::none()
+    }
+
+    /// [async-use-pid] The effect a dot-call's receiver serves, when the
+    /// receiver is a **place** whose type is `Pid<E>` — a variable, a field
+    /// chain (`registry.child`), a tuple element, or an array element.
+    ///
+    /// Read without *checking* the receiver, deliberately: the ordinary dot
+    /// path checks it as argument zero, and checking it here as well would
+    /// duplicate its diagnostics and count a move twice. A place has a type
+    /// the checker can look up, which is what makes the peek possible; a
+    /// receiver that is a **call** (`get(pids, 0).bump(1)`) has none until it
+    /// is checked, so it needs a `let` first.
+    fn pid_receiver(&mut self, base: &Expr) -> Option<Ty> {
+        let ty = self.peek_place_ty(base)?;
+        pid_effect(&ty)
+    }
+
+    /// The type of a place, without checking it: `None` for anything that is
+    /// not one, or whose type is not yet known. Errors are never reported
+    /// from here — the caller either uses the answer or falls through to the
+    /// path that does report.
+    fn peek_place_ty(&mut self, expr: &Expr) -> Option<Ty> {
+        match expr {
+            Expr::Ident(id) => {
+                let var = self.lookup(&id.name)?;
+                let ty = if var.narrowed.is_unknown() {
+                    var.declared.clone()
+                } else {
+                    var.narrowed.clone()
+                };
+                Some(ty)
+            }
+            Expr::Field { base, field, .. } => {
+                let base_ty = self.peek_place_ty(base)?;
+                self.field_ty(&base_ty, &field.name)
+            }
+            Expr::TupleIndex { base, index, .. } => match self.peek_place_ty(base)?.strip_quals() {
+                Ty::Tuple(elems) => elems.get(*index).cloned(),
+                _ => None,
+            },
+            // [index-resolve] Only arrays are subscriptable, so this is the
+            // whole of element access as a place.
+            Expr::Index { base, .. } => match self.peek_place_ty(base)?.strip_quals() {
+                Ty::Array(elem) => Some((**elem).clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// [async-use-pid] `pid.member(args)` — a send to a process, and the
+    /// inline form of `use pid` plus an unqualified call. The receiver names
+    /// *where* the message goes rather than an argument, so the member's
+    /// parameters line up with the written arguments exactly as they do at a
+    /// handler.
+    #[allow(clippy::too_many_arguments)]
+    fn check_pid_call(
+        &mut self,
+        instance: &Ty,
+        member: &'p Ident,
+        type_args: &'p [ast::Type],
+        args: &'p [Expr],
+        named: &'p [ast::NamedArg],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        let _ = (type_args, named, expected);
+        let effect_name = match instance.strip_quals() {
+            Ty::Named { name, .. } => name.clone(),
+            _ => return Ty::Unknown,
+        };
+        let Some(effect) = self.scope.effects.get(effect_name.as_str()).copied() else {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(
+                span,
+                format!("effect `{effect_name}` is not in scope here"),
+            );
+            return Ty::Unknown;
+        };
+        let members = crate::effect_members_named(effect, &member.name);
+        // [effect-member-overload] An overloaded send member is picked by
+        // **arity** here, not by argument types: typing the arguments to
+        // choose, then typing them again against the winner's parameters,
+        // would report every mistake in them twice. Arity settles every
+        // overload the first pass can express (nothing in std or the design
+        // overloads a send member at all); a genuine tie is refused rather
+        // than guessed.
+        let target: Option<&'p FnDecl> = match members.as_slice() {
+            [] => None,
+            [only] => Some(only),
+            many => {
+                let fits: Vec<&'p FnDecl> = many
+                    .iter()
+                    .copied()
+                    .filter(|f| {
+                        let fixed = f
+                            .params
+                            .iter()
+                            .filter(|p| !p.variadic && !p.implicit)
+                            .count();
+                        f.params.iter().any(|p| p.variadic) && args.len() >= fixed
+                            || fixed == args.len()
+                    })
+                    .collect();
+                match fits.as_slice() {
+                    [one] => Some(one),
+                    _ => {
+                        for a in args {
+                            self.check_expr(a, None);
+                        }
+                        self.error(
+                            span,
+                            format!(
+                                "effect `{effect_name}` overloads `{}`, and {} of its \
+                                 overloads take {} argument(s): a send through a \
+                                 `{PID_TYPE}` picks by argument count, so this call \
+                                 cannot say which one it means",
+                                member.name,
+                                fits.len(),
+                                args.len()
+                            ),
+                        );
+                        return Ty::Unknown;
+                    }
+                }
+            }
+        };
+        let Some(target) = target else {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error_unresolved(
+                member.span,
+                format!(
+                    "process `{instance}` serves effect `{effect_name}`, which has no \
+                     member named `{}`",
+                    member.name
+                ),
+                &member.name,
+            );
+            return Ty::Unknown;
+        };
+        if members.len() > 1 {
+            // [effect-member-overload] Which overload a call resolved to, for
+            // the emitters: they name an overloaded member positionally.
+            if let Some(idx) = crate::effect_member_index(effect, target) {
+                self.out.effect_member_calls.insert(self.key(span), idx);
+            }
+        }
+        // [async-send-fn] Only a send member can be reached through a pid in
+        // the first pass: an ordinary member answers, and answering across a
+        // process boundary is the call sugar that comes later (with it, the
+        // named question of whether an ordinary member may be process-backed
+        // at all).
+        if !target.is_send {
+            self.error(
+                span,
+                format!(
+                    "`{}` is not a `send fn`, so it cannot be called through a \
+                     `{PID_TYPE}`: a process serves messages, and a member that \
+                     answers would have to park its caller",
+                    member.name
+                ),
+            );
+        }
+        self.record_def_ref(member.span, &member.name);
+        let saved = self.enter_generics(&effect.generics);
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        // The instance's arguments bind the effect's own generics.
+        let subst: HashMap<String, Ty> = match instance.strip_quals() {
+            Ty::Named { args: iargs, .. } => effect
+                .generics
+                .iter()
+                .map(|g| g.name.clone())
+                .zip(iargs.iter().cloned())
+                .collect(),
+            _ => HashMap::new(),
+        };
+        let generic_set: HashSet<String> =
+            effect.generics.iter().map(|g| g.name.clone()).collect();
+        if args.len() != param_tys.len() {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} argument(s), found {}",
+                    member.name,
+                    param_tys.len(),
+                    args.len()
+                ),
+            );
+            return Ty::none();
+        }
+        for (i, a) in args.iter().enumerate() {
+            let want = substitute_vars(&param_tys[i], &subst, &generic_set);
+            let got = self.check_expr(a, Some(&want));
+            if !got.is_unknown() && !is_subtype(&got, &want) {
+                self.error(
+                    a.span(),
+                    format!("expected `{want}`, found `{got}`"),
+                );
+            }
+            let repr = self.repr_of(a, &got);
+            self.maybe_coerce(a.span(), &got, &repr, &want);
+            // A payload crosses the seam: the sender gives it up
+            // [deduce-consume]. This is what makes a reply token's linearity
+            // discharge by sending it to a process.
+            self.fate_move(a, "send", "a send to a process", a.span());
+        }
+        self.out.pid_calls.insert(self.key(span), instance.clone());
+        // [async-send-fn] A send answers nothing.
+        Ty::none()
+    }
+
+    /// [async-spawn-expr] `spawn H(args) use D(...), pid capacity N on POOL`
+    /// — the asynchronous binding of a handler. Almost every rule here is a
+    /// rule `use` already has, moved to the spawn site: the same handler
+    /// construction, the same dependency resolution, the same
+    /// argument-is-stored consumption. What differs is *where* the
+    /// dependencies come from — the spawn's own `use` clause, because a
+    /// handler never crosses into a process (only construction does) — and
+    /// that the result is a value: the child's `Pid<E>`.
+    fn check_spawn(
+        &mut self,
+        handler: &'p Expr,
+        uses: &'p [Expr],
+        capacity: &'p Expr,
+        pool: &'p Expr,
+        span: Span,
+    ) -> Ty {
+        // The mailbox bound and the pool are ordinary expressions.
+        let cap_ty = self.check_expr(capacity, Some(&Ty::named("Int")));
+        if !cap_ty.is_unknown() && !is_subtype(&cap_ty, &Ty::named("Int")) {
+            self.error(
+                capacity.span(),
+                format!("a mailbox bound is an `Int`, found `{cap_ty}`"),
+            );
+        }
+        let pool_ty = self.check_expr(pool, Some(&Ty::named(POOL_TYPE)));
+        if !pool_ty.is_unknown() && !is_subtype(&pool_ty, &Ty::named(POOL_TYPE)) {
+            self.error(
+                pool.span(),
+                format!(
+                    "a spawn runs on a `{POOL_TYPE}`, found `{pool_ty}`: `on pool(2)` \
+                     builds one"
+                ),
+            );
+        }
+        // [async-spawn-effect] The capability gate. Reported once, at the
+        // spawn, and the rest of the form is still checked so a program with
+        // a missing capability gets its other errors too.
+        if !self.can_spawn {
+            let msg = if self.in_lambda() {
+                "`spawn` cannot be written inside a lambda: a function value's \
+                 body runs wherever it is called, and a fn type cannot declare \
+                 `spawn` — spawn in the function that holds the capability and \
+                 pass the `Pid`"
+            } else {
+                "`spawn` requires the `spawn` capability in the function's effect \
+                 list (`[use, spawn]`)"
+            };
+            self.error(span, msg);
+        }
+        let Some((id, args, written_type_args)) = self.handler_construction(handler, "spawn")
+        else {
+            return Ty::Unknown;
+        };
+        let Some((effect, declared)) =
+            self.check_handler_construction(id, args, written_type_args, "spawn", span)
+        else {
+            for u in uses {
+                self.check_spawn_dep(u);
+            }
+            return Ty::Unknown;
+        };
+        // [effect-handler-deps] The child's dependencies, supplied here
+        // rather than inherited: each clause item is a handler construction
+        // (built on the child) or a `Pid` (an effect another process serves).
+        let mut supplied: Vec<(Ty, Span)> = Vec::new();
+        for u in uses {
+            if let Some(eff) = self.check_spawn_dep(u) {
+                supplied.push((eff, u.span()));
+            }
+        }
+        let mut resolved: Vec<Ty> = Vec::new();
+        for want in &declared {
+            let found = supplied
+                .iter()
+                .position(|(eff, _)| eff == want)
+                .or_else(|| {
+                    supplied
+                        .iter()
+                        .position(|(eff, _)| unify(want, eff, &mut HashMap::new()))
+                });
+            match found {
+                Some(i) => {
+                    let (eff, _) = supplied.remove(i);
+                    resolved.push(eff);
+                }
+                None => self.error(
+                    span,
+                    format!(
+                        "handler `{}` depends on effect `{want}`, which this spawn does \
+                         not supply: a spawned handler's dependencies come from its own \
+                         `use` clause (`spawn {}(...) use SomeHandler() capacity 1 on \
+                         pool(1)`), never from the spawning scope",
+                        id.name, id.name
+                    ),
+                ),
+            }
+        }
+        // Anything left over was supplied for nothing — a mistake worth
+        // naming, since the reader believes it is being used.
+        for (eff, sp) in &supplied {
+            self.error(
+                *sp,
+                format!(
+                    "handler `{}` does not depend on effect `{eff}`, so supplying it \
+                     here has no effect",
+                    id.name
+                ),
+            );
+        }
+        if !resolved.is_empty() {
+            self.out.spawn_deps.insert(self.key(span), resolved);
+        }
+        self.out.spawn_effects.insert(self.key(span), effect.clone());
+        Ty::Named {
+            name: PID_TYPE.to_string(),
+            args: vec![effect],
+        }
+    }
+
+    /// [async-spawn-expr] One item of a spawn's `use` clause: a handler
+    /// construction, whose effect is what it implements, or a value of type
+    /// `Pid<E>`, whose effect is `E`. Answers the effect it supplies.
+    fn check_spawn_dep(&mut self, item: &'p Expr) -> Option<Ty> {
+        // A name that a handler declares is a construction; anything else is
+        // an expression, and a `Pid` is the only useful kind.
+        let is_handler = match item {
+            Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
+            Expr::Call { callee, .. } => match callee.as_ref() {
+                Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
+                _ => false,
+            },
+            _ => false,
+        };
+        if is_handler {
+            let (id, args, type_args) = self.handler_construction(item, "spawn")?;
+            // A dependency constructed for the child: its dependencies are
+            // the child's problem in turn, and a handler with any of its own
+            // cannot be written in a spawn clause — there is no scope on the
+            // child to resolve them from. Named where it is written.
+            let (effect, deps) =
+                self.check_handler_construction(id, args, type_args, "spawn", item.span())?;
+            for dep in &deps {
+                self.error(
+                    item.span(),
+                    format!(
+                        "handler `{}` depends on effect `{dep}`, so it cannot be \
+                         constructed in a spawn's `use` clause: give the child a \
+                         `{PID_TYPE}` of a process serving `{effect}` instead, or \
+                         construct it inside the child with `use`",
+                        id.name
+                    ),
+                );
+            }
+            return Some(effect);
+        }
+        let ty = self.check_expr(item, None);
+        match pid_effect(&ty) {
+            Some(effect) => Some(effect),
+            None if ty.is_unknown() => None,
+            None => {
+                self.error(
+                    item.span(),
+                    format!(
+                        "a spawn's `use` clause supplies handlers: write a handler \
+                         construction (`SomeHandler(...)`) or a `{PID_TYPE}` of the \
+                         effect a process already serves, not a `{ty}`"
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// [async-replyto] `replyto k(captures)` — mint a continuation targeting
+    /// member `k` of the **enclosing handler**. `k`'s parameters are the
+    /// captures written here followed by one more: the answer, which is what
+    /// the token carries. So `send fn arrived(id: Int, notices: List<Notice>)`
+    /// minted as `replyto arrived(7)` yields a `Reply<List<Notice>>`.
+    fn check_replyto(
+        &mut self,
+        member: &Ident,
+        captures: &'p [Expr],
+        gated: bool,
+        span: Span,
+    ) -> Ty {
+        let form = if gated { "replyto!" } else { "replyto" };
+        let Some(h) = self.own_handler else {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            let detail = if self.in_lambda() {
+                " — and a lambda is not one: a function value runs wherever it is \
+                 called, so it has no member for an answer to arrive at"
+            } else {
+                "; `main` gets its token from `waitfor` instead"
+            };
+            self.error(
+                span,
+                format!(
+                    "`{form}` mints a continuation into the handler it is written in, \
+                     so it is legal only inside a handler member{detail}"
+                ),
+            );
+            return Ty::Unknown;
+        };
+        let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error_unresolved(
+                member.span,
+                format!(
+                    "handler `{}` has no member `{}` for `{form}` to deliver to",
+                    h.name.name, member.name
+                ),
+                &member.name,
+            );
+            return Ty::Unknown;
+        };
+        // A continuation is delivered by *sending*, so its target must be a
+        // send member: an ordinary member would have to answer, and there is
+        // nothing to answer to.
+        if !target.is_send {
+            self.error(
+                member.span,
+                format!(
+                    "`{}` is not a `send fn`, so `{form}` cannot deliver to it: an \
+                     answer arrives as a message",
+                    member.name
+                ),
+            );
+        }
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        if params.len() != captures.len() + 1 {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} parameter(s): the last is the answer the token \
+                     carries and the {} before it are the captures, so `{form}` here \
+                     wants {} capture(s), found {}",
+                    member.name,
+                    params.len(),
+                    params.len().saturating_sub(1),
+                    params.len().saturating_sub(1),
+                    captures.len()
+                ),
+            );
+            return Ty::Unknown;
+        }
+        let saved = self.enter_generics(&h.generics);
+        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        for (i, c) in captures.iter().enumerate() {
+            let want = &param_tys[i];
+            let got = self.check_expr(c, Some(want));
+            if !got.is_unknown() && !is_subtype(&got, want) {
+                self.error(
+                    c.span(),
+                    format!("expected `{want}`, found `{got}`"),
+                );
+            }
+            // A capture travels with the continuation, so it is stored, not
+            // borrowed [deduce-consume] — the same rule a `use` argument has.
+            let moved_by = if gated {
+                "a `replyto!`"
+            } else {
+                "a `replyto`"
+            };
+            self.fate_move(c, "capture", moved_by, c.span());
+        }
+        self.out
+            .replyto_members
+            .insert(self.key(span), member.name.clone());
+        let answer = param_tys
+            .last()
+            .cloned()
+            .unwrap_or(Ty::Unknown);
+        Ty::Named {
+            name: REPLY_TYPE.to_string(),
+            args: vec![answer],
+        }
+    }
+
+    /// [async-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge.
+    /// The token is an ordinary **linear** local, so "the block must consume
+    /// it" needs no rule of its own: [linear-obligation] reports a leak at
+    /// the block's end. The expression's value is the token's payload.
+    fn check_waitfor(
+        &mut self,
+        binding: &'p Ident,
+        ty: &'p ast::Type,
+        body: &'p Block,
+        span: Span,
+    ) -> Ty {
+        if !self.in_main {
+            let msg = if self.in_lambda() {
+                "`waitfor` cannot be written inside a lambda: it blocks the thread \
+                 it runs on, and a function value runs wherever it is called — \
+                 write the bridge in `main` itself"
+            } else {
+                "`waitfor` blocks a real thread until an answer arrives, which only \
+                 `main` may do: inside a handler, mint the token with `replyto` and \
+                 let the continuation run"
+            };
+            self.error(span, msg);
+        }
+        self.validate_type(ty);
+        let token = self.lower_type(ty);
+        let payload = match &token {
+            Ty::Named { name, args } if name == REPLY_TYPE && args.len() == 1 => {
+                args[0].clone()
+            }
+            other => {
+                if !other.is_unknown() {
+                    self.error(
+                        ty.span(),
+                        format!(
+                            "`waitfor` mints a reply token, so its binding is a \
+                             `{REPLY_TYPE}<T>`, not a `{other}`"
+                        ),
+                    );
+                }
+                Ty::Unknown
+            }
+        };
+        // The token lives in a scope of its own: a `waitfor` is an
+        // expression, so nothing after it may still hold the token.
+        self.locals.push(HashMap::new());
+        self.declare(binding, token);
+        let (value, _) = self.check_branch_block(body, Vec::new());
+        let _ = value;
+        // [linear-obligation] The frame dies here, which is what reports a
+        // token the block never sent to.
+        self.check_linear_frame_drop();
+        self.locals.pop();
+        payload
     }
 
     fn check_try(&mut self, body: &'p Block, span: Span) -> Ty {
@@ -11674,41 +12523,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
-            // [async-spawn-expr] [async-replyto] [async-waitfor] Phase 5's
-            // expression forms **parse** but are not checked or emitted yet
-            // (the `Pid<T>`/`Reply<T>` types, the capability gate and token
-            // linearity are the next slice). Refusing here is what keeps
-            // [backend-never-wrong] honest: a program using them gets one
-            // diagnostic naming the form, not silent acceptance followed by
-            // an emitter that has never heard of it.
+            // [async-spawn-expr] The asynchronous binding of a handler: its
+            // value is the child's `Pid<E>`.
             Expr::Spawn {
-                capacity, pool, span, ..
-            } => {
-                // The two clauses that are ordinary expressions are checked,
-                // so an error inside one is reported now. The handler
-                // construction and the `use` clause are *not*: a handler is
-                // not a value, so checking them as expressions would report
-                // the constructor as an unresolved function.
-                self.check_expr(capacity, Some(&Ty::named("Int")));
-                self.check_expr(pool, None);
-                self.pending_async("spawn", *span)
-            }
+                handler,
+                uses,
+                capacity,
+                pool,
+                span,
+            } => self.check_spawn(handler, uses, capacity, pool, *span),
+            // [async-replyto] A parked one-shot continuation targeting a
+            // member of the enclosing handler; its value is the linear token.
             Expr::ReplyTo {
+                member,
                 captures,
                 gated,
                 span,
-                ..
-            } => {
-                for capture in captures {
-                    self.check_expr(capture, None);
-                }
-                self.pending_async(if *gated { "replyto!" } else { "replyto" }, *span)
-            }
-            // The block is left unchecked: its whole point is the token the
-            // binder introduces, and nothing types that binder yet, so
-            // checking it would report the token as an unresolved name on
-            // top of the diagnostic below.
-            Expr::WaitFor { span, .. } => self.pending_async("waitfor", *span),
+            } => self.check_replyto(member, captures, *gated, *span),
+            // [async-waitfor] `main`'s bridge: its value is what was sent to
+            // the token it mints.
+            Expr::WaitFor {
+                binding,
+                ty,
+                body,
+                span,
+            } => self.check_waitfor(binding, ty, body, *span),
             Expr::While {
                 cond,
                 body,
@@ -12633,6 +13472,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A lambda body is a loop barrier: `break`/`continue` inside it
         // never bind a loop enclosing the lambda expression.
         let saved_loops = std::mem::take(&mut self.loop_stack);
+        // [async-spawn-expr] [async-waitfor] [async-replyto] …and a barrier
+        // for the asynchronous capabilities, for the same reason: a lambda is
+        // a *value*, so where its body runs is decided by whoever calls it,
+        // and no first-pass form may cross a closure. A fn type cannot
+        // declare `spawn` [async-spawn-effect], `waitfor` needs `main`'s own
+        // thread, and a `replyto` continuation belongs to the handler that
+        // minted it — none of which travels with a function value.
+        let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
+        let saved_in_main = std::mem::replace(&mut self.in_main, false);
+        let saved_own_handler = self.own_handler.take();
         let ret = match body {
             LambdaBody::Expr(e) => self.check_expr(e, exp_ret.as_ref()),
             LambdaBody::Block(b) => {
@@ -12643,6 +13492,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         self.loop_stack = saved_loops;
+        self.can_spawn = saved_can_spawn;
+        self.in_main = saved_in_main;
+        self.own_handler = saved_own_handler;
         self.ret_ty = saved_ret;
         // [linear-obligation] Lambda parameters are owned by the body:
         // a linear one must be discharged before the body ends.
@@ -14424,6 +15276,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         // interop pass-through [call-resolve].
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
+            // [async-self-send] `self.k(args)` — a message to the process the
+            // member belongs to. Recognised here, before the ordinary dot
+            // rules, and *contextually*: `self` is the enclosing handler only
+            // where no local of that name shadows it, which a handler member
+            // may not declare anyway.
+            if let Expr::Ident(id) = base.as_ref() {
+                if id.name == SELF_NAME && self.lookup(SELF_NAME).is_none() {
+                    return self.check_self_send(field, args, span);
+                }
+            }
+            // [async-use-pid] `p.total(out)` where `p` is a `Pid<E>`: the
+            // inline form of `use p` — the member is E's, and the receiver is
+            // the process it goes to rather than a first argument. Checked
+            // before the ordinary dot rules, because those would make the pid
+            // argument zero of a member that never declared it.
+            if let Some(effect) = self.pid_receiver(base) {
+                return self.check_pid_call(&effect, field, type_args, args, named, expected, span);
+            }
             let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {
                 let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
@@ -16267,17 +17137,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                 |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == effect.name.name),
             );
             match own {
-                Some(of) => self.error(
-                    span,
-                    format!(
-                        "a handler member cannot call `{}`, a member of `{of}` — the \
-                         effect its own handler implements: a handler cannot dispatch \
-                         to itself, and declaring `{of}` as a dependency would bind to \
-                         the handler registered *before* this one. Move the shared \
-                         logic into a function both members call",
-                        member.name.name
-                    ),
-                ),
+                Some(of) => {
+                    // [async-self-send] For a **send** member the remedy now
+                    // exists: `self.k(…)`, a message to this process, which
+                    // runs as its own later activation. For a member that
+                    // answers, self-dispatch is still nothing a handler can
+                    // do.
+                    let remedy = if member.is_send {
+                        format!(
+                            "send it to this process instead: `self.{}(…)`, which runs \
+                             as its own later activation",
+                            member.name.name
+                        )
+                    } else {
+                        "Move the shared logic into a function both members call"
+                            .to_string()
+                    };
+                    self.error(
+                        span,
+                        format!(
+                            "a handler member cannot call `{}`, a member of `{of}` — the \
+                             effect its own handler implements: a handler cannot dispatch \
+                             to itself, and declaring `{of}` as a dependency would bind to \
+                             the handler registered *before* this one. {remedy}",
+                            member.name.name
+                        ),
+                    )
+                }
                 None => self.error(
                     span,
                     format!(

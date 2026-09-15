@@ -2829,6 +2829,18 @@ impl<'p> Emitter<'p> {
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
+        // [async-use-pid] `use pid` binds an effect to a forwarding stub over
+        // a process, which needs the process class the next slice generates.
+        // Refused here rather than falling through to the handler path, whose
+        // "unknown handler" would be a misleading diagnostic about a correct
+        // program [backend-never-wrong].
+        if self.checked.use_pids.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "`use` of a `Pid` is not emitted yet: binding an effect to a \
+                 process needs its generated process class",
+            );
+            return String::new();
+        }
         let (handler_name, written_args) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -4829,6 +4841,26 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
+        // [async-use-pid] A send to a process, not a dispatch through a
+        // handler in scope: the mailbox and the message type come with the
+        // generated process class, so this is refused until it exists
+        // [backend-never-wrong].
+        if self.checked.pid_calls.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "a send to a process is not emitted yet: calling a member \
+                 through a `Pid` needs its generated process class",
+            );
+            return "TODO()".to_string();
+        }
+        // [async-self-send] `self.k(args)`: a message to the process the
+        // enclosing member belongs to, which needs the same generated class.
+        if self.checked.self_sends.contains_key(&(self.file_idx, span)) {
+            self.error(
+                "a self-send is not emitted yet: `self.k(…)` needs the \
+                 generated process class its member belongs to",
+            );
+            return "TODO()".to_string();
+        }
         // [throw] [kt-throw-signal] `throw(message)` is the control
         // transfer itself: a throw the innermost `try` catches. A call that
         // merely *propagates* a throw needs nothing — the JVM unwinds.

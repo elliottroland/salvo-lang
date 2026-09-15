@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 964 tests, complete: the toolchain tests are
+cargo test                  # 989 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,106 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5 step two, slice four's leftovers closed the same day
+(2026-09-15).** Three of the four gaps the checker slice recorded are gone;
+the fourth needs a language-design call and is in ROADMAP.md's table.
+Tests: **989 (+9)** — three for the mechanical leftovers, six for the
+self-send.
+
+- **A pid receiver may be any place.** `registry.child.bump(1)` and
+  `many[0].bump(1)` now resolve, through a `peek_place_ty` that reads a
+  place's type *without checking the expression* — a variable's from the
+  locals, a field's through `field_ty`, a tuple element's and an array
+  element's structurally. That restriction was never about pids: checking the
+  receiver here as well as on the ordinary dot path would duplicate its
+  diagnostics and count a move twice, and a place is exactly the shape whose
+  type can be read without doing either. A receiver that is a *call* still
+  needs a `let`, recorded in the rule.
+- **The forms stop at a closure** [async-no-closure]. `can_spawn`, `in_main`
+  and `own_handler` are saved and cleared around a lambda body, beside the
+  loop-stack barrier that was already there — so `spawn`, `waitfor` and
+  `replyto` inside a lambda are errors. The wording matters as much as the
+  rule: inside a closure the general remedies ("add `spawn` to the effect
+  list") do not exist, so each diagnostic is written in the closure's terms.
+  This is [fate-lambda]'s deferral made *checkable* instead of assumed.
+- **An overloaded send member through a pid picks by arity.** The alternative
+  — the ordinary overload machinery — types the arguments to choose and then
+  types them again against the winner, which double-reports every mistake in
+  them; arity settles every overload the first pass can express, and a
+  same-arity tie is refused rather than guessed.
+
+**Self-sends decided and built the same day: `self.k(args)`** (user decision
+2026-09-15, option (a) of three — the spelling the sugar tower's merge/join
+form already assumes; (b) relaxing the self-dispatch refusal was rejected for
+reading identically to a call on a same-named *dependency*, and (c) waiting
+for the sugar pass for leaving finish-then-continue unwritable). The form is a
+message to the process the enclosing member belongs to, and its point is
+**ordering**, not reach: an unqualified call runs `k` inside this activation,
+a self-send runs it as its own later one — which extracting a function cannot
+express, since a call runs the work now. Defined for both bindings, like
+everything else here: an enqueue when the handler was spawned, the ordinary
+inline member call when it was `use`d.
+
+**It needed no syntax at all.** `self.k(args)` already parses as a dot-call,
+so the whole form is a checker rule — the third time this surface has cost
+nothing in the parser (`use pid` and dot-call through a pid were the others),
+which is what "the effect surface is the model" keeps buying. Two details
+worth keeping: a handler member **may not declare a variable named `self`**,
+because it would shadow the form silently (refused there, and an ordinary name
+everywhere else — contextual, not reserved); and the **self-dispatch
+diagnostic now names the remedy** when the member it refused was a `send fn`,
+which turns the error that used to say "move the shared logic into a function"
+into one that says "send it to this process instead: `self.bump(…)`".
+
+**Phase 5 step two, slice four: the checker rules — the whole first-pass
+surface now type-checks (2026-09-15).** A program can be written and analyzed
+end to end; only emission is still refused. Tests: **980 (+19, −3)** — a new
+`async_tests.rs` whose first case is the *whole* surface checking clean (two
+spawns, one supplying a dependency with the other's pid; a send through a
+pid; `waitfor` with the token consumed in its block; `use pid` then an
+unqualified call), and the three pending-refusal tests deleted as promised.
+
+**The finding that shaped the slice: a spawn is a `use` whose dependencies
+come from elsewhere.** `check_use` was 250 lines that did two things —
+construct a handler, then resolve its dependencies from the enclosing scope —
+and only the second differs for a spawn. So the construction half became
+`check_handler_construction` (arguments typed and *stored*, generics inferred
+from arguments and any written type list, constructor implicits filled),
+answering the concrete effect and its dependencies *already substituted*; `use`
+keeps `finish_use` (resolve from scope, register, push onto `effect_env`) and
+`spawn` matches the declared dependencies against its own clause instead. The
+refactor was behaviour-preserving except for one message — "unknown handler
+`X`" lost its "in `use`" until the form name was threaded through, which a CLI
+test caught, and which is the argument for the shared helper taking the form
+name rather than guessing.
+
+**Rules that fell out of existing machinery rather than being written.**
+`waitfor`'s "the block must consume the token" is not a rule at all: the
+binding is an ordinary linear local, so [linear-obligation] reports the leak
+and names `send` as its discharge. A payload crossing a seam is
+`fate_move` — the same consumption a `use` argument gets — which is what makes
+`counter.total(out)` discharge the token's obligation. And a spawn's value
+being `Pid<E>` needed no new typing: `Pid`'s argument is the effect
+[async-types], so the handler's own `of` clause answers it.
+
+**Three rules that did need stating, each with a reading worth recording.**
+(1) **`replyto k(captures)` takes `k`'s parameters as captures-then-answer** —
+the *trailing* parameter is what the token carries, matching the
+trailing-token convention the sugar tower's `-> T` will use, so
+`arrived(id: Int, sum: Int)` minted as `replyto arrived(7)` is a `Reply<Int>`.
+(2) **Only a `send fn` is reachable through a pid**, because a member that
+answers would have to park its caller — which is exactly the call-sugar pass's
+named question, so refusing now commits to nothing. (3) **A dependency
+*constructed* in a spawn's `use` clause may not have dependencies of its own**:
+there is no scope on the child to resolve them from, and the remedy the
+diagnostic names is a pid of a process already serving the effect.
+
+**What the emitters do meanwhile is mark their own seams.** Rather than
+letting a correct program reach the handler path and be reported as an
+"unknown handler `counter`", both backends now refuse `use pid` and a
+send-through-a-pid with diagnostics that name the missing piece — so the next
+slice's work list is readable from the compiler's own output.
 
 **Phase 5 step two, slice three: `core.process` and the linear opaque type
 (user decisions 2026-09-15, three calls presented and answered in one
@@ -10255,7 +10355,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 964)
+## Test inventory (all green: 989)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10345,7 +10445,7 @@ cache, with per-test timings.
   non-exiting `else`, and the negatives — a branch that falls through, a
   mixed `if`, and assignment resetting on the surviving path but not in
   the exiting branch)
-  + 24 member-resolution tests (`tests/member_tests.rs` [call-resolve]
+  + 21 member-resolution tests (`tests/member_tests.rs` [call-resolve]
   [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
   dot-calls rejected — the latter naming `external fn` as the remedy, both
   carrying import suggestions — calling a non-fn value and a generic
@@ -10371,13 +10471,33 @@ cache, with per-test timings.
   state field initializer checked against its declared type, a well-typed
   one accepted; plus 2 [async-types] tests: `Pid<Counter>` accepted as a
   field, a parameter and a return — the sanctioned effect-as-type-argument —
-  and `List<Counter>` still refused, so nothing else widened; plus 8
-  asynchronous-surface tests [async-send-fn]
-  [async-spawn-effect]: a `send fn` refused a return type on an effect and
-  on a handler, the legal no-return shape checking clean, `[spawn]` accepted
-  on a fn and a handler and refused on a fn type — and the three
-  **pending-refusal** tests for `spawn`/`replyto`/`waitfor`, written to be
-  deleted by the slice that implements them)
+  and `List<Counter>` still refused, so nothing else widened; plus 5
+  asynchronous-declaration tests [async-send-fn] [async-spawn-effect]: a
+  `send fn` refused a return type on an effect and on a handler, the legal
+  no-return shape checking clean, `[spawn]` accepted on a fn and a handler
+  and refused on a fn type. The three pending-refusal tests for
+  `spawn`/`replyto`/`waitfor` were **deleted** by the slice that implemented
+  them, as they were written to be)
+  + 28 asynchronous-checker tests (`tests/async_tests.rs` [async-spawn-expr]
+  [async-replyto] [async-waitfor] [async-use-pid]: the whole first-pass
+  surface checking clean in one `main` — the canary for the feature — then the
+  capability gate; a spawned handler refused the spawning scope's
+  registrations, an unused clause item, and a clause construction with
+  dependencies of its own; `capacity`/`on` typed; the spawn's value being
+  `Pid<E>`; a pid call resolved against the served effect, its arguments
+  typed, and `use pid` binding the effect while keeping the pid; `use` of a
+  plain value refused; `replyto` outside a handler, at an unknown member, at
+  a non-`send` member, and with the wrong capture count; the token's payload
+  taken from the *trailing* parameter; and `waitfor` outside `main`, with a
+  non-token binding, leaking its token, and answering that token's payload;
+  plus the three leftovers closed the same day — a pid place of any shape as a
+  receiver, all three forms refused inside a lambda [async-no-closure] with
+  closure-specific wording, and an overloaded send member picked by arity with
+  a same-arity tie refused; plus 6 [async-self-send] cases: a member sending
+  to its own process, an unknown and a non-`send` target, the form outside a
+  handler member, its arguments typed, `self` refused as a variable in a member
+  while staying legal in an ordinary fn, and the self-dispatch diagnostic
+  naming `self.bump(…)`)
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
