@@ -1151,49 +1151,50 @@ sends/fulfils as silent no-ops plus the idle-with-parked-gates runtime
 report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
-**The implementation**, per the first-pass plan in CONCURRENCY.md. **Step
-one (the scheduler library) and step two's first four slices — the
-declaration forms, the expression forms, the types, then the checker rules —
-are built** (2026-09-15; build records and what each cost in COMPLETED.md's
-decision log). Where that leaves the surface: **the whole first-pass surface
-checks**, and a program using it is refused only at *emission*. The as-built
-rules are LANGUAGE_SPEC.md's "Asynchronous effect handlers" section
-([async-process] … [async-types]) plus [linear-opaque].
+**The implementation**, per the first-pass plan in CONCURRENCY.md. **A
+program spawns, sends and bridges — on both backends, with identical output**
+(2026-09-15; the build records and what each slice cost are in COMPLETED.md's
+decision log). Five slices landed the same day: the scheduler library, the
+declaration forms, the expression forms, the types, the checker rules, then
+the emitters' first cut. The smallest running program is the counter in both
+backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
+`counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
+`sum 5` from Kotlin and Rust alike. As-built rules: LANGUAGE_SPEC.md's
+"Asynchronous effect handlers" ([async-process] … [async-types]) plus
+[linear-opaque], [rs-process] and [kt-process].
 
-**Still to come in step two, in order**:
+**Still to come in step two** — every item below is a *diagnostic* today, so
+the compiler's own output is the work list:
 
-1. **The two emitters' process classes** — message types + `handle`/`resume`
-   dispatch onto the scheduler library, the three types' backend mappings
-   (`Pid`, `Reply`, `Pool` are deliberately unmapped: what they should be is a
-   consequence of the process class's shape), a spawn's construction, a send
-   through a pid, a **self-send** (an enqueue on the running process's own
-   mailbox when spawned, an inline member call when `use`d), `use pid`'s
-   forwarding stub, and `waitfor`'s bridge. The checker's side tables are the
-   hand-over: `spawn_effects`, `spawn_deps`, `replyto_members`, `use_pids`,
-   `pid_calls`, `self_sends` — plus `use_handler_args`, which a spawn reuses. Both emitters currently refuse each of these with a
-   named diagnostic, so the seams are already marked; **delete those
-   refusals** as each lands, and keep the parity assertion the scheduler
-   library's own tests already make.
-2. **Sendability — C-4(a)'s structural rule**, the last checking rule of the
-   first pass: a sent or captured value may not transitively hold a
-   non-sendable field, over send payloads, `replyto` captures and spawn
-   arguments (the three places a value crosses a seam, all of which already
-   consume it, so the *sites* are known — `pid_calls`, `replyto_members`, and
-   a spawn's construction). What counts as non-sendable needs stating: a
-   fn-typed field is the motivating case ([rs-fn-field] lowers one to `Rc`,
-   which is not `Send`), a view (`proj` fields) is another. Recorded as
-   (c)'s growth point — `Arc`-where-sent inference — for when sent closures
-   become real.
+1. **A spawned handler with effect dependencies.** Its members take their
+   dependencies as one fused value ([rs-effect-fusion] / [kt-effect-fusion])
+   built at the `use` site; a child must hold the fusion it was given at the
+   spawn (a construction, or a `Pid` stub) and thread it into every
+   activation. This is the biggest remaining piece and the one std's own
+   customers need.
+2. **`replyto` and self-sends.** A mint needs a parked-continuation table in
+   the process body — slot → member + captures — which is what `resume`
+   dispatches on; a self-send needs the running process's own pid, which the
+   activation's `SalvoCtx` carries (an inline member call under a synchronous
+   binding, per [async-self-send]).
+3. **`use pid`'s forwarding stub**: a generated class/struct implementing the
+   effect by sending to a pid, registered like an ordinary handler instance.
+4. **Sendability — C-4(a)'s structural rule** (still a **DECISION**: what
+   counts as non-sendable — a fn-typed field is the motivating case, since
+   [rs-fn-field] lowers one to `Rc`, which is not `Send`; a `proj` view is the
+   other).
+5. **Generic protocols and generic handlers**, both refused: a generic
+   effect's message type would have to be generic, and every downcast would
+   need the instantiation.
    * **A send member still writes its deduction clause** (user decision
-     2026-09-15, on the question the syntax build surfaced): a bodiless
-     `send fn go(c: Config)` in an *effect* is rejected by [decl-explicit]
-     until it says `=> !c`, and that stays — even though a send payload
-     always crosses the seam, so consumption is the only sound reading and
-     implying it would cost nothing in soundness. Deferred rather than
-     denied: **revisit when the surface is real** and the clause is either
-     noise or documentation. (The return-type half of [decl-explicit] *was*
-     lifted for send members, because there a member has nothing to
-     declare; here it has something true to say.)
+     2026-09-15): a bodiless `send fn go(c: Config)` needs `=> !c`, even
+     though a send payload always crosses the seam. Revisit when the surface
+     is real enough to judge the clause noise or documentation.
+
+After step two: the LC collection surface (std's first customer — a handler's
+`waiting: Mut List<Reply<T>>` needs it), `watch`, the deadlock baseline, and
+the examples-file respelling (`capacity N` is required and
+CONCURRENCY_EXAMPLES.effects.md's spawns predate it).
 
 **Leftovers found while building the checker rules — all closed 2026-09-15**
 (the last of them, self-sends, by a user decision taken the same day):

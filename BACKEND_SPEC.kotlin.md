@@ -880,7 +880,8 @@ where Rust had to build the fusion to get the same programs running
   end-to-end test, and a change to one reviews as code rather than as a diff
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
-  Two exist: `throw.kt` ([kt-throw-signal]) and `compare.kt`.
+  Four exist: `throw.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
+  ([kt-bytes]) and `scheduler.kt` ([kt-process]).
 * `compare.kt` holds `__salvoCompare`, the structural comparison
   [kt-ordered] [col-sorted] needs. It exists because the JVM's own ordering
   cannot answer for Salvo's types: a `List` and a tuple are not
@@ -891,6 +892,33 @@ where Rust had to build the fusion to get the same programs running
   * It is emitted when a module declares a `canbe ordered` struct or builds
     a sorted collection, and the sorted constructors pass it as an explicit
     `Comparator` rather than relying on natural ordering.
+* [kt-process] **Asynchronous effect handlers** lower to three generated
+  pieces plus one shipped runtime module, `runtime/scheduler.kt`
+  [kt-runtime-source] — emitted only into a program that spawns, in package
+  `salvo`, which every generated file already imports:
+  * **The protocol's message type**, `sealed class __Msg_E` with one nested
+    class per `send fn`, beside the effect it belongs to. It is the *effect's*
+    because a sender holds a `Pid` and knows only the effect it serves
+    [async-types].
+  * **The process body**, `class __Proc_H(private val handler: H) :
+    SalvoProcess`, beside the handler: `handle` casts the message and calls the
+    member the class names, in a `when` over the sealed type — exhaustive by
+    construction. `resume` is where parked continuations will dispatch.
+  * **The three types erase to scheduler handles**: `Pid<E>` and `Pool` are
+    `Int` ids, `Reply<T>` is `salvo.SalvoReply`; the Salvo type arguments have
+    no rendering, since the runtime is untyped (`Any?`) and the message classes
+    carry the payload types.
+  * **The forms**: `spawn H(args) capacity N on P` →
+    `SalvoSched.spawn(P, N, __Proc_H(H(args)))`; `pid.member(args)` →
+    `SalvoSched.send(pid, __Msg_E.Member(args))`; `waitfor out: Reply<T> { … }`
+    → a `run { }` expression that mints a waiter with a destructuring `val
+    (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
+    → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`.
+  * **Still refused**, matching the Rust backend one for one: a handler with
+    effect dependencies, a generic handler, a generic effect as a protocol,
+    `replyto`, a self-send, and `use pid`.
+  * Pool threads are **daemon** threads, which is what makes "the program ends
+    when `main` returns" true on the JVM without any shutdown handshake.
 
 ## Deliberate cuts ([backend-never-wrong])
 

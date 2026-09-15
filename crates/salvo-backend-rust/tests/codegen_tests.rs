@@ -8518,3 +8518,123 @@ fn rustc_compiles_and_runs_the_memory_filesystem() {
     let files = generate(&[("main.sv", MEMFS_PROGRAM)]);
     run_rust_files(&files, "memfs", MEMFS_OUTPUT);
 }
+
+// ===== [rs-process] asynchronous effect handlers =====
+
+/// [async-spawn-expr] [async-use-pid] [async-waitfor] The first program that
+/// *runs* a process: a counter handler bound asynchronously, two sends, then
+/// `main`'s bridge asking for the total. The expected output is identical on
+/// the Kotlin backend — the parity assertion for the whole surface, not just
+/// the scheduler library it rests on.
+const PROCESS: &str = r#"
+effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let counter = spawn Counting() capacity 8 on pool(1)
+    counter.bump(2)
+    counter.bump(3)
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+    println("sum ${sum}")
+}
+"#;
+
+fn generate_process_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", PROCESS)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_process() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate_process_demo();
+    run_rust_files(&files, "process", "sum 5\n");
+}
+
+/// [rs-process] What the lowering *is*, asserted on the generated text so a
+/// regression names itself: a message enum per protocol, a process struct
+/// wrapping the handler, and the scheduler module carried into the output.
+#[test]
+fn a_process_lowers_to_a_message_enum_and_a_body() {
+    let files = generate_process_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains("pub enum __Msg_Counter {"),
+        "the protocol's message enum is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("impl crate::scheduler::SalvoProcess for __Proc_Counting"),
+        "the process body is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("crate::scheduler::salvo_spawn("),
+        "the spawn is missing:\n{}",
+        main.content
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "scheduler.rs"),
+        "the scheduler module is not part of the program"
+    );
+}
+
+/// [backend-never-wrong] The cuts this slice leaves are *diagnostics*: a
+/// dependent handler's child would have to hold a fused value, and `replyto`
+/// needs the resume table.
+#[test]
+fn the_remaining_process_cuts_are_errors() {
+    let deps = expect_errors(
+        r#"
+effect Log {
+    send fn note(what: Str) => !what
+}
+
+effect Counter {
+    send fn bump(n: Int) => !n
+}
+
+handler Printing() of Log {
+    send fn note(what: Str) {}
+}
+
+handler Counting() [Log] of Counter {
+    send fn bump(n: Int) {
+        note("bumped")
+    }
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+}
+"#,
+    );
+    assert!(
+        deps.iter().any(|e| e.contains("needs the child to hold its fused dependencies")),
+        "expected the dependent-spawn refusal, got {deps:?}"
+    );
+}

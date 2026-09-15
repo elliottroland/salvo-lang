@@ -115,6 +115,8 @@ pub fn emit_program_reporting(
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
     // anywhere in the program [bytes-type].
     let mut needs_bytes = false;
+    // [kt-process] And for the scheduler, when a program spawns.
+    let mut needs_scheduler = false;
     // [kt-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does. Same gate as
@@ -151,6 +153,7 @@ pub fn emit_program_reporting(
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
         needs_bytes |= emitter.needs_bytes;
+        needs_scheduler |= emitter.needs_scheduler;
         has_ifaces.extend(emitter.has_ifaces);
         platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
@@ -210,6 +213,12 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("bytes.kt"),
             content: generate_bytes_file(),
+        });
+    }
+    if needs_scheduler {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("scheduler.kt"),
+            content: generate_scheduler_file(),
         });
     }
     // [backend-companion] Backend-native companion files are copied
@@ -396,6 +405,48 @@ fn generate_compare_file() -> String {
 ///
 /// Source in `runtime/bytes.kt`, included verbatim and compiled directly by
 /// `runtime_tests.rs`.
+/// [kt-process] The process scheduler asynchronous effect handlers run on —
+/// the mirror of the Rust backend's, with identical decided semantics and
+/// identical observable behaviour (asserted by the runtime tests). Emitted
+/// only when a program spawns.
+/// Source in `runtime/scheduler.kt`.
+fn generate_scheduler_file() -> String {
+    include_str!("../runtime/scheduler.kt").to_string()
+}
+
+/// [kt-process] The message class of a protocol: `__Msg_Counter`, named after
+/// the *effect*, since that is what a sender knows [async-types].
+fn msg_class_name(effect: &str) -> String {
+    format!("__Msg_{effect}")
+}
+
+/// [kt-process] One nested class of it, named after the member in upper camel
+/// so the generated Kotlin reads like Kotlin.
+fn msg_variant_name(member: &str) -> String {
+    let mut out = String::new();
+    let mut upper = true;
+    for c in member.chars() {
+        if c == '_' {
+            upper = true;
+            continue;
+        }
+        if upper {
+            out.extend(c.to_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// [kt-process] The generated body a spawn hands the scheduler:
+/// `__Proc_Counting`, wrapping the handler instance and dispatching messages
+/// onto its members.
+fn process_class_name(handler: &str) -> String {
+    format!("__Proc_{handler}")
+}
+
 fn generate_bytes_file() -> String {
     include_str!("../runtime/bytes.kt").to_string()
 }
@@ -735,6 +786,9 @@ struct Emitter<'p> {
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
+    /// [kt-process] This file spawns, sends to a pid, or bridges with
+    /// `waitfor`, so the scheduler file is part of the program.
+    needs_scheduler: bool,
     /// [iter-fn] Of those, the ones held in a nullable property
     /// because their type has no zero value: reads unwrap with `!!`.
     gen_slots: HashSet<String>,
@@ -833,6 +887,7 @@ impl<'p> Emitter<'p> {
             needs_throw: false,
             needs_compare: false,
             needs_bytes: false,
+            needs_scheduler: false,
             gen_slots: HashSet::new(),
                             implicits: Vec::new(),
             pending_mints: Vec::new(),
@@ -1337,7 +1392,54 @@ impl<'p> Emitter<'p> {
             self.generics = member_saved;
         }
         out.push_str("}\n");
+        // [kt-process] [async-send-fn] The protocol's **message type**: a
+        // sealed class with one nested class per send member. It belongs to
+        // the *effect*, because a sender holds a `Pid` and knows only the
+        // effect it serves — the same reason the binding swap works.
+        out.push_str(&self.emit_message_classes(e));
         self.generics = saved;
+        out
+    }
+
+    /// [kt-process] `sealed class __Msg_E { class Member(payload…) : __Msg_E() }`
+    /// — the messages a process serving `E` receives, and the whole of what
+    /// crosses the seam at runtime (the scheduler is untyped: `Any?`).
+    fn emit_message_classes(&mut self, e: &EffectDecl) -> String {
+        let sends: Vec<(usize, &FnDecl)> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_send)
+            .collect();
+        if sends.is_empty() {
+            return String::new();
+        }
+        if !e.generics.is_empty() {
+            self.error(format!(
+                "effect `{}` is generic, which the kotlin backend cannot make a \
+                 process protocol of yet",
+                e.name.name
+            ));
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let enum_name = msg_class_name(&e.name.name);
+        let mut out = format!("\nsealed class {enum_name} {{\n");
+        for (i, f) in &sends {
+            let member = salvo_core::effect_member_name(e, *i);
+            let variant = msg_variant_name(&member);
+            let payload: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .collect();
+            out.push_str(&format!(
+                "    class {variant}({}) : {enum_name}()\n",
+                payload.join(", ")
+            ));
+        }
+        out.push_str("}\n");
         out
     }
 
@@ -1585,7 +1687,66 @@ impl<'p> Emitter<'p> {
         self.ctor_implicits = saved_ctor;
         self.handler_deps = saved_deps;
         out.push_str("}\n");
+        // [kt-process] The body a `spawn` hands the scheduler, for a handler
+        // that can be one.
+        out.push_str(&self.emit_process_body(h, &deps));
         self.generics = saved;
+        out
+    }
+
+    /// [kt-process] `__Proc_H`: the `SalvoProcess` a spawn hands the
+    /// scheduler. It owns the handler instance — a process's state *is* the
+    /// handler's — and `handle` casts the protocol's message and calls the
+    /// member the class names.
+    ///
+    /// Emitted for a handler whose effect has send members and no
+    /// dependencies. A **dependent** handler stores a fused value built at its
+    /// `use` site [kt-effect-fusion]; building one on the child is the next
+    /// slice, and a spawn of such a handler is refused meanwhile rather than
+    /// mis-emitted [backend-never-wrong].
+    fn emit_process_body(&mut self, h: &HandlerDecl, deps: &[String]) -> String {
+        let Some(effect_name) = type_base_name(&h.of).map(|n| n.to_string()) else {
+            return String::new();
+        };
+        let Some(effect) = self.symbols.effects.get(effect_name.as_str()).copied() else {
+            return String::new();
+        };
+        let sends: Vec<(usize, &FnDecl)> = effect
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_send)
+            .collect();
+        if sends.is_empty() || !deps.is_empty() || !h.generics.is_empty() {
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let proc_name = process_class_name(&h.name.name);
+        let msg = msg_class_name(&effect_name);
+        let mut out = format!(
+            "\nclass {proc_name}(private val handler: {}) : salvo.SalvoProcess {{\n    \
+             override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {{\n        \
+             when (val m = msg as {msg}) {{\n",
+            h.name.name
+        );
+        for (i, f) in &sends {
+            let member = salvo_core::effect_member_name(effect, *i);
+            let variant = msg_variant_name(&member);
+            let args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| format!("m.{}", p.name.name))
+                .collect();
+            out.push_str(&format!(
+                "            is {msg}.{variant} -> handler.{member}({})\n",
+                args.join(", ")
+            ));
+        }
+        out.push_str(
+            "        }\n    }\n\n    override fun resume(ctx: salvo.SalvoCtx, slot: Long, \
+             value: Any?) {\n        error(\"no parked continuations are generated yet\")\n    }\n}\n",
+        );
         out
     }
 
@@ -2422,6 +2583,13 @@ impl<'p> Emitter<'p> {
             if name == "Bytes" {
                 self.needs_bytes = true;
             }
+            // [kt-process] The scheduler's handles are not generic here: a pid
+            // is an `Int` and a token is one class, so the Salvo type argument
+            // has no rendering — the generated message classes carry it.
+            if matches!(name, "Pid" | "Pool" | "Reply") {
+                self.needs_scheduler = true;
+                return kt.to_string();
+            }
             return format!("{kt}{args}");
         }
         // [backend-intrinsic] [backend-never-wrong] An `intrinsic type` this
@@ -2825,6 +2993,131 @@ impl<'p> Emitter<'p> {
                 kt_ident(name)
             }
         }
+    }
+
+    /// [async-spawn-expr] [kt-process] `spawn H(args) capacity N on P` →
+    /// `SalvoSched.spawn(pool, bound, __Proc_H(H(args)))`, whose value is the
+    /// pid. Construction is the `use` path's, minus the registration: a spawn
+    /// does not put the handler in *this* scope.
+    fn emit_spawn(
+        &mut self,
+        handler: &Expr,
+        uses: &[Expr],
+        capacity: &Expr,
+        pool: &Expr,
+        span: Span,
+    ) -> String {
+        self.needs_scheduler = true;
+        let (handler_name, args): (String, Vec<String>) = match handler {
+            Expr::Ident(id) => (id.name.clone(), Vec::new()),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => (
+                    id.name.clone(),
+                    args.iter().map(|a| self.emit_expr(a)).collect(),
+                ),
+                _ => {
+                    self.error("`spawn` expects a handler name or constructor call");
+                    return "TODO()".to_string();
+                }
+            },
+            _ => {
+                self.error("`spawn` expects a handler name or constructor call");
+                return "TODO()".to_string();
+            }
+        };
+        let Some(decl) = self.symbols.handlers.get(handler_name.as_str()).copied() else {
+            self.error(format!("unknown handler `{handler_name}` in `spawn`"));
+            return "TODO()".to_string();
+        };
+        // [kt-effect-fusion] A dependent handler stores a fused value built at
+        // its `use` site; building one on the *child* is the next slice, so a
+        // spawn of one is refused rather than mis-emitted.
+        if !uses.is_empty() || decl.effects.iter().flatten().next().is_some() {
+            self.error(format!(
+                "spawning `{handler_name}` is not emitted yet: a handler with effect \
+                 dependencies needs the child to hold its fused dependencies, which \
+                 is the next slice"
+            ));
+            return "TODO()".to_string();
+        }
+        if !decl.generics.is_empty() {
+            self.error(format!(
+                "spawning generic handler `{handler_name}` is not supported yet"
+            ));
+            return "TODO()".to_string();
+        }
+        let _ = span;
+        let ctor = self.handler_ctor_name(&handler_name, decl);
+        let bound = self.emit_expr(capacity);
+        let pool_code = self.emit_expr(pool);
+        format!(
+            "salvo.SalvoSched.spawn({pool_code}, {bound}, {}({ctor}({})))",
+            process_class_name(&handler_name),
+            args.join(", ")
+        )
+    }
+
+    /// [async-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:
+    /// mint the waiter, run the block that sends the token somewhere, then
+    /// block this thread for the answer and cast it.
+    fn emit_waitfor(&mut self, binding: &Ident, ty: &Type, body: &Block, _span: Span) -> String {
+        self.needs_scheduler = true;
+        let indent = self.expr_indent;
+        let pad = "    ".repeat(indent + 1);
+        let close = "    ".repeat(indent);
+        let payload = match ty {
+            Type::Named { base, .. } if base.name.name == "Reply" && base.args.len() == 1 => {
+                self.emit_type(&base.args[0])
+            }
+            _ => {
+                self.error("`waitfor` binds a `Reply<T>`");
+                return "TODO()".to_string();
+            }
+        };
+        let mut out = String::from("run {\n");
+        out.push_str(&format!(
+            "{pad}val ({}, __wid) = salvo.SalvoSched.waiter()\n",
+            binding.name
+        ));
+        let saved = std::mem::replace(&mut self.expr_indent, indent + 1);
+        out.push_str(&self.emit_stmts(&body.stmts, indent + 1));
+        self.expr_indent = saved;
+        out.push_str(&format!(
+            "{pad}salvo.SalvoSched.awaitReply(__wid) as {payload}\n{close}}}"
+        ));
+        out
+    }
+
+    /// [async-use-pid] [kt-process] `pid.member(args)` →
+    /// `SalvoSched.send(pid, __Msg_E.Member(args))`.
+    fn emit_pid_send(
+        &mut self,
+        effect: &salvo_core::Ty,
+        callee: &Expr,
+        args: &[Expr],
+        span: Span,
+    ) -> String {
+        self.needs_scheduler = true;
+        let Expr::Field { base, field, .. } = callee else {
+            self.error("internal: a pid send whose callee is not a dot-call");
+            return "TODO()".to_string();
+        };
+        let effect_name = match effect {
+            salvo_core::Ty::Named { name, .. } => name.clone(),
+            _ => {
+                self.error("internal: a pid send with no effect recorded");
+                return "TODO()".to_string();
+            }
+        };
+        let member = self.called_member_name(&effect_name, &field.name, span);
+        let msg = msg_class_name(&effect_name);
+        let variant = msg_variant_name(&member);
+        let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        let target = self.emit_expr(base);
+        format!(
+            "salvo.SalvoSched.send({target}, {msg}.{variant}({}))",
+            payload.join(", ")
+        )
     }
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
@@ -4060,17 +4353,30 @@ impl<'p> Emitter<'p> {
                 self.emit_when_cond(branches, else_block, indent, true)
             }
             Expr::Error { .. } => "TODO()".to_string(),
-            // [async-spawn-expr] [async-replyto] [async-waitfor] Parsed, not
-            // yet lowered: the process classes that dispatch onto
-            // `scheduler.kt` are the next slice. A refusal, never output —
-            // [backend-never-wrong]. The checker refuses these first, so
-            // reaching here means emission ran on a program it had already
-            // rejected.
-            Expr::Spawn { .. } | Expr::ReplyTo { .. } | Expr::WaitFor { .. } => {
+            // [async-spawn-expr] [kt-process] Construct the handler, wrap it
+            // in its generated process body, hand it to the scheduler; the
+            // value is the pid.
+            Expr::Spawn {
+                handler,
+                uses,
+                capacity,
+                pool,
+                span,
+            } => self.emit_spawn(handler, uses, capacity, pool, *span),
+            // [async-waitfor] `main`'s bridge, as a `run { }` expression.
+            Expr::WaitFor {
+                binding,
+                ty,
+                body,
+                span,
+            } => self.emit_waitfor(binding, ty, body, *span),
+            // [async-replyto] Checked, not yet lowered: a mint needs the
+            // parked-continuation table in the process body, which is the next
+            // slice [backend-never-wrong].
+            Expr::ReplyTo { .. } => {
                 self.error(
-                    "asynchronous effect handlers are not emitted yet: \
-                     `spawn`, `replyto` and `waitfor` parse, but no process \
-                     class is generated for them",
+                    "`replyto` is not emitted yet: a parked continuation needs the \
+                     process body's resume table",
                 );
                 "TODO()".to_string()
             }
@@ -4841,16 +5147,11 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
-        // [async-use-pid] A send to a process, not a dispatch through a
-        // handler in scope: the mailbox and the message type come with the
-        // generated process class, so this is refused until it exists
-        // [backend-never-wrong].
-        if self.checked.pid_calls.contains_key(&(self.file_idx, span)) {
-            self.error(
-                "a send to a process is not emitted yet: calling a member \
-                 through a `Pid` needs its generated process class",
-            );
-            return "TODO()".to_string();
+        // [async-use-pid] [kt-process] A send to a process: build the
+        // protocol's message and enqueue it. The receiver names where it goes,
+        // not an argument.
+        if let Some(effect) = self.checked.pid_calls.get(&(self.file_idx, span)).cloned() {
+            return self.emit_pid_send(&effect, callee, args, span);
         }
         // [async-self-send] `self.k(args)`: a message to the process the
         // enclosing member belongs to, which needs the same generated class.
@@ -5111,6 +5412,11 @@ impl<'p> Emitter<'p> {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
+            // [kt-process] The scheduler's own intrinsics: answering a reply
+            // token and building a pool.
+            if recv == Some("Reply") || f.name.name == "pool" {
+                self.needs_scheduler = true;
+            }
             // [col-sorted] [kt-ordered] The sorted constructors build their
             // tree with Salvo's comparator, and the `Sorted List` surface
             // compares with it too [col-sorted-list], so both need its

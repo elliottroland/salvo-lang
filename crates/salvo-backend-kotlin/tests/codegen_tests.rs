@@ -2042,6 +2042,7 @@ fn main() [use] {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_process,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -8946,3 +8947,81 @@ fn kotlinc_compiles_and_runs_the_memory_filesystem() -> KotlinCase {
     let files = generate_files(&[("main.sv", MEMFS_PROGRAM)]);
     kotlin_case(files, "memfs", MEMFS_OUTPUT)
 }
+
+// ===== [kt-process] asynchronous effect handlers =====
+
+/// [async-spawn-expr] [async-use-pid] [async-waitfor] The same program the
+/// Rust backend runs, with **the same expected output** — the parity assertion
+/// for the surface, not just for the scheduler library underneath it.
+const PROCESS: &str = r#"
+effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let counter = spawn Counting() capacity 8 on pool(1)
+    counter.bump(2)
+    counter.bump(3)
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+    println("sum ${sum}")
+}
+"#;
+
+fn generate_process_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", PROCESS)])
+}
+
+fn kotlinc_compiles_and_runs_a_process() -> KotlinCase {
+    kotlin_case(generate_process_demo(), "process", "sum 5\n")
+}
+
+/// [kt-process] What the lowering *is*, asserted on the generated text: a
+/// sealed message class per protocol, a process class wrapping the handler,
+/// and the scheduler file carried into the output.
+#[test]
+fn a_process_lowers_to_message_classes_and_a_body() {
+    let files = generate_process_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content.contains("sealed class __Msg_Counter {"),
+        "the protocol's message class is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("class __Proc_Counting(private val handler: Counting) : salvo.SalvoProcess"),
+        "the process class is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("salvo.SalvoSched.spawn("),
+        "the spawn is missing:\n{}",
+        main.content
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "scheduler.kt"),
+        "the scheduler file is not part of the program"
+    );
+}
+

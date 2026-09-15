@@ -1293,6 +1293,37 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * The runtime is emitted only into a program whose modules mention one of
     the types or call one of their constructors, and the crate root mounts
     it with `mod collections;` [rs-crate].
+* [rs-process] **Asynchronous effect handlers** lower to three generated
+  pieces plus one shipped runtime module, `runtime/scheduler.rs`
+  [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a
+  program that spawns:
+  * **The protocol's message enum**, `__Msg_E`, beside the effect it belongs
+    to: one variant per `send fn`, owning its payload. It is the *effect's*,
+    not a handler's, because a sender holds a `Pid` and knows only the effect
+    it serves — the same reason a process and a locally `use`d handler are
+    interchangeable [async-types].
+  * **The process body**, `__Proc_H`, beside the handler: a struct owning the
+    handler instance (a process's state *is* the handler's) whose
+    `SalvoProcess::handle` downcasts the message enum and calls the member the
+    variant names. `resume` is where parked continuations will dispatch.
+  * **The three types erase to scheduler handles**: `Pid<E>` and `Pool` are
+    `usize` indices, `Reply<T>` is `crate::scheduler::SalvoReply`. Their Salvo
+    type arguments have no rendering — the effect a pid serves and the payload
+    a token carries are the checker's business, and the message enum is what
+    carries payload types into an untyped (`Box<dyn Any + Send>`) runtime.
+  * **The forms**: `spawn H(args) capacity N on P` →
+    `salvo_spawn(P, N as usize, Box::new(__Proc_H::new(H::new(args))))`, whose
+    value is the pid; `pid.member(args)` →
+    `salvo_send(pid, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
+    { … }` → a block expression that mints a waiter, runs the block, then
+    `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
+    `pool(n)` → `salvo_pool(n as usize)`.
+  * **Still refused** (each a diagnostic, none silent): spawning a handler
+    with effect **dependencies** (its members take a fused value
+    [rs-effect-fusion], which the child would have to hold and thread),
+    spawning a **generic** handler, a **generic effect** as a protocol,
+    `replyto` (needs the resume table), a **self-send**, and `use pid` (needs
+    the forwarding stub).
 
 ## Deliberate cuts ([backend-never-wrong])
 

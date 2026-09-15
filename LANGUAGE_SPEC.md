@@ -2527,18 +2527,19 @@ LANGUAGE.md remains the source of truth for everything that does.
   * A pid is **never linear and freely copied**: a send to a dead process is
     a silent no-op, so a stale pid is safe to hold and death is *observed*
     with `watch` rather than tripped over.
-* **Built so far, and what is refused meanwhile.** Everything above
-  **checks**: the declaration forms, the three types, and all four expression
-  forms with their placement and typing rules. What remains is **emission** —
-  the two backends' process classes (message types + `handle`/`resume`
-  dispatch onto the scheduler library) and the three types' backend mappings
-  — so naming any of them in emitted code is refused with a diagnostic saying
-  so, rather than passed through [backend-never-wrong]. Also still open on the
-  checking side: **sendability** (C-4(a)'s structural rule over everything
-  that crosses a seam), which is why a payload holding a non-sendable field is
-  accepted today. The sugar tower — member `-> T` with call syntax,
-  `then`/`then!`, `defer`, merge/join, the gate's member-set generalization —
-  is later passes, each with its own decision surface.
+* **Built so far, and what is refused meanwhile.** The surface **runs**: as of
+  2026-09-15 a program can spawn a handler, send to it through its `Pid`, and
+  bridge with `waitfor` — on **both backends, with identical output**
+  ([rs-process], [kt-process]). Everything above checks; what is still refused
+  at emission, each with a diagnostic naming it: spawning a handler with effect
+  **dependencies** (its members take a fused value the child would have to
+  hold), spawning a **generic** handler, a **generic effect** as a protocol,
+  `replyto` (needs the process body's resume table), a **self-send**, and
+  `use pid` (needs the forwarding stub). Also still open on the checking side:
+  **sendability** (C-4(a)'s structural rule over everything that crosses a
+  seam). The sugar tower — member `-> T` with call syntax, `then`/`then!`,
+  `defer`, merge/join, the gate's member-set generalization — is later passes,
+  each with its own decision surface.
 
 ## Deductions
 

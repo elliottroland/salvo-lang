@@ -8025,6 +8025,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_pid_call(
         &mut self,
         instance: &Ty,
+        receiver: &'p Expr,
         member: &'p Ident,
         type_args: &'p [ast::Type],
         args: &'p [Expr],
@@ -8033,6 +8034,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Ty {
         let _ = (type_args, named, expected);
+        // The receiver is *read* — it names the target rather than being an
+        // argument, but a read is what it is: without checking it here nothing
+        // would record the use, and the variable would be reported unused
+        // [unused-var]. Checked exactly once, which is why deciding that this
+        // *is* a pid call peeks the type instead of checking it.
+        self.check_expr(receiver, None);
         let effect_name = match instance.strip_quals() {
             Ty::Named { name, .. } => name.clone(),
             _ => return Ty::Unknown,
@@ -15292,7 +15299,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // before the ordinary dot rules, because those would make the pid
             // argument zero of a member that never declared it.
             if let Some(effect) = self.pid_receiver(base) {
-                return self.check_pid_call(&effect, field, type_args, args, named, expected, span);
+                return self
+                    .check_pid_call(&effect, base, field, type_args, args, named, expected, span);
             }
             let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {

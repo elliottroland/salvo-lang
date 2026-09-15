@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 989 tests, complete: the toolchain tests are
+cargo test                  # 993 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,56 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5 step two, slice five: the emitters — a process runs (2026-09-15).**
+Both backends now compile and run the first asynchronous program, and print
+**the same thing**: a counter handler spawned on a pool, two sends through its
+pid, then `main`'s `waitfor` asking for the total — `sum 5` from Kotlin and
+Rust alike. Tests: **993 (+4)**, including one compile-and-run case per
+backend with identical expected output (the parity assertion at the *surface*,
+where until now it was only at the scheduler library) and one
+generated-text assertion per backend so a lowering regression names itself.
+
+**Three generated pieces per program, and the shapes are mirrors.** The
+protocol's **message type** (`__Msg_E`: a Rust enum, a Kotlin sealed class with
+nested classes) sits beside the *effect*, not the handler — a sender holds a
+`Pid` and knows only the effect it serves, which is the same fact that makes a
+process and a locally `use`d handler interchangeable. The **process body**
+(`__Proc_H`) sits beside the handler, owns the handler instance (a process's
+state *is* the handler's) and dispatches messages onto its members. The three
+types **erase to scheduler handles**: `Pid<E>` and `Pool` to `usize`/`Int`,
+`Reply<T>` to `SalvoReply` — with their Salvo type arguments dropped, since the
+runtime is untyped and the message type is what carries payloads across.
+[rs-process], [kt-process].
+
+**What the slice taught, worth keeping.**
+
+- **The receiver of a pid send is a *read*, and forgetting it showed up as a
+  warning.** The first running program reported `counter` as never used: the
+  checker peeks the receiver's type to *decide* the call is a pid send and
+  then, in the original code, never checked the expression at all. Peeking is
+  right for deciding, but the receiver still has to be checked exactly once —
+  which is now what `check_pid_call` does first. A "never used" warning about
+  a variable used twice is the kind of tell worth chasing rather than
+  suppressing.
+- **`intrinsic fn` lowerings are keyed on the *first parameter's* type**, not
+  on the absence of a receiver: `pool(size: Int)` is `("pool", Some("Int"))`,
+  which cost one wrong guess (`None`) and one clear diagnostic to find.
+- **A generated `run { }` is how Kotlin gets a block expression**, and a
+  destructuring `val (out, __wid) = waiter()` is how the token and the waiter
+  id arrive together — the Rust side is a plain block with a tuple `let`.
+- **Both backends compile the output warning-free**, which is the bar for
+  generated code (a warning in emitted code is noise the user cannot fix):
+  checked by hand this slice, and by the existing warning-free runtime tests
+  for the library underneath.
+
+**Deliberately still refused, each a named diagnostic** (the compiler's output
+is the next slice's work list): spawning a handler with effect **dependencies**
+— its members take a fused value the child would have to hold and thread, which
+is the biggest remaining piece — a **generic** handler, a **generic effect** as
+a protocol, `replyto` (needs the parked-continuation table `resume` dispatches
+on), a **self-send** (needs the activation's own pid), and `use pid` (needs the
+forwarding stub).
 
 **Phase 5 step two, slice four's leftovers closed the same day
 (2026-09-15).** Three of the four gaps the checker slice recorded are gone;
@@ -10355,7 +10405,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 989)
+## Test inventory (all green: 993)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10989,13 +11039,15 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 95 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 97 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 83 cases as of the interception work). The remaining tests: golden snapshots of the M2 demo, the M3
+  (2026-09-12; 84 cases as of the process case, which runs the first
+  asynchronous program and asserts the same `sum 5` the Rust backend does
+  [kt-process]). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -11167,7 +11219,11 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 164 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 171 - including three [rs-process] tests (the first
+  asynchronous program compiled and run, printing the `sum 5` the Kotlin
+  backend prints; the message enum, process body and mounted scheduler
+  asserted on the generated text; and the dependent-spawn cut reported as a
+  codegen error) - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);

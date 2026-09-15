@@ -52,6 +52,13 @@ pub fn fn_call(
         // into 0..255 exactly as `as i32` does.
         ("to_byte", Some("Int")) => format!("({}).toUByte()", a(0)),
         ("to_int", Some("Byte")) => format!("({}).toInt()", a(0)),
+        // core.process ---------------------------------------------------
+        // [async-replyto] [kt-process] Answering a request: the token is
+        // consumed and the payload crosses the seam as the runtime's `Any?`.
+        ("send", Some("Reply")) => format!("{}.send({})", a(0), a(1)),
+        // [async-spawn-expr] A pool is a scheduler id; `pool(n)` starts its
+        // daemon worker threads.
+        ("pool", Some("Int")) => format!("salvo.SalvoSched.pool({})", a(0)),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from
@@ -384,6 +391,14 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // the same on both backends: a signed `Byte` would render 255 as
         // `-1` where Rust's `u8` renders `255` [backend-parity].
         "Byte" => "UByte",
+        // [async-types] [kt-process] The scheduler's handles: a pid and a pool
+        // are ids into it, a reply token is its own class. Their Salvo type
+        // *arguments* are dropped by `emit_named_parts` — the effect a
+        // `Pid<E>` serves is the checker's business, and the generated message
+        // classes carry payload types.
+        "Pid" => "Int",
+        "Pool" => "Int",
+        "Reply" => "salvo.SalvoReply",
         // [kt-bytes] [bytes-type] One class for `Bytes` and `Mut Bytes`, in
         // the root `salvo` package so no emitted file needs an import — see
         // `runtime/bytes.kt` for why neither `List<UByte>` nor `UByteArray`
