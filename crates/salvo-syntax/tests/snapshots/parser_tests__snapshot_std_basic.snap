@@ -8,6 +8,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Byte",
                     span: 15..19,
@@ -22,6 +23,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Int",
                     span: 35..38,
@@ -36,6 +38,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Long",
                     span: 54..58,
@@ -50,6 +53,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Float",
                     span: 74..79,
@@ -64,6 +68,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Double",
                     span: 95..101,
@@ -78,6 +83,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Char",
                     span: 117..121,
@@ -92,6 +98,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Bool",
                     span: 137..141,
@@ -106,6 +113,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Any",
                     span: 157..160,
@@ -120,6 +128,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Nothing",
                     span: 176..183,
@@ -134,6 +143,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: false,
+                linear: false,
                 name: Ident {
                     name: "Number",
                     span: 190..196,

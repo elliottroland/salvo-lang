@@ -1631,3 +1631,261 @@ fn use_them(m: Mailer) -> Int {
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
+
+/// [async-spawn-expr] [async-replyto] [async-waitfor] The asynchronous
+/// surface's *expression* forms, in one program that uses every clause:
+/// `spawn` with a spawn-site `use` clause, a mailbox `capacity` and an `on`
+/// pool; `replyto` and its gated `replyto!`; and `waitfor`, `main`'s bridge.
+#[test]
+fn the_asynchronous_expression_forms_parse() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+
+    let source = "\
+effect Counter {
+    send fn bump(n: Int)
+    send fn total(out: Reply<Int>)
+    send fn totalled(n: Int)
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+
+    send fn totalled(n: Int) {
+        total(replyto totalled())
+        total(replyto! totalled(1, \"tag\"))
+    }
+}
+
+fn main() [use, spawn] {
+    let counter = spawn Counting() capacity 16 on pool(2)
+    let audited = spawn Counting() use counter, Counting() capacity 4 on pool(1)
+    use counter
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    // The two `replyto` forms, inside the handler member that mints them.
+    let mut replytos = Vec::new();
+    for item in &module.items {
+        if let Item::Handler(h) = item {
+            for f in &h.fns {
+                collect_replyto(f.body.as_ref(), &mut replytos);
+            }
+        }
+    }
+    assert_eq!(
+        replytos,
+        vec![
+            ("totalled".to_string(), false, 0),
+            ("totalled".to_string(), true, 2),
+        ],
+        "the `replyto` mints, as (member, gated, captures)"
+    );
+
+    // `main`'s three statements: two spawns and the bridge.
+    let main = module
+        .items
+        .iter()
+        .find_map(|i| match i {
+            Item::Fn(f) if f.name.name == "main" => Some(f),
+            _ => None,
+        })
+        .expect("main is declared");
+    let body = main.body.as_ref().expect("main has a body");
+    let values: Vec<&Expr> = body
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Let { value, .. } => Some(value),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(values.len(), 3, "main binds three values");
+
+    // `use pid` is first-pass surface, not sugar: it needs no new syntax —
+    // the `use` statement already takes an expression, and a bare name here
+    // is a `Pid` rather than a handler construction. Distinguishing them is
+    // the checker's job.
+    let bound: Vec<&str> = body
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Use { handler, .. } => match handler {
+                Expr::Ident(id) => Some(id.name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(bound, vec!["counter"], "`use counter` binds the Pid");
+
+    // A spawn with no `use` clause still carries both required clauses.
+    match values[0] {
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            assert!(
+                matches!(handler.as_ref(), Expr::Call { .. }),
+                "the handler construction is a call: {handler:?}"
+            );
+            assert!(uses.is_empty(), "no `use` clause was written");
+            assert!(
+                matches!(capacity.as_ref(), Expr::Int { value: 16, .. }),
+                "capacity 16: {capacity:?}"
+            );
+            assert!(
+                matches!(pool.as_ref(), Expr::Call { .. }),
+                "`on pool(2)` is an ordinary call: {pool:?}"
+            );
+        }
+        other => panic!("expected a spawn, got {other:?}"),
+    }
+
+    // The `use` clause takes both a `Pid` value and a handler construction.
+    match values[1] {
+        Expr::Spawn { uses, .. } => {
+            assert_eq!(uses.len(), 2, "two dependencies were supplied: {uses:?}");
+            assert!(
+                matches!(&uses[0], Expr::Ident(id) if id.name == "counter"),
+                "the first is a Pid value: {:?}",
+                uses[0]
+            );
+            assert!(
+                matches!(&uses[1], Expr::Call { .. }),
+                "the second is a handler construction: {:?}",
+                uses[1]
+            );
+        }
+        other => panic!("expected a spawn, got {other:?}"),
+    }
+
+    match values[2] {
+        Expr::WaitFor { binding, ty, .. } => {
+            assert_eq!(binding.name, "out");
+            assert_eq!(format!("{ty}"), "Reply<Int>");
+        }
+        other => panic!("expected a waitfor, got {other:?}"),
+    }
+}
+
+/// Collects every `replyto` in a body as (member, gated, capture count).
+fn collect_replyto(
+    body: Option<&salvo_syntax::ast::Block>,
+    out: &mut Vec<(String, bool, usize)>,
+) {
+    use salvo_syntax::ast::{Expr, Stmt};
+    let Some(body) = body else { return };
+    fn walk(expr: &Expr, out: &mut Vec<(String, bool, usize)>) {
+        match expr {
+            Expr::ReplyTo {
+                member,
+                captures,
+                gated,
+                ..
+            } => out.push((member.name.clone(), *gated, captures.len())),
+            Expr::Call { args, .. } => {
+                for a in args {
+                    walk(a, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    for stmt in &body.stmts {
+        if let Stmt::Expr(e) = stmt {
+            walk(e, out);
+        }
+    }
+}
+
+/// [async-spawn-expr] The clause words are **contextual**, and the two
+/// required clauses are required: a spawn without them is a parse error that
+/// names the missing clause, and `capacity`/`on`/`replyto`/`waitfor` all stay
+/// usable as ordinary names.
+#[test]
+fn a_spawn_states_its_capacity_and_its_pool() {
+    let missing_capacity = "\
+handler H() of E {
+}
+
+fn main() [use, spawn] {
+    let h = spawn H() on pool(1)
+}
+";
+    let (_m, diagnostics) = salvo_syntax::parse_module(missing_capacity);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("mailbox bound")),
+        "expected the missing-capacity error: {diagnostics:?}"
+    );
+
+    let missing_pool = "\
+fn main() [use, spawn] {
+    let h = spawn H() capacity 8
+}
+";
+    let (_m, diagnostics) = salvo_syntax::parse_module(missing_pool);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("where it runs")),
+        "expected the missing-pool error: {diagnostics:?}"
+    );
+}
+
+/// None of the three new words is reserved: each is recognised only in the
+/// shape its form takes (`spawn` before a *name*, `replyto` before a member
+/// name, `waitfor` before `name:`), so ordinary code that uses them as
+/// identifiers keeps parsing.
+#[test]
+fn the_asynchronous_words_are_not_reserved() {
+    let source = "\
+fn spawn(n: Int) -> Int {
+    return n
+}
+
+fn replyto(n: Int) -> Int {
+    return n
+}
+
+fn waitfor(n: Int) -> Int {
+    return n
+}
+
+fn capacity(n: Int) -> Int {
+    return n
+}
+
+fn on(n: Int) -> Int {
+    return n
+}
+
+fn use_them() -> Int {
+    let spawn = 1
+    let replyto = 2
+    let waitfor = 3
+    return spawn(spawn) + replyto(replyto) + waitfor(waitfor) + capacity(1) + on(2)
+}
+";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}

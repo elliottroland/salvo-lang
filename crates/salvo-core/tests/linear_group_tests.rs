@@ -947,3 +947,130 @@ fn a_leak_names_the_member_as_the_discharge() {
         "got {errs:?}"
     );
 }
+
+// ===== [linear-group] The opaque form: `linear intrinsic type` =====
+
+/// Two std files, so the same-file discharger rule has a boundary to be
+/// about: the prelude, plus a `token` module whose contents the test writes.
+/// `intrinsic` is std-only [intrinsic-std-only], so an opaque linear type can
+/// only be declared this way.
+fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "std/core/token.sv",
+        SourceSet::classify(Path::new("core/token.sv")).unwrap(),
+        token_src.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        main_src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    resolution
+        .errors
+        .iter()
+        .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// [linear-group] `linear intrinsic type` carries the obligation on a type
+/// whose representation belongs to the backend (user decision 2026-09-15 —
+/// `Reply<T>` is a scheduler handle, so there is nothing to make a `linear
+/// struct` of). The declaration-site rule is the struct's, unchanged: the
+/// declaring file must contain a discharger.
+#[test]
+fn a_linear_intrinsic_type_needs_a_discharger_in_its_own_file() {
+    let errs = errors_with_std_module(
+        "linear intrinsic type Token<T>\n",
+        "fn probe() -> Int {\n    return 1\n}\n",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("linear intrinsic type `Token`")
+            && m.contains("no discharger")),
+        "expected the legal-death error at the declaration, got {errs:?}"
+    );
+}
+
+/// With a consuming `intrinsic fn` beside it — the shape `Reply<T>` uses —
+/// the declaration is accepted, and *values* of the type owe like any other
+/// linear value: dropping one is a leak, sending it discharges it.
+#[test]
+fn a_linear_intrinsic_type_owes_and_its_intrinsic_discharges() {
+    const TOKEN: &str = "\
+linear intrinsic type Token<T>
+intrinsic fn deliver<T>(token: Token<T>, value: T) [] -> None => !token, !value
+intrinsic fn mint_token() [] -> Token<Int>
+";
+    let clean = errors_with_std_module(
+        TOKEN,
+        "\
+fn answer() -> None {
+    let t = mint_token()
+    return deliver(t, 1)
+}
+",
+    );
+    assert!(
+        clean.is_empty(),
+        "the declaration and its discharge must check clean, got {clean:?}"
+    );
+
+    let leaked = errors_with_std_module(
+        TOKEN,
+        "\
+fn answer() -> Int {
+    let t = mint_token()
+    return 1
+}
+",
+    );
+    assert!(
+        leaked
+            .iter()
+            .any(|m| m.contains("still owns a linear value") && m.contains("`deliver`")),
+        "a dropped token must be a leak, named with its discharger, got {leaked:?}"
+    );
+}
+
+/// The modifier belongs to a *declaration*, never to an alias: an alias is a
+/// second name for a type that already decided whether it owes.
+#[test]
+fn an_alias_cannot_be_declared_linear() {
+    let source = "linear intrinsic type Handle<T> = Int\n";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("alias cannot be linear")),
+        "expected the alias refusal: {diagnostics:?}"
+    );
+}

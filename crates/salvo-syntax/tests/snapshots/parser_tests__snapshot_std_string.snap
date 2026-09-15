@@ -21,6 +21,7 @@ Module {
                     "take a `Mut Str`.",
                 ],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Str",
                     span: 775..778,

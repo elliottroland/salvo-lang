@@ -123,6 +123,10 @@ pub struct ModuleScope<'p> {
     pub type_aliases: HashMap<&'p str, &'p TypeDecl>,
     /// `intrinsic type` declarations visible here.
     pub opaque_types: HashMap<&'p str, &'p TypeDecl>,
+    /// The file index each visible opaque type was declared in — what the
+    /// same-file discharger rule keys on for a `linear intrinsic type`
+    /// [linear-group], exactly as `struct_files` does for a `linear struct`.
+    pub opaque_type_files: HashMap<&'p str, usize>,
     /// Effect-member fn name -> (owning effect, member decl).
     /// [effect-member-overload] Effect members callable in this scope, by
     /// name. Several effects may declare the same member name (user
@@ -931,6 +935,7 @@ fn add_items<'p>(
             let name = visible_as(&t.name.name);
             if ctx.admit(NameKind::OpaqueType, name, module, level, import_span) {
                 scope.opaque_types.insert(name, t);
+                scope.opaque_type_files.insert(name, *file);
                 origin(name, scope);
                 def_site(name, *file, t.name.span, scope);
             }

@@ -1095,6 +1095,32 @@ impl<'p> Walk<'_, 'p> {
             // can leave it early, so an addition inside one does not reach
             // the contract [qual-refn-infer].
             Expr::Try { body, .. } => self.cond_block(body),
+            // [async-spawn-expr] A spawn's arguments cross the seam, so a
+            // value passed to a child is *consumed* — walked as ordinary
+            // reads here (the send-as-move accounting arrives with the
+            // checker slice, which is what types these forms at all).
+            Expr::Spawn {
+                handler,
+                uses,
+                capacity,
+                pool,
+                ..
+            } => {
+                self.expr(handler);
+                for handler in uses {
+                    self.expr(handler);
+                }
+                self.expr(capacity);
+                self.expr(pool);
+            }
+            // [async-replyto] The captures are reads.
+            Expr::ReplyTo { captures, .. } => {
+                for capture in captures {
+                    self.expr(capture);
+                }
+            }
+            // [async-waitfor] Its block runs once, like a `try` body.
+            Expr::WaitFor { body, .. } => self.cond_block(body),
             // Leaves: nothing to walk into. Listed rather than defaulted so
             // a new expression form cannot hide a consuming call from the
             // inference [deduce-syntax].

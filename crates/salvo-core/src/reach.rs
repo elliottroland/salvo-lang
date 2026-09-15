@@ -269,6 +269,36 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => block_names(body, used),
+        // [async-spawn-expr] The handler name and every clause count as
+        // uses: this is what stops an imported handler or a `pool` function
+        // being reported as unused because it is only spawned.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            expr_names(handler, used);
+            for handler in uses {
+                expr_names(handler, used);
+            }
+            expr_names(capacity, used);
+            expr_names(pool, used);
+        }
+        // [async-replyto] The member name is resolved against the enclosing
+        // handler, not the module, so only the captures name things here.
+        Expr::ReplyTo { captures, .. } => {
+            for capture in captures {
+                expr_names(capture, used);
+            }
+        }
+        // [async-waitfor] Its block is ordinary code, and the token's
+        // written type names `Reply` (and its payload) for real.
+        Expr::WaitFor { ty, body, .. } => {
+            type_names(ty, used);
+            block_names(body, used);
+        }
         // [qual-widen] The qualifier names are type references.
         Expr::Widen { subject, quals, .. } => {
             expr_names(subject, used);

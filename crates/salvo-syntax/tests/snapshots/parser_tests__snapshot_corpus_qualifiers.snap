@@ -337,6 +337,7 @@ Module {
             TypeDecl {
                 docs: [],
                 intrinsic: false,
+                linear: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,

@@ -2325,6 +2325,139 @@ Conventions:
     an enclosing `try` does not leave the fn), so the check's floor is the
     `try` body's scope, or the fn's when the throw propagates out.
 
+## Asynchronous effect handlers (phase 5 — being built)
+
+The concurrency surface: **a process is an effect handler bound
+asynchronously**. Designed across 2026-09-14/15 (user decisions; the argument
+trail is CONCURRENCY.md, the decided summary COMPLETED.md's decision log), and
+being built in slices — so each rule below states what already holds and what
+does not exist yet. Nothing here is in LANGUAGE.md until the feature runs;
+LANGUAGE.md remains the source of truth for everything that does.
+
+* [async-process] A **process** is a handler whose members run one at a time,
+  on a scheduler, in the order their invocations arrived: a state struct plus
+  one function per member, exactly the handler that `use` binds
+  synchronously. The same handler is bindable both ways — the binding
+  changes where the body runs and nothing about the code that calls it.
+  * The substrate is a **library in each backend's runtime files**
+    (`runtime/scheduler.rs`, `runtime/scheduler.kt`), not a runtime baked
+    into emitted code: run-to-completion activations on pools, one
+    arrival-order queue per process with an explicit bound, replies with
+    reserved capacity, the gate, death as a faulted activation, and the
+    idle-with-parked-gates report. Built 2026-09-15, with identical
+    behaviour asserted on both backends.
+  * A process **is a region**, so sendability and region-escape are one
+    check (user, 2026-09-10, confirmed 2026-09-15). **Handlers never cross
+    into a spawn — construction does** [async-spawn-expr].
+* [async-send-fn] An **asynchronous member** is declared `send fn`, in an
+  effect and in the handlers implementing it. Sending it *enqueues* an
+  invocation, so it **answers nothing**: a written return type is an error
+  naming the shape that does carry an answer — an `out: Reply<T>` parameter
+  minted with `replyto` [async-replyto]. In the first pass every member of a
+  process protocol is one; the unmarked `fn` member spelling stays reserved
+  for the later call-member sugar.
+  * `send` is **contextual**, not reserved (the `iter fn` precedent): a
+    state field named `send`, a fn named `send`, and `r.send(v)` — the
+    discharge of a reply token — all keep working. The form is recognised
+    from `send` immediately followed by `fn` inside a member list.
+  * A send member is **exempt from [decl-explicit]**'s "an effect member
+    must declare its return type": it has none to declare. The *deduction*
+    half still applies — a bodiless `send fn go(c: Config)` writes `=> !c`
+    (user decision 2026-09-15: kept for now, revisited when the surface is
+    real) — because there the member does have something true to say, even
+    though a send payload always crosses the seam and so is always consumed.
+* [async-spawn-effect] `[spawn]` in an effect list is the **capability to
+  create a process** — lowercase and compiler-owned, like `use`, and
+  contextual for the same reason `send` is. Accepted on a function and on a
+  handler's dependency list (a supervisor spawns its children); refused on a
+  fn *type*, exactly as `use` is, because the capability belongs to the body
+  that spawns rather than to a value's type.
+* [async-spawn-expr] `spawn H(args) use D1(...), pid capacity N on POOL` is
+  the asynchronous binding, and its value is the child's `Pid`. Read left to
+  right: what to run, what it depends on, how deep its queue is, where it
+  runs.
+  * The **`use` clause is optional** and supplies the child's declared
+    dependencies [effect-handler-deps]; each item is a handler
+    *construction* or a `Pid` (the same effect backed by a process),
+    which is what lets a process and a local handler swap without touching
+    the consuming code. Arguments evaluate in the parent and cross the
+    seam; construction happens on the child.
+  * **`capacity N` is required, with no default**: the mailbox bound is a
+    property of *this instance*, so it sits at the spawn site and not on the
+    handler (a bound on the declaration would be meaningless for a `use`d
+    handler, and would mark handlers async-only).
+  * **`on POOL` is required** (user decision 2026-09-15, confirming the
+    frozen grammar's reading) and takes an ordinary expression: `pool(n)` is
+    a function declared `[spawn]`, not syntax. Every spawn therefore says
+    where it runs; there is no ambient default pool to inherit.
+  * `spawn` and the three clause words are **contextual**; the form is
+    recognised from `spawn` followed by a name, so a function named `spawn`
+    is still callable. A handler construction is **not a value** — only
+    `use` and `spawn` may write one — which is why this is a form with
+    clause keywords rather than a call with named arguments.
+* [async-replyto] `replyto k(captures)` mints a parked one-shot continuation
+  targeting member `k` of the **enclosing handler** and yields its `Reply<T>`
+  token, which is **linear** [linear-obligation] and discharged by sending to
+  it: `r.send(v)`. The arguments are the continuation's *captures* — what the
+  member needs besides the answer — and are positional; the parentheses are
+  part of the form even when empty.
+  * `replyto!` is the same mint **plus the gate**: bounded selective
+    receive, at most one outstanding per process, so the process serves
+    nothing else until the answer arrives.
+  * A token is one-shot *statically*, which is what linearity buys over the
+    dynamic enforcement the effects literature settles for.
+* [async-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
+  and `main`'s only token source (`replyto` targets a member of the enclosing
+  handler, and `main` has none): it mints a token, requires the block to
+  consume it, blocks main's real thread until it is sent to, and yields what
+  was sent. Legal only in `main`.
+  * Paired rule: **the program ends when `main` returns.** Anything still
+    running dies with it; a program that means to serve says so by waiting
+    on a shutdown token. There is no run-to-quiescence semantics.
+* [async-use-pid] `use pid` binds an effect in the current scope to a
+  generated forwarding stub over a `Pid` — first-pass surface, not sugar, and
+  no new syntax: the `use` statement already takes an expression, and whether
+  a bare name is a handler construction or a `Pid` is a checker question. Its
+  value is unqualified calls and, above all, passing the capability *down*
+  through ordinary effect lists (`fn drive() [Roll]`). Dot-call through a
+  `Pid` (`counter.total(out)`) is the inline form of the same binding.
+* [async-types] The three types the forms produce and consume live in
+  **`core.process`**, all `intrinsic` because each is a handle into the
+  scheduler its backend ships:
+  * **`Pid<E>`** — what a `spawn` hands back, and the whole of what one
+    process knows about another. Its argument is the **effect** the process
+    serves, the one sanctioned effect-in-a-type-position [effect-not-data]
+    (user decision 2026-09-15): what a holder may *do* with a pid is exactly
+    that effect, and parameterizing by it is what lets a process and a
+    locally `use`d handler stand behind one name. The exception is one
+    argument of one type — `List<E>` and every other position stay refused,
+    and a pid is still not a handler instance.
+  * **`Reply<T>`** — the one-shot answer channel, `linear intrinsic type`
+    [linear-opaque], discharged by `send(r, v)` (`r.send(v)` in dot form).
+    Linearity is what makes "answered exactly once, on every path" a
+    *static* guarantee.
+  * **`Pool`**, with `intrinsic fn pool(size: Int) [spawn] -> Pool` — an
+    ordinary value, so one pool can be shared by many spawns; `on pool(2)`
+    is a call, and the `[spawn]` on the function is what makes creating one
+    a capability.
+  * A pid is **never linear and freely copied**: a send to a dead process is
+    a silent no-op, so a stale pid is safe to hold and death is *observed*
+    with `watch` rather than tripped over.
+* **Built so far, and what is refused meanwhile.** The declaration forms
+  ([async-send-fn], [async-spawn-effect]) check, and the three types
+  ([async-types]) are declared and usable in ordinary signatures. The
+  expression forms ([async-spawn-expr], [async-replyto], [async-waitfor])
+  **parse**, and the checker refuses each with one diagnostic naming the form
+  until the slice that types them lands — `replyto` against the enclosing
+  handler's members, the capability gate, token linearity at the seam, then
+  the two emitters' process classes. Naming one of the three types in emitted
+  code is refused too ("not supported by the … backend yet"), since no
+  backend mapping exists until those classes do — so a half-built form can
+  never become silent output [backend-never-wrong]. The sugar tower — member
+  `-> T` with call syntax, `then`/`then!`, `defer`, merge/join, the gate's
+  member-set generalization — is later passes, each with its own decision
+  surface.
+
 ## Deductions
 
 * [deduce-syntax] The **deduction clause** — `=> entry, entry, …` after the
@@ -3136,9 +3269,26 @@ Conventions:
     in a use-site type (a per-value spelling that could be forgotten
     would defeat the protection) [obligation-spelling]. Hover presents
     linearity from the declaration.
-  * **Not yet covered**: `intrinsic type` carries no modifier, so a
-    linear opaque type has no spelling until `TypeDecl` gains one (nothing
-    declares one today).
+  * **Not yet covered**: nothing — the opaque half arrived 2026-09-15 (below).
+* [linear-opaque] **`linear intrinsic type Reply<T>`** — the obligation
+  modifier on an *opaque* type (user decision 2026-09-15, taken for phase 5's
+  reply token: a token is a scheduler handle, so its representation belongs
+  to the backend and there is nothing to make a `linear struct` out of). Every
+  rule of [linear-group] applies unchanged — the declaring file must contain a
+  discharger, every value owes, `linear` is unwritable in a use-site type —
+  and the only difference is that an opaque type has no fields for linearity
+  to reach *through*.
+  * The discharger for one is an `intrinsic fn` beside it, since a bodiless
+    declaration's written clause is its whole contract [decl-explicit]:
+    `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
+    !value` is std's, and it is why "a `Reply` is a one-shot `Pid` with a
+    single send member" is true in the type system rather than only in prose.
+  * Only an `intrinsic type` may carry it, never an **alias**: an alias is a
+    second name for a type that has already decided whether it owes.
+    `intrinsic` is std-only [intrinsic-std-only], so a linear opaque type is
+    std's to declare — which is the point, the user's reason being that
+    unifying the synchronous and asynchronous effect surfaces will want this
+    control in the compiler's hands.
 * [linear-obligation] A linear value carries a *use obligation*: on
   every path it must be moved onward before it goes out of scope
   (decision L6b: consumption = any move, exactly as the deduction

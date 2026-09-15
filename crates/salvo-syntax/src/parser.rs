@@ -270,6 +270,24 @@ impl<'s> Parser<'s> {
         matches!(self.kind(), TokenKind::Ident(_))
     }
 
+    /// True when the current token is the *contextual* keyword `word` — an
+    /// identifier the grammar reads as a keyword in one position without
+    /// reserving it anywhere else (`send fn`, `spawn`, `capacity`, `on`).
+    fn at_word(&self, word: &str) -> bool {
+        matches!(self.kind(), TokenKind::Ident(name) if name == word)
+    }
+
+    /// Consumes the contextual keyword `word`, or reports `message` against
+    /// the token that stands where it should have been.
+    fn expect_word(&mut self, word: &str, message: &str) -> Option<Span> {
+        if self.at_word(word) {
+            return Some(self.bump().span);
+        }
+        let span = self.peek().span;
+        self.error(message.to_string(), span);
+        None
+    }
+
     // --- Module / items ---
 
     pub fn parse_module(&mut self) -> Module {
@@ -394,6 +412,29 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_struct(true).map(Item::Struct)
             }
+            // [linear-group] `linear intrinsic type Reply<T>` — a linear
+            // **opaque** type, the same modifier on the other declaration
+            // form that can carry an obligation (user decision 2026-09-15).
+            // The token's representation is the backend's business, so it has
+            // no fields to make a `linear struct` of.
+            TokenKind::KwLinear if matches!(self.peek_at(1).kind, TokenKind::KwIntrinsic) => {
+                self.bump();
+                self.bump();
+                if !self.at(&TokenKind::KwType) {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(
+                        format!(
+                            "`linear` before `intrinsic` declares an opaque linear \
+                             type, so `type` must follow: `linear intrinsic type \
+                             Reply<T>` (found {found})"
+                        ),
+                        span,
+                    );
+                    return None;
+                }
+                self.parse_type_decl_linear(true, true).map(Item::Type)
+            }
             TokenKind::KwQualifier => self
                 .parse_qualifier(false, QualSubject::State)
                 .map(Item::Qualifier),
@@ -506,6 +547,14 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_type_decl(&mut self, intrinsic: bool) -> Option<TypeDecl> {
+        self.parse_type_decl_linear(intrinsic, false)
+    }
+
+    /// [linear-group] `linear intrinsic type Reply<T>`: the obligation
+    /// modifier on an opaque type. Only an `intrinsic type` may carry it —
+    /// an alias is a name for another type, and the obligation belongs to
+    /// the type itself.
+    fn parse_type_decl_linear(&mut self, intrinsic: bool, linear: bool) -> Option<TypeDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident_type("type")?;
@@ -526,6 +575,14 @@ impl<'s> Parser<'s> {
         } else {
             None
         };
+        if linear && alias.is_some() {
+            self.error(
+                "an alias cannot be linear: the obligation belongs to the type \
+                 itself, so write `linear intrinsic type` (or `linear struct`) \
+                 where it is declared",
+                name.span,
+            );
+        }
         let end = alias
             .as_ref()
             .map(|t| t.span())
@@ -534,6 +591,7 @@ impl<'s> Parser<'s> {
         Some(TypeDecl {
             docs,
             intrinsic,
+            linear,
             name,
             generics,
             auto_qualifiers,
@@ -1045,8 +1103,8 @@ impl<'s> Parser<'s> {
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 // [async-send-fn] `send fn` is a member too; anything else
                 // that is not a `fn` is a state field.
-                let is_send_member = matches!(self.kind(), TokenKind::Ident(name) if name == "send")
-                    && matches!(self.peek_at(1).kind, TokenKind::KwFn);
+                let is_send_member =
+                    self.at_word("send") && matches!(self.peek_at(1).kind, TokenKind::KwFn);
                 if self.at(&TokenKind::KwFn) || is_send_member {
                     fns.push(self.parse_member_fn()?);
                 } else {
@@ -1086,16 +1144,15 @@ impl<'s> Parser<'s> {
     /// with no lookahead beyond the next token: inside a member list a bare
     /// identifier is otherwise a parse error.
     fn parse_member_fn(&mut self) -> Option<FnDecl> {
-        if matches!(self.kind(), TokenKind::Ident(name) if name == "send")
-            && matches!(self.peek_at(1).kind, TokenKind::KwFn)
-        {
+        if self.at_word("send") && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
             self.bump();
             return self.parse_fn_flavored(false, FnFlavor::Send);
         }
         self.parse_fn(false)
     }
 
-    fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {        let is_iter = flavor == FnFlavor::Iter;
+    fn parse_fn_flavored(&mut self, intrinsic: bool, flavor: FnFlavor) -> Option<FnDecl> {
+        let is_iter = flavor == FnFlavor::Iter;
         let is_send = flavor == FnFlavor::Send;
         // The docs sit above the whole declaration; `external`/`intrinsic`
         // is on the same line as `fn`, so the line lookup finds them
@@ -2805,7 +2862,33 @@ impl<'s> Parser<'s> {
                     span: tok.span,
                 })
             }
-            TokenKind::Ident(_) => self.parse_ident_expr(),
+            TokenKind::Ident(_) => {
+                // The asynchronous forms are **contextual**: each is
+                // recognised from its word plus what follows, so `spawn`,
+                // `replyto` and `waitfor` all stay usable as ordinary names.
+                // [async-spawn-expr] `spawn H(...)` — a *name* follows.
+                if self.at_word("spawn") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
+                    return self.parse_spawn();
+                }
+                // [async-replyto] `replyto k(...)` / `replyto! k(...)`.
+                if self.at_word("replyto")
+                    && (matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                        || (matches!(self.peek_at(1).kind, TokenKind::Bang)
+                            && matches!(self.peek_at(2).kind, TokenKind::Ident(_))))
+                {
+                    return self.parse_replyto();
+                }
+                // [async-waitfor] `waitfor out: Reply<T> { ... }` — a name
+                // and a `:` follow, which no call of a fn named `waitfor`
+                // can look like.
+                if self.at_word("waitfor")
+                    && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                    && matches!(self.peek_at(2).kind, TokenKind::Colon)
+                {
+                    return self.parse_waitfor();
+                }
+                self.parse_ident_expr()
+            }
             TokenKind::LParen => self.parse_paren_expr(),
             TokenKind::LBracket => self.parse_array_literal(),
             TokenKind::LBrace => self.parse_brace_expr(),
@@ -3211,6 +3294,112 @@ impl<'s> Parser<'s> {
         let body = self.parse_block()?;
         let span = start.to(body.span);
         Some(Expr::Try { body, span })
+    }
+
+    /// [async-spawn-expr] `spawn H(args) use D1(...), pid capacity N on POOL`
+    /// — the asynchronous binding of a handler. The `use` clause is optional
+    /// (a handler with no dependencies needs none); `capacity` and `on` are
+    /// not, since neither the mailbox bound nor the pool has a default.
+    ///
+    /// No clause takes a `{ ... }` body, so struct-literal speculation stays
+    /// on throughout: a constructor argument may be a struct literal like
+    /// any other argument.
+    fn parse_spawn(&mut self) -> Option<Expr> {
+        let start = self.bump().span; // `spawn`
+        let handler = self.parse_expr()?;
+        // The spawn-site `use` clause: what the child's declared
+        // dependencies are bound to [effect-handler-deps]. Each item is a
+        // handler construction or a `Pid` value — the parser keeps both as
+        // expressions, as the `use` *statement* does, and the checker tells
+        // them apart.
+        let mut uses = Vec::new();
+        if self.at(&TokenKind::KwUse) {
+            self.bump();
+            loop {
+                uses.push(self.parse_expr()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        self.expect_word(
+            "capacity",
+            "a spawn states its mailbox bound: `spawn H(...) capacity 16 on pool(2)`",
+        )?;
+        let capacity = self.parse_expr()?;
+        self.expect_word(
+            "on",
+            "a spawn states where it runs: `on pool(2)` (`pool` is an ordinary function)",
+        )?;
+        let pool = self.parse_expr()?;
+        let span = start.to(pool.span());
+        Some(Expr::Spawn {
+            handler: Box::new(handler),
+            uses,
+            capacity: Box::new(capacity),
+            pool: Box::new(pool),
+            span,
+        })
+    }
+
+    /// [async-replyto] `replyto k(captures)` — mint a parked one-shot
+    /// continuation targeting member `k` of the enclosing handler, yielding
+    /// its linear `Reply<T>`. `replyto! k(captures)` is the gated mint: the
+    /// process serves nothing else until the answer arrives.
+    fn parse_replyto(&mut self) -> Option<Expr> {
+        let start = self.bump().span; // `replyto`
+        let gated = self.eat(&TokenKind::Bang).is_some();
+        let member = self.ident()?;
+        // The parentheses are part of the form even when there is nothing to
+        // capture — `replyto k()` reads as the continuation it is.
+        if !self.at(&TokenKind::LParen) {
+            let span = self.peek().span;
+            self.error(
+                "`replyto` names a member and its captures: `replyto k()`",
+                span,
+            );
+            return None;
+        }
+        let (captures, named, end) = self.parse_call_args()?;
+        if let Some(first) = named.first() {
+            self.error(
+                "a `replyto` takes the continuation's captures positionally",
+                first.span,
+            );
+        }
+        Some(Expr::ReplyTo {
+            member,
+            captures,
+            gated,
+            span: start.to(end),
+        })
+    }
+
+    /// [async-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge
+    /// into the asynchronous world. The binder's type is written out, since
+    /// nothing else in the block says what answer is being waited for.
+    fn parse_waitfor(&mut self) -> Option<Expr> {
+        let start = self.bump().span; // `waitfor`
+        let binding = self.ident()?;
+        self.expect(&TokenKind::Colon)?;
+        let ty = self.parse_type()?;
+        if !self.at(&TokenKind::LBrace) {
+            let span = self.peek().span;
+            self.error(
+                "`waitfor` takes a block that sends the token somewhere: \
+                 `waitfor out: Reply<Int> { p.total(out) }`",
+                span,
+            );
+            return None;
+        }
+        let body = self.parse_block()?;
+        let span = start.to(body.span);
+        Some(Expr::WaitFor {
+            binding,
+            ty,
+            body,
+            span,
+        })
     }
 
     fn parse_when(&mut self) -> Option<Expr> {

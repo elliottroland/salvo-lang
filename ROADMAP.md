@@ -51,8 +51,11 @@ drive), the collections (S-Col) and **the filesystem (S-IO, phase 4 —
 complete 2026-09-14, bytes and worked example included)**. What is left is
 below, grouped by theme; **"The sequence" is the order it will be done in**,
 and each themed section is tagged with the phase it belongs to. **Phase 5
-(threading) is next**, and it opens with a design pass: CONCURRENCY.md is the
-working document, and four questions have to be answered before code.
+(threading) is under way**: its design is settled (CONCURRENCY.md,
+SUPERVISION.md, LINEARITY_COLLECTIONS.md — the decision space is empty), the
+scheduler library is built, and the surface is landing in slices — the
+declaration and expression forms parse today. See "Threading and
+concurrency" for what remains.
 
 ## The sequence (user decision 2026-09-09)
 
@@ -172,10 +175,11 @@ below.) The design pass is **done** (user decisions 2026-09-14/15; see
 COMPLETED.md's decision log and CONCURRENCY.md): the direction is the effect
 surface itself — processes are effect handlers bound asynchronously, on a
 run-to-completion scheduler library — and the first pass's grammar is frozen.
-What remains before implementation: the **supervision/monitors design**
-(SUPERVISION.md; user-sequenced ahead of implementation), then the build.
-[fate-lambda] is deferred to the call-sugar pass — no first-pass form crosses
-a closure.
+Supervision, the last design prerequisite, is decided too (SUPERVISION.md),
+so **only the build remains, and it is under way**: the scheduler library and
+the surface's syntax are in; the types, the checker rules and the emitters
+are next. [fate-lambda] is deferred to the call-sugar pass — no first-pass
+form crosses a closure.
 
 **Not before then: `Cell`.** It exists to make shared mutable state
 expressible, and the OTP answer is that processes own their state and
@@ -1143,37 +1147,52 @@ sends/fulfils as silent no-ops plus the idle-with-parked-gates runtime
 report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
-**The implementation**, per the first-pass plan in CONCURRENCY.md.
-**Step one is built (2026-09-15): the scheduler library**, in both backends'
-runtime files — `crates/salvo-backend-rust/runtime/scheduler.rs` and
-`crates/salvo-backend-kotlin/runtime/scheduler.kt`, mirrored APIs, each
-compiled warning-free and *behaviour*-tested by four scenarios per backend
-with **identical expected output** (the parity assertion): bounded-queue
-back-pressure with a reply through the `waitfor` bridge, the gate deferring
-a user message until the awaited reply, a faulted activation reported to a
-`watch`er with sends-to-the-dead as no-ops, and the
-idle-with-parked-gates report exiting non-zero. No compiler cooperation was
-needed, so nothing was flagged. **Step two is under way — the surface, in
-slices.** Landed 2026-09-15: the *declaration* forms — `send fn` members of
-effects and handlers [async-send-fn] and the `[spawn]` capability in effect
-lists [async-spawn-effect], both **contextual** (nothing reserved: a field
-named `send` and a fn named `spawn` still parse, which `r.send(v)` needs),
-with `FnDecl.is_send`, `EffectRef::Spawn`, and two parser tests; `[spawn]`
-is accepted on fns and on handler dependency lists (a supervisor spawns) and
-refused on fn *types* like `use`. The first checker rules came with them: a
-`send fn` **answers nothing**, so a written return type is an error naming
-the shape that does carry an answer (`out: Reply<T>`, minted with `replyto`)
-— and, the collision worth knowing, a send member is *exempt* from
-[decl-explicit]'s "an effect member must declare its return type", since it
-has none to declare. Still to come in step two: the
-*expression* forms (`spawn H(args) use … capacity N on pool`, `replyto` /
-`replyto!`, `waitfor`, `use pid`, dot-call through a `Pid`), the `Pid<T>` /
-`Reply<T>` std types, the checker rules (a `send fn` answers nothing; the
-capability gate; token linearity), and the two emitters' process classes
-(message types + `handle`/`resume` dispatch onto the scheduler library).
-After step two: the LC collection surface
-(std's first customer), `watch`, the deadlock baseline. Spec rules (fresh
-labels) and the examples-file respelling land with that work.
+**The implementation**, per the first-pass plan in CONCURRENCY.md. **Step
+one (the scheduler library) and step two's first three slices — the
+declaration forms, the expression forms, then the types — are built**
+(2026-09-15; build records and what each cost in COMPLETED.md's decision
+log). Where that leaves the surface: `send fn` and `[spawn]` **check**;
+`Pid<E>`, `Reply<T>` and `Pool` are declared in `core.process` and usable in
+ordinary signatures; `spawn … capacity … on …`, `replyto`, `replyto!`,
+`waitfor` and `use pid` **parse**, and the checker refuses each with one
+diagnostic naming the form. Naming one of the three types in *emitted* code
+is refused as well, since no backend has a mapping for it yet, so nothing
+half-built can become output [backend-never-wrong]. The as-built rules are
+LANGUAGE_SPEC.md's "Asynchronous effect handlers" section ([async-process] …
+[async-use-pid]) plus [linear-opaque].
+
+**Still to come in step two, in order**:
+
+1. **The checker rules**: `replyto` resolves against the *enclosing
+   handler*'s members and types the token from the target member's payload
+   parameter; the `[spawn]` capability gate on a spawn site; `spawn`'s value
+   typed as `Pid<E>` for the handler's effect, with the `use` clause checked
+   for dependency exhaustiveness the way a `use` scope is; `waitfor` only in
+   `main`, binding its token as a linear local and taking its value from the
+   token's payload; the `use pid` binding and dot-call through a `Pid`;
+   sendability (C-4(a)'s structural rule) over everything that crosses.
+   **Delete the three pending-refusal tests** in `member_tests.rs` as each
+   form starts checking.
+   * **A send member still writes its deduction clause** (user decision
+     2026-09-15, on the question the syntax build surfaced): a bodiless
+     `send fn go(c: Config)` in an *effect* is rejected by [decl-explicit]
+     until it says `=> !c`, and that stays — even though a send payload
+     always crosses the seam, so consumption is the only sound reading and
+     implying it would cost nothing in soundness. Deferred rather than
+     denied: **revisit when the surface is real** and the clause is either
+     noise or documentation. (The return-type half of [decl-explicit] *was*
+     lifted for send members, because there a member has nothing to
+     declare; here it has something true to say.)
+2. **The two emitters' process classes** — message types + `handle`/`resume`
+   dispatch onto the scheduler library, and with them the three types'
+   backend mappings (`Pid`, `Reply`, `Pool` are deliberately unmapped until
+   the shape of a process class decides what they should be), with the parity
+   assertion the library's own tests already make.
+
+After step two: the LC collection surface (std's first customer — a handler's
+`waiting: Mut List<Reply<T>>` needs it), `watch`, the deadlock baseline, and
+the examples-file respelling (`capacity N` is required and
+CONCURRENCY_EXAMPLES.effects.md's spawns predate it).
 
 **Deferred out of the phase**: [fate-lambda] moves to the call-sugar pass —
 no first-pass form crosses a closure (spawn-`use` arguments, `replyto`

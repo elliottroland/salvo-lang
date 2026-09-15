@@ -26,6 +26,11 @@ const STD_PRELUDE: &str = concat!(
     // [col-literal] Arrays lost their literal syntax, so a test that wants
     // one builds it with the constructor.
     "intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
+    // [async-spawn-expr] Std's process handle, whose type argument is an
+    // *effect* — the one sanctioned exception to [effect-not-data], and the
+    // checker keys on this declaration to grant it.
+    "intrinsic type Pid<E>\n",
+    "intrinsic type List<T> canbe Mut\n",
 );
 
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
@@ -359,6 +364,43 @@ fn effect_types_are_rejected_in_data_positions() {
             "the diagnostic should point at `use`: {diag}"
         );
     }
+}
+
+/// [effect-not-data] [async-spawn-expr] The one exception (user decision
+/// 2026-09-15): `Pid<E>`'s type argument. A pid is a handle to a process, and
+/// the effect the process serves is what a holder may *do* with it — which is
+/// also what lets a process and a locally `use`d handler stand behind one
+/// name. Accepted in every ordinary data position, since a pid is an ordinary
+/// value.
+#[test]
+fn an_effect_is_legal_as_a_pid_type_argument() {
+    let cases = [
+        ("struct S {\n    c: Pid<Counter>\n}\n", "struct field"),
+        (
+            "fn f(c: Pid<Counter>) -> Int => c {\n    return 1\n}\n",
+            "parameter",
+        ),
+        (
+            "fn f(c: Pid<Counter>) -> Pid<Counter> => !c {\n    return c\n}\n",
+            "return type",
+        ),
+    ];
+    for (src, what) in cases {
+        let errs = effect_messages(src);
+        assert!(errs.is_empty(), "`Pid<Counter>` refused as a {what}: {errs:?}");
+    }
+}
+
+/// And the exception is *only* that: the effect is still refused as any other
+/// type argument, so nothing else was widened by granting it.
+#[test]
+fn the_pid_exception_does_not_extend_to_other_type_arguments() {
+    let errs = effect_messages("fn f(xs: List<Counter>) -> Int => xs {\n    return 1\n}\n");
+    assert!(
+        errs.iter()
+            .any(|m| m.starts_with("`Counter` is an effect, not a data type")),
+        "an effect inside a List must still be refused: {errs:?}"
+    );
 }
 
 /// [effect-not-data] The two positions that legitimately name an effect —
@@ -879,5 +921,83 @@ fn run(f: (Int) [spawn] -> Int) -> Int {
             .iter()
             .any(|m| m.contains("fn type cannot declare `spawn`")),
         "expected the fn-type spawn refusal, got: {errors:?}"
+    );
+}
+
+// ===== [async-spawn-expr] [async-replyto] [async-waitfor] The expression
+// forms: parsed, and refused until they are checked and emitted =====
+
+/// The three forms parse (the syntax slice landed) but nothing types or
+/// lowers them yet, so each is *refused* — one diagnostic naming the form.
+/// This is [backend-never-wrong] applied to a half-built feature: the
+/// alternative, checking clean and emitting nothing, is silently wrong code.
+/// These tests are the ones the next slice deletes.
+#[test]
+fn the_asynchronous_expression_forms_are_refused_for_now() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn bump(n: Int)
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+}
+
+fn main() [use, spawn] {
+    let counter = spawn Counting() capacity 16 on pool(2)
+}
+",
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("`spawn` parses") && m.contains("not implemented yet")),
+        "expected the pending-spawn refusal, got: {errors:?}"
+    );
+}
+
+#[test]
+fn a_replyto_is_refused_for_now() {
+    let errors = messages(
+        "\
+effect Counter {
+    send fn total(out: Reply<Int>)
+    send fn totalled(n: Int)
+}
+
+handler Counting() of Counter {
+    send fn total(out: Reply<Int>) {}
+
+    send fn totalled(n: Int) {
+        total(replyto! totalled())
+    }
+}
+",
+    );
+    assert!(
+        errors.iter().any(|m| m.contains("`replyto!` parses")),
+        "expected the pending-replyto refusal, got: {errors:?}"
+    );
+}
+
+#[test]
+fn a_waitfor_is_refused_for_now() {
+    let errors = messages(
+        "\
+fn main() [use, spawn] {
+    let n = waitfor out: Reply<Int> {
+        let unused = 1
+    }
+}
+",
+    );
+    assert!(
+        errors.iter().any(|m| m.contains("`waitfor` parses")),
+        "expected the pending-waitfor refusal, got: {errors:?}"
     );
 }

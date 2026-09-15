@@ -29,6 +29,7 @@ Module {
                     "chunk [fs-read-to].",
                 ],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "Bytes",
                     span: 1144..1149,

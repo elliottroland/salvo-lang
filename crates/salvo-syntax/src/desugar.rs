@@ -947,6 +947,31 @@ impl Rewrite {
                 LambdaBody::Block(block) => self.block(block),
             },
             Expr::Try { body, .. } => self.block(body),
+            // [async-spawn-expr] Every clause is an ordinary expression, so
+            // an `iter fn` subject read inside one rewrites like any other.
+            Expr::Spawn {
+                handler,
+                uses,
+                capacity,
+                pool,
+                ..
+            } => {
+                self.expr(handler);
+                for handler in uses {
+                    self.expr(handler);
+                }
+                self.expr(capacity);
+                self.expr(pool);
+            }
+            // [async-replyto] The captures are expressions; the member name
+            // is not one.
+            Expr::ReplyTo { captures, .. } => {
+                for capture in captures {
+                    self.expr(capture);
+                }
+            }
+            // [async-waitfor] An ordinary block.
+            Expr::WaitFor { body, .. } => self.block(body),
         }
     }
 }
@@ -1096,6 +1121,28 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::Try { body, .. } => walk_block(body, reserved, out),
+            // [async-spawn-expr] [async-replyto] [async-waitfor] The
+            // asynchronous forms hold ordinary expressions and blocks.
+            Expr::Spawn {
+                handler,
+                uses,
+                capacity,
+                pool,
+                ..
+            } => {
+                walk_expr(handler, reserved, out);
+                for handler in uses {
+                    walk_expr(handler, reserved, out);
+                }
+                walk_expr(capacity, reserved, out);
+                walk_expr(pool, reserved, out);
+            }
+            Expr::ReplyTo { captures, .. } => {
+                for capture in captures {
+                    walk_expr(capture, reserved, out);
+                }
+            }
+            Expr::WaitFor { body, .. } => walk_block(body, reserved, out),
             Expr::Call { callee, args, named, .. } => {
                 walk_expr(callee, reserved, out);
                 for arg in args {

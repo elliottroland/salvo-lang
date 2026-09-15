@@ -2424,6 +2424,18 @@ impl<'p> Emitter<'p> {
             }
             return format!("{kt}{args}");
         }
+        // [backend-intrinsic] [backend-never-wrong] An `intrinsic type` this
+        // backend has no mapping for cannot pass through: its Salvo name
+        // means nothing in Kotlin, so emitting it would hand kotlinc a
+        // dangling reference instead of reporting the gap here. (`Pid`,
+        // `Reply` and `Pool` are exactly this until the process classes
+        // land.)
+        if self.symbols.intrinsic_types.contains_key(name) {
+            self.error(format!(
+                "the `{name}` type is not supported by the kotlin backend yet"
+            ));
+            return format!("{name}{args}");
+        }
         // Structs, generics, effects, and unknown names pass through.
         format!("{name}{args}")
     }
@@ -4036,6 +4048,20 @@ impl<'p> Emitter<'p> {
                 self.emit_when_cond(branches, else_block, indent, true)
             }
             Expr::Error { .. } => "TODO()".to_string(),
+            // [async-spawn-expr] [async-replyto] [async-waitfor] Parsed, not
+            // yet lowered: the process classes that dispatch onto
+            // `scheduler.kt` are the next slice. A refusal, never output —
+            // [backend-never-wrong]. The checker refuses these first, so
+            // reaching here means emission ran on a program it had already
+            // rejected.
+            Expr::Spawn { .. } | Expr::ReplyTo { .. } | Expr::WaitFor { .. } => {
+                self.error(
+                    "asynchronous effect handlers are not emitted yet: \
+                     `spawn`, `replyto` and `waitfor` parse, but no process \
+                     class is generated for them",
+                );
+                "TODO()".to_string()
+            }
         }
     }
 
@@ -6374,6 +6400,28 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [try] The delimiter's body is ordinary code: a variable mutated
         // only inside it still needs the mutable declaration.
         Expr::Try { body, .. } => collect_mutated(body, out),
+        // [async-spawn-expr] [async-replyto] [async-waitfor] The clauses,
+        // captures and bridge block are ordinary code.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            collect_mutated_expr(handler, out);
+            for handler in uses {
+                collect_mutated_expr(handler, out);
+            }
+            collect_mutated_expr(capacity, out);
+            collect_mutated_expr(pool, out);
+        }
+        Expr::ReplyTo { captures, .. } => {
+            for capture in captures {
+                collect_mutated_expr(capture, out);
+            }
+        }
+        Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.
         // Listed rather than defaulted, because a missed form emits an
         // immutable declaration for a variable the code assigns and the

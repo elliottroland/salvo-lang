@@ -151,6 +151,14 @@ pub struct TypeDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
+    /// [linear-group] `linear intrinsic type Reply<T>` — the exactly-once
+    /// obligation on an **opaque** type (user decision 2026-09-15, taken for
+    /// the first linear type whose representation belongs to the backend: a
+    /// reply token is a scheduler handle, so there is nothing to make a
+    /// `linear struct` out of). The struct modifier's rules apply unchanged —
+    /// the declaring file must contain a discharger, and every value owes.
+    /// Only an `intrinsic type` may carry it, never an alias.
+    pub linear: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
@@ -909,6 +917,63 @@ pub enum Expr {
     Try { body: Block, span: Span },
     /// `...expr` — spread in call arguments or struct literals.
     Spread { operand: Box<Expr>, span: Span },
+    /// [async-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
+    /// capacity 16 on pool(2)` — bind a handler *asynchronously*: the
+    /// process. Read left to right: what to run, what it depends on, how
+    /// deep its queue is, where it runs. Its value is the child's `Pid`.
+    ///
+    /// `spawn` and the three clause words are **contextual** (the `iter fn`
+    /// precedent): the form is recognised from `spawn` followed by a name,
+    /// so a function called `spawn` keeps working.
+    Spawn {
+        /// The handler construction — a name plus its constructor
+        /// arguments, the shape `use` takes, because a handler is not a
+        /// value and only `use`/`spawn` may construct one.
+        handler: Box<Expr>,
+        /// The spawn-site `use` clause, empty when it is absent: handler
+        /// constructions *or* `Pid` values, supplying the child's declared
+        /// dependencies [effect-handler-deps]. Arguments evaluate in the
+        /// parent and cross the seam; construction happens on the child.
+        uses: Vec<Expr>,
+        /// `capacity N` — this instance's mailbox bound. Explicit and
+        /// required, with no default: it is a property of the instance, so
+        /// it sits at the spawn site rather than on the handler.
+        capacity: Box<Expr>,
+        /// `on POOL` — an ordinary expression. `pool(n)` is a function, not
+        /// syntax.
+        pool: Box<Expr>,
+        span: Span,
+    },
+    /// [async-replyto] `replyto batch_arrived(id)` — allocate a parked
+    /// one-shot continuation targeting a member of the *enclosing handler*,
+    /// yielding its linear `Reply<T>` [linear-obligation]. The arguments are
+    /// the continuation's *captures*: what the member needs besides the
+    /// answer it is waiting for.
+    ///
+    /// `replyto!` (`gated`) is the same mint plus the gate — bounded
+    /// selective receive, at most one outstanding per process — so the
+    /// process serves nothing else until the answer arrives.
+    ReplyTo {
+        member: Ident,
+        captures: Vec<Expr>,
+        /// Written `replyto!`: the gated mint.
+        gated: bool,
+        span: Span,
+    },
+    /// [async-waitfor] `waitfor out: Reply<Int> { counter.total(out) }` —
+    /// `main`'s explicit bridge into the asynchronous world, and `main`'s
+    /// only source of a token: mints one, requires the block to consume it
+    /// (ordinary linearity), blocks the real thread until it is sent to, and
+    /// yields what was sent. Legal only in `main`; the program still ends
+    /// when `main` returns.
+    WaitFor {
+        /// The token's name inside the block.
+        binding: Ident,
+        /// Its declared type, written out (`Reply<Int>`).
+        ty: Type,
+        body: Block,
+        span: Span,
+    },
     /// Placeholder produced on parse errors so parsing can continue.
     Error { span: Span },
 }
@@ -1028,6 +1093,9 @@ impl Expr {
             | Expr::For { span, .. }
             | Expr::Lambda { span, .. }
             | Expr::Try { span, .. }
+            | Expr::Spawn { span, .. }
+            | Expr::ReplyTo { span, .. }
+            | Expr::WaitFor { span, .. }
             | Expr::Spread { span, .. }
             | Expr::Error { span } => *span,
             Expr::Ident(ident) => ident.span,

@@ -13,6 +13,7 @@ Module {
                     "where mutability lives in the binding).",
                 ],
                 intrinsic: true,
+                linear: false,
                 name: Ident {
                     name: "List",
                     span: 274..278,

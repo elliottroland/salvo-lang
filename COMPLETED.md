@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 946 tests, complete: the toolchain tests are
+cargo test                  # 964 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,134 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5 step two, slice three: `core.process` and the linear opaque type
+(user decisions 2026-09-15, three calls presented and answered in one
+round).** The types the asynchronous forms produce and consume now exist:
+`Pid<E>`, `linear intrinsic type Reply<T>` with `send` beside it, and `Pool`
+with `pool(size)`. Tests: **964 (+5)**.
+
+**The three calls, each a rule that said "no" before.**
+
+1. **`Pid<E>`'s argument is an effect, and that is the one exception to
+   [effect-not-data]** (option (a) of three). A pid is a handle to a process,
+   and what a holder may *do* with it is exactly the effect the process
+   serves — which is also what lets a process and a locally `use`d handler
+   stand behind one name (the binding swap). Implemented as narrowly as it
+   was granted: the check lives in `validate_type`, which is the only walk
+   that knows what a type argument *belongs to*, and it fires only for std's
+   `Pid` in its only parameter position with a bare effect name in it.
+   `List<Counter>` is still refused, and so is `Counter` anywhere else — both
+   asserted.
+2. **`linear intrinsic type`** [linear-opaque], over a `linear struct`
+   wrapping an opaque field. A token is a scheduler handle, so its
+   representation belongs to the backend, and a wrapper struct would buy a
+   layer and nothing else; the user's own reason for wanting the modifier
+   rather than the wrapper is that unifying the synchronous and asynchronous
+   effect surfaces will want this control in the compiler's hands. It cost
+   less than expected because [linear-group]'s machinery is keyed on *names*,
+   not on struct declarations: `has_auto_linear`, `linear_capable` and
+   `discharge_set` each gained an opaque case (the last taking the declaring
+   file from `opaque_type_files`, new, mirroring `struct_files`), and
+   everything downstream — leaks, `discard`, moves, the diagnostics that name
+   the discharger — worked untouched.
+3. **The discharger is an `intrinsic fn` beside the declaration**:
+   `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
+   !value`. This makes "a `Reply` is a one-shot `Pid` with a single send
+   member" true in the type system, and the same-file rule then does the rest.
+   Note `!value`: the payload crosses the seam, so it is consumed, not kept —
+   the same reasoning that makes a send member's own clause `=> !c`.
+
+**A [backend-never-wrong] hole closed on the way, and it was not the new
+code's.** Naming an `intrinsic type` that a backend has no mapping for used
+to fall through to "emit the Salvo name verbatim" — only `Any` was refused,
+by name, in the Rust backend. So `fn hold(p: Pid<Counter>)` emitted
+`Pid<Counter>` and left kotlinc/rustc to report a dangling reference: wrong
+output, deferred to the target compiler, which is exactly what the invariant
+forbids. Both emitters now consult `symbols.intrinsic_types` and refuse with
+"the `Pid` type is not supported by the … backend yet". `Pid`, `Reply` and
+`Pool` are deliberately left unmapped: what they should map to is a
+consequence of the process classes' shape, and guessing now would be a
+commitment made in the wrong slice.
+
+**One process lesson, recorded because it nearly hid two failures.**
+Summing `cargo test`'s "test result:" lines with awk reported *0 failed*
+while two insta snapshots were in fact failing — a `FAILED.` line does not
+parse like an `ok.` line. `cargo nextest run`'s single summary line
+(`964 tests run: 964 passed`) is the number to trust. The snapshots
+themselves were the intended kind of churn: `TypeDecl` gained a `linear`
+field, so 14 dumps gained one `linear: false` line and nothing else.
+
+**Two calls closed on the way (user decisions 2026-09-15).** **`on POOL`
+stays required** — the frozen grammar's reading confirmed, so every spawn
+says where it runs and there is no ambient default pool. **A `send fn` still
+writes its deduction clause** — `send fn go(c: Config)` in an effect needs
+`=> !c` — deferred rather than denied: a send payload always crosses the
+seam, so implying consumption would be sound, but the clause stays until the
+surface is real enough to judge it noise or documentation. Both are in
+LANGUAGE_SPEC.md under [async-spawn-expr] and [async-send-fn].
+
+**Phase 5 step two, slices one and two: the asynchronous surface's syntax
+(2026-09-15).** The declaration forms, then the expression forms — both
+**contextual**, so phase 5 reserved *not one word*. What checks: `send fn`
+members of effects and handlers [async-send-fn] and `[spawn]` in effect lists
+[async-spawn-effect]. What parses and is then refused: `spawn H(args) use …
+capacity N on POOL` [async-spawn-expr], `replyto k(c)` / `replyto! k(c)`
+[async-replyto], `waitfor out: Reply<T> { … }` [async-waitfor], and `use pid`
+[async-use-pid] — the last needing no syntax at all, since the `use`
+statement already takes an expression. Tests: **959 (+13)** — 3 parser tests
+and 3 checker tests in this slice, on top of the declaration slice's 2 and 5.
+The rules are now written down: LANGUAGE_SPEC.md gained an "Asynchronous
+effect handlers" section ([async-process] … [async-use-pid]), which also
+closed the dangling-label bug the declaration slice left (two labels lived in
+code with no rule behind them). LANGUAGE.md is deliberately untouched until
+the feature runs.
+
+**The half-built form is refused on both sides, and that is the point.** A
+parsed-but-unimplemented form has two honest states and one dishonest one:
+the checker rejects it (honest), the emitter rejects it (honest), or it
+type-checks clean and emits nothing (silently wrong output — the class of bug
+[backend-never-wrong] exists to prevent). So `check_expr` answers each of the
+three forms with one diagnostic naming it, `Ty::Unknown` as its type so
+nothing cascades [type-unknown-lenient], and both emitters carry a refusal
+arm for the case where emission runs on an already-rejected program. The
+three checker tests asserting those refusals are written to be **deleted** by
+the slice that implements them, and ROADMAP.md says so.
+
+Five things worth keeping from the build:
+
+- **Contextual recognition needs a shape, not a word.** Each form is
+  recognised from its word *plus what follows*: `spawn` before a **name**
+  (`spawn(x)` is still a call), `replyto` before a member name or `!`,
+  `waitfor` before `name:`. That is what keeps `let spawn = 1`,
+  `fn replyto(n: Int)` and a field named `send` legal, and it is the `iter
+  fn` precedent applied five times over (`capacity` and `on` are ordinary
+  identifiers too).
+- **The clause keywords *are* the named arguments.** `capacity N` and
+  `on POOL` are required with no default, and the `use` clause is optional —
+  the reading the frozen grammar's brackets give. Making `spawn` a function
+  instead was rejected in the design round for two reasons that also
+  constrain the parser: Salvo has no named arguments, and a handler
+  construction is not a value.
+- **The handler construction is parsed, not checked.** `spawn H(args)` and
+  the `use` clause items are kept as expressions — the shape `Stmt::Use`
+  already keeps — and deliberately *not* type-checked in this slice: checking
+  `Counting()` as an expression would report the constructor as an
+  unresolved function, since handlers are not values. Only `capacity` and
+  `on` are checked, being ordinary expressions.
+- **Every exhaustive `Expr` match is a classification decision, and there
+  are nine.** `collect_assigned_expr`, `expr_mentions`, `expr_exits`,
+  `expr_returns` (core), `lends_of_expr`, the deduce walker, `expr_names`
+  (reach), `collect_mutated`/`collect_declared`/`block_terminates` (both
+  emitters) — each carries a comment saying why a wildcard arm would be a
+  wrong-code bug rather than a missing diagnostic, and each needed a real
+  answer for the new forms: the clauses are ordinary reads, a `waitfor`
+  binder is a declared name, none of the three diverges, and none yields a
+  view (nothing crossing a process boundary can borrow a local).
+- **A `waitfor` block is left unchecked on purpose.** Its whole content is
+  the token the binder introduces, and nothing types that binder yet, so
+  checking the block would report the token as an unresolved name *on top of*
+  the pending diagnostic — two errors for one unbuilt feature.
 
 **Phase 5 step one built: the scheduler library (2026-09-15).** The first
 piece of asynchronous effect handlers, and it needed **no compiler
@@ -10127,7 +10255,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 941)
+## Test inventory (all green: 964)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10217,7 +10345,7 @@ cache, with per-test timings.
   non-exiting `else`, and the negatives — a branch that falls through, a
   mixed `if`, and assignment resetting on the surviving path but not in
   the exiting branch)
-  + 16 member-resolution tests (`tests/member_tests.rs` [call-resolve]
+  + 24 member-resolution tests (`tests/member_tests.rs` [call-resolve]
   [field-resolve] [index-resolve] [iter-resolve]: unresolved bare and
   dot-calls rejected — the latter naming `external fn` as the remedy, both
   carrying import suggestions — calling a non-fn value and a generic
@@ -10241,7 +10369,15 @@ cache, with per-test timings.
   another interceptor — and a plain `use` shadowing an earlier registration
   with no dependency anywhere; and 2 handler-state tests [effect-handler]: a
   state field initializer checked against its declared type, a well-typed
-  one accepted)
+  one accepted; plus 2 [async-types] tests: `Pid<Counter>` accepted as a
+  field, a parameter and a return — the sanctioned effect-as-type-argument —
+  and `List<Counter>` still refused, so nothing else widened; plus 8
+  asynchronous-surface tests [async-send-fn]
+  [async-spawn-effect]: a `send fn` refused a return type on an effect and
+  on a handler, the legal no-return shape checking clean, `[spawn]` accepted
+  on a fn and a handler and refused on a fn type — and the three
+  **pending-refusal** tests for `spawn`/`replyto`/`waitfor`, written to be
+  deleted by the slice that implements them)
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
@@ -10404,7 +10540,7 @@ cache, with per-test timings.
   **driven-origin** rule — mutating one mid-loop refused (through a projection
   *and* through a `Mut` parameter), a transitively mutable origin mutated before
   and after its drives clean, and the refusal ending with its loop).
-- **22 linear-group tests** (`tests/linear_group_tests.rs` [linear-group]
+- **25 linear-group tests** (`tests/linear_group_tests.rs` [linear-group]
   [linear-discard] [linear-composite], roadmap R4: declaring
   `: Linear<self>` with its `close` clean and without one an error at the
   struct; `discard` refused for a linear value and still dropping a plain
@@ -10419,7 +10555,12 @@ cache, with per-test timings.
   [iter-generic-drive] release cases — a fn *owning* a possibly-linear pass and
   driving it without a `close` reported with the `?Linear<It>` remedy, the spread
   supplying it accepted, a pass the fn *keeps* needing nothing
-  [iter-drive-in-place], and a pass that never opted in needing nothing either).
+  [iter-drive-in-place], and a pass that never opted in needing nothing either;
+  plus 3 [linear-opaque] cases: a `linear intrinsic type` with no consuming fn
+  in its own file reported at the declaration, the same type with an
+  `intrinsic fn` discharger checking clean while a *dropped* value is still a
+  leak naming that discharger, and `linear` on an **alias** refused in the
+  parser).
 - **22 overload-resolution tests** (`tests/overload_tests.rs` [fn-overload]
   [fn-overload-scope] [fn-overload-rank] [fn-overload-ambiguous]
   [fn-overload-at] [fn-rename] [fn-overload-duplicate] [fn-value-select]:
@@ -10659,7 +10800,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 82 (three parser tests for the scope selector and
+- `salvo-syntax`: 87 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -10719,7 +10860,15 @@ cache, with per-test timings.
   condition chain parsing into `Expr::WhenCond` with its branches and
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
-  `else` in the subject form).
+  `else` in the subject form), and 5 asynchronous-surface tests
+  ([async-send-fn] [async-spawn-effect] [async-spawn-expr] [async-replyto]
+  [async-waitfor]: the declaration forms with a state field named `send`
+  beside them; the expression forms in one program covering every clause —
+  a spawn with and without a `use` clause, `replyto` and `replyto!` with
+  their captures, `waitfor`'s binder and written type, and `use pid` as a
+  plain `Stmt::Use` over a name; the two missing-clause parse errors; and
+  all five new words still usable as ordinary identifiers, since not one is
+  reserved).
 - `salvo-backend-kotlin`: 95 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
@@ -11088,6 +11237,41 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Trust nextest's summary line, not a hand-rolled count.** Summing
+  `cargo test`'s `test result:` lines with awk once reported "0 failed" while
+  two insta snapshots were failing, because a `test result: FAILED. 91
+  passed; 2 failed` line does not parse like an `ok.` one. `cargo nextest
+  run` prints one authoritative line (`964 tests run: 964 passed`), and it
+  is also the run that shows which test failed without scrolling
+  (2026-09-15).
+- **Adding a field to an AST node is a snapshot sweep.** `TypeDecl` gaining
+  `linear` changed 14 checked-in parser snapshots by exactly one
+  `linear: false` line each. Accept with `INSTA_UPDATE=always` *after*
+  reading a diff, then confirm the whole diff is only what you expected
+  (`git diff <snapshots> | grep '^[+-]' | sort | uniq -c` makes that one
+  glance).
+
+- **A new `Expr` variant is nine classification decisions, not one.** Adding
+  the asynchronous expression forms (2026-09-15) made the compiler stop
+  building in nine exhaustive matches, and each is deliberately exhaustive
+  because a wildcard there is a *wrong-code* bug rather than a missing
+  diagnostic: `collect_assigned_expr` (narrowing reset),
+  `expr_mentions` (same-call use-after-move), `expr_exits` / `expr_returns`
+  (must-return), `lends_of_expr` (what a value borrows), the deduce walker
+  (consuming calls), `expr_names` (unused-import/unused-fn census), and each
+  emitter's `collect_mutated` / `collect_declared` / `block_terminates`.
+  Answer them from the form's meaning — does it transfer control, can it
+  yield a view, can it declare a name — and let the build tell you where
+  they are; grepping for an existing simple variant (`Expr::Try`) finds the
+  same set.
+- **A half-built form must be refused on both sides.** A form that parses,
+  type-checks clean and emits nothing is exactly the failure
+  [backend-never-wrong] names. The pattern that worked: one checker
+  diagnostic naming the form with `Ty::Unknown` as its type, plus a refusal
+  arm in both emitters for the case where emission runs on an
+  already-rejected program — and tests asserting the refusals, written to be
+  deleted by the slice that implements the form (2026-09-15).
 
 - **A Kotlin `vararg` of an unsigned type is an experimental array.** The
   `SalvoBytes.of(vararg elems: UByte)` constructor compiled fine, and then

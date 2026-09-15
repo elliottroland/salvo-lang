@@ -250,6 +250,11 @@ pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
 pub const OK_QUALIFIER: &str = "Ok";
 /// The message arm of a `try` outcome, from `core.throw` [try].
 pub const THROWN_QUALIFIER: &str = "Thrown";
+/// [async-spawn-expr] The handle a `spawn` produces, from `core.process`:
+/// known by name to the compiler because its type argument is an **effect**,
+/// which is the one sanctioned exception to [effect-not-data] (user decision
+/// 2026-09-15).
+pub const PID_TYPE: &str = "Pid";
 
 /// One site that may throw [throw]: the `throw` operation itself, or a
 /// call to a fn declaring `[Throw<M>]` that propagates one.
@@ -1646,6 +1651,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(alias) = &t.alias {
                         self.validate_type(alias);
                     }
+                    // [linear-group] The opaque form of the legal-death
+                    // rule, checked where the modifier is written.
+                    self.check_linear_opaque(t);
                     self.generics = saved;
                 }
                 _ => {}
@@ -6754,6 +6762,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// function name is what [qual-*] keeps the compiler from doing.
     fn has_auto_linear(&self, name: &str) -> bool {
         self.scope.structs.get(name).is_some_and(|s| s.linear)
+            || self.opaque_linear(name)
+    }
+
+    /// [linear-group] The opaque half of the same rule: `linear intrinsic
+    /// type Reply<T>` (user decision 2026-09-15). Nothing else differs — a
+    /// linear opaque type owes exactly as a `linear struct` does, and its
+    /// discharge set is computed the same way; it simply has no fields for
+    /// linearity to reach through.
+    fn opaque_linear(&self, name: &str) -> bool {
+        self.scope.opaque_types.get(name).is_some_and(|t| t.linear)
     }
 
     /// [linear-generics] Whether values of this struct *can* owe: the
@@ -6763,6 +6781,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// whatever the instantiation, since a plain instantiation's discard
     /// is an ordinary drop.
     fn linear_capable(&self, name: &str) -> bool {
+        if self.opaque_linear(name) {
+            return true;
+        }
         self.scope.structs.get(name).is_some_and(|s| {
             s.linear
                 || s.generic_canbe.iter().any(|(id, q)| {
@@ -6824,10 +6845,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// since discharger status attaches to the *member declaration*
     /// [linear-discard].
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
-        let Some(decl) = self.scope.structs.get(type_name) else {
-            return Vec::new();
+        // The declaring file is what the rule keys on, and either
+        // declaration form can carry the obligation: a `linear struct` or a
+        // `linear intrinsic type` [linear-group].
+        let struct_file = match self.scope.structs.get(type_name) {
+            Some(_) => self.scope.struct_files.get(type_name).copied(),
+            None if self.opaque_linear(type_name) => {
+                self.scope.opaque_type_files.get(type_name).copied()
+            }
+            None => return Vec::new(),
         };
-        let struct_file = self.scope.struct_files.get(type_name).copied();
         let mut out: Vec<String> = Vec::new();
         for (fn_name, entries) in self.scope.fns.iter() {
             for e in entries {
@@ -6864,10 +6891,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        let _ = decl;
         out.sort();
         out.dedup();
         out
+    }
+
+    /// [linear-group] The declaration-site check for the *opaque* form,
+    /// mirroring `check_obligations`' struct half: a `linear intrinsic type`
+    /// must have a legal death in its own file. Reported at the name, with
+    /// the remedy spelled with an `intrinsic fn`, since an opaque type's
+    /// discharger cannot have a body either.
+    fn check_linear_opaque(&mut self, t: &'p ast::TypeDecl) {
+        if !t.linear || self.inferred.is_none() {
+            return;
+        }
+        if !self.discharge_set(&t.name.name).is_empty() {
+            return;
+        }
+        self.error(
+            t.name.span,
+            format!(
+                "linear intrinsic type `{0}` has no discharger: nothing in this \
+                 file consumes a `{0}` — no fn, and no member of an effect \
+                 declared here — so the obligation has no legal death; declare \
+                 one (e.g. `intrinsic fn send<T>(r: {0}<T>, value: T) [] -> None \
+                 => !r`)",
+                t.name.name
+            ),
+        );
     }
 
     /// [linear-group] The discharge context a handler member's body runs in:
@@ -7607,6 +7658,26 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the union of their message types (user decision 2026-09-04) — which
     /// is why the outcome is an ordinary union: `is`, `when` and
     /// exhaustiveness need no new rules.
+    /// [async-spawn-expr] [async-replyto] [async-waitfor] The asynchronous
+    /// expression forms parse, but the surface they need — `Pid<T>`,
+    /// `Reply<T>`, the `[spawn]` gate on the enclosing effect list, and the
+    /// tokens' linearity — is the next slice of phase 5. Until it lands, one
+    /// diagnostic per form, with `Unknown` as its type so nothing cascades
+    /// [type-unknown-lenient]. Both emitters refuse them too: a form that
+    /// checks clean and emits nothing would be silently wrong output
+    /// [backend-never-wrong].
+    fn pending_async(&mut self, form: &str, span: Span) -> Ty {
+        self.error(
+            span,
+            format!(
+                "`{form}` parses, but asynchronous effect handlers are not \
+                 implemented yet — nothing runs a process, so this cannot be \
+                 checked or emitted"
+            ),
+        );
+        Ty::Unknown
+    }
+
     fn check_try(&mut self, body: &'p Block, span: Span) -> Ty {
         let (Some(ok_qual), Some(thrown_qual)) = (
             self.core_qualifier(span, OK_QUALIFIER),
@@ -7747,6 +7818,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::For { .. }
             | Expr::Lambda { .. }
             | Expr::Try { .. }
+            // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
+            // value and none transfers control out of the enclosing block: a
+            // `spawn` yields a `Pid`, a `replyto` a token, and a `waitfor`
+            // yields what was sent to its token — whatever its block does.
+            | Expr::Spawn { .. }
+            | Expr::ReplyTo { .. }
+            | Expr::WaitFor { .. }
             | Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
@@ -7819,6 +7897,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::For { .. }
             | Expr::Lambda { .. }
             | Expr::Try { .. }
+            // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
+            // value and none transfers control out of the enclosing block: a
+            // `spawn` yields a `Pid`, a `replyto` a token, and a `waitfor`
+            // yields what was sent to its token — whatever its block does.
+            | Expr::Spawn { .. }
+            | Expr::ReplyTo { .. }
+            | Expr::WaitFor { .. }
             | Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::Bool { .. }
@@ -8861,11 +8946,40 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// would have to be a handler instance, which only `use` produces, and
     /// neither backend can render it (Rust emits a bare trait, `E0782`).
     ///
-    /// There is no exception anywhere: handler *dependencies* used to be
-    /// constructor parameters of effect type, and since 2026-09-14 they are
-    /// an effect list on the declaration (user decision), so an effect in a
-    /// data position is always this error.
-    /// ([effect-handler-deps]).
+    /// **One exception, sanctioned by decision** (user, 2026-09-15):
+    /// `Pid<E>`'s type argument [async-spawn-expr]. A pid is a handle to a
+    /// process, and what a holder may *do* with it is exactly the effect the
+    /// process serves — so the effect is what parameterizes the handle, and
+    /// that is what makes a process and a locally `use`d handler
+    /// interchangeable behind one name. The exception is one type argument of
+    /// one std type; a pid is still not a handler instance, and every other
+    /// data position stays refused (checked in `validate_type`, which knows
+    /// the enclosing type).
+    /// [async-spawn-expr] Whether this type argument is the effect argument
+    /// of a `Pid` — the one place an effect names something in a type
+    /// position. Deliberately narrow: the enclosing base must be std's
+    /// `Pid`, the position must be its only type parameter, and the argument
+    /// must be a bare name that a visible effect declares. Anything else
+    /// (`Pid<Int>`, a second argument, an effect elsewhere) goes down the
+    /// ordinary path and is validated — or refused — as before.
+    fn is_pid_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
+        if base.name.name != PID_TYPE || index != 0 || base.args.len() != 1 {
+            return false;
+        }
+        // Std's `Pid`, not a program's own type of that name.
+        if !self.scope.opaque_types.contains_key(PID_TYPE) {
+            return false;
+        }
+        match arg {
+            ast::Type::Named { qualifiers, base } => {
+                qualifiers.is_empty()
+                    && base.args.is_empty()
+                    && self.scope.effects.contains_key(base.name.name.as_str())
+            }
+            _ => false,
+        }
+    }
+
     fn reject_effect_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
         if self.generics.contains(name) || !self.scope.effects.contains_key(name) {
@@ -9068,7 +9182,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // elements, so they have to *have* one — the same bar the
                 // sorted containers apply to their keys.
                 self.check_sorted_list_claim(qualifiers, base);
-                for a in &base.args {
+                for (i, a) in base.args.iter().enumerate() {
+                    // [async-spawn-expr] `Pid<E>`'s argument is the *effect*
+                    // the process serves — the one sanctioned effect-in-a-
+                    // type-argument (user decision 2026-09-15). Validated
+                    // here rather than in `reject_effect_as_data`, because
+                    // only this walk knows what the argument belongs to.
+                    if self.is_pid_effect_arg(base, i, a) {
+                        continue;
+                    }
                     self.validate_type(a);
                 }
                 if !qualifiers.is_empty() {
@@ -9699,6 +9821,30 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => collect_assigned(body, out),
+        // [async-spawn-expr] Every clause is an ordinary expression, and an
+        // argument that crosses to the child may itself assign.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            collect_assigned_expr(handler, out);
+            for handler in uses {
+                collect_assigned_expr(handler, out);
+            }
+            collect_assigned_expr(capacity, out);
+            collect_assigned_expr(pool, out);
+        }
+        // [async-replyto] The captures are ordinary expressions.
+        Expr::ReplyTo { captures, .. } => {
+            for capture in captures {
+                collect_assigned_expr(capture, out);
+            }
+        }
+        // [async-waitfor] The bridge's block is ordinary code.
+        Expr::WaitFor { body, .. } => collect_assigned(body, out),
         // A lambda body's assignments happen when the value is called, and
         // the checker cannot see where that is: counted here, so a
         // narrowing an enclosing branch relied on is reset conservatively.
@@ -9902,6 +10048,25 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         // [try] The delimiter's body is ordinary code — a value mentioned
         // only inside it is still mentioned.
         Expr::Try { body, .. } => block_mentions(body),
+        // [async-spawn-expr] A spawn's clauses mention values the same way a
+        // call's arguments do — and a value sent to a child is consumed by
+        // it, so this must see through every clause.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            expr_mentions(handler, name)
+                || uses.iter().any(|h| expr_mentions(h, name))
+                || expr_mentions(capacity, name)
+                || expr_mentions(pool, name)
+        }
+        // [async-replyto] A capture is a value the continuation takes.
+        Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
+        // [async-waitfor] The bridge's block is ordinary code.
+        Expr::WaitFor { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
         // dot-notation receiver can mention anything.
         Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
@@ -11509,6 +11674,41 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
+            // [async-spawn-expr] [async-replyto] [async-waitfor] Phase 5's
+            // expression forms **parse** but are not checked or emitted yet
+            // (the `Pid<T>`/`Reply<T>` types, the capability gate and token
+            // linearity are the next slice). Refusing here is what keeps
+            // [backend-never-wrong] honest: a program using them gets one
+            // diagnostic naming the form, not silent acceptance followed by
+            // an emitter that has never heard of it.
+            Expr::Spawn {
+                capacity, pool, span, ..
+            } => {
+                // The two clauses that are ordinary expressions are checked,
+                // so an error inside one is reported now. The handler
+                // construction and the `use` clause are *not*: a handler is
+                // not a value, so checking them as expressions would report
+                // the constructor as an unresolved function.
+                self.check_expr(capacity, Some(&Ty::named("Int")));
+                self.check_expr(pool, None);
+                self.pending_async("spawn", *span)
+            }
+            Expr::ReplyTo {
+                captures,
+                gated,
+                span,
+                ..
+            } => {
+                for capture in captures {
+                    self.check_expr(capture, None);
+                }
+                self.pending_async(if *gated { "replyto!" } else { "replyto" }, *span)
+            }
+            // The block is left unchecked: its whole point is the token the
+            // binder introduces, and nothing types that binder yet, so
+            // checking it would report the token as an unresolved name on
+            // top of the diagnostic below.
+            Expr::WaitFor { span, .. } => self.pending_async("waitfor", *span),
             Expr::While {
                 cond,
                 body,

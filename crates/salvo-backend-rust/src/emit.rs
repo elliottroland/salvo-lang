@@ -3893,6 +3893,18 @@ impl<'p> Emitter<'p> {
             self.error("the `Any` type is not supported by the rust backend yet");
             return "()".to_string();
         }
+        // [backend-intrinsic] [backend-never-wrong] The general form of the
+        // same refusal: an `intrinsic type` without a mapping has no Rust
+        // spelling, so passing its Salvo name through would emit a dangling
+        // reference for rustc to trip over instead of reporting the gap
+        // here. (`Pid`, `Reply` and `Pool` are exactly this until the
+        // process structs land.)
+        if self.symbols.intrinsic_types.contains_key(name) {
+            self.error(format!(
+                "the `{name}` type is not supported by the rust backend yet"
+            ));
+            return format!("{}{args}", rs_ident(name));
+        }
         // Structs, generics, effects, and unknown names pass through.
         format!("{}{args}", rs_ident(name))
     }
@@ -6841,6 +6853,20 @@ impl<'p> Emitter<'p> {
                 self.emit_if_expr(branches, Some(else_block), indent)
             }
             Expr::Error { .. } => "todo!()".to_string(),
+            // [async-spawn-expr] [async-replyto] [async-waitfor] Parsed, not
+            // yet lowered: the process structs that dispatch onto
+            // `scheduler.rs` are the next slice. A refusal, never output —
+            // [backend-never-wrong]. The checker refuses these first, so
+            // reaching here means emission ran on a program it had already
+            // rejected.
+            Expr::Spawn { .. } | Expr::ReplyTo { .. } | Expr::WaitFor { .. } => {
+                self.error(
+                    "asynchronous effect handlers are not emitted yet: \
+                     `spawn`, `replyto` and `waitfor` parse, but no process \
+                     struct is generated for them",
+                );
+                "todo!()".to_string()
+            }
         }
     }
 
@@ -10807,6 +10833,28 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [try] The delimiter's body is ordinary code: a variable mutated
         // only inside it still needs the mutable declaration.
         Expr::Try { body, .. } => collect_mutated(body, out),
+        // [async-spawn-expr] [async-replyto] [async-waitfor] The clauses,
+        // captures and bridge block are ordinary code.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            collect_mutated_expr(handler, out);
+            for handler in uses {
+                collect_mutated_expr(handler, out);
+            }
+            collect_mutated_expr(capacity, out);
+            collect_mutated_expr(pool, out);
+        }
+        Expr::ReplyTo { captures, .. } => {
+            for capture in captures {
+                collect_mutated_expr(capture, out);
+            }
+        }
+        Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // [qual-widen] The check reads its subject.
         Expr::Widen { subject, .. } => collect_mutated_expr(subject, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.
@@ -11005,6 +11053,33 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [try] The delimiter's body is ordinary code and declares its own
         // locals.
         Expr::Try { body, .. } => collect_declared(body, out),
+        // [async-spawn-expr] [async-replyto] The clauses and captures are
+        // expressions, which may declare inside a nested body.
+        Expr::Spawn {
+            handler,
+            uses,
+            capacity,
+            pool,
+            ..
+        } => {
+            collect_declared_expr(handler, out);
+            for handler in uses {
+                collect_declared_expr(handler, out);
+            }
+            collect_declared_expr(capacity, out);
+            collect_declared_expr(pool, out);
+        }
+        Expr::ReplyTo { captures, .. } => {
+            for capture in captures {
+                collect_declared_expr(capture, out);
+            }
+        }
+        // [async-waitfor] The token binder is a declaration of its own, and
+        // the block declares like any other.
+        Expr::WaitFor { binding, body, .. } => {
+            out.insert(binding.name.clone());
+            collect_declared(body, out);
+        }
         // Leaves: nothing declared inside. Listed rather than defaulted so
         // a new binding form cannot escape the name census that keeps
         // generated locals from colliding with user names.
@@ -11091,6 +11166,11 @@ fn expr_terminates(expr: &Expr) -> bool {
         | Expr::For { .. }
         | Expr::Lambda { .. }
         | Expr::Try { .. }
+        // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
+        // value and none diverges: a `waitfor` blocks and then continues.
+        | Expr::Spawn { .. }
+        | Expr::ReplyTo { .. }
+        | Expr::WaitFor { .. }
         | Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::Bool { .. }
