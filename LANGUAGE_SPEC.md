@@ -27,9 +27,47 @@ Conventions:
 ## Types
 
 * [type-basic] Basic types: `Byte`, `Int`, `Long`, `Float`, `Double`,
-  `Bool`, `Char`, `None` (unit/no-value singleton), `Str`.
+  `Bool`, `Char`, `None` (unit/no-value singleton), `Str`, `Bytes`.
   * Declared as `intrinsic type` in `std/core/basic.sv` /
-    `std/core/string.sv`; each backend maps them natively.
+    `std/core/string.sv` / `std/core/bytes.sv`; each backend maps them
+    natively.
+* [byte-value] A `Byte` is an **unsigned octet** (0..255) on every backend:
+  `u8` on Rust, `UByte` on Kotlin ([kt-byte-unsigned]) — *not* the JVM's
+  signed `Byte`, which would render the same octet as `-1` where Rust
+  renders `255` [backend-parity].
+  * It is **not operator-numeric** [op-arith]: `to_int(b)` widens into
+    0..255 and `to_byte(n)` narrows keeping the low 8 bits (300 → 44,
+    -1 → 255, identically on both backends), so byte arithmetic is written
+    through `Int` and the wrapping is stated rather than implied.
+  * It interpolates natively (as an unsigned number) and compares with
+    `==` like any other primitive.
+  * The text bridge is `to_bytes(str) -> Bytes` (UTF-8) and
+    `str_of_bytes(data) -> Str?` (strict UTF-8: invalid bytes are `None`,
+    never a replacement character) [bytes-type].
+* [bytes-type] **`Bytes` is std's byte buffer** (`core.bytes`, user decision
+  2026-09-15), and the payload type of every byte-shaped API — *not*
+  `List<Byte>`, which boxed every octet on the JVM and carried a list's
+  surface rather than a buffer's.
+  * Two shapes, exactly `Str`/`Mut Str`: `Bytes` is read (`size`, `get`,
+    `slice`, `index_of`, `to_str`, `to_hex`, `str_of_bytes`, `iter`) and
+    `Mut Bytes` is built (`add`, `append`, `set`, `clear`), reaching the read
+    surface by **dropping `Mut`** — free on both backends here, unlike
+    `Mut Str` [str-drop-mut]. Constructors: `bytes_of(...)` (fixed) and
+    `mut_bytes(...)` (a builder, empty or over given parts), mirroring
+    `mut_str`/`mut_list_of` [col-literal].
+  * `slice` **copies**; nothing in the surface borrows, since a borrow would
+    have to be stated in a deduction [proj-field]. Out-of-range reads answer
+    `None` and `set` out of range does nothing (growing there would make it
+    an `add`).
+  * `==` is **structural** on both backends, and `copy` is a real copy — the
+    Kotlin buffer is one mutable object for both shapes [kt-bytes], so
+    identity would alias it.
+  * A buffer is **not hashable**: `Set<Bytes>`/`Map<Bytes, V>` are refused
+    [col-hashed-ordered], because a key that can be mutated under its map is
+    a bug no diagnostic would catch later.
+  * `for b in data` iterates the bytes natively on both backends
+    [iter-for-native]; `BytesYield` is the pass the combinators drive
+    [iter-protocol].
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed
   (`1_000L`).
@@ -881,10 +919,10 @@ Conventions:
   (promoted) operand type, qualifiers stripped. Refusals name their
   remedy: `Str + Str` points at `${}` interpolation, mixed classes at the
   conversions [op-convert].
-  * `Byte` is deliberately not operator-numeric yet: it lowers signed on
-    the JVM and unsigned on Rust today, so its arithmetic could not agree
-    — it joins with the byte surface and the `UByte` lowering
-    (FILE_SYSTEM.md).
+  * `Byte` is deliberately **not** operator-numeric [byte-value]: it is an
+    octet, not a number, and its arithmetic goes through `to_int`/`to_byte`
+    — one call each way, which also states the wrapping instead of implying
+    it.
   * `Int / Int` is integer division on both backends.
   * An unconstrained generic operand stays lenient like `Unknown` — a
     documented leftover matching the equality slice, not a rule.
@@ -2094,8 +2132,9 @@ Conventions:
   over a droppable `FsErrorKind` union (8 arms), the linear stream tokens
   `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
   *and* stream operations as members [effect-member-overload]), the `Lines`
-  pass, and the one-shots (`read_to_str`, `read_lines`, `write_str`,
-  `open_lines`). Application code declares `[Fs]` and nothing else.
+  pass, the `Chunks` pass, and the one-shots (`read_to_str`, `read_lines`,
+  `write_str`, `open_lines`, `read_to_bytes`, `write_bytes_to`, `copy_stream`,
+  `copy_file`). Application code declares `[Fs]` and nothing else.
   * Fallible members return `Ok T | Err FsError`: an effect member may
     declare no effects, so there is no `[Throw]` here
     [effect-member-no-effects]. The `Err` arm is linear, so a result that
@@ -2121,6 +2160,44 @@ Conventions:
   of the stream either way, and `write` returns only the byte count, so a
   loop never narrows a result per line. `close` on both token types returns
   `Ok None | Err FsError`, so dropping it on the floor does not compile.
+* [fs-bytes] Bytes are part of the v1 surface: `read_bytes(s, max) ->
+  Ok List<Byte> | Err FsError` answers **up to** `max` bytes (fewer means
+  the stream ended, none means it had ended already) and
+  `write_bytes(s, data) -> Long` writes them, neither encoding nor decoding
+  anything — a file that is not text is read and written by the same effect.
+  * **One stream, one position, counted in bytes**: text and byte
+    operations interleave on a stream, so a `read_all` continues exactly
+    where a `read_bytes` stopped. This is why the host handlers buffer
+    *bytes* below the decoder (`std/platform/core/hostfs.{kt,rs}`) rather
+    than reusing a character-counting reader.
+  * A ranged open that lands mid-codepoint is a **legal seek** — an offset
+    is bytes, and bytes have no characters. The strict decode afterwards is
+    what fails (`Err InvalidUtf8`), and the failure is recorded, so `close`
+    reports it a second time [fs-errors-at-close].
+  * The payload type is **`Bytes`** [bytes-type] — `Vec<u8>` on Rust, the
+    shipped buffer class on Kotlin [kt-bytes].
+* [fs-read-to] Every read has a **fill-a-buffer** form, for the loop where a
+  payload per step is the cost (user decision 2026-09-15): `read_to(s, buf:
+  Mut Bytes, max) -> Ok Int | Err FsError`, `read_to(s, buf: Mut Str) ->
+  Ok Long | Err FsError` (the `read_all` parallel), and `read_line_to(s, buf:
+  Mut Str) -> Bool` (the `read_line` parallel — `false` for end-of-stream or a
+  recorded failure, exactly as `read_line` answers `None`). One name for the
+  two `read_to`s: the **buffer's type** picks the overload
+  [effect-member-overload].
+  * They **append**, never overwrite, so `size(buf)` is the data and no
+    "only the first n are meaningful" convention exists; `clear(buf)` between
+    steps is what makes one buffer serve a loop. It is also what lets `MemFs`
+    implement them with `append` alone [fs-double].
+  * `RawFs`'s mirror splits the names (`raw_read_to_bytes`,
+    `raw_read_to_str`, `raw_read_line_to_str`) rather than overloading: the
+    host file is *hand-written*, and an overload set would make it implement
+    mangled names [fs-host-split].
+  * Riding along: `chunks(s, size)`/`open_chunks` — a pass over a stream's
+    bytes as `Lines` is over its lines, **a fresh buffer per step** (a pass
+    recycling its own would overwrite what the caller holds) — and the
+    one-shots that keep the buffer inside std: `copy_stream(s, w)`,
+    `copy_file(from, to)`, `read_to_bytes(path)`,
+    `write_bytes_to(path, data)`, `fill_from(s, buf)`.
 * [fs-host-split] The host-backed filesystem is a **separate module**,
   `core.hostfs`: `effect RawFs` (plain `Long` handles, droppable kinds),
   `platform handler HostRawFs of RawFs` (std ships
@@ -2148,13 +2225,15 @@ Conventions:
     exactly while something under it does. `create_dirs` therefore succeeds
     without doing anything, `list_dir` answers the immediate child names, and
     deleting a non-empty directory is the `IoError` the host reports.
-  * **Byte offsets are counted in bytes**, as on the host: `MemFs` slices its
-    content by characters but converts through `byte_size`
-    [str-byte-size], so `position` and `open_read_at` agree with a real
-    filesystem to the byte. A ranged open landing *between* the bytes of a
-    character is `Err InvalidUtf8`, which is the host's strict-decode failure
-    reported the same way. This is the hazard the type exists to get right: a
-    fake counting characters would let unit tests pass while production broke.
+  * **A file is bytes, and every offset counts bytes**, as on the host:
+    `MemFs` stores `List<Byte>` and its read cursor *is* a byte offset, so
+    `position` and `open_read_at` agree with a real filesystem by
+    construction rather than by conversion. Text reads decode strictly off
+    those bytes, a decode failure is recorded and reported by `close`, and a
+    ranged open landing mid-codepoint succeeds exactly as the host's seek
+    does [fs-bytes]. This is the hazard the type exists to get right: a fake
+    that stored text and counted characters would let unit tests pass while
+    production broke.
 * [fs-restricted] `core.restrictedfs` ships **`RestrictedFs(root: Str) [Fs]
   of Fs`**: an *interceptor* [effect-intercept], so it wraps whichever
   filesystem is already registered — the host's in production, a `MemFs` in a
@@ -2176,7 +2255,6 @@ Conventions:
     wraps, which is where the token goes back to.
 * [fs-v1-cuts] Not in v1, and each an error rather than a surprise: seek
   (a ranged `open_read_at` replaces it, so streams stay forward-only),
-  byte payloads (`read_bytes`/`write_bytes` are the next deliverable),
   recursive walk or delete, temp files, watching, permissions, symlink
   creation, and stdin (Console's, not Fs's). `rename_path` is spelled with
   the suffix because `rename` is a keyword [fn-rename].

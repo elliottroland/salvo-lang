@@ -6,6 +6,7 @@ expression: combined
 package salvo.core.array
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
@@ -27,6 +28,35 @@ fun<T> next(p: ArrayYield<T>): Union2<T, Finished> {
     }
     p.at = p.at + 1
     return U2_1<T, Finished>(emitted(elem))
+}
+
+// ===== core/bytes.kt =====
+package salvo.core.bytes
+
+import salvo.*
+import salvo.core.array.*
+import salvo.core.iterator.*
+import salvo.core.list.*
+import salvo.core.map.*
+import salvo.core.sorted.*
+import salvo.core.string.*
+
+fun iter__2(data: salvo.SalvoBytes): BytesYield {
+    return BytesYield(data = data, at = 0)
+}
+
+data class BytesYield(
+    var data: salvo.SalvoBytes,
+    var at: Int,
+)
+
+fun next__2(p: BytesYield): Union2<UByte, Finished> {
+    val b = p.data.getOrNull(p.at)
+    if (b == null) {
+        return U2_2<UByte, Finished>(finished())
+    }
+    p.at = p.at + 1
+    return U2_1<UByte, Finished>(emitted(b))
 }
 
 // ===== core/console.kt =====
@@ -67,6 +97,7 @@ package salvo.core.list
 
 import salvo.*
 import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
@@ -86,7 +117,7 @@ fun<T> first(list: List<T>): T {
     return list.getOrNull(0)!!
 }
 
-fun<T> iter__2(list: List<T>): ListYield<T> {
+fun<T> iter__3(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)
 }
 
@@ -95,7 +126,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -115,7 +146,7 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<K, V> iter__3(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -124,7 +155,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__4(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__6(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())
@@ -137,6 +168,7 @@ fun<K> next__4(p: MapKeyYield<K>): Union2<K, Finished> {
 package salvo.core.nonempty
 
 import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.seq.*
@@ -191,6 +223,7 @@ fun<T> err(value: T): T {
 package salvo.core.seq
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.set.*
@@ -265,13 +298,14 @@ fun<T> drop(value: T) {
 package salvo.core.set
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.nonempty.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<T> iter__4(set: Set<T>): SetYield<T> {
+fun<T> iter__5(set: Set<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
@@ -280,7 +314,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__5(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__7(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -292,17 +326,18 @@ fun<T> next__5(p: SetYield<T>): Union2<T, Finished> {
 // ===== core/sorted.kt =====
 package salvo.core.sorted
 
+import salvo.core.bytes.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.string.*
 
-fun<T> iter__5(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__6(set: java.util.SortedSet<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
-fun<K, V> iter__6(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__7(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -313,7 +348,7 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun iter__7(str: String): StrYield {
+fun iter__8(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -322,7 +357,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__6(p: StrYield): Union2<Char, Finished> {
+fun next__8(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -401,3 +436,199 @@ sealed interface Union3<out T1, out T2, out T3> {
 data class U3_1<out T1, out T2, out T3>(override val value: T1) : Union3<T1, T2, T3>
 data class U3_2<out T1, out T2, out T3>(override val value: T2) : Union3<T1, T2, T3>
 data class U3_3<out T1, out T2, out T3>(override val value: T3) : Union3<T1, T2, T3>
+
+// ===== bytes.kt =====
+// Generated by the Salvo compiler: the `Bytes` buffer.
+package salvo
+
+/**
+ * [kt-bytes] Salvo's `Bytes` and `Mut Bytes`, both of them: one class with
+ * mutating methods, immutability enforced by the Salvo checker rather than by
+ * the JVM type — the shape `SortedSet`/`SortedMap` already use, where `Mut`
+ * needs no different type and dropping it renders nothing [str-drop-mut].
+ *
+ * Why a class at all, rather than `List<UByte>` or `UByteArray`:
+ *
+ *  * `List<UByte>` boxes every element (a value class has no box cache, so
+ *    each byte is a fresh object) — the cost the `Bytes` type exists to
+ *    remove.
+ *  * `UByteArray` is fixed-size and, worse, is not a `List<T>`, so it cannot
+ *    be passed to anything generic on an erased-generics backend. A buffer
+ *    has to grow, so neither of the stdlib shapes fits.
+ *
+ * The storage is therefore a plain `ByteArray` plus a length, which is what a
+ * growable byte buffer is on the JVM; the unsigned reading is applied at the
+ * boundary, since Salvo's `Byte` is a `UByte` here [kt-byte-unsigned].
+ *
+ * `equals`/`hashCode` are **structural**, so `==` on two buffers means the
+ * same thing it means on Rust's `Vec<u8>` [backend-parity] — the reason this
+ * is a class and not a raw array, which would have compared by identity.
+ */
+class SalvoBytes {
+    private var buf: ByteArray
+    private var len: Int
+
+    constructor() {
+        buf = ByteArray(16)
+        len = 0
+    }
+
+    /** A copy: `copy(bytes)` must not alias, since the buffer can be written. */
+    constructor(other: SalvoBytes) {
+        buf = other.buf.copyOf(other.len)
+        len = other.len
+    }
+
+    /** Takes ownership of `bytes` — used by the host filesystem and by decoding. */
+    constructor(bytes: ByteArray) {
+        buf = bytes
+        len = bytes.size
+    }
+
+    val size: Int get() = len
+
+    fun getOrNull(index: Int): UByte? =
+        if (index >= 0 && index < len) buf[index].toUByte() else null
+
+    /** Out of range does nothing: growing here would make a `set` an `add`. */
+    fun setAt(index: Int, byte: UByte) {
+        if (index >= 0 && index < len) buf[index] = byte.toByte()
+    }
+
+    fun add(byte: UByte) {
+        ensure(len + 1)
+        buf[len] = byte.toByte()
+        len += 1
+    }
+
+    fun append(more: SalvoBytes) {
+        ensure(len + more.len)
+        System.arraycopy(more.buf, 0, buf, len, more.len)
+        len += more.len
+    }
+
+    /** The host's fill: appends `count` bytes of `bytes`, answering how many. */
+    fun appendArray(bytes: ByteArray, count: Int) {
+        ensure(len + count)
+        System.arraycopy(bytes, 0, buf, len, count)
+        len += count
+    }
+
+    /** Keeps the room it had, which is what makes a buffer reusable. */
+    fun clear() {
+        len = 0
+    }
+
+    fun slice(start: Int, end: Int): SalvoBytes? =
+        if (start >= 0 && end >= start && end <= len) SalvoBytes(buf.copyOfRange(start, end))
+        else null
+
+    fun indexOf(byte: UByte): Int? {
+        val b = byte.toByte()
+        for (i in 0 until len) {
+            if (buf[i] == b) return i
+        }
+        return null
+    }
+
+    /** A defensive copy: the caller may keep it while this buffer moves on. */
+    fun toByteArray(): ByteArray = buf.copyOf(len)
+
+    /** Strict UTF-8: a malformed byte is `null`, never a replacement char. */
+    fun asString(): String? =
+        try {
+            java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(buf, 0, len))
+                .toString()
+        } catch (e: java.nio.charset.CharacterCodingException) {
+            null
+        }
+
+    fun toHex(): String {
+        val out = StringBuilder(len * 2)
+        for (i in 0 until len) {
+            val v = buf[i].toInt() and 0xFF
+            out.append("0123456789abcdef"[v ushr 4])
+            out.append("0123456789abcdef"[v and 0xF])
+        }
+        return out.toString()
+    }
+
+    /** `[0, 255, 200]` — the text a `List<Byte>` printed, kept deliberately. */
+    override fun toString(): String {
+        val out = StringBuilder()
+        out.append("[")
+        for (i in 0 until len) {
+            if (i > 0) out.append(", ")
+            out.append(buf[i].toInt() and 0xFF)
+        }
+        out.append("]")
+        return out.toString()
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (other !is SalvoBytes) return false
+        if (len != other.len) return false
+        for (i in 0 until len) {
+            if (buf[i] != other.buf[i]) return false
+        }
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var h = 1
+        for (i in 0 until len) {
+            h = 31 * h + buf[i].toInt()
+        }
+        return h
+    }
+
+    /**
+     * Native `for` support: `for b in data` is Kotlin's own loop
+     * [kt-iter-native], as it is for a list or a string, so iterating a buffer
+     * allocates no pass. The `BytesYield` pass in `core.bytes` is still what
+     * the combinators (`map`, `filter`, `reduce`) drive.
+     */
+    operator fun iterator(): Iterator<UByte> = object : Iterator<UByte> {
+        private var at = 0
+        override fun hasNext(): Boolean = at < len
+        override fun next(): UByte {
+            val b = buf[at].toUByte()
+            at += 1
+            return b
+        }
+    }
+
+    private fun ensure(need: Int) {
+        if (need <= buf.size) return
+        var cap = if (buf.size < 16) 16 else buf.size
+        while (cap < need) cap *= 2
+        buf = buf.copyOf(cap)
+    }
+
+    companion object {
+        /**
+         * An `Array<UByte>` rather than a `vararg UByte`: a vararg of an
+         * unsigned type *is* a `UByteArray` under the hood, and that type
+         * still needs an `@ExperimentalUnsignedTypes` opt-in — at the call
+         * site, i.e. in generated code. A boxed array costs one allocation in
+         * a constructor and needs no opt-in anywhere.
+         */
+        fun of(elems: Array<UByte>): SalvoBytes {
+            val out = SalvoBytes()
+            for (e in elems) out.add(e)
+            return out
+        }
+
+        fun joined(vararg parts: SalvoBytes): SalvoBytes {
+            val out = SalvoBytes()
+            for (p in parts) out.append(p)
+            return out
+        }
+
+        fun ofUtf8(text: String): SalvoBytes =
+            SalvoBytes(text.toByteArray(Charsets.UTF_8))
+    }
+}

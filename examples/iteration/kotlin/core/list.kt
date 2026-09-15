@@ -2,6 +2,7 @@ package salvo.core.list
 
 import salvo.*
 import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
@@ -21,7 +22,7 @@ fun<T> first(list: List<T>): T {
     return list.getOrNull(0)!!
 }
 
-fun<T> iter__2(list: List<T>): ListYield<T> {
+fun<T> iter__3(list: List<T>): ListYield<T> {
     return ListYield(items = list, at = 0)
 }
 
@@ -30,7 +31,7 @@ data class ListYield<T>(
     var at: Int,
 )
 
-fun<T> next__2(p: ListYield<T>): Union2<T, Finished> {
+fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())

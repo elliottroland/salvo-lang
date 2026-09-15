@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 931 tests, complete: the toolchain tests are
+cargo test                  # 941 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,6 +122,174 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Bytes`, `read_to` and the copy one-shots — the last of phase 4
+(user decision 2026-09-15, built the same day).** The previous entry left one
+question open (Kotlin boxes a `List<Byte>` payload and cannot render
+`UByteArray` instead) and the user answered it with the largest of the three
+options: **a `Bytes` type of std's own**, plus the **fill-a-buffer reads** they
+had asked for and the ergonomic layer over them. Naming was theirs too:
+`read_to`, following `read_to_str`, with the *parameter type* picking the
+overload.
+
+**`core.bytes`** [bytes-type]: `intrinsic type Bytes canbe Mut`, and the pair
+is exactly `Str`/`Mut Str` — `Bytes` is read (`size`, `get`, `slice`,
+`index_of`, `to_str`, `to_hex`, `str_of_bytes`, `for b in data`), `Mut Bytes`
+is built (`add`, `append`, `set`, `clear`), and dropping the `Mut` reaches the
+read surface. Constructors `bytes_of(...)`/`mut_bytes(...)` mirror
+`mut_str`/`mut_list_of`. `slice` copies (nothing in the surface borrows without
+saying so), out-of-range reads answer `None`, `set` out of range does nothing,
+`==` is structural, `copy` really copies, and a buffer is deliberately **not
+hashable** — the Kotlin buffer is one mutable object, and a key that can change
+under its map is a bug no later diagnostic would catch. `to_bytes` and
+`str_of_bytes` moved here from `core.string`.
+
+**The fill-a-buffer reads** [fs-read-to]: `read_to(s, buf: Mut Bytes, max) ->
+Ok Int`, `read_to(s, buf: Mut Str) -> Ok Long` (the `read_all` parallel) and
+`read_line_to(s, buf: Mut Str) -> Bool` (the `read_line` parallel — `false`
+where `read_line` answers `None`). They **append** rather than overwrite, which
+is the decision that carries the design: `size(buf)` is then the data, so there
+is no "only the first n bytes are meaningful" convention, writing a chunk back
+is `write_bytes(w, buf)` with no ranged write, and `MemFs` can implement all
+three with `append` alone. `clear(buf)` between steps is what makes one buffer
+serve a loop. On Rust that is genuinely allocation-free after warmup (the `Vec`
+keeps its room); on Kotlin it saves the payload object per step, and — now that
+the payload is a `Bytes` rather than a `List<UByte>` — the per-byte box as well.
+
+**The ergonomics on top** (option D of the four presented): `chunks(s, size)` /
+`open_chunks` — a pass over a stream's bytes as `Lines` is over its lines, with
+a **fresh** buffer per step, since a pass recycling its own would overwrite what
+the caller is still holding — and the one-shots that keep the buffer inside std:
+`copy_file`, `copy_stream`, `read_to_bytes`, `write_bytes_to`, `fill_from`.
+
+**What it took.** `Bytes` is `Vec<u8>` on Rust for both shapes, so that backend
+needed a type mapping and a dozen lowerings and nothing else. Kotlin needed a
+**shipped runtime class** [kt-bytes]: `runtime/bytes.kt`'s `SalvoBytes`, emitted
+as `bytes.kt` whenever a program names the type (the `compare.kt` mechanism),
+because neither stdlib shape works — `List<UByte>` boxes and `UByteArray` is
+fixed-size *and* not a `List<T>`. One class serves `Bytes` and `Mut Bytes`, the
+`SortedSet` shape rather than the `StringBuilder` one, so dropping `Mut` renders
+nothing; it carries structural `equals`/`hashCode` (which is what makes `==`
+agree with `Vec<u8>`), an `iterator()` so `for b in data` stays Kotlin's own
+loop, `asString()`, `toHex()` and a `toString()` that prints `[0, 255, 200]` —
+the text a `List<Byte>` printed, kept on purpose so no program's output changed
+when the payload type did.
+
+**Two things the build taught us.** A `vararg UByte` parameter *is* a
+`UByteArray` under the hood, so the first version of the constructor made every
+generated call site warn about `@ExperimentalUnsignedTypes`; it takes an
+`Array<UByte>` now. And `MemFs` met the recorded self-dispatch gap again: a
+handler member may not call a member of its own effect, so each `read_to` could
+not call its returning sibling — the three reads moved into module functions
+(`mem_read_line`, `mem_read_all`, `mem_read_bytes`) that both the plain and the
+filling members call. That is the second time the documented workaround held,
+and it is still the reason the DECISION stays unscheduled.
+
+Tests: **941 passing** (from 932), fresh. New: `crates/salvo-core/tests/bytes_tests.rs`
+(5 checker tests — the read surface through a dropped `Mut`, writing a plain
+buffer refused, the optional reads, `Byte` not operator-numeric, a buffer
+refused as a map key), a `BYTES_PROGRAM` compile-and-run case per backend over
+the whole surface plus one structural test each (`Vec<u8>` and no class on Rust;
+one class for both shapes, and the native byte loop, on Kotlin), the fs and
+memfs programs extended with `read_to`, the chunk pass, `read_line_to`,
+`copy_file` and `read_to_bytes` — printing identically for the host and the fake
+— and `snapshot_std_bytes` in the parser corpus. Churn worth knowing about: std
+now declares four `close` overloads (the `Chunks` discharger) and two more
+`iter`/`next` pairs, so mangled-name assertions moved (`close__2` → `close__3`,
+`next__9` → `next__11`).
+
+`examples/files/` grew steps 5–9 around the new surface and still prints its two
+blocks — disk and `MemFs` — identically. Rules: LANGUAGE_SPEC.md gained
+[bytes-type] and [fs-read-to] ([fs-bytes], [fs-surface] and [type-basic]
+rewritten around them); BACKEND_SPEC.kotlin.md gained [kt-bytes];
+BACKEND_SPEC.rust.md's [type-basic] states the `Vec<u8>` mapping; LANGUAGE.md
+carries the type in its basic-types list and the new reads in "Files".
+
+**Bytes, and the worked example — phase 4 is complete (2026-09-14).** The
+last two items of the filesystem: the byte payload deliverable (§5.10.2 E of
+the retired FILE_SYSTEM.md) and `examples/files/`. With them, **phase 4 of
+the sequence is done** and FILE_SYSTEM.md is deleted, its decided outcomes
+having moved into LANGUAGE.md / LANGUAGE_SPEC.md and this log. Its `FS-`/`O-`
+labels and `§`-references survive in code comments and test docs as the
+attribution of a user decision; they now read against **this log**, exactly as
+OBLIGATIONS.md's did after phase 3.
+
+**What the byte surface is.** `read_bytes(s, max) -> Ok List<Byte> | Err
+FsError` and `write_bytes(s, data) -> Long` on `Fs` (mirrored as
+`raw_read_bytes`/`raw_write_bytes` on `RawFs`, implemented in both host
+files, delegated by `DefaultFs`, passed through by `RestrictedFs`, faked by
+`MemFs`) [fs-bytes]. Nothing is encoded or decoded: text and byte operations
+share one stream and one position, both counted in bytes, so a `read_all`
+continues exactly where a three-byte `read_bytes` stopped — which is only
+possible because both host handlers already buffer *bytes* below the decoder.
+Four std conversions came with it, and they are the whole of `Byte`'s
+surface: `to_byte(Int)`/`to_int(Byte)` and `to_bytes(Str)`/`str_of_bytes(List<Byte>) -> Str?`
+(strict UTF-8, `None` on invalid bytes) [byte-value].
+
+**`Byte` is now unsigned on both backends** ([kt-byte-unsigned]) — the other
+half of the decided deliverable, and a parity fix rather than a
+beautification: `Byte` mapped to the JVM's *signed* `Byte`, so the same octet
+printed `-1` on Kotlin where Rust's `u8` printed `255`. It maps to `UByte`
+now, which interpolates and compares unsigned, and LANGUAGE.md's claim that
+Salvo's unsigned `Byte` "is `Byte` in Kotlin" was a spec bug, fixed with it.
+
+**What the deliverable could *not* deliver, and why (a DECISION is now open).**
+The second half was to be a specialized `UByteArray`/`Vec<u8>` payload
+rendering. Rust needs nothing: `List<Byte>` *is* `Vec<u8>`, unboxed. Kotlin
+**cannot have it as a rendering**: a `UByteArray` is not a `List<T>`, so it
+cannot reach std's generic list surface on an erased-generics backend —
+verified with kotlinc 2.4, which answers `argument type mismatch: actual type
+is 'UByteArray', but 'List<T>' was expected` for `sizeOf(ubyteArrayOf(...))`.
+So `List<Byte>` stays a boxed `List<UByte>` there, and closing the gap needs
+either monomorphization or a distinct non-generic `Bytes` type in std — a
+language decision, recorded in ROADMAP.md rather than guessed at. (The
+`@ExperimentalUnsignedTypes` worry about `UByteArray` turned out to be moot in
+Kotlin 2.4: the probe compiled without an opt-in.)
+
+**`MemFs` was rewritten to store bytes** (`Mut Map<Str, List<Byte>>`, a byte
+read cursor, `mem_slice`/`mem_join`/`mem_find_newline` helpers). It had stored
+`Str` and converted offsets through `byte_size`, which was correct arithmetic
+over a representation that could not hold a non-text file at all — and
+`write_bytes` is exactly that file. Two behaviors became *more* faithful as a
+result: a ranged open landing mid-codepoint now succeeds (a byte offset has no
+characters to land between) and the strict decode afterwards fails, as on the
+host; and a decode failure is *recorded*, so `close` reports it a second time
+[fs-errors-at-close]. `position` is now the cursor itself.
+
+**One latent Rust-emission defect fixed on the way**: the conversion
+intrinsics emitted `({} as T)`, and `as` binds tighter than unary minus, so
+`to_byte(-1)` became `-(1 as u8)` — which rustc rejects outright (E0600) and
+which would have silently meant the wrong thing on a saturating target. The
+lowering now names the source type: `(((x) as i32) as u8)`.
+
+**The example.** `examples/files/` runs the *same* `workflow()` — one-shots,
+the `Lines` pass, an append with `position`, a resume through
+`open_read_at`, a byte file, a mid-codepoint decode failure, failures
+collected through `detach`, cleanup — against the real filesystem under
+`RestrictedFs`, and then against `MemFs`, and **prints the two blocks
+identically**. That equality is the example's argument: putting the stream
+operations on the effect is what lets a double fake reading and writing, so a
+test of file code needs no files. A `sandbox_edges()` fn shows what the
+restriction refuses (`sub/../probe.txt` through, `../secret.txt` and
+`/etc/hosts` refused as `PathEscapes`). It works in `tmp/files-example/` and
+removes everything it made.
+
+Tests: **932 passing** (from 931), fresh. The byte cases ride along in the
+existing per-backend fs and memfs programs (both extended identically: a
+non-text file written and read back, `[0, 255, 200]` on both backends, the
+mid-codepoint decode reported twice) and in the string-surface program
+(`to_bytes`/`str_of_bytes`, including invalid bytes answering `None`); a new
+checker test `bytes_compute_through_int` pins that `Byte` is not
+operator-numeric and that the conversions are the way through. All six older
+examples were **regenerated** — their checked-in output predated the fs
+surface, so they were stale (the outputs still matched; the numbering of
+generated helpers had moved).
+
+Rules: LANGUAGE_SPEC.md gained [byte-value] and [fs-bytes], and [fs-double],
+[fs-v1-cuts] and [op-arith]'s `Byte` bullet were rewritten;
+BACKEND_SPEC.kotlin.md gained [kt-byte-unsigned] (with the `UByteArray`
+finding); BACKEND_SPEC.rust.md's [type-basic] gained the cast-parenthesization
+rule; LANGUAGE.md's basic-types list and "Files" section carry bytes.
+
 **`MemFs` and `RestrictedFs` — the fs doubles (phase 4 item 6.4,
 2026-09-14).** std can now run a filesystem in memory and scope one to a
 directory, both in pure Salvo: `core.memfs`'s `MemFs of Fs` (no dependency, no
@@ -151,7 +319,10 @@ break; `MemFs` slices by characters and converts through `byte_size`, and a
 ranged open landing between the bytes of a character answers
 `Err InvalidUtf8` exactly as the host's strict decode does. Both backends
 report `position: 11` for the same read — the memory case and the real-files
-case assert the same number.
+case assert the same number. (`MemFs`'s *representation* was superseded the
+same day: the byte deliverable made its files `List<Byte>`, so the conversion
+is gone and the mid-codepoint open now succeeds with the decode failing after
+it, as on the host — see the bytes entry above.)
 
 **Three defects found on the way, two fixed:**
 
@@ -9832,7 +10003,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 920)
+## Test inventory (all green: 941)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -9840,7 +10011,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 479 - 19 unit tests (file classification, including the
+- `salvo-core`: 512 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -10196,7 +10367,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 86 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 87 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -10364,7 +10535,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 78 (three parser tests for the scope selector and
+- `salvo-syntax`: 82 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -10425,7 +10596,7 @@ cache, with per-test timings.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form).
-- `salvo-backend-kotlin`: 88 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 95 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -10603,7 +10774,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 149 - golden snapshots of the same five demos
+- `salvo-backend-rust`: 164 - golden snapshots of the same five demos
   emitted as Rust; deduction-mode assertions
   (`deductions_drive_parameter_modes`: kept -> `&`, kept+Mut -> `&mut`,
   omitted -> move, matching call-site argument shapes [rs-borrows]);
@@ -10794,6 +10965,60 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A Kotlin `vararg` of an unsigned type is an experimental array.** The
+  `SalvoBytes.of(vararg elems: UByte)` constructor compiled fine, and then
+  every *generated call site* warned that `UByteArray` "needs opt-in"
+  (`@ExperimentalUnsignedTypes`) — because a vararg parameter of an unsigned
+  type *is* a `UByteArray` under the hood. A shipped runtime class must be
+  written so its callers need no annotations: the parameter is an
+  `Array<UByte>` now (2026-09-15). The general rule: check what a runtime
+  helper's signature forces on the code the compiler *emits*, not just on the
+  helper.
+- **A pass may not recycle its own buffer.** `chunks(s, size)` was tempting to
+  write with one reused buffer in the pass struct — and it would have handed
+  every step an alias of that buffer, so the next `next` would overwrite what
+  the caller was still holding. A pass yields a **fresh** buffer per step and
+  the allocation-free shape is `read_to` into a buffer of the caller's own
+  (which is what `copy_stream` does internally). Recycling is safe only where
+  the recycler owns the loop (2026-09-15).
+- **Fill-a-buffer APIs should append, not overwrite.** The C shape — pre-size a
+  buffer, fill `0..n`, return `n` — needs a `set`-by-index surface, forces
+  every caller to carry `n` beside the buffer, and would have made `MemFs`
+  rebuild its store to fake it. Appending makes `size(buf)` the truth,
+  `clear(buf)` the reuse, and `write_bytes(w, buf)` the write-back with no
+  ranged write, and it is implementable in pure Salvo with `append` alone
+  (2026-09-15).
+
+- **A cast in generated Rust needs its *source* type named, not just
+  parentheses.** The conversion intrinsics emitted `({} as u8)`, and `as`
+  binds tighter than unary minus, so `to_byte(-1)` became `-(1 as u8)`;
+  adding parentheses around the operand did not help, because rustc then
+  infers the unsuffixed literal's type *from the cast* and reports "cannot
+  apply unary operator `-` to type `u8`" (E0600). The fix is
+  `(((x) as i32) as u8)` — spell the parameter's own type in the middle.
+  A signed target hides this: `-1 as i64` compiles and even means the right
+  thing, so the whole family was latently wrong and only the unsigned
+  addition made it visible (2026-09-14).
+- **A specialized representation cannot coexist with erased generics.**
+  Kotlin's `UByteArray` was to be the "honest" lowering of `List<Byte>`, and
+  it cannot be one: std's list surface is generic (`size<T>(List<T>)`,
+  `get`, `add`, `iter`, `map`), a `UByteArray` is not a `List<T>`, and this
+  backend does not monomorphize — so the specialized value could not be
+  passed to any of it (kotlinc 2.4: *argument type mismatch: actual type is
+  'UByteArray', but 'List<T>' was expected*). Before promising a
+  representation change as "just a rendering", check whether the value has
+  to flow through generic code on that backend. Rust needed nothing at all
+  for the same rule, which is what made the asymmetry easy to miss
+  (2026-09-14).
+- **A fake's *representation* is part of its fidelity, not an
+  implementation detail.** `MemFs` stored files as `Str` and converted
+  offsets through `byte_size` — arithmetically correct, and still unable to
+  hold the first file `write_bytes` was asked to write. Storing bytes made
+  two behaviors match the host that had been *approximated* before (a
+  mid-codepoint ranged open succeeds, with the decode failing afterwards;
+  a decode failure is recorded and re-reported by `close`). When a double
+  exists to be byte-exact, store bytes: converting at the boundary is a
+  smaller promise than it looks (2026-09-14).
 - **`include_dir!` does not notice a *new* file in `std/`.** The embedded
   standard library is `include_dir!("…/std")`, and cargo re-runs it only when
   a crate source changes — so adding `std/core/x.sv` (or a

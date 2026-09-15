@@ -79,10 +79,27 @@ pub fn fn_call(
         // toward zero and saturates (NaN → 0), i64→i32 keeps the low 32
         // bits, f64→f32 rounds — verified per pair when the set was added
         // (2026-09-14).
-        ("to_int", Some("Long" | "Double" | "Float")) => format!("({} as i32)", a(0)),
-        ("to_long", Some("Int" | "Double" | "Float")) => format!("({} as i64)", a(0)),
-        ("to_double", Some("Int" | "Long" | "Float")) => format!("({} as f64)", a(0)),
-        ("to_float", Some("Int" | "Long" | "Double")) => format!("({} as f32)", a(0)),
+        //
+        // The operand is parenthesized because `as` binds tighter than unary
+        // minus: `-1 as u8` is `-(1 as u8)`, which rustc refuses outright on
+        // an unsigned target and would silently mean the wrong thing on a
+        // saturating one [backend-never-wrong].
+        ("to_int", Some("Long" | "Double" | "Float")) => format!("(({}) as i32)", a(0)),
+        ("to_long", Some("Int" | "Double" | "Float")) => format!("(({}) as i64)", a(0)),
+        ("to_double", Some("Int" | "Long" | "Float")) => format!("(({}) as f64)", a(0)),
+        ("to_float", Some("Int" | "Long" | "Double")) => format!("(({}) as f32)", a(0)),
+        // [byte-value] A `Byte` is a `u8` here and a `UByte` on Kotlin, so
+        // both conversions mean the same thing on both: `as u8` keeps the low
+        // 8 bits (300 → 44, -1 → 255) like `toUByte()`, and `as i32` widens
+        // into 0..255 like `toInt()`.
+        //
+        // The `as i32` in the middle is not redundant: rustc infers an
+        // unsuffixed literal's type *from the cast*, so `(-1) as u8` makes
+        // the literal a `u8` and is rejected. Naming the source type — which
+        // is what the parameter declares — is what keeps `to_byte(-1)`
+        // meaning 255 on both backends.
+        ("to_byte", Some("Int")) => format!("((({}) as i32) as u8)", a(0)),
+        ("to_int", Some("Byte")) => format!("(({}) as i32)", a(0)),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a
@@ -392,6 +409,68 @@ pub fn fn_call(
         ("to_lower", Some("Str")) => format!("{}.to_lowercase()", a(0)),
         ("join", Some("List")) => format!("{}.join(&{}[..])", a(0), a(1)),
         ("parse_int", Some("Str")) => format!("{}.parse::<i32>().ok()", a(0)),
+
+        // core.bytes -----------------------------------------------------
+        // [bytes-type] A `Bytes` is a `Vec<u8>`, so most of these are the
+        // vector operation of the same name; the bounds-checked ones answer
+        // `None`/do nothing rather than panicking, which is what the Salvo
+        // declarations promise.
+        ("bytes_of", Some("[]")) if spread_any => owned_vec(),
+        ("bytes_of", Some("[]")) => format!("vec![{}]", args.join(", ")),
+        ("mut_bytes", Some("[]")) if spread_any => {
+            format!("{}.iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>()", a(0))
+        }
+        ("mut_bytes", Some("[]")) if args.is_empty() => "Vec::<u8>::new()".to_string(),
+        ("mut_bytes", Some("[]")) => format!(
+            "[{}].iter().flat_map(|__p| __p.iter().copied()).collect::<Vec<u8>>()",
+            args.join(", ")
+        ),
+        ("to_bytes", Some("Str")) => format!("{}.as_bytes().to_vec()", a(0)),
+        // Strict by construction: `from_utf8` rejects, it does not replace.
+        ("str_of_bytes", Some("Bytes")) => {
+            format!("String::from_utf8({}.clone()).ok()", a(0))
+        }
+        ("size", Some("Bytes")) => format!("({}.len() as i32)", a(0)),
+        // A negative index wraps to a huge `usize`, which `get` answers
+        // `None` for — the same answer the declaration gives it.
+        ("get", Some("Bytes")) => format!("{}.get(({}) as usize).copied()", a(0), a(1)),
+        ("slice", Some("Bytes")) => format!(
+            "{{ let __d = &{}; let __i = {}; let __j = {}; \
+             if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() \
+             {{ Some(__d[(__i as usize)..(__j as usize)].to_vec()) }} else {{ None }} }}",
+            a(0),
+            a(1),
+            a(2)
+        ),
+        ("index_of", Some("Bytes")) => format!(
+            "{}.iter().position(|__x| *__x == {}).map(|__i| __i as i32)",
+            a(0),
+            a(1)
+        ),
+        ("add", Some("Bytes")) => format!("{}.push({})", a(0), a(1)),
+        ("append", Some("Bytes")) => format!("{}.extend_from_slice(&{}[..])", a(0), a(1)),
+        // Out of range does nothing, so this is a statement rather than an
+        // indexing assignment (which would panic).
+        ("set", Some("Bytes")) => format!(
+            "{{ let __i = {}; if __i >= 0 && (__i as usize) < {}.len() \
+             {{ {}[(__i as usize)] = {}; }} }}",
+            a(1),
+            a(0),
+            a(0),
+            a(2)
+        ),
+        ("clear", Some("Bytes")) => format!("{}.clear()", a(0)),
+        // [interp-to-str] `[0, 255, 200]`, the text a `List<Byte>` printed:
+        // the payload type changed, what a program prints did not.
+        ("to_str", Some("Bytes")) => format!(
+            "format!(\"[{{}}]\", {}.iter().map(|__b| __b.to_string())\
+             .collect::<Vec<String>>().join(\", \"))",
+            a(0)
+        ),
+        ("to_hex", Some("Bytes")) => format!(
+            "{}.iter().map(|__b| format!(\"{{:02x}}\", __b)).collect::<String>()",
+            a(0)
+        ),
         ("append", Some("Str")) => format!("{}.push_str(&{}[..])", a(0), a(1)),
         // [rs-mut-str] A method on a generated trait, not an inline block:
         // replacing a character needs the string both read and written, and
@@ -423,6 +502,11 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Bool" => "bool",
         "Char" => "char",
         "Byte" => "u8",
+        // [bytes-type] `Bytes` and `Mut Bytes` are both `Vec<u8>`: mutability
+        // lives in the binding and the reference here [type-canbe-mut], and a
+        // byte buffer *is* a `Vec<u8>` — no runtime class, no boxing, which is
+        // the asymmetry with Kotlin's shipped class [kt-bytes].
+        "Bytes" => "Vec<u8>",
         "None" => "()",
         // Only reachable in dead positions.
         "Nothing" => "()",

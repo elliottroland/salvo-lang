@@ -16322,10 +16322,10 @@ fn op_symbol(op: BinaryOp) -> &'static str {
 /// [op-arith] The operator-numeric types, as (is_float_class, width rank):
 /// the integer widths `Int` < `Long` and the float widths `Float` <
 /// `Double`, promotion widening within a class only. `Byte` is
-/// deliberately **not** operator-numeric: it lowers signed on one backend
-/// and unsigned on the other today, so its arithmetic could not agree
-/// (the byte surface arrives with the filesystem work and the `UByte`
-/// lowering).
+/// deliberately **not** operator-numeric: it is an octet rather than a
+/// number — unsigned on both backends [byte-value] — and its arithmetic
+/// goes through `to_int`/`to_byte`, which is one call and states the
+/// wrapping instead of implying it.
 fn numeric_class(name: &str) -> Option<(bool, u8)> {
     match name {
         "Int" => Some((false, 0)),

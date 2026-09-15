@@ -7,7 +7,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__3<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__4<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -17,7 +17,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__3<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__6<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());

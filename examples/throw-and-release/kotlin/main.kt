@@ -3,7 +3,9 @@ package salvo.main
 import salvo.*
 import salvo.core.`throw`.*
 import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.console.*
+import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.result.*
@@ -20,7 +22,7 @@ fun open_file(console: Console, name: String): FileHandle {
     return FileHandle(name = name)
 }
 
-fun close(console: Console, handle: FileHandle) {
+fun close__3(console: Console, handle: FileHandle) {
     println(console, "1. close ${handle.name}")
     (handle).let {}
 }
@@ -30,10 +32,10 @@ fun read_size(console: Console, name: String, want: Int): Int {
     val handle = open_file(console, name)
     if (want > there_is) {
         println(console, "1. asked for more than there is")
-        close(console, handle)
+        close__3(console, handle)
         return there_is
     }
-    close(console, handle)
+    close__3(console, handle)
     return want
 }
 
@@ -56,7 +58,7 @@ fun port_of(config: String): Int {
 fun port_from_file(console: Console, name: String, text: String): Int {
     val handle = open_file(console, name)
     val from = handle.name
-    close(console, handle)
+    close__3(console, handle)
     println(console, "2. reading a port out of $from")
     return parse_port(text)
 }
@@ -72,6 +74,7 @@ fun strict_port(text: String): Int {
     return n
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun report(console: Console, label: String, config: String) {
     val outcome = try {
         U2_1<Int, String>(port_of(config))
@@ -88,6 +91,7 @@ fun report(console: Console, label: String, config: String) {
     }
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val console: Console = StdOutConsole()
     val small = read_size(console, "notes.txt", 3)

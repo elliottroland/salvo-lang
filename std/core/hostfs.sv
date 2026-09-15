@@ -46,6 +46,16 @@ effect RawFs {
     fn raw_read_line(handle: Long) -> Str | None
     // Everything left in the stream.
     fn raw_read_all(handle: Long) -> Ok Str | Err FsErrorKind
+    // Up to `max` bytes, undecoded.
+    fn raw_read_bytes(handle: Long, max: Int) -> Ok Bytes | Err FsErrorKind
+    // Up to `max` bytes appended to `buf`, answering how many.
+    fn raw_read_to_bytes(handle: Long, buf: Mut Bytes, max: Int) -> Ok Int | Err FsErrorKind => buf: Mut
+    // Everything left, decoded strictly and appended to `buf`, answering how
+    // many bytes were consumed.
+    fn raw_read_to_str(handle: Long, buf: Mut Str) -> Ok Long | Err FsErrorKind => buf: Mut
+    // The next line, without its terminator, appended to `buf`; `false` at the
+    // end of the stream or after a recorded failure.
+    fn raw_read_line_to_str(handle: Long, buf: Mut Str) -> Bool => buf: Mut
     // Bytes consumed so far, counted below the decoder.
     fn raw_read_position(handle: Long) -> Long
     // Releases the read handle, reporting any failure recorded on it.
@@ -53,6 +63,8 @@ effect RawFs {
 
     // Accepts text, answering how many bytes of it were written.
     fn raw_write(handle: Long, text: Str) -> Long => text
+    // Accepts bytes as they are, answering how many were written.
+    fn raw_write_bytes(handle: Long, data: Bytes) -> Long => data
     // Bytes accepted so far.
     fn raw_write_position(handle: Long) -> Long
     // Pushes accepted bytes to the host, reporting a recorded failure.
@@ -154,10 +166,37 @@ handler DefaultFs [RawFs] of Fs {
         }
     }
 
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err FsError => s {
+        let r = raw_read_bytes(s.handle, max)
+        when r {
+            is Ok { return ok(r) }
+            is Err { return err(FsError { kind: r }) }
+        }
+    }
+
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => s, buf: Mut {
+        let r = raw_read_to_bytes(s.handle, buf, max)
+        when r {
+            is Ok { return ok(r) }
+            is Err { return err(FsError { kind: r }) }
+        }
+    }
+
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err FsError => s, buf: Mut {
+        let r = raw_read_to_str(s.handle, buf)
+        when r {
+            is Ok { return ok(r) }
+            is Err { return err(FsError { kind: r }) }
+        }
+    }
+
+    fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut {
+        return raw_read_line_to_str(s.handle, buf)
+    }
+
     fn position(s: InStream) -> Long => s {
         return raw_read_position(s.handle)
     }
-
     fn close(s: InStream) -> Ok None | Err FsError => !s {
         let r = raw_close_read(s.handle)
         discard(s)
@@ -173,6 +212,10 @@ handler DefaultFs [RawFs] of Fs {
 
     fn write_line(s: OutStream, text: Str) -> Long => s, text {
         return raw_write(s.handle, "${text}\n")
+    }
+
+    fn write_bytes(s: OutStream, data: Bytes) -> Long => s, data {
+        return raw_write_bytes(s.handle, data)
     }
 
     fn position(s: OutStream) -> Long => s {

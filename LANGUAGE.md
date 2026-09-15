@@ -16,7 +16,8 @@ The compiler is written in Rust, and translates code into an intermediate repres
 
 Salvo has the following basic data types, similar to the JVM:
 
-* `Byte`: an 8-bit unsigned integer, equivalent to `Byte` in Kotlin and `u8` in Rust.
+* `Byte`: an 8-bit unsigned integer (0..255), equivalent to `UByte` in Kotlin and `u8` in Rust. A `Byte` is an octet rather than a number: the operators do not take it, and `to_int(b)` / `to_byte(n)` convert (`to_byte` keeps the low 8 bits).
+* `Bytes`: a **byte buffer**, and the currency of every byte-shaped API in `std` — deliberately not a `List<Byte>`, which would box every octet on the JVM and carry a list's surface rather than a buffer's. Like `Str` it comes in two shapes: `Bytes` is read (`size`, `get`, `slice`, `index_of`, `to_str`, `to_hex`, `str_of_bytes`, and `for b in data`) and `Mut Bytes` is built (`add`, `append`, `set`, `clear`), reaching the read surface by dropping its `Mut`. `bytes_of(...)` and `mut_bytes(...)` construct one; `to_bytes(str)` and `str_of_bytes(data)` bridge to text, in UTF-8 and decoding strictly.
 * `Int`: a 32-bit signed integer, equivalent to `Int` in Kotlin and `i32` in Rust.
 * `Long`: a 64-bit signed integer, equivalent to `Long` in Kotlin and `i64` in Rust.
 * `Float`: a 32-bit floating point number, equivalent to `Float` in Kotlin and `f32` in Rust.
@@ -2585,7 +2586,32 @@ fn main() [use] {
 
 `DefaultFs` depends on `RawFs` and says so on its declaration, so nothing above it mentions the raw layer; `RawFs` trades in `Long` handles and droppable error kinds, so the host class never holds a Salvo obligation — the `close` that discharges a token is Salvo code, checked. Swapping the bottom swaps the filesystem: a handler of your own that implements `Fs` fakes the whole surface, streams included, because the stream operations are *members* rather than free functions.
 
-Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. Byte counts are `byte_size(str)`, deliberately a different function from `size(str)`, which counts characters. There is no seek — streams are forward-only — and text is decoded strictly, so a wrong offset lands mid-codepoint and comes back as `Err InvalidUtf8` rather than as mojibake.
+Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. Byte counts are `byte_size(str)`, deliberately a different function from `size(str)`, which counts characters. There is no seek — streams are forward-only.
+
+Bytes are readable and writable as themselves: `read_bytes(s, max)` answers up to `max` bytes as a `Bytes` and `write_bytes(s, data)` writes them back, with nothing encoded or decoded on the way, so a file that is not text is handled by the same surface. Text and byte operations share one stream and one position, both counted in bytes, so a text read continues exactly where a byte read stopped. Text is decoded **strictly**: an offset that lands mid-codepoint is a legal seek — it is bytes, and bytes have no characters — and it is the *decode* that fails, as `Err InvalidUtf8` rather than as mojibake. That failure is recorded too, so `close` reports it a second time.
+
+```
+let s: InStream = opened
+let head = read_bytes(s, 4)      // Ok Bytes | Err FsError
+let rest = read_all(s)           // continues after those four bytes
+```
+
+Every read has a **fill-a-buffer** form, for the loop where allocating a payload per step is the cost: `read_to(s, buf, max)` appends up to `max` bytes to a `Mut Bytes` of yours and answers how many, `read_to(s, builder)` appends the rest of the stream to a `Mut Str`, and `read_line_to(s, builder)` appends the next line and answers whether there was one. They *append* rather than overwrite, so `size(buf)` is the data — there is no "only the first n are meaningful" convention — and `clear(buf)` between steps is what makes one buffer serve a whole loop.
+
+```
+let buf = mut_bytes()
+let reading = true
+while reading {
+    clear(buf)
+    let got = read_to(s, buf, 65536)     // Ok Int | Err FsError
+    when got {
+        is Ok { if got == 0 { reading = false } else { consume(buf) } }
+        is Err { ignore(got) reading = false }
+    }
+}
+```
+
+Or hand the loop over: `chunks(s, size)` is a pass over a stream's bytes (a fresh buffer per step) as `lines(s)` is over its lines, and the one-shots keep the buffer out of sight entirely — `copy_file(from, to)`, `copy_stream(s, w)`, `read_to_bytes(path)`, `write_bytes_to(path, data)`.
 
 Two more handlers come with the surface, and neither is a special case of anything:
 
@@ -2600,7 +2626,7 @@ fn main() [use] {
 }
 ```
 
-`MemFs` fakes the *whole* of `Fs`, streams included — which is what putting the stream operations on the effect bought — so a test needs no filesystem at all. It counts byte offsets exactly as the host does, because a fake that counted characters would let tests pass while production broke.
+`MemFs` fakes the *whole* of `Fs`, streams included — which is what putting the stream operations on the effect bought — so a test needs no filesystem at all. Its files are **bytes**, as a real one's are, and it counts byte offsets exactly as the host does, because a fake that stored text and counted characters would let tests pass while production broke.
 
 `RestrictedFs(root)` is an **interceptor**: it declares the effect it implements, so it wraps whichever filesystem is already registered, and the same handler restricts the host's files in production and a `MemFs` in a test of the restriction itself. Paths are rebased — code under it never learns where it is really running — and one that resolves outside the root comes back as `Err PathEscapes` rather than pretending not to exist. The check is lexical, so it is not symlink-safe; that hardening belongs to the host layer and is not pretended away here.
 
@@ -2612,6 +2638,8 @@ fn main() [use] {
 * The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
 * Effects and handlers can map to interfaces and implementations of those interfaces. The effects are passed to a function as the first arguments of that function, and all uses of those effects is mapped to the relevant parameter name.
 * `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
+* `Byte` maps to `UByte`, not to Kotlin's signed `Byte`: an octet has to print and compare the same on both backends, and a signed byte would render 255 as `-1` where Rust's `u8` renders `255`.
+* `Bytes` and `Mut Bytes` both map to one **shipped runtime class** (`salvo.SalvoBytes`, emitted per program that names the type): a growable byte array with structural `equals`/`hashCode` and an `iterator()`. Neither stdlib shape would do — `List<UByte>` boxes every element, and `UByteArray` is fixed-size *and* is not a `List<T>`, so generic code could not take one. Rust needs no such class: `Bytes` is a `Vec<u8>`.
 
 ### Rust
 

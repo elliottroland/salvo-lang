@@ -1,0 +1,2051 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "parse_clean(&std_core(\"bytes.sv\"))"
+---
+Module {
+    items: [
+        Type(
+            TypeDecl {
+                docs: [
+                    "`Bytes`: a byte buffer, and the currency of every byte-shaped API in std.",
+                    "",
+                    "It exists because `List<Byte>` was the wrong shape for the job in two ways.",
+                    "One is representation: a list of octets boxes every element on the JVM",
+                    "(`UByte` is a value class with no box cache), and a specialized array cannot",
+                    "be a `List<T>` there, so the honest byte buffer could not be a list at all",
+                    "[kt-bytes]. The other is the surface: bytes want slicing, hex, a strict",
+                    "UTF-8 decode and an in-place fill, and none of those belong on `List`.",
+                    "",
+                    "The two shapes, exactly as `Str` and `Mut Str`:",
+                    "",
+                    "  * `Bytes` is a buffer you read — `size`, `get`, `slice`, `index_of`,",
+                    "    `to_str`, `to_hex`, `str_of_bytes`, and `for b in data`.",
+                    "  * `Mut Bytes` is a buffer you build — `add`, `append`, `set`, `clear` —",
+                    "    and it reaches the whole read surface by dropping its `Mut`, which",
+                    "    costs nothing on either backend [bytes-type].",
+                    "",
+                    "That is what makes the fill-a-buffer reads work: one `Mut Bytes` is filled,",
+                    "used and cleared for as long as a loop runs, instead of a fresh payload per",
+                    "chunk [fs-read-to].",
+                ],
+                intrinsic: true,
+                name: Ident {
+                    name: "Bytes",
+                    span: 1144..1149,
+                },
+                generics: [],
+                auto_qualifiers: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Mut",
+                            span: 1156..1159,
+                        },
+                        args: [],
+                        from: [],
+                        span: 1156..1159,
+                    },
+                ],
+                alias: None,
+                span: 1139..1159,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.",
+                    "Bytes have no literal syntax — a `[...]` literal is a `List` [col-literal] —",
+                    "so this is the constructor.",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "bytes_of",
+                    span: 1362..1370,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "elems",
+                            span: 1374..1379,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Byte",
+                                        span: 1381..1385,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 1381..1385,
+                                },
+                            },
+                            span: 1381..1387,
+                        },
+                        variadic: true,
+                        implicit: false,
+                        span: 1374..1387,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bytes",
+                                span: 1395..1400,
+                            },
+                            args: [],
+                            from: [],
+                            span: 1395..1400,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1359..1400,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "A buffer under construction, holding [parts] concatenated in order.",
+                    "`mut_bytes()` is the empty one, which is how a read buffer starts;",
+                    "mutability is asked for here, mirroring [mut_str] and [mut_list_of].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "mut_bytes",
+                    span: 1628..1637,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "parts",
+                            span: 1641..1646,
+                        },
+                        ty: Array {
+                            elem: Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Bytes",
+                                        span: 1648..1653,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 1648..1653,
+                                },
+                            },
+                            span: 1648..1655,
+                        },
+                        variadic: true,
+                        implicit: false,
+                        span: 1641..1655,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: None,
+                return_type: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 1663..1666,
+                                },
+                                args: [],
+                                from: [],
+                                span: 1663..1666,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bytes",
+                                span: 1667..1672,
+                            },
+                            args: [],
+                            from: [],
+                            span: 1667..1672,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1625..1672,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The UTF-8 bytes of [str] — the encoding both backends agree on, and the one",
+                    "[byte_size] counts.",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "to_bytes",
+                    span: 1791..1799,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "str",
+                            span: 1800..1803,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 1805..1808,
+                                },
+                                args: [],
+                                from: [],
+                                span: 1805..1808,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 1800..1808,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "str",
+                                    span: 1825..1828,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 1825..1828,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Bytes",
+                                span: 1816..1821,
+                            },
+                            args: [],
+                            from: [],
+                            span: 1816..1821,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 1788..1821,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The text [data] spells in UTF-8, or `None` when it is not valid UTF-8.",
+                    "Decoding is **strict** on both backends — a malformed byte is `None`, never",
+                    "a replacement character — which is the rule the filesystem's text reads",
+                    "follow too [fs-bytes].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "str_of_bytes",
+                    span: 2101..2113,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2114..2118,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2120..2125,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2120..2125,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2114..2125,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2141..2145,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2141..2145,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Str",
+                                    span: 2133..2136,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2133..2136,
+                            },
+                        },
+                        span: 2133..2137,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2098..2137,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The number of bytes in [data].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "size",
+                    span: 2194..2198,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2199..2203,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2205..2210,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2205..2210,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2199..2210,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2225..2229,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2225..2229,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Int",
+                                span: 2218..2221,
+                            },
+                            args: [],
+                            from: [],
+                            span: 2218..2221,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2191..2221,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The byte at [index], or `None` when [index] is outside the buffer.",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "get",
+                    span: 2314..2317,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2318..2322,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2324..2329,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2324..2329,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2318..2329,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "index",
+                            span: 2331..2336,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2338..2341,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2338..2341,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2331..2341,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2358..2362,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2358..2362,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "index",
+                                    span: 2364..2369,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2364..2369,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 2349..2353,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2349..2353,
+                            },
+                        },
+                        span: 2349..2354,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2311..2354,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The bytes from [start] (inclusive) to [end] (exclusive), or `None` when",
+                    "that range does not lie within the buffer. A **copy**, not a view: Salvo",
+                    "states borrows in deductions, and this one does not borrow [proj-field].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "slice",
+                    span: 2611..2616,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2617..2621,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2623..2628,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2623..2628,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2617..2628,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "start",
+                            span: 2630..2635,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2637..2640,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2637..2640,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2630..2640,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "end",
+                            span: 2642..2645,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2647..2650,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2647..2650,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2642..2650,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2668..2672,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2668..2672,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "start",
+                                    span: 2674..2679,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2674..2679,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "end",
+                                    span: 2681..2684,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2681..2684,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2658..2663,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2658..2663,
+                            },
+                        },
+                        span: 2658..2664,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2608..2664,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The index of the first occurrence of [byte], or `None` when it does not",
+                    "occur. No `-1` sentinel: absence is `None` [type-nullable].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "index_of",
+                    span: 2837..2845,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2846..2850,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2852..2857,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2852..2857,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2846..2857,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "byte",
+                            span: 2859..2863,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 2865..2869,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2865..2869,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2859..2869,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2885..2889,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2885..2889,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "byte",
+                                    span: 2891..2895,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2891..2895,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Nullable {
+                        inner: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 2877..2880,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2877..2880,
+                            },
+                        },
+                        span: 2877..2881,
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2834..2881,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Appends one byte to [data].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "add",
+                    span: 2941..2944,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 2945..2949,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 2951..2954,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 2951..2954,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 2955..2960,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2955..2960,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2945..2960,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "byte",
+                            span: 2962..2966,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 2968..2972,
+                                },
+                                args: [],
+                                from: [],
+                                span: 2968..2972,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 2962..2972,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 2988..2992,
+                                },
+                                path: [],
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 2994..2997,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 2994..2997,
+                                    },
+                                ],
+                            ),
+                            span: 2988..2997,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "byte",
+                                    span: 2999..3003,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2999..3003,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 2980..2984,
+                            },
+                            args: [],
+                            from: [],
+                            span: 2980..2984,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 2938..2984,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Appends every byte of [more] to [data].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "append",
+                    span: 3061..3067,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 3068..3072,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3074..3077,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 3074..3077,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 3078..3083,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3078..3083,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3068..3083,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "more",
+                            span: 3085..3089,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 3091..3096,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3091..3096,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3085..3096,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 3112..3116,
+                                },
+                                path: [],
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3118..3121,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 3118..3121,
+                                    },
+                                ],
+                            ),
+                            span: 3112..3121,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "more",
+                                    span: 3123..3127,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 3123..3127,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3104..3108,
+                            },
+                            args: [],
+                            from: [],
+                            span: 3104..3108,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3058..3108,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Replaces the byte at [index]. Out of range it does nothing — the buffer is",
+                    "the caller's, and growing it here would make a `set` an `add`, exactly as",
+                    "on `Mut Str` [set].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "set",
+                    span: 3322..3325,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 3326..3330,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3332..3335,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 3332..3335,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 3336..3341,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3336..3341,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3326..3341,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "index",
+                            span: 3343..3348,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 3350..3353,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3350..3353,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3343..3353,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "byte",
+                            span: 3355..3359,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Byte",
+                                    span: 3361..3365,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3361..3365,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3355..3365,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 3381..3385,
+                                },
+                                path: [],
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3387..3390,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 3387..3390,
+                                    },
+                                ],
+                            ),
+                            span: 3381..3390,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "index",
+                                    span: 3392..3397,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 3392..3397,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "byte",
+                                    span: 3399..3403,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 3399..3403,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3373..3377,
+                            },
+                            args: [],
+                            from: [],
+                            span: 3373..3377,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3319..3377,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Removes every byte from [data], keeping whatever room it had. This is the",
+                    "call that makes a buffer reusable across reads [fs-read-to].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "clear",
+                    span: 3559..3564,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 3565..3569,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 3571..3574,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 3571..3574,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 3575..3580,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3575..3580,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3565..3580,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 3596..3600,
+                                },
+                                path: [],
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 3602..3605,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 3602..3605,
+                                    },
+                                ],
+                            ),
+                            span: 3596..3605,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "None",
+                                span: 3588..3592,
+                            },
+                            args: [],
+                            from: [],
+                            span: 3588..3592,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3556..3592,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "The numbers, as a list is written: `[0, 255, 200]`. Deliberately the same",
+                    "text a `List<Byte>` produces, so what a program prints did not change when",
+                    "the payload type did [interp-to-str].",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "to_str",
+                    span: 3816..3822,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 3823..3827,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 3829..3834,
+                                },
+                                args: [],
+                                from: [],
+                                span: 3829..3834,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 3823..3834,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 3849..3853,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 3849..3853,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 3842..3845,
+                            },
+                            args: [],
+                            from: [],
+                            span: 3842..3845,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3813..3845,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Lower-case hex, two characters per byte and nothing between them:",
+                    "`00ffc8`. The form a checksum, a digest or a wire dump wants.",
+                ],
+                intrinsic: true,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "to_hex",
+                    span: 4002..4008,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 4009..4013,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 4015..4020,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4015..4020,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4009..4020,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 4035..4039,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4035..4039,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Str",
+                                span: 4028..4031,
+                            },
+                            args: [],
+                            from: [],
+                            span: 4028..4031,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: None,
+                span: 3999..4031,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "[iter-pass] A fresh pass over the bytes of [data], in order — which is what",
+                    "makes `for b in data` and the sequence functions work on a buffer.",
+                ],
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "iter",
+                    span: 4195..4199,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "data",
+                            span: 4200..4204,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 4206..4211,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4206..4211,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4200..4211,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "data",
+                                    span: 4237..4241,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 4237..4241,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Named {
+                        qualifiers: [
+                            TypeRef {
+                                name: Ident {
+                                    name: "Mut",
+                                    span: 4219..4222,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4219..4222,
+                            },
+                        ],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "BytesYield",
+                                span: 4223..4233,
+                            },
+                            args: [],
+                            from: [],
+                            span: 4223..4233,
+                        },
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Return {
+                                value: Some(
+                                    StructLit {
+                                        ty: Some(
+                                            Named {
+                                                qualifiers: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "Mut",
+                                                            span: 4255..4258,
+                                                        },
+                                                        args: [],
+                                                        from: [],
+                                                        span: 4255..4258,
+                                                    },
+                                                ],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "BytesYield",
+                                                        span: 4259..4269,
+                                                    },
+                                                    args: [],
+                                                    from: [],
+                                                    span: 4259..4269,
+                                                },
+                                            },
+                                        ),
+                                        fields: [
+                                            StructLitField {
+                                                kind: Named {
+                                                    name: Ident {
+                                                        name: "data",
+                                                        span: 4272..4276,
+                                                    },
+                                                    value: Ident(
+                                                        Ident {
+                                                            name: "data",
+                                                            span: 4278..4282,
+                                                        },
+                                                    ),
+                                                },
+                                                span: 4272..4282,
+                                            },
+                                            StructLitField {
+                                                kind: Named {
+                                                    name: Ident {
+                                                        name: "at",
+                                                        span: 4284..4286,
+                                                    },
+                                                    value: Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 4288..4289,
+                                                    },
+                                                },
+                                                span: 4284..4289,
+                                            },
+                                        ],
+                                        span: 4255..4291,
+                                    },
+                                ),
+                                span: 4248..4291,
+                            },
+                        ],
+                        span: 4242..4293,
+                    },
+                ),
+                span: 4192..4293,
+            },
+        ),
+        Struct(
+            StructDecl {
+                docs: [
+                    "[iter-protocol] The pass a buffer is walked by: the buffer plus a position",
+                    "in it. The buffer is borrowed, not copied [proj-field].",
+                ],
+                name: Ident {
+                    name: "BytesYield",
+                    span: 4439..4449,
+                },
+                generics: [],
+                generic_canbe: [],
+                obligations: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Yield",
+                            span: 4452..4457,
+                        },
+                        args: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "self",
+                                        span: 4458..4462,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4458..4462,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Byte",
+                                        span: 4464..4468,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4464..4468,
+                                },
+                            },
+                        ],
+                        from: [],
+                        span: 4452..4469,
+                    },
+                ],
+                auto_qualifiers: [
+                    TypeRef {
+                        name: Ident {
+                            name: "Mut",
+                            span: 4476..4479,
+                        },
+                        args: [],
+                        from: [],
+                        span: 4476..4479,
+                    },
+                ],
+                fields: [
+                    FieldDecl {
+                        docs: [
+                            "The buffer being walked.",
+                        ],
+                        name: Ident {
+                            name: "data",
+                            span: 4518..4522,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "proj",
+                                        span: 4524..4528,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4524..4528,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Bytes",
+                                    span: 4529..4534,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4529..4534,
+                            },
+                        },
+                        default: None,
+                        span: 4518..4534,
+                    },
+                    FieldDecl {
+                        docs: [
+                            "The index of the next byte to emit.",
+                        ],
+                        name: Ident {
+                            name: "at",
+                            span: 4583..4585,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Int",
+                                    span: 4587..4590,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4587..4590,
+                            },
+                        },
+                        default: None,
+                        span: 4583..4590,
+                    },
+                ],
+                linear: false,
+                span: 4432..4592,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [
+                    "Advances the pass, reporting the byte at its position or the end of the",
+                    "buffer.",
+                ],
+                intrinsic: false,
+                is_iter: false,
+                iter_state: [],
+                name: Ident {
+                    name: "next",
+                    span: 4683..4687,
+                },
+                generics: [],
+                generic_canbe: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "p",
+                            span: 4688..4689,
+                        },
+                        ty: Named {
+                            qualifiers: [
+                                TypeRef {
+                                    name: Ident {
+                                        name: "Mut",
+                                        span: 4691..4694,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4691..4694,
+                                },
+                            ],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "BytesYield",
+                                    span: 4695..4705,
+                                },
+                                args: [],
+                                from: [],
+                                span: 4695..4705,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        span: 4688..4705,
+                    },
+                ],
+                implicit_groups: [],
+                effects: Some(
+                    [],
+                ),
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "p",
+                                    span: 4740..4741,
+                                },
+                                path: [],
+                            },
+                            kind: Exhaustive(
+                                [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Mut",
+                                            span: 4743..4746,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 4743..4746,
+                                    },
+                                ],
+                            ),
+                            span: 4740..4746,
+                        },
+                    ],
+                ),
+                return_type: Some(
+                    Union {
+                        arms: [
+                            Named {
+                                qualifiers: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Emitted",
+                                            span: 4713..4720,
+                                        },
+                                        args: [],
+                                        from: [],
+                                        span: 4713..4720,
+                                    },
+                                ],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Byte",
+                                        span: 4721..4725,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4721..4725,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Finished",
+                                        span: 4728..4736,
+                                    },
+                                    args: [],
+                                    from: [],
+                                    span: 4728..4736,
+                                },
+                            },
+                        ],
+                        span: 4713..4736,
+                    },
+                ),
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [
+                            Let {
+                                pattern: Ident(
+                                    Ident {
+                                        name: "b",
+                                        span: 4757..4758,
+                                    },
+                                ),
+                                ty: None,
+                                value: Call {
+                                    callee: Ident(
+                                        Ident {
+                                            name: "get",
+                                            span: 4761..4764,
+                                        },
+                                    ),
+                                    type_args: [],
+                                    args: [
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "p",
+                                                    span: 4765..4766,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "data",
+                                                span: 4767..4771,
+                                            },
+                                            span: 4765..4771,
+                                        },
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "p",
+                                                    span: 4773..4774,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "at",
+                                                span: 4775..4777,
+                                            },
+                                            span: 4773..4777,
+                                        },
+                                    ],
+                                    named: [],
+                                    span: 4761..4778,
+                                },
+                                span: 4753..4778,
+                            },
+                            Expr(
+                                If {
+                                    branches: [
+                                        (
+                                            Is {
+                                                subject: Ident(
+                                                    Ident {
+                                                        name: "b",
+                                                        span: 4786..4787,
+                                                    },
+                                                ),
+                                                check: [
+                                                    TypeRef {
+                                                        name: Ident {
+                                                            name: "None",
+                                                            span: 4791..4795,
+                                                        },
+                                                        args: [],
+                                                        from: [],
+                                                        span: 4791..4795,
+                                                    },
+                                                ],
+                                                binding: None,
+                                                span: 4786..4795,
+                                            },
+                                            Block {
+                                                stmts: [
+                                                    Return {
+                                                        value: Some(
+                                                            Call {
+                                                                callee: Ident(
+                                                                    Ident {
+                                                                        name: "finished",
+                                                                        span: 4813..4821,
+                                                                    },
+                                                                ),
+                                                                type_args: [],
+                                                                args: [],
+                                                                named: [],
+                                                                span: 4813..4823,
+                                                            },
+                                                        ),
+                                                        span: 4806..4823,
+                                                    },
+                                                ],
+                                                span: 4796..4829,
+                                            },
+                                        ),
+                                    ],
+                                    else_block: None,
+                                    span: 4783..4829,
+                                },
+                            ),
+                            Assign {
+                                target: Field {
+                                    base: Ident(
+                                        Ident {
+                                            name: "p",
+                                            span: 4834..4835,
+                                        },
+                                    ),
+                                    field: Ident {
+                                        name: "at",
+                                        span: 4836..4838,
+                                    },
+                                    span: 4834..4838,
+                                },
+                                value: Binary {
+                                    op: Add,
+                                    lhs: Field {
+                                        base: Ident(
+                                            Ident {
+                                                name: "p",
+                                                span: 4841..4842,
+                                            },
+                                        ),
+                                        field: Ident {
+                                            name: "at",
+                                            span: 4843..4845,
+                                        },
+                                        span: 4841..4845,
+                                    },
+                                    rhs: Int {
+                                        value: 1,
+                                        long: false,
+                                        span: 4848..4849,
+                                    },
+                                    span: 4841..4849,
+                                },
+                                span: 4834..4849,
+                            },
+                            Return {
+                                value: Some(
+                                    Call {
+                                        callee: Ident(
+                                            Ident {
+                                                name: "emitted",
+                                                span: 4861..4868,
+                                            },
+                                        ),
+                                        type_args: [],
+                                        args: [
+                                            Ident(
+                                                Ident {
+                                                    name: "b",
+                                                    span: 4869..4870,
+                                                },
+                                            ),
+                                        ],
+                                        named: [],
+                                        span: 4861..4871,
+                                    },
+                                ),
+                                span: 4854..4871,
+                            },
+                        ],
+                        span: 4747..4873,
+                    },
+                ),
+                span: 4680..4873,
+            },
+        ),
+    ],
+}

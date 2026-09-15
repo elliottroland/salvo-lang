@@ -1,4 +1,5 @@
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
 use crate::core_nonempty::*;
@@ -19,7 +20,7 @@ pub fn first<T: Clone>(list: &Vec<T>) -> &T {
     return list.get((0) as usize).unwrap();
 }
 
-pub fn iter__2<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
+pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
     return ListYield { items: list, at: 0 };
 }
 
@@ -29,7 +30,7 @@ pub struct ListYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__2<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as usize);
     if elem.is_none() {
         return Union2::U2(finished());

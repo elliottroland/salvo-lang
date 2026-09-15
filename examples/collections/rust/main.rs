@@ -5,8 +5,12 @@ pub mod unions;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/fs.rs"]
+pub mod core_fs;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -15,6 +19,8 @@ pub mod core_list;
 pub mod core_map;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
+#[path = "core/result.rs"]
+pub mod core_result;
 #[path = "core/seq.rs"]
 pub mod core_seq;
 #[path = "core/set.rs"]
@@ -26,7 +32,9 @@ pub mod core_string;
 
 use crate::collections::*;
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_console::*;
+use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -118,13 +126,13 @@ pub fn main() {
     println(&mut console, &(format!("6. still sorted {}", format!("[{}]", live.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
     println(&mut console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
-    let mut __loop1_pass = iter__4(&vowels);
-    while let Union2::U1(mut v) = next__4(&mut __loop1_pass) {
+    let mut __loop1_pass = iter__5(&vowels);
+    while let Union2::U1(mut v) = next__7(&mut __loop1_pass) {
         console.print(&v);
     }
     println(&mut console, &("".to_string()));
-    let mut __loop2_pass = iter__3(&ages);
-    while let Union2::U1(mut name) = next__3(&mut __loop2_pass) {
+    let mut __loop2_pass = iter__4(&ages);
+    while let Union2::U1(mut name) = next__6(&mut __loop2_pass) {
         let mut age = ages.get(&name);
         if age.is_some() {
             println(&mut console, &(format!("7. {} is {}", name, *age.unwrap())));

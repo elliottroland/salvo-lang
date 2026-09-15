@@ -5,6 +5,8 @@ pub mod unions;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]

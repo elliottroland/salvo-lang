@@ -57,6 +57,15 @@ Conventions:
   `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
+  * [byte-value] [bytes-type] `Byte`→`u8`, and **`Bytes` and `Mut Bytes` are
+    both `Vec<u8>`**: unboxed, no runtime class, and `Mut` erasing as it does
+    for every other type here [type-canbe-mut], so dropping it renders
+    nothing. The buffer class Kotlin has to ship ([kt-bytes]) is simply what
+    this backend gets from `Vec`, `slice` included (a `to_vec()` of a range).
+    `to_byte`/`to_int` are `as` casts with the **source type named**
+    (`(((x) as i32) as u8)`): rustc infers an unsuffixed literal's type
+    from the cast, so `(-1) as u8` would make the literal a `u8` and be
+    rejected instead of meaning 255.
 * [op-promote] Rust has no mixed-width operators (`i32 + i64` is E0277),
   so a checker-recorded promotion casts the operand **as a whole**:
   `((n * 2) as i64)` — the inner parentheses matter, since `as` binds

@@ -48,7 +48,7 @@ fun<T> hand_over(console: Console, value: T, to: (Console, T) -> Unit) {
 
 fun generic_handoff(console: Console) {
     val ticket = issue(console, 4, "9B")
-    hand_over(console, ticket, { console2: Console, t -> redeem(console, t) })
+    hand_over(console, ticket, { console2: Console, t -> redeem(console2, t) })
 }
 
 fun main() {

@@ -8,7 +8,7 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<K, V> iter__3(map: Map<K, V>): MapKeyYield<K> {
+fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -17,7 +17,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__3(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__6(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())

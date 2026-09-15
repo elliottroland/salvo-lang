@@ -104,7 +104,9 @@ fn main() [use] {
 - **Data**: structs (defaults, spread `...`, destructuring), tuples
   (destructuring and positional reads, `t.0`), immutable strings
   with `${}` interpolation — and `Mut Str` for building one, which reaches
-  the whole immutable surface by dropping its `Mut`.
+  the whole immutable surface by dropping its `Mut`. `Bytes` is the same pair
+  for binary data: a buffer you read, `Mut Bytes` to build one, `to_hex` and a
+  strict UTF-8 bridge — not a `List<Byte>`, so an octet costs an octet.
 - **Collections**: `List`, `Set`, `Map` and their sorted counterparts, each
   with a literal — `[1, 2, 3]`, `{"a", "b"}`, `{"k": "v"}`, and `Mut` in
   front for a mutable one. `Set` and `Map` iterate in **insertion order on
@@ -174,11 +176,17 @@ fn main() [use] {
   of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
   `FsError` that cannot be dropped in silence (`ignore` it, or `detach` its
   kind to keep it), a `Lines` pass for `for line in p`, one-shots
-  (`read_to_str`, `read_lines`, `write_str`) for the common case, and exact
-  byte offsets — `write` answers its byte count, `position` reports one, and
+  (`read_to_str`, `read_lines`, `write_str`, `copy_file`) for the common case,
+  bytes as themselves (`read_bytes`/`write_bytes` over `Bytes`, sharing one
+  stream and one position with the text reads), a fill-a-buffer read for the
+  loop that cannot afford a payload per step (`read_to`, `read_line_to`,
+  and a `chunks` pass), and exact byte offsets —
+  `write` answers its byte count, `position` reports one, and
   `open_read_at(path, offset)` reopens at one, since streams stay
   forward-only. The machine's filesystem is a `platform handler` at the
-  bottom, so swapping it swaps the world the program runs in.
+  bottom, so swapping it swaps the world the program runs in — for
+  `RestrictedFs(root)`, which scopes it to one directory, or `MemFs`, which
+  runs the same code with no disk at all.
 - **Interop**: a `platform effect` declares what the program needs from its
   target language, and a `platform handler` is a host implementation of an
   *ordinary* Salvo effect — registered with `use` like any handler, so the

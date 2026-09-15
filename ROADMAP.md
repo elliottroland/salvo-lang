@@ -46,13 +46,13 @@ linearity with a designated `close` (L6, L7a–d), the effects arc through handl
 dependencies, `throw`/`try` and effects on fn types (E1, E3 steps 1–3),
 places and field narrowing (P1), deductions with refinements (D1, D3), dot-names
 (N1), overload resolution (finalized), the std string and sequence surfaces
-(S-Str, S-Seq), and the iterator reduction to `next` (R0–R5 plus the generic
-drive). What is left is below, grouped by theme; **"The sequence" is the order
-it will be done in**, and each themed section is tagged with the phase it belongs
-to. One dependency is worth stating on its own, because it is the reason the
-order is what it is: **S-IO cannot restart until L8** decides how a linear value
-lives in a composite, since its result shape (`Ok InputStream | Err Str`) is
-exactly what the interim refusal forbids.
+(S-Str, S-Seq), the iterator reduction to `next` (R0–R5 plus the generic
+drive), the collections (S-Col) and **the filesystem (S-IO, phase 4 —
+complete 2026-09-14, bytes and worked example included)**. What is left is
+below, grouped by theme; **"The sequence" is the order it will be done in**,
+and each themed section is tagged with the phase it belongs to. **Phase 5
+(threading) is next**, and it opens with a design pass: CONCURRENCY.md is the
+working document, and four questions have to be answered before code.
 
 ## The sequence (user decision 2026-09-09)
 
@@ -147,23 +147,18 @@ containers (`List<linear T>`) deferred by decision.
 
 **4 — The filesystem, on an IO stream design** ("Standard library surface →
 S-IO"), using linearity and iterators — which is why it follows 1 and 3.
-**Fully decided 2026-09-14** (six rounds of user decisions; the decision-log
-entry "Phase 4 fully decided" in COMPLETED.md has the summary,
-**[FILE_SYSTEM.md](FILE_SYSTEM.md) is the plan of record** with the decided
-architecture in its §5.7–5.10: interception with binds-outward
-self-dependencies, stream ops as `Fs` members with `@Effect`
-disambiguation, `RawFs` below the members behind `platform handler
-HostRawFs`, linear tokens and the O-L2 `FsError`, per-operation Str/Byte
-buffered streams, and the signed-off v1 surface). The document retires into
-COMPLETED.md when phase 4 lands. **Everything up to and including the
-surface is built (2026-09-14)**: the Has-accessor effect fusion, the
-operator-typing slice, the `@Effect` grammar, O-R2 interception, the
-`platform handler` mechanism, effect-member overloading, the
-[linear-group] member-discharger amendment, and then `core.fs` +
-`core.hostfs` themselves — compiled and run against real files on both
-backends. **What is left**: the member-vs-fn naming DECISION (one row in
-the table above), `MemFs`, `RestrictedFs`, bytes, and an example. See S-IO
-below for the ordered list.
+**✅ Complete 2026-09-15** — decided in six rounds of user decisions and built
+across two days: the Has-accessor effect fusion, the operator-typing slice, the
+`@Effect` grammar, O-R2 interception, the `platform handler` mechanism,
+effect-member overloading, the [linear-group] member-discharger amendment,
+then `core.fs` + `core.hostfs`, `MemFs`, `RestrictedFs`, the byte payload
+(`Byte` unsigned on both backends, then **`Bytes`** as std's buffer
+[bytes-type]), the fill-a-buffer reads and the copy one-shots [fs-read-to],
+and `examples/files/`. FILE_SYSTEM.md, the plan of record, has **retired into
+COMPLETED.md's decision log** as its charter said; the as-built rules live in
+LANGUAGE_SPEC.md ([fs-surface] … [fs-v1-cuts], [byte-value], [bytes-type],
+[fs-read-to]). **Phase 5 is next**, and nothing from phase 4 is left open.
+Leftovers found on the way are under "S-IO" below.
 
 **S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
 day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
@@ -201,7 +196,7 @@ links to the section that states the options.
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| *(none open — the member-vs-fn question was decided 2026-09-14: **one overload set**, option (a); the plan is under "S-IO" item 6.4)* | — | — |
+| **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
 (The three phase-4 rows this table used to carry — operator typing, shared
@@ -466,12 +461,14 @@ diagnostic now says what is actually wrong and names the workaround.
 **The workaround is a function**: move the shared logic into an ordinary fn
 that both members call, passing what it needs. That is what std does today.
 
-Worth deciding before it bites in anger: **phase 4's `MemFs.read_all` wants
-to call its own `read_line`** (FILE_SYSTEM.md §5.10.2's member list has
-several such pairs), so the fs surface will either take the fn workaround or
-force this decision. **DECISION** when it does: the spelling, and whether a
-self-call may be recursive at all (a member calling itself is unbounded
-recursion the checker would not diagnose).
+It bit in phase 4 twice and the workaround held both times: `MemFs` shares
+logic between its members through free fns in its own module
+(`mem_find_newline`, `mem_append`, and — once the `read_to` family arrived and
+each fill member wanted its returning sibling — `mem_read_line`,
+`mem_read_all`, `mem_read_bytes`). It reads fine and cost nothing but a
+parameter list, so this stays a **DECISION** without a deadline: the spelling, and whether a self-call
+may be recursive at all (a member calling itself is unbounded recursion the
+checker would not diagnose).
 
 ### Two cuts inside the effect fusion
 
@@ -985,105 +982,37 @@ overloads that drop the optional. See COMPLETED.md. What is still not there:
   `NonEmpty` is the only claim that generalized. Worth remembering before
   reaching for overloading again: the mechanism is general, the claims are not.
 
-### S-IO — streams, then the filesystem (phase 4)
+### S-IO — the filesystem (phase 4) — ✅ complete 2026-09-15
 
-**Phase 4, fully decided 2026-09-14** (six rounds of user decisions —
-COMPLETED.md's decision log has the summary). No open decisions remain;
-what is left is implementation, in the agreed order:
-
-1. ~~**The Has-accessor effect fusion**~~ — **✅ built 2026-09-14** on both
-   backends (COMPLETED.md decision log; [rs-effect-fusion],
-   [kt-effect-fusion]).
-2. ~~**The operator-typing slice**~~ — **✅ built 2026-09-14** (COMPLETED.md
-   decision log; [op-arith] [op-order] [op-bool] [op-promote] [op-convert]
-   [lit-adopt]): numeric-only arithmetic, integer/float widening with
-   recorded promotions, explicit int↔float via std's new `to_*`
-   conversions, literal adoption, `Bool`-only logicals.
-3. ~~**The `@Effect` member-disambiguation grammar**~~ — **✅ built
-   2026-09-14** (COMPLETED.md decision log; [effect-at]
-   [effect-member-overload]): shared member names across effects,
-   availability-resolved bare calls, `close@Fs(h)` / `h.close@Net()` /
-   `next_random@Random<Int>()`.
-4. ~~**O-R2 interception**~~ — **✅ built 2026-09-14** (COMPLETED.md
-   decision log; [effect-intercept], restated [use-no-dup]): a handler may
-   depend on the effect it implements, binding strictly outward; `use`
-   shadows an earlier registration, innermost wins; checker + both
-   backends + diagnostics. It also closed a pre-existing Rust `E0308` for
-   dependent handlers of generic effect instances.
-5. ~~**The `platform handler` mechanism**~~ (FS-1/O-M2) — **✅ built
-   2026-09-14** (COMPLETED.md decision log; [platform-handler],
-   [kt-platform-handler], [rs-platform-handler]): a host implementation of
-   an *ordinary* effect, registered with `use`, its class supplied as the
-   declaring module's `platform/` companion — bodyless, dependency-free,
-   non-generic, skeleton written by `salvo platform generate`, missing host
-   a named error. std's route is the same mechanism with std shipping the
-   companion (`std/platform/…`, loaded per backend extension); it has no
-   customer until `HostRawFs` lands with the fs surface, which is the one
-   remaining piece of plumbing that arrives with item 6.
-6. **The filesystem itself**, per
-   **[FILE_SYSTEM.md](FILE_SYSTEM.md)** §5.7–5.10 (the plan of record:
-   architecture, member lists, error model, token design, restriction
-   semantics, and the FS-9 + §5 verify list). Writing the signed-off member
-   list turned out to need two compiler changes first; the first is done:
-   1. ~~**Member overloading within one effect**~~ (§5.10.2 sub-question A)
-      — **✅ built 2026-09-14** ([effect-member-overload], [effect-member-unique]
-      restated; COMPLETED.md's decision log): `Fs` declares `close` and
-      `position` once per stream token, so a member name may recur inside its
-      own effect as an overload, picked by the argument types; the emitters
-      name overloads apart through one shared rule.
-   2. ~~**The [linear-group] member-discharger amendment**~~ — **✅ built
-      2026-09-14** (COMPLETED.md's decision log): consuming effect members
-      declared in the linear type's file join the discharge set, and
-      discharger status attaches to the *member declaration*, so every
-      handler's implementation of it is a `discard` context
-      [linear-discard] — per overload, and keeping members still may not
-      discard.
-   3. ~~**The surface**~~ — **✅ built 2026-09-14** (COMPLETED.md's decision
-      log): `std/core/fs.sv` (errors, tokens, `effect Fs`, the `Lines` pass,
-      the one-shots) and `std/core/hostfs.sv` (`RawFs`,
-      `platform handler HostRawFs`, `handler DefaultFs [RawFs] of Fs`) with
-      both shipped host files (`std/platform/core/hostfs.{kt,rs}`),
-      compiled and run against real files on both backends to
-      byte-identical output. Tokens are **never `Mut`** (user decision
-      2026-09-14, option (b)); the split into two modules is load-bearing
-      [fs-host-split].
-   4. **What is left of the fs**, in this order:
-      * ~~One overload set: members and fns compete~~ — **✅ built
-        2026-09-14** (user decision, option (a) of three; COMPLETED.md's
-        decision log): members of an available effect and fns of the name are
-        ranked together by specificity, a tie is an error naming both `@`
-        remedies, and std's pass discharger went back to being `close`.
-      * ~~`MemFs of Fs`~~ — **✅ built 2026-09-14** ([fs-double]): pure Salvo,
-        no dependency, no host; byte offsets converted through the new
-        `byte_size` so they match the host's to the byte (the §5.5.1 hazard),
-        with a mid-codepoint ranged open answering `Err InvalidUtf8`.
-      * ~~`RestrictedFs(root) [Fs] of Fs`~~ — **✅ built 2026-09-14**
-        ([fs-restricted]): the interception customer, lexical containment
-        resolved right to left (`a/../b` stays inside), rebased paths,
-        absolute paths refused, `Err PathEscapes`, and the restriction tested
-        over `MemFs` as well as over the host.
-      * **Bytes** (§5.10.2 E): `read_bytes`/`write_bytes` with boxed
-        `List<Byte>` first, then `Byte` → Kotlin `UByte` and the
-        specialized `UByteArray`/`Vec<u8>` rendering as the second
-        deliverable.
-      * **Examples and prose**: an `examples/files/` worked example, and
-        FILE_SYSTEM.md's retirement into COMPLETED.md when all of the above
-        lands.
-   Also fixed on the way (user request, 2026-09-14): on Rust an effect
-   member's parameter modes now follow its **written clause** — consumed by
-   value, kept `Mut` as `&mut`, kept plain as `&` — where they used to take
-   the default kept rule and clone. It stopped being cosmetic once the tokens
-   arrived: `close(s: InStream) => !s` cloned the very token it consumes.
-
-FILE_SYSTEM.md retires into COMPLETED.md when phase 4 lands,
-OBLIGATIONS.md-style.
+Decided in six rounds of user decisions and built the same day, item by item:
+the Has-accessor effect fusion, the operator-typing slice, the `@Effect`
+member-disambiguation grammar, O-R2 interception, the `platform handler`
+mechanism, effect-member overloading, the [linear-group] member-discharger
+amendment, `core.fs` + `core.hostfs` with std's two host files, `MemFs`,
+`RestrictedFs`, one overload set for members and fns, the byte payload (twice:
+`List<Byte>` first, then std's own `Bytes`), the fill-a-buffer reads, the chunk
+pass and the copy one-shots, and `examples/files/`. **The record is
+COMPLETED.md's decision log** (six entries, newest "`Bytes`, `read_to` and the
+copy one-shots"); **the as-built rules are LANGUAGE_SPEC.md's** [fs-surface],
+[fs-token], [fs-errors-at-close], [fs-bytes], [fs-read-to], [fs-host-split],
+[fs-double], [fs-restricted], [fs-v1-cuts], [byte-value] and [bytes-type]. FILE_SYSTEM.md — the plan of record, and the full option
+record — **has retired into COMPLETED.md** as its charter said, so nothing
+below points at it any more.
 
 The historical outline of an `Fs` effect (2026-09-06, deferred so that IO
-streams could be designed first) has been superseded by what shipped: its two
+streams could be designed first) was superseded by what shipped: its two
 findings — errors returned rather than thrown, and stream operations as
 *members* so a double can fake them — are both in the built surface
-[fs-surface]. FILE_SYSTEM.md remains the plan of record for what is left of
-phase 4, and retires into COMPLETED.md when the fs is done.
+[fs-surface].
+
+#### The byte payload — ✅ answered and built 2026-09-15
+
+The question the first byte deliverable left open (Kotlin boxing `List<Byte>`,
+with no `UByteArray` rendering available under erased generics) was **decided
+by the user: a `Bytes` type of std's own** — option (b) of the three — with the
+fill-a-buffer reads and the copy one-shots on top of it. Built the same day;
+see COMPLETED.md's decision log ("`Bytes`, `read_to` and the copy one-shots")
+and the rules [bytes-type], [fs-read-to], [kt-bytes].
 
 ### Leftovers found while building the fs (none blocking)
 
@@ -1097,8 +1026,8 @@ phase 4, and retires into COMPLETED.md when the fs is done.
   `name_origins`, which needs reachability to run after checking.
 - **`rename` is a keyword**, so the member is `rename_path` (both on `Fs` and
   in `RawFs`). Making `rename` contextual in a member position is a parser
-  change nobody has asked for; the name deviates from FILE_SYSTEM.md §5.10.2
-  deliberately.
+  change nobody has asked for; the name deviates from the signed-off member
+  list deliberately.
 - **A pass's type must be *visible* for `for` to drive it**: importing the
   `next` alone is not enough (`import fs.Lines` was needed in a scratch
   program before `for line in p` resolved), which reads as a missing import

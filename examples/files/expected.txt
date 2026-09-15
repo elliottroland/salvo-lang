@@ -1,0 +1,48 @@
+-- the real filesystem, scoped to one directory --
+wrote 17 bytes
+read back 17 bytes
+line: alpha
+line: beta
+line: gamma
+appended 6 bytes at offset 17
+at 17: delta
+wrote 3 raw bytes and 3 encoded
+first three: [0, 255, 200] = 00ffc8
+the rest, as text: hé
+mid-character: not valid UTF-8
+and again at close: not valid UTF-8
+filled 6 bytes in 2 reads, one buffer
+longest line: 5 characters
+pass saw 6 bytes
+copied 23 bytes
+raw.bin is 6 bytes: 00ffc868c3a9
+failures: 2
+  not found
+  not a directory
+cleaned up
+through `..`: wrote 7 bytes
+climbing out: escapes the sandbox
+absolute path: escapes the sandbox
+probe still there: true
+-- the same code, with no disk at all --
+wrote 17 bytes
+read back 17 bytes
+line: alpha
+line: beta
+line: gamma
+appended 6 bytes at offset 17
+at 17: delta
+wrote 3 raw bytes and 3 encoded
+first three: [0, 255, 200] = 00ffc8
+the rest, as text: hé
+mid-character: not valid UTF-8
+and again at close: not valid UTF-8
+filled 6 bytes in 2 reads, one buffer
+longest line: 5 characters
+pass saw 6 bytes
+copied 23 bytes
+raw.bin is 6 bytes: 00ffc868c3a9
+failures: 2
+  not found
+  not a directory
+cleaned up

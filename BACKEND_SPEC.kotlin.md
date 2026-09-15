@@ -48,8 +48,47 @@ Conventions:
 ## Type mappings
 
 * [type-basic] Internal types map natively: `Str`→`String`,
-  `Bool`→`Boolean`, `Byte`/`Int`/`Long`/`Float`/`Double`/`Char` keep
+  `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Nothing`→`Nothing` (`emit_named_parts`).
+* [kt-byte-unsigned] [byte-value] `Byte`→**`UByte`**, not the JVM's signed
+  `Byte`. A Salvo `Byte` is an unsigned octet, and the JVM's is signed, so
+  the naive mapping printed `-1` where Rust's `u8` printed `255` — a
+  [backend-parity] break in the *text* a program produces. `UByte` is a
+  stable value class (Kotlin 1.5+), it interpolates unsigned, and
+  `to_byte`/`to_int` lower to `toUByte()`/`toInt()`, which agree with
+  Rust's `as u8`/`as i32` case by case (low 8 bits kept, widened into
+  0..255).
+  * A `List<Byte>` would be a boxed `List<UByte>`, and a specialized
+    `UByteArray` rendering is *not* available: `UByteArray` is not a
+    `List<T>`, so it cannot reach std's generic list surface
+    (`size<T>(List<T>)`, `get`, `add`, `iter`, `map`) on an erased-generics
+    backend — verified with kotlinc 2.4 (`argument type mismatch: actual
+    type is 'UByteArray', but 'List<T>' was expected`). That is why the byte
+    payload is a type of its own [kt-bytes] rather than a rendering of a
+    list (user decision 2026-09-15).
+* [kt-bytes] [bytes-type] **`Bytes` and `Mut Bytes` both map to
+  `salvo.SalvoBytes`**, a class shipped with the program
+  (`runtime/bytes.kt`, emitted as `bytes.kt` whenever the program names the
+  type — the `compare.kt` mechanism). One class for both shapes, so `Mut`
+  needs no separate type and dropping it renders **nothing**: the
+  `SortedSet`/`SortedMap` shape rather than the `StringBuilder` one
+  [str-drop-mut].
+  * What it is: a `ByteArray` plus a length (a growable byte buffer is not
+    in the stdlib), with the unsigned reading applied at the boundary
+    [kt-byte-unsigned].
+  * `equals`/`hashCode` are **structural**, which is what makes `==` mean the
+    same as on Rust's `Vec<u8>` [backend-parity] — a raw array would have
+    compared by identity. It also carries `iterator()`, so `for b in data` is
+    Kotlin's own loop [kt-iter-native], and `asString()` (strict UTF-8),
+    `toHex()` and `toString()` (`[0, 255, 200]`, the text a `List<Byte>`
+    printed).
+  * `copy` is the copy constructor **for both shapes**: a plain `Bytes` may be
+    the very object something else holds as a `Mut Bytes`, so identity would
+    alias it [kt-copy].
+  * The constructors take an `Array<UByte>`, not a `vararg UByte`: a vararg of
+    an unsigned type *is* a `UByteArray`, which still needs an
+    `@ExperimentalUnsignedTypes` opt-in — at the *call site*, i.e. in
+    generated code.
 * [op-promote] Kotlin's own operator set covers the mixed widths
   (`Long.plus(Int)`, `Int.compareTo(Long)`, `Float.times(Double)`), so
   checker-recorded promotions emit **nothing** here — the table exists

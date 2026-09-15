@@ -4,7 +4,7 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun iter__7(str: String): StrYield {
+fun iter__8(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -13,7 +13,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__5(p: StrYield): Union2<Char, Finished> {
+fun next__8(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())

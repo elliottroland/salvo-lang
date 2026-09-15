@@ -5,6 +5,8 @@ pub mod unions;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -25,6 +27,7 @@ pub mod core_sorted;
 pub mod core_string;
 
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
 use crate::core_list::*;

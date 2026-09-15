@@ -12,6 +12,7 @@ compiler generated for it and the output it prints.
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
 | [`collections/`](collections/) | the four collections: the literals, insertion versus key order, what may be a key, equality versus ordering, the generated constructors, and the `NonEmpty`/`Sorted`/`Distinct` claims a list can carry |
 | [`linearity/`](linearity/) | values the compiler will not let you forget: where the obligation comes from, that it moves, that a keeping call borrows instead, and how a generic opts in (`canbe linear`, `once`) |
+| [`files/`](files/) | the filesystem: one `Fs` effect for paths and streams, linear tokens and a linear error, `Bytes` and text off one stream, the fill-a-buffer reads and the copy one-shots — and one program run against the disk, a sandbox and an in-memory double |
 
 More will be added as features land. This tree replaced `experiments/`, which
 held hand-written *prototypes* of designs not yet built; the prototypes' value

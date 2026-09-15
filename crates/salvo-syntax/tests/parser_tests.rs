@@ -66,6 +66,13 @@ fn snapshot_std_string() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("string.sv")));
 }
 
+/// [bytes-type] The byte buffer's surface: an `intrinsic type` that opts into
+/// `Mut`, its two constructors, and the one pass declared over it.
+#[test]
+fn snapshot_std_bytes() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("bytes.sv")));
+}
+
 #[test]
 fn snapshot_std_result() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("result.sv")));

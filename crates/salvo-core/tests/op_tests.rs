@@ -22,6 +22,8 @@ const STD_PRELUDE: &str = concat!(
     "intrinsic type Str canbe Mut\n",
     "intrinsic fn to_long(value: Int) [] -> Long => value\n",
     "intrinsic fn to_double(value: Int) [] -> Double => value\n",
+    "intrinsic fn to_byte(value: Int) [] -> Byte => value\n",
+    "intrinsic fn to_int(value: Byte) [] -> Int => value\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -141,8 +143,8 @@ fn int_float_mix_needs_explicit_conversion() {
 
 /// [op-arith] `+` on strings is refused toward interpolation; other
 /// non-numeric operands get the general message. `Byte` is deliberately
-/// not operator-numeric (it lowers signed on one backend and unsigned on
-/// the other today).
+/// not operator-numeric [byte-value]: it is an octet, and its arithmetic
+/// goes through `to_int`/`to_byte`.
 #[test]
 fn non_numeric_arithmetic_is_refused() {
     let msgs = messages(&body("    let a = \"x\" + \"y\""));
@@ -157,6 +159,22 @@ fn non_numeric_arithmetic_is_refused() {
     );
     let msgs = messages(&body("    let a = 1 - \"y\""));
     assert!(msgs[0].contains("needs numeric operands"), "{msgs:?}");
+}
+
+/// [byte-value] [op-arith] A `Byte` is not a number to the operators, and
+/// the way through is the conversion pair — one call each way, which is
+/// also what pins the wrapping (`to_byte` keeps the low 8 bits).
+#[test]
+fn bytes_compute_through_int() {
+    let msgs = messages(&body("    let b = to_byte(1)\n    let a = b + b"));
+    assert!(msgs[0].contains("needs numeric operands"), "{msgs:?}");
+    assert_ok(&body(
+        "    let b = to_byte(200)\n    let n = to_int(b) + 1\n    let c = to_byte(n)",
+    ));
+    // Equality needs no conversion: a `Byte` compares natively.
+    assert_ok(&body(
+        "    let b = to_byte(10)\n    let same = b == to_byte(10)",
+    ));
 }
 
 /// Unary `-` is numeric; unary `!` is `Bool`.

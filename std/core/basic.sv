@@ -29,6 +29,14 @@ intrinsic fn to_float(value: Int) [] -> Float => value
 intrinsic fn to_float(value: Long) [] -> Float => value
 intrinsic fn to_float(value: Double) [] -> Float => value
 
+// [byte-value] A `Byte` is an **unsigned** 0..255 octet on both backends, and
+// it is not operator-numeric: these two conversions are the whole of its
+// arithmetic surface, so a byte is turned into an `Int`, computed with, and
+// turned back. `to_byte` keeps the low 8 bits (300 is 44, -1 is 255), which
+// is what both backends' truncation does.
+intrinsic fn to_byte(value: Int) [] -> Byte => value
+intrinsic fn to_int(value: Byte) [] -> Int => value
+
 // [intrinsic-fn] [copy-fn] Duplicates a value: the argument is kept
 // untouched (with all its qualifiers) and the result is a fresh,
 // independent value with no fate links to the source. Implemented by

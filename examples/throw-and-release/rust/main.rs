@@ -5,8 +5,12 @@ pub mod unions;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/fs.rs"]
+pub mod core_fs;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -29,7 +33,9 @@ pub mod core_string;
 pub mod core_throw;
 
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_console::*;
+use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -51,7 +57,7 @@ pub fn open_file(console: &mut dyn Console, name: String) -> FileHandle {
     return FileHandle { name: name };
 }
 
-pub fn close(console: &mut dyn Console, handle: FileHandle) {
+pub fn close__3(console: &mut dyn Console, handle: FileHandle) {
     println(console, &(format!("1. close {}", handle.name.clone())));
     drop(handle);
 }
@@ -61,10 +67,10 @@ pub fn read_size(console: &mut dyn Console, name: String, want: i32) -> i32 {
     let mut handle = open_file(console, name);
     if want > there_is {
         println(console, &("1. asked for more than there is".to_string()));
-        close(console, handle);
+        close__3(console, handle);
         return there_is;
     }
-    close(console, handle);
+    close__3(console, handle);
     return want;
 }
 
@@ -87,7 +93,7 @@ pub fn port_of(config: &String) -> ControlFlow<String, i32> {
 pub fn port_from_file(console: &mut dyn Console, name: String, text: &String) -> ControlFlow<String, i32> {
     let mut handle = open_file(console, name);
     let mut from = handle.name.clone();
-    close(console, handle);
+    close__3(console, handle);
     println(console, &(format!("2. reading a port out of {}", from)));
     return ControlFlow::Continue(parse_port(text)?);
 }

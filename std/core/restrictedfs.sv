@@ -166,6 +166,22 @@ handler RestrictedFs(root: Str) [Fs] of Fs {
         return read_all(s)
     }
 
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err FsError => s {
+        return read_bytes(s, max)
+    }
+
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => s, buf: Mut {
+        return read_to(s, buf, max)
+    }
+
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err FsError => s, buf: Mut {
+        return read_to(s, buf)
+    }
+
+    fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut {
+        return read_line_to(s, buf)
+    }
+
     fn position(s: InStream) -> Long => s {
         return position(s)
     }
@@ -180,6 +196,10 @@ handler RestrictedFs(root: Str) [Fs] of Fs {
 
     fn write_line(s: OutStream, text: Str) -> Long => s, text {
         return write_line(s, text)
+    }
+
+    fn write_bytes(s: OutStream, data: Bytes) -> Long => s, data {
+        return write_bytes(s, data)
     }
 
     fn position(s: OutStream) -> Long => s {

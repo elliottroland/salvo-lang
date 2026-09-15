@@ -46,6 +46,12 @@ pub fn fn_call(
         ("to_long", Some("Int" | "Double" | "Float")) => format!("({}).toLong()", a(0)),
         ("to_double", Some("Int" | "Long" | "Float")) => format!("({}).toDouble()", a(0)),
         ("to_float", Some("Int" | "Long" | "Double")) => format!("({}).toFloat()", a(0)),
+        // [kt-byte-unsigned] [byte-value] A `Byte` is a `UByte` here, so the
+        // pair round-trips through the unsigned type: `toUByte()` keeps the
+        // low 8 bits exactly as Rust's `as u8` does, and `toInt()` widens
+        // into 0..255 exactly as `as i32` does.
+        ("to_byte", Some("Int")) => format!("({}).toUByte()", a(0)),
+        ("to_int", Some("Byte")) => format!("({}).toInt()", a(0)),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from
@@ -334,6 +340,31 @@ pub fn fn_call(
         ),
         ("clear", Some("Str")) => format!("{}.clear()", a(0)),
 
+        // core.bytes -----------------------------------------------------
+        // [kt-bytes] [bytes-type] Every call goes to the shipped buffer
+        // class, which is `Bytes` and `Mut Bytes` both — so a dropped `Mut`
+        // renders nothing and no conversion happens anywhere here.
+        ("bytes_of", Some("[]")) => {
+            format!("salvo.SalvoBytes.of(arrayOf<UByte>({}))", args.join(", "))
+        }
+        // `joined()` with no parts is the empty buffer, so one lowering
+        // serves `mut_bytes()` and `mut_bytes(a, b)` alike.
+        ("mut_bytes", Some("[]")) => format!("salvo.SalvoBytes.joined({})", args.join(", ")),
+        ("to_bytes", Some("Str")) => format!("salvo.SalvoBytes.ofUtf8({})", a(0)),
+        ("str_of_bytes", Some("Bytes")) => format!("{}.asString()", a(0)),
+        ("size", Some("Bytes")) => format!("{}.size", a(0)),
+        ("get", Some("Bytes")) => format!("{}.getOrNull({})", a(0), a(1)),
+        ("slice", Some("Bytes")) => format!("{}.slice({}, {})", a(0), a(1), a(2)),
+        ("index_of", Some("Bytes")) => format!("{}.indexOf({})", a(0), a(1)),
+        ("add", Some("Bytes")) => format!("{}.add({})", a(0), a(1)),
+        ("append", Some("Bytes")) => format!("{}.append({})", a(0), a(1)),
+        // `setAt`, not `set`: the class is Kotlin's, and `set` there is the
+        // indexing operator, which would take an `Int` receiver position.
+        ("set", Some("Bytes")) => format!("{}.setAt({}, {})", a(0), a(1), a(2)),
+        ("clear", Some("Bytes")) => format!("{}.clear()", a(0)),
+        ("to_str", Some("Bytes")) => format!("{}.toString()", a(0)),
+        ("to_hex", Some("Bytes")) => format!("{}.toHex()", a(0)),
+
         _ => return None,
     })
 }
@@ -349,7 +380,15 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Double" => "Double",
         "Bool" => "Boolean",
         "Char" => "Char",
-        "Byte" => "Byte",
+        // [kt-byte-unsigned] Unsigned, so the same octet prints and compares
+        // the same on both backends: a signed `Byte` would render 255 as
+        // `-1` where Rust's `u8` renders `255` [backend-parity].
+        "Byte" => "UByte",
+        // [kt-bytes] [bytes-type] One class for `Bytes` and `Mut Bytes`, in
+        // the root `salvo` package so no emitted file needs an import — see
+        // `runtime/bytes.kt` for why neither `List<UByte>` nor `UByteArray`
+        // could do the job.
+        "Bytes" => "salvo.SalvoBytes",
         "None" => "Unit",
         "Any" => "Any",
         "Nothing" => "Nothing",

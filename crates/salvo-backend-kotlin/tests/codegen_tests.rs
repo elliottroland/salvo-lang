@@ -1161,7 +1161,7 @@ fn a_raw_pass_is_driven_in_place_with_no_finally() {
     );
     assert!(
         // Suffixed: std declares a `close` too [fs-surface].
-        src.contains("close__2(console, lines)"),
+        src.contains("close__3(console, lines)"),
         "expected the program's own explicit close:\n{src}"
     );
 }
@@ -2113,6 +2113,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_refined_program,
     kotlinc_runs_the_most_specific_overload,
     kotlinc_compiles_and_runs_strings,
+    kotlinc_compiles_and_runs_bytes,
     a_spread_into_a_variadic_intrinsic_spreads,
     kotlinc_compiles_and_runs_mut_str_places,
     kotlinc_compiles_and_runs_sequences,
@@ -6710,6 +6711,15 @@ fn main() [use] {
     }
     println("chars: ${size(count)}")
 
+    // [bytes-type] [byte-value] The text/byte bridge: UTF-8 out, strict UTF-8
+    // back in, and an octet that is unsigned on both targets. The buffer is a
+    // `Bytes`, not a list of octets, so nothing here boxes on the JVM.
+    let bytes = to_bytes("hé")
+    let round = str_of_bytes(bytes)
+    let broken = mut_bytes()
+    add(broken, to_byte(200))
+    println("bytes: ${bytes} ${to_hex(bytes)} ${round!} ${str_of_bytes(broken) is None}")
+
     // Operators drop `Mut` too, so equality is by content on both targets.
     let x = mut_str(pa)
     let y = mut_str(pa)
@@ -6720,7 +6730,8 @@ fn main() [use] {
 /// The stdout both backends must produce, byte for byte.
 const STRING_DEMO_OUTPUT: &str = "HELLO WORLD\nsize: 11\nHello world / Hello world!\n\
                                   cleared: []\n4 a-b--c\n[pad] true true true\npad\n\
-                                  2 true\nel true\n42 true\nhel|\nchars: 5\nequal: true\n";
+                                  2 true\nel true\n42 true\nhel|\nchars: 5\n\
+                                  bytes: [104, 195, 169] 68c3a9 hé true\nequal: true\n";
 
 /// [kt-mut-str] `Mut Str` maps to `StringBuilder` through the same
 /// `mut_type_name` hook `Mut List<T>` uses, and every *drop* of the `Mut`
@@ -7415,10 +7426,11 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     );
     // [fn-effects] The effectful `next` gets its handler per turn. The mangling
     // index counts the visible `next` overloads, so it moved when std's lazy
-    // pair (two of them) was removed 2026-09-10, and again when `Set` and
-    // `Map` brought their own passes (two more) 2026-09-13.
+    // pair (two of them) was removed 2026-09-10, again when `Set` and `Map`
+    // brought their own passes (two more) 2026-09-13, and again when `Bytes`
+    // and the fs chunk pass brought two more 2026-09-15.
     assert!(
-        src.contains("next__9(console, __loop"),
+        src.contains("next__11(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -8171,6 +8183,126 @@ fn kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member() -> KotlinCase {
     kotlin_case(files, "linear-member-discharge", "line 9\nclosed in\nwrote 5\nclosed out\n")
 }
 
+// ===== std's byte buffer [bytes-type] =====
+
+/// [bytes-type] [byte-value] The whole `Bytes` surface in one program: both
+/// constructors, the read side, the `Mut` side, structural equality, a copy
+/// that does not alias, the text bridge and a `for` over the buffer.
+///
+/// The two backends could not be further apart underneath — a `Vec<u8>` here,
+/// a shipped `SalvoBytes` class on the JVM [kt-bytes] — so the value of this
+/// case is that it prints the same bytes, the same hex and the same numbers on
+/// both.
+const BYTES_PROGRAM: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    // The two constructors: a fixed buffer, and one under construction.
+    let fixed = bytes_of(to_byte(0), to_byte(255), to_byte(200))
+    println("fixed: ${fixed} / ${to_hex(fixed)} / ${size(fixed)}")
+    let buf = mut_bytes()
+    buf.add(to_byte(104))
+    buf.append(to_bytes("é"))
+    println("built: ${buf} / ${to_hex(buf)}")
+    // A `Mut Bytes` reaches the read surface by dropping its `Mut`.
+    let text = str_of_bytes(buf)
+    when text {
+        is Str { println("text: ${text}") }
+        is None { println("text: invalid") }
+    }
+    // Invalid UTF-8 decodes to nothing, strictly, on both backends.
+    let broken = mut_bytes()
+    broken.add(to_byte(200))
+    println("broken: ${str_of_bytes(broken) is None}")
+    // Reading: element, slice, search — each optional where it can miss.
+    println("at 1: ${to_int(get(fixed, 1)!)} / oob: ${get(fixed, 9) is None}")
+    println("slice: ${slice(fixed, 1, 3)!} / bad: ${slice(fixed, 1, 9) is None}")
+    println("index: ${index_of(fixed, to_byte(200))!} / ${index_of(fixed, to_byte(7)) is None}")
+    // Writing in place, and the clear that makes a buffer reusable.
+    let scratch = mut_bytes(fixed)
+    scratch.set(0, to_byte(1))
+    scratch.set(9, to_byte(2))
+    println("set: ${scratch}")
+    clear(scratch)
+    println("cleared: ${scratch} / ${size(scratch)}")
+    // `==` is structural, and `copy` really copies.
+    let a = bytes_of(to_byte(1), to_byte(2))
+    let b = bytes_of(to_byte(1), to_byte(2))
+    println("equal: ${a == b} / ${a == fixed}")
+    let dup = copy(a)
+    let grow = mut_bytes(dup)
+    grow.add(to_byte(3))
+    println("copy independent: ${a} vs ${grow}")
+    // A `for` over a buffer, and the combinators over the same pass.
+    let total = 0
+    for byte in fixed {
+        total = total + to_int(byte)
+    }
+    println("sum: ${total}")
+    let doubled = map(iter(a), each -> to_int(each) * 2)
+    println("mapped: ${doubled}")
+}
+"#;
+
+const BYTES_OUTPUT: &str = "fixed: [0, 255, 200] / 00ffc8 / 3\n\
+                            built: [104, 195, 169] / 68c3a9\ntext: hé\n\
+                            broken: true\nat 1: 255 / oob: true\n\
+                            slice: [255, 200] / bad: true\nindex: 2 / true\n\
+                            set: [1, 255, 200]\ncleared: [] / 0\n\
+                            equal: true / false\n\
+                            copy independent: [1, 2] vs [1, 2, 3]\n\
+                            sum: 455\nmapped: [2, 4]\n";
+fn kotlinc_compiles_and_runs_bytes() -> KotlinCase {
+    let files = generate_files(&[("main.sv", BYTES_PROGRAM)]);
+    kotlin_case(files, "bytes", BYTES_OUTPUT)
+}
+
+/// [kt-bytes] The buffer is a **shipped class**, emitted once per program that
+/// names a `Bytes` — and `Mut Bytes` is the same class, so dropping the `Mut`
+/// renders nothing and no conversion happens at a call boundary.
+#[test]
+fn bytes_ships_one_runtime_class_for_both_shapes() {
+    let files = generate_files(&[("main.sv", BYTES_PROGRAM)]);
+    let runtime = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("bytes.kt"))
+        .expect("bytes.kt emitted");
+    for expected in [
+        "class SalvoBytes",
+        "override fun equals(",
+        "operator fun iterator(): Iterator<UByte>",
+    ] {
+        assert!(
+            runtime.content.contains(expected),
+            "expected `{expected}` in the buffer runtime:\n{}",
+            runtime.content
+        );
+    }
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.kt"))
+        .expect("main.kt emitted");
+    // One class for both shapes: the builder's declared type is the same as a
+    // fixed buffer's, and `str_of_bytes(buf)` needs no `.toString()`-style
+    // conversion the way a `Mut Str` does [str-drop-mut].
+    assert!(
+        main.content.contains("val buf = salvo.SalvoBytes.joined()"),
+        "expected the builder built by the same class:\n{}",
+        main.content
+    );
+    // A `for` over a buffer is Kotlin's own loop [kt-iter-native]: the class
+    // has an `iterator()`, so iterating allocates no pass.
+    assert!(
+        main.content.contains("for (byte in fixed)"),
+        "expected the native byte loop:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("buf.asString()"),
+        "expected the read surface reached without a conversion:\n{}",
+        main.content
+    );
+}
+
 // ===== std's filesystem [platform-handler] [linear-group] =====
 
 /// std's `core.fs`, exercised end to end against real files — **verbatim the
@@ -8184,6 +8316,9 @@ const FS_PROGRAM: &str = r#"
 fn describe(e: FsError) [] -> Str => e {
     if e.kind is NotFound {
         return "not found"
+    }
+    if e.kind is InvalidUtf8 {
+        return "not utf-8"
     }
     return "other"
 }
@@ -8261,6 +8396,174 @@ fn main() [use] -> None {
         is Err { println("dir: ${describe(listed)}") ignore(listed) }
     }
 
+
+    // [fs-bytes] The byte surface: a file that is not text, written and read
+    // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
+    // both backends, so 255 prints as 255 on both — a signed byte would print
+    // -1 on one of them [backend-parity].
+    let out = open_write("__DIR__/raw.bin")
+    when out {
+        is Ok {
+            let w: OutStream = out
+            let data = bytes_of(to_byte(0), to_byte(255), to_byte(200))
+            let n = write_bytes(w, data)
+            let m = write(w, "hé")
+            println("bytes: ${n} + ${m} at ${position(w)}")
+            let shut = close(w)
+            when shut {
+                is Ok { println("wrote raw") }
+                is Err { println("wrote raw: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("raw open: ${describe(out)}") ignore(out) }
+    }
+    let raw = open_read("__DIR__/raw.bin")
+    when raw {
+        is Ok {
+            let s: InStream = raw
+            let head = read_bytes(s, 3)
+            when head {
+                is Ok { println("read: ${head} at ${position(s)} (${to_hex(head)})") }
+                is Err { println("read: ${describe(head)}") ignore(head) }
+            }
+            // Bytes and text off one stream: the position is bytes either way,
+            // so the text read picks up exactly where the byte read stopped.
+            let text = read_all(s)
+            when text {
+                is Ok { println("then: ${text}") }
+                is Err { println("then: ${describe(text)}") ignore(text) }
+            }
+            let shut = close(s)
+            when shut {
+                is Ok { println("read raw") }
+                is Err { println("read raw: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("raw read: ${describe(raw)}") ignore(raw) }
+    }
+    // Opening between the bytes of a character is a *seek*, not a decode: it
+    // succeeds, and the strict decode afterwards is what fails — recorded, so
+    // `close` reports it too [fs-errors-at-close].
+    let split = open_read_at("__DIR__/raw.bin", 5)
+    when split {
+        is Ok {
+            let s: InStream = split
+            let bad = read_all(s)
+            when bad {
+                is Ok { println("split: ${bad}") }
+                is Err { println("split: ${describe(bad)}") ignore(bad) }
+            }
+            let shut = close(s)
+            when shut {
+                is Ok { println("split closed") }
+                is Err { println("split close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("split open: ${describe(split)}") ignore(split) }
+    }
+
+    // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
+    // instead of a payload per step.
+    let held = open_read("__DIR__/raw.bin")
+    when held {
+        is Ok {
+            let s: InStream = held
+            let buf = mut_bytes()
+            let steps = 0
+            let moved = 0
+            let reading = true
+            while reading {
+                clear(buf)
+                let got = read_to(s, buf, 2)
+                if got is Err {
+                    println("read_to: ${describe(got)}")
+                    ignore(got)
+                    reading = false
+                } else {
+                    let n: Int = got
+                    if n == 0 {
+                        reading = false
+                    } else {
+                        steps = steps + 1
+                        moved = moved + n
+                    }
+                }
+            }
+            println("filled ${moved} bytes in ${steps} reads")
+            let shut = close(s)
+            when shut {
+                is Ok { println("filled closed") }
+                is Err { println("filled close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("filled open: ${describe(held)}") ignore(held) }
+    }
+    // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
+    let ch = open_chunks("__DIR__/raw.bin", 4)
+    when ch {
+        is Ok {
+            let p = ch
+            let seen = 0
+            for chunk in p {
+                seen = seen + size(chunk)
+            }
+            println("pass saw ${seen} bytes")
+            let shut = close(p)
+            when shut {
+                is Ok { println("pass closed") }
+                is Err { println("pass close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("pass open: ${describe(ch)}") ignore(ch) }
+    }
+    // And the text side of `read_to`: a line per iteration, one builder.
+    let lined = open_read(path)
+    when lined {
+        is Ok {
+            let s: InStream = lined
+            let line = mut_str()
+            let lines_seen = 0
+            let reading = true
+            while reading {
+                clear(line)
+                if read_line_to(s, line) {
+                    lines_seen = lines_seen + 1
+                } else {
+                    reading = false
+                }
+            }
+            println("read ${lines_seen} lines into one builder")
+            let shut = close(s)
+            when shut {
+                is Ok { println("lines closed") }
+                is Err { println("lines close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("lines open: ${describe(lined)}") ignore(lined) }
+    }
+    // The one-shots that own the buffer: a whole-file copy and a whole-file
+    // byte read, with no stream and no buffer in sight.
+    let copied = copy_file(path, "__DIR__/copy.txt")
+    when copied {
+        is Ok { println("copied ${copied}") }
+        is Err { println("copied: ${describe(copied)}") ignore(copied) }
+    }
+    let all_bytes = read_to_bytes("__DIR__/copy.txt")
+    when all_bytes {
+        is Ok { println("copy holds ${size(all_bytes)} bytes") }
+        is Err { println("copy read: ${describe(all_bytes)}") ignore(all_bytes) }
+    }
+    let gone_copy = delete("__DIR__/copy.txt")
+    when gone_copy {
+        is Ok { println("copy deleted") }
+        is Err { println("copy deleted: ${describe(gone_copy)}") ignore(gone_copy) }
+    }
+    let gone_bin = delete("__DIR__/raw.bin")
+    when gone_bin {
+        is Ok { println("raw deleted") }
+        is Err { println("raw deleted: ${describe(gone_bin)}") ignore(gone_bin) }
+    }
+
     let gone = delete(path)
     when gone {
         is Ok { println("deleted") }
@@ -8277,7 +8580,16 @@ fn main() [use] -> None {
 const FS_OUTPUT: &str = "made\nwrote 17\nlines: [alpha, beta, gamma]\n\
                          line: alpha\nline: beta\nline: gamma\nclosed\n\
                          at 6: beta\nposition: 11\n\nmissing: not found\n\
-                         dir: [notes.txt]\ndeleted\nremoved\n";
+                         dir: [notes.txt]\n\
+                         bytes: 3 + 3 at 6\nwrote raw\n\
+                         read: [0, 255, 200] at 3 (00ffc8)\nthen: hé\nread raw\n\
+                         split: not utf-8\nsplit close: not utf-8\n\
+                         filled 6 bytes in 3 reads\nfilled closed\n\
+                         pass saw 6 bytes\npass closed\n\
+                         read 3 lines into one builder\nlines closed\n\
+                         copied 17\ncopy holds 17 bytes\ncopy deleted\n\
+                         raw deleted\n\
+                         deleted\nremoved\n";
 
 /// The program with its scratch directory baked in. Under the crate's own
 /// target tmpdir, so the two backends' runs cannot collide.
@@ -8376,6 +8688,9 @@ fn describe(e: FsError) [] -> Str => e {
     if e.kind is NotADirectory {
         return "not a directory"
     }
+    if e.kind is InvalidUtf8 {
+        return "not utf-8"
+    }
     return "other"
 }
 
@@ -8432,6 +8747,174 @@ fn main() [use] -> None {
         is Err { println("dir: ${describe(listed)}") ignore(listed) }
     }
 
+
+    // [fs-bytes] The byte surface: a file that is not text, written and read
+    // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
+    // both backends, so 255 prints as 255 on both — a signed byte would print
+    // -1 on one of them [backend-parity].
+    let out = open_write("notes/raw.bin")
+    when out {
+        is Ok {
+            let w: OutStream = out
+            let data = bytes_of(to_byte(0), to_byte(255), to_byte(200))
+            let n = write_bytes(w, data)
+            let m = write(w, "hé")
+            println("bytes: ${n} + ${m} at ${position(w)}")
+            let shut = close(w)
+            when shut {
+                is Ok { println("wrote raw") }
+                is Err { println("wrote raw: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("raw open: ${describe(out)}") ignore(out) }
+    }
+    let raw = open_read("notes/raw.bin")
+    when raw {
+        is Ok {
+            let s: InStream = raw
+            let head = read_bytes(s, 3)
+            when head {
+                is Ok { println("read: ${head} at ${position(s)} (${to_hex(head)})") }
+                is Err { println("read: ${describe(head)}") ignore(head) }
+            }
+            // Bytes and text off one stream: the position is bytes either way,
+            // so the text read picks up exactly where the byte read stopped.
+            let text = read_all(s)
+            when text {
+                is Ok { println("then: ${text}") }
+                is Err { println("then: ${describe(text)}") ignore(text) }
+            }
+            let shut = close(s)
+            when shut {
+                is Ok { println("read raw") }
+                is Err { println("read raw: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("raw read: ${describe(raw)}") ignore(raw) }
+    }
+    // Opening between the bytes of a character is a *seek*, not a decode: it
+    // succeeds, and the strict decode afterwards is what fails — recorded, so
+    // `close` reports it too [fs-errors-at-close].
+    let split = open_read_at("notes/raw.bin", 5)
+    when split {
+        is Ok {
+            let s: InStream = split
+            let bad = read_all(s)
+            when bad {
+                is Ok { println("split: ${bad}") }
+                is Err { println("split: ${describe(bad)}") ignore(bad) }
+            }
+            let shut = close(s)
+            when shut {
+                is Ok { println("split closed") }
+                is Err { println("split close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("split open: ${describe(split)}") ignore(split) }
+    }
+
+    // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
+    // instead of a payload per step.
+    let held = open_read("notes/raw.bin")
+    when held {
+        is Ok {
+            let s: InStream = held
+            let buf = mut_bytes()
+            let steps = 0
+            let moved = 0
+            let reading = true
+            while reading {
+                clear(buf)
+                let got = read_to(s, buf, 2)
+                if got is Err {
+                    println("read_to: ${describe(got)}")
+                    ignore(got)
+                    reading = false
+                } else {
+                    let n: Int = got
+                    if n == 0 {
+                        reading = false
+                    } else {
+                        steps = steps + 1
+                        moved = moved + n
+                    }
+                }
+            }
+            println("filled ${moved} bytes in ${steps} reads")
+            let shut = close(s)
+            when shut {
+                is Ok { println("filled closed") }
+                is Err { println("filled close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("filled open: ${describe(held)}") ignore(held) }
+    }
+    // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
+    let ch = open_chunks("notes/raw.bin", 4)
+    when ch {
+        is Ok {
+            let p = ch
+            let seen = 0
+            for chunk in p {
+                seen = seen + size(chunk)
+            }
+            println("pass saw ${seen} bytes")
+            let shut = close(p)
+            when shut {
+                is Ok { println("pass closed") }
+                is Err { println("pass close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("pass open: ${describe(ch)}") ignore(ch) }
+    }
+    // And the text side of `read_to`: a line per iteration, one builder.
+    let lined = open_read("notes/a.txt")
+    when lined {
+        is Ok {
+            let s: InStream = lined
+            let line = mut_str()
+            let lines_seen = 0
+            let reading = true
+            while reading {
+                clear(line)
+                if read_line_to(s, line) {
+                    lines_seen = lines_seen + 1
+                } else {
+                    reading = false
+                }
+            }
+            println("read ${lines_seen} lines into one builder")
+            let shut = close(s)
+            when shut {
+                is Ok { println("lines closed") }
+                is Err { println("lines close: ${describe(shut)}") ignore(shut) }
+            }
+        }
+        is Err { println("lines open: ${describe(lined)}") ignore(lined) }
+    }
+    // The one-shots that own the buffer: a whole-file copy and a whole-file
+    // byte read, with no stream and no buffer in sight.
+    let copied = copy_file("notes/a.txt", "notes/copy.txt")
+    when copied {
+        is Ok { println("copied ${copied}") }
+        is Err { println("copied: ${describe(copied)}") ignore(copied) }
+    }
+    let all_bytes = read_to_bytes("notes/copy.txt")
+    when all_bytes {
+        is Ok { println("copy holds ${size(all_bytes)} bytes") }
+        is Err { println("copy read: ${describe(all_bytes)}") ignore(all_bytes) }
+    }
+    let gone_copy = delete("notes/copy.txt")
+    when gone_copy {
+        is Ok { println("copy deleted") }
+        is Err { println("copy deleted: ${describe(gone_copy)}") ignore(gone_copy) }
+    }
+    let gone_bin = delete("notes/raw.bin")
+    when gone_bin {
+        is Ok { println("raw deleted") }
+        is Err { println("raw deleted: ${describe(gone_bin)}") ignore(gone_bin) }
+    }
+
     // The restriction, over the same memory, for the length of the block: an
     // interceptor wraps the handler already registered.
     if true {
@@ -8447,7 +8930,16 @@ fn main() [use] -> None {
 "#;
 
 const MEMFS_OUTPUT: &str = "wrote 17\nlines: [alpha, beta, gamma]\nat 6: beta\nposition: 11\n\
-                         closed\ndir: [a.txt]\ninside: 17\nthrough ..: 17\n\
+                         closed\ndir: [a.txt]\n\
+                         bytes: 3 + 3 at 6\nwrote raw\n\
+                         read: [0, 255, 200] at 3 (00ffc8)\nthen: hé\nread raw\n\
+                         split: not utf-8\nsplit close: not utf-8\n\
+                         filled 6 bytes in 3 reads\nfilled closed\n\
+                         pass saw 6 bytes\npass closed\n\
+                         read 3 lines into one builder\nlines closed\n\
+                         copied 17\ncopy holds 17 bytes\ncopy deleted\n\
+                         raw deleted\n\
+                         inside: 17\nthrough ..: 17\n\
                          escape: escapes\nabsolute: escapes\nunrestricted: 17\n";
 
 fn kotlinc_compiles_and_runs_the_memory_filesystem() -> KotlinCase {

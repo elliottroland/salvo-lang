@@ -3,6 +3,7 @@ source: crates/salvo-backend-rust/tests/codegen_tests.rs
 expression: combined
 ---
 // ===== core/array.rs =====
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -26,6 +27,34 @@ pub fn next<'s, T: Clone>(p: &mut ArrayYield<'s, T>) -> Union2<&'s T, Finished> 
     }
     p.at = p.at + 1;
     return Union2::U1(emitted(elem.unwrap()));
+}
+
+// ===== core/bytes.rs =====
+use crate::core_array::*;
+use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_sorted::*;
+use crate::core_string::*;
+use crate::unions::*;
+
+pub fn iter__2(data: &Vec<u8>) -> BytesYield<'_> {
+    return BytesYield { data: data, at: 0 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BytesYield<'s> {
+    pub data: &'s Vec<u8>,
+    pub at: i32,
+}
+
+pub fn next__2(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
+    let mut b = p.data.get((p.at) as usize).copied();
+    if b.is_none() {
+        return Union2::<u8, Finished>::U2(finished());
+    }
+    p.at = p.at + 1;
+    return Union2::<u8, Finished>::U1(emitted(b.unwrap()));
 }
 
 // ===== core/console.rs =====
@@ -72,6 +101,7 @@ pub fn finished() -> Finished {
 
 // ===== core/list.rs =====
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
 use crate::core_nonempty::*;
@@ -92,7 +122,7 @@ pub fn first<T: Clone>(list: &Vec<T>) -> &T {
     return list.get((0) as usize).unwrap();
 }
 
-pub fn iter__2<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
+pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
     return ListYield { items: list, at: 0 };
 }
 
@@ -102,7 +132,7 @@ pub struct ListYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -121,7 +151,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__3<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__4<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -131,7 +161,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__4<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__6<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
@@ -143,6 +173,7 @@ pub fn next__4<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
 // ===== core/nonempty.rs =====
 use crate::collections::*;
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -184,6 +215,7 @@ pub fn last_key<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> K
 }
 
 // ===== core/seq.rs =====
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_set::*;
@@ -237,6 +269,7 @@ pub fn drop<T: Clone>(value: T) {
 
 // ===== core/set.rs =====
 use crate::collections::*;
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_nonempty::*;
@@ -244,7 +277,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__4<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -254,7 +287,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__5<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__7<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -264,6 +297,7 @@ pub fn next__5<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
 }
 
 // ===== core/sorted.rs =====
+use crate::core_bytes::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -271,11 +305,11 @@ use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_string::*;
 
-pub fn iter__5<T: Clone>(set: &std::collections::BTreeSet<T>) -> SetYield<T> {
+pub fn iter__6<T: Clone>(set: &std::collections::BTreeSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
-pub fn iter__6<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__7<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -284,7 +318,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter__7(str: &String) -> StrYield<'_> {
+pub fn iter__8(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
@@ -294,7 +328,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__6(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__8(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -311,6 +345,8 @@ pub mod unions;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/bytes.rs"]
+pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -331,6 +367,7 @@ pub mod core_sorted;
 pub mod core_string;
 
 use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
 use crate::core_list::*;

@@ -112,6 +112,9 @@ pub fn emit_program_reporting(
     // [kt-ordered] And for the structural comparison a `canbe ordered`
     // struct's `compareTo` uses [col-hashed-ordered].
     let mut needs_compare = false;
+    // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
+    // anywhere in the program [bytes-type].
+    let mut needs_bytes = false;
     // [kt-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does. Same gate as
@@ -147,6 +150,7 @@ pub fn emit_program_reporting(
         union_sizes.extend(emitter.union_sizes);
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
+        needs_bytes |= emitter.needs_bytes;
         has_ifaces.extend(emitter.has_ifaces);
         platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
@@ -200,6 +204,12 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("compare.kt"),
             content: generate_compare_file(),
+        });
+    }
+    if needs_bytes {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("bytes.kt"),
+            content: generate_bytes_file(),
         });
     }
     // [backend-companion] Backend-native companion files are copied
@@ -377,6 +387,17 @@ fn generate_throw_file() -> String {
 /// by `runtime_tests.rs`.
 fn generate_compare_file() -> String {
     include_str!("../runtime/compare.kt").to_string()
+}
+
+/// [kt-bytes] The `Bytes` buffer class, which is `Bytes` *and* `Mut Bytes`
+/// [bytes-type]: neither `List<UByte>` (a box per element) nor `UByteArray`
+/// (fixed-size, and not a `List<T>`, so generic code cannot take one) is a
+/// growable byte buffer on this backend.
+///
+/// Source in `runtime/bytes.kt`, included verbatim and compiled directly by
+/// `runtime_tests.rs`.
+fn generate_bytes_file() -> String {
+    include_str!("../runtime/bytes.kt").to_string()
 }
 
 /// Whether an effect instance is the throw effect [throw]: the JVM unwinds
@@ -711,6 +732,9 @@ struct Emitter<'p> {
     /// [kt-ordered] Whether this module declared a `canbe ordered` struct, so
     /// the comparison runtime is emitted.
     needs_compare: bool,
+    /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
+    /// the buffer runtime class.
+    needs_bytes: bool,
     /// [iter-fn] Of those, the ones held in a nullable property
     /// because their type has no zero value: reads unwrap with `!!`.
     gen_slots: HashSet<String>,
@@ -808,6 +832,7 @@ impl<'p> Emitter<'p> {
             ret_is_unit: false,
             needs_throw: false,
             needs_compare: false,
+            needs_bytes: false,
             gen_slots: HashSet::new(),
                             implicits: Vec::new(),
             pending_mints: Vec::new(),
@@ -2389,6 +2414,11 @@ impl<'p> Emitter<'p> {
         // other mapping to try: a type the target language provides is
         // reached through a `platform effect`, not by naming it here.
         if let Some(kt) = crate::intrinsics::type_name(name) {
+            // [kt-bytes] Naming the type is what pulls in its runtime class;
+            // `Mut Bytes` renders through here too (one class serves both).
+            if name == "Bytes" {
+                self.needs_bytes = true;
+            }
             return format!("{kt}{args}");
         }
         // Structs, generics, effects, and unknown names pass through.
@@ -5085,6 +5115,13 @@ impl<'p> Emitter<'p> {
             // alias the buffer, which is the whole point of [kt-copy].
             Ty::Named { name, .. } if has_mut && name == "Str" => {
                 return Some(format!("StringBuilder({code})"));
+            }
+            // [kt-bytes] A buffer copies through its copy constructor, and
+            // for `Bytes` as well as `Mut Bytes`: one class serves both, so a
+            // plain `Bytes` can be the very object something else holds as a
+            // `Mut Bytes` — identity would alias it [kt-copy].
+            Ty::Named { name, .. } if name == "Bytes" => {
+                return Some(format!("salvo.SalvoBytes({code})"));
             }
             Ty::Named { name, args: targs } if has_mut && name == "List" => {
                 if targs.iter().all(|t| self.ty_immutable(t, &mut Vec::new())) {

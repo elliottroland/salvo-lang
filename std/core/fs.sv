@@ -140,6 +140,26 @@ effect Fs {
     fn read_line(s: InStream) -> Str | None => s
     // Everything left in the stream, decoded strictly.
     fn read_all(s: InStream) -> Ok Str | Err FsError => s
+    // Up to [max] bytes, exactly as they lie in the file: no decoding, so a
+    // read may stop in the middle of a character and a file that is not text
+    // is read all the same. Fewer bytes than asked for means the stream
+    // ended; an empty buffer means it has ended already [fs-bytes].
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err FsError => s
+    // Up to [max] bytes **appended to [buf]**, answering how many. The
+    // fill-a-buffer read [fs-read-to]: one buffer, `clear`ed and refilled for
+    // as long as a loop runs, instead of a fresh payload per chunk. Appending
+    // rather than overwriting is what keeps `size(buf)` the truth — there is
+    // no "only the first n bytes are meaningful" convention to remember.
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => s, buf: Mut
+    // Everything left in the stream, decoded strictly and **appended to
+    // [buf]**, answering how many bytes were consumed. `read_all` with the
+    // string handed in [fs-read-to].
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err FsError => s, buf: Mut
+    // The next line, without its terminator, **appended to [buf]**; `false`
+    // means the stream ended — or that a read failed, which `close` reports.
+    // `read_line` with the string handed in, which is the one that matters in
+    // a loop: a line per iteration costs no new string [fs-read-to].
+    fn read_line_to(s: InStream, buf: Mut Str) -> Bool => s, buf: Mut
     // Bytes consumed so far — the offset a later `open_read_at` would use
     // to resume here. Not a seek.
     fn position(s: InStream) -> Long => s
@@ -152,6 +172,10 @@ effect Fs {
     fn write(s: OutStream, text: Str) -> Long => s, text
     // Writes text and a `\n`, answering how many bytes both took.
     fn write_line(s: OutStream, text: Str) -> Long => s, text
+    // Writes bytes as they are, answering how many were accepted. The byte
+    // side of `write`: nothing is encoded, so what goes in is what the file
+    // holds [fs-bytes].
+    fn write_bytes(s: OutStream, data: Bytes) -> Long => s, data
     // Bytes accepted so far.
     fn position(s: OutStream) -> Long => s
     // Pushes accepted bytes to the host, reporting a recorded failure.
@@ -203,6 +227,57 @@ fn open_lines(path: Str) [Fs] -> Ok Mut Lines | Err FsError => path {
         return opened
     }
     return ok(lines(opened))
+}
+
+// ===== reading bytes as a sequence =====
+
+// A pass over a stream's chunks: `for chunk in c` drives it, and each step is
+// up to [size] bytes. Like [Lines] it holds the stream, so it carries the
+// obligation too [linear-group].
+linear struct Chunks : Yield<self, Bytes> canbe Mut {
+    s: InStream,
+    // How many bytes a step asks for.
+    size: Int
+}
+
+// Reads `s` as a sequence of chunks of up to [size] bytes each. The stream's
+// obligation moves into the pass, which is why closing the pass closes the
+// stream.
+fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
+    return Mut Chunks { s: s, size: size }
+}
+
+// The pass's step. Each chunk is a **fresh** buffer, deliberately: a pass that
+// handed back its own buffer would have the next step overwrite what the
+// caller is still holding. The allocation-free shape is `read_to` into a
+// buffer of your own — which is what [copy_stream] does [fs-read-to].
+fn next(p: Mut Chunks) [Fs] -> Emitted Bytes | Finished => p: Mut {
+    let got = read_bytes(p.s, p.size)
+    if got is Err {
+        // The handler recorded the failure, and `close` reports it — so
+        // iteration ends here rather than losing the reason [fs-errors-at-close].
+        ignore(got)
+        return finished()
+    }
+    let data: Bytes = got
+    if size(data) == 0 {
+        return finished()
+    }
+    return emitted(data)
+}
+
+// Closes the stream the pass reads, reporting what reading recorded.
+fn close(p: Chunks) [Fs] -> Ok None | Err FsError => !p {
+    return close(p.s)
+}
+
+// Opens a file as a sequence of chunks of up to [size] bytes.
+fn open_chunks(path: Str, size: Int) [Fs] -> Ok Mut Chunks | Err FsError => path {
+    let opened = open_read(path)
+    if opened is Err {
+        return opened
+    }
+    return ok(chunks(opened, size))
 }
 
 // ===== the one-shots =====
@@ -264,4 +339,139 @@ fn write_str(path: Str, content: Str) [Fs] -> Ok Long | Err FsError => path, con
         return closed
     }
     return ok(written)
+}
+
+// The whole of a file as bytes: `read_to_str` for data that is not text.
+fn read_to_bytes(path: Str) [Fs] -> Ok Bytes | Err FsError => path {
+    let opened = open_read(path)
+    if opened is Err {
+        return opened
+    }
+    let s: InStream = opened
+    let buf = mut_bytes()
+    let filling = fill_from(s, buf)
+    if filling is Err {
+        let closed = close(s)
+        if closed is Err {
+            ignore(closed)
+        }
+        return filling
+    }
+    let closed = close(s)
+    if closed is Err {
+        return closed
+    }
+    let done: Bytes = buf
+    return ok(done)
+}
+
+// Writes bytes to a file, creating it or replacing what is there, and answers
+// how many it took.
+fn write_bytes_to(path: Str, data: Bytes) [Fs] -> Ok Long | Err FsError => path, data {
+    let opened = open_write(path)
+    if opened is Err {
+        return opened
+    }
+    let s: OutStream = opened
+    let written = write_bytes(s, data)
+    let closed = close(s)
+    if closed is Err {
+        return closed
+    }
+    return ok(written)
+}
+
+// ===== copying, with the buffer kept out of sight =====
+
+// How many bytes a copy moves at a time. Big enough that the syscall is not
+// the cost, small enough to be nobody's memory problem.
+fn fs_chunk_size() [] -> Int {
+    return 65536
+}
+
+// Appends everything left in [s] to [buf], answering how many bytes moved.
+// One buffer for the whole read: this is `read_to` in a loop, which is the
+// point of `read_to` existing [fs-read-to].
+fn fill_from(s: InStream, buf: Mut Bytes) [Fs] -> Ok Long | Err FsError => s, buf: Mut {
+    let total: Long = 0
+    let reading = true
+    while reading {
+        let got = read_to(s, buf, fs_chunk_size())
+        if got is Err {
+            return got
+        }
+        let n: Int = got
+        total = total + to_long(n)
+        if n == 0 {
+            reading = false
+        }
+    }
+    return ok(total)
+}
+
+// Copies everything left in [s] into [w], answering how many bytes moved.
+// Neither token is consumed: whoever opened them closes them.
+fn copy_stream(s: InStream, w: OutStream) [Fs] -> Ok Long | Err FsError => s, w {
+    let buf = mut_bytes()
+    let total: Long = 0
+    let copying = true
+    while copying {
+        clear(buf)
+        let got = read_to(s, buf, fs_chunk_size())
+        if got is Err {
+            return got
+        }
+        let n: Int = got
+        if n == 0 {
+            copying = false
+        } else {
+            total = total + write_bytes(w, buf)
+        }
+    }
+    return ok(total)
+}
+
+// Copies the file at [from] onto [to], creating it or replacing what is there,
+// and answers how many bytes moved. The one-shot: no token, no buffer and no
+// stream reaches the caller.
+fn copy_file(from: Str, to: Str) [Fs] -> Ok Long | Err FsError => from, to {
+    let opened = open_read(from)
+    if opened is Err {
+        return opened
+    }
+    let s: InStream = opened
+    let created = open_write(to)
+    if created is Err {
+        let closed = close(s)
+        if closed is Err {
+            ignore(closed)
+        }
+        return created
+    }
+    let w: OutStream = created
+    let moved = copy_stream(s, w)
+    // Both streams are closed whatever happened, and the *first* failure is
+    // the one reported — a close that also failed is acknowledged, since a
+    // linear error may not simply be dropped [linear-group].
+    let shut_w = close(w)
+    let shut_s = close(s)
+    if moved is Err {
+        if shut_w is Err {
+            ignore(shut_w)
+        }
+        if shut_s is Err {
+            ignore(shut_s)
+        }
+        return moved
+    }
+    if shut_w is Err {
+        if shut_s is Err {
+            ignore(shut_s)
+        }
+        return shut_w
+    }
+    if shut_s is Err {
+        return shut_s
+    }
+    return moved
 }

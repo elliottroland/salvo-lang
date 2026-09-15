@@ -2,7 +2,9 @@ package salvo.main
 
 import salvo.*
 import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.console.*
+import salvo.core.fs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
@@ -30,6 +32,7 @@ fun count_unique(xs: List<Int>): Int {
     return xs.size
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val console: Console = StdOutConsole()
     val primes = listOf<Int>(2, 3, 5, 7)
@@ -97,17 +100,17 @@ fun main() {
     println(console, "6. still sorted ${live.joinToString(", ", "[", "]")}")
     val unique = deduped.toMutableList()
     println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${count_unique(unique)}")
-    var __loop1_pass = iter__4(vowels)
+    var __loop1_pass = iter__5(vowels)
     while (true) {
-        val __loop1_step = next__4(__loop1_pass)
+        val __loop1_step = next__7(__loop1_pass)
         if (__loop1_step !is U2_1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)
     }
     println(console, "")
-    var __loop2_pass = iter__3(ages)
+    var __loop2_pass = iter__4(ages)
     while (true) {
-        val __loop2_step = next__3(__loop2_pass)
+        val __loop2_step = next__6(__loop2_pass)
         if (__loop2_step !is U2_1<*, *>) { break }
         val name = __loop2_step.value as String
         val age = ages[name]
