@@ -1185,16 +1185,16 @@ compiler today, so its own output is the work list.
    process-backed. Sendability landed with it, as decided. Rules:
    [async-effect-kind], [async-sendable]. The emitters' gates now key on the
    kind rather than on "has send members".
-3. **The forwarding stub for `use addr`.** Small, self-contained, and a
-   **prerequisite for item 4** rather than a sibling: a handler is compiled
-   once and bound many ways, so whether a dependency is a local construction
-   or a remote process is decided per *spawn site*; the child receives
-   something implementing the effect (`__Fx: __Has_Log` under the fusion), and
-   the stub is what an addr becomes to satisfy that. It is an
-   address-to-interface adapter, **not** a sync/async bridge — its bodies
-   enqueue, which is legal from a synchronous frame and from inside an
-   activation alike (the bridge is `waitfor`, confined to `main`). It also
-   finishes the one first-pass form that is checked but wholly unemitted.
+3. ✅ **The forwarding stub — done 2026-09-15.** `__Stub_E` beside each async
+   effect, implementing it by sending to an addr; `use addr` binds one exactly
+   as a handler instance is bound, in both backends and in both fusion modes.
+   The refactor that made it cheap is the one item 4 needs: each backend's
+   `use` path now takes the *expression* that builds an instance
+   (`emit_fusion_instance` / `bind_effect_instance`) instead of a handler
+   declaration, so nothing downstream knows which kind it got. Verified by a
+   compile-and-run case per backend, with `[Log]` travelling down an ordinary
+   effect list into a function that never learns it is a process
+   ([async-use-addr], [rs-process], [kt-process]).
 4. **Dependent-handler spawns.** The biggest remaining emitter piece: the
    child holds the fused dependency value, built at the spawn from the clause
    — constructions built on the child, addrs wrapped in item 3's stub. Every

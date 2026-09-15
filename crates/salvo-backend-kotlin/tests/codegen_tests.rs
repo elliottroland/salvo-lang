@@ -2043,6 +2043,7 @@ fn main() [use] {
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_process,
+    kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -9025,3 +9026,67 @@ fn a_process_lowers_to_message_classes_and_a_body() {
     );
 }
 
+// ===== [async-use-addr] the forwarding stub =====
+
+/// The same program the Rust backend runs, with the same expected output.
+const ADDR_STUB: &str = r#"
+async effect Log {
+    send fn note(what: Str) => !what
+    send fn count(out: Reply<Int>) => !out
+}
+
+handler Counting() of Log {
+    seen: Int = 0
+
+    send fn note(what: Str) {
+        seen = seen + 1
+    }
+
+    send fn count(out: Reply<Int>) {
+        out.send(seen)
+    }
+}
+
+fn work() [Log] {
+    note("a")
+    note("b")
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let logger = spawn Counting() capacity 8 on pool(1)
+    use logger
+    work()
+    let n = waitfor out: Reply<Int> {
+        count(out)
+    }
+    println("noted ${n}")
+}
+"#;
+
+fn generate_addr_stub_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", ADDR_STUB)])
+}
+
+fn kotlinc_compiles_and_runs_a_stub_bound_effect() -> KotlinCase {
+    kotlin_case(generate_addr_stub_demo(), "addr-stub", "noted 2\n")
+}
+
+#[test]
+fn a_stub_implements_the_effect_by_sending_kotlin() {
+    let files = generate_addr_stub_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content.contains("class __Stub_Log(private val addr: Int) : Log"),
+        "the forwarding stub is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("__Stub_Log("),
+        "`use addr` does not build the stub:\n{}",
+        main.content
+    );
+}

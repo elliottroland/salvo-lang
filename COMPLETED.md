@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1000 tests, complete: the toolchain tests are
+cargo test                  # 1003 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,30 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Phase 5, sequence item 3: the `use addr` forwarding stub (2026-09-15).**
+Both backends now bind an effect to a process: `__Stub_E` holds an addr and
+implements the effect by sending, and `use addr` registers it exactly as a
+handler instance is registered. A function declaring `[Log]` therefore never
+learns that its capability is a process — verified by a compile-and-run case
+per backend printing the same `noted 2`. Tests: **1003 (+3)**.
+
+**The refactor is the interesting part, and item 4 needs it.** Each backend's
+`use` path used to be shaped around a *handler declaration*: it built
+`H::new(args)` itself and reached into the decl for dependencies and generics.
+The stub has no declaration, so the path now takes the **expression that builds
+an instance** — `emit_fusion_instance` in Rust (the old `emit_fusion_use` is a
+thin wrapper over a shared `emit_fusion_inner` with an optional decl),
+`bind_effect_instance` in Kotlin (extracted from `emit_use`'s tail). Everything
+downstream is indifferent to which kind of instance it got, which is precisely
+the property Example 6's binding swap rests on and precisely what a spawned
+child will need when a dependency arrives as an addr rather than as a
+construction.
+
+**Why the stub belongs to the effect, not the use site**: it depends on nothing
+else — the protocol decides its members and the message type — so one per async
+effect is emitted beside the message type, and every `use addr` of that effect
+shares it.
 
 **Phase 5, sequence item 2: the `async effect` kind and sendability
 (2026-09-15).** The kind marker, its refusal list, and the binding gate that
@@ -10533,7 +10557,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1000)
+## Test inventory (all green: 1003)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

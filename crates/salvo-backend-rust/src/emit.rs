@@ -1882,6 +1882,9 @@ impl<'p> Emitter<'p> {
                 trait_type(&e.name.name, &args)
             ));
         }
+        // [rs-process] [async-use-addr] The forwarding stub: the effect,
+        // implemented by sending to an addr.
+        out.push_str(&self.emit_addr_stub(e));
         // [rs-process] [async-send-fn] The protocol's **message type**: one
         // variant per send member, carrying its payload. It belongs to the
         // *effect* rather than to a handler, because a sender holds an `Addr`
@@ -1898,6 +1901,60 @@ impl<'p> Emitter<'p> {
     ///
     /// Emitted only for an effect with at least one `send fn`; a synchronous
     /// effect never becomes messages.
+    /// [async-use-addr] [rs-process] `__Stub_E`: the effect implemented by
+    /// **sending to an addr**. This is what `use addr` binds, and — from item 4
+    /// on — what a spawned child receives when a dependency was supplied as an
+    /// addr rather than as a construction.
+    ///
+    /// It is emitted per *effect*, not per use site, because that is all it
+    /// depends on: a handler is compiled once and bound many ways, and this is
+    /// the binding that turns a call into a message.
+    fn emit_addr_stub(&mut self, e: &EffectDecl) -> String {
+        if !e.is_async || !e.generics.is_empty() {
+            return String::new();
+        }
+        let sends: Vec<(usize, &FnDecl)> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_send)
+            .collect();
+        if sends.is_empty() {
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let name = stub_struct_name(&e.name.name);
+        let msg = msg_enum_name(&e.name.name);
+        let mut out = format!(
+            "\npub struct {name} {{\n    addr: usize,\n}}\n\nimpl {name} {{\n    \
+             pub fn new(addr: usize) -> Self {{\n        Self {{ addr }}\n    }}\n}}\n\
+             \nimpl {} for {name} {{\n",
+            rs_ident(&e.name.name)
+        );
+        for (i, f) in &sends {
+            let member = salvo_core::effect_member_name(e, *i);
+            let params = self.emit_member_param_list(f);
+            let args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            let built = if args.is_empty() {
+                format!("{msg}::{}", msg_variant_name(&member))
+            } else {
+                format!("{msg}::{}({})", msg_variant_name(&member), args.join(", "))
+            };
+            out.push_str(&format!(
+                "    fn {}(&mut self{params}) {{\n        \
+                 crate::scheduler::salvo_send(self.addr, Box::new({built}));\n    }}\n",
+                rs_ident(&member)
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
     fn emit_message_enum(&mut self, e: &EffectDecl) -> String {
         // [async-effect-kind] The kind is the gate: a plain effect never
         // becomes messages, and an async one always does (its members are all
@@ -4493,6 +4550,12 @@ fn has_trait_name(name: &str) -> String {
     format!("__Has_{}", rs_ident(name))
 }
 
+/// [async-use-addr] The forwarding stub of a protocol: `__Stub_Counter`, the
+/// effect implemented by sending to an addr.
+fn stub_struct_name(effect: &str) -> String {
+    format!("__Stub_{}", rs_ident(effect))
+}
+
 /// [rs-process] The message enum of a protocol: `__Msg_Counter`. Named after
 /// the *effect*, since that is what a sender knows [async-types].
 fn msg_enum_name(effect: &str) -> String {
@@ -5485,15 +5548,39 @@ impl<'p> Emitter<'p> {
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        // [async-use-addr] As in the Kotlin backend: refused here, so a
-        // correct program is not reported as an unknown handler
-        // [backend-never-wrong].
-        if self.checked.use_addrs.contains_key(&(self.file_idx, span)) {
-            self.error(
-                "`use` of an `Addr` is not emitted yet: binding an effect to a \
-                 process needs its generated process class",
-            );
-            return String::new();
+        // [async-use-addr] `use addr` binds the effect to a **forwarding stub**
+        // over the addr — `__Stub_E::new(addr)` is an ordinary instance as far
+        // as the rest of the scope is concerned, which is the whole point: no
+        // call site learns the difference.
+        if let Some(effect) = self.checked.use_addrs.get(&(self.file_idx, span)).cloned() {
+            let rendered = self.rust_ty(&effect);
+            let stub = match &effect {
+                Ty::Named { name, .. } => stub_struct_name(name),
+                _ => {
+                    self.error("internal: a `use addr` with no effect recorded");
+                    return String::new();
+                }
+            };
+            let addr_code = self.emit_owned(handler);
+            let instance = format!("{stub}::new({addr_code})");
+            if self.fusion {
+                return self.emit_fusion_instance(
+                    Vec::new(),
+                    instance,
+                    Some(effect),
+                    rendered,
+                    indent,
+                );
+            }
+            let var = self.unique_name(effect_param_name(&rendered));
+            self.effect_env.push(EffectEntry {
+                ty: Some(effect),
+                key: rendered,
+                var: var.clone(),
+                is_local: true,
+            });
+            self.bindings.insert(var.clone(), BindKind::Owned);
+            return format!("{pad}let mut {var} = {instance};\n");
         }
         let (handler_name, args): (String, Vec<&Expr>) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
@@ -5602,6 +5689,32 @@ impl<'p> Emitter<'p> {
     /// *always* reachable through `__outer` — it had to be registered
     /// before its dependent ([effect-handler-deps]), so it can never be a
     /// sibling field.
+    /// [rs-effect-fusion] [async-use-addr] Fuse one effect **instance** into the
+    /// scope, given the expression that builds it. Two callers: `use H(…)`,
+    /// whose instance is `H::new(args)`, and `use addr`, whose instance is the
+    /// forwarding stub `__Stub_E::new(addr)` — identical from here on, which is
+    /// what makes a process and a local handler interchangeable.
+    fn emit_fusion_instance(
+        &mut self,
+        arg_code: Vec<String>,
+        instance: String,
+        checked_ty: Option<Ty>,
+        effect_ty: String,
+        indent: usize,
+    ) -> String {
+        self.emit_fusion_inner(
+            None,
+            "",
+            "",
+            arg_code,
+            Some(instance),
+            checked_ty,
+            effect_ty,
+            indent,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn emit_fusion_use(
         &mut self,
         decl: &HandlerDecl,
@@ -5611,6 +5724,33 @@ impl<'p> Emitter<'p> {
         // constructor call.
         turbofish: &str,
         arg_code: Vec<String>,
+        checked_ty: Option<Ty>,
+        effect_ty: String,
+        indent: usize,
+    ) -> String {
+        self.emit_fusion_inner(
+            Some(decl),
+            handler_name,
+            turbofish,
+            arg_code,
+            None,
+            checked_ty,
+            effect_ty,
+            indent,
+        )
+    }
+
+    /// The shared body: `decl` is present for a handler `use` (its dependencies
+    /// and generics are checked), absent for a stub; `instance` overrides the
+    /// constructor call when the caller already has the expression.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_fusion_inner(
+        &mut self,
+        decl: Option<&HandlerDecl>,
+        handler_name: &str,
+        turbofish: &str,
+        arg_code: Vec<String>,
+        instance: Option<String>,
         checked_ty: Option<Ty>,
         effect_ty: String,
         indent: usize,
@@ -5630,7 +5770,11 @@ impl<'p> Emitter<'p> {
         }
         covered.reverse();
         let provider = self.fused_recv();
-        let deps: Vec<(String, Vec<String>)> = self.handler_dep_effects(decl);
+        // A stub has no dependencies of its own; a handler's are checked.
+        let deps: Vec<(String, Vec<String>)> = match decl {
+            Some(d) => self.handler_dep_effects(d),
+            None => Vec::new(),
+        };
         if !deps.is_empty() && covered.is_empty() {
             self.error(format!(
                 "internal: handler `{handler_name}` has dependencies but no \
@@ -5647,7 +5791,7 @@ impl<'p> Emitter<'p> {
                 let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
                 (name, rendered)
             }
-            _ => match self.named_type_parts(&decl.of) {
+            _ => match decl.map(|d| self.named_type_parts(&d.of)).unwrap_or(None) {
                 Some(parts) => parts,
                 None => {
                     self.error(format!(
@@ -5665,12 +5809,13 @@ impl<'p> Emitter<'p> {
         // emitted as an undeclared `T` [backend-never-wrong].
         let mut named: Vec<String> = covered.iter().map(|e| e.key.clone()).collect();
         named.push(trait_type(&new_effect.0, &new_effect.1));
-        let unresolved: Option<String> = decl
-            .generics
-            .iter()
-            .map(|g| g.name.clone())
-            .chain(self.generics.iter().cloned())
-            .find(|g| named.iter().any(|n| mentions_ident(n, g)));
+        let unresolved: Option<String> = decl.and_then(|decl| {
+            decl.generics
+                .iter()
+                .map(|g| g.name.clone())
+                .chain(self.generics.iter().cloned())
+                .find(|g| named.iter().any(|n| mentions_ident(n, g)))
+        });
         if let Some(g) = unresolved {
             self.error(format!(
                 "`use {handler_name}` fuses effects whose type arguments are still \
@@ -5743,7 +5888,11 @@ impl<'p> Emitter<'p> {
         // [platform-handler] The *constructor* may be a host path
         // (`crate::platform_main::HostFs`) where the identifier above is
         // only ever a name — trait names derived from it stay identifiers.
-        let ctor_path = self.handler_ctor_path(handler_name, decl);
+        // A stub arrives as a ready expression; a handler is constructed here.
+        let ctor_path = match decl {
+            Some(d) => self.handler_ctor_path(handler_name, d),
+            None => String::new(),
+        };
         if deps.is_empty() {
             let bound = trait_type(&new_effect.0, &new_effect.1);
             let bounded_generics = match &outer_ty {
@@ -5808,15 +5957,15 @@ impl<'p> Emitter<'p> {
         for line in &prelude {
             out.push_str(&format!("{pad}{line}\n"));
         }
+        // [async-use-addr] The instance: a stub's expression as given, or the
+        // handler's constructor call built here.
+        let held = match &instance {
+            Some(expr) => expr.clone(),
+            None => format!("{ctor_path}{turbofish}::new({})", arg_code.join(", ")),
+        };
         let fields = match provider {
-            Some(p) => format!(
-                "__outer: {p}, __h: {ctor_path}{turbofish}::new({})",
-                arg_code.join(", ")
-            ),
-            None => format!(
-                "__h: {ctor_path}{turbofish}::new({})",
-                arg_code.join(", ")
-            ),
+            Some(p) => format!("__outer: {p}, __h: {held}"),
+            None => format!("__h: {held}"),
         };
         out.push_str(&format!(
             "{pad}let mut {var} = {struct_name} {{ {fields} }};\n"

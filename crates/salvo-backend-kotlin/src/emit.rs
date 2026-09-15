@@ -414,6 +414,11 @@ fn generate_scheduler_file() -> String {
     include_str!("../runtime/scheduler.kt").to_string()
 }
 
+/// [async-use-addr] The forwarding stub of a protocol: `__Stub_Counter`.
+fn stub_class_name(effect: &str) -> String {
+    format!("__Stub_{effect}")
+}
+
 /// [kt-process] The message class of a protocol: `__Msg_Counter`, named after
 /// the *effect*, since that is what a sender knows [async-types].
 fn msg_class_name(effect: &str) -> String {
@@ -1392,6 +1397,9 @@ impl<'p> Emitter<'p> {
             self.generics = member_saved;
         }
         out.push_str("}\n");
+        // [kt-process] [async-use-addr] The forwarding stub: the effect,
+        // implemented by sending to an addr.
+        out.push_str(&self.emit_addr_stub(e));
         // [kt-process] [async-send-fn] The protocol's **message type**: a
         // sealed class with one nested class per send member. It belongs to
         // the *effect*, because a sender holds an `Addr` and knows only the
@@ -1404,6 +1412,50 @@ impl<'p> Emitter<'p> {
     /// [kt-process] `sealed class __Msg_E { class Member(payload…) : __Msg_E() }`
     /// — the messages a process serving `E` receives, and the whole of what
     /// crosses the seam at runtime (the scheduler is untyped: `Any?`).
+    /// [async-use-addr] [kt-process] `__Stub_E`: the effect implemented by
+    /// **sending to an addr** — what `use addr` binds, and what a spawned child
+    /// receives for an addr-supplied dependency. Per *effect*, since that is
+    /// all it depends on.
+    fn emit_addr_stub(&mut self, e: &EffectDecl) -> String {
+        if !e.is_async || !e.generics.is_empty() {
+            return String::new();
+        }
+        let sends: Vec<(usize, &FnDecl)> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_send)
+            .collect();
+        if sends.is_empty() {
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let name = stub_class_name(&e.name.name);
+        let msg = msg_class_name(&e.name.name);
+        let mut out = format!(
+            "\nclass {name}(private val addr: Int) : {} {{\n",
+            e.name.name
+        );
+        for (i, f) in &sends {
+            let member = salvo_core::effect_member_name(e, *i);
+            let params = self.emit_member_param_list_with_implicits(f);
+            let args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| p.name.name.clone())
+                .collect();
+            out.push_str(&format!(
+                "    override fun {member}({params}) {{\n        \
+                 salvo.SalvoSched.send(addr, {msg}.{}({}))\n    }}\n",
+                msg_variant_name(&member),
+                args.join(", ")
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
     fn emit_message_classes(&mut self, e: &EffectDecl) -> String {
         // [async-effect-kind] The kind is the gate, as in the Rust backend.
         if !e.is_async {
@@ -3126,18 +3178,22 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
-        let pad = "    ".repeat(indent);
-        // [async-use-addr] `use addr` binds an effect to a forwarding stub over
-        // a process, which needs the process class the next slice generates.
-        // Refused here rather than falling through to the handler path, whose
-        // "unknown handler" would be a misleading diagnostic about a correct
-        // program [backend-never-wrong].
-        if self.checked.use_addrs.contains_key(&(self.file_idx, span)) {
-            self.error(
-                "`use` of an `Addr` is not emitted yet: binding an effect to a \
-                 process needs its generated process class",
-            );
-            return String::new();
+        // [async-use-addr] `use addr` binds the effect to a **forwarding stub**
+        // over the addr: `__Stub_E(addr)` is an ordinary instance of the effect
+        // as far as the rest of this scope is concerned, which is exactly why
+        // nothing downstream needs to know the difference.
+        if let Some(effect) = self.checked.use_addrs.get(&(self.file_idx, span)).cloned() {
+            let rendered = self.kotlin_ty(&effect);
+            let stub = match &effect {
+                salvo_core::Ty::Named { name, .. } => stub_class_name(name),
+                _ => {
+                    self.error("internal: a `use addr` with no effect recorded");
+                    return String::new();
+                }
+            };
+            let addr_code = self.emit_expr(handler);
+            let instance = format!("{stub}({addr_code})");
+            return self.bind_effect_instance(Some(effect), rendered, instance, indent);
         }
         let (handler_name, written_args) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
@@ -3239,6 +3295,22 @@ impl<'p> Emitter<'p> {
             }
             _ => (None, self.emit_type(&decl.of)),
         };
+        self.bind_effect_instance(effect_ty, rendered, handler_code, indent)
+    }
+
+    /// [kt-effect-fusion] [async-use-addr] Bind one effect **instance** into
+    /// the current scope, given the expression that constructs it: a handler
+    /// construction from `use H(…)`, or a forwarding stub from `use addr`.
+    /// Everything past this point is identical for the two, which is the whole
+    /// point of the stub — the scope cannot tell them apart.
+    fn bind_effect_instance(
+        &mut self,
+        effect_ty: Option<salvo_core::Ty>,
+        rendered: String,
+        instance: String,
+        indent: usize,
+    ) -> String {
+        let pad = "    ".repeat(indent);
         // [kt-effect-fusion] Under the fusion a `use` builds one fused
         // value for the whole scope: a generated class with an `override
         // val` per effect — the inherited ones initialized from their
@@ -3261,7 +3333,7 @@ impl<'p> Emitter<'p> {
             let (class, props, order) = self.emit_fx_class(&all_rendered);
             let var = self.unique_name("__fx".to_string());
             let mut args: Vec<String> = covered.iter().map(|(_, e)| e.clone()).collect();
-            args.push(handler_code);
+            args.push(instance);
             // The fused class takes its effects in canonical order, which is
             // not the environment's [kt-effect-fusion].
             let args: Vec<String> = order.iter().map(|i| args[*i].clone()).collect();
@@ -3292,7 +3364,7 @@ impl<'p> Emitter<'p> {
             expr: var.clone(),
             fused: None,
         });
-        format!("{pad}val {var}: {rendered} = {handler_code}\n")
+        format!("{pad}val {var}: {rendered} = {instance}\n")
     }
 
     fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize) -> String {

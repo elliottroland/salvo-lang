@@ -1325,6 +1325,12 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     { … }` → a block expression that mints a waiter, runs the block, then
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
     `pool(n)` → `salvo_pool(n as usize)`.
+  * **The forwarding stub**, `__Stub_E`, beside the effect: a struct holding an
+    addr that `impl`s the effect trait by sending. `use addr` builds one and
+    binds it exactly as a handler instance is bound — under the fusion too,
+    since `emit_fusion_instance` takes the *expression* that makes the instance
+    and no longer cares which kind it is. That indifference is the point: a
+    handler is compiled once and bound many ways [async-use-addr].
   * **Still refused** (each a diagnostic, none silent): spawning a handler
     with effect **dependencies** (its members take a fused value
     [rs-effect-fusion], which the child would have to hold and thread),

@@ -2594,8 +2594,10 @@ LANGUAGE.md remains the source of truth for everything that does.
   at emission, each with a diagnostic naming it: spawning a handler with effect
   **dependencies** (its members take a fused value the child would have to
   hold), spawning a **generic** handler, a **generic effect** as a protocol,
-  `replyto` (needs the process body's resume table), a **self-send**, and
-  `use addr` (needs the forwarding stub). Also still open on the checking side:
+  `replyto` (needs the process body's resume table) and a **self-send** (needs
+  the activation's own address). `use addr` **runs**: it binds a generated
+  forwarding stub, so a function declaring `[Log]` never learns that its
+  capability is a process. Also still open on the checking side:
   **sendability** (C-4(a)'s structural rule over everything that crosses a
   seam). The sugar tower — member `-> T` with call syntax, `then`/`then!`,
   `defer`, merge/join, the gate's member-set generalization — is later passes,

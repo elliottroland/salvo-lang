@@ -8638,3 +8638,78 @@ fn main() [use, spawn] {
         "expected the dependent-spawn refusal, got {deps:?}"
     );
 }
+
+// ===== [async-use-addr] the forwarding stub =====
+
+/// [async-use-addr] `use addr` binds an effect to a **stub** that sends to a
+/// process, so a function declaring `[Log]` never learns that its capability is
+/// a process — the point of the form, and the shape a dependent spawn will
+/// reuse. Same program and same expected output on the Kotlin backend.
+const ADDR_STUB: &str = r#"
+async effect Log {
+    send fn note(what: Str) => !what
+    send fn count(out: Reply<Int>) => !out
+}
+
+handler Counting() of Log {
+    seen: Int = 0
+
+    send fn note(what: Str) {
+        seen = seen + 1
+    }
+
+    send fn count(out: Reply<Int>) {
+        out.send(seen)
+    }
+}
+
+fn work() [Log] {
+    note("a")
+    note("b")
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let logger = spawn Counting() capacity 8 on pool(1)
+    use logger
+    work()
+    let n = waitfor out: Reply<Int> {
+        count(out)
+    }
+    println("noted ${n}")
+}
+"#;
+
+fn generate_addr_stub_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", ADDR_STUB)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_stub_bound_effect() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate_addr_stub_demo();
+    run_rust_files(&files, "addr-stub", "noted 2\n");
+}
+
+#[test]
+fn a_stub_implements_the_effect_by_sending() {
+    let files = generate_addr_stub_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains("pub struct __Stub_Log {")
+            && main.content.contains("impl Log for __Stub_Log"),
+        "the forwarding stub is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("__Stub_Log::new("),
+        "`use addr` does not build the stub:\n{}",
+        main.content
+    );
+}

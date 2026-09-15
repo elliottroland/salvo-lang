@@ -915,9 +915,13 @@ where Rust had to build the fusion to get the same programs running
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`.
+  * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
+    beside the effect: `use addr` builds one and binds it through the same path
+    a handler instance takes (`bind_effect_instance`, extracted for exactly
+    this), fusion included [async-use-addr].
   * **Still refused**, matching the Rust backend one for one: a handler with
     effect dependencies, a generic handler, a generic effect as a protocol,
-    `replyto`, a self-send, and `use addr`.
+    `replyto`, and a self-send.
   * Pool threads are **daemon** threads, which is what makes "the program ends
     when `main` returns" true on the JVM without any shutdown handshake.
 
