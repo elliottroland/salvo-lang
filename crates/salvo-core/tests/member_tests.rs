@@ -29,7 +29,7 @@ const STD_PRELUDE: &str = concat!(
     // [async-spawn-expr] Std's process handle, whose type argument is an
     // *effect* — the one sanctioned exception to [effect-not-data], and the
     // checker keys on this declaration to grant it.
-    "intrinsic type Pid<E>\n",
+    "intrinsic type Addr<E>\n",
     "intrinsic type List<T> canbe Mut\n",
 );
 
@@ -367,27 +367,27 @@ fn effect_types_are_rejected_in_data_positions() {
 }
 
 /// [effect-not-data] [async-spawn-expr] The one exception (user decision
-/// 2026-09-15): `Pid<E>`'s type argument. A pid is a handle to a process, and
+/// 2026-09-15): `Addr<E>`'s type argument. An addr is a handle to a process, and
 /// the effect the process serves is what a holder may *do* with it — which is
 /// also what lets a process and a locally `use`d handler stand behind one
-/// name. Accepted in every ordinary data position, since a pid is an ordinary
+/// name. Accepted in every ordinary data position, since an addr is an ordinary
 /// value.
 #[test]
 fn an_effect_is_legal_as_a_pid_type_argument() {
     let cases = [
-        ("struct S {\n    c: Pid<Counter>\n}\n", "struct field"),
+        ("struct S {\n    c: Addr<Counter>\n}\n", "struct field"),
         (
-            "fn f(c: Pid<Counter>) -> Int => c {\n    return 1\n}\n",
+            "fn f(c: Addr<Counter>) -> Int => c {\n    return 1\n}\n",
             "parameter",
         ),
         (
-            "fn f(c: Pid<Counter>) -> Pid<Counter> => !c {\n    return c\n}\n",
+            "fn f(c: Addr<Counter>) -> Addr<Counter> => !c {\n    return c\n}\n",
             "return type",
         ),
     ];
     for (src, what) in cases {
         let errs = effect_messages(src);
-        assert!(errs.is_empty(), "`Pid<Counter>` refused as a {what}: {errs:?}");
+        assert!(errs.is_empty(), "`Addr<Counter>` refused as a {what}: {errs:?}");
     }
 }
 

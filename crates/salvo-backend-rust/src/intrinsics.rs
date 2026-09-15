@@ -511,12 +511,12 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Bool" => "bool",
         "Char" => "char",
         "Byte" => "u8",
-        // [async-types] [rs-process] The scheduler's handles: a pid and a pool
+        // [async-types] [rs-process] The scheduler's handles: an addr and a pool
         // are indices into it, a reply token is its own type. Their type
         // *arguments* are dropped by `emit_named_parts` — the effect a
-        // `Pid<E>` serves is the checker's business, and the message enum is
+        // `Addr<E>` serves is the checker's business, and the message enum is
         // what carries payload types into the runtime.
-        "Pid" => "usize",
+        "Addr" => "usize",
         "Pool" => "usize",
         "Reply" => "crate::scheduler::SalvoReply",
         // [bytes-type] `Bytes` and `Mut Bytes` are both `Vec<u8>`: mutability

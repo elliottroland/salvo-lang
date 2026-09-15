@@ -385,12 +385,13 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Try { body, .. } => self.lends_of_block(body),
             Expr::Widen { subject, .. } => self.lends_of_expr(subject),
             // [async-spawn-expr] [async-replyto] [async-waitfor] None of the
-            // three yields a view: a `Pid` and a `Reply` are owned tokens,
+            // three yields a view: an `Addr` and a `Reply` are owned tokens,
             // and a `waitfor` yields a value another process sent — nothing
             // crossing a process boundary can be a borrow of a local.
-            Expr::Spawn { .. } | Expr::ReplyTo { .. } | Expr::WaitFor { .. } => {
-                Some(HashSet::new())
-            }
+            Expr::Spawn { .. }
+            | Expr::ReplyTo { .. }
+            | Expr::WaitFor { .. }
+            | Expr::SelfScoped { .. } => Some(HashSet::new()),
             // Owned leaves and computations hold nothing.
             Expr::Int { .. }
             | Expr::Float { .. }

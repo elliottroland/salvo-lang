@@ -291,7 +291,7 @@ impl SalvoProcess for Caller {
         match text {
             Ok(word) => {
                 if *word == "go" {
-                    let (token, _slot) = salvo_mint_gated(ctx.pid);
+                    let (token, _slot) = salvo_mint_gated(ctx.addr);
                     salvo_send(self.echo, Box::new(token));
                 } else {
                     self.log.push(format!("user {word}"));

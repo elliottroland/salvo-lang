@@ -203,7 +203,7 @@ class Caller(val echo: Int) : SalvoProcess {
     override fun handle(ctx: SalvoCtx, msg: Any?) {
         when {
             msg == "go" -> {
-                val token = SalvoSched.mintGated(ctx.pid)
+                val token = SalvoSched.mintGated(ctx.addr)
                 SalvoSched.send(echo, token)
             }
             msg is String -> log.add("user $msg")

@@ -1113,6 +1113,8 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(capacity);
                 self.expr(pool);
             }
+            // [async-self-send] A leaf: nothing to walk into.
+            Expr::SelfScoped { .. } => {}
             // [async-replyto] The captures are reads.
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {

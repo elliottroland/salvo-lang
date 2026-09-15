@@ -1715,9 +1715,9 @@ fn main() [use, spawn] {
         .collect();
     assert_eq!(values.len(), 3, "main binds three values");
 
-    // `use pid` is first-pass surface, not sugar: it needs no new syntax —
+    // `use addr` is first-pass surface, not sugar: it needs no new syntax —
     // the `use` statement already takes an expression, and a bare name here
-    // is a `Pid` rather than a handler construction. Distinguishing them is
+    // is an `Addr` rather than a handler construction. Distinguishing them is
     // the checker's job.
     let bound: Vec<&str> = body
         .stmts
@@ -1730,7 +1730,7 @@ fn main() [use, spawn] {
             _ => None,
         })
         .collect();
-    assert_eq!(bound, vec!["counter"], "`use counter` binds the Pid");
+    assert_eq!(bound, vec!["counter"], "`use counter` binds the Addr");
 
     // A spawn with no `use` clause still carries both required clauses.
     match values[0] {
@@ -1758,13 +1758,13 @@ fn main() [use, spawn] {
         other => panic!("expected a spawn, got {other:?}"),
     }
 
-    // The `use` clause takes both a `Pid` value and a handler construction.
+    // The `use` clause takes both an `Addr` value and a handler construction.
     match values[1] {
         Expr::Spawn { uses, .. } => {
             assert_eq!(uses.len(), 2, "two dependencies were supplied: {uses:?}");
             assert!(
                 matches!(&uses[0], Expr::Ident(id) if id.name == "counter"),
-                "the first is a Pid value: {:?}",
+                "the first is an Addr value: {:?}",
                 uses[0]
             );
             assert!(
@@ -1888,4 +1888,65 @@ fn use_them() -> Int {
     let (_module, diagnostics) = salvo_syntax::parse_module(source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+/// [async-self-send] `k@self(args)` — the self-send, parsed as one more
+/// member of the selector family (`k@E`, `k@module`) rather than as a
+/// receiver. `self` is contextual: only special immediately after `@`, so it
+/// remains an ordinary name — and the *old* `self.k(…)` spelling is a plain
+/// parse error naming the new one.
+#[test]
+fn the_self_selector_parses_and_the_receiver_form_does_not() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+
+    let source = "\
+effect Work {
+    send fn start(n: Int) => !n
+    send fn step(n: Int) => !n
+}
+
+handler Working() of Work {
+    send fn start(n: Int) {
+        step@self(n)
+    }
+
+    send fn step(n: Int) {
+        let self = n
+    }
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+
+    let mut selectors = Vec::new();
+    for item in &module.items {
+        if let Item::Handler(h) = item {
+            for f in &h.fns {
+                for stmt in f.body.iter().flat_map(|b| &b.stmts) {
+                    if let Stmt::Expr(Expr::Call { callee, .. }) = stmt {
+                        if let Expr::SelfScoped { name, .. } = callee.as_ref() {
+                            selectors.push(name.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(selectors, vec!["step"], "the self-selector call is lost");
+
+    let old_form = "\
+handler Working() of Work {
+    send fn start(n: Int) {
+        self.step(n)
+    }
+}
+";
+    let (_m, diagnostics) = salvo_syntax::parse_module(old_form);
+    assert!(
+        diagnostics.iter().any(|d| d.is_error()
+            && d.message.contains("is not the self-send form")
+            && d.message.contains("`k@self(…)`")),
+        "expected the retired spelling to be a parse error: {diagnostics:?}"
+    );
 }

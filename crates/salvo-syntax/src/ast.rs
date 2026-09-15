@@ -917,10 +917,18 @@ pub enum Expr {
     Try { body: Block, span: Span },
     /// `...expr` — spread in call arguments or struct literals.
     Spread { operand: Box<Expr>, span: Span },
+    /// [async-self-send] `k@self(args)` — a message to **the process the
+    /// enclosing member belongs to**: the selector names the enclosing
+    /// handler, as `k@E` names an effect and `k@module` a module's overload.
+    ///
+    /// A leaf: there is no receiver expression to hold, because the target is
+    /// the handler the code is written in. Legal only as a call's callee, and
+    /// only inside a handler member — both the checker's rules.
+    SelfScoped { name: Ident, span: Span },
     /// [async-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
     /// capacity 16 on pool(2)` — bind a handler *asynchronously*: the
     /// process. Read left to right: what to run, what it depends on, how
-    /// deep its queue is, where it runs. Its value is the child's `Pid`.
+    /// deep its queue is, where it runs. Its value is the child's `Addr`.
     ///
     /// `spawn` and the three clause words are **contextual** (the `iter fn`
     /// precedent): the form is recognised from `spawn` followed by a name,
@@ -931,7 +939,7 @@ pub enum Expr {
         /// value and only `use`/`spawn` may construct one.
         handler: Box<Expr>,
         /// The spawn-site `use` clause, empty when it is absent: handler
-        /// constructions *or* `Pid` values, supplying the child's declared
+        /// constructions *or* `Addr` values, supplying the child's declared
         /// dependencies [effect-handler-deps]. Arguments evaluate in the
         /// parent and cross the seam; construction happens on the child.
         uses: Vec<Expr>,
@@ -1093,6 +1101,7 @@ impl Expr {
             | Expr::For { span, .. }
             | Expr::Lambda { span, .. }
             | Expr::Try { span, .. }
+            | Expr::SelfScoped { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::ReplyTo { span, .. }
             | Expr::WaitFor { span, .. }

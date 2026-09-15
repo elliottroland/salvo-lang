@@ -171,15 +171,17 @@ filesystem (`MemFs`) was to be its first internal customer and now has the
 collections it needs.
 
 **5 — Threading: asynchronous effect handlers.** ("Threading and concurrency",
-below.) The design pass is **done** (user decisions 2026-09-14/15; see
-COMPLETED.md's decision log and CONCURRENCY.md): the direction is the effect
-surface itself — processes are effect handlers bound asynchronously, on a
-run-to-completion scheduler library — and the first pass's grammar is frozen.
-Supervision, the last design prerequisite, is decided too (SUPERVISION.md),
-so **only the build remains, and it is under way**: the scheduler library and
-the surface's syntax are in; the types, the checker rules and the emitters
-are next. [fate-lambda] is deferred to the call-sugar pass — no first-pass
-form crosses a closure.
+below.) Designed (user decisions 2026-09-14/15) and **being built**: the
+scheduler library, the whole surface's syntax, its types and its checker rules
+are in, and a process **runs on both backends with identical output**. What is
+left is an agreed eight-item sequence — the `Addr`/`@self` respelling, the
+`async effect` kind, then the remaining emission (stub, dependent spawns,
+`replyto`) and `watch`, the deadlock baseline, linearity in collections, and
+propagation. **The sugar pass leaves the phase** (user decision 2026-09-15;
+"The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
+call syntax, `then`, `defer` and merge/join become later items with their own
+decision surfaces. [fate-lambda] goes with them — no first-pass form crosses
+a closure.
 
 **Not before then: `Cell`.** It exists to make shared mutable state
 expressible, and the OTP answer is that processes own their state and
@@ -200,21 +202,18 @@ links to the section that states the options.
 
 | Question | Due | Where |
 |---|---|---|
-| **Sendability** — what counts as non-sendable (a fn-typed field, a `proj` view, …), C-4(a)'s structural rule | with phase 5's last checking slice | "Threading and concurrency" → step two |
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
-(The phase-5 *design* rows this table used to carry were **all decided
-2026-09-14/15** — the four original DECISIONs with the whole first-pass
-design, and the supervision/monitors story that followed; see "The sequence"
-phase 5, "Threading and concurrency" below, and COMPLETED.md's decision log.
-The phase-5 row above is a **new question the build surfaced**, not reopened
-design: it is about a rule nothing had to state until the surface existed.
-Self-sends were the other, and were decided the same day — `self.k(args)`,
-option (a).)
+(**No phase-5 rows remain.** The four original DECISIONs, the
+supervision/monitors story, and the three questions the build itself surfaced
+— self-sends, sendability's content, and the sequencing of the effect
+unification against the rest of the phase — were all decided 2026-09-14/15;
+see "The sequence" phase 5, "Threading and concurrency", "The sugar pass"
+below, and COMPLETED.md's decision log. Phase 5 is engineering from here.)
 
 One further proposal is **deferred by decision** rather than waiting:
 `platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
@@ -1136,8 +1135,8 @@ colouring — the 2026-09-04 record honoured by making the question moot).
 **First-pass grammar (frozen)**: `send fn` members with explicit `Reply<T>`
 parameters (linear, statically one-shot); `replyto k(captures)` /
 `replyto! k(captures)` (the gate: bounded selective receive, one outstanding
-per process); `r.send(v)` discharges; `spawn H(args) use Handler(...), pid
-on pool(n)`; lowercase `[use, spawn]`; `use pid`; `waitfor` as main's
+per process); `r.send(v)` discharges; `spawn H(args) use Handler(...), addr
+on pool(n)`; lowercase `[use, spawn]`; `use addr`; `waitfor` as main's
 explicit bridge, and **the program ends when `main` returns**. Deadlock
 baseline: the effect-graph cycle check. The sugar tower (`-> T` + call
 syntax, `then`/`then!`, `defer`, merge/join, the gate member-set
@@ -1163,70 +1162,84 @@ backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
 "Asynchronous effect handlers" ([async-process] … [async-types]) plus
 [linear-opaque], [rs-process] and [kt-process].
 
-**Still to come in step two** — every item below is a *diagnostic* today, so
-the compiler's own output is the work list:
+**The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
+after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
+document decided go **first**, because both touch landed surface and every
+later slice adds sites to them; the emitters follow; **the call-member sugar
+pass and the rest of the sugar tower leave phase 5 altogether** (below, "The
+sugar pass — after phase 5"). Every item here is a *diagnostic* in the
+compiler today, so its own output is the work list.
 
-1. **A spawned handler with effect dependencies.** Its members take their
-   dependencies as one fused value ([rs-effect-fusion] / [kt-effect-fusion])
-   built at the `use` site; a child must hold the fusion it was given at the
-   spawn (a construction, or a `Pid` stub) and thread it into every
-   activation. This is the biggest remaining piece and the one std's own
-   customers need.
-2. **`replyto` and self-sends.** A mint needs a parked-continuation table in
-   the process body — slot → member + captures — which is what `resume`
-   dispatches on; a self-send needs the running process's own pid, which the
-   activation's `SalvoCtx` carries (an inline member call under a synchronous
-   binding, per [async-self-send]).
-3. **`use pid`'s forwarding stub**: a generated class/struct implementing the
-   effect by sending to a pid, registered like an ordinary handler instance.
-4. **Sendability — C-4(a)'s structural rule** (still a **DECISION**: what
-   counts as non-sendable — a fn-typed field is the motivating case, since
-   [rs-fn-field] lowers one to `Rc`, which is not `Send`; a `proj` view is the
-   other).
-5. **Generic protocols and generic handlers**, both refused: a generic
-   effect's message type would have to be generic, and every downcast would
-   need the instantiation.
-   * **A send member still writes its deduction clause** (user decision
-     2026-09-15): a bodiless `send fn go(c: Config)` needs `=> !c`, even
-     though a send payload always crosses the seam. Revisit when the surface
-     is real enough to judge the clause noise or documentation.
+1. ✅ **The respelling sweep — done 2026-09-15.** `Pid<E>` → `Addr<E>` and
+   `self.k(…)` → `k@self(…)`, both landed with their spec rules
+   ([async-types], [async-self-send], [async-use-addr]) and the old spellings
+   now plain parse errors. What it cost and what it simplified is in
+   COMPLETED.md's log; the one thing worth carrying: `@self` as a *selector*
+   deleted the rule that a handler member may not declare a variable named
+   `self`, because nothing can shadow a selector.
+2. **`async effect` and its refusal list** (EU-5). Second because it changes
+   the *gate* the emitters key on — a message type and a process body are
+   generated today for "an effect with send members", which becomes "an async
+   effect" — and because its blast radius is small *now*: std declares no send
+   members by design, so only the async tests move. `send fn` becomes legal
+   only inside an `async effect` and refused in a plain one; the refusal list
+   (keep deductions, `Mut` parameters, `proj` returns, non-sendable payloads)
+   is checked at the declaration, where the author is choosing; `spawn` and
+   `use addr` require an async effect. **This closes CONCURRENCY.md's carried
+   named question** — a sync effect is never process-backed; declare the
+   protocol async if you want one.
+   * **Sendability is part of this list, not a slice of its own** (user
+     decision 2026-09-15): C-4(a)'s structural rule refuses a payload that
+     transitively holds a **fn-typed field** ([rs-fn-field] lowers one to
+     `Rc`, which is not `Send`) or a **`proj` view** (a borrow cannot cross a
+     seam). Checked at the *declaration* for member payloads — its natural
+     home, since that is where the author decides — and at the site for
+     `replyto` captures and spawn arguments. `Arc`-where-sent inference stays
+     the recorded growth point (C-4(c)), for when sent closures become real.
+3. **The forwarding stub for `use addr`.** Small, self-contained, and a
+   **prerequisite for item 4** rather than a sibling: a handler is compiled
+   once and bound many ways, so whether a dependency is a local construction
+   or a remote process is decided per *spawn site*; the child receives
+   something implementing the effect (`__Fx: __Has_Log` under the fusion), and
+   the stub is what an addr becomes to satisfy that. It is an
+   address-to-interface adapter, **not** a sync/async bridge — its bodies
+   enqueue, which is legal from a synchronous frame and from inside an
+   activation alike (the bridge is `waitfor`, confined to `main`). It also
+   finishes the one first-pass form that is checked but wholly unemitted.
+4. **Dependent-handler spawns.** The biggest remaining emitter piece: the
+   child holds the fused dependency value, built at the spawn from the clause
+   — constructions built on the child, addrs wrapped in item 3's stub. Every
+   realistic handler needs it (`Counting [Log]`, std's `DefaultFs [RawFs]`),
+   so it is what makes the feature usable rather than demonstrable.
+5. **`replyto` and `@self` emission.** The parked-continuation table (slot →
+   member plus captures) that `resume` dispatches on, and the self-send's two
+   readings (an enqueue when the handler was spawned, the ordinary inline
+   member call when it was `use`d). With this the request/response shape works
+   without `main` in the loop. **One design point to settle in the slice**: how
+   a member body reaches its own address — a hidden field set at spawn, or the
+   activation's `SalvoCtx` threaded in.
+6. **`watch` and the deadlock baseline.** `watch` needs a token, so it follows
+   item 5; the effect-graph cycle check (Example 4 a/b, the committed
+   baseline) needs the mint sites the same item creates.
+7. **Linearity in collections** (user decision 2026-09-15: after item 6).
+   Decided already (LINEARITY_COLLECTIONS.md) and unbuilt; it is what a
+   handler queueing `waiting: Mut List<Reply<T>>` needs, which is the shape
+   the interesting examples use. Nothing before it needs it.
+8. **Propagation and retirement.** The COMPLETED.md entries (including
+   EFFECT_UNIFICATION.md's round-1 rejection as an explored-and-abandoned
+   option); CONCURRENCY.md's pending table (the named question closes);
+   `CONCURRENCY_EXAMPLES.md`'s `Reply<T>` definition reworded to
+   reservation-at-mint-in-the-target; the examples-file respelling done
+   **once**, here, rather than four times on the way (`capacity N` is
+   required, and those files' spawns predate it); a worked
+   `examples/processes/`; then the working documents retire into the decision
+   log per their charters — with the sugar pass's decided content folded into
+   this file first, so nothing open lives outside ROADMAP.md.
 
-After step two: the LC collection surface (std's first customer — a handler's
-`waiting: Mut List<Reply<T>>` needs it), `watch`, the deadlock baseline, and
-the examples-file respelling (`capacity N` is required and
-CONCURRENCY_EXAMPLES.effects.md's spawns predate it).
-
-**Leftovers found while building the checker rules — all closed 2026-09-15**
-(the last of them, self-sends, by a user decision taken the same day):
-
-- ✅ **A pid receiver may be any place**, not just a variable: a field chain
-  (`registry.child.bump(1)`) and an array element (`many[0].bump(1)`) both
-  resolve, read through a side-effect-free type peek so the receiver is never
-  checked twice. A receiver that is a *call* still needs a `let` first, which
-  is recorded in [async-use-pid] rather than left as a surprise.
-- ✅ **The asynchronous forms stop at a closure** [async-no-closure]:
-  `spawn`, `waitfor` and `replyto` inside a lambda body are errors, each
-  worded in the closure's terms — the general remedies ("add it to the effect
-  list") are not available to a lambda. This is [fate-lambda]'s deferral made
-  checkable rather than assumed.
-- ✅ **An overloaded send member through a pid is picked by arity**, with a
-  same-arity tie refused rather than guessed. Typing the arguments to choose
-  and again against the winner would double-report every mistake in them.
-
-- ✅ **Self-sends: `self.k(args)`** (user decision 2026-09-15, option (a) —
-  the spelling the sugar tower's merge/join form already assumes). A message
-  to the process the enclosing member belongs to, so "finish this activation,
-  then continue with `k`" is writable; defined for both bindings (enqueue when
-  spawned, the ordinary inline member call when `use`d). No new syntax —
-  `self.k(args)` already parses as a dot-call — and a handler member may not
-  declare a variable named `self`, so the form cannot be shadowed silently.
-  [async-self-send]; the self-dispatch diagnostic now names it as the remedy
-  for a `send fn`.
-
-After step two: the LC collection surface (std's first customer — a handler's
-`waiting: Mut List<Reply<T>>` needs it), `watch`, the deadlock baseline, and
-the examples-file respelling (`capacity N` is required and
-CONCURRENCY_EXAMPLES.effects.md's spawns predate it).
+**The leftovers the checker slice found are all closed** (2026-09-15) — the
+record, with what each taught, is in COMPLETED.md's decision log; the last of
+them, self-sends, was a user decision the same day (`k@self(…)`, respelled to
+`k@self(…)` by item 1 above).
 
 **Deferred out of the phase**: [fate-lambda] moves to the call-sugar pass —
 no first-pass form crosses a closure (spawn-`use` arguments, `replyto`
@@ -1241,6 +1254,41 @@ a process **is** a region; sendability and region-escape are one check.
 consumption; linearity survived sends [linear-obligation] and became the
 reply-token guarantee; supervision-as-handler became interception across the
 scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
+
+## The sugar pass — after phase 5 (user decision 2026-09-15)
+
+Deferred out of the phase deliberately: phase 5 delivers the **explicit**
+surface (tokens and reply parameters written out), and every layer of sugar
+above it becomes a later item with its own decision surface. What is already
+*decided* about it, so the pass starts from a plan rather than a blank page
+(EFFECT_UNIFICATION.md, EU-6 and EU-7b):
+
+- **Per-kind `-> T`** (EU-6 = (a)): plain effects unchanged forever; inside an
+  `async effect`, `fn m(a) -> T` means an implicit trailing `Reply<T>`,
+  fulfil-at-every-return, and caller-side call syntax = auto-mint + gate. This
+  is why item 2 above keeps `send fn` rather than making it implicit: the
+  non-send forms are stated *against* it — `send fn m(a)` is no completion,
+  `fn m(a) -> T` a call member, `fn m(a) -> None` the acknowledged form.
+- **The generalized mint** (EU-7b): `replyto k(c)` resolves lexically against
+  the enclosing handler, else through the effect list as a *remote* mint — a
+  curried, capacity-reserved, one-shot send. Reservation happens at mint time
+  in the token's target, so discharge never blocks; mint sites contribute
+  deadlock edges like sends. A bare `k` naming both an enclosing member and an
+  in-scope async member is **refused**, naming `k@self` and `k@E`; a remote
+  mint where no process exists is refused, naming `waitfor`. `replyto!` and
+  self-targets stay lexical to handler bodies.
+- **Two stub readings appear here, and only here.** An answering member cannot
+  have one implementation for both bindings: from a process the call parks,
+  from synchronous code it must block — which `main` may do and a process may
+  not (EU-2, and point 2 of the unification's stated intent). The first pass
+  has one stub precisely because nothing answers.
+- Then the rest of the tower, each its own call: `then`/`then!`, `defer`,
+  merge/join, the gate's member-set generalization.
+- **Watch item, carried**: a helper that must create self-targeted or gated
+  continuations in *data-dependent number* still cannot be written outside a
+  handler body. If that bites, the recorded shape to revisit is EU-7(a)'s
+  narrow running-in entry.
+
 
 ## Laziness, after concurrency (user decision 2026-09-10)
 

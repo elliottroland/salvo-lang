@@ -8950,7 +8950,7 @@ fn kotlinc_compiles_and_runs_the_memory_filesystem() -> KotlinCase {
 
 // ===== [kt-process] asynchronous effect handlers =====
 
-/// [async-spawn-expr] [async-use-pid] [async-waitfor] The same program the
+/// [async-spawn-expr] [async-use-addr] [async-waitfor] The same program the
 /// Rust backend runs, with **the same expected output** — the parity assertion
 /// for the surface, not just for the scheduler library underneath it.
 const PROCESS: &str = r#"

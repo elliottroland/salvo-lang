@@ -45,6 +45,11 @@ struct Snapshot {
     diag_len: usize,
 }
 
+/// [async-self-send] The contextual selector that names the enclosing handler:
+/// `k@self(args)`. Contextual, not reserved — `self` stays an ordinary name
+/// everywhere else, and it is only special immediately after `@`.
+pub const SELF_SELECTOR: &str = "self";
+
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
         let mut line_starts = vec![0u32];
@@ -2570,6 +2575,32 @@ impl<'s> Parser<'s> {
                 TokenKind::At if self.same_line() => {
                     let at = self.bump().span;
                     let first = self.ident()?;
+                    // [async-self-send] `k@self(args)`: the enclosing
+                    // *handler*'s member — a message to this process. One
+                    // selector family with `k@E` (an effect's member) and
+                    // `k@module` (a module's overload), which is why the
+                    // spelling is a selector and not a `self.` receiver: a
+                    // reader learns one rule for "the call says which it
+                    // means". `self` is lowercase, where [effect-at] reads a
+                    // lowercase name as a module path, so it is recognised
+                    // here as a contextual selector keyword — a *module*
+                    // named `self` is therefore unreachable this way, which
+                    // costs nothing (module names are file paths).
+                    if first.name == SELF_SELECTOR {
+                        let span = expr.span().to(first.span);
+                        expr = match expr {
+                            Expr::Ident(name) => Expr::SelfScoped { name, span },
+                            other => {
+                                self.error(
+                                    "`@self` selects a member of the enclosing handler, \
+                                     so it follows a plain member name (`k@self(…)`)",
+                                    at,
+                                );
+                                other
+                            }
+                        };
+                        continue;
+                    }
                     let is_effect = first
                         .name
                         .chars()
@@ -2863,6 +2894,21 @@ impl<'s> Parser<'s> {
                 })
             }
             TokenKind::Ident(_) => {
+                // [async-self-send] The old self-send spelling. `self.k(…)`
+                // was the first-pass form for a matter of hours; it is a plain
+                // parse error now, naming the selector that replaced it (user
+                // decision 2026-09-15). No transitional accept — nothing
+                // outside this repository writes Salvo.
+                if self.at_word(SELF_SELECTOR) && matches!(self.peek_at(1).kind, TokenKind::Dot) {
+                    let span = self.peek().span;
+                    self.error(
+                        "`self.k(…)` is not the self-send form: write `k@self(…)`, the \
+                         selector that names the enclosing handler",
+                        span,
+                    );
+                    self.bump();
+                    return Some(Expr::Error { span });
+                }
                 // The asynchronous forms are **contextual**: each is
                 // recognised from its word plus what follows, so `spawn`,
                 // `replyto` and `waitfor` all stay usable as ordinary names.
@@ -3296,7 +3342,7 @@ impl<'s> Parser<'s> {
         Some(Expr::Try { body, span })
     }
 
-    /// [async-spawn-expr] `spawn H(args) use D1(...), pid capacity N on POOL`
+    /// [async-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL`
     /// — the asynchronous binding of a handler. The `use` clause is optional
     /// (a handler with no dependencies needs none); `capacity` and `on` are
     /// not, since neither the mailbox bound nor the pool has a default.
@@ -3309,7 +3355,7 @@ impl<'s> Parser<'s> {
         let handler = self.parse_expr()?;
         // The spawn-site `use` clause: what the child's declared
         // dependencies are bound to [effect-handler-deps]. Each item is a
-        // handler construction or a `Pid` value — the parser keeps both as
+        // handler construction or an `Addr` value — the parser keeps both as
         // expressions, as the `use` *statement* does, and the checker tells
         // them apart.
         let mut uses = Vec::new();

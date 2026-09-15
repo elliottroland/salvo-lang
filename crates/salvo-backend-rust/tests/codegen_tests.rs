@@ -8521,7 +8521,7 @@ fn rustc_compiles_and_runs_the_memory_filesystem() {
 
 // ===== [rs-process] asynchronous effect handlers =====
 
-/// [async-spawn-expr] [async-use-pid] [async-waitfor] The first program that
+/// [async-spawn-expr] [async-use-addr] [async-waitfor] The first program that
 /// *runs* a process: a counter handler bound asynchronously, two sends, then
 /// `main`'s bridge asking for the total. The expected output is identical on
 /// the Kotlin backend — the parity assertion for the whole surface, not just

@@ -286,6 +286,9 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(capacity, used);
             expr_names(pool, used);
         }
+        // [async-self-send] The member is the enclosing handler's, so the
+        // selector names nothing a module could provide.
+        Expr::SelfScoped { .. } => {}
         // [async-replyto] The member name is resolved against the enclosing
         // handler, not the module, so only the captures name things here.
         Expr::ReplyTo { captures, .. } => {

@@ -1,6 +1,6 @@
-//! [async-spawn-expr] [async-replyto] [async-waitfor] [async-use-pid] The
+//! [async-spawn-expr] [async-replyto] [async-waitfor] [async-use-addr] The
 //! asynchronous surface's *checker* rules: what a `spawn` needs to be legal,
-//! what a `replyto` may target, where a `waitfor` may stand, and how a `Pid`
+//! what a `replyto` may target, where a `waitfor` may stand, and how an `Addr`
 //! is called. The forms' syntax is tested in `salvo-syntax`; the types they
 //! produce and consume are `core.process`'s ([async-types]).
 //!
@@ -21,7 +21,7 @@ intrinsic type Str
 intrinsic type Bool
 intrinsic type List<T> canbe Mut
 intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-intrinsic type Pid<E>
+intrinsic type Addr<E>
 linear intrinsic type Reply<T>
 intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
@@ -104,8 +104,8 @@ fn errors(src: &str) -> Vec<String> {
 // ===== The shape that must check clean =====
 
 /// The whole first-pass surface in one `main`: two spawns (one supplying a
-/// dependency with the *other's* pid), a send through a pid, `waitfor` with
-/// the token consumed inside its block, and `use pid` followed by an
+/// dependency with the *other's* addr), a send through an addr, `waitfor` with
+/// the token consumed inside its block, and `use addr` followed by an
 /// unqualified call. If this ever stops checking, the feature is broken
 /// regardless of what the negative tests say.
 #[test]
@@ -192,7 +192,7 @@ fn main() [use, spawn] {
 
 /// A dependency *constructed* in the clause may not itself have
 /// dependencies: there is no scope on the child to resolve them from. The
-/// remedy is a pid of a process that already serves the effect.
+/// remedy is an addr of a process that already serves the effect.
 #[test]
 fn a_clause_construction_cannot_have_dependencies_of_its_own() {
     let errs = errors(
@@ -232,7 +232,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// A spawn's value is the child's `Pid<E>` for the effect its handler
+/// A spawn's value is the child's `Addr<E>` for the effect its handler
 /// implements — which is what makes it usable as another spawn's dependency
 /// and as a receiver. Checked through a *wrong* annotation, so the message
 /// states the type.
@@ -246,14 +246,14 @@ fn main() [use, spawn] {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("Pid<Counter>")),
-        "the spawn's type must be `Pid<Counter>`: {errs:?}"
+        errs.iter().any(|m| m.contains("Addr<Counter>")),
+        "the spawn's type must be `Addr<Counter>`: {errs:?}"
     );
 }
 
-// ===== [async-use-pid] Sends through a pid =====
+// ===== [async-use-addr] Sends through an addr =====
 
-/// A dot-call through a pid resolves against the effect the process serves,
+/// A dot-call through an addr resolves against the effect the process serves,
 /// with the receiver naming *where* the message goes rather than being the
 /// first argument.
 #[test]
@@ -290,8 +290,8 @@ fn main() [use, spawn] {
     );
 }
 
-/// `use pid` binds the effect in scope, so its members are callable
-/// unqualified — and a pid is *not* consumed by binding it, because a pid is
+/// `use addr` binds the effect in scope, so its members are callable
+/// unqualified — and an addr is *not* consumed by binding it, because an addr is
 /// freely copyable.
 #[test]
 fn use_pid_binds_the_effect_and_keeps_the_pid() {
@@ -308,7 +308,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "got {errs:?}");
 }
 
-/// `use` of something that is neither a handler nor a pid says so, naming
+/// `use` of something that is neither a handler nor an addr says so, naming
 /// both forms.
 #[test]
 fn use_of_a_plain_value_is_refused() {
@@ -322,7 +322,7 @@ fn main() [use, spawn] {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("registers a handler or binds a `Pid`")),
+            .any(|m| m.contains("registers a handler or binds an `Addr`")),
         "expected the use-a-value refusal: {errs:?}"
     );
 }
@@ -557,7 +557,7 @@ fn main() [use, spawn] {
 
 // ===== The leftovers this slice closed =====
 
-/// [async-use-pid] A receiver is any **place** whose type is a pid, not just
+/// [async-use-addr] A receiver is any **place** whose type is an addr, not just
 /// a variable: a field chain (a registry of children, a supervisor's state)
 /// and an array element both work, which is what a program holding several
 /// processes writes.
@@ -566,19 +566,19 @@ fn a_pid_place_of_any_shape_is_a_receiver() {
     let errs = errors(
         "\
 struct Registry {
-    counter: Pid<Counter>
+    counter: Addr<Counter>
 }
 
 fn main() [use, spawn] {
     let counter = spawn Counting() use Printing() capacity 1 on pool(1)
     let r = Registry { counter: counter }
     r.counter.bump(1)
-    let many: Pid<Counter>[] = array_of(r.counter)
+    let many: Addr<Counter>[] = array_of(r.counter)
     many[0].bump(2)
 }
 ",
     );
-    assert!(errs.is_empty(), "a pid place must be a receiver: {errs:?}");
+    assert!(errs.is_empty(), "an addr place must be a receiver: {errs:?}");
 }
 
 /// [async-spawn-expr] [async-waitfor] [async-replyto] The asynchronous forms
@@ -599,7 +599,7 @@ fn main() [use, spawn] {
         spawned
             .iter()
             .any(|m| m.contains("cannot be written inside a lambda")
-                && m.contains("pass the `Pid`")),
+                && m.contains("pass the `Addr`")),
         "expected the lambda-spawn refusal: {spawned:?}"
     );
 
@@ -645,7 +645,7 @@ handler Asker() [Counter] of Ask {
     );
 }
 
-/// [effect-member-overload] An overloaded send member reached through a pid
+/// [effect-member-overload] An overloaded send member reached through an addr
 /// is picked by **argument count**: typing the arguments to choose and then
 /// again against the winner would report every mistake in them twice. A tie
 /// is refused rather than guessed.
@@ -697,7 +697,7 @@ fn main() [use, spawn] {
     );
 }
 
-// ===== [async-self-send] `self.k(args)` =====
+// ===== [async-self-send] `k@self(args)` =====
 
 /// The form's point is *ordering*: an unqualified call would run `k` inside
 /// this activation, and a self-send runs it as its own later one — which is
@@ -716,7 +716,7 @@ handler Working() of Work {
     done: Int = 0
 
     send fn start(n: Int) {
-        self.step(n)
+        step@self(n)
     }
 
     send fn step(n: Int) {
@@ -736,7 +736,7 @@ fn a_self_send_needs_a_send_member_of_this_handler() {
         "\
 handler Working() of Log {
     send fn note(what: Str) {
-        self.later(what)
+        later@self(what)
     }
 }
 ",
@@ -757,7 +757,7 @@ effect Work {
 
 handler Working() of Work {
     send fn start(n: Int) {
-        self.ready()
+        ready@self()
     }
 
     fn ready() -> Bool {
@@ -781,7 +781,7 @@ fn a_self_send_is_illegal_outside_a_handler_member() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    self.bump(1)
+    bump@self(1)
 }
 ",
     );
@@ -806,7 +806,7 @@ effect Work {
 
 handler Working() of Work {
     send fn start(n: Int) {
-        self.step(\"one\")
+        step@self(\"one\")
     }
 
     send fn step(n: Int) {}
@@ -820,16 +820,18 @@ handler Working() of Work {
     );
 }
 
-/// Inside a handler member `self` is the handler, so a variable of that name
-/// would shadow the form silently — refused there, and legal in an ordinary
-/// function, which is what makes the word contextual rather than reserved.
+/// [async-self-send] `self` is **contextual**, not reserved: it means the
+/// enclosing handler only immediately after `@`, so it stays an ordinary name
+/// elsewhere — and a local of that name can never shadow the form, which is
+/// what the selector spelling buys over the `self.k(…)` receiver it replaced.
 #[test]
-fn self_cannot_be_a_variable_in_a_handler_member() {
+fn self_stays_an_ordinary_name_away_from_the_selector() {
     let errs = errors(
         "\
 handler Working() of Log {
     send fn note(what: Str) {
         let self = 1
+        note@self(what)
     }
 }
 
@@ -839,18 +841,33 @@ fn plain() -> Int {
 }
 ",
     );
+    assert!(errs.is_empty(), "`self` must stay a legal name: {errs:?}");
+}
+
+/// And the *old* spelling is a plain parse error naming the new one — no
+/// transitional accept (the `canbe` precedent: nothing outside this repository
+/// writes Salvo).
+#[test]
+fn the_receiver_spelling_of_a_self_send_is_a_parse_error() {
+    let source = "\
+handler Working() of Log {
+    send fn note(what: Str) {
+        self.note(what)
+    }
+}
+";
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
-        errs.iter()
-            .any(|m| m.contains("`self` names the handler a member belongs to")
-                && m.contains("rename the binding")),
-        "expected the shadowing refusal: {errs:?}"
+        diagnostics.iter().any(|d| d.is_error()
+            && d.message.contains("is not the self-send form")
+            && d.message.contains("`k@self(…)`")),
+        "expected the old form to be refused: {diagnostics:?}"
     );
-    assert_eq!(errs.len(), 1, "and `self` stays a legal name elsewhere: {errs:?}");
 }
 
 /// The self-dispatch diagnostic now names the remedy that exists: calling
 /// one's own effect member unqualified is still refused, but for a `send fn`
-/// the message points at `self.k(…)`.
+/// the message points at `k@self(…)`.
 #[test]
 fn the_self_dispatch_error_names_the_self_send() {
     let errs = errors(
@@ -870,7 +887,7 @@ handler Counting2() of Counter {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("send it to this process instead: `self.bump(…)`")),
+            .any(|m| m.contains("send it to this process instead: `bump@self(…)`")),
         "expected the diagnostic to name the self-send: {errs:?}"
     );
 }

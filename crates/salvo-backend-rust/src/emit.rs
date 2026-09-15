@@ -1206,7 +1206,7 @@ struct Emitter<'p> {
     /// [rs-collections] Whether this module referenced `Set`/`Map`, so the
     /// ordered-collection runtime is emitted and mounted.
     needs_collections: bool,
-    /// [rs-process] This file spawns, sends to a pid, or bridges with
+    /// [rs-process] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler module is part of the program.
     needs_scheduler: bool,
     /// [rs-iter-pass] An iterator fn's signature or body is being emitted:
@@ -1884,7 +1884,7 @@ impl<'p> Emitter<'p> {
         }
         // [rs-process] [async-send-fn] The protocol's **message type**: one
         // variant per send member, carrying its payload. It belongs to the
-        // *effect* rather than to a handler, because a sender holds a `Pid`
+        // *effect* rather than to a handler, because a sender holds an `Addr`
         // and knows only the effect it serves — which is the same reason the
         // binding swap works at all.
         out.push_str(&self.emit_message_enum(e));
@@ -4063,10 +4063,10 @@ impl<'p> Emitter<'p> {
                 self.needs_collections = true;
             }
             // [rs-process] The scheduler's handles are *not* generic in Rust:
-            // a pid is an index and a token is one type, so the Salvo type
-            // argument (the effect a pid serves, the payload a token carries)
+            // an addr is an index and a token is one type, so the Salvo type
+            // argument (the effect an addr serves, the payload a token carries)
             // has no rendering here — the generated message enum carries it.
-            if matches!(name, "Pid" | "Pool" | "Reply") {
+            if matches!(name, "Addr" | "Pool" | "Reply") {
                 self.needs_scheduler = true;
                 return rs.to_string();
             }
@@ -4081,7 +4081,7 @@ impl<'p> Emitter<'p> {
         // same refusal: an `intrinsic type` without a mapping has no Rust
         // spelling, so passing its Salvo name through would emit a dangling
         // reference for rustc to trip over instead of reporting the gap
-        // here. (`Pid`, `Reply` and `Pool` are exactly this until the
+        // here. (`Addr`, `Reply` and `Pool` are exactly this until the
         // process structs land.)
         if self.symbols.intrinsic_types.contains_key(name) {
             self.error(format!(
@@ -5333,7 +5333,7 @@ impl<'p> Emitter<'p> {
     /// `&mut local`.
     /// [async-spawn-expr] [rs-process] `spawn H(args) capacity N on P` →
     /// `salvo_spawn(pool, bound, Box::new(__Proc_H::new(H::new(args))))`,
-    /// whose value is the pid. Construction is the `use` path's, minus the
+    /// whose value is the addr. Construction is the `use` path's, minus the
     /// registration: a spawn does not put the handler in *this* scope.
     fn emit_spawn(
         &mut self,
@@ -5441,10 +5441,10 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [async-use-pid] [rs-process] `pid.member(args)` →
-    /// `salvo_send(pid, Box::new(__Msg_E::Member(args)))`. The message owns
+    /// [async-use-addr] [rs-process] `addr.member(args)` →
+    /// `salvo_send(addr, Box::new(__Msg_E::Member(args)))`. The message owns
     /// its payload: it outlives the send, so every argument is emitted owned.
-    fn emit_pid_send(
+    fn emit_addr_send(
         &mut self,
         effect: &salvo_core::Ty,
         callee: &Expr,
@@ -5453,13 +5453,13 @@ impl<'p> Emitter<'p> {
     ) -> String {
         self.needs_scheduler = true;
         let Expr::Field { base, field, .. } = callee else {
-            self.error("internal: a pid send whose callee is not a dot-call");
+            self.error("internal: an addr send whose callee is not a dot-call");
             return "todo!()".to_string();
         };
         let effect_name = match effect {
             salvo_core::Ty::Named { name, .. } => name.clone(),
             _ => {
-                self.error("internal: a pid send with no effect recorded");
+                self.error("internal: an addr send with no effect recorded");
                 return "todo!()".to_string();
             }
         };
@@ -5478,12 +5478,12 @@ impl<'p> Emitter<'p> {
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        // [async-use-pid] As in the Kotlin backend: refused here, so a
+        // [async-use-addr] As in the Kotlin backend: refused here, so a
         // correct program is not reported as an unknown handler
         // [backend-never-wrong].
-        if self.checked.use_pids.contains_key(&(self.file_idx, span)) {
+        if self.checked.use_addrs.contains_key(&(self.file_idx, span)) {
             self.error(
-                "`use` of a `Pid` is not emitted yet: binding an effect to a \
+                "`use` of an `Addr` is not emitted yet: binding an effect to a \
                  process needs its generated process class",
             );
             return String::new();
@@ -7226,7 +7226,7 @@ impl<'p> Emitter<'p> {
             Expr::Error { .. } => "todo!()".to_string(),
             // [async-spawn-expr] [rs-process] `spawn H(args) capacity N on P`
             // — construct the handler, wrap it in its generated process body,
-            // and hand it to the scheduler. Its value is the pid.
+            // and hand it to the scheduler. Its value is the addr.
             Expr::Spawn {
                 handler,
                 uses,
@@ -7243,6 +7243,16 @@ impl<'p> Emitter<'p> {
                 body,
                 span,
             } => self.emit_waitfor(binding, ty, body, *span),
+            // [async-self-send] As in the Kotlin backend: a selector outside a
+            // call is a checker error, and a self-send's lowering waits with
+            // `replyto` for the process body's own address.
+            Expr::SelfScoped { .. } => {
+                self.error(
+                    "a self-send is not emitted yet: `k@self(…)` needs the process \
+                     body's own address",
+                );
+                "todo!()".to_string()
+            }
             // [async-replyto] Parsed and checked, not yet lowered: a mint
             // needs the parked-continuation table in the process body, which
             // is the next slice. A refusal, never output
@@ -8825,11 +8835,11 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
-        // [async-use-pid] [rs-process] A send to a process: build the
+        // [async-use-addr] [rs-process] A send to a process: build the
         // protocol's message and enqueue it on the target's mailbox. The
         // receiver names *where* it goes, not an argument.
-        if let Some(effect) = self.checked.pid_calls.get(&(self.file_idx, span)).cloned() {
-            return self.emit_pid_send(&effect, callee, args, span);
+        if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
+            return self.emit_addr_send(&effect, callee, args, span);
         }
         // [async-self-send] As in the Kotlin backend.
         if self.checked.self_sends.contains_key(&(self.file_idx, span)) {
@@ -11260,6 +11270,8 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_mutated_expr(capture, out);
             }
         }
+        // [async-self-send] A leaf.
+        Expr::SelfScoped { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // [qual-widen] The check reads its subject.
         Expr::Widen { subject, .. } => collect_mutated_expr(subject, out),
@@ -11480,6 +11492,8 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_declared_expr(capture, out);
             }
         }
+        // [async-self-send] A leaf: it declares nothing.
+        Expr::SelfScoped { .. } => {}
         // [async-waitfor] The token binder is a declaration of its own, and
         // the block declares like any other.
         Expr::WaitFor { binding, body, .. } => {
@@ -11574,6 +11588,8 @@ fn expr_terminates(expr: &Expr) -> bool {
         | Expr::Try { .. }
         // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
         // value and none diverges: a `waitfor` blocks and then continues.
+        // [async-self-send] A callee, hence a leaf.
+        | Expr::SelfScoped { .. }
         | Expr::Spawn { .. }
         | Expr::ReplyTo { .. }
         | Expr::WaitFor { .. }

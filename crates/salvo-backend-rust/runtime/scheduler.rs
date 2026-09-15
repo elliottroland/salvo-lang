@@ -34,7 +34,7 @@ pub trait SalvoProcess: Send {
 
 /// Passed to every activation: the process's own identity.
 pub struct SalvoCtx {
-    pub pid: usize,
+    pub addr: usize,
 }
 
 /// A one-shot reply capability. `send` consumes it — one shot by move in
@@ -179,29 +179,29 @@ pub fn salvo_spawn(pool: usize, bound: usize, body: Box<dyn SalvoProcess>) -> us
 
 /// Sends a user message. Blocks while the target's queue is full; a send
 /// to a dead process is a silent no-op.
-pub fn salvo_send(pid: usize, msg: SalvoMsg) {
+pub fn salvo_send(addr: usize, msg: SalvoMsg) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
-    while !s.procs[pid].dead && s.procs[pid].user_len >= s.procs[pid].bound {
+    while !s.procs[addr].dead && s.procs[addr].user_len >= s.procs[addr].bound {
         s = cv.wait(s).unwrap();
     }
-    if s.procs[pid].dead {
+    if s.procs[addr].dead {
         return;
     }
-    s.procs[pid].queue.push_back(Entry::User(msg));
-    s.procs[pid].user_len += 1;
+    s.procs[addr].queue.push_back(Entry::User(msg));
+    s.procs[addr].user_len += 1;
     cv.notify_all();
 }
 
 /// Mints a reply token targeting a process's parked continuation `slot`.
-pub fn salvo_mint(pid: usize) -> (SalvoReply, u64) {
+pub fn salvo_mint(addr: usize) -> (SalvoReply, u64) {
     let (lock, _cv) = state();
     let mut s = lock.lock().unwrap();
     s.next_slot += 1;
     let slot = s.next_slot;
     (
         SalvoReply {
-            target: Target::Proc(pid),
+            target: Target::Proc(addr),
             slot,
         },
         slot,
@@ -211,19 +211,19 @@ pub fn salvo_mint(pid: usize) -> (SalvoReply, u64) {
 /// Mints a *gated* reply token: until it is delivered, the process serves
 /// nothing else. At most one gate may be outstanding — a second is a
 /// fault in the calling activation.
-pub fn salvo_mint_gated(pid: usize) -> (SalvoReply, u64) {
+pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
     let (lock, _cv) = state();
     let mut s = lock.lock().unwrap();
     assert!(
-        s.procs[pid].gate.is_none(),
+        s.procs[addr].gate.is_none(),
         "a gated continuation is already outstanding"
     );
     s.next_slot += 1;
     let slot = s.next_slot;
-    s.procs[pid].gate = Some(slot);
+    s.procs[addr].gate = Some(slot);
     (
         SalvoReply {
-            target: Target::Proc(pid),
+            target: Target::Proc(addr),
             slot,
         },
         slot,
@@ -232,14 +232,14 @@ pub fn salvo_mint_gated(pid: usize) -> (SalvoReply, u64) {
 
 /// Registers a death watch: `on_exit` is sent the reason when the process
 /// dies. Watching an already-dead process answers immediately.
-pub fn salvo_watch(pid: usize, on_exit: SalvoReply) {
+pub fn salvo_watch(addr: usize, on_exit: SalvoReply) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
-    if s.procs[pid].dead {
+    if s.procs[addr].dead {
         deliver_reply(&mut s, on_exit, Box::new("fault".to_string()));
         cv.notify_all();
     } else {
-        s.procs[pid].watchers.push(on_exit);
+        s.procs[addr].watchers.push(on_exit);
     }
 }
 
@@ -286,11 +286,11 @@ fn deliver_reply(s: &mut Sched, reply: SalvoReply, value: SalvoMsg) {
         Target::Waiter(wid) => {
             s.waiters[wid].value = Some(value);
         }
-        Target::Proc(pid) => {
-            if s.procs[pid].dead {
+        Target::Proc(addr) => {
+            if s.procs[addr].dead {
                 return;
             }
-            s.procs[pid].queue.push_back(Entry::Reply(reply.slot, value));
+            s.procs[addr].queue.push_back(Entry::Reply(reply.slot, value));
         }
     }
 }
@@ -318,27 +318,27 @@ fn worker(pool: usize) {
             .iter()
             .enumerate()
             .filter(|(_, p)| p.pool == pool)
-            .find_map(|(pid, p)| deliverable(p).map(|at| (pid, at)));
-        let Some((pid, at)) = job else {
+            .find_map(|(addr, p)| deliverable(p).map(|at| (addr, at)));
+        let Some((addr, at)) = job else {
             s = cv.wait(s).unwrap();
             continue;
         };
-        let entry = s.procs[pid].queue.remove(at).unwrap();
+        let entry = s.procs[addr].queue.remove(at).unwrap();
         if matches!(entry, Entry::User(_)) {
-            s.procs[pid].user_len -= 1;
+            s.procs[addr].user_len -= 1;
         }
         if let Entry::Reply(slot, _) = entry {
-            if s.procs[pid].gate == Some(slot) {
-                s.procs[pid].gate = None;
+            if s.procs[addr].gate == Some(slot) {
+                s.procs[addr].gate = None;
             }
         }
-        let mut body = s.procs[pid].body.take().unwrap();
-        s.procs[pid].running = true;
+        let mut body = s.procs[addr].body.take().unwrap();
+        s.procs[addr].running = true;
         s.active += 1;
         cv.notify_all(); // a user entry left the queue: unblock senders
         drop(s);
 
-        let ctx = SalvoCtx { pid };
+        let ctx = SalvoCtx { addr };
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             match entry {
                 Entry::User(msg) => body.handle(&ctx, msg),
@@ -348,11 +348,11 @@ fn worker(pool: usize) {
         }));
 
         s = lock.lock().unwrap();
-        s.procs[pid].running = false;
+        s.procs[addr].running = false;
         s.active -= 1;
         match outcome {
             Ok(body) => {
-                s.procs[pid].body = Some(body);
+                s.procs[addr].body = Some(body);
             }
             Err(panic) => {
                 let reason = panic
@@ -360,11 +360,11 @@ fn worker(pool: usize) {
                     .map(|m| (*m).to_string())
                     .or_else(|| panic.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "fault".to_string());
-                s.procs[pid].dead = true;
-                s.procs[pid].queue.clear();
-                s.procs[pid].user_len = 0;
-                s.procs[pid].gate = None;
-                let watchers = std::mem::take(&mut s.procs[pid].watchers);
+                s.procs[addr].dead = true;
+                s.procs[addr].queue.clear();
+                s.procs[addr].user_len = 0;
+                s.procs[addr].gate = None;
+                let watchers = std::mem::take(&mut s.procs[addr].watchers);
                 for w in watchers {
                     deliver_reply(&mut s, w, Box::new(format!("fault: {reason}")));
                 }

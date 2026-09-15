@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 993 tests, complete: the toolchain tests are
+cargo test                  # 995 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,10 +122,96 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Phase 5, sequence item 1: the respelling sweep — `Addr` and `@self`
+(2026-09-15).** Both surface changes EFFECT_UNIFICATION.md decided, landed
+before any more emission was built on the old spellings. Tests: **995 (+2)**.
+
+**`Pid<E>` → `Addr<E>`**, mechanically, across 21 files: the `core.process`
+declaration, the checker's constant and its five side tables and predicates
+(`addr_calls`, `use_addrs`, `addr_effect`, `addr_receiver`, `check_addr_call`),
+both backends' type maps and lowerings, every test, the spec rules (with
+[async-use-pid] refreshed to **[async-use-addr]**) and the prose. Two things a
+mechanical rename teaches: **it breaks articles** — "a addr", "a `Addr`" —
+which needed a second pass and is worth doing in the same commit; and **it
+edits its own record**, turning ROADMAP's and COMPLETED's "`Pid<E>` →
+`Addr<E>`" into "`Addr<E>` → `Addr<E>`", so the *decision* text has to be
+restored by hand afterwards. **The shipped runtime was renamed too**, after the
+first pass at this slice tried to keep `pid` there on the grounds that it *is*
+an index into the scheduler's table (user, 2026-09-15: "why keep it pid in the
+runtime?"). The argument against keeping it is the rename's own: the runtime is
+emitted **into the user's program**, so it is precisely where a real OS pid — a
+`platform effect` wrapping process management — would sit beside the
+scheduler's, and where a second word for one thing costs a reader following a
+send across the seam. `salvo_send(addr, …)`, `SalvoCtx::addr` and every
+internal index now say `addr`; "process" stays the noun for the thing an addr
+names, so `SalvoProcess`/`procs` are untouched. Both backends' four behaviour
+scenarios passed unchanged, which is what made a 56-site rename a two-minute
+job.
+
+**`self.k(…)` → `k@self(…)`**, and the selector spelling paid for itself
+immediately. It joins `k@E` and `k@module` as one family — "the call says which
+it means" — and it **deleted a rule**: the receiver form needed a check
+refusing a variable named `self` inside a handler member, because a local would
+shadow the form silently; a selector cannot be shadowed, so the check and its
+test are gone and `self` is an ordinary name again everywhere. Implementation:
+a new `Expr::SelfScoped` leaf (nine exhaustive matches again, all trivial this
+time — a callee has no sub-expressions), `SELF_SELECTOR` recognised
+contextually after `@` in `parse_postfix`, and the old dot form made a **plain
+parse error** naming the replacement. A selector written *without* a call is
+its own diagnostic ("names a member of the enclosing handler, which is not a
+value"), since a handler member is no more a function value than an effect
+member is.
+
+**The rest of phase 5, sequenced — and the sugar pass deferred out of it
+(user decisions 2026-09-15, on EFFECT_UNIFICATION.md's plan).** That document
+(a parallel read-only session's, decided across six rounds with the user) hands
+implementation four items; sequencing them against the phase-5 build produced
+an agreed eight-item order, in ROADMAP.md. The three calls:
+
+1. **The surface changes go first**: `Pid<E>` → **`Addr<E>`** (the token is a
+   many-shot *address*; `Pid` is the OS's word, which a `platform effect`
+   wrapping process management would want) and `self.k(…)` → **`k@self(…)`**
+   (one selector family — `k@E` picks an effect's member, `k@self` the
+   enclosing handler's — instead of a second, dot-shaped mechanism). Both touch
+   landed surface, and both are cheapest now: `Pid` is in ~124 places already
+   and one emitter slice added a third of them, while the self-send is checked
+   but **not yet emitted**, so no lowering has to be rewritten. Then
+   `async effect` (EU-5), because it changes the gate the emitters key on and
+   its blast radius is smallest before the remaining emission lands.
+2. **Sendability is part of `async effect`'s refusal list, not a slice of its
+   own.** A payload that transitively holds a **fn-typed field** ([rs-fn-field]
+   lowers one to `Rc`, which is not `Send`) or a **`proj` view** is refused —
+   checked at the *declaration* for member payloads, which is where the author
+   is choosing, and at the site for `replyto` captures and spawn arguments.
+   `Arc`-where-sent inference stays C-4(c)'s recorded growth point.
+3. **The sugar pass leaves phase 5** — call syntax, `then`/`then!`, `defer`,
+   merge/join and the gate generalization become later items with their own
+   decision surfaces, with EU-6/EU-7b's decided content folded into ROADMAP.md
+   so nothing open lives in a working document. **Linearity in collections
+   moves after `watch` and the deadlock baseline.**
+
+**The question the sequencing answered, worth keeping.** The user asked whether
+the `use addr` forwarding stub — item 3 of the sequence — is "the thing that
+makes sync → async calls possible", and if so whether it fits the *dependency*
+case at all. It is not: the stub is an **address-to-interface adapter**, and
+its bodies enqueue, which is legal from a synchronous frame and from inside an
+activation alike (the sync→async bridge is `waitfor`, confined to `main`). The
+dependency case does not merely tolerate it but *requires* one, because a
+handler is compiled **once** and bound many ways: whether `Counting`'s `[Log]`
+is a local construction or a remote process is decided per *spawn site*, so
+the child receives something implementing the effect (`__Fx: __Has_Log` under
+the fusion) and the stub is what an addr becomes to satisfy that. The stub is
+the runtime witness of Example 6's binding swap. Where the instinct was right
+is one pass later: an **answering** member cannot have one implementation for
+both bindings — from a process the call parks, from synchronous code it must
+block, which `main` may do and a process may not — so the two stub readings
+(EU-2, and point 2 of the unification's stated intent) arrive with the sugar
+pass. The first pass has one stub precisely because nothing answers.
+
 **Phase 5 step two, slice five: the emitters — a process runs (2026-09-15).**
 Both backends now compile and run the first asynchronous program, and print
 **the same thing**: a counter handler spawned on a pool, two sends through its
-pid, then `main`'s `waitfor` asking for the total — `sum 5` from Kotlin and
+addr, then `main`'s `waitfor` asking for the total — `sum 5` from Kotlin and
 Rust alike. Tests: **993 (+4)**, including one compile-and-run case per
 backend with identical expected output (the parity assertion at the *surface*,
 where until now it was only at the scheduler library) and one
@@ -134,20 +220,20 @@ generated-text assertion per backend so a lowering regression names itself.
 **Three generated pieces per program, and the shapes are mirrors.** The
 protocol's **message type** (`__Msg_E`: a Rust enum, a Kotlin sealed class with
 nested classes) sits beside the *effect*, not the handler — a sender holds a
-`Pid` and knows only the effect it serves, which is the same fact that makes a
+`Addr` and knows only the effect it serves, which is the same fact that makes a
 process and a locally `use`d handler interchangeable. The **process body**
 (`__Proc_H`) sits beside the handler, owns the handler instance (a process's
 state *is* the handler's) and dispatches messages onto its members. The three
-types **erase to scheduler handles**: `Pid<E>` and `Pool` to `usize`/`Int`,
+types **erase to scheduler handles**: `Addr<E>` and `Pool` to `usize`/`Int`,
 `Reply<T>` to `SalvoReply` — with their Salvo type arguments dropped, since the
 runtime is untyped and the message type is what carries payloads across.
 [rs-process], [kt-process].
 
 **What the slice taught, worth keeping.**
 
-- **The receiver of a pid send is a *read*, and forgetting it showed up as a
+- **The receiver of an addr send is a *read*, and forgetting it showed up as a
   warning.** The first running program reported `counter` as never used: the
-  checker peeks the receiver's type to *decide* the call is a pid send and
+  checker peeks the receiver's type to *decide* the call is an addr send and
   then, in the original code, never checked the expression at all. Peeking is
   right for deciding, but the receiver still has to be checked exactly once —
   which is now what `check_pid_call` does first. A "never used" warning about
@@ -169,7 +255,7 @@ is the next slice's work list): spawning a handler with effect **dependencies**
 — its members take a fused value the child would have to hold and thread, which
 is the biggest remaining piece — a **generic** handler, a **generic effect** as
 a protocol, `replyto` (needs the parked-continuation table `resume` dispatches
-on), a **self-send** (needs the activation's own pid), and `use pid` (needs the
+on), a **self-send** (needs the activation's own addr), and `use addr` (needs the
 forwarding stub).
 
 **Phase 5 step two, slice four's leftovers closed the same day
@@ -178,11 +264,11 @@ the fourth needs a language-design call and is in ROADMAP.md's table.
 Tests: **989 (+9)** — three for the mechanical leftovers, six for the
 self-send.
 
-- **A pid receiver may be any place.** `registry.child.bump(1)` and
+- **An addr receiver may be any place.** `registry.child.bump(1)` and
   `many[0].bump(1)` now resolve, through a `peek_place_ty` that reads a
   place's type *without checking the expression* — a variable's from the
   locals, a field's through `field_ty`, a tuple element's and an array
-  element's structurally. That restriction was never about pids: checking the
+  element's structurally. That restriction was never about addrs: checking the
   receiver here as well as on the ordinary dot path would duplicate its
   diagnostics and count a move twice, and a place is exactly the shape whose
   type can be read without doing either. A receiver that is a *call* still
@@ -194,13 +280,13 @@ self-send.
   rule: inside a closure the general remedies ("add `spawn` to the effect
   list") do not exist, so each diagnostic is written in the closure's terms.
   This is [fate-lambda]'s deferral made *checkable* instead of assumed.
-- **An overloaded send member through a pid picks by arity.** The alternative
+- **An overloaded send member through an addr picks by arity.** The alternative
   — the ordinary overload machinery — types the arguments to choose and then
   types them again against the winner, which double-reports every mistake in
   them; arity settles every overload the first pass can express, and a
   same-arity tie is refused rather than guessed.
 
-**Self-sends decided and built the same day: `self.k(args)`** (user decision
+**Self-sends decided and built the same day: `k@self(args)`** (user decision
 2026-09-15, option (a) of three — the spelling the sugar tower's merge/join
 form already assumes; (b) relaxing the self-dispatch refusal was rejected for
 reading identically to a call on a same-named *dependency*, and (c) waiting
@@ -212,23 +298,23 @@ express, since a call runs the work now. Defined for both bindings, like
 everything else here: an enqueue when the handler was spawned, the ordinary
 inline member call when it was `use`d.
 
-**It needed no syntax at all.** `self.k(args)` already parses as a dot-call,
+**It needed no syntax at all.** `k@self(args)` already parses as a dot-call,
 so the whole form is a checker rule — the third time this surface has cost
-nothing in the parser (`use pid` and dot-call through a pid were the others),
+nothing in the parser (`use addr` and dot-call through an addr were the others),
 which is what "the effect surface is the model" keeps buying. Two details
 worth keeping: a handler member **may not declare a variable named `self`**,
 because it would shadow the form silently (refused there, and an ordinary name
 everywhere else — contextual, not reserved); and the **self-dispatch
 diagnostic now names the remedy** when the member it refused was a `send fn`,
 which turns the error that used to say "move the shared logic into a function"
-into one that says "send it to this process instead: `self.bump(…)`".
+into one that says "send it to this process instead: `bump@self(…)`".
 
 **Phase 5 step two, slice four: the checker rules — the whole first-pass
 surface now type-checks (2026-09-15).** A program can be written and analyzed
 end to end; only emission is still refused. Tests: **980 (+19, −3)** — a new
 `async_tests.rs` whose first case is the *whole* surface checking clean (two
-spawns, one supplying a dependency with the other's pid; a send through a
-pid; `waitfor` with the token consumed in its block; `use pid` then an
+spawns, one supplying a dependency with the other's addr; a send through a
+addr; `waitfor` with the token consumed in its block; `use addr` then an
 unqualified call), and the three pending-refusal tests deleted as promised.
 
 **The finding that shaped the slice: a spawn is a `use` whose dependencies
@@ -251,7 +337,7 @@ binding is an ordinary linear local, so [linear-obligation] reports the leak
 and names `send` as its discharge. A payload crossing a seam is
 `fate_move` — the same consumption a `use` argument gets — which is what makes
 `counter.total(out)` discharge the token's obligation. And a spawn's value
-being `Pid<E>` needed no new typing: `Pid`'s argument is the effect
+being `Addr<E>` needed no new typing: `Addr`'s argument is the effect
 [async-types], so the handler's own `of` clause answers it.
 
 **Three rules that did need stating, each with a reading worth recording.**
@@ -259,35 +345,35 @@ being `Pid<E>` needed no new typing: `Pid`'s argument is the effect
 the *trailing* parameter is what the token carries, matching the
 trailing-token convention the sugar tower's `-> T` will use, so
 `arrived(id: Int, sum: Int)` minted as `replyto arrived(7)` is a `Reply<Int>`.
-(2) **Only a `send fn` is reachable through a pid**, because a member that
+(2) **Only a `send fn` is reachable through an addr**, because a member that
 answers would have to park its caller — which is exactly the call-sugar pass's
 named question, so refusing now commits to nothing. (3) **A dependency
 *constructed* in a spawn's `use` clause may not have dependencies of its own**:
 there is no scope on the child to resolve them from, and the remedy the
-diagnostic names is a pid of a process already serving the effect.
+diagnostic names is an addr of a process already serving the effect.
 
 **What the emitters do meanwhile is mark their own seams.** Rather than
 letting a correct program reach the handler path and be reported as an
-"unknown handler `counter`", both backends now refuse `use pid` and a
-send-through-a-pid with diagnostics that name the missing piece — so the next
+"unknown handler `counter`", both backends now refuse `use addr` and a
+send-through-a-addr with diagnostics that name the missing piece — so the next
 slice's work list is readable from the compiler's own output.
 
 **Phase 5 step two, slice three: `core.process` and the linear opaque type
 (user decisions 2026-09-15, three calls presented and answered in one
 round).** The types the asynchronous forms produce and consume now exist:
-`Pid<E>`, `linear intrinsic type Reply<T>` with `send` beside it, and `Pool`
+`Addr<E>`, `linear intrinsic type Reply<T>` with `send` beside it, and `Pool`
 with `pool(size)`. Tests: **964 (+5)**.
 
 **The three calls, each a rule that said "no" before.**
 
-1. **`Pid<E>`'s argument is an effect, and that is the one exception to
-   [effect-not-data]** (option (a) of three). A pid is a handle to a process,
+1. **`Addr<E>`'s argument is an effect, and that is the one exception to
+   [effect-not-data]** (option (a) of three). An addr is a handle to a process,
    and what a holder may *do* with it is exactly the effect the process
    serves — which is also what lets a process and a locally `use`d handler
    stand behind one name (the binding swap). Implemented as narrowly as it
    was granted: the check lives in `validate_type`, which is the only walk
    that knows what a type argument *belongs to*, and it fires only for std's
-   `Pid` in its only parameter position with a bare effect name in it.
+   `Addr` in its only parameter position with a bare effect name in it.
    `List<Counter>` is still refused, and so is `Counter` anywhere else — both
    asserted.
 2. **`linear intrinsic type`** [linear-opaque], over a `linear struct`
@@ -304,7 +390,7 @@ with `pool(size)`. Tests: **964 (+5)**.
    the discharger — worked untouched.
 3. **The discharger is an `intrinsic fn` beside the declaration**:
    `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
-   !value`. This makes "a `Reply` is a one-shot `Pid` with a single send
+   !value`. This makes "a `Reply` is a one-shot `Addr` with a single send
    member" true in the type system, and the same-file rule then does the rest.
    Note `!value`: the payload crosses the seam, so it is consumed, not kept —
    the same reasoning that makes a send member's own clause `=> !c`.
@@ -312,11 +398,11 @@ with `pool(size)`. Tests: **964 (+5)**.
 **A [backend-never-wrong] hole closed on the way, and it was not the new
 code's.** Naming an `intrinsic type` that a backend has no mapping for used
 to fall through to "emit the Salvo name verbatim" — only `Any` was refused,
-by name, in the Rust backend. So `fn hold(p: Pid<Counter>)` emitted
-`Pid<Counter>` and left kotlinc/rustc to report a dangling reference: wrong
+by name, in the Rust backend. So `fn hold(p: Addr<Counter>)` emitted
+`Addr<Counter>` and left kotlinc/rustc to report a dangling reference: wrong
 output, deferred to the target compiler, which is exactly what the invariant
 forbids. Both emitters now consult `symbols.intrinsic_types` and refuse with
-"the `Pid` type is not supported by the … backend yet". `Pid`, `Reply` and
+"the `Addr` type is not supported by the … backend yet". `Addr`, `Reply` and
 `Pool` are deliberately left unmapped: what they should map to is a
 consequence of the process classes' shape, and guessing now would be a
 commitment made in the wrong slice.
@@ -344,12 +430,12 @@ LANGUAGE_SPEC.md under [async-spawn-expr] and [async-send-fn].
 members of effects and handlers [async-send-fn] and `[spawn]` in effect lists
 [async-spawn-effect]. What parses and is then refused: `spawn H(args) use …
 capacity N on POOL` [async-spawn-expr], `replyto k(c)` / `replyto! k(c)`
-[async-replyto], `waitfor out: Reply<T> { … }` [async-waitfor], and `use pid`
-[async-use-pid] — the last needing no syntax at all, since the `use`
+[async-replyto], `waitfor out: Reply<T> { … }` [async-waitfor], and `use addr`
+[async-use-addr] — the last needing no syntax at all, since the `use`
 statement already takes an expression. Tests: **959 (+13)** — 3 parser tests
 and 3 checker tests in this slice, on top of the declaration slice's 2 and 5.
 The rules are now written down: LANGUAGE_SPEC.md gained an "Asynchronous
-effect handlers" section ([async-process] … [async-use-pid]), which also
+effect handlers" section ([async-process] … [async-use-addr]), which also
 closed the dangling-label bug the declaration slice left (two labels lived in
 code with no rule behind them). LANGUAGE.md is deliberately untouched until
 the feature runs.
@@ -442,7 +528,7 @@ activation** — and only that, since [effect-member-no-effects] makes
 Salvo-level uncaught throws impossible by construction (the fault sources
 are backend runtime faults and platform-handler failures); no `kill`
 (ask-to-stop plus stop-forwarding covers its useful half). **The monitor
-surface is one member**: `watch(pid, on_exit: Reply<Exit>)` — the death
+surface is one member**: `watch(addr, on_exit: Reply<Exit>)` — the death
 notification is itself a linear token, so the kernel's four pieces still
 suffice and an unhandled watch is a leak diagnostic. **The corpse's
 obligations are lost** (the monitor is the recovery mechanism, at the domain
@@ -451,7 +537,7 @@ target are silent no-ops (Erlang's rule); the scheduler reports
 **idle-with-parked-gates** as a named runtime error, catching orphaned
 requesters and a hung `waitfor` in `main`. **Supervision is a pattern, not a
 construct**: interceptor + `watch` + `spawn`, clients hold the supervisor's
-pid and never observe the death; strategies are handler logic; a std
+addr and never observe the death; strategies are handler logic; a std
 `Supervisor` handler waits for real usage. With this, **the phase-5 decision
 space ahead of implementation is empty**; the plan is ROADMAP.md's
 "Threading and concurrency" step 2.
@@ -493,10 +579,10 @@ working-document template these follow). The shortest honest summary:
   2026-09-04 record by making the question moot.
 - **First-pass surface (grammar frozen)**: `send fn` members with explicit
   `Reply<T>` parameters; `replyto`/`replyto!`; `r.send(v)` discharges (no
-  `fulfil` verb — consumption says it); `Pid<T>`; `spawn H(args) use
-  Handler(...), pid, ... on pool(n)` (dependencies as constructor params or
+  `fulfil` verb — consumption says it); `Addr<T>`; `spawn H(args) use
+  Handler(...), addr, ... on pool(n)` (dependencies as constructor params or
   spawn-site `use` clause — handlers never cross, *construction* crosses; no
-  `fork`); lowercase `[use, spawn]`; `use pid` binds an effect to a
+  `fork`); lowercase `[use, spawn]`; `use addr` binds an effect to a
   forwarding stub; **`waitfor`** is main's explicit blocking bridge and the
   program ends when `main` returns (no run-to-quiescence ambience).
   Supervision = interception (a policy handler wrapping a process — the
@@ -10405,7 +10491,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 993)
+## Test inventory (all green: 995)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10519,7 +10605,7 @@ cache, with per-test timings.
   another interceptor — and a plain `use` shadowing an earlier registration
   with no dependency anywhere; and 2 handler-state tests [effect-handler]: a
   state field initializer checked against its declared type, a well-typed
-  one accepted; plus 2 [async-types] tests: `Pid<Counter>` accepted as a
+  one accepted; plus 2 [async-types] tests: `Addr<Counter>` accepted as a
   field, a parameter and a return — the sanctioned effect-as-type-argument —
   and `List<Counter>` still refused, so nothing else widened; plus 5
   asynchronous-declaration tests [async-send-fn] [async-spawn-effect]: a
@@ -10529,25 +10615,25 @@ cache, with per-test timings.
   `spawn`/`replyto`/`waitfor` were **deleted** by the slice that implemented
   them, as they were written to be)
   + 28 asynchronous-checker tests (`tests/async_tests.rs` [async-spawn-expr]
-  [async-replyto] [async-waitfor] [async-use-pid]: the whole first-pass
+  [async-replyto] [async-waitfor] [async-use-addr]: the whole first-pass
   surface checking clean in one `main` — the canary for the feature — then the
   capability gate; a spawned handler refused the spawning scope's
   registrations, an unused clause item, and a clause construction with
   dependencies of its own; `capacity`/`on` typed; the spawn's value being
-  `Pid<E>`; a pid call resolved against the served effect, its arguments
-  typed, and `use pid` binding the effect while keeping the pid; `use` of a
+  `Addr<E>`; an addr call resolved against the served effect, its arguments
+  typed, and `use addr` binding the effect while keeping the addr; `use` of a
   plain value refused; `replyto` outside a handler, at an unknown member, at
   a non-`send` member, and with the wrong capture count; the token's payload
   taken from the *trailing* parameter; and `waitfor` outside `main`, with a
   non-token binding, leaking its token, and answering that token's payload;
-  plus the three leftovers closed the same day — a pid place of any shape as a
+  plus the three leftovers closed the same day — an addr place of any shape as a
   receiver, all three forms refused inside a lambda [async-no-closure] with
   closure-specific wording, and an overloaded send member picked by arity with
   a same-arity tie refused; plus 6 [async-self-send] cases: a member sending
   to its own process, an unknown and a non-`send` target, the form outside a
   handler member, its arguments typed, `self` refused as a variable in a member
   while staying legal in an ordinary fn, and the self-dispatch diagnostic
-  naming `self.bump(…)`)
+  naming `bump@self(…)`)
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
@@ -11035,7 +11121,7 @@ cache, with per-test timings.
   [async-waitfor]: the declaration forms with a state field named `send`
   beside them; the expression forms in one program covering every clause —
   a spawn with and without a `use` clause, `replyto` and `replyto!` with
-  their captures, `waitfor`'s binder and written type, and `use pid` as a
+  their captures, `waitfor`'s binder and written type, and `use addr` as a
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).

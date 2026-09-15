@@ -2,7 +2,7 @@
 
 Status: **DECIDED** (user, 2026-09-15) — all four recommendations accepted as
 written and noted as fitting the broader design: S-1 death = a faulted
-activation, no `kill`; S-2 `watch(pid, on_exit: Reply<Exit>)` as the whole
+activation, no `kill`; S-2 `watch(addr, on_exit: Reply<Exit>)` as the whole
 monitor surface; S-3 obligations lost with the corpse, dead-target
 sends/fulfils as silent no-ops, the idle-with-parked-gates runtime report;
 S-4 supervision as a pattern over `watch` + interception + `spawn`, no
@@ -153,7 +153,7 @@ happen.
   one catch in the runtime layer. *Consequence:* death is always *abnormal*
   — a Salvo program with no faults and no platform handlers cannot
   experience it, which keeps the common case clean.
-- **(b) Add `kill(pid)`.** *Benefit:* supervisors can terminate misbehaving
+- **(b) Add `kill(addr)`.** *Benefit:* supervisors can terminate misbehaving
   children. *Cost:* preemption — the kernel's serialization promise means a
   kill can only land *between* activations, so a looping activation is
   unkillable anyway; and a kill is an implicit mass-drop of the child's
@@ -171,13 +171,13 @@ child unreachable, which is the useful half of kill without the drop).
 ## S-2. The monitor surface
 
 - **(a) `watch` as a kernel-shaped member: death is a one-shot token.**
-  The spawn effect gains one member: `send fn watch(p: Pid<…>, on_exit:
+  The spawn effect gains one member: `send fn watch(p: Addr<…>, on_exit:
   Reply<Exit>)` — `Exit` a plain struct (reason, and whether it was a fault
   or `main`-end cleanup). The notification is `on_exit.send(exit)` by the
   scheduler when the process dies. Erlang's `'DOWN'`+ref, as a linear token:
   one-shot by construction, the *watcher's* obligation machinery forces
   handling it (a dropped `watch` registration is a leak diagnostic — you
-  cannot silently forget you were watching). Watching an already-dead pid
+  cannot silently forget you were watching). Watching an already-dead addr
   answers immediately. *Cost:* the scheduler keeps per-process watcher
   lists; the `Exit` token is state the corpse must not orphan (the runtime,
   not the process, owns fulfilling it — so it survives the death it
@@ -207,7 +207,7 @@ rather than discovered:
   its logic (the NoticeFetcher's DDB redelivery is the worked example: the
   notices reappear server-side; the supervisor respawns; the world heals at
   the domain level, not the language level).
-- **The queue is dropped; sends to a dead pid are silent no-ops** (Erlang's
+- **The queue is dropped; sends to a dead addr are silent no-ops** (Erlang's
   rule, and the only composable one — a send that could error on a dead
   target would make *every* send fallible and every sender death-aware;
   monitoring is the opt-in for callers who care).
@@ -233,8 +233,8 @@ named error, and it catches orphaned `waitfor` in `main` for free.
 
 - **(a) A pattern, not a construct** — and std ships it *later*. A
   supervisor is an interceptor (Example 4's shape) plus `watch` plus
-  `spawn`: it holds the child's pid privately, forwards, and on `Exit`
-  respawns and re-forwards — clients hold the *supervisor's* pid and never
+  `spawn`: it holds the child's addr privately, forwards, and on `Exit`
+  respawns and re-forwards — clients hold the *supervisor's* addr and never
   observe the death (the Erlang registered-name indirection, obtained
   structurally). Restart strategies, intensity budgets, escalation: handler
   logic, written in Salvo, no language surface. First pass ships `watch`
@@ -255,7 +255,7 @@ everything else is scheduler behaviour and documentation.
 | # | Question | Recommendation (user's call) |
 |---|---|---|
 | S-1 | What is death | Faulted activation only, caught at dispatch; no `kill` (ask-to-stop + stop-forwarding covers it) |
-| S-2 | The monitor surface | `watch(pid, on_exit: Reply<Exit>)` — one member, one struct; death notification is itself a linear token |
+| S-2 | The monitor surface | `watch(addr, on_exit: Reply<Exit>)` — one member, one struct; death notification is itself a linear token |
 | S-3 | The corpse | Obligations lost (monitor = recovery); dead-target sends and fulfils are silent no-ops; idle-with-parked-gates runtime report |
 | S-4 | Supervision | A pattern over `watch` + interception + `spawn`; std handler later; no syntax |
 

@@ -3,7 +3,7 @@
 Companion to CONCURRENCY.md, specifically to **C-5(d)** (run-to-completion
 processes on a scheduler library) and **C-9** (awaiting as sugar over that
 model). Written 2026-09-14, same session. **Nothing here is decided**: the
-syntax is hypothetical throughout — `Pid<T>`, `Reply<T>`, `send`, `fulfil`,
+syntax is hypothetical throughout — `Addr<T>`, `Reply<T>`, `send`, `fulfil`,
 `await`, `self`, and the `[Send]` effect are illustrative spellings, not
 proposals. This file rides with CONCURRENCY.md's charter: when the C-5/C-9
 calls are made, these examples either graduate (rewritten in real syntax, into
@@ -83,7 +83,7 @@ struct DbReply { id: Int, row: Str? }
 // The process is just a struct. `pending` is the continuation state —
 // the thing a coroutine compiler would hide inside a state machine.
 struct UserServer {
-    db: Pid<DbQuery>,
+    db: Addr<DbQuery>,
     pending: Mut Map<Int, Reply<User | Err Str>>
 }
 
@@ -127,7 +127,7 @@ pass struct:
    run.
 2. **The resume handler**: everything after the seam, as a generated
    `DbReply`-shaped handler, plus the correlation key (`request` = `send` + a
-   fresh id + registering the continuation — Erlang's `{pid, make_ref()}` as a
+   fresh id + registering the continuation — Erlang's `{addr, make_ref()}` as a
    compiler artifact).
 3. **The linearity plumbing**: the continuation rides in a linear reply handle,
    so one-shot is the existing obligation analysis (C-9(iii)) — resume-twice is
@@ -147,13 +147,13 @@ an address**: a one-shot, typed, linear send-capability pointing back at a
 parked continuation. The type carries only `T` because that is the *contract*
 — what the holder must provide; the routing lives in the **value**:
 
-- the requester's Pid (which process to wake), and
+- the requester's Addr (which process to wake), and
 - a continuation-slot id (*which* parked continuation in it — the pending
   entry with its captures).
 
-Nearest relatives: `tokio::oneshot::Sender<T>`, Erlang's `From = {pid, ref}`,
+Nearest relatives: `tokio::oneshot::Sender<T>`, Erlang's `From = {addr, ref}`,
 and — closest in spirit — a one-shot, linear Gleam `Subject(t)`. It is also
-the design's second token, symmetric with the first: `Pid<Protocol>` is a
+the design's second token, symmetric with the first: `Addr<Protocol>` is a
 many-shot address typed by a protocol; `Reply<T>` is a one-shot address typed
 by a single value — the degenerate session "send me one `T` and we are done."
 
@@ -161,7 +161,7 @@ The lifecycle, and the invariant it protects:
 
 1. **Minting.** The *requester's* process allocates the continuation slot
    (resume point + captured locals) when it parks, mints the token pointing at
-   (own pid, slot id), and sends it inside the request.
+   (own addr, slot id), and sends it inside the request.
 2. **`fulfil` enqueues; it never executes.** `fulfil(reply, v)` constructs a
    resume message addressed by the token and queues it — no user code runs. If
    it invoked the continuation inline, requester code would execute on the
@@ -207,8 +207,8 @@ self-contained state transition; no message is "the middle of" anything.
 
 ```
 // Four mailbox types: Subscribe | Unsubscribe | Publish | Tick
-struct Subscribe   { who: Pid<Batch> }
-struct Unsubscribe { who: Pid<Batch> }
+struct Subscribe   { who: Addr<Batch> }
+struct Unsubscribe { who: Addr<Batch> }
 struct Publish     { event: Event }
 struct Tick {}                          // from a timer process
 
@@ -216,7 +216,7 @@ struct Batch { events: List<Event> }    // what subscribers receive
 
 // The state is the whole story
 struct Topic {
-    subscribers: Mut Set<Pid<Batch>>,
+    subscribers: Mut Set<Addr<Batch>>,
     buffer: Mut List<Event>,
     max_batch: Int
 }
@@ -303,8 +303,8 @@ struct NoticeFetcher {
     fetch_in_flight: Bool,
     stopping: Bool,
     shutdown_done: Reply<Done>?,        // parked when stopping with fetch in flight
-    db: Pid<DbFetch | ReturnNotices>,
-    timer: Pid<After>,
+    db: Addr<DbFetch | ReturnNotices>,
+    timer: Addr<After>,
     batch_size: Int,
     return_deadline: Duration
 }
@@ -530,13 +530,13 @@ smallest realistic shape: **two processes that each await the other**. Neither
 handler is wrong on its own; the bug is a property of the pair.
 
 ```
-// Each service holds a Pid of the other — a mutually-consulting topology.
+// Each service holds a Addr of the other — a mutually-consulting topology.
 struct OrderService {
-    customers: Pid<CreditCheck>,
+    customers: Addr<CreditCheck>,
     open: Mut Map<Int, List<Order>>
 }
 struct CustomerService {
-    orders: Pid<OpenOrders>,
+    orders: Addr<OpenOrders>,
     accounts: Mut Map<Int, Account>
 }
 
@@ -585,11 +585,11 @@ deadlocks unconditionally, and is the easy case every approach below catches.)
 
 **(a) The await graph over process types.** Build a graph at compile time: one
 node per process type, an edge `P → Q` wherever a handler of `P` contains an
-await whose request targets a `Pid` of `Q`'s protocol. A cycle is a potential
+await whose request targets an `Addr` of `Q`'s protocol. A cycle is a potential
 deadlock — report it with the participating handlers and seams named. Salvo is
 unusually well-placed for this: the language already assumes it can see
 everything ([call-resolve] and kin — no dynamic loading, no unknown callees),
-and `Pid<Protocol>` is typed, so every await edge is statically knowable
+and `Addr<Protocol>` is typed, so every await edge is statically knowable
 whole-program. *The imprecision to be honest about:* the graph is over process
 **types**, not instances. A chain of `Worker`s each awaiting the next is a
 type-level self-loop but instance-level acyclic — a false positive. Sound
@@ -612,7 +612,7 @@ declared partial order), and an await edge must go **strictly downward** —
 awaiting an equal or higher tier is an error at the seam. Acyclicity by
 construction, no graph analysis, and instance-precision where (a) is blind:
 the `Worker` chain stratifies by giving each spawn a descending tier. Salvo
-has a natural home for the tier: a qualifier on the `Pid` (provenance-style —
+has a natural home for the tier: a qualifier on the `Addr` (provenance-style —
 a claim about where the handle sits in the topology, not about its contents).
 And OTP practice suggests the annotation burden is low: supervision topologies
 are overwhelmingly *trees*, which stratify trivially. What it costs: genuinely

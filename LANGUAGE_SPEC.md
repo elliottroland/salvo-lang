@@ -2372,13 +2372,13 @@ LANGUAGE.md remains the source of truth for everything that does.
   handler's dependency list (a supervisor spawns its children); refused on a
   fn *type*, exactly as `use` is, because the capability belongs to the body
   that spawns rather than to a value's type.
-* [async-spawn-expr] `spawn H(args) use D1(...), pid capacity N on POOL` is
-  the asynchronous binding, and its value is the child's `Pid`. Read left to
+* [async-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL` is
+  the asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, how deep its queue is, where it
   runs.
   * The **`use` clause is optional** and supplies the child's declared
     dependencies [effect-handler-deps]; each item is a handler
-    *construction* or a `Pid` (the same effect backed by a process),
+    *construction* or an `Addr` (the same effect backed by a process),
     which is what lets a process and a local handler swap without touching
     the consuming code. Arguments evaluate in the parent and cross the
     seam; construction happens on the child.
@@ -2405,7 +2405,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     unsupplied (the diagnostic says the clause is where it belongs, never the
     spawning scope); and constructing a clause item that has dependencies *of
     its own*, since there is no scope on the child to resolve those from — a
-    `Pid` of a process already serving the effect is the remedy.
+    `Addr` of a process already serving the effect is the remedy.
   * `capacity` must be an `Int` and `on` a `Pool`.
 * [async-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
   and `main`'s only token source (`replyto` targets a member of the enclosing
@@ -2421,15 +2421,15 @@ LANGUAGE.md remains the source of truth for everything that does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
-* [async-use-pid] `use pid` binds an effect in the current scope to a
-  generated forwarding stub over a `Pid` — first-pass surface, not sugar, and
+* [async-use-addr] `use addr` binds an effect in the current scope to a
+  generated forwarding stub over an `Addr` — first-pass surface, not sugar, and
   no new syntax: the `use` statement already takes an expression, and whether
-  a bare name is a handler construction or a `Pid` is a checker question. Its
+  a bare name is a handler construction or an `Addr` is a checker question. Its
   value is unqualified calls and, above all, passing the capability *down*
   through ordinary effect lists (`fn drive() [Roll]`).
-  * Binding **does not consume** the pid: a pid is freely copyable, so the
+  * Binding **does not consume** the addr: an addr is freely copyable, so the
     holder keeps it and may send through it directly as well.
-  * **Dot-call through a pid** (`counter.total(out)`) is the inline form of
+  * **Dot-call through an addr** (`counter.total(out)`) is the inline form of
     the same binding: the receiver names *where* the message goes rather than
     being the member's first argument, the member is resolved against the
     effect the process serves, and the payload is *consumed* — which is how a
@@ -2438,17 +2438,17 @@ LANGUAGE.md remains the source of truth for everything that does.
     would have to park its caller, which is the call-sugar pass (and the
     named question of whether an ordinary member may be process-backed at
     all).
-  * The receiver may be any **place** whose type is a pid — a variable, a
+  * The receiver may be any **place** whose type is an addr — a variable, a
     field chain (`registry.child`), a tuple element, an array element — since
     a place has a type the checker can read without checking the expression
-    twice. A receiver that is a *call* (`get(pids, 0).bump(1)`) needs a `let`
+    twice. A receiver that is a *call* (`get(addrs, 0).bump(1)`) needs a `let`
     first; nothing is lost but a line.
   * An overloaded send member is picked by **argument count**
     [effect-member-overload]. Typing the arguments to choose the overload and
     again against the winner's parameters would report every mistake in them
     twice; arity settles every overload the first pass can express, and a
     same-arity tie is refused rather than guessed.
-* [async-self-send] `self.k(args)` — send a message to **the process the
+* [async-self-send] `k@self(args)` — send a message to **the process the
   enclosing member belongs to** (user decision 2026-09-15, option (a) of
   three). The one thing an unqualified call cannot say: that would be
   self-dispatch, which a handler has no way to perform, and it would run `k`
@@ -2464,17 +2464,29 @@ LANGUAGE.md remains the source of truth for everything that does.
     member that answers would have to wait for itself. Arguments are typed
     against its parameters and *consumed* — the message outlives this
     activation even though it never leaves the process.
-  * **No new syntax**: `self.k(args)` already parses as a dot-call, so `self`
-    is recognised contextually as the base of one. It is the spelling the
-    sugar tower's merge/join form already assumes
-    (`self.k(c, reply e1, reply e2)`). A handler member may not declare a
-    variable named `self` — that would shadow the form silently — and the word
-    stays an ordinary name everywhere else.
+  * **A selector, not a receiver** (user decision 2026-09-15, revising the
+    `self.k(…)` form that shipped for a few hours): `k@self` joins the family
+    `k@E` (an effect's member [effect-at]) and `k@module` (a module's overload
+    [fn-overload-at]) — one rule for "the call says which it means" instead of
+    a second, dot-shaped mechanism beside it. It is also the spelling the sugar
+    tower's merge/join form already assumes
+    (`k@self(c, reply e1, reply e2)`), and the disambiguator the generalized
+    mint will need when a bare `k` could name either an enclosing member or an
+    in-scope async one.
+  * `self` is **contextual, not reserved**: it means the enclosing handler only
+    immediately after `@`, so it stays an ordinary name elsewhere and no local
+    can shadow the form — which the receiver spelling could not promise (it
+    needed a rule refusing a variable named `self` inside a member; the
+    selector deletes that rule). Since [effect-at] reads a lowercase name after
+    `@` as a module path, a module named `self` is unreachable this way, which
+    costs nothing.
+  * The **old spelling is a plain parse error** naming the new one — no
+    transitional accept, per the no-backwards-compatibility invariant.
   * The self-dispatch diagnostic names this form as the remedy when the member
     it refused was a `send fn`.
 * [async-no-closure] **No first-pass form crosses a closure**: `spawn`,
   `waitfor` and `replyto` are all errors inside a lambda body, and so is
-  `self.k(…)` — `self` names nothing there. A function
+  `k@self(…)` — `self` names nothing there. A function
   value's body runs wherever it is *called*, and none of the three can travel
   with it — a fn type cannot declare `spawn` [async-spawn-effect], `waitfor`
   blocks the thread it runs on and only `main` has one to block, and a
@@ -2508,14 +2520,20 @@ LANGUAGE.md remains the source of truth for everything that does.
 * [async-types] The three types the forms produce and consume live in
   **`core.process`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:
-  * **`Pid<E>`** — what a `spawn` hands back, and the whole of what one
-    process knows about another. Its argument is the **effect** the process
+  * **`Addr<E>`** — what a `spawn` hands back, and the whole of what one
+    process knows about another. Named for what the design's own prose calls
+    it: a **many-shot address typed by a protocol**, with `Reply<T>` the
+    one-shot address typed by a single value. (It was `Pid<E>` for a few hours;
+    renamed by user decision 2026-09-15, because `Pid` is the operating
+    system's word and a `platform effect` wrapping process management will want
+    it. `Addr` also keeps signature-heavy code short — `List<Addr<ShardApi>>` —
+    and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the process
     serves, the one sanctioned effect-in-a-type-position [effect-not-data]
-    (user decision 2026-09-15): what a holder may *do* with a pid is exactly
+    (user decision 2026-09-15): what a holder may *do* with an addr is exactly
     that effect, and parameterizing by it is what lets a process and a
     locally `use`d handler stand behind one name. The exception is one
     argument of one type — `List<E>` and every other position stay refused,
-    and a pid is still not a handler instance.
+    and an addr is still not a handler instance.
   * **`Reply<T>`** — the one-shot answer channel, `linear intrinsic type`
     [linear-opaque], discharged by `send(r, v)` (`r.send(v)` in dot form).
     Linearity is what makes "answered exactly once, on every path" a
@@ -2524,18 +2542,18 @@ LANGUAGE.md remains the source of truth for everything that does.
     ordinary value, so one pool can be shared by many spawns; `on pool(2)`
     is a call, and the `[spawn]` on the function is what makes creating one
     a capability.
-  * A pid is **never linear and freely copied**: a send to a dead process is
-    a silent no-op, so a stale pid is safe to hold and death is *observed*
+  * An addr is **never linear and freely copied**: a send to a dead process is
+    a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
 * **Built so far, and what is refused meanwhile.** The surface **runs**: as of
-  2026-09-15 a program can spawn a handler, send to it through its `Pid`, and
+  2026-09-15 a program can spawn a handler, send to it through its `Addr`, and
   bridge with `waitfor` — on **both backends, with identical output**
   ([rs-process], [kt-process]). Everything above checks; what is still refused
   at emission, each with a diagnostic naming it: spawning a handler with effect
   **dependencies** (its members take a fused value the child would have to
   hold), spawning a **generic** handler, a **generic effect** as a protocol,
   `replyto` (needs the process body's resume table), a **self-send**, and
-  `use pid` (needs the forwarding stub). Also still open on the checking side:
+  `use addr` (needs the forwarding stub). Also still open on the checking side:
   **sendability** (C-4(a)'s structural rule over everything that crosses a
   seam). The sugar tower — member `-> T` with call syntax, `then`/`then!`,
   `defer`, merge/join, the gate's member-set generalization — is later passes,
@@ -3364,7 +3382,7 @@ LANGUAGE.md remains the source of truth for everything that does.
   * The discharger for one is an `intrinsic fn` beside it, since a bodiless
     declaration's written clause is its whole contract [decl-explicit]:
     `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
-    !value` is std's, and it is why "a `Reply` is a one-shot `Pid` with a
+    !value` is std's, and it is why "a `Reply` is a one-shot `Addr` with a
     single send member" is true in the type system rather than only in prose.
   * Only an `intrinsic type` may carry it, never an **alias**: an alias is a
     second name for a type that has already decided whether it owes.

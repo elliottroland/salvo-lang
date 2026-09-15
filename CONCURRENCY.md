@@ -166,7 +166,7 @@ the mailbox and leaves unmatched messages in place for a later `receive`. That
 is powerful and it is a footgun — an unmatched message lingers and can pile up,
 a memory leak with no type error. `gen_server` is the disciplined form:
 `gen_server:call` is a synchronous request/reply built by tagging the request
-with a unique reference `From = {pid, make_ref()}` so the reply can be tied
+with a unique reference `From = {addr, make_ref()}` so the reply can be tied
 back to the exact call, and `gen_server:cast` is fire-and-forget. Supervision is
 built from **links and monitors**: a supervisor is notified of a child's exit
 and restarts it under a policy.
@@ -259,11 +259,11 @@ delegates.
   by type on receive; the sketch routes by type on send. The symmetry is worth
   noting — the type-directed dispatch can sit on either end.
 
-### Cloud Haskell — typed unidirectional ports beside untyped pids
+### Cloud Haskell — typed unidirectional ports beside untyped addrs
 
 `distributed-process` offers **typed channels**: a `SendPort a` / `ReceivePort a`
 pair carries only values of type `a`, one direction, alongside the untyped
-"send any term to a pid" primitive. It is a working demonstration that a process
+"send any term to an addr" primitive. It is a working demonstration that a process
 can expose *several typed ports* — one per message type — which is the sketch's
 "a mailbox per type" idea under another name.
 
@@ -749,7 +749,7 @@ continuation-as-state:
 struct GetUser { id: Int, reply: Reply<User | Err Str> }
 
 struct UserServer {
-    db: Pid<DbQuery>,
+    db: Addr<DbQuery>,
     pending: Mut Map<Int, Reply<User | Err Str>>   // parked continuations
 }
 
@@ -891,9 +891,9 @@ CONCURRENCY_EXAMPLES.effects.md):
   it is surface, not detail.
 - **(ii) Pids as values, effects as capabilities.** Effects cannot be stored
   or passed [it is a compile-time error today]; real topologies must hold and
-  send process references. The resolution to evaluate: a `Pid<Protocol>` is an
+  send process references. The resolution to evaluate: an `Addr<Protocol>` is an
   ordinary sendable *token* value, and calling through it requires a scoped
-  binding (a `use pid`, or dot-call sugar `pid.member(args)` as its inline
+  binding (a `use addr`, or dot-call sugar `addr.member(args)` as its inline
   form) — keeping "effects are not values" intact while making the *address*
   transferable. One finding makes the token form load-bearing rather than
   convenient: scoped binding is **singular** (one handler per effect per
@@ -1003,7 +1003,7 @@ effects literature enforces only dynamically.
    decomposed (C-10(iv)); at most one outstanding per process.
 
 **The tower**, each layer expressible in the one below: `fulfil(r, v)` is a
-tell to a token (a `Reply` is a one-shot Pid with a single tell member) ·
+tell to a token (a `Reply` is a one-shot Addr with a single tell member) ·
 `then k(c)` is `mint k(c)` placed in the reply slot · `then only` is that plus
 the gate · a member's `-> T` is an implicit trailing `reply: Reply<T>`
 parameter — so the only primitive member kind is `tell`, and a "call member"
@@ -1013,7 +1013,7 @@ returning"; keep-or-drop is an open readability call) · caller-side call
 syntax `let x = m(a)` is an auto-mint of an anonymous resume continuation
 (captures = the seam-crossing locals) plus the gate — legal only for members
 with a single trailing token, multi-token members take explicit mints · the
-merge/join form `self.k(c, reply e1, reply e2)` is a multi-mint into generated
+merge/join form `k@self(c, reply e1, reply e2)` is a multi-mint into generated
 gather state (Example 5 of the effects file is its manual desugaring; race,
 deadline, and partial-results are gather-state *policies*, deliberately not
 primitives).
@@ -1061,7 +1061,7 @@ passes add layers of the tower, each with its own decision surface.
 - **C-8 confirmed: a process is a region.** Corollary to spell out during
   implementation (owed): **handlers never cross into a spawn — construction
   crosses.** A child either constructs its own handlers (`use H(args)` in its
-  init, with the constructor args subject to C-4) or holds `Pid` tokens for
+  init, with the constructor args subject to C-4) or holds `Addr` tokens for
   process-backed capabilities. No `fork`/duplication operation on handlers
   exists or is needed — "duplicating a handler" is re-running its constructor,
   which is already expressible.
@@ -1074,11 +1074,11 @@ passes add layers of the tower, each with its own decision surface.
   `canbe` precedent); the gated mint → **`replyto!`** (the `!`-ambiguity with
   Erlang/Rust accepted); **`fulfil` is dropped for `r.send(v)`** (user:
   consumption of the token already says the linear obligation is discharged;
-  a `Reply` is a one-shot Pid with one send member, so sending to it *is* the
+  a `Reply` is a one-shot Addr with one send member, so sending to it *is* the
   operation); the **`spawn` effect is lowercase** in effect lists, like `use`
-  — `fn main() [use, spawn]` is the typical entry. `Pid<T>`, `Reply<T>`, and
-  dot-call stand. **`use pid` is first-pass, not sugar**: it binds an effect
-  in the current scope to a generated forwarding stub over the `Pid` — legal
+  — `fn main() [use, spawn]` is the typical entry. `Addr<T>`, `Reply<T>`, and
+  dot-call stand. **`use addr` is first-pass, not sugar**: it binds an effect
+  in the current scope to a generated forwarding stub over the `Addr` — legal
   anywhere, including `main`, since all first-pass members are sends (no
   parking); its value is unqualified calls and, above all, passing the
   capability *down* through ordinary effect lists (`fn drive() [Roll]`).
@@ -1089,7 +1089,7 @@ passes add layers of the tower, each with its own decision surface.
   decisions): `then`, `defer`, member `-> T`, caller-side call syntax, and
   merge/join.
 - **Spawn syntax (decided this round; clause spelling settled 2026-09-15,
-  third round):** `spawn H(args) [use D1(...), pid, …] capacity N on POOL`.
+  third round):** `spawn H(args) [use D1(...), addr, …] capacity N on POOL`.
   Dependencies are **ordinary constructor parameters** or the spawn-site
   `use` clause; **`capacity N`** is the process's own mailbox bound
   (explicit, required, no default — it is a property of *this instance*, so
@@ -1138,15 +1138,15 @@ passes add layers of the tower, each with its own decision surface.
   across the process boundary.
 
 **Carried to the call-sugar pass (named question, 2026-09-15):** may an
-*ordinary* (non-`send`) effect member be process-backed (`use pid` binding an
+*ordinary* (non-`send`) effect member be process-backed (`use addr` binding an
 effect whose members return values — the "IO actor" pattern)? The call site
 would look synchronous but park. Options sketched: allow silently
 (uniformity; hidden deadlock edges), allow with the distinction carried at
-the *binding site* only (a `use pid` binding is where the deadlock-graph
+the *binding site* only (a `use addr` binding is where the deadlock-graph
 edges appear; call sites stay agnostic, the platform-handler precedent), or
 forbid (process-backed capabilities must be all-`send` protocols; sync
 effects never park). The first pass does not force this — without call sugar
-a `Pid` can only back all-`send` protocols.
+an `Addr` can only back all-`send` protocols.
 
 **Still being workshopped:** nothing — the first-pass grammar is frozen.
 

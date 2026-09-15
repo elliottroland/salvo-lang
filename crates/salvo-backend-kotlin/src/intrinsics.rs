@@ -391,12 +391,12 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // the same on both backends: a signed `Byte` would render 255 as
         // `-1` where Rust's `u8` renders `255` [backend-parity].
         "Byte" => "UByte",
-        // [async-types] [kt-process] The scheduler's handles: a pid and a pool
+        // [async-types] [kt-process] The scheduler's handles: an addr and a pool
         // are ids into it, a reply token is its own class. Their Salvo type
         // *arguments* are dropped by `emit_named_parts` — the effect a
-        // `Pid<E>` serves is the checker's business, and the generated message
+        // `Addr<E>` serves is the checker's business, and the generated message
         // classes carry payload types.
-        "Pid" => "Int",
+        "Addr" => "Int",
         "Pool" => "Int",
         "Reply" => "salvo.SalvoReply",
         // [kt-bytes] [bytes-type] One class for `Bytes` and `Mut Bytes`, in

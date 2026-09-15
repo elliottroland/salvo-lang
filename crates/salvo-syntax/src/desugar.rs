@@ -963,6 +963,9 @@ impl Rewrite {
                 self.expr(capacity);
                 self.expr(pool);
             }
+            // [async-self-send] A leaf: the selector names the enclosing
+            // handler, so there is no sub-expression to rewrite.
+            Expr::SelfScoped { .. } => {}
             // [async-replyto] The captures are expressions; the member name
             // is not one.
             Expr::ReplyTo { captures, .. } => {
@@ -1142,6 +1145,9 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(capture, reserved, out);
                 }
             }
+            // [async-self-send] A leaf: no sub-expressions, and the member
+            // name is resolved against the handler rather than a scope.
+            Expr::SelfScoped { .. } => {}
             Expr::WaitFor { body, .. } => walk_block(body, reserved, out),
             Expr::Call { callee, args, named, .. } => {
                 walk_expr(callee, reserved, out);

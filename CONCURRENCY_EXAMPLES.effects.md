@@ -26,7 +26,7 @@ spellings until the owed one-sweep rewrite — read `tell fn` as `send fn`,
 
 - **(i)** `tell fn` — a member whose call returns at *enqueue*, not at reply
   (the call/tell split).
-- **(ii)** `Pid<Protocol>` as an ordinary sendable token; `pid.member(args)`
+- **(ii)** `Addr<Protocol>` as an ordinary sendable token; `addr.member(args)`
   dot-call as scoped binding through it (effects stay non-values; addresses
   become values).
 - **(iii)** `defer reply` — a member that names its reified linear continuation
@@ -75,12 +75,12 @@ handler UserServer() of UserApi [DbApi] {
 }
 ```
 
-Wiring — `spawn` is `use`'s asynchronous sibling; a `Pid` is the transferable
-token (ii), and `use pid` binds the effect in scope to the running process:
+Wiring — `spawn` is `use`'s asynchronous sibling; an `Addr` is the transferable
+token (ii), and `use addr` binds the effect in scope to the running process:
 
 ```
 fn main() [use, Spawn] {
-    let db = spawn DbStore()                     // db: Pid<DbApi>
+    let db = spawn DbStore()                     // db: Addr<DbApi>
     let users = spawn UserServer() [DbApi: db]   // handler dep bound at spawn
     use users                                    // UserApi in scope, process-backed
     let u = get_user(7)                          // send + park + resume, implicit
@@ -207,24 +207,24 @@ effect Subscriber<E> {
 }
 
 effect TopicApi<E> {
-    tell fn subscribe(who: Pid<Subscriber<E>>)
-    tell fn unsubscribe(who: Pid<Subscriber<E>>)
+    tell fn subscribe(who: Addr<Subscriber<E>>)
+    tell fn unsubscribe(who: Addr<Subscriber<E>>)
     tell fn publish(event: E)
     tell fn tick()
 }
 
 handler Topic<E>(max_batch: Int) of TopicApi<E> {
-    subscribers: Mut Set<Pid<Subscriber<E>>> = mut_set_of()
+    subscribers: Mut Set<Addr<Subscriber<E>>> = mut_set_of()
     buffer: Mut List<E> = mut_list_of()
 
-    tell fn subscribe(who: Pid<Subscriber<E>>) {
+    tell fn subscribe(who: Addr<Subscriber<E>>) {
         subscribers.add(who)
         if buffer.size() > 0 {
             who.deliver(copy buffer)     // (ii): dot-call through the token
         }
     }
 
-    tell fn unsubscribe(who: Pid<Subscriber<E>>) {
+    tell fn unsubscribe(who: Addr<Subscriber<E>>) {
         subscribers.remove(who)
     }
 
@@ -399,7 +399,7 @@ Two things to notice. The policy handler is *synchronous and local* — it runs
 on the caller's thread, and only its inner call crosses the scheduler; nothing
 about `RetryOnce` knows or cares that its dependency is a process. And the same
 shape scales to the supervisor fixed point: a restart policy is an interceptor
-whose `[Spawn]` dependency lets it respawn the `Pid` it delegates to — the
+whose `[Spawn]` dependency lets it respawn the `Addr` it delegates to — the
 "supervisor is a handler" line of ROADMAP.md, now with the mechanism visible.
 
 ## Example 5 — scatter–gather: many instances of one handler
@@ -432,7 +432,7 @@ handler Shard(index: Int) of ShardApi {
     }
 }
 
-handler Searcher(shards: List<Pid<ShardApi>>, deadline: Duration)
+handler Searcher(shards: List<Addr<ShardApi>>, deadline: Duration)
         of SearchApi [Timer] {
     gathers: Mut Map<Int, Gather> = mut_map_of()
     next_id: Int = 0
@@ -489,7 +489,7 @@ What this example establishes:
 
 - **Instances are Pids; `use` cannot fan out.** `spawn Shard(i)` eight times
   yields eight distinct tokens of one protocol, held in an ordinary
-  `List<Pid<ShardApi>>`. This is where sub-decision (ii)'s dot-call stops being
+  `List<Addr<ShardApi>>`. This is where sub-decision (ii)'s dot-call stops being
   a convenience and becomes the *only* form that works: scoped binding is
   singular — `use` binds **one** handler per effect per scope (a later `use`
   shadows, it does not add) — so N same-protocol instances are unreachable
@@ -526,7 +526,7 @@ the **decided spellings** (`send fn`, `replyto`, `r.send(v)`, spawn-site
 `use`, `on pool(n)`, `waitfor`). It demonstrates the shared-vocabulary bet
 paying off: because dependencies are declared on the handler and supplied at
 the spawn site — and the spawn-`use` clause accepts *both* a handler
-construction and a `Pid` — a process and a local synchronous handler swap
+construction and an `Addr` — a process and a local synchronous handler swap
 without touching a character of the consuming code.
 
 The shared contract, an all-`send` protocol (so both bindings are first-pass
@@ -557,7 +557,7 @@ handler NoticeFetcher(batch_size: Int, deadline: Duration)
 
 ```
 // Production: DbApi is a shared process — one DDB client on four IO threads,
-// serving every fetcher. Binding an effect to a Pid in the spawn clause:
+// serving every fetcher. Binding an effect to a Addr in the spawn clause:
 fn main() [use, spawn] {
     let ddb = spawn DdbClient(config) on pool(4)
     let fetcher = spawn NoticeFetcher(25, seconds(5))
@@ -593,7 +593,7 @@ fn main() [use, spawn] {   // the test's main
 **Direction 2 — a local handler, promoted to a process.** The motivating case
 is the one per-child construction cannot do: *sharing*. N workers each
 constructing `use LocalStats()` hold N disjoint stat sets; when one aggregated
-view is needed, the collector becomes a process and the binding becomes a Pid
+view is needed, the collector becomes a process and the binding becomes a Addr
 — no change to any `Worker` member:
 
 ```
@@ -676,20 +676,20 @@ desugared signature directly is an open readability call (CONCURRENCY.md,
 
 | Form | Is |
 |---|---|
-| `fulfil(r, v)` | `tell` to a token (a `Reply` is a one-shot Pid with one tell member) |
+| `fulfil(r, v)` | `tell` to a token (a `Reply` is a one-shot Addr with one tell member) |
 | `a(...) then k(c)` | `a(..., mint k(c))` — the mint *is* the second argument, placed in the reply slot |
 | `a(...) then only k(c)` | the same, plus the gate bit |
 | member `-> T` | implicit trailing `reply: Reply<T>` parameter (collapse 1) |
 | plain member body | `fulfil` at every return (collapse 1) |
 | `defer` | a marker; otherwise nothing (collapse 2) |
 | `let x = m(a)` | auto-mint an anonymous resume continuation (captures = the seam-crossing locals) + the gate |
-| `self.k(c, reply e1, reply e2)` | the merge/join: multi-mint into generated gather state |
+| `k@self(c, reply e1, reply e2)` | the merge/join: multi-mint into generated gather state |
 
 **The merge/join row, expanded** (raised by the user 2026-09-15): the form
 mints one pending invocation of `k` with captured `c` and one slot per
 `reply e` argument; each `e` is performed with a mint targeting its slot; the
 activation runs when the last slot fills. `then` is its one-slot special case
-(`a() then k(c)` ≡ `self.k(c, reply a())`). It is deliberately **sugar, not
+(`a() then k(c)` ≡ `k@self(c, reply a())`). It is deliberately **sugar, not
 primitive**: its desugaring is Example 5's `Gather` pattern (generated pending
 struct, per-slot filler members, dispatch-when-complete), fully
 surface-expressible — and the policies a join immediately wants (deadline,
@@ -715,7 +715,7 @@ read *simpler* than their message-passing siblings. The scorecard so far:
 | Example 4 | (not expressible without new machinery) | existing interception, unchanged |
 | Example 5 | (no sibling written: same shape + N message structs + hand correlation) | a `for` of `then`s over Pids, captured-id correlation |
 
-The honest cost column: three new surface forms — `tell` (i), `Pid` tokens with
+The honest cost column: three new surface forms — `tell` (i), `Addr` tokens with
 dot-call (ii), `defer`/`then` (iii) — and the (iv) reentrancy vocabulary. The
 sibling file's approach needs *none* of those but pays with hand-written
 transport in every program. That trade is the C-10/C-2 call.

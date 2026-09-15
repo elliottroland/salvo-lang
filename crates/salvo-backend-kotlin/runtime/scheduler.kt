@@ -25,7 +25,7 @@ interface SalvoProcess {
 }
 
 /** Passed to every activation: the process's own identity. */
-class SalvoCtx(val pid: Int)
+class SalvoCtx(val addr: Int)
 
 private sealed class SalvoEntry {
     class User(val msg: Any?) : SalvoEntry()
@@ -83,25 +83,25 @@ object SalvoSched {
      * Sends a user message. Blocks while the target's queue is full; a
      * send to a dead process is a silent no-op.
      */
-    fun send(pid: Int, msg: Any?) {
+    fun send(addr: Int, msg: Any?) {
         lock.withLock {
-            while (!procs[pid].dead && procs[pid].userLen >= procs[pid].bound) {
+            while (!procs[addr].dead && procs[addr].userLen >= procs[addr].bound) {
                 cv.await()
             }
-            if (procs[pid].dead) {
+            if (procs[addr].dead) {
                 return
             }
-            procs[pid].queue.addLast(SalvoEntry.User(msg))
-            procs[pid].userLen += 1
+            procs[addr].queue.addLast(SalvoEntry.User(msg))
+            procs[addr].userLen += 1
             cv.signalAll()
         }
     }
 
     /** Mints a reply token targeting a process's parked continuation. */
-    fun mint(pid: Int): SalvoReply =
+    fun mint(addr: Int): SalvoReply =
         lock.withLock {
             nextSlot += 1
-            SalvoReply(SalvoTargetProc(pid), nextSlot)
+            SalvoReply(SalvoTargetProc(addr), nextSlot)
         }
 
     /**
@@ -109,25 +109,25 @@ object SalvoSched {
      * serves nothing else. At most one gate may be outstanding — a second
      * is a fault in the calling activation.
      */
-    fun mintGated(pid: Int): SalvoReply =
+    fun mintGated(addr: Int): SalvoReply =
         lock.withLock {
-            check(procs[pid].gate == null) { "a gated continuation is already outstanding" }
+            check(procs[addr].gate == null) { "a gated continuation is already outstanding" }
             nextSlot += 1
-            procs[pid].gate = nextSlot
-            SalvoReply(SalvoTargetProc(pid), nextSlot)
+            procs[addr].gate = nextSlot
+            SalvoReply(SalvoTargetProc(addr), nextSlot)
         }
 
     /**
      * Registers a death watch: [onExit] is sent the reason when the
      * process dies. Watching an already-dead process answers immediately.
      */
-    fun watch(pid: Int, onExit: SalvoReply) {
+    fun watch(addr: Int, onExit: SalvoReply) {
         lock.withLock {
-            if (procs[pid].dead) {
+            if (procs[addr].dead) {
                 deliverReply(onExit, "fault")
                 cv.signalAll()
             } else {
-                procs[pid].watchers.add(onExit)
+                procs[addr].watchers.add(onExit)
             }
         }
     }
@@ -175,10 +175,10 @@ object SalvoSched {
                 waiters[target.wid].filled = true
             }
             is SalvoTargetProc -> {
-                if (procs[target.pid].dead) {
+                if (procs[target.addr].dead) {
                     return
                 }
-                procs[target.pid].queue.addLast(SalvoEntry.Reply(reply.slot, value))
+                procs[target.addr].queue.addLast(SalvoEntry.Reply(reply.slot, value))
             }
         }
     }
@@ -209,7 +209,7 @@ object SalvoSched {
 
     private fun worker(pool: Int) {
         while (true) {
-            var pid = -1
+            var addr = -1
             var entry: SalvoEntry? = null
             var body: SalvoProcess? = null
             lock.withLock {
@@ -224,7 +224,7 @@ object SalvoSched {
                         }
                     if (job != null) {
                         val (i, at, p) = job
-                        pid = i
+                        addr = i
                         entry = p.queue.removeAt(at)
                         if (entry is SalvoEntry.User) {
                             p.userLen -= 1
@@ -243,7 +243,7 @@ object SalvoSched {
                     cv.await()
                 }
             }
-            val ctx = SalvoCtx(pid)
+            val ctx = SalvoCtx(addr)
             var fault: String? = null
             try {
                 when (val e = entry) {
@@ -255,7 +255,7 @@ object SalvoSched {
                 fault = t.message ?: t.javaClass.simpleName
             }
             lock.withLock {
-                val p = procs[pid]
+                val p = procs[addr]
                 p.running = false
                 active -= 1
                 if (fault == null) {
@@ -279,7 +279,7 @@ object SalvoSched {
 
 internal sealed class SalvoTarget
 
-internal class SalvoTargetProc(val pid: Int) : SalvoTarget()
+internal class SalvoTargetProc(val addr: Int) : SalvoTarget()
 
 internal class SalvoTargetWaiter(val wid: Int) : SalvoTarget()
 

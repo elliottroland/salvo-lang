@@ -254,24 +254,19 @@ pub const THROWN_QUALIFIER: &str = "Thrown";
 /// known by name to the compiler because its type argument is an **effect**,
 /// which is the one sanctioned exception to [effect-not-data] (user decision
 /// 2026-09-15).
-pub const PID_TYPE: &str = "Pid";
+pub const ADDR_TYPE: &str = "Addr";
 /// [async-replyto] The linear one-shot answer token, from `core.process`.
 pub const REPLY_TYPE: &str = "Reply";
-/// [async-self-send] The receiver that names the handler a member belongs to:
-/// `self.k(args)` is a message to this process. Contextual, like the rest of
-/// the asynchronous surface — it is only special as the base of a dot-call,
-/// and a handler member may not declare a local of this name.
-pub const SELF_NAME: &str = "self";
 /// [async-spawn-expr] The thread pool a spawn names in its `on` clause,
 /// from `core.process`.
 pub const POOL_TYPE: &str = "Pool";
 
-/// [async-spawn-expr] The effect a `Pid<E>` serves, or `None` for anything
-/// that is not a pid. What `use pid`, a dot-call through a pid, and a spawn's
+/// [async-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
+/// that is not an addr. What `use addr`, a dot-call through an addr, and a spawn's
 /// `use` clause all ask.
-fn pid_effect(ty: &Ty) -> Option<Ty> {
+fn addr_effect(ty: &Ty) -> Option<Ty> {
     match ty.strip_quals() {
-        Ty::Named { name, args } if name == PID_TYPE && args.len() == 1 => Some(args[0].clone()),
+        Ty::Named { name, args } if name == ADDR_TYPE && args.len() == 1 => Some(args[0].clone()),
         _ => None,
     }
 }
@@ -365,7 +360,7 @@ pub struct Checked {
     pub use_deps: HashMap<Key, Vec<Ty>>,
     /// [async-spawn-expr] The effect instance each `spawn` expression's child
     /// serves, keyed by the spawn's span — which is also the type of its
-    /// value, a `Pid<E>`. The emitters' entry point for building a process
+    /// value, an `Addr<E>`. The emitters' entry point for building a process
     /// class.
     pub spawn_effects: HashMap<Key, Ty>,
     /// [async-spawn-expr] The effect instances a spawn's `use` clause
@@ -379,19 +374,19 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
-    /// [async-use-pid] The effect each `use pid` statement binds, keyed by
+    /// [async-use-addr] The effect each `use addr` statement binds, keyed by
     /// the statement's span: the emitters generate a forwarding stub over
-    /// the pid rather than constructing a handler.
-    pub use_pids: HashMap<Key, Ty>,
-    /// [async-use-pid] Dot-calls that are **sends to a process** rather than
+    /// the addr rather than constructing a handler.
+    pub use_addrs: HashMap<Key, Ty>,
+    /// [async-use-addr] Dot-calls that are **sends to a process** rather than
     /// dispatches through a handler in scope, keyed by the call span and
-    /// mapped to the effect instance the pid serves. The emitters need the
+    /// mapped to the effect instance the addr serves. The emitters need the
     /// distinction: the same written call is a method call on a handler in one
     /// case and an enqueue on a mailbox in the other.
-    pub pid_calls: HashMap<Key, Ty>,
+    pub addr_calls: HashMap<Key, Ty>,
     /// [async-self-send] `self.k(args)` sites, keyed by the call span and
     /// mapped to the member's name: a message to the process the enclosing
-    /// member belongs to. Distinct from `pid_calls` because there is no pid to
+    /// member belongs to. Distinct from `addr_calls` because there is no addr to
     /// read — the target is "this process", which each backend spells its own
     /// way (an enqueue on the running activation's own mailbox, or, under a
     /// synchronous binding, an ordinary member call).
@@ -4382,14 +4377,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
-        // [async-use-pid] `use pid` binds an effect to a forwarding stub over
-        // a `Pid` instead of constructing a handler: first-pass surface, and
+        // [async-use-addr] `use addr` binds an effect to a forwarding stub over
+        // an `Addr` instead of constructing a handler: first-pass surface, and
         // no new syntax — which means telling the two apart is this
         // statement's job.
         if let Expr::Ident(id) = handler {
             if !self.scope.handlers.contains_key(id.name.as_str()) && self.lookup(&id.name).is_some()
             {
-                self.check_use_pid(handler, span);
+                self.check_use_addr(handler, span);
                 return;
             }
         }
@@ -4404,27 +4399,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.finish_use(id, concrete, deps, span);
     }
 
-    /// [async-use-pid] `use pid` — bind the effect a process serves in this
+    /// [async-use-addr] `use addr` — bind the effect a process serves in this
     /// scope, so its members are callable unqualified *and* can travel down
-    /// through ordinary effect lists (`fn drive() [Roll]`). The pid is not
-    /// consumed: a pid is freely copyable, and a send to a dead process is a
+    /// through ordinary effect lists (`fn drive() [Roll]`). The addr is not
+    /// consumed: an addr is freely copyable, and a send to a dead process is a
     /// no-op, so binding one takes nothing away from the holder.
-    fn check_use_pid(&mut self, pid: &'p Expr, span: Span) {
-        let ty = self.check_expr(pid, None);
-        let Some(effect) = pid_effect(&ty) else {
+    fn check_use_addr(&mut self, addr: &'p Expr, span: Span) {
+        let ty = self.check_expr(addr, None);
+        let Some(effect) = addr_effect(&ty) else {
             if !ty.is_unknown() {
                 self.error(
                     span,
                     format!(
-                        "`use` registers a handler or binds a `{PID_TYPE}`, and `{ty}` is \
+                        "`use` registers a handler or binds an `{ADDR_TYPE}`, and `{ty}` is \
                          neither: write a handler construction (`use SomeHandler(...)`), \
-                         or bind the pid a `spawn` answered"
+                         or bind the addr a `spawn` answered"
                     ),
                 );
             }
             return;
         };
-        self.out.use_pids.insert(self.key(span), effect.clone());
+        self.out.use_addrs.insert(self.key(span), effect.clone());
         self.out.use_effects.insert(self.key(span), effect.clone());
         self.effect_env.push(effect);
     }
@@ -4806,18 +4801,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "`{}` is already declared (shadowing is not allowed)",
                     name.name
                 ),
-            );
-        }
-        // [async-self-send] Inside a handler member `self` names the handler,
-        // so a variable of that name would silently shadow the self-send form
-        // — the kind of trap the language avoids by construction. Refused
-        // there and legal everywhere else, which is what "contextual" means
-        // here.
-        if name.name == SELF_NAME && self.own_handler.is_some() {
-            self.error(
-                name.span,
-                "`self` names the handler a member belongs to (`self.k(…)` sends it a \
-                 message), so it cannot also be a variable here: rename the binding",
             );
         }
         // [fate-move-mode] A move-mode binding takes ownership: its
@@ -7886,14 +7869,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let detail = if self.in_lambda() {
                 " — and a lambda is not one: a function value runs wherever it is \
-                 called, so `self` names nothing there"
+                 called, so `@self` names nothing there"
             } else {
                 ""
             };
             self.error(
                 span,
                 format!(
-                    "`self` names the handler a member belongs to, so `self.{}(…)` is \
+                    "`{}@self(…)` names a member of the enclosing handler, so it is \
                      legal only inside a handler member{detail}",
                     member.name
                 ),
@@ -7921,7 +7904,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 span,
                 format!(
-                    "`{}` is not a `send fn`, so `self.{}(…)` cannot reach it: a \
+                    "`{}` is not a `send fn`, so `{}@self(…)` cannot reach it: a \
                      self-send is a message, and a member that answers would have to \
                      wait for itself",
                     member.name, member.name
@@ -7968,19 +7951,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::none()
     }
 
-    /// [async-use-pid] The effect a dot-call's receiver serves, when the
-    /// receiver is a **place** whose type is `Pid<E>` — a variable, a field
+    /// [async-use-addr] The effect a dot-call's receiver serves, when the
+    /// receiver is a **place** whose type is `Addr<E>` — a variable, a field
     /// chain (`registry.child`), a tuple element, or an array element.
     ///
     /// Read without *checking* the receiver, deliberately: the ordinary dot
     /// path checks it as argument zero, and checking it here as well would
     /// duplicate its diagnostics and count a move twice. A place has a type
     /// the checker can look up, which is what makes the peek possible; a
-    /// receiver that is a **call** (`get(pids, 0).bump(1)`) has none until it
+    /// receiver that is a **call** (`get(addrs, 0).bump(1)`) has none until it
     /// is checked, so it needs a `let` first.
-    fn pid_receiver(&mut self, base: &Expr) -> Option<Ty> {
+    fn addr_receiver(&mut self, base: &Expr) -> Option<Ty> {
         let ty = self.peek_place_ty(base)?;
-        pid_effect(&ty)
+        addr_effect(&ty)
     }
 
     /// The type of a place, without checking it: `None` for anything that is
@@ -8016,13 +7999,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-use-pid] `pid.member(args)` — a send to a process, and the
-    /// inline form of `use pid` plus an unqualified call. The receiver names
+    /// [async-use-addr] `addr.member(args)` — a send to a process, and the
+    /// inline form of `use addr` plus an unqualified call. The receiver names
     /// *where* the message goes rather than an argument, so the member's
     /// parameters line up with the written arguments exactly as they do at a
     /// handler.
     #[allow(clippy::too_many_arguments)]
-    fn check_pid_call(
+    fn check_addr_call(
         &mut self,
         instance: &Ty,
         receiver: &'p Expr,
@@ -8038,7 +8021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // argument, but a read is what it is: without checking it here nothing
         // would record the use, and the variable would be reported unused
         // [unused-var]. Checked exactly once, which is why deciding that this
-        // *is* a pid call peeks the type instead of checking it.
+        // *is* an addr call peeks the type instead of checking it.
         self.check_expr(receiver, None);
         let effect_name = match instance.strip_quals() {
             Ty::Named { name, .. } => name.clone(),
@@ -8090,7 +8073,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!(
                                 "effect `{effect_name}` overloads `{}`, and {} of its \
                                  overloads take {} argument(s): a send through a \
-                                 `{PID_TYPE}` picks by argument count, so this call \
+                                 `{ADDR_TYPE}` picks by argument count, so this call \
                                  cannot say which one it means",
                                 member.name,
                                 fits.len(),
@@ -8124,7 +8107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.effect_member_calls.insert(self.key(span), idx);
             }
         }
-        // [async-send-fn] Only a send member can be reached through a pid in
+        // [async-send-fn] Only a send member can be reached through an addr in
         // the first pass: an ordinary member answers, and answering across a
         // process boundary is the call sugar that comes later (with it, the
         // named question of whether an ordinary member may be process-backed
@@ -8134,7 +8117,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 format!(
                     "`{}` is not a `send fn`, so it cannot be called through a \
-                     `{PID_TYPE}`: a process serves messages, and a member that \
+                     `{ADDR_TYPE}`: a process serves messages, and a member that \
                      answers would have to park its caller",
                     member.name
                 ),
@@ -8188,19 +8171,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             // discharge by sending it to a process.
             self.fate_move(a, "send", "a send to a process", a.span());
         }
-        self.out.pid_calls.insert(self.key(span), instance.clone());
+        self.out.addr_calls.insert(self.key(span), instance.clone());
         // [async-send-fn] A send answers nothing.
         Ty::none()
     }
 
-    /// [async-spawn-expr] `spawn H(args) use D(...), pid capacity N on POOL`
+    /// [async-spawn-expr] `spawn H(args) use D(...), addr capacity N on POOL`
     /// — the asynchronous binding of a handler. Almost every rule here is a
     /// rule `use` already has, moved to the spawn site: the same handler
     /// construction, the same dependency resolution, the same
     /// argument-is-stored consumption. What differs is *where* the
     /// dependencies come from — the spawn's own `use` clause, because a
     /// handler never crosses into a process (only construction does) — and
-    /// that the result is a value: the child's `Pid<E>`.
+    /// that the result is a value: the child's `Addr<E>`.
     fn check_spawn(
         &mut self,
         handler: &'p Expr,
@@ -8235,7 +8218,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 "`spawn` cannot be written inside a lambda: a function value's \
                  body runs wherever it is called, and a fn type cannot declare \
                  `spawn` — spawn in the function that holds the capability and \
-                 pass the `Pid`"
+                 pass the `Addr`"
             } else {
                 "`spawn` requires the `spawn` capability in the function's effect \
                  list (`[use, spawn]`)"
@@ -8256,7 +8239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
-        // (built on the child) or a `Pid` (an effect another process serves).
+        // (built on the child) or an `Addr` (an effect another process serves).
         let mut supplied: Vec<(Ty, Span)> = Vec::new();
         for u in uses {
             if let Some(eff) = self.check_spawn_dep(u) {
@@ -8307,17 +8290,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.out.spawn_effects.insert(self.key(span), effect.clone());
         Ty::Named {
-            name: PID_TYPE.to_string(),
+            name: ADDR_TYPE.to_string(),
             args: vec![effect],
         }
     }
 
     /// [async-spawn-expr] One item of a spawn's `use` clause: a handler
     /// construction, whose effect is what it implements, or a value of type
-    /// `Pid<E>`, whose effect is `E`. Answers the effect it supplies.
+    /// `Addr<E>`, whose effect is `E`. Answers the effect it supplies.
     fn check_spawn_dep(&mut self, item: &'p Expr) -> Option<Ty> {
         // A name that a handler declares is a construction; anything else is
-        // an expression, and a `Pid` is the only useful kind.
+        // an expression, and an `Addr` is the only useful kind.
         let is_handler = match item {
             Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
             Expr::Call { callee, .. } => match callee.as_ref() {
@@ -8340,7 +8323,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "handler `{}` depends on effect `{dep}`, so it cannot be \
                          constructed in a spawn's `use` clause: give the child a \
-                         `{PID_TYPE}` of a process serving `{effect}` instead, or \
+                         `{ADDR_TYPE}` of a process serving `{effect}` instead, or \
                          construct it inside the child with `use`",
                         id.name
                     ),
@@ -8349,7 +8332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Some(effect);
         }
         let ty = self.check_expr(item, None);
-        match pid_effect(&ty) {
+        match addr_effect(&ty) {
             Some(effect) => Some(effect),
             None if ty.is_unknown() => None,
             None => {
@@ -8357,7 +8340,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     item.span(),
                     format!(
                         "a spawn's `use` clause supplies handlers: write a handler \
-                         construction (`SomeHandler(...)`) or a `{PID_TYPE}` of the \
+                         construction (`SomeHandler(...)`) or a `{ADDR_TYPE}` of the \
                          effect a process already serves, not a `{ty}`"
                     ),
                 );
@@ -8676,8 +8659,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Try { .. }
             // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
-            // `spawn` yields a `Pid`, a `replyto` a token, and a `waitfor`
+            // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
+            // [async-self-send] `k@self` is a callee, so it is a leaf here.
+            | Expr::SelfScoped { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
@@ -8755,8 +8740,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Try { .. }
             // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
-            // `spawn` yields a `Pid`, a `replyto` a token, and a `waitfor`
+            // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
+            // [async-self-send] `k@self` is a callee, so it is a leaf here.
+            | Expr::SelfScoped { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }
@@ -9803,27 +9790,27 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// neither backend can render it (Rust emits a bare trait, `E0782`).
     ///
     /// **One exception, sanctioned by decision** (user, 2026-09-15):
-    /// `Pid<E>`'s type argument [async-spawn-expr]. A pid is a handle to a
+    /// `Addr<E>`'s type argument [async-spawn-expr]. An addr is a handle to a
     /// process, and what a holder may *do* with it is exactly the effect the
     /// process serves — so the effect is what parameterizes the handle, and
     /// that is what makes a process and a locally `use`d handler
     /// interchangeable behind one name. The exception is one type argument of
-    /// one std type; a pid is still not a handler instance, and every other
+    /// one std type; an addr is still not a handler instance, and every other
     /// data position stays refused (checked in `validate_type`, which knows
     /// the enclosing type).
     /// [async-spawn-expr] Whether this type argument is the effect argument
-    /// of a `Pid` — the one place an effect names something in a type
+    /// of an `Addr` — the one place an effect names something in a type
     /// position. Deliberately narrow: the enclosing base must be std's
-    /// `Pid`, the position must be its only type parameter, and the argument
+    /// `Addr`, the position must be its only type parameter, and the argument
     /// must be a bare name that a visible effect declares. Anything else
-    /// (`Pid<Int>`, a second argument, an effect elsewhere) goes down the
+    /// (`Addr<Int>`, a second argument, an effect elsewhere) goes down the
     /// ordinary path and is validated — or refused — as before.
     fn is_pid_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
-        if base.name.name != PID_TYPE || index != 0 || base.args.len() != 1 {
+        if base.name.name != ADDR_TYPE || index != 0 || base.args.len() != 1 {
             return false;
         }
-        // Std's `Pid`, not a program's own type of that name.
-        if !self.scope.opaque_types.contains_key(PID_TYPE) {
+        // Std's `Addr`, not a program's own type of that name.
+        if !self.scope.opaque_types.contains_key(ADDR_TYPE) {
             return false;
         }
         match arg {
@@ -10039,7 +10026,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // sorted containers apply to their keys.
                 self.check_sorted_list_claim(qualifiers, base);
                 for (i, a) in base.args.iter().enumerate() {
-                    // [async-spawn-expr] `Pid<E>`'s argument is the *effect*
+                    // [async-spawn-expr] `Addr<E>`'s argument is the *effect*
                     // the process serves — the one sanctioned effect-in-a-
                     // type-argument (user decision 2026-09-15). Validated
                     // here rather than in `reject_effect_as_data`, because
@@ -10699,6 +10686,8 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_assigned_expr(capture, out);
             }
         }
+        // [async-self-send] A leaf: the selector names a handler member.
+        Expr::SelfScoped { .. } => {}
         // [async-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => collect_assigned(body, out),
         // A lambda body's assignments happen when the value is called, and
@@ -10921,6 +10910,8 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         }
         // [async-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
+        // [async-self-send] A leaf: it mentions no value of its own.
+        Expr::SelfScoped { .. } => false,
         // [async-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
@@ -12531,7 +12522,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
             // [async-spawn-expr] The asynchronous binding of a handler: its
-            // value is the child's `Pid<E>`.
+            // value is the child's `Addr<E>`.
             Expr::Spawn {
                 handler,
                 uses,
@@ -12539,6 +12530,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 pool,
                 span,
             } => self.check_spawn(handler, uses, capacity, pool, *span),
+            // [async-self-send] A selector is a *callee*, never a value: a
+            // handler member is not a function value any more than an effect
+            // member is [effect-not-data]. Reached only when one is written
+            // without a call.
+            Expr::SelfScoped { name, span } => {
+                self.error(
+                    *span,
+                    format!(
+                        "`{}@self` names a member of the enclosing handler, which is \
+                         not a value: call it (`{}@self(…)`) to send it a message",
+                        name.name, name.name
+                    ),
+                );
+                Ty::Unknown
+            }
             // [async-replyto] A parked one-shot continuation targeting a
             // member of the enclosing handler; its value is the linear token.
             Expr::ReplyTo {
@@ -15281,26 +15287,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // a target-language method means declaring it (as a member of a
         // `platform effect`), so an unknown name here is an error, not
         // interop pass-through [call-resolve].
+        // [async-self-send] `k@self(args)` — a message to the process the
+        // enclosing member belongs to. A selector, so it arrives as its own
+        // callee shape rather than as a receiver that has to be told apart
+        // from a value.
+        if let Expr::SelfScoped { name, .. } = callee {
+            return self.check_self_send(name, args, span);
+        }
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
-            // [async-self-send] `self.k(args)` — a message to the process the
-            // member belongs to. Recognised here, before the ordinary dot
-            // rules, and *contextually*: `self` is the enclosing handler only
-            // where no local of that name shadows it, which a handler member
-            // may not declare anyway.
-            if let Expr::Ident(id) = base.as_ref() {
-                if id.name == SELF_NAME && self.lookup(SELF_NAME).is_none() {
-                    return self.check_self_send(field, args, span);
-                }
-            }
-            // [async-use-pid] `p.total(out)` where `p` is a `Pid<E>`: the
+            // [async-use-addr] `p.total(out)` where `p` is an `Addr<E>`: the
             // inline form of `use p` — the member is E's, and the receiver is
             // the process it goes to rather than a first argument. Checked
-            // before the ordinary dot rules, because those would make the pid
+            // before the ordinary dot rules, because those would make the addr
             // argument zero of a member that never declared it.
-            if let Some(effect) = self.pid_receiver(base) {
+            if let Some(effect) = self.addr_receiver(base) {
                 return self
-                    .check_pid_call(&effect, base, field, type_args, args, named, expected, span);
+                    .check_addr_call(&effect, base, field, type_args, args, named, expected, span);
             }
             let known = self.scope.effect_members.contains_key(name) || self.has_callable(name);
             if known {
@@ -17153,7 +17156,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // do.
                     let remedy = if member.is_send {
                         format!(
-                            "send it to this process instead: `self.{}(…)`, which runs \
+                            "send it to this process instead: `{}@self(…)`, which runs \
                              as its own later activation",
                             member.name.name
                         )

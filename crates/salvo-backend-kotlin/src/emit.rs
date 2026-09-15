@@ -786,7 +786,7 @@ struct Emitter<'p> {
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
-    /// [kt-process] This file spawns, sends to a pid, or bridges with
+    /// [kt-process] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler file is part of the program.
     needs_scheduler: bool,
     /// [iter-fn] Of those, the ones held in a nullable property
@@ -1394,7 +1394,7 @@ impl<'p> Emitter<'p> {
         out.push_str("}\n");
         // [kt-process] [async-send-fn] The protocol's **message type**: a
         // sealed class with one nested class per send member. It belongs to
-        // the *effect*, because a sender holds a `Pid` and knows only the
+        // the *effect*, because a sender holds an `Addr` and knows only the
         // effect it serves — the same reason the binding swap works.
         out.push_str(&self.emit_message_classes(e));
         self.generics = saved;
@@ -2583,10 +2583,10 @@ impl<'p> Emitter<'p> {
             if name == "Bytes" {
                 self.needs_bytes = true;
             }
-            // [kt-process] The scheduler's handles are not generic here: a pid
+            // [kt-process] The scheduler's handles are not generic here: an addr
             // is an `Int` and a token is one class, so the Salvo type argument
             // has no rendering — the generated message classes carry it.
-            if matches!(name, "Pid" | "Pool" | "Reply") {
+            if matches!(name, "Addr" | "Pool" | "Reply") {
                 self.needs_scheduler = true;
                 return kt.to_string();
             }
@@ -2595,7 +2595,7 @@ impl<'p> Emitter<'p> {
         // [backend-intrinsic] [backend-never-wrong] An `intrinsic type` this
         // backend has no mapping for cannot pass through: its Salvo name
         // means nothing in Kotlin, so emitting it would hand kotlinc a
-        // dangling reference instead of reporting the gap here. (`Pid`,
+        // dangling reference instead of reporting the gap here. (`Addr`,
         // `Reply` and `Pool` are exactly this until the process classes
         // land.)
         if self.symbols.intrinsic_types.contains_key(name) {
@@ -2997,7 +2997,7 @@ impl<'p> Emitter<'p> {
 
     /// [async-spawn-expr] [kt-process] `spawn H(args) capacity N on P` →
     /// `SalvoSched.spawn(pool, bound, __Proc_H(H(args)))`, whose value is the
-    /// pid. Construction is the `use` path's, minus the registration: a spawn
+    /// addr. Construction is the `use` path's, minus the registration: a spawn
     /// does not put the handler in *this* scope.
     fn emit_spawn(
         &mut self,
@@ -3088,9 +3088,9 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [async-use-pid] [kt-process] `pid.member(args)` →
-    /// `SalvoSched.send(pid, __Msg_E.Member(args))`.
-    fn emit_pid_send(
+    /// [async-use-addr] [kt-process] `addr.member(args)` →
+    /// `SalvoSched.send(addr, __Msg_E.Member(args))`.
+    fn emit_addr_send(
         &mut self,
         effect: &salvo_core::Ty,
         callee: &Expr,
@@ -3099,13 +3099,13 @@ impl<'p> Emitter<'p> {
     ) -> String {
         self.needs_scheduler = true;
         let Expr::Field { base, field, .. } = callee else {
-            self.error("internal: a pid send whose callee is not a dot-call");
+            self.error("internal: an addr send whose callee is not a dot-call");
             return "TODO()".to_string();
         };
         let effect_name = match effect {
             salvo_core::Ty::Named { name, .. } => name.clone(),
             _ => {
-                self.error("internal: a pid send with no effect recorded");
+                self.error("internal: an addr send with no effect recorded");
                 return "TODO()".to_string();
             }
         };
@@ -3122,14 +3122,14 @@ impl<'p> Emitter<'p> {
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        // [async-use-pid] `use pid` binds an effect to a forwarding stub over
+        // [async-use-addr] `use addr` binds an effect to a forwarding stub over
         // a process, which needs the process class the next slice generates.
         // Refused here rather than falling through to the handler path, whose
         // "unknown handler" would be a misleading diagnostic about a correct
         // program [backend-never-wrong].
-        if self.checked.use_pids.contains_key(&(self.file_idx, span)) {
+        if self.checked.use_addrs.contains_key(&(self.file_idx, span)) {
             self.error(
-                "`use` of a `Pid` is not emitted yet: binding an effect to a \
+                "`use` of an `Addr` is not emitted yet: binding an effect to a \
                  process needs its generated process class",
             );
             return String::new();
@@ -4355,7 +4355,7 @@ impl<'p> Emitter<'p> {
             Expr::Error { .. } => "TODO()".to_string(),
             // [async-spawn-expr] [kt-process] Construct the handler, wrap it
             // in its generated process body, hand it to the scheduler; the
-            // value is the pid.
+            // value is the addr.
             Expr::Spawn {
                 handler,
                 uses,
@@ -4370,6 +4370,17 @@ impl<'p> Emitter<'p> {
                 body,
                 span,
             } => self.emit_waitfor(binding, ty, body, *span),
+            // [async-self-send] A selector reaching emission means it was
+            // written outside a call, which the checker refuses — or a
+            // self-send, whose lowering waits with `replyto` for the process
+            // body's own address [backend-never-wrong].
+            Expr::SelfScoped { .. } => {
+                self.error(
+                    "a self-send is not emitted yet: `k@self(…)` needs the process \
+                     body's own address",
+                );
+                "TODO()".to_string()
+            }
             // [async-replyto] Checked, not yet lowered: a mint needs the
             // parked-continuation table in the process body, which is the next
             // slice [backend-never-wrong].
@@ -5147,11 +5158,11 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
-        // [async-use-pid] [kt-process] A send to a process: build the
+        // [async-use-addr] [kt-process] A send to a process: build the
         // protocol's message and enqueue it. The receiver names where it goes,
         // not an argument.
-        if let Some(effect) = self.checked.pid_calls.get(&(self.file_idx, span)).cloned() {
-            return self.emit_pid_send(&effect, callee, args, span);
+        if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
+            return self.emit_addr_send(&effect, callee, args, span);
         }
         // [async-self-send] `self.k(args)`: a message to the process the
         // enclosing member belongs to, which needs the same generated class.
@@ -6759,6 +6770,8 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_mutated_expr(capture, out);
             }
         }
+        // [async-self-send] A leaf.
+        Expr::SelfScoped { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.
         // Listed rather than defaulted, because a missed form emits an
