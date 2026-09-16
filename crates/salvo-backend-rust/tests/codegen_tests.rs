@@ -9422,3 +9422,108 @@ fn a_stub_implements_the_effect_by_sending() {
         main.content
     );
 }
+
+// ===== the checked-in examples (examples/README.md) =====
+
+/// The repository's `examples/` directory.
+fn examples_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
+}
+
+/// Every example directory, by name, in a stable order.
+fn example_names() -> Vec<String> {
+    let mut out: Vec<String> = std::fs::read_dir(examples_dir())
+        .expect("examples/ is readable")
+        .filter_map(|e| {
+            let e = e.expect("a readable entry");
+            let name = e.file_name().to_string_lossy().to_string();
+            e.path().join("salvo").is_dir().then_some(name)
+        })
+        .collect();
+    out.sort();
+    assert!(!out.is_empty(), "no examples found");
+    out
+}
+
+/// Emits one example's Rust, exactly as `salvo compile` would.
+fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let mut sources = SourceSet::default();
+    let errors = sources.add_dir(&std_dir, "rs", true);
+    assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    let src = examples_dir().join(example).join("salvo");
+    let errors = sources.add_dir(&src, "rs", false);
+    assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: sources.companions,
+    };
+    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("`examples/{example}` no longer compiles:\n{}", errors.join("\n"))
+    })
+}
+
+/// The generated tree checked in beside each example is what the
+/// compiler writes *today* — the convention every example README rests on
+/// ("stale generated code is worse than none: it is read as what the compiler
+/// does"). A pure text comparison, so it needs no toolchain — and it catches an
+/// example whose *source* stopped checking, since emission then fails outright.
+///
+/// Added 2026-09-16, after `examples/effects/` was found broken since
+/// 2026-09-15: nothing in the suite read the examples at all.
+#[test]
+fn every_examples_checked_in_rust_is_current() {
+    for example in example_names() {
+        let files = emit_example(&example);
+        let root = examples_dir().join(&example).join("rust");
+        for file in &files {
+            let path = root.join(&file.rel_path);
+            let found = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+                panic!(
+                    "examples/{example}/rust/{} is missing: regenerate with \
+                     `cargo run -- compile --backend rust --src examples/{example}/salvo \
+                     --target examples/{example}/rust`",
+                    file.rel_path.display()
+                )
+            });
+            if found != file.content {
+                // A whole generated file in the failure message is unreadable;
+                // the first differing line is what a reader needs.
+                let at = found
+                    .lines()
+                    .zip(file.content.lines())
+                    .position(|(a, b)| a != b)
+                    .map(|i| i + 1);
+                panic!(
+                    "examples/{example}/rust/{} is stale (first difference at line {}): \
+                     regenerate with `cargo run -- compile --backend rust --src \
+                     examples/{example}/salvo --target examples/{example}/rust`",
+                    file.rel_path.display(),
+                    at.map(|l| l.to_string()).unwrap_or_else(|| "end of file".into())
+                );
+            }
+        }
+    }
+}
+
+/// …and each example still runs to the stdout checked in beside it,
+/// which is also the parity assertion: the Kotlin backend asserts the same
+/// bytes from the same file.
+#[test]
+fn every_example_runs_to_its_expected_output() {
+    for example in example_names() {
+        let files = emit_example(&example);
+        let expected =
+            std::fs::read_to_string(examples_dir().join(&example).join("expected.txt"))
+                .unwrap_or_else(|_| panic!("examples/{example}/expected.txt is missing"));
+        run_rust_files(&files, &format!("example-{example}"), &expected);
+    }
+}

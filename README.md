@@ -159,6 +159,21 @@ fn main() [use] {
   (`(s: Str) [Logger] -> Str`), and the effect is supplied by whoever calls
   the value — so a higher-order function inherits its callback's effects
   and needs no annotation of its own.
+- **Actors**: an **actor** is an effect handler bound asynchronously — `spawn`
+  instead of `use`. An `actor effect` declares the protocol (`send fn` members,
+  which enqueue and answer nothing), a handler of it is ordinary Salvo, and
+  `spawn Counting() capacity 8 on pool(2)` gives it a mailbox and answers an
+  `Addr<Counter>`. Its state is its own and its members run one at a time, so
+  the serialization *is* the mutual exclusion. An answer travels back through a
+  **linear** one-shot `Reply<T>`: minted with `replyto`, which parks a
+  continuation on one of your own members so no thread waits anywhere, and
+  discharged exactly once because the compiler says so. Actors depend on each
+  other through ordinary effect lists (`use addr` binds one to a scope, so
+  callers never learn their capability is an actor), hold queues of obligations
+  in state, `watch` each other die, and a topology whose actors could wait for
+  one another is reported *before* it runs. The scheduler is a library in each
+  backend's runtime — no runtime baked into your code, and identical behaviour
+  on both.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
   `Nothing`, so intermediate frames stay silent. The delimiter is

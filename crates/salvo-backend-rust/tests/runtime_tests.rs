@@ -107,7 +107,7 @@ fn runtime_modules_are_not_empty_and_are_generated_headers() {
 }
 
 // ===== The scheduler's *behaviour* — asynchronous effect handlers' runtime
-// (CONCURRENCY.md "The first pass", SUPERVISION.md) =====
+// ([actor-kind] … [actor-watch]) =====
 //
 // The module above is only compiled; a scheduler also has to *behave*, and
 // the semantics are decided ones: run-to-completion activations, per-actor
@@ -399,7 +399,7 @@ fn main() {
 
 /// The idle-with-parked-gates report: `main` waits for a reply nothing can
 /// ever send, and the scheduler says so and exits non-zero instead of
-/// hanging (SUPERVISION.md S-3).
+/// hanging [actor-watch].
 #[test]
 fn scheduler_reports_idle_while_main_waits() {
     run_scheduler_program(

@@ -113,19 +113,19 @@ fun<__Fx> audit_and_measure(__fx: __Fx, what: String) where __Fx : __Has_Audit, 
 }
 
 interface Setting<T> {
-    fun setting(): T
+    fun setting(copy: (T) -> T): T
 }
 
 class Fixed<T>(private val value: T) : Setting<T> {
 
-    override fun setting(): T {
-        return value
+    override fun setting(copy: (T) -> T): T {
+        return copy(value)
     }
 }
 
 fun<__Fx> settings(__fx: __Fx) where __Fx : __Has_Setting_Int, __Fx : __Has_Setting_String, __Fx : __Has_Console {
-    val retries: Int = __fx.__fx_Setting_Int.setting()
-    val region = __fx.__fx_Setting_String.setting()
+    val retries: Int = __fx.__fx_Setting_Int.setting({ __i0 -> __i0 })
+    val region = __fx.__fx_Setting_String.setting({ __i0 -> __i0 })
     println(__fx, "   retries=$retries region=$region")
 }
 

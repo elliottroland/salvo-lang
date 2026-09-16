@@ -32,9 +32,11 @@ the decision log, the plan, and the hard-won operational knowledge.
 - **Section names in quotes point into COMPLETED.md** unless the section is in
   this file. The two documents were one until 2026-09-09, so an "above" or
   "below" in moved text may mean the other document.
-- **"The sequence" is the agreed order of work** (user decision 2026-09-09).
-  Pick from the current phase; the themed sections below carry the detail and are
-  tagged with the phase they belong to.
+- **"The sequence" is finished** (user decision 2026-09-09, all five phases
+  complete 2026-09-16). It is kept as the record of the order the work was done
+  in, and the themed sections below stay tagged with the phase they belonged to.
+  With no phase in progress, the work is: the **open defects**, then the
+  **decisions waiting on the user**, then whatever those decisions schedule.
 - **Before starting anything**: read COMPLETED.md's "Gotchas / lessons learned"
   for traps in the area you are touching, and its decision log for whether the
   question was already answered.
@@ -50,23 +52,19 @@ places and field narrowing (P1), deductions with refinements (D1, D3), dot-names
 drive), the collections (S-Col) and **the filesystem (S-IO, phase 4 —
 complete 2026-09-14, bytes and worked example included)**. What is left is
 below, grouped by theme; **"The sequence" is the order it will be done in**,
-and each themed section is tagged with the phase it belongs to. **Phase 5
-(threading) is under way**: its design is settled (CONCURRENCY.md,
-SUPERVISION.md — the decision space is empty), the
-scheduler library is built, and the surface is landing in slices — actors
-spawn, send, park continuations and bridge on both backends today, dependent
-handlers included, request/response no longer needs `main` in the loop, a
-actor's death is both watchable and — where a topology could deadlock —
-reported before it runs, and a handler may park a queue of obligations in its
-own state.
-See "Threading and concurrency" for what remains.
+and each themed section is tagged with the phase it belongs to. **All five
+phases are complete** (phase 5 landed 2026-09-16): actors spawn, send, park
+continuations, bridge into `main`, depend on one another, watch each other die
+and hold queues of obligations — on both backends with identical output, with a
+worked example in `examples/actors/`. What is left is not a phase: the open
+defects below, the decisions waiting on the user, and the themed sections.
 
-## The sequence (user decision 2026-09-09)
+## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
-Five phases, in this order. Each names what is in scope, the decisions that have
-to be answered before it starts, and the smaller items that ride along with it
-rather than being scheduled separately. Nothing outside a phase needs doing
-first.
+Five phases, in this order — **all complete**. Kept as the record of what was in
+scope for each, what had to be decided before it started, and what rode along
+with it; the detail of each is in COMPLETED.md's log, and what each one left
+behind is in the themed sections below.
 
 **1 — Finish the iterators.** ("Iterators", below.) **✅ Complete 2026-09-10**
 — every item below landed, was answered, or was retired; what the phase leaves
@@ -174,16 +172,22 @@ universal struct `==`, `canbe hashed`/`canbe ordered`, and the
 filesystem (`MemFs`) was to be its first internal customer and now has the
 collections it needs.
 
-**5 — Threading: asynchronous effect handlers.** ("Threading and concurrency",
-below.) Designed (user decisions 2026-09-14/15) and **being built**: the
-scheduler library, the whole surface's syntax, its types and its checker rules
-are in, and actors **run on both backends with identical output** —
-including a **dependent** handler whose dependencies its spawn clause supplies,
-a request/response chain that never passes through `main`, and (2026-09-16) a
-**death watch** plus the **static deadlock baseline**.
-What is left of the agreed eight-item sequence: **propagation** (item 8) —
-the worked `examples/actors/`, the examples-file respelling, and the working
-documents' retirement.
+**5 — Actors: effect handlers bound asynchronously.** ("Actors", below.)
+**✅ Complete 2026-09-16** — designed across 2026-09-14/15 and built in eight
+slices over two days: the scheduler library in both backends' runtime files, the
+surface (`actor effect`, `send fn`, `spawn … capacity … on`, `Addr<E>`,
+`Reply<T>`, `replyto`/`replyto!`, `k@self`, `use addr`, `waitfor`), dependent
+spawns, request/response without `main` in the loop, `watch` with the static
+deadlock baseline, obligations in collections, and `examples/actors/` as the
+worked example — all on **both backends with identical output**. The record is
+COMPLETED.md's log; the as-built rules are [actor-kind] … [actor-watch],
+[linear-container], [linear-state], [rs-actor] and [kt-actor]. Deliberately
+left for later: the **sugar tower** (below), the **spawn-line respelling** (a
+DECISION, above), and the leftovers under items 6 and 7 — the self-send mailbox
+wedge, the type-level graph's imprecision, the effectful discharger, and the
+missing positional list write.
+
+**With it, all five phases of "the sequence" are done.**
 **The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
 call syntax, `then`, `defer` and merge/join become later items with their own
@@ -213,13 +217,15 @@ links to the section that states the options.
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
+| **The spawn line** — is `capacity` folded into the `on` expression (and are clauses breakable across lines)? | next, now that phase 5 is done | "The spawn line" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
-(**No phase-5 rows remain.** The four original DECISIONs, the
+(**One phase-5 row remains**, added when its design document retired: the
+spawn-line respelling. The four original DECISIONs, the
 supervision/monitors story, and the three questions the build itself surfaced
 — self-sends, sendability's content, and the sequencing of the effect
 unification against the rest of the phase — were all decided 2026-09-14/15;
-see "The sequence" phase 5, "Threading and concurrency", "The sugar pass"
+see "The sequence" phase 5, "Actors", "The sugar pass"
 below, and COMPLETED.md's decision log. Phase 5 is engineering from here.)
 
 One further proposal is **deferred by decision** rather than waiting:
@@ -233,7 +239,45 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Five open.** (Closed in the sessions before this one, with repros and
+### A `while <call> is T name` evaluates its subject twice — silently dropping values
+
+**Found 2026-09-16**, while writing `examples/actors/`. The subject of a
+`while … is T name` loop is emitted **once for the test and once for the
+binding**, so a subject with side effects runs twice per iteration. With
+take-by-move that silently discards elements — and for a linear element, its
+obligation with them:
+
+```
+let queue: Mut List<Ticket> = mut_list_of()
+add(queue, Ticket { id: 1 })
+add(queue, Ticket { id: 2 })
+while remove_first(queue) is Ticket next {
+    redeem(next)          // prints "redeemed 2" only — #1 vanished
+}
+drain(queue, scrap)
+```
+
+Both backends do it, and both compile clean:
+
+```rust
+while ({ … Some(__l.remove(0)) }.is_some()) {
+    let mut next = { … Some(__l.remove(0)) }.as_ref().unwrap().clone();
+```
+
+**Root cause**: the loop condition is emitted by the ordinary expression path
+(`<subject>.is_some()` / `!= null`) and the *binding* comes from the narrowing
+machinery, which re-emits the subject from the AST — correct for a place, wrong
+for anything with an effect. The Rust arm also `.clone()`s the payload, which is
+how a **linear** value gets duplicated where the checker thinks it moved.
+
+**The fix shape**: hoist the subject into a per-iteration temporary and both
+test and bind from it — `while let Some(mut name) = <subject> {` on Rust (the
+pass-loop path already emits `while let`), and `while (true) { val name =
+<subject> ?: break; … }` on Kotlin. The checker needs to record nothing new; a
+place subject keeps today's rendering. **This is the worst class this repository
+has (silently wrong output), so it should go first.**
+
+**Six open**, the one above first. (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -1114,7 +1158,7 @@ and the rules [bytes-type], [fs-read-to], [kt-bytes].
   annotation costs nothing.
 
 
-## Threading and concurrency — asynchronous effect handlers (phase 5)
+## Actors — effect handlers bound asynchronously (phase 5, complete)
 
 **Designed** (user decisions 2026-09-14/15; the four **DECISION**s this
 section used to carry are all answered — the argument trails live in
@@ -1336,22 +1380,21 @@ compiler today, so its own output is the work list.
      Rust, where a non-`Default` field has no representable temporarily-empty
      state. A `linear struct Gather` living *in* a map is the shape that works,
      and is what the examples use.
-8. **Propagation and retirement.** The COMPLETED.md entries (including
-   EFFECT_UNIFICATION.md's round-1 rejection as an explored-and-abandoned
-   option); CONCURRENCY.md's pending table (the named question closes);
-   `CONCURRENCY_EXAMPLES.md`'s `Reply<T>` definition reworded to
-   reservation-at-mint-in-the-target; the examples-file respelling done
-   **once**, here, rather than four times on the way (`capacity N` is
-   required, and those files' spawns predate it); a worked
-   `examples/actors/`; then the working documents retire into the decision
-   log per their charters — with the sugar pass's decided content folded into
-   this file first, so nothing open lives outside ROADMAP.md.
-   **LINEARITY_COLLECTIONS.md is already gone** (item 7 carried its content
-   into code, the spec rules and the decision log). SUPERVISION.md is ready to
-   follow — its S-1…S-4 content is in [actor-watch] and in the log — but the
-   two runtime files and their tests cite its section numbers, so its
-   retirement is a small sweep; CONCURRENCY.md, the two examples files and
-   EFFECT_UNIFICATION.md follow it.
+8. ✅ **Propagation and retirement — done 2026-09-16.** The phase's four
+   working documents are gone (CONCURRENCY.md, SUPERVISION.md, the two
+   CONCURRENCY_EXAMPLES files and EFFECT_UNIFICATION.md, after
+   LINEARITY_COLLECTIONS.md with item 7), their decided content living in the
+   rules and in COMPLETED.md's log, and every citation of them in code, tests
+   and specs now points at a rule label instead. **`examples/actors/` is the
+   worked example** — six sections from the smallest actor to death and
+   watching, plus the same handler bound synchronously — which is what replaced
+   the examples files' sketches: running code beats prose the moment the
+   feature exists. The `Reply<T>` reservation rule moved into [actor-types]
+   where the type is defined, and the one thing the documents still had open —
+   the spawn-line respelling — is now a **DECISION** in this file (below).
+   Two things fell out of writing the example, both recorded above: the
+   `while <call> is T` defect, and that **nothing in the suite read the
+   examples** (now two guards per backend).
 
 **The leftovers the checker slice found are all closed** (2026-09-15) — the
 record, with what each taught, is in COMPLETED.md's decision log; the last of
@@ -1371,6 +1414,62 @@ an actor **is** a region; sendability and region-escape are one check.
 consumption; linearity survived sends [linear-obligation] and became the
 reply-token guarantee; supervision-as-handler became interception across the
 scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
+
+## The spawn line — DECISION (carried out of the retired design document)
+
+The one thing phase 5's working documents still had open when they retired
+(2026-09-16). The user finds the frozen spawn line cumbersome — several keyword
+clauses running together:
+
+```
+spawn NoticeFetcher(25, seconds(5)) use MemFs(root), StdOutConsole() capacity 16 on pool(2)
+```
+
+The spelling was marked revisitable when it was frozen ("nothing downstream
+depends on the words"), and what the decided record constrains is only this:
+`spawn` stays a **form**, not a call (a handler construction is not a value);
+the clause keywords are the named parameters the language does not otherwise
+have; `capacity` and `on` are required with no defaults; the `use` clause stays
+restricted to constructions and `Addr`s.
+
+- **(a) Continuation-line clauses — layout only.** Each clause may start on its
+  own line; the form ends after `on`. Precedent: a deduction clause is legal
+  "on the same line or the next" [deduce-syntax]. Fixes the scanning problem at
+  zero grammar cost, and keeps every frozen word.
+- **(b) Fold `capacity` into the `on` expression.** A `Placement` value built
+  by ordinary functions — `pool(2).queue(16)`, or `io.queue(16)` over a shared
+  pool — with `on` taking a `Placement` and a bare `Pool` refused, so "capacity
+  explicit, required, no default" survives as a *type* rule rather than a
+  keyword. Three clauses become two; the bound is labeled by a function name,
+  which is how Salvo labels arguments without named parameters; a `Placement`
+  is an ordinary shareable value. Cost: the bound belongs to the actor, and the
+  chain visually attaches it to the pool; one new `core.actor` type.
+- **(c) The spawn block** — clauses one per line inside braces, read as the
+  child's init preamble:
+
+  ```
+  let fetcher = spawn NoticeFetcher(25, seconds(5)) {
+      use ddb, SystemTimer()
+      capacity 16
+      on pool(2)
+  }
+  ```
+
+  Principled ("a spawn is a `use` whose dependencies come from its own clause"
+  [actor-spawn-expr]) and has room to grow if supervision options ever join the
+  spawn site. Costs: a braced block that is neither code nor a struct literal,
+  and a call on whether the inline form survives beside it.
+- **(d) Rejected for the record**: a bracketed dependency list
+  (`spawn H(25) [DbApi: db, Timer: clock]`) — colon pairs exist nowhere else,
+  the positional form is fragile against declaration reordering, and `use`
+  already says the right thing.
+
+**Recommendation: (b) + (a)** — `spawn H(args) use deps on io.queue(16)`,
+breakable across lines. The smallest change that attacks both complaints, with
+(c) held in reserve for when the clause set grows. Whichever is chosen is an
+outright respelling of landed surface: the parser, [actor-spawn-expr], both
+emitters' spawn paths, the actor tests, `examples/actors/` and its two
+generated trees. Roughly the size of item 1's sweep.
 
 ## The sugar pass — after phase 5 (user decision 2026-09-15)
 

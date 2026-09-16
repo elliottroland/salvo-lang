@@ -12,7 +12,15 @@ compiler generated for it and the output it prints.
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
 | [`collections/`](collections/) | the four collections: the literals, insertion versus key order, what may be a key, equality versus ordering, the generated constructors, and the `NonEmpty`/`Sorted`/`Distinct` claims a list can carry |
 | [`linearity/`](linearity/) | values the compiler will not let you forget: where the obligation comes from, that it moves, that a keeping call borrows instead, and how a generic opts in (`canbe linear`, `once`) |
+| [`actors/`](actors/) | actors: an `actor effect` and `send fn`, a linear reply token, one actor answering through another (`replyto` parking a continuation), a queue of obligations drained on shutdown, death and `watch` — and the same handler bound synchronously with `use`, which is not an actor at all |
 | [`files/`](files/) | the filesystem: one `Fs` effect for paths and streams, linear tokens and a linear error, `Bytes` and text off one stream, the fill-a-buffer reads and the copy one-shots — and one program run against the disk, a sandbox and an in-memory double |
+
+Every one of these is **checked by the test suite** (added 2026-09-16, after
+`examples/effects/` was found broken for a day): each backend asserts that the
+checked-in generated tree is what the compiler writes today — which also fails
+if an example's source stops checking — and that the program runs to
+`expected.txt`. Adding an example therefore means adding its Kotlin
+compile-and-run case to `KOTLIN_CASES`; a test says so if you forget.
 
 More will be added as features land. This tree replaced `experiments/`, which
 held hand-written *prototypes* of designs not yet built; the prototypes' value

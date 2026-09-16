@@ -1,0 +1,7 @@
+1. counter total is 5
+3. ledger says counter=5
+4. second waiter got: closed: end of day
+4. first waiter got: served ada
+5. it died with a reason: true
+6. inline total is 9
+done

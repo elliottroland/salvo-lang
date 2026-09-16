@@ -195,12 +195,20 @@ fn audit_and_measure(what: Str) [Audit, Metrics] -> None => what {
 // separate capabilities: both can be in scope at once, and a call picks its
 // instance by the expected type or by writing the type argument.
 effect Setting<T> {
-    fn setting() -> T
+    // `?copy` is an implicit parameter: the handler stores its value for
+    // every call, so handing one out needs an independent copy — and *how*
+    // to copy a `T` is the caller's knowledge, not the handler's, so the
+    // call site fills it in [copy-implicit] [effect-state-store].
+    fn setting(?copy: (v: T) -> T) -> T
 }
 
 handler Fixed<T>(value: T) of Setting<T> {
-    fn setting() -> T {
-        return value
+    // The handler keeps its constructor argument for its whole life, so a
+    // member cannot hand the stored value out — every call would be moving
+    // the same one. `copy` is the opt-in that says "an independent value"
+    // [effect-state-store].
+    fn setting(?copy: (v: T) -> T) -> T {
+        return copy(value)
     }
 }
 

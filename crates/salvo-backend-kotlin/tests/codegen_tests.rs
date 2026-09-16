@@ -1786,7 +1786,9 @@ handler LoudPing of Ping {
 /// rewritten into its own package namespace (`k_<tag>.salvo…`), since every
 /// program declares the same `salvo.main.MainKt`.
 struct KotlinCase {
-    tag: &'static str,
+    /// Owned rather than `&'static str` so a case can be built from data —
+    /// the examples, one case each.
+    tag: String,
     /// The JVM class to launch, before package prefixing.
     entry: &'static str,
     files: Vec<salvo_backend_kotlin::EmittedFile>,
@@ -1796,7 +1798,7 @@ struct KotlinCase {
 /// A case launching the ordinary entry point, `salvo.main.MainKt`.
 fn kotlin_case(
     files: Vec<salvo_backend_kotlin::EmittedFile>,
-    tag: &'static str,
+    tag: &str,
     expected: &str,
 ) -> KotlinCase {
     kotlin_case_with_entry(files, tag, "salvo.main.MainKt", expected)
@@ -1806,12 +1808,12 @@ fn kotlin_case(
 /// effect has moved `main` out of the generated code.
 fn kotlin_case_with_entry(
     files: Vec<salvo_backend_kotlin::EmittedFile>,
-    tag: &'static str,
+    tag: &str,
     entry: &'static str,
     expected: &str,
 ) -> KotlinCase {
     KotlinCase {
-        tag,
+        tag: tag.to_string(),
         entry,
         files,
         expected: expected.to_string(),
@@ -2051,6 +2053,15 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
+    // the checked-in examples, one case each
+    kotlin_example_actors,
+    kotlin_example_collections,
+    kotlin_example_effects,
+    kotlin_example_files,
+    kotlin_example_iteration,
+    kotlin_example_linearity,
+    kotlin_example_qualifiers,
+    kotlin_example_throw_and_release,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -2182,7 +2193,7 @@ fn kotlinc_compiles_and_runs_every_case() {
     let mut seen = std::collections::HashSet::new();
     for case in &cases {
         // Tags name packages, scratch paths and stamps.
-        assert!(seen.insert(case.tag), "duplicate case tag {}", case.tag);
+        assert!(seen.insert(case.tag.clone()), "duplicate case tag {}", case.tag);
         assert!(
             !case.expected.contains("salvo."),
             "case {}: expected output mentions `salvo.`, which the package \
@@ -2199,7 +2210,7 @@ fn kotlinc_compiles_and_runs_every_case() {
     let mut pending: Vec<(KotlinCase, salvo_testkit::Stamp)> = Vec::new();
     for case in cases {
         let (kind, label) = if case.entry == "salvo.main.MainKt" {
-            ("kotlin-files", case.tag)
+            ("kotlin-files", case.tag.as_str())
         } else {
             ("kotlin-entry", case.entry)
         };
@@ -2228,9 +2239,9 @@ fn kotlinc_compiles_and_runs_every_case() {
         let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("kt-batch-{i}"));
         let mut kt_paths = Vec::new();
         for (case, _) in chunk.iter() {
-            let pfx = pkg_prefix(case.tag);
+            let pfx = pkg_prefix(&case.tag);
             for f in &case.files {
-                let path = dir.join("src").join(case.tag).join(&f.rel_path);
+                let path = dir.join("src").join(&case.tag).join(&f.rel_path);
                 std::fs::create_dir_all(path.parent().unwrap()).unwrap();
                 std::fs::write(&path, prefix_content(&f.content, &pfx)).unwrap();
                 kt_paths.push(path);
@@ -2283,7 +2294,7 @@ fn kotlinc_compiles_and_runs_every_case() {
                 let Some((index, case, dir)) = jobs.get(i).copied() else {
                     return;
                 };
-                let entry = format!("{}.{}", pkg_prefix(case.tag), case.entry);
+                let entry = format!("{}.{}", pkg_prefix(&case.tag), case.entry);
                 let run = Command::new("kotlin")
                     .arg("-cp")
                     .arg(dir.join("out"))
@@ -9629,4 +9640,154 @@ fn a_dependent_spawn_builds_the_childs_carrier() {
         text.contains("__Actor_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))"),
         "the spawn does not build the carrier from its clause:\n{text}"
     );
+}
+
+// ===== the checked-in examples (examples/README.md) =====
+
+/// The repository's `examples/` directory.
+fn examples_dir() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
+}
+
+/// Every example directory, by name, in a stable order.
+fn example_names() -> Vec<String> {
+    let mut out: Vec<String> = std::fs::read_dir(examples_dir())
+        .expect("examples/ is readable")
+        .filter_map(|e| {
+            let e = e.expect("a readable entry");
+            let name = e.file_name().to_string_lossy().to_string();
+            e.path().join("salvo").is_dir().then_some(name)
+        })
+        .collect();
+    out.sort();
+    assert!(!out.is_empty(), "no examples found");
+    out
+}
+
+/// Emits one example's Kotlin, exactly as `salvo compile` would.
+fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let mut sources = SourceSet::default();
+    let errors = sources.add_dir(&std_dir, "kt", true);
+    assert!(errors.is_empty(), "failed to read std: {errors:?}");
+    let src = examples_dir().join(example).join("salvo");
+    let errors = sources.add_dir(&src, "kt", false);
+    assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: sources.companions,
+    };
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("`examples/{example}` no longer compiles:\n{}", errors.join("\n"))
+    })
+}
+
+/// The generated tree checked in beside each example is what the
+/// compiler writes *today* — "stale generated code is worse than none: it is
+/// read as what the compiler does" (examples/README.md). A text comparison, so
+/// it needs no toolchain, and it also catches an example whose *source* stopped
+/// checking: emission then fails outright.
+///
+/// Added 2026-09-16, after `examples/effects/` was found broken since
+/// 2026-09-15 — nothing in the suite read the examples at all.
+#[test]
+fn every_examples_checked_in_kotlin_is_current() {
+    for example in example_names() {
+        let files = emit_example(&example);
+        let root = examples_dir().join(&example).join("kotlin");
+        for file in &files {
+            let path = root.join(&file.rel_path);
+            let found = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+                panic!(
+                    "examples/{example}/kotlin/{} is missing: regenerate with \
+                     `cargo run -- compile --backend kotlin --src \
+                     examples/{example}/salvo --target examples/{example}/kotlin`",
+                    file.rel_path.display()
+                )
+            });
+            if found != file.content {
+                let at = found
+                    .lines()
+                    .zip(file.content.lines())
+                    .position(|(a, b)| a != b)
+                    .map(|i| i + 1);
+                panic!(
+                    "examples/{example}/kotlin/{} is stale (first difference at line \
+                     {}): regenerate with `cargo run -- compile --backend kotlin --src \
+                     examples/{example}/salvo --target examples/{example}/kotlin`",
+                    file.rel_path.display(),
+                    at.map(|l| l.to_string()).unwrap_or_else(|| "end of file".into())
+                );
+            }
+        }
+    }
+}
+
+/// One compile-and-run case per example, batched with every other
+/// case: the `expected.txt` each one asserts is the *same file* the Rust
+/// backend asserts, which is where the parity claim in `examples/README.md`
+/// actually gets checked.
+fn example_case(name: &str) -> KotlinCase {
+    let expected = std::fs::read_to_string(examples_dir().join(name).join("expected.txt"))
+        .unwrap_or_else(|_| panic!("examples/{name}/expected.txt is missing"));
+    kotlin_case(emit_example(name), &format!("example-{name}"), &expected)
+}
+
+fn kotlin_example_actors() -> KotlinCase {
+    example_case("actors")
+}
+
+fn kotlin_example_collections() -> KotlinCase {
+    example_case("collections")
+}
+
+fn kotlin_example_effects() -> KotlinCase {
+    example_case("effects")
+}
+
+fn kotlin_example_files() -> KotlinCase {
+    example_case("files")
+}
+
+fn kotlin_example_iteration() -> KotlinCase {
+    example_case("iteration")
+}
+
+fn kotlin_example_linearity() -> KotlinCase {
+    example_case("linearity")
+}
+
+fn kotlin_example_qualifiers() -> KotlinCase {
+    example_case("qualifiers")
+}
+
+fn kotlin_example_throw_and_release() -> KotlinCase {
+    example_case("throw-and-release")
+}
+
+/// Every example has a case above — checked here rather than
+/// trusted, since the registry is written by hand.
+#[test]
+fn every_example_has_a_kotlin_case() {
+    let cased: Vec<String> = KOTLIN_CASES
+        .iter()
+        .map(|case| case().tag)
+        .filter(|tag| tag.starts_with("example-"))
+        .map(|tag| tag["example-".len()..].to_string())
+        .collect();
+    for name in example_names() {
+        assert!(
+            cased.contains(&name),
+            "examples/{name} has no Kotlin compile-and-run case: add one to \
+             KOTLIN_CASES"
+        );
+    }
 }

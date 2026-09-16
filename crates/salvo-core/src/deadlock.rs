@@ -1,8 +1,8 @@
 //! [actor-deadlock-cycle] The static deadlock baseline: a cycle check over
 //! the **effect graph** of actors that wait for one another.
 //!
-//! The design's committed baseline (CONCURRENCY.md, "Deadlock statics";
-//! CONCURRENCY_EXAMPLES.md Example 4). Two actors that each park a *gated*
+//! The design's committed baseline, decided with the phase and recorded in
+//! COMPLETED.md's log. Two actors that each park a *gated*
 //! continuation on the other's answer wait forever, and the failure is
 //! interleaving-dependent — it passes every test and deadlocks in production
 //! on the rare crossing — so what is caught here is the **possibility**,

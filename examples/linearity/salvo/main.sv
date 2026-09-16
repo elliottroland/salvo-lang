@@ -8,8 +8,9 @@
 //   1. where the obligation comes from, and what discharges it
 //   2. that it *moves* — a consuming call ends your access to the value
 //   3. that a keeping call borrows instead, and hands it back
-//   4. that the obligation is the value's, and cannot hide in a composite
+//   4. that the obligation is the value's, and where it may not hide
 //   5. how a generic opts in to carrying one (`canbe linear`, `once`)
+//   6. a *container* of obligations, and the terminal that ends one
 //
 // The sibling example `throw-and-release/` shows the same machinery doing the
 // job it exists for: releasing a resource on a path that leaves early.
@@ -70,17 +71,17 @@ fn borrow_then_use() [Console] -> None {
 //
 // Reading a field is free: it neither discharges the obligation nor damages
 // the value, so the ticket is still owed afterwards. What a linear value may
-// *not* do is hide inside a composite — a tuple component, a union arm, a
-// list element — because the obligation cannot yet be tracked through one.
-// Each is refused where it is written, and the message says so:
+// *not* do is hide somewhere nothing carries its obligation onward — a tuple
+// component, an array element, a variadic position. Each is refused where it
+// is written, and the message says so:
 //
 //   let pair = (ticket, 1)      // `Ticket` is linear, so it cannot be a
 //                              // tuple component
 //   let xs = list_of(ticket)    // a linear value cannot be passed in a
-//                              // variadic position
+//                              // variadic position (untracked)
 //
-// So a linear value lives in a local, a parameter or a return value — which
-// is enough for the resources it is for.
+// A union arm *may* be linear (narrowing settles it), and so may a container
+// that opts in — which is section 6.
 fn read_a_field() [Console] -> None {
     let ticket = issue(3, "1A")
     let seat = ticket.seat
@@ -108,10 +109,47 @@ fn generic_handoff() [Console] -> None {
     hand_over(ticket, t -> redeem(t))
 }
 
+// ===== 6. a container of obligations =====
+//
+// `List` opts its element type in (`intrinsic type List<T canbe linear>`), so
+// `Mut List<Ticket>` is itself a linear type: it owes, and its **terminal** is
+// `drain`. Nothing at the use site says any of that — the element's
+// declaration is the only place linearity is spelled.
+//
+// A second discharger, and a quiet one: a `drain` callback is a *pure*
+// position, so a discharger that prints cannot fill it.
+fn scrap(ticket: Ticket) [] -> None => !ticket {
+    discard(ticket)
+}
+
+fn a_queue_of_tickets() [Console] -> None {
+    let queue: Mut List<Ticket> = mut_list_of()
+    add(queue, issue(5, "2B"))
+    add(queue, issue(6, "2C"))
+    println("6. queued ${size(queue)}")
+
+    // Out one at a time. `remove_first` *moves* the element out and answers
+    // `Ticket?`, so nothing is aliased and the `None` arm owes nothing —
+    // which is why `get` stays closed to obligations: it would hand out a
+    // borrow, and two paths could discharge one ticket.
+    let first = remove_first(queue)
+    when first {
+        is Ticket { redeem(first) }
+        is None {}
+    }
+
+    // The terminal consumes the container and hands every element over.
+    // Without it `queue` is an ordinary leak — and the diagnostic names
+    // `drain`, not `redeem`, because it is the *queue* that owes.
+    drain(queue, scrap)
+    println("6. queue drained")
+}
+
 fn main() [use] -> None {
     use StdOutConsole()
     one_use()
     borrow_then_use()
     read_a_field()
     generic_handoff()
+    a_queue_of_tickets()
 }

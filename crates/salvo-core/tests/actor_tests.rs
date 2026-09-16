@@ -1119,7 +1119,8 @@ fn main() [use, spawn] {
 
 /// [actor-replyto] A **remote** mint — `k` naming a member of another `actor
 /// effect` in scope rather than of the enclosing handler — is the generalized
-/// form (EFFECT_UNIFICATION.md EU-7b, decided) and a later slice: it makes the
+/// form (the generalized mint, decided — ROADMAP.md's sugar pass) and a later
+/// slice: it makes the
 /// mint itself send-like, since capacity must be reserved in the *target's*
 /// queue. Named, with the workaround that needs nothing new — a token is an
 /// ordinary linear value, so the handler that owns `k` mints it and passes it.

@@ -2363,7 +2363,7 @@ Conventions:
 
 The concurrency surface: **an actor is an effect handler bound
 asynchronously**. Designed across 2026-09-14/15 (user decisions; the argument
-trail is CONCURRENCY.md, the decided summary COMPLETED.md's decision log), and
+trail and the decided summary are in COMPLETED.md's decision log), and
 being built in slices — so each rule below states what already holds and what
 does not exist yet. Nothing here is in LANGUAGE.md until the feature runs;
 LANGUAGE.md remains the source of truth for everything that does.
@@ -2624,7 +2624,7 @@ LANGUAGE.md remains the source of truth for everything that does.
       between a construction and an `Addr` in a spawn clause, never a `use`.
   * **The target is resolved lexically**, against the enclosing handler's
     members. Naming a member of another `actor effect` in scope is a *remote
-    mint* — the generalized form (EFFECT_UNIFICATION.md EU-7b, decided) — and
+    mint* — the generalized form (decided; ROADMAP.md's sugar pass) — and
     is refused for now with the workaround that needs nothing new: a token is
     an ordinary linear value, so the handler that owns `k` mints it and passes
     it. The generalization is a later slice because it makes the mint itself
@@ -2663,6 +2663,15 @@ LANGUAGE.md remains the source of truth for everything that does.
     [linear-opaque], discharged by `send(r, v)` (`r.send(v)` in dot form).
     Linearity is what makes "answered exactly once, on every path" a
     *static* guarantee.
+    * **Capacity is reserved in the token's target when the token is
+      minted**, which is why a discharge never blocks and never counts
+      against the mailbox bound: the room for the answer was taken when the
+      request was made. The rule generalizes unchanged when the mint does
+      (the sugar pass's remote mint reserves in *another* actor's queue, so
+      minting becomes send-like and can block; the first pass's lexical mint
+      reserves in the minting actor's own).
+    * Sending to a token whose target has died is a silent no-op, as every
+      send is [actor-watch].
   * **`Pool`**, with `intrinsic fn pool(size: Int) [spawn] -> Pool` — an
     ordinary value, so one pool can be shared by many spawns; `on pool(2)`
     is a call, and the `[spawn]` on the function is what makes creating one

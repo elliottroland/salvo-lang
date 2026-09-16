@@ -3,11 +3,12 @@
 A bootstrap template for the design working documents this repository uses to
 open a phase. If you are about to write one — a read-ahead option space for an
 upcoming phase, or the design pass for a **DECISION** in ROADMAP.md — read this
-first, then follow the skeleton in §2. The live instance is **CONCURRENCY.md**
-(phase 5, `OPEN`); when this template is ambiguous, copy what it does. Two
-retired instances show the whole life cycle: OBLIGATIONS.md (phase 3) and
-FILE_SYSTEM.md (phase 4), both **deleted** once their phase landed, with their
-decided outcomes in COMPLETED.md's decision log.
+first, then follow the skeleton in §2. Every instance so far has since been
+**deleted** — which is the shape's whole life cycle, and the thing to plan for:
+OBLIGATIONS.md (phase 3), FILE_SYSTEM.md (phase 4), then CONCURRENCY.md,
+SUPERVISION.md, LINEARITY_COLLECTIONS.md and EFFECT_UNIFICATION.md (phase 5),
+each retired once its phase landed with its decided outcomes in COMPLETED.md's
+decision log. The examples below quote them from that record.
 
 ## 1. What a working document is, and is for
 
@@ -138,7 +139,7 @@ reads first, so keep it faithful to the sections above.
   sequence and the propagation owed — and was deleted when the last item
   landed. Its `FS-`/`O-` decisions live in COMPLETED.md's decision log, which
   is where the `§`-references left behind in code comments now read against.
-- **CONCURRENCY.md** — phase 5 (threading and concurrency, the OTP model). Shows
+- **CONCURRENCY.md** (retired) — phase 5 (threading and concurrency, the OTP model). Showed
   an `OPEN` document at the start of a phase: tentative intent, fixed points that
   include four open ROADMAP **DECISION**s, a cross-language survey with a
   backends subsection, and eight decision sections (`C-1`…`C-8`) each folding a

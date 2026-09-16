@@ -66,6 +66,15 @@ are two separate capabilities and can be in scope together. A call picks its
 instance from the expected type (`let retries: Int = setting()`) or from a
 written type argument (`setting<Str>()`).
 
+Its handler shows a second thing worth reading: a handler **keeps** its
+constructor argument for its whole life, so a member cannot hand the stored
+value out — every call would be moving the same one [effect-state-store]. The
+remedy is `copy`, and for a *generic* value the handler is the wrong party to
+ask how to copy it, so `?copy` arrives as an implicit parameter filled at the
+call site [copy-implicit]. Written without it, the Rust backend clones and the
+Kotlin backend refuses outright: neither is a bug, they are the two ways a
+missing copy shows up.
+
 ## The composition root
 
 `main` is the only function in the program that names a handler; everything

@@ -1,6 +1,12 @@
 package salvo.main
 
+import salvo.core.array.*
+import salvo.core.bytes.*
 import salvo.core.console.*
+import salvo.core.list.*
+import salvo.core.map.*
+import salvo.core.set.*
+import salvo.core.sorted.*
 import salvo.core.string.*
 
 data class Ticket(
@@ -51,10 +57,32 @@ fun generic_handoff(console: Console) {
     hand_over(console, ticket, { console2: Console, t -> redeem(console2, t) })
 }
 
+fun scrap(ticket: Ticket) {
+    (ticket).let {}
+}
+
+fun a_queue_of_tickets(console: Console) {
+    val queue: MutableList<Ticket> = mutableListOf<Ticket>()
+    queue.add(issue(console, 5, "2B"))
+    queue.add(issue(console, 6, "2C"))
+    println(console, "6. queued ${queue.size}")
+    val first = (queue).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+    when {
+        first != null -> {
+            redeem(console, first)
+        }
+        else -> {
+        }
+    }
+    (queue).toList().forEach(::scrap)
+    println(console, "6. queue drained")
+}
+
 fun main() {
     val console: Console = StdOutConsole()
     one_use(console)
     borrow_then_use(console)
     read_a_field(console)
     generic_handoff(console)
+    a_queue_of_tickets(console)
 }

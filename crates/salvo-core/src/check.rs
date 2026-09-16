@@ -8811,7 +8811,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [actor-replyto] A **remote** mint — `k` is a member of an
             // `actor effect` in scope rather than of this handler — is the
-            // generalized form (EFFECT_UNIFICATION.md EU-7b, decided) and a
+            // generalized form (decided — ROADMAP.md's sugar pass) and a
             // later slice: it makes the mint itself send-like, since capacity
             // has to be reserved in the *target's* queue. Named here rather
             // than reported as an unresolved name, with the workaround that

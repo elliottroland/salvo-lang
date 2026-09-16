@@ -96,7 +96,7 @@ fn runtime_modules_carry_the_generated_header() {
 }
 
 // ===== The scheduler's *behaviour* — asynchronous effect handlers' runtime
-// (CONCURRENCY.md "The first pass", SUPERVISION.md) =====
+// ([actor-kind] … [actor-watch]) =====
 //
 // **The scenarios and the expected output are verbatim the Rust backend's
 // `runtime_tests.rs`** — that equality is the parity assertion: the two
@@ -283,7 +283,7 @@ fun main() {
         },
         // The idle-with-parked-gates report: `main` waits for a reply
         // nothing can ever send, and the scheduler says so and exits
-        // non-zero instead of hanging (SUPERVISION.md S-3).
+        // non-zero instead of hanging [actor-watch].
         SchedulerCase {
             tag: "idle-report",
             driver: r#"

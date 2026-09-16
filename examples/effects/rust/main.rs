@@ -308,7 +308,7 @@ pub fn audit_and_measure<__Fx: __Has_Audit + __Has_Metrics>(__fx: &mut __Fx, wha
 }
 
 pub trait Setting<T> {
-    fn setting(&mut self) -> T;
+    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T;
 }
 
 pub trait __Has_Setting<T> {
@@ -329,14 +329,14 @@ impl<T: Clone + 'static> Fixed<T> {
 
 impl<T: Clone + 'static> Setting<T> for Fixed<T> {
 
-    fn setting(&mut self) -> T {
-        return self.value.clone();
+    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T {
+        return copy(self.value.clone());
     }
 }
 
 pub fn settings<__Fx: __Has_Setting<i32> + __Has_Setting<String> + __Has_Console>(__fx: &mut __Fx) {
-    let mut retries: i32 = __Has_Setting::<i32>::__get_Setting(&mut *__fx).setting();
-    let mut region = __Has_Setting::<String>::__get_Setting(&mut *__fx).setting();
+    let mut retries: i32 = __Has_Setting::<i32>::__get_Setting(&mut *__fx).setting(&mut |__i0| __i0.clone());
+    let mut region = __Has_Setting::<String>::__get_Setting(&mut *__fx).setting(&mut |__i0| __i0.clone());
     println(&mut *__fx, &(format!("   retries={} region={}", retries, region)));
 }
 

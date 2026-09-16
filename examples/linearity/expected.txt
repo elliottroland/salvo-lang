@@ -10,3 +10,8 @@
 1. redeemed #3
 1. issued #4 for 9B
 1. redeemed #4
+1. issued #5 for 2B
+1. issued #6 for 2C
+6. queued 2
+1. redeemed #5
+6. queue drained

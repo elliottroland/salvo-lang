@@ -26,8 +26,14 @@ pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
 
+use crate::core_array::*;
+use crate::core_bytes::*;
 use crate::core_console::*;
 use crate::core_iterator::*;
+use crate::core_list::*;
+use crate::core_map::*;
+use crate::core_set::*;
+use crate::core_sorted::*;
 use crate::core_string::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,10 +85,32 @@ pub fn generic_handoff(console: &mut dyn Console) {
     hand_over(console, ticket, |console2: &mut dyn Console, t| redeem(console2, t));
 }
 
+pub fn scrap(ticket: Ticket) {
+    drop(ticket);
+}
+
+pub fn a_queue_of_tickets(console: &mut dyn Console) {
+    let mut queue: Vec<Ticket> = vec![];
+    queue.push(issue(console, 5, "2B".to_string()));
+    queue.push(issue(console, 6, "2C".to_string()));
+    println(console, &(format!("6. queued {}", (queue.len() as i32))));
+    let mut first = { let __l = &mut queue; if __l.is_empty() { None } else { Some(__l.remove(0)) } };
+    match first {
+        Some(_) => {
+            redeem(console, first.unwrap());
+        }
+        None => {
+        }
+    }
+    queue.into_iter().for_each(|mut __a0| scrap(__a0));
+    println(console, &("6. queue drained".to_string()));
+}
+
 pub fn main() {
     let mut console = StdOutConsole::new();
     one_use(&mut console);
     borrow_then_use(&mut console);
     read_a_field(&mut console);
     generic_handoff(&mut console);
+    a_queue_of_tickets(&mut console);
 }

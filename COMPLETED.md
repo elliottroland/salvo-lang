@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1051 tests, complete: the toolchain tests are
+cargo test                  # 1055 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,8 +122,80 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Phase 5: the concurrency vocabulary becomes "actor" (user decision
-2026-09-16).** Three words named one concept — `async` at the declaration,
+**Phase 5, sequence item 8 — propagation and retirement, and the phase closes
+(2026-09-16).** The four remaining working documents are **deleted**:
+CONCURRENCY.md (the option space and the direction), SUPERVISION.md (S-1…S-4),
+and the two CONCURRENCY_EXAMPLES files (the worked sketches), plus
+EFFECT_UNIFICATION.md (the sugar tower's design) — after
+LINEARITY_COLLECTIONS.md went with item 7. Their decided content is in the rules
+([actor-kind] … [actor-watch], [linear-container], [linear-state], [rs-actor],
+[kt-actor]) and in this log; every citation of them in code, tests and specs now
+points at a rule label instead, so nothing in the tree references a file that no
+longer exists. With that, **all five phases of "the sequence" are complete.**
+
+**`examples/actors/` is the worked example**, and it is what the sketches
+became: six sections — the smallest actor; the linear reply token; an answer
+that needs *another* actor (`replyto` parking a continuation, with `main` out of
+the loop); a queue of obligations drained on shutdown; death and `watch`; and
+the same handler bound synchronously with `use`, which is not an actor at all.
+Running code beats prose the moment the feature exists, which is why the
+respelling sweep those files were owed became a deletion instead: nothing was
+lost that the example does not now demonstrate by executing.
+
+**Two things fell out of writing it, and both are worth more than the example.**
+
+- **A `while <call> is T name` evaluates its subject twice** — the condition
+  from the ordinary expression path, the binding re-emitted from the AST — so a
+  subject with side effects runs twice per iteration. With take-by-move that
+  *silently drops* elements, and for a linear element its obligation with them;
+  the Rust arm also `.clone()`s the payload the checker thinks it moved. Both
+  backends, both clean-compiling. Recorded as an open defect with the repro, the
+  root cause and the fix shape (`while let Some(x) = …` on Rust, a `?: break`
+  binding on Kotlin), and flagged as the thing to do next: silently wrong output
+  is the worst class this repository has.
+- **Nothing in the suite read the examples.** `examples/effects/` had not
+  compiled since 2026-09-15 (the [effect-state-store] read direction: a member
+  returning the handler's constructor argument now needs `copy`), and nobody
+  noticed, because the only signal was a human running one. Two guards per
+  backend now: the checked-in `rust/`/`kotlin/` tree must equal what the emitter
+  writes today (a text comparison, no toolchain, which also fails outright when
+  an example's *source* stops checking), and each example must run to its
+  `expected.txt` — the Kotlin half as cases in the batched registry, so the
+  marginal cost is one more program in an existing `kotlinc` invocation rather
+  than a fresh JVM (four new tests, and eight new cases in the Kotlin registry).
+  Tests: **1055 (+4)**.
+
+**Two examples needed fixing rather than regenerating**, which is what those
+guards exist to surface. `effects/` got `?copy` as an implicit on its generic
+effect member — the *handler* is the wrong party to ask how to copy a `T`, so
+the call site fills it in, which is a better lesson than the one it replaced
+(written naively, the Rust backend clones and the Kotlin backend refuses
+outright, and neither is a bug). `linearity/` claimed a list element could not
+hold an obligation, true until item 7 landed six hours earlier; it now has a
+sixth section that queues tickets, takes one out with `remove_first` and drains
+the rest — including the wart that a `drain` callback is a pure position, so the
+discharger that prints cannot fill it.
+
+**One decision came out of the documents rather than dying with them**: the
+spawn line's respelling (EFFECT_UNIFICATION.md's round 7, still `OPEN` when it
+retired) is now a **DECISION** in ROADMAP.md with its four options and a
+recommendation — `capacity` folded into the `on` expression as a `Placement`,
+plus continuation-line clauses. It is the only phase-5 row left in the
+decisions table, and the rule that nothing open lives outside ROADMAP.md is what
+put it there.
+
+**Explored and abandoned, for the record** (the last thing the retiring
+documents were carrying): **full sync/async unification** —
+EFFECT_UNIFICATION.md's round 1 proposed making *every* effect member a
+`send fn`, with the synchronous reading a special case of the asynchronous one.
+The user rejected it as "not a promising way to go", and the diagnosis it
+produced was kept: the features a synchronous member has and an asynchronous one
+cannot (kept parameters, `Mut` parameters, `proj` returns) are not a *deficiency
+list* to be smoothed over but the **refusal list of a kind**, checked where the
+author is deciding. That is [actor-effect-kind], and it is why the divide sits at
+the effect declaration instead of at each member or each binding.
+
+ Three words named one concept — `async` at the declaration,
 `Addr` for the handle, "process" for the thing running — and the user asked
 whether the design resembles the actor model closely enough to collapse them
 onto that word. It does, on every property the industry treats as
@@ -11133,7 +11205,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1051)
+## Test inventory (all green: 1055)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11790,13 +11862,13 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 102 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 104 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 91 cases as of the obligation queue — a process parking reply
+  (2026-09-12; 99 cases as of the examples — **every example in `examples/` is a case**, so the `expected.txt` each one asserts is the same file the Rust backend asserts — and the obligation queue — a process parking reply
   tokens in `Mut List<Reply<Str>>` state, answering one with `remove_first` and
   draining the rest on shutdown (`second closed: end of day` / `first served
   ada`) [linear-container] [linear-state] — and the death watch: a process that faults, a
@@ -11987,7 +12059,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 185 - including twelve [rs-actor] tests (the first
+- `salvo-backend-rust`: 187 - including twelve [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12196,6 +12268,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **The examples are part of the contract, so test them.** `examples/effects/`
+  stopped compiling on 2026-09-15 and nobody knew for a day: nothing in the
+  suite read `examples/`, so the only signal was a human running one. Two
+  guards per backend now, and the cheap one is the one that matters — comparing
+  the *checked-in generated tree* against what the emitter writes needs no
+  toolchain and fails outright when an example's source stops checking. The
+  general lesson: anything checked in as "what the compiler does" needs a test
+  saying so, or it silently becomes what the compiler *did* (2026-09-16).
 - **A generated call to a generated lambda wants a typed callee.** The first
   `drain` lowering applied the callback literal directly —
   `for __x in xs { (|r| …)(__x); }` — and *both* target compilers refused it
