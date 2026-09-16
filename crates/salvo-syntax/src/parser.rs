@@ -45,16 +45,16 @@ struct Snapshot {
     diag_len: usize,
 }
 
-/// [async-self-send] The contextual selector that names the enclosing handler:
+/// [actor-self-send] The contextual selector that names the enclosing handler:
 /// `k@self(args)`. Contextual, not reserved — `self` stays an ordinary name
 /// everywhere else, and it is only special immediately after `@`.
 pub const SELF_SELECTOR: &str = "self";
 
-/// [async-effect-kind] The contextual modifier that makes an effect a process
-/// protocol: `async effect E { … }`. Contextual, not reserved — and the only
+/// [actor-effect-kind] The contextual modifier that makes an effect an actor
+/// protocol: `actor effect E { … }`. Contextual, not reserved — and the only
 /// place the word appears in the language, since the phase decided against
 /// colouring functions.
-pub const ASYNC_MODIFIER: &str = "async";
+pub const ACTOR_MODIFIER: &str = "actor";
 
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
@@ -498,13 +498,31 @@ impl<'s> Parser<'s> {
                 }
             }
             TokenKind::KwEffect => self.parse_effect(false).map(Item::Effect),
-            // [async-effect-kind] `async effect E { … }`: a process protocol.
+            // [actor-effect-kind] `actor effect E { … }`: an actor protocol.
             // Contextual — at item level a bare identifier is otherwise a
             // parse error, which is what makes one token of lookahead enough
             // (the `iter fn` precedent).
             TokenKind::Ident(name)
-                if name == ASYNC_MODIFIER && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
+                if name == ACTOR_MODIFIER && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
             {
+                self.bump();
+                self.parse_effect_kinded(false, true).map(Item::Effect)
+            }
+            // [actor-effect-kind] The word every other language uses for this,
+            // and the one this kind was spelled with until 2026-09-16. Worth a
+            // diagnostic of its own rather than "expected item": `async` is
+            // what an author will reach for, and the rename exists partly to
+            // stop implying the colouring `async` carries elsewhere.
+            TokenKind::Ident(name)
+                if name == "async" && matches!(self.peek_at(1).kind, TokenKind::KwEffect) =>
+            {
+                let span = self.peek().span;
+                self.error(
+                    "an asynchronous protocol is declared `actor effect`, not `async \
+                     effect`: what runs one is an **actor** — and there is no `async` \
+                     anywhere in Salvo, since nothing is coloured",
+                    span,
+                );
                 self.bump();
                 self.parse_effect_kinded(false, true).map(Item::Effect)
             }
@@ -1047,12 +1065,12 @@ impl<'s> Parser<'s> {
         self.parse_effect_kinded(platform, false)
     }
 
-    /// [async-effect-kind] `async effect E { … }` — a process protocol. The
-    /// modifier is **contextual** (`async` followed by `effect`), like every
-    /// other word this phase added: nothing is reserved, so `async` stays a
-    /// legal name. There is deliberately no `async fn` — the phase decided
+    /// [actor-effect-kind] `actor effect E { … }` — an actor protocol. The
+    /// modifier is **contextual** (`actor` followed by `effect`), like every
+    /// other word this phase added: nothing is reserved, so `actor` stays a
+    /// legal name. There is deliberately no `actor fn` — the phase decided
     /// against colouring — so this is the only place the word appears.
-    fn parse_effect_kinded(&mut self, platform: bool, is_async: bool) -> Option<EffectDecl> {
+    fn parse_effect_kinded(&mut self, platform: bool, is_actor: bool) -> Option<EffectDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwEffect)?.span;
         let name = self.ident_type("effect")?;
@@ -1066,7 +1084,7 @@ impl<'s> Parser<'s> {
         Some(EffectDecl {
             docs,
             platform,
-            is_async,
+            is_actor,
             name,
             generics,
             fns,
@@ -1137,7 +1155,7 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-                // [async-send-fn] `send fn` is a member too; anything else
+                // [actor-send-fn] `send fn` is a member too; anything else
                 // that is not a `fn` is a state field.
                 let is_send_member =
                     self.at_word("send") && matches!(self.peek_at(1).kind, TokenKind::KwFn);
@@ -1173,7 +1191,7 @@ impl<'s> Parser<'s> {
 
     /// [iter-fn] `iter fn` is the generated-pass form; the flavour is carried on
     /// the declaration rather than inferred from the body.
-    /// [async-send-fn] A member of an effect or a handler, with the
+    /// [actor-send-fn] A member of an effect or a handler, with the
     /// contextual `send` modifier: `send fn bump(n: Int)`. Contextual for
     /// the reason `iter fn` is (a member named `send` must stay declarable,
     /// and `r.send(v)` is how a reply token is discharged), and unambiguous
@@ -1375,7 +1393,7 @@ impl<'s> Parser<'s> {
                     let tok = self.bump();
                     effects.push(EffectRef::Use(tok.span));
                 }
-                // [async-spawn-effect] `[spawn]`: the process-creation
+                // [actor-spawn-effect] `[spawn]`: the actor-creation
                 // capability, lowercase and compiler-owned like `use`.
                 // Contextual, so `spawn` stays available as a name.
                 TokenKind::Ident(name) if name == "spawn" => {
@@ -2607,8 +2625,8 @@ impl<'s> Parser<'s> {
                 TokenKind::At if self.same_line() => {
                     let at = self.bump().span;
                     let first = self.ident()?;
-                    // [async-self-send] `k@self(args)`: the enclosing
-                    // *handler*'s member — a message to this process. One
+                    // [actor-self-send] `k@self(args)`: the enclosing
+                    // *handler*'s member — a message to this actor. One
                     // selector family with `k@E` (an effect's member) and
                     // `k@module` (a module's overload), which is why the
                     // spelling is a selector and not a `self.` receiver: a
@@ -2926,7 +2944,7 @@ impl<'s> Parser<'s> {
                 })
             }
             TokenKind::Ident(_) => {
-                // [async-self-send] The old self-send spelling. `self.k(…)`
+                // [actor-self-send] The old self-send spelling. `self.k(…)`
                 // was the first-pass form for a matter of hours; it is a plain
                 // parse error now, naming the selector that replaced it (user
                 // decision 2026-09-15). No transitional accept — nothing
@@ -2944,11 +2962,11 @@ impl<'s> Parser<'s> {
                 // The asynchronous forms are **contextual**: each is
                 // recognised from its word plus what follows, so `spawn`,
                 // `replyto` and `waitfor` all stay usable as ordinary names.
-                // [async-spawn-expr] `spawn H(...)` — a *name* follows.
+                // [actor-spawn-expr] `spawn H(...)` — a *name* follows.
                 if self.at_word("spawn") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
                     return self.parse_spawn();
                 }
-                // [async-replyto] `replyto k(...)` / `replyto! k(...)`.
+                // [actor-replyto] `replyto k(...)` / `replyto! k(...)`.
                 if self.at_word("replyto")
                     && (matches!(self.peek_at(1).kind, TokenKind::Ident(_))
                         || (matches!(self.peek_at(1).kind, TokenKind::Bang)
@@ -2956,7 +2974,7 @@ impl<'s> Parser<'s> {
                 {
                     return self.parse_replyto();
                 }
-                // [async-waitfor] `waitfor out: Reply<T> { ... }` — a name
+                // [actor-waitfor] `waitfor out: Reply<T> { ... }` — a name
                 // and a `:` follow, which no call of a fn named `waitfor`
                 // can look like.
                 if self.at_word("waitfor")
@@ -3376,7 +3394,7 @@ impl<'s> Parser<'s> {
         Some(Expr::Try { body, span })
     }
 
-    /// [async-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL`
+    /// [actor-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL`
     /// — the asynchronous binding of a handler. The `use` clause is optional
     /// (a handler with no dependencies needs none); `capacity` and `on` are
     /// not, since neither the mailbox bound nor the pool has a default.
@@ -3422,10 +3440,10 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [async-replyto] `replyto k(captures)` — mint a parked one-shot
+    /// [actor-replyto] `replyto k(captures)` — mint a parked one-shot
     /// continuation targeting member `k` of the enclosing handler, yielding
     /// its linear `Reply<T>`. `replyto! k(captures)` is the gated mint: the
-    /// process serves nothing else until the answer arrives.
+    /// actor serves nothing else until the answer arrives.
     fn parse_replyto(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `replyto`
         let gated = self.eat(&TokenKind::Bang).is_some();
@@ -3455,7 +3473,7 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [async-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge
+    /// [actor-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge
     /// into the asynchronous world. The binder's type is written out, since
     /// nothing else in the block says what answer is being waited for.
     fn parse_waitfor(&mut self) -> Option<Expr> {
@@ -3699,7 +3717,7 @@ fn parse_interpolated_expr(source: &str, offset: u32) -> (Expr, Vec<Diagnostic>)
 enum FnFlavor {
     Plain,
     Iter,
-    /// [async-send-fn] `send fn`: an asynchronous member of a process
+    /// [actor-send-fn] `send fn`: an asynchronous member of an actor
     /// protocol — legal only inside an effect or a handler.
     Send,
 }

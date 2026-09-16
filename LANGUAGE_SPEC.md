@@ -1949,7 +1949,7 @@ Conventions:
     * A **Copy scalar** is exempt ([copy-scalar-free]): its copy is free and
       indistinguishable from a move, both backends agree, and `copy` around
       every `Int` a member answers with would be noise. Which is exactly why
-      the rule went unnoticed — the first process handler's state was
+      the rule went unnoticed — the first actor handler's state was
       `sum: Int`.
     * This is a *tightening*: `return held` and `eat(held)` used to compile.
       Under "copies only by opt-in" they were a copy nobody wrote.
@@ -2276,7 +2276,7 @@ Conventions:
     learns where it really runs. A path that resolves outside the root is
     refused **distinguishably**, as `Err PathEscapes` — this is a
     least-authority tool for honest code, not a boundary against an adversary
-    inside the process, so debuggability wins. `exists` answers `false` there,
+    inside the actor, so debuggability wins. `exists` answers `false` there,
     having nowhere to put a reason.
   * Resolution is **lexical**: `..` segments are resolved right to left, so
     `a/../b` stays inside while `../b` does not, and an absolute path is
@@ -2359,16 +2359,16 @@ Conventions:
     an enclosing `try` does not leave the fn), so the check's floor is the
     `try` body's scope, or the fn's when the throw propagates out.
 
-## Asynchronous effect handlers (phase 5 — being built)
+## Actors — effect handlers bound asynchronously (phase 5 — being built)
 
-The concurrency surface: **a process is an effect handler bound
+The concurrency surface: **an actor is an effect handler bound
 asynchronously**. Designed across 2026-09-14/15 (user decisions; the argument
 trail is CONCURRENCY.md, the decided summary COMPLETED.md's decision log), and
 being built in slices — so each rule below states what already holds and what
 does not exist yet. Nothing here is in LANGUAGE.md until the feature runs;
 LANGUAGE.md remains the source of truth for everything that does.
 
-* [async-process] A **process** is a handler whose members run one at a time,
+* [actor-kind] An **actor** is a handler whose members run one at a time,
   on a scheduler, in the order their invocations arrived: a state struct plus
   one function per member, exactly the handler that `use` binds
   synchronously. The same handler is bindable both ways — the binding
@@ -2376,61 +2376,65 @@ LANGUAGE.md remains the source of truth for everything that does.
   * The substrate is a **library in each backend's runtime files**
     (`runtime/scheduler.rs`, `runtime/scheduler.kt`), not a runtime baked
     into emitted code: run-to-completion activations on pools, one
-    arrival-order queue per process with an explicit bound, replies with
+    arrival-order queue per actor with an explicit bound, replies with
     reserved capacity, the gate, death as a faulted activation, and the
     idle-with-parked-gates report. Built 2026-09-15, with identical
     behaviour asserted on both backends.
-  * A process **is a region**, so sendability and region-escape are one
+  * An actor **is a region**, so sendability and region-escape are one
     check (user, 2026-09-10, confirmed 2026-09-15). **Handlers never cross
-    into a spawn — construction does** [async-spawn-expr].
-* [async-effect-kind] **`async effect E { … }` declares a process protocol**
+    into a spawn — construction does** [actor-spawn-expr].
+* [actor-effect-kind] **`actor effect E { … }` declares an actor protocol**
   (user decision 2026-09-15, EU-5 of the effect-unification design). The kind
   is *declared*, not diagnosed at a binding, because it is a design-time
-  choice: sync effects can keep arguments and async ones cannot, and that is
+  choice: sync effects can keep arguments and actor ones cannot, and that is
   something an author reckons with when deciding which effect to write.
-  * A **plain effect is never process-backed** — which is how the design's
-    carried named question ("may an ordinary member be process-backed?")
-    closes: *forbid*, with the async kind as the sanctioned spelling. So
-    `spawn`, `use addr` and even *naming* `Addr<E>` require an async effect,
+  * A **plain effect is never actor-backed** — which is how the design's
+    carried named question ("may an ordinary member be actor-backed?")
+    closes: *forbid*, with the actor kind as the sanctioned spelling. So
+    `spawn`, `use addr` and even *naming* `Addr<E>` require an actor effect,
     the last reported where the type is written rather than at a spawn that
     could never have produced it.
-  * `send fn` requires the async kind, and is refused in a plain effect.
+  * `send fn` requires the actor kind, and is refused in a plain effect.
   * **Mixed kinds are refused outright**, not per member: the same handler
     state would be reachable from two threads, and a synchronous reader can
     observe state mid-activation — precisely what scheduler serialization
     exists to prevent.
-  * Inside an `async effect`, a member may **not**: keep a parameter (a send
+  * Inside an `actor effect`, a member may **not**: keep a parameter (a send
     payload always crosses, so it is always consumed — the clause must say
     `=> !p`), take a **`Mut`** parameter (mutating across a boundary would
-    share what a process owns alone), return a **`proj` view** (a borrow of
-    state the process keeps mutating), or carry a **non-sendable** payload
-    [async-sendable]. Each is checked at the declaration and names the law
+    share what an actor owns alone), return a **`proj` view** (a borrow of
+    state the actor keeps mutating), or carry a **non-sendable** payload
+    [actor-sendable]. Each is checked at the declaration and names the law
     rather than the symptom.
-  * A handler of an async effect is still **bindable both ways** — `use H()`
+  * A handler of an actor effect is still **bindable both ways** — `use H()`
     runs its member bodies inline, `spawn H(…)` runs them as activations. That
     is Example 6's binding swap, and the reason the kind sits on the *effect*
     and not on the handler.
-  * `async` is **contextual** (`async` followed by `effect`), and it is the
-    only place the word appears in the language: there is no `async fn`, since
-    the phase decided against colouring.
-* [async-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
+  * `actor` is **contextual** (`actor` followed by `effect`), so nothing is
+    reserved and `actor` stays an ordinary name. There is no `actor fn` and no
+    `async` anywhere in the language: the phase decided against colouring, and
+    the word was renamed from `async` on 2026-09-16 (user decision) partly
+    because the old spelling kept implying it. `async effect` is a parse error
+    naming this form — worth its own diagnostic, since `async` is what an
+    author arriving from another language will reach for.
+* [actor-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
   structural rule (a)): a value may not transitively hold
   * a **function value** — a callback is shared rather than owned, and the
     Rust backend holds one in an `Rc`, which is not `Send` [rs-fn-field];
   * a **`proj` view** — a borrow of a value the sender still owns.
   Checked structurally, through struct fields, type arguments, arrays, tuples
-  and unions, with a depth guard. The check's *site* is the async effect's
+  and unions, with a depth guard. The check's *site* is the actor effect's
   declaration for member payloads — where the author is choosing — and the
   crossing site for `replyto` captures and spawn arguments.
   * `Arc`-where-sent inference is the recorded growth point (C-4(c)), for when
     sent closures and pipeline functions become real; until then the answer is
     a diagnostic naming the field.
-* [async-send-fn] An **asynchronous member** is declared `send fn`, in an
+* [actor-send-fn] An **asynchronous member** is declared `send fn`, in an
   effect and in the handlers implementing it. Sending it *enqueues* an
   invocation, so it **answers nothing**: a written return type is an error
   naming the shape that does carry an answer — an `out: Reply<T>` parameter
-  minted with `replyto` [async-replyto]. In the first pass every member of a
-  process protocol is one; the unmarked `fn` member spelling stays reserved
+  minted with `replyto` [actor-replyto]. In the first pass every member of a
+  actor protocol is one; the unmarked `fn` member spelling stays reserved
   for the later call-member sugar.
   * `send` is **contextual**, not reserved (the `iter fn` precedent): a
     state field named `send`, a fn named `send`, and `r.send(v)` — the
@@ -2442,8 +2446,8 @@ LANGUAGE.md remains the source of truth for everything that does.
     (user decision 2026-09-15: kept for now, revisited when the surface is
     real) — because there the member does have something true to say, even
     though a send payload always crosses the seam and so is always consumed.
-* [async-spawn-effect] `[spawn]` in an effect list is the **capability to
-  create a process** — lowercase and compiler-owned, like `use`, and
+* [actor-spawn-effect] `[spawn]` in an effect list is the **capability to
+  create an actor** — lowercase and compiler-owned, like `use`, and
   contextual for the same reason `send` is. Accepted on a function and on a
   handler's dependency list (a supervisor spawns its children); refused on a
   fn *type*, exactly as `use` is, because the capability belongs to the body
@@ -2454,14 +2458,14 @@ LANGUAGE.md remains the source of truth for everything that does.
     *expression* only, which made the declaration on `pool` decorative: a
     caller reached it through an undeclared helper. Fixed with the `watch`
     slice, since `watch` is the second `[spawn]` function there has ever been.
-* [async-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL` is
+* [actor-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL` is
   the asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, how deep its queue is, where it
   runs.
   * The **`use` clause is optional** and supplies the child's declared
     dependencies [effect-handler-deps]; each item is a handler
-    *construction* or an `Addr` (the same effect backed by a process),
-    which is what lets a process and a local handler swap without touching
+    *construction* or an `Addr` (the same effect backed by an actor),
+    which is what lets an actor and a local handler swap without touching
     the consuming code. Arguments evaluate in the parent and cross the
     seam; construction happens on the child.
   * **`capacity N` is required, with no default**: the mailbox bound is a
@@ -2487,7 +2491,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     unsupplied (the diagnostic says the clause is where it belongs, never the
     spawning scope); and constructing a clause item that has dependencies *of
     its own*, since there is no scope on the child to resolve those from — a
-    `Addr` of a process already serving the effect is the remedy.
+    `Addr` of an actor already serving the effect is the remedy.
   * **Two orders, and they differ routinely**: the *handler's declaration*
     order is what the child's dependency slots are in, and the *written*
     clause order is what the program says. The checker matches the two while
@@ -2496,7 +2500,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     (and without disagreeing about it) — `use tally, Recording()` and
     `use Recording(), tally` are one program.
   * `capacity` must be an `Int` and `on` a `Pool`.
-* [async-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
+* [actor-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
   and `main`'s only token source (`replyto` targets a member of the enclosing
   handler, and `main` has none): it mints a token, requires the block to
   consume it, blocks main's real thread until it is sent to, and yields what
@@ -2510,7 +2514,7 @@ LANGUAGE.md remains the source of truth for everything that does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
-* [async-use-addr] `use addr` binds an effect in the current scope to a
+* [actor-use-addr] `use addr` binds an effect in the current scope to a
   generated forwarding stub over an `Addr` — first-pass surface, not sugar, and
   no new syntax: the `use` statement already takes an expression, and whether
   a bare name is a handler construction or an `Addr` is a checker question. Its
@@ -2521,11 +2525,11 @@ LANGUAGE.md remains the source of truth for everything that does.
   * **Dot-call through an addr** (`counter.total(out)`) is the inline form of
     the same binding: the receiver names *where* the message goes rather than
     being the member's first argument, the member is resolved against the
-    effect the process serves, and the payload is *consumed* — which is how a
+    effect the actor serves, and the payload is *consumed* — which is how a
     reply token's linearity is discharged by sending it onward. Only a
     `send fn` is reachable this way in the first pass: a member that answers
     would have to park its caller, which is the call-sugar pass (and the
-    named question of whether an ordinary member may be process-backed at
+    named question of whether an ordinary member may be actor-backed at
     all).
   * The receiver may be any **place** whose type is an addr — a variable, a
     field chain (`registry.child`), a tuple element, an array element — since
@@ -2537,7 +2541,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     again against the winner's parameters would report every mistake in them
     twice; arity settles every overload the first pass can express, and a
     same-arity tie is refused rather than guessed.
-* [async-self-send] `k@self(args)` — send a message to **the process the
+* [actor-self-send] `k@self(args)` — send a message to **the actor the
   enclosing member belongs to** (user decision 2026-09-15, option (a) of
   three). The one thing an unqualified call cannot say: that would be
   self-dispatch, which a handler has no way to perform, and it would run `k`
@@ -2546,19 +2550,19 @@ LANGUAGE.md remains the source of truth for everything that does.
   otherwise unwritable, since extracting a function runs the work
   immediately.
   * Defined for **both bindings**, like everything else on this surface: an
-    enqueue on the process's own mailbox when the handler was spawned, and the
+    enqueue on the actor's own mailbox when the handler was spawned, and the
     ordinary inline member call when it was `use`d (which is what a local
     binding of a `send` protocol already does).
     * A handler is compiled **once**, so which reading applies is a property
       of the *instance*, not of the source: both emitters discriminate at run
-      time on the same generated field the mint reads — the process's own
+      time on the same generated field the mint reads — the actor's own
       address, absent exactly when the instance was bound synchronously
-      ([rs-process], [kt-process]). One field, two rules, no second
+      ([rs-actor], [kt-actor]). One field, two rules, no second
       compilation.
   * `k` must be a member of the enclosing handler and a **`send fn`**: a
     member that answers would have to wait for itself. Arguments are typed
     against its parameters and *consumed* — the message outlives this
-    activation even though it never leaves the process.
+    activation even though it never leaves the actor.
   * **A selector, not a receiver** (user decision 2026-09-15, revising the
     `self.k(…)` form that shipped for a few hours): `k@self` joins the family
     `k@E` (an effect's member [effect-at]) and `k@module` (a module's overload
@@ -2579,18 +2583,18 @@ LANGUAGE.md remains the source of truth for everything that does.
     transitional accept, per the no-backwards-compatibility invariant.
   * The self-dispatch diagnostic names this form as the remedy when the member
     it refused was a `send fn`.
-* [async-no-closure] **No first-pass form crosses a closure**: `spawn`,
+* [actor-no-closure] **No first-pass form crosses a closure**: `spawn`,
   `waitfor` and `replyto` are all errors inside a lambda body, and so is
   `k@self(…)` — `self` names nothing there. A function
   value's body runs wherever it is *called*, and none of the three can travel
-  with it — a fn type cannot declare `spawn` [async-spawn-effect], `waitfor`
+  with it — a fn type cannot declare `spawn` [actor-spawn-effect], `waitfor`
   blocks the thread it runs on and only `main` has one to block, and a
   continuation belongs to the handler that minted it. Each diagnostic says so
   in the closure's terms, since "add the capability to the effect list" is not
   available for a lambda. ([fate-lambda], the escaping-closure work, is
   deferred to the call-sugar pass for exactly this reason: nothing in the
   first pass needs a form to cross one.)
-* [async-replyto] `replyto k(captures)` mints a parked one-shot continuation
+* [actor-replyto] `replyto k(captures)` mints a parked one-shot continuation
   targeting member `k` of the **enclosing handler** and yields its `Reply<T>`
   token, which is **linear** [linear-obligation] and discharged by sending to
   it: `r.send(v)`. The arguments are the continuation's *captures* — what the
@@ -2615,11 +2619,11 @@ LANGUAGE.md remains the source of truth for everything that does.
       cannot know which ones its scope will reach. The over-refusal that
       buys — a `use` of a handler whose *other* members are the only ones
       called — was judged theoretical: parking is the one thing only a
-      process can do, so a handler that parks is a process.
+      actor can do, so a handler that parks is an actor.
     * It does not touch Example 6's binding swap, which swaps a *dependency*
       between a construction and an `Addr` in a spawn clause, never a `use`.
   * **The target is resolved lexically**, against the enclosing handler's
-    members. Naming a member of another `async effect` in scope is a *remote
+    members. Naming a member of another `actor effect` in scope is a *remote
     mint* — the generalized form (EFFECT_UNIFICATION.md EU-7b, decided) — and
     is refused for now with the workaround that needs nothing new: a token is
     an ordinary linear value, so the handler that owns `k` mints it and passes
@@ -2633,25 +2637,25 @@ LANGUAGE.md remains the source of truth for everything that does.
     `Mut List<Reply<T>>` whose terminal is `drain` [linear-container]
     [linear-state].
   * `replyto!` is the same mint **plus the gate**: bounded selective
-    receive, at most one outstanding per process, so the process serves
+    receive, at most one outstanding per actor, so the actor serves
     nothing else until the answer arrives. Self-only by nature, so it stays
     lexical with everything above.
   * A token is one-shot *statically*, which is what linearity buys over the
     dynamic enforcement the effects literature settles for.
-* [async-types] The three types the forms produce and consume live in
-  **`core.process`**, all `intrinsic` because each is a handle into the
+* [actor-types] The three types the forms produce and consume live in
+  **`core.actor`**, all `intrinsic` because each is a handle into the
   scheduler its backend ships:
   * **`Addr<E>`** — what a `spawn` hands back, and the whole of what one
-    process knows about another. Named for what the design's own prose calls
+    actor knows about another. Named for what the design's own prose calls
     it: a **many-shot address typed by a protocol**, with `Reply<T>` the
     one-shot address typed by a single value. (It was `Pid<E>` for a few hours;
     renamed by user decision 2026-09-15, because `Pid` is the operating
     system's word and a `platform effect` wrapping process management will want
     it. `Addr` also keeps signature-heavy code short — `List<Addr<ShardApi>>` —
-    and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the process
+    and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the actor
     serves, the one sanctioned effect-in-a-type-position [effect-not-data]
     (user decision 2026-09-15): what a holder may *do* with an addr is exactly
-    that effect, and parameterizing by it is what lets a process and a
+    that effect, and parameterizing by it is what lets an actor and a
     locally `use`d handler stand behind one name. The exception is one
     argument of one type — `List<E>` and every other position stay refused,
     and an addr is still not a handler instance.
@@ -2663,14 +2667,14 @@ LANGUAGE.md remains the source of truth for everything that does.
     ordinary value, so one pool can be shared by many spawns; `on pool(2)`
     is a call, and the `[spawn]` on the function is what makes creating one
     a capability.
-  * An addr is **never linear and freely copied**: a send to a dead process is
+  * An addr is **never linear and freely copied**: a send to a dead actor is
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
   * **`Exit`**, with `intrinsic fn watch<E>(target: Addr<E>, on_exit:
-    Reply<Exit>) [spawn]` — the monitor surface [async-watch]. The only
+    Reply<Exit>) [spawn]` — the monitor surface [actor-watch]. The only
     `<E>` in std that stands for an *effect*, which is what makes one
     function serve every protocol.
-* [async-watch] **`watch(target, on_exit)` is the whole monitor surface**
+* [actor-watch] **`watch(target, on_exit)` is the whole monitor surface**
   (user decisions 2026-09-15 S-1…S-4, spelled 2026-09-16): one function, one
   struct, and no new syntax — because a death notification *is* an answer, so
   the request/response machinery already carries it.
@@ -2679,25 +2683,25 @@ LANGUAGE.md remains the source of truth for everything that does.
     ([effect-member-no-effects] means a `send fn` can never carry
     `[Throw<M>]`), so a program with no platform handlers and no backend
     faults cannot experience death at all. Each backend catches at its
-    dispatch boundary (`catch_unwind` / `try`), marks the process dead, and
+    dispatch boundary (`catch_unwind` / `try`), marks the actor dead, and
     records the reason.
   * **The registration is the obligation**: `on_exit` is consumed, so a
     minted-and-unregistered token is the ordinary leak [linear-obligation] —
     "you cannot silently forget you were watching" needs no rule of its own.
     `main` mints with `waitfor`, a handler with `replyto`, so watching needs
     no special context.
-  * **Watching an already-dead process answers immediately**, with the reason
+  * **Watching an already-dead actor answers immediately**, with the reason
     that death recorded — so a watch that loses the race to a fast fault is
     not a watch that never answers, and a spawn-then-watch pair needs no
     ordering care.
-  * **`[spawn]`-gated**, like `pool`: a monitor is part of running processes.
+  * **`[spawn]`-gated**, like `pool`: a monitor is part of running actors.
   * **The corpse**: its queue is dropped, its obligations are lost (statically
     checked linearity cannot survive a crash [linear-static]), and sends and
     fulfils to it are **silent no-ops** — the only composable rule, since a
     send that could fail on a dead target would make *every* send fallible.
     The monitor is the recovery mechanism; a requester gated on a dead callee
     is caught by the runtime's **idle-with-parked-gates report**, which names
-    the parked processes and exits non-zero instead of hanging.
+    the parked actors and exits non-zero instead of hanging.
   * **`Exit`'s `reason` is the host's text** — a panic message on the Rust
     backend, an exception's on the Kotlin one. It is the one thing on this
     surface that is *not* identical across backends (the same hole
@@ -2705,7 +2709,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     not branch on it. The struct rather than a bare `Str` is the growth point
     for a `kind` when a non-fault death becomes expressible.
   * **The runtime cannot build it**, so the *watch site* hands the scheduler a
-    builder along with the token ([rs-process], [kt-process]) — which keeps a
+    builder along with the token ([rs-actor], [kt-actor]) — which keeps a
     watcher's payload identical to an ordinary `r.send(Exit{…})` instead of
     special-casing the delivery.
   * **Supervision is a pattern, not a construct**: an interceptor (a handler
@@ -2713,36 +2717,36 @@ LANGUAGE.md remains the source of truth for everything that does.
     it, and respawns on `Exit` gives clients a stable addr and never lets them
     observe the death. Restart strategies, intensity budgets and escalation are
     handler logic; a std `Supervisor` waits for real usage to shape it.
-* [async-deadlock-cycle] **The static deadlock baseline: a cycle check over
+* [actor-deadlock-cycle] **The static deadlock baseline: a cycle check over
   the effect graph** (design decision 2026-09-14, built 2026-09-16). Nodes are
-  `async effect`s — that is what an `Addr` is typed by — and a cycle means
-  processes that can wait for each other. Two severities, because there are
+  `actor effect`s — that is what an `Addr` is typed by — and a cycle means
+  actors that can wait for each other. Two severities, because there are
   two kinds of edge:
   * A **gated mint** (`replyto!`) is a *wait-for* edge: while the
-    continuation is outstanding the process serves nothing but its answer, so
+    continuation is outstanding the actor serves nothing but its answer, so
     a cycle of gates deadlocks whenever the requests cross, whatever the load.
     An **error**, naming the cycle as a path, the handlers on it, and the two
     ways out (make one side's continuation ungated, or have the answer come
-    from a third process). A bare `replyto` leaves the mailbox open and
+    from a third actor). A bare `replyto` leaves the mailbox open and
     contributes **no** edge — which is why one ungated side is enough.
   * An ordinary **send** is a *back-pressure* edge: it blocks while the
     target's bounded mailbox is full, so a cycle of sends deadlocks only when
     the mailboxes fill together. A **warning** (user decision 2026-09-16):
     the program is legal and usually fine, and refusing every pair of
-    processes that send to each other would refuse most useful topologies.
+    actors that send to each other would refuse most useful topologies.
     The remedies it names are a larger `capacity` or routing one direction
     through a reply token, whose capacity is reserved at park time.
   * A `fulfil` (`r.send(v)`) contributes nothing: the capacity is already
     reserved, so it never blocks. Neither does a `k@self(…)` — a self-send
-    waits for no *other* process (the wedge a full own mailbox could cause is
+    waits for no *other* actor (the wedge a full own mailbox could cause is
     a recorded gap, in ROADMAP.md).
   * **Interception is exempt.** A handler of `E` declaring `[E]` — a policy
-    wrapper around the process already serving `E` — is an `E → E` edge by
+    wrapper around the actor already serving `E` — is an `E → E` edge by
     construction, and it can never deadlock: the dependency binds strictly
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
-  * **Sound, not precise, and stated so.** The graph is over process *types*,
+  * **Sound, not precise, and stated so.** The graph is over actor *types*,
     not instances, so a chain of same-protocol workers is a self-loop here and
     acyclic in the running program; and a handler's *declared dependencies*
     stand in for what its members can reach, so a gate in one member and a
@@ -2756,15 +2760,15 @@ LANGUAGE.md remains the source of truth for everything that does.
   handler — a **dependent** one included, its dependencies supplied by its own
   `use` clause as constructions, as addrs, or a mix — send to it through its
   `Addr`, park a continuation with `replyto` / `replyto!` for an answer that
-  arrives *at another process*, continue an activation with `k@self(…)`, and
-  bridge with `waitfor`. Since 2026-09-16 it can also **watch a process die**
-  [async-watch], and a topology that could deadlock is reported before it runs
-  [async-deadlock-cycle]. All of it on **both backends, with identical output**
-  ([rs-process], [kt-process]). `use addr` **runs**: it binds a generated
+  arrives *at another actor*, continue an activation with `k@self(…)`, and
+  bridge with `waitfor`. Since 2026-09-16 it can also **watch an actor die**
+  [actor-watch], and a topology that could deadlock is reported before it runs
+  [actor-deadlock-cycle]. All of it on **both backends, with identical output**
+  ([rs-actor], [kt-actor]). `use addr` **runs**: it binds a generated
   forwarding stub, so a function declaring `[Log]` never learns that its
-  capability is a process — and the same stub is what a spawn clause's addr
+  capability is an actor — and the same stub is what a spawn clause's addr
   becomes, which is how a child's dependency swaps between a local handler and
-  a process without the child changing at all. What is still refused, each with
+  an actor without the child changing at all. What is still refused, each with
   a diagnostic naming it: spawning a **generic** handler, a **generic effect**
   as a protocol, a **remote mint** (a `replyto` target reached through the
   effect list rather than lexically), and `use` of a handler that parks. The
@@ -3756,14 +3760,14 @@ LANGUAGE.md remains the source of truth for everything that does.
   leave it whole** (LC-4, user decision 2026-09-15). This is where the
   concurrency surface actually lives — a queue of parked reply tokens, a map
   of gathers — and it is the one place the strong guarantee weakens, so the
-  weakening is stated rather than discovered: **the process owes until it
+  weakening is stated rather than discovered: **the actor owes until it
   ends**, and what end-of-life does with parked obligations is `watch`'s
-  answer [async-watch].
+  answer [actor-watch].
   * Within an activation the discipline is unchanged: take an obligation out
     of a field, and either discharge it or put something back. A member that
     *returns* with a state field moved out is an error — it would leave the
-    process with a hole a later activation would read, and no analysis can
-    know what a process holds at an arbitrary future point.
+    actor with a hole a later activation would read, and no analysis can
+    know what an actor holds at an arbitrary future point.
   * **A container is the form.** A *bare* obligation in a field
     (`held: Token`) is refused, naming the container: taking it out would
     leave the hole above and nothing could be put back, so its obligation

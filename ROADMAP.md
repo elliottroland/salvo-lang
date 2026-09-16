@@ -53,10 +53,10 @@ below, grouped by theme; **"The sequence" is the order it will be done in**,
 and each themed section is tagged with the phase it belongs to. **Phase 5
 (threading) is under way**: its design is settled (CONCURRENCY.md,
 SUPERVISION.md — the decision space is empty), the
-scheduler library is built, and the surface is landing in slices — processes
+scheduler library is built, and the surface is landing in slices — actors
 spawn, send, park continuations and bridge on both backends today, dependent
 handlers included, request/response no longer needs `main` in the loop, a
-process's death is both watchable and — where a topology could deadlock —
+actor's death is both watchable and — where a topology could deadlock —
 reported before it runs, and a handler may park a queue of obligations in its
 own state.
 See "Threading and concurrency" for what remains.
@@ -177,12 +177,12 @@ collections it needs.
 **5 — Threading: asynchronous effect handlers.** ("Threading and concurrency",
 below.) Designed (user decisions 2026-09-14/15) and **being built**: the
 scheduler library, the whole surface's syntax, its types and its checker rules
-are in, and processes **run on both backends with identical output** —
+are in, and actors **run on both backends with identical output** —
 including a **dependent** handler whose dependencies its spawn clause supplies,
 a request/response chain that never passes through `main`, and (2026-09-16) a
 **death watch** plus the **static deadlock baseline**.
 What is left of the agreed eight-item sequence: **propagation** (item 8) —
-the worked `examples/processes/`, the examples-file respelling, and the working
+the worked `examples/actors/`, the examples-file respelling, and the working
 documents' retirement.
 **The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
@@ -191,7 +191,7 @@ decision surfaces. [fate-lambda] goes with them — no first-pass form crosses
 a closure.
 
 **Not before then: `Cell`.** It exists to make shared mutable state
-expressible, and the OTP answer is that processes own their state and
+expressible, and the OTP answer is that actors own their state and
 message-pass — so phase 5 may remove its motivation entirely. Deciding it
 earlier spends a language-design call twice.
 
@@ -623,7 +623,7 @@ may own its lifetime.
 ## Shared mutable state (`Cell`)
 
 **Deliberately not before phase 5** (user decision 2026-09-09): the OTP model has
-processes own their state and message-pass, so it may remove this item's
+actors own their state and message-pass, so it may remove this item's
 motivation entirely — and deciding it earlier would spend the same
 language-design call twice.
 
@@ -1120,7 +1120,7 @@ and the rules [bytes-type], [fs-read-to], [kt-bytes].
 section used to carry are all answered — the argument trails live in
 CONCURRENCY.md, the decided summary in COMPLETED.md's decision log). The
 intended shape (user, 2026-09-09) was the Erlang/Gleam/OTP model; the design
-pass landed somewhere better: **the effect surface is the model**. A process
+pass landed somewhere better: **the effect surface is the model**. An actor
 is an effect handler bound asynchronously — a state struct plus one function
 per member, run-to-completion on a small scheduler library (no runtime in
 generated code, full backend parity). Named *asynchronous effect handlers*
@@ -1137,17 +1137,17 @@ its charter: item 7 carries its content in code and in [linear-container] /
 section numbers, so its retirement is a sweep rather than a delete.
 
 **The four answers, one line each**: sendability = structural rule +
-diagnostic (C-4(a), `Arc`-where-sent inference as growth); a spawned process's
+diagnostic (C-4(a), `Arc`-where-sent inference as growth); a spawned actor's
 effects = handler dependencies supplied at the spawn site
 ([effect-handler-deps] at a distance — construction crosses, handlers never
 do); substrate = run-to-completion on pools (`on pool(n)`, one arrival-order
-queue per process, **bound explicit and required**); async **dissolves** (no
+queue per actor, **bound explicit and required**); async **dissolves** (no
 colouring — the 2026-09-04 record honoured by making the question moot).
 
 **First-pass grammar (frozen)**: `send fn` members with explicit `Reply<T>`
 parameters (linear, statically one-shot); `replyto k(captures)` /
 `replyto! k(captures)` (the gate: bounded selective receive, one outstanding
-per process); `r.send(v)` discharges; `spawn H(args) use Handler(...), addr
+per actor); `r.send(v)` discharges; `spawn H(args) use Handler(...), addr
 on pool(n)`; lowercase `[use, spawn]`; `use addr`; `waitfor` as main's
 explicit bridge, and **the program ends when `main` returns**. Deadlock
 baseline: the effect-graph cycle check — **built 2026-09-16**, with gate cycles
@@ -1169,16 +1169,16 @@ children die — on both backends, with identical output** (2026-09-15/16; the
 build records and what each slice cost are in COMPLETED.md's decision log). Everything landed the same day: the
 scheduler library, the declaration forms, the expression forms, the types, the
 checker rules, the emitters' first cut — then the respelling sweep, the
-`async effect` kind, the forwarding stub, **dependent-handler spawns**, and
+`actor effect` kind, the forwarding stub, **dependent-handler spawns**, and
 **`replyto` / `@self`**. The smallest running program is the counter in both
 backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
 `counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
 `sum 5` from Kotlin and Rust alike; the one that shows what the surface is
 *for* is the fetcher beside it, which parks a continuation for a database
-process's answer and fulfils `main`'s token from inside its own activation.
+actor's answer and fulfils `main`'s token from inside its own activation.
 As-built rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers"
-([async-process] … [async-types], [async-watch], [async-deadlock-cycle]) plus
-[linear-opaque], [rs-process] and [kt-process].
+([actor-kind] … [actor-types], [actor-watch], [actor-deadlock-cycle]) plus
+[linear-opaque], [rs-actor] and [kt-actor].
 
 **The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
 after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
@@ -1190,18 +1190,18 @@ compiler today, so its own output is the work list.
 
 1. ✅ **The respelling sweep — done 2026-09-15.** `Pid<E>` → `Addr<E>` and
    `self.k(…)` → `k@self(…)`, both landed with their spec rules
-   ([async-types], [async-self-send], [async-use-addr]) and the old spellings
+   ([actor-types], [actor-self-send], [actor-use-addr]) and the old spellings
    now plain parse errors. What it cost and what it simplified is in
    COMPLETED.md's log; the one thing worth carrying: `@self` as a *selector*
    deleted the rule that a handler member may not declare a variable named
    `self`, because nothing can shadow a selector.
-2. ✅ **`async effect` and its refusal list — done 2026-09-15.** The kind
+2. ✅ **`actor effect` and its refusal list — done 2026-09-15.** The kind
    marker, `send fn` requiring it, the declaration-site refusals (kept
    parameters, `Mut` parameters, `proj` returns, non-sendable payloads) and the
    binding gate on `spawn` / `use addr` / `Addr<E>` — which **closes
    CONCURRENCY.md's carried named question**: a plain effect is never
-   process-backed. Sendability landed with it, as decided. Rules:
-   [async-effect-kind], [async-sendable]. The emitters' gates now key on the
+   actor-backed. Sendability landed with it, as decided. Rules:
+   [actor-effect-kind], [actor-sendable]. The emitters' gates now key on the
    kind rather than on "has send members".
 3. ✅ **The forwarding stub — done 2026-09-15.** `__Stub_E` beside each async
    effect, implementing it by sending to an addr; `use addr` binds one exactly
@@ -1211,8 +1211,8 @@ compiler today, so its own output is the work list.
    (`emit_fusion_instance` / `bind_effect_instance`) instead of a handler
    declaration, so nothing downstream knows which kind it got. Verified by a
    compile-and-run case per backend, with `[Log]` travelling down an ordinary
-   effect list into a function that never learns it is a process
-   ([async-use-addr], [rs-process], [kt-process]).
+   effect list into a function that never learns it is an actor
+   ([actor-use-addr], [rs-actor], [kt-actor]).
 4. ✅ **Dependent-handler spawns — done 2026-09-15.** Every realistic handler
    needed it (`Counting [Log]`, std's `DefaultFs [RawFs]`), and it landed as
    the survey predicted: one **checker table** (`spawn_dep_items` — which
@@ -1220,12 +1220,12 @@ compiler today, so its own output is the work list.
    already knew while matching), then each backend's own shape for "the child
    owns its environment". Rust emits a **generic flat provider** `__Prov_H<__D0,
    …>` beside the handler, `__Proc_H` holds it, and `handle` builds the
-   existing `__Deps_H` view over it ([rs-process]); Kotlin repeats the
+   existing `__Deps_H` view over it ([rs-actor]); Kotlin repeats the
    handler's carrier type parameter on `__Proc_H` and has the *spawn site*
-   build an `__Fx_N` from the clause ([kt-process]). Both make a clause item
+   build an `__Fx_N` from the clause ([kt-actor]). Both make a clause item
    into an instance the way item 3's refactor made one — a construction is
    `D(args)`, an addr is the forwarding stub — so a dependency swaps between a
-   local handler and a process with no change to the child. Verified by a
+   local handler and an actor with no change to the child. Verified by a
    compile-and-run case per backend with one dependency supplied as a
    construction and another as an addr, identical output on both, plus the
    written-order swap and a plain-effect dependency with a constructor
@@ -1248,7 +1248,7 @@ compiler today, so its own output is the work list.
    * **The parked table**: `__parked: slot → __Cont_E` on the same handler,
      with `__Cont_E` beside `__Msg_E` carrying each target member's parameters
      minus the trailing answer. On the handler because the *mint* happens in a
-     member body, which cannot see the process struct — and this left
+     member body, which cannot see the actor struct — and this left
      `SalvoProcess::resume`'s decided signature untouched, which was the point.
    * **`replyto` under a `use` binding**: refused **statically**, at the `use`
      site — a handler that parks may only be spawned. Bound synchronously its
@@ -1274,7 +1274,7 @@ compiler today, so its own output is the work list.
 6. ✅ **`watch` and the deadlock baseline — done 2026-09-16.** The monitor
    surface and the static check, both on both backends with identical output.
    Three design points were settled first (user decisions, D6-a/b/c): `watch`
-   as an `intrinsic fn` in `core.process` rather than a member of the
+   as an `intrinsic fn` in `core.actor` rather than a member of the
    capability-only `spawn` effect; `Exit` a plain struct whose value the
    **watch site** builds, since the runtime cannot construct a Salvo struct
    (and a `resume`-side special case would have been silently wrong the moment
@@ -1285,15 +1285,15 @@ compiler today, so its own output is the work list.
    document had anticipated: a handler of `E` declaring `[E]` is an `E → E`
    edge by construction and can never deadlock, because the dependency binds
    outward. A `[spawn]`-propagation defect surfaced and was fixed the same day.
-   Rules: [async-watch], [async-deadlock-cycle], [async-spawn-effect]; the
+   Rules: [actor-watch], [actor-deadlock-cycle], [actor-spawn-effect]; the
    record is in COMPLETED.md's log. **Two gaps recorded, not closed**:
-   * **A self-send into a full own mailbox wedges the process**, and
+   * **A self-send into a full own mailbox wedges the actor**, and
      `k@self(…)` deliberately contributes no edge — warning on every self-send
      would drown the form, and the runtime's idle report cannot see it (a
      blocked sender is not idle). The alternatives when it bites: exempt a
      self-send from the queue bound in both runtimes (a semantics call), or
      warn at the form. **DECISION** when it matters.
-   * **The graph is over process types, not instances**, so a chain of
+   * **The graph is over actor types, not instances**, so a chain of
      same-protocol workers reads as a self-loop, and a handler's declared
      dependencies stand in for what its members reach. Stratification (a tier
      qualifier on an addr) and the fallbacks (a timeout form, a per-edge
@@ -1343,12 +1343,12 @@ compiler today, so its own output is the work list.
    reservation-at-mint-in-the-target; the examples-file respelling done
    **once**, here, rather than four times on the way (`capacity N` is
    required, and those files' spawns predate it); a worked
-   `examples/processes/`; then the working documents retire into the decision
+   `examples/actors/`; then the working documents retire into the decision
    log per their charters — with the sugar pass's decided content folded into
    this file first, so nothing open lives outside ROADMAP.md.
    **LINEARITY_COLLECTIONS.md is already gone** (item 7 carried its content
    into code, the spec rules and the decision log). SUPERVISION.md is ready to
-   follow — its S-1…S-4 content is in [async-watch] and in the log — but the
+   follow — its S-1…S-4 content is in [actor-watch] and in the log — but the
    two runtime files and their tests cite its section numbers, so its
    retirement is a small sweep; CONCURRENCY.md, the two examples files and
    EFFECT_UNIFICATION.md follow it.
@@ -1365,7 +1365,7 @@ captures, and `waitfor`'s token are all *values*). The recorded refinement
 effect-handler locals) is unchanged, just re-scheduled.
 
 **Regions rode along as planned** (user, 2026-09-10, confirmed 2026-09-15):
-a process **is** a region; sendability and region-escape are one check.
+an actor **is** a region; sendability and region-escape are one check.
 
 **What was already in place carried its weight**: send-as-move was ordinary
 consumption; linearity survived sends [linear-obligation] and became the
@@ -1381,7 +1381,7 @@ above it becomes a later item with its own decision surface. What is already
 (EFFECT_UNIFICATION.md, EU-6 and EU-7b):
 
 - **Per-kind `-> T`** (EU-6 = (a)): plain effects unchanged forever; inside an
-  `async effect`, `fn m(a) -> T` means an implicit trailing `Reply<T>`,
+  `actor effect`, `fn m(a) -> T` means an implicit trailing `Reply<T>`,
   fulfil-at-every-return, and caller-side call syntax = auto-mint + gate. This
   is why item 2 above keeps `send fn` rather than making it implicit: the
   non-send forms are stated *against* it — `send fn m(a)` is no completion,
@@ -1392,11 +1392,11 @@ above it becomes a later item with its own decision surface. What is already
   in the token's target, so discharge never blocks; mint sites contribute
   deadlock edges like sends. A bare `k` naming both an enclosing member and an
   in-scope async member is **refused**, naming `k@self` and `k@E`; a remote
-  mint where no process exists is refused, naming `waitfor`. `replyto!` and
+  mint where no actor exists is refused, naming `waitfor`. `replyto!` and
   self-targets stay lexical to handler bodies.
 - **Two stub readings appear here, and only here.** An answering member cannot
-  have one implementation for both bindings: from a process the call parks,
-  from synchronous code it must block — which `main` may do and a process may
+  have one implementation for both bindings: from an actor the call parks,
+  from synchronous code it must block — which `main` may do and an actor may
   not (EU-2, and point 2 of the unification's stated intent). The first pass
   has one stub precisely because nothing answers.
 - Then the rest of the tower, each its own call: `then`/`then!`, `defer`,
@@ -1582,10 +1582,10 @@ design when phase 5 picks it up.
 
 ### Why phase 5 (user, 2026-09-10)
 
-A process in the OTP model *is* a region: a private heap, bulk-freed on
+An actor in the OTP model *is* a region: a private heap, bulk-freed on
 death, with "leaving the region requires move/copy" as the sendability rule.
 The null hypothesis for the phase-5 design session is that `region { }` is
-the **sequential special case of a process** — one that runs inline and dies
+the **sequential special case of an actor** — one that runs inline and dies
 at the brace — giving one concept instead of two. The escaping-closure fix
 [fate-lambda] is already a phase-5 prerequisite, and R1 is its notation.
 Deciding regions standalone earlier would spend part of the same design call

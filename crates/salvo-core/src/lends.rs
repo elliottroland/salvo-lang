@@ -384,10 +384,10 @@ impl<'p> Walk<'_, '_, 'p> {
             }
             Expr::Try { body, .. } => self.lends_of_block(body),
             Expr::Widen { subject, .. } => self.lends_of_expr(subject),
-            // [async-spawn-expr] [async-replyto] [async-waitfor] None of the
+            // [actor-spawn-expr] [actor-replyto] [actor-waitfor] None of the
             // three yields a view: an `Addr` and a `Reply` are owned tokens,
-            // and a `waitfor` yields a value another process sent — nothing
-            // crossing a process boundary can be a borrow of a local.
+            // and a `waitfor` yields a value another actor sent — nothing
+            // crossing an actor boundary can be a borrow of a local.
             Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
             | Expr::WaitFor { .. }

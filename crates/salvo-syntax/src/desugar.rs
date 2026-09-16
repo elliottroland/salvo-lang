@@ -947,7 +947,7 @@ impl Rewrite {
                 LambdaBody::Block(block) => self.block(block),
             },
             Expr::Try { body, .. } => self.block(body),
-            // [async-spawn-expr] Every clause is an ordinary expression, so
+            // [actor-spawn-expr] Every clause is an ordinary expression, so
             // an `iter fn` subject read inside one rewrites like any other.
             Expr::Spawn {
                 handler,
@@ -963,17 +963,17 @@ impl Rewrite {
                 self.expr(capacity);
                 self.expr(pool);
             }
-            // [async-self-send] A leaf: the selector names the enclosing
+            // [actor-self-send] A leaf: the selector names the enclosing
             // handler, so there is no sub-expression to rewrite.
             Expr::SelfScoped { .. } => {}
-            // [async-replyto] The captures are expressions; the member name
+            // [actor-replyto] The captures are expressions; the member name
             // is not one.
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {
                     self.expr(capture);
                 }
             }
-            // [async-waitfor] An ordinary block.
+            // [actor-waitfor] An ordinary block.
             Expr::WaitFor { body, .. } => self.block(body),
         }
     }
@@ -1124,7 +1124,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::Try { body, .. } => walk_block(body, reserved, out),
-            // [async-spawn-expr] [async-replyto] [async-waitfor] The
+            // [actor-spawn-expr] [actor-replyto] [actor-waitfor] The
             // asynchronous forms hold ordinary expressions and blocks.
             Expr::Spawn {
                 handler,
@@ -1145,7 +1145,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(capture, reserved, out);
                 }
             }
-            // [async-self-send] A leaf: no sub-expressions, and the member
+            // [actor-self-send] A leaf: no sub-expressions, and the member
             // name is resolved against the handler rather than a scope.
             Expr::SelfScoped { .. } => {}
             Expr::WaitFor { body, .. } => walk_block(body, reserved, out),

@@ -269,7 +269,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => block_names(body, used),
-        // [async-spawn-expr] The handler name and every clause count as
+        // [actor-spawn-expr] The handler name and every clause count as
         // uses: this is what stops an imported handler or a `pool` function
         // being reported as unused because it is only spawned.
         Expr::Spawn {
@@ -286,17 +286,17 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             expr_names(capacity, used);
             expr_names(pool, used);
         }
-        // [async-self-send] The member is the enclosing handler's, so the
+        // [actor-self-send] The member is the enclosing handler's, so the
         // selector names nothing a module could provide.
         Expr::SelfScoped { .. } => {}
-        // [async-replyto] The member name is resolved against the enclosing
+        // [actor-replyto] The member name is resolved against the enclosing
         // handler, not the module, so only the captures name things here.
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
                 expr_names(capture, used);
             }
         }
-        // [async-waitfor] Its block is ordinary code, and the token's
+        // [actor-waitfor] Its block is ordinary code, and the token's
         // written type names `Reply` (and its payload) for real.
         Expr::WaitFor { ty, body, .. } => {
             type_names(ty, used);

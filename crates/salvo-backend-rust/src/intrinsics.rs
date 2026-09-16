@@ -100,16 +100,16 @@ pub fn fn_call(
         // meaning 255 on both backends.
         ("to_byte", Some("Int")) => format!("((({}) as i32) as u8)", a(0)),
         ("to_int", Some("Byte")) => format!("(({}) as i32)", a(0)),
-        // core.process ---------------------------------------------------
-        // [async-replyto] [rs-process] Answering a request: the token is
+        // core.actor ---------------------------------------------------
+        // [actor-replyto] [rs-actor] Answering a request: the token is
         // consumed, and the payload crosses the seam as the runtime's untyped
         // box. `Box::new` is where the sendability the checker proved becomes
         // Rust's `Send` bound on `SalvoMsg`.
         ("send", Some("Reply")) => format!("({}).send(Box::new({}))", a(0), a(1)),
-        // [async-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
+        // [actor-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
         // worker threads.
         ("pool", Some("Int")) => format!("crate::scheduler::salvo_pool((({}) as usize))", a(0)),
-        // [async-watch] Registering a death watch hands the scheduler the
+        // [actor-watch] Registering a death watch hands the scheduler the
         // token *and* a builder for the `Exit` it will carry: the runtime
         // holds a reason string and cannot construct a Salvo struct, so the
         // watch site closes over the constructor instead.
@@ -558,7 +558,7 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Bool" => "bool",
         "Char" => "char",
         "Byte" => "u8",
-        // [async-types] [rs-process] The scheduler's handles: an addr and a pool
+        // [actor-types] [rs-actor] The scheduler's handles: an addr and a pool
         // are indices into it, a reply token is its own type. Their type
         // *arguments* are dropped by `emit_named_parts` — the effect a
         // `Addr<E>` serves is the checker's business, and the message enum is

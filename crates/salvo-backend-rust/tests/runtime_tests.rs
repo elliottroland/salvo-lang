@@ -110,7 +110,7 @@ fn runtime_modules_are_not_empty_and_are_generated_headers() {
 // (CONCURRENCY.md "The first pass", SUPERVISION.md) =====
 //
 // The module above is only compiled; a scheduler also has to *behave*, and
-// the semantics are decided ones: run-to-completion activations, per-process
+// the semantics are decided ones: run-to-completion activations, per-actor
 // bounded queues that block the sender, replies with reserved capacity, the
 // gate (while gated, only the awaited reply is delivered), death by faulted
 // activation with `watch` notification, sends to the dead as silent no-ops,
@@ -237,7 +237,7 @@ struct Adder {
     sum: i64,
 }
 
-impl SalvoProcess for Adder {
+impl SalvoActor for Adder {
     fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
         match msg.downcast::<i64>() {
             Ok(n) => self.sum += *n,
@@ -285,7 +285,7 @@ struct Caller {
     log: Vec<String>,
 }
 
-impl SalvoProcess for Caller {
+impl SalvoActor for Caller {
     fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg) {
         let text = msg.downcast::<String>();
         match text {
@@ -315,7 +315,7 @@ impl SalvoProcess for Caller {
 /// message is certainly queued first.
 struct Echo;
 
-impl SalvoProcess for Echo {
+impl SalvoActor for Echo {
     fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
         if let Ok(reply) = msg.downcast::<SalvoReply>() {
             std::thread::sleep(std::time::Duration::from_millis(120));
@@ -351,11 +351,11 @@ fn main() {
     );
 }
 
-/// Death: a faulted activation kills the process, `watch` reports the
+/// Death: a faulted activation kills the actor, `watch` reports the
 /// reason as an ordinary one-shot reply, and later sends to the corpse are
 /// silent no-ops rather than errors. The `Exit` value is built by the *watch
 /// site*, since the language's struct is not the runtime's to construct
-/// [async-watch].
+/// [actor-watch].
 #[test]
 fn scheduler_reports_a_faulted_activation_to_watchers() {
     run_scheduler_program(
@@ -363,7 +363,7 @@ fn scheduler_reports_a_faulted_activation_to_watchers() {
         r#"
 struct Fragile;
 
-impl SalvoProcess for Fragile {
+impl SalvoActor for Fragile {
     fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
         let word = msg.downcast::<String>().unwrap();
         if *word == "boom" {
@@ -407,7 +407,7 @@ fn scheduler_reports_idle_while_main_waits() {
         r#"
 struct Idle;
 
-impl SalvoProcess for Idle {
+impl SalvoActor for Idle {
     fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {}
     fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
 }
@@ -424,6 +424,6 @@ fn main() {
 "#,
         "waiting\n",
         false,
-        "salvo: deadlock: all processes idle while main waits",
+        "salvo: deadlock: all actors idle while main waits",
     );
 }

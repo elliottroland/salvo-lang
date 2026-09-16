@@ -250,18 +250,18 @@ pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
 pub const OK_QUALIFIER: &str = "Ok";
 /// The message arm of a `try` outcome, from `core.throw` [try].
 pub const THROWN_QUALIFIER: &str = "Thrown";
-/// [async-spawn-expr] The handle a `spawn` produces, from `core.process`:
+/// [actor-spawn-expr] The handle a `spawn` produces, from `core.actor`:
 /// known by name to the compiler because its type argument is an **effect**,
 /// which is the one sanctioned exception to [effect-not-data] (user decision
 /// 2026-09-15).
 pub const ADDR_TYPE: &str = "Addr";
-/// [async-replyto] The linear one-shot answer token, from `core.process`.
+/// [actor-replyto] The linear one-shot answer token, from `core.actor`.
 pub const REPLY_TYPE: &str = "Reply";
-/// [async-spawn-expr] The thread pool a spawn names in its `on` clause,
-/// from `core.process`.
+/// [actor-spawn-expr] The thread pool a spawn names in its `on` clause,
+/// from `core.actor`.
 pub const POOL_TYPE: &str = "Pool";
 
-/// [async-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
+/// [actor-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
 /// that is not an addr. What `use addr`, a dot-call through an addr, and a spawn's
 /// `use` clause all ask.
 fn addr_effect(ty: &Ty) -> Option<Ty> {
@@ -358,18 +358,18 @@ pub struct Checked {
     /// instance* — which is what a generic dependency would need, and both
     /// backends refuse those today.
     pub use_deps: HashMap<Key, Vec<Ty>>,
-    /// [async-spawn-expr] The effect instance each `spawn` expression's child
+    /// [actor-spawn-expr] The effect instance each `spawn` expression's child
     /// serves, keyed by the spawn's span — which is also the type of its
-    /// value, an `Addr<E>`. The emitters' entry point for building a process
+    /// value, an `Addr<E>`. The emitters' entry point for building an actor
     /// class.
     pub spawn_effects: HashMap<Key, Ty>,
-    /// [async-spawn-expr] The effect instances a spawn's `use` clause
+    /// [actor-spawn-expr] The effect instances a spawn's `use` clause
     /// supplies for the child's dependencies, in the handler's declaration
     /// order (keyed by the spawn's span). Absent when the handler declares
     /// none. The clause items themselves stay in the AST; this records what
     /// each *resolved to*, which is what the child's construction needs.
     pub spawn_deps: HashMap<Key, Vec<Ty>>,
-    /// [async-spawn-expr] **Which clause item satisfied which declared
+    /// [actor-spawn-expr] **Which clause item satisfied which declared
     /// dependency**: one index into the spawn's written `use` clause per
     /// declared dependency, in the *handler's declaration* order (keyed by
     /// the spawn's span). The two orders differ routinely — the declaration
@@ -379,25 +379,25 @@ pub struct Checked {
     /// emitters from re-deriving it (and from disagreeing about it).
     /// Parallel to `spawn_deps`: same length, same order.
     pub spawn_dep_items: HashMap<Key, Vec<usize>>,
-    /// [async-replyto] The enclosing handler's member each `replyto`
+    /// [actor-replyto] The enclosing handler's member each `replyto`
     /// delivers to, keyed by the `replyto` span. The name, because that is
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
-    /// [async-use-addr] The effect each `use addr` statement binds, keyed by
+    /// [actor-use-addr] The effect each `use addr` statement binds, keyed by
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
     pub use_addrs: HashMap<Key, Ty>,
-    /// [async-use-addr] Dot-calls that are **sends to a process** rather than
+    /// [actor-use-addr] Dot-calls that are **sends to an actor** rather than
     /// dispatches through a handler in scope, keyed by the call span and
     /// mapped to the effect instance the addr serves. The emitters need the
     /// distinction: the same written call is a method call on a handler in one
     /// case and an enqueue on a mailbox in the other.
     pub addr_calls: HashMap<Key, Ty>,
-    /// [async-self-send] `self.k(args)` sites, keyed by the call span and
-    /// mapped to the member's name: a message to the process the enclosing
+    /// [actor-self-send] `self.k(args)` sites, keyed by the call span and
+    /// mapped to the member's name: a message to the actor the enclosing
     /// member belongs to. Distinct from `addr_calls` because there is no addr to
-    /// read — the target is "this process", which each backend spells its own
+    /// read — the target is "this actor", which each backend spells its own
     /// way (an enqueue on the running activation's own mailbox, or, under a
     /// synchronous binding, an ordinary member call).
     pub self_sends: HashMap<Key, String>,
@@ -415,19 +415,19 @@ pub struct Checked {
     /// is the semantics too, since the checker requires the member to put
     /// something back before it returns.
     pub state_takes: HashSet<Key>,
-    /// [async-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
-    /// continuation is outstanding the process serves *nothing else*, so
+    /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
+    /// continuation is outstanding the actor serves *nothing else*, so
     /// every gate is a wait-for edge's tail — which is why the graph is
     /// keyed on these and not on `replyto`, whose continuation leaves the
     /// mailbox open.
-    pub async_gates: Vec<(String, Key)>,
-    /// [async-deadlock-cycle] Sends from inside a handler's members to a
-    /// process of another protocol: `(handler name, target effect name, the
+    pub actor_gates: Vec<(String, Key)>,
+    /// [actor-deadlock-cycle] Sends from inside a handler's members to a
+    /// actor of another protocol: `(handler name, target effect name, the
     /// call's site)`. Recorded for dot-calls through an `Addr`; sends
     /// reached through the handler's *declared dependencies* are read off
     /// the declaration instead, and a `k@self(…)` is not here at all — a
-    /// self-send waits for no other process.
-    pub async_sends: Vec<(String, String, Key)>,
+    /// self-send waits for no other actor.
+    pub actor_sends: Vec<(String, String, Key)>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -739,7 +739,7 @@ pub fn check_program<'p>(
     // not keep "everything else", since mutation can invalidate
     // qualifiers the signature never mentions.
     let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
-    // [async-replyto] Handlers whose members mint a self-targeted
+    // [actor-replyto] Handlers whose members mint a self-targeted
     // continuation. Only grows, and complete after round one — so the `use`
     // refusal it drives lands in the round whose diagnostics are kept.
     let mut parking: HashSet<String> = HashSet::new();
@@ -912,10 +912,10 @@ fn check_once<'p>(
         checker.check_module(ast);
     }
     check_intrinsic_is_std_only(program, &mut out);
-    // [async-deadlock-cycle] The static deadlock baseline, over the whole
-    // program: a cycle of waiting processes is an error, a cycle of blocking
+    // [actor-deadlock-cycle] The static deadlock baseline, over the whole
+    // program: a cycle of waiting actors is an error, a cycle of blocking
     // sends a warning. Last, because it reads what this round's checking
-    // recorded (`async_gates`, `async_sends`) — and inside the round, so its
+    // recorded (`actor_gates`, `actor_sends`) — and inside the round, so its
     // diagnostics land with the round whose diagnostics are kept.
     crate::deadlock::check(program, symbols, &mut out);
     out
@@ -1238,22 +1238,22 @@ struct Checker<'p, 'r> {
     /// neither remedy the general "no handler" diagnostic names is available
     /// inside a member.
     handler_of: Option<Ty>,
-    /// [async-replyto] The handler whose members are being checked, so a
+    /// [actor-replyto] The handler whose members are being checked, so a
     /// `replyto k(...)` can find `k`: a continuation targets a member of the
     /// *enclosing* handler, which is what makes the form legal only inside
     /// one.
     own_handler: Option<&'p ast::HandlerDecl>,
-    /// [async-spawn-effect] Whether the handler whose members are being
+    /// [actor-spawn-effect] Whether the handler whose members are being
     /// checked declared `spawn` among its dependencies. Its members inherit
     /// the capability, exactly as they inherit its effects.
     handler_spawns: bool,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
-    /// [async-spawn-effect] Whether the current fn (or the handler whose
+    /// [actor-spawn-effect] Whether the current fn (or the handler whose
     /// member it is) declared the `spawn` capability — the gate a `spawn`
     /// expression checks.
     can_spawn: bool,
-    /// [async-waitfor] Whether the fn being checked is the entry point, the
+    /// [actor-waitfor] Whether the fn being checked is the entry point, the
     /// only place `waitfor` is legal: it blocks a real thread, and `main` is
     /// the one frame that has one to block.
     in_main: bool,
@@ -1286,15 +1286,15 @@ struct Checker<'p, 'r> {
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
     param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
-    /// [async-replyto] Handlers whose member bodies mint a **self**-targeted
+    /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
     /// continuation — the names of every handler in which a `replyto` /
     /// `replyto!` resolved lexically. Collected across rounds like
     /// `move_candidates`, and for the same reason: a `use` may be checked
     /// before the handler it names, so round one fills this and round two
     /// (whose diagnostics are the ones kept) refuses.
     ///
-    /// The refusal is [async-replyto]'s: parking is the one thing only a
-    /// process can do, so a parking handler may only be `spawn`ed. Using the
+    /// The refusal is [actor-replyto]'s: parking is the one thing only a
+    /// actor can do, so a parking handler may only be `spawn`ed. Using the
     /// checker's own traversal to find the mints — rather than a tenth
     /// exhaustive expression walker — is what keeps this complete as the
     /// grammar grows.
@@ -1665,7 +1665,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let handler_deps = self.handler_dep_effects(h);
                     let saved_deps =
                         std::mem::replace(&mut self.handler_deps, handler_deps);
-                    // [async-spawn-effect] [async-replyto] The handler its
+                    // [actor-spawn-effect] [actor-replyto] The handler its
                     // members belong to: `spawn` in its dependency list is a
                     // capability they inherit, and `replyto` resolves its
                     // target member against this declaration.
@@ -1704,7 +1704,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     for f in &h.fns {
                         self.reject_member_effects(f, "handler member functions");
-                        // [async-send-fn] A handler's `send fn` answers
+                        // [actor-send-fn] A handler's `send fn` answers
                         // nothing, exactly as the effect's declaration does.
                         self.check_send_member(f);
                         // [linear-group] [linear-discard] A handler member
@@ -1730,8 +1730,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Effect(e) => {
                     self.check_platform_effect(e);
                     self.check_effect_member_signatures(e);
-                    // [async-effect-kind] The kind's own rules: what an
-                    // `async effect` may declare, and that `send fn` needs one.
+                    // [actor-effect-kind] The kind's own rules: what an
+                    // `actor effect` may declare, and that `send fn` needs one.
                     self.check_effect_kind(e);
                     let saved = self.enter_generics(&e.generics);
                     for f in &e.fns {
@@ -2142,7 +2142,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-send-fn] What a `send fn` may declare. A send member is a
+    /// [actor-send-fn] What a `send fn` may declare. A send member is a
     /// *message*: sending it enqueues an invocation and returns immediately,
     /// so there is no value to answer with — a reply travels as a `Reply<T>`
     /// parameter the sender mints with `replyto`. A written return type is
@@ -2150,47 +2150,47 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// annotation. (The later call-member sugar goes the other way: a `-> T`
     /// member desugars *into* a send member with a trailing token, so the
     /// two spellings must not both mean something here.)
-    /// [async-effect-kind] The effect-level kind rules (user decision
+    /// [actor-effect-kind] The effect-level kind rules (user decision
     /// 2026-09-15, EU-5). The kind is declared, not diagnosed: an author
-    /// choosing between `effect` and `async effect` is choosing whether the
+    /// choosing between `effect` and `actor effect` is choosing whether the
     /// protocol crosses threads, and everything that cannot cross is refused
     /// **here**, where the choice is being made, rather than at some later
     /// binding.
     ///
     /// Two directions:
-    /// * `send fn` needs an `async effect` — a message has nowhere to go in a
+    /// * `send fn` needs an `actor effect` — a message has nowhere to go in a
     ///   synchronous protocol.
-    /// * inside an `async effect`, a member may not **keep** a parameter, take
+    /// * inside an `actor effect`, a member may not **keep** a parameter, take
     ///   a `Mut` one, return a `proj` view, or carry a **non-sendable** payload
-    ///   [async-sendable]. Each is a borrow or a share that a seam cannot
+    ///   [actor-sendable]. Each is a borrow or a share that a seam cannot
     ///   carry.
     fn check_effect_kind(&mut self, e: &'p EffectDecl) {
         let saved = self.enter_generics(&e.generics);
         for f in &e.fns {
-            if f.is_send && !e.is_async {
+            if f.is_send && !e.is_actor {
                 self.error(
                     f.name.span,
                     format!(
-                        "`send fn {}` needs an `async effect`: a message is \
-                         enqueued on a process, which a synchronous effect \
-                         never has — declare `async effect {}` if this \
+                        "`send fn {}` needs an `actor effect`: a message is \
+                         enqueued on an actor, which a synchronous effect \
+                         never has — declare `actor effect {}` if this \
                          protocol is meant to be spawned",
                         f.name.name, e.name.name
                     ),
                 );
             }
-            if e.is_async {
-                self.check_async_member(e, f);
+            if e.is_actor {
+                self.check_actor_member(e, f);
             }
         }
         self.generics = saved;
     }
 
-    /// [async-effect-kind] [async-sendable] One member of an `async effect`,
+    /// [actor-effect-kind] [actor-sendable] One member of an `actor effect`,
     /// against the refusal list. The diagnostics name the *law* rather than the
-    /// symptom ("a `Mut` parameter in an `async effect`"), because the remedy
+    /// symptom ("a `Mut` parameter in an `actor effect`"), because the remedy
     /// is a design decision — send a copy, or make the protocol synchronous.
-    fn check_async_member(&mut self, e: &'p EffectDecl, f: &'p FnDecl) {
+    fn check_actor_member(&mut self, e: &'p EffectDecl, f: &'p FnDecl) {
         let inner = self.enter_generics(&f.generics);
         // A kept parameter is a borrow that outlives the call, which a
         // message cannot carry: the payload crosses the seam and the sender
@@ -2205,8 +2205,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 d.span,
                 format!(
-                    "member `{}` of `async effect {}` cannot keep `{}`: a \
-                     message payload crosses to another process, so it is \
+                    "member `{}` of `actor effect {}` cannot keep `{}`: a \
+                     message payload crosses to another actor, so it is \
                      always consumed — write `=> !{}`, or make `{}` a plain \
                      effect",
                     f.name.name, e.name.name, name.name, name.name, e.name.name
@@ -2220,37 +2220,37 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         q.span,
                         format!(
-                            "member `{}` of `async effect {}` cannot take a \
+                            "member `{}` of `actor effect {}` cannot take a \
                              `Mut` parameter: mutating a value across a \
-                             process boundary would share it, and a process \
+                             actor boundary would share it, and an actor \
                              owns its state alone",
                             f.name.name, e.name.name
                         ),
                     );
                 }
             }
-            // [async-sendable] C-4(a)'s structural rule, at the declaration.
+            // [actor-sendable] C-4(a)'s structural rule, at the declaration.
             let ty = self.lower_type(&p.ty);
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
                     p.ty.span(),
                     format!(
-                        "member `{}` of `async effect {}` cannot carry \
+                        "member `{}` of `actor effect {}` cannot carry \
                          `{ty}`: {why}, and everything crossing to another \
-                         process must be sendable",
+                         actor must be sendable",
                         f.name.name, e.name.name
                     ),
                 );
             }
         }
-        // A `proj` return is a borrow of something the process owns.
+        // A `proj` return is a borrow of something the actor owns.
         if let Some(rt) = &f.return_type {
             if let Some(span) = first_proj_span(rt) {
                 self.error(
                     span,
                     format!(
-                        "member `{}` of `async effect {}` cannot return a \
-                         `proj` view: it would borrow state the process owns \
+                        "member `{}` of `actor effect {}` cannot return a \
+                         `proj` view: it would borrow state the actor owns \
                          and keeps mutating",
                         f.name.name, e.name.name
                     ),
@@ -2260,7 +2260,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = inner;
     }
 
-    /// [async-sendable] Why a value of this type may not cross a seam, or
+    /// [actor-sendable] Why a value of this type may not cross a seam, or
     /// `None` when it may (user decision 2026-09-15, C-4(a) as the structural
     /// rule). Two kinds of contents are refused, both because the *other* side
     /// could never own what it received:
@@ -2282,7 +2282,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         None
     }
 
-    /// [async-sendable] Whether a (lowered) type is, or transitively holds, a
+    /// [actor-sendable] Whether a (lowered) type is, or transitively holds, a
     /// function value. Structural like `ty_holds_proj`, with the same depth
     /// guard against a recursive struct.
     fn ty_holds_fn(&self, ty: &Ty, depth: usize) -> bool {
@@ -2312,7 +2312,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-sendable] The written-type half of `ty_holds_fn`: a struct
+    /// [actor-sendable] The written-type half of `ty_holds_fn`: a struct
     /// field's declared type, without lowering it (a fn type is syntactic, and
     /// lowering here would need the declaring scope's generics).
     fn ast_type_holds_fn(&self, ty: &ast::Type, depth: usize) -> bool {
@@ -2475,7 +2475,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn require_explicit(&mut self, f: &FnDecl, kind: &str, want_effects: bool) {
         let name = &f.name.name;
-        // [async-send-fn] A `send fn` answers nothing — the reply, if there
+        // [actor-send-fn] A `send fn` answers nothing — the reply, if there
         // is one, is a `Reply<T>` parameter — so there is no return type to
         // require, and writing one is its own error (`check_send_member`).
         if f.return_type.is_none() && !f.is_send {
@@ -4353,7 +4353,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
         let (mut fn_effects, can_use, mut can_spawn) = self.check_effect_list(f);
-        // [async-spawn-effect] A handler member inherits its handler's
+        // [actor-spawn-effect] A handler member inherits its handler's
         // dependency list, and `[spawn]` is part of that list — a supervisor
         // spawns its children from a member body.
         can_spawn = can_spawn || self.handler_spawns;
@@ -4401,7 +4401,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
         let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, can_spawn);
-        // [async-waitfor] `waitfor` is legal only in the entry point, and
+        // [actor-waitfor] `waitfor` is legal only in the entry point, and
         // `own_fn` being set is what distinguishes the *program's* `main`
         // from a member or lambda being checked under it.
         let saved_in_main =
@@ -4568,10 +4568,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         for eff in f.effects.iter().flatten() {
             match eff {
                 EffectRef::Use(_) => can_use = true,
-                // [async-spawn-effect] The process-creation capability. It
+                // [actor-spawn-effect] The actor-creation capability. It
                 // names no effect type, so there is nothing to lower and
                 // nothing to thread; what it does is open the *gate* a
-                // `spawn` expression checks [async-spawn-expr].
+                // `spawn` expression checks [actor-spawn-expr].
                 EffectRef::Spawn(_) => can_spawn = true,
                 EffectRef::Effect(r) => {
                     let Some(ty) = self.lower_effect_ref(r) else {
@@ -4643,7 +4643,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
-        // [async-use-addr] `use addr` binds an effect to a forwarding stub over
+        // [actor-use-addr] `use addr` binds an effect to a forwarding stub over
         // an `Addr` instead of constructing a handler: first-pass surface, and
         // no new syntax — which means telling the two apart is this
         // statement's job.
@@ -4662,13 +4662,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return;
         };
-        // [async-replyto] A handler whose members mint a self-targeted
+        // [actor-replyto] A handler whose members mint a self-targeted
         // continuation may only be **spawned** (user decision 2026-09-15).
         // Bound with `use`, its member bodies run inline on the caller's
         // thread: the mint would target a member of a *local* instance, which
         // has no mailbox for the answer to arrive on and no dispatcher to run
         // it — so the continuation would silently never run. Parking is the
-        // one thing only a process can do, so this costs nothing real.
+        // one thing only an actor can do, so this costs nothing real.
         //
         // The gate is syntactic per *handler* rather than per member, because
         // effects propagate: a fn declaring `[E]` may call any member, so a
@@ -4688,10 +4688,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.finish_use(id, concrete, deps, span);
     }
 
-    /// [async-use-addr] `use addr` — bind the effect a process serves in this
+    /// [actor-use-addr] `use addr` — bind the effect an actor serves in this
     /// scope, so its members are callable unqualified *and* can travel down
     /// through ordinary effect lists (`fn drive() [Roll]`). The addr is not
-    /// consumed: an addr is freely copyable, and a send to a dead process is a
+    /// consumed: an addr is freely copyable, and a send to a dead actor is a
     /// no-op, so binding one takes nothing away from the holder.
     fn check_use_addr(&mut self, addr: &'p Expr, span: Span) {
         let ty = self.check_expr(addr, None);
@@ -4708,8 +4708,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return;
         };
-        // [async-effect-kind] Binding an addr binds a process's protocol.
-        self.require_async_effect(&effect, span, "use");
+        // [actor-effect-kind] Binding an addr binds an actor's protocol.
+        self.require_actor_effect(&effect, span, "use");
         self.out.use_addrs.insert(self.key(span), effect.clone());
         self.out.use_effects.insert(self.key(span), effect.clone());
         self.effect_env.push(effect);
@@ -7768,7 +7768,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// obligation out of handler state is legal — draining a queue of parked
     /// tokens is the point — but a member that returns with a field moved out
     /// has left a hole a later activation would read, and no analysis can see
-    /// what the process holds at an arbitrary future point. So the rule is
+    /// what the actor holds at an arbitrary future point. So the rule is
     /// per activation, exactly as it is for a `Mut` parameter: put something
     /// back (`waiting = mut_list_of()`), or do not move.
     ///
@@ -7804,7 +7804,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     "cannot {what}: the state field `{name}` was moved out of and \
                      nothing was put back, so this activation would leave the \
                      handler with a hole — assign it a value first (`{name} = …`), \
-                     since the obligations a process holds must survive between \
+                     since the obligations an actor holds must survive between \
                      activations"
                 ),
             );
@@ -7913,11 +7913,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                      the function containing it may"
                         .to_string(),
                 ),
-                // [async-spawn-effect] Same reasoning: the capability is a
+                // [actor-spawn-effect] Same reasoning: the capability is a
                 // property of the body that spawns, not of a value's type.
                 EffectRef::Spawn(span) => self.error(
                     *span,
-                    "a fn type cannot declare `spawn`: creating a process is \
+                    "a fn type cannot declare `spawn`: creating an actor is \
                      local to a body, so a lambda may spawn exactly when the \
                      function containing it may"
                         .to_string(),
@@ -8256,7 +8256,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         !self.lambda_ctx.is_empty()
     }
 
-    /// [async-self-send] `self.k(args)` — send a message to **the process this
+    /// [actor-self-send] `self.k(args)` — send a message to **the actor this
     /// member belongs to**: the one thing a member cannot say with an
     /// unqualified call, since that would be self-dispatch (a handler has no
     /// way to reach its own instance) rather than a message.
@@ -8264,7 +8264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Its point is *ordering*, not reach: an unqualified call would run `k`
     /// now, inside this activation; a self-send runs it as its own later one,
     /// which is how "finish this, then continue with `k`" is written. Defined
-    /// for both bindings, like every other form: an enqueue on the process's
+    /// for both bindings, like every other form: an enqueue on the actor's
     /// own mailbox when the handler is spawned, and the ordinary inline member
     /// call when it is `use`d — which is what a local binding of a `send`
     /// protocol already does.
@@ -8345,19 +8345,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
             // A payload crosses the seam even when both ends are the same
-            // process: the message outlives this activation, so the sender
+            // actor: the message outlives this activation, so the sender
             // gives it up [deduce-consume].
-            self.fate_move(a, "send", "a send to this process", a.span());
+            self.fate_move(a, "send", "a send to this actor", a.span());
         }
         self.record_def_ref(member.span, &member.name);
         self.out
             .self_sends
             .insert(self.key(span), member.name.clone());
-        // [async-send-fn] A send answers nothing.
+        // [actor-send-fn] A send answers nothing.
         Ty::none()
     }
 
-    /// [async-use-addr] The effect a dot-call's receiver serves, when the
+    /// [actor-use-addr] The effect a dot-call's receiver serves, when the
     /// receiver is a **place** whose type is `Addr<E>` — a variable, a field
     /// chain (`registry.child`), a tuple element, or an array element.
     ///
@@ -8405,7 +8405,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-use-addr] `addr.member(args)` — a send to a process, and the
+    /// [actor-use-addr] `addr.member(args)` — a send to an actor, and the
     /// inline form of `use addr` plus an unqualified call. The receiver names
     /// *where* the message goes rather than an argument, so the member's
     /// parameters line up with the written arguments exactly as they do at a
@@ -8498,7 +8498,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error_unresolved(
                 member.span,
                 format!(
-                    "process `{instance}` serves effect `{effect_name}`, which has no \
+                    "actor `{instance}` serves effect `{effect_name}`, which has no \
                      member named `{}`",
                     member.name
                 ),
@@ -8513,17 +8513,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.effect_member_calls.insert(self.key(span), idx);
             }
         }
-        // [async-send-fn] Only a send member can be reached through an addr in
+        // [actor-send-fn] Only a send member can be reached through an addr in
         // the first pass: an ordinary member answers, and answering across a
-        // process boundary is the call sugar that comes later (with it, the
-        // named question of whether an ordinary member may be process-backed
+        // actor boundary is the call sugar that comes later (with it, the
+        // named question of whether an ordinary member may be actor-backed
         // at all).
         if !target.is_send {
             self.error(
                 span,
                 format!(
                     "`{}` is not a `send fn`, so it cannot be called through a \
-                     `{ADDR_TYPE}`: a process serves messages, and a member that \
+                     `{ADDR_TYPE}`: an actor serves messages, and a member that \
                      answers would have to park its caller",
                     member.name
                 ),
@@ -8574,30 +8574,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.maybe_coerce(a.span(), &got, &repr, &want);
             // A payload crosses the seam: the sender gives it up
             // [deduce-consume]. This is what makes a reply token's linearity
-            // discharge by sending it to a process.
-            self.fate_move(a, "send", "a send to a process", a.span());
+            // discharge by sending it to an actor.
+            self.fate_move(a, "send", "a send to an actor", a.span());
         }
         self.out.addr_calls.insert(self.key(span), instance.clone());
-        // [async-deadlock-cycle] A send from inside a member body is an edge
+        // [actor-deadlock-cycle] A send from inside a member body is an edge
         // in the wait-for graph: it blocks while the target's bounded mailbox
         // is full. Recorded with the handler doing the sending, so the graph
         // pass can key it on the protocol that handler serves.
         if let (Some(h), Ty::Named { name, .. }) = (self.own_handler, instance.strip_quals()) {
             self.out
-                .async_sends
+                .actor_sends
                 .push((h.name.name.clone(), name.clone(), self.key(span)));
         }
-        // [async-send-fn] A send answers nothing.
+        // [actor-send-fn] A send answers nothing.
         Ty::none()
     }
 
-    /// [async-spawn-expr] `spawn H(args) use D(...), addr capacity N on POOL`
+    /// [actor-spawn-expr] `spawn H(args) use D(...), addr capacity N on POOL`
     /// — the asynchronous binding of a handler. Almost every rule here is a
     /// rule `use` already has, moved to the spawn site: the same handler
     /// construction, the same dependency resolution, the same
     /// argument-is-stored consumption. What differs is *where* the
     /// dependencies come from — the spawn's own `use` clause, because a
-    /// handler never crosses into a process (only construction does) — and
+    /// handler never crosses into an actor (only construction does) — and
     /// that the result is a value: the child's `Addr<E>`.
     fn check_spawn(
         &mut self,
@@ -8625,7 +8625,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [async-spawn-effect] The capability gate. Reported once, at the
+        // [actor-spawn-effect] The capability gate. Reported once, at the
         // spawn, and the rest of the form is still checked so a program with
         // a missing capability gets its other errors too.
         if !self.can_spawn {
@@ -8654,10 +8654,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
-        // (built on the child) or an `Addr` (an effect another process serves).
-        // [async-effect-kind] Only a process protocol may be spawned. Checked
+        // (built on the child) or an `Addr` (an effect another actor serves).
+        // [actor-effect-kind] Only an actor protocol may be spawned. Checked
         // after the construction, so argument errors still surface.
-        self.require_async_effect(&effect, span, "spawn");
+        self.require_actor_effect(&effect, span, "spawn");
         // The clause item's own index travels with the effect it supplies:
         // the matching below drains this list, so the position in it is not
         // the position the program wrote.
@@ -8719,7 +8719,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-spawn-expr] One item of a spawn's `use` clause: a handler
+    /// [actor-spawn-expr] One item of a spawn's `use` clause: a handler
     /// construction, whose effect is what it implements, or a value of type
     /// `Addr<E>`, whose effect is `E`. Answers the effect it supplies.
     fn check_spawn_dep(&mut self, item: &'p Expr) -> Option<Ty> {
@@ -8747,7 +8747,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "handler `{}` depends on effect `{dep}`, so it cannot be \
                          constructed in a spawn's `use` clause: give the child a \
-                         `{ADDR_TYPE}` of a process serving `{effect}` instead, or \
+                         `{ADDR_TYPE}` of an actor serving `{effect}` instead, or \
                          construct it inside the child with `use`",
                         id.name
                     ),
@@ -8765,7 +8765,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "a spawn's `use` clause supplies handlers: write a handler \
                          construction (`SomeHandler(...)`) or a `{ADDR_TYPE}` of the \
-                         effect a process already serves, not a `{ty}`"
+                         effect an actor already serves, not a `{ty}`"
                     ),
                 );
                 None
@@ -8773,7 +8773,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-replyto] `replyto k(captures)` — mint a continuation targeting
+    /// [actor-replyto] `replyto k(captures)` — mint a continuation targeting
     /// member `k` of the **enclosing handler**. `k`'s parameters are the
     /// captures written here followed by one more: the answer, which is what
     /// the token carries. So `send fn arrived(id: Int, notices: List<Notice>)`
@@ -8809,8 +8809,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             for c in captures {
                 self.check_expr(c, None);
             }
-            // [async-replyto] A **remote** mint — `k` is a member of an
-            // `async effect` in scope rather than of this handler — is the
+            // [actor-replyto] A **remote** mint — `k` is a member of an
+            // `actor effect` in scope rather than of this handler — is the
             // generalized form (EFFECT_UNIFICATION.md EU-7b, decided) and a
             // later slice: it makes the mint itself send-like, since capacity
             // has to be reserved in the *target's* queue. Named here rather
@@ -8823,7 +8823,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .get(member.name.as_str())
                 .map(|ms| {
                     ms.iter()
-                        .filter(|(e, _)| e.is_async)
+                        .filter(|(e, _)| e.is_actor)
                         .map(|(e, _)| format!("`{}`", e.name.name))
                         .collect::<Vec<_>>()
                 })
@@ -8836,7 +8836,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "`{form}` targets a member of the handler it is written in, and \
                          `{}` is a member of {} instead: minting toward another \
-                         process's member is not supported yet. Have the handler that \
+                         actor's member is not supported yet. Have the handler that \
                          owns `{}` mint the token and pass it here — a `Reply<T>` is an \
                          ordinary linear value",
                         member.name,
@@ -8913,19 +8913,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .replyto_members
             .insert(self.key(span), member.name.clone());
-        // [async-replyto] This handler parks, so it may only be spawned: the
+        // [actor-replyto] This handler parks, so it may only be spawned: the
         // continuation needs a mailbox to arrive on and a dispatcher to run
         // it, and a synchronously bound instance has neither. Refused at the
         // `use` site (below), which is where the binding is chosen.
         self.parking_handlers.insert(h.name.name.clone());
-        // [async-deadlock-cycle] The gate is the wait-for graph's tail: while
-        // this continuation is outstanding the process serves only its answer,
+        // [actor-deadlock-cycle] The gate is the wait-for graph's tail: while
+        // this continuation is outstanding the actor serves only its answer,
         // so whatever this handler can send to must be able to answer without
         // waiting on *it*. A bare `replyto` leaves the mailbox open and
         // contributes nothing.
         if gated {
             self.out
-                .async_gates
+                .actor_gates
                 .push((h.name.name.clone(), self.key(span)));
         }
         let answer = param_tys
@@ -8938,7 +8938,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [async-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge.
+    /// [actor-waitfor] `waitfor out: Reply<T> { ... }` — `main`'s bridge.
     /// The token is an ordinary **linear** local, so "the block must consume
     /// it" needs no rule of its own: [linear-obligation] reports a leak at
     /// the block's end. The expression's value is the token's payload.
@@ -9133,11 +9133,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::For { .. }
             | Expr::Lambda { .. }
             | Expr::Try { .. }
-            // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
+            // [actor-spawn-expr] [actor-replyto] [actor-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
             // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
-            // [async-self-send] `k@self` is a callee, so it is a leaf here.
+            // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
@@ -9214,11 +9214,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::For { .. }
             | Expr::Lambda { .. }
             | Expr::Try { .. }
-            // [async-spawn-expr] [async-replyto] [async-waitfor] Each has a
+            // [actor-spawn-expr] [actor-replyto] [actor-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
             // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
-            // [async-self-send] `k@self` is a callee, so it is a leaf here.
+            // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
             | Expr::Spawn { .. }
             | Expr::ReplyTo { .. }
@@ -10222,7 +10222,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
-                // [async-spawn-effect] A handler *may* depend on `spawn` — a
+                // [actor-spawn-effect] A handler *may* depend on `spawn` — a
                 // supervisor spawns and re-spawns its children. It names no
                 // effect type, so there is nothing to lower here; the gate
                 // arrives with the `spawn` expression.
@@ -10266,27 +10266,27 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// neither backend can render it (Rust emits a bare trait, `E0782`).
     ///
     /// **One exception, sanctioned by decision** (user, 2026-09-15):
-    /// `Addr<E>`'s type argument [async-spawn-expr]. An addr is a handle to a
-    /// process, and what a holder may *do* with it is exactly the effect the
-    /// process serves — so the effect is what parameterizes the handle, and
-    /// that is what makes a process and a locally `use`d handler
+    /// `Addr<E>`'s type argument [actor-spawn-expr]. An addr is a handle to a
+    /// actor, and what a holder may *do* with it is exactly the effect the
+    /// actor serves — so the effect is what parameterizes the handle, and
+    /// that is what makes an actor and a locally `use`d handler
     /// interchangeable behind one name. The exception is one type argument of
     /// one std type; an addr is still not a handler instance, and every other
     /// data position stays refused (checked in `validate_type`, which knows
     /// the enclosing type).
-    /// [async-spawn-expr] Whether this type argument is the effect argument
+    /// [actor-spawn-expr] Whether this type argument is the effect argument
     /// of an `Addr` — the one place an effect names something in a type
     /// position. Deliberately narrow: the enclosing base must be std's
     /// `Addr`, the position must be its only type parameter, and the argument
     /// must be a bare name that a visible effect declares. Anything else
     /// (`Addr<Int>`, a second argument, an effect elsewhere) goes down the
     /// ordinary path and is validated — or refused — as before.
-    /// [async-effect-kind] The binding gate: `spawn` and `use addr` are the two
-    /// ways a process is reached, and both need an `async effect`. This is what
+    /// [actor-effect-kind] The binding gate: `spawn` and `use addr` are the two
+    /// ways an actor is reached, and both need an `actor effect`. This is what
     /// closes the design's carried named question — "may an ordinary member be
-    /// process-backed?" — as *forbid*, with the async kind as the sanctioned
+    /// actor-backed?" — as *forbid*, with the actor kind as the sanctioned
     /// spelling (user decision 2026-09-15).
-    fn require_async_effect(&mut self, effect: &Ty, span: Span, form: &str) {
+    fn require_actor_effect(&mut self, effect: &Ty, span: Span, form: &str) {
         let Ty::Named { name, .. } = effect.strip_quals() else {
             return;
         };
@@ -10294,22 +10294,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
             return;
         };
-        if decl.is_async {
+        if decl.is_actor {
             return;
         }
         self.error(
             span,
             format!(
-                "`{form}` cannot bind `{name}` to a process: it is a plain effect, and \
-                 a synchronous protocol has no mailbox — declare `async effect {name}` \
+                "`{form}` cannot bind `{name}` to an actor: it is a plain effect, and \
+                 a synchronous protocol has no mailbox — declare `actor effect {name}` \
                  (its members then give up kept and `Mut` parameters, `proj` returns \
                  and non-sendable payloads)"
             ),
         );
     }
 
-    /// [async-effect-kind] The kind gate on an `Addr`'s argument: only an
-    /// `async effect` can sit behind one, because only an async effect can be
+    /// [actor-effect-kind] The kind gate on an `Addr`'s argument: only an
+    /// `actor effect` can sit behind one, because only an actor effect can be
     /// spawned. Reported where the type is *written*, which is earlier and
     /// clearer than at a spawn that could never have produced it.
     fn check_addr_effect_kind(&mut self, base: &TypeRef, arg: &ast::Type) {
@@ -10323,13 +10323,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
             return;
         };
-        if !decl.is_async {
+        if !decl.is_actor {
             self.error(
                 eff.span,
                 format!(
-                    "`{ADDR_TYPE}<{name}>` needs an `async effect`: an addr names a \
-                     process, and a plain effect is never process-backed — declare \
-                     `async effect {name}` if it is meant to be spawned"
+                    "`{ADDR_TYPE}<{name}>` needs an `actor effect`: an addr names a \
+                     actor, and a plain effect is never actor-backed — declare \
+                     `actor effect {name}` if it is meant to be spawned"
                 ),
             );
         }
@@ -10528,14 +10528,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [linear-state] Handler state is the exception, and the reason
             // this rule has an exception at all (LC-4, user decision
-            // 2026-09-15): a process *is* its state, and the shapes the
+            // 2026-09-15): an actor *is* its state, and the shapes the
             // concurrency surface is for — a queue of parked reply tokens, a
             // map of gathers — live in a handler field. No marker exists to
             // ask for, and none is wanted: the handler already has a lifetime
-            // of its own, so the obligation rests with the **process** until
+            // of its own, so the obligation rests with the **actor** until
             // it ends. What an activation may not do is leave a hole
             // (checked where a member returns), and what death does with
-            // parked obligations is `watch`'s answer [async-watch].
+            // parked obligations is `watch`'s answer [actor-watch].
             //
             // One shape is refused: a **bare** obligation (a `linear struct`
             // or a linear opaque type, rather than a container of them). It
@@ -10605,14 +10605,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // sorted containers apply to their keys.
                 self.check_sorted_list_claim(qualifiers, base);
                 for (i, a) in base.args.iter().enumerate() {
-                    // [async-spawn-expr] `Addr<E>`'s argument is the *effect*
-                    // the process serves — the one sanctioned effect-in-a-
+                    // [actor-spawn-expr] `Addr<E>`'s argument is the *effect*
+                    // the actor serves — the one sanctioned effect-in-a-
                     // type-argument (user decision 2026-09-15). Validated
                     // here rather than in `reject_effect_as_data`, because
                     // only this walk knows what the argument belongs to.
                     if self.is_addr_effect_arg(base, i, a) {
-                        // [async-effect-kind] Legal *as* an effect here, but
-                        // only an async one can sit behind an addr.
+                        // [actor-effect-kind] Legal *as* an effect here, but
+                        // only an actor effect can sit behind an addr.
                         self.check_addr_effect_kind(base, a);
                         continue;
                     }
@@ -11246,7 +11246,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => collect_assigned(body, out),
-        // [async-spawn-expr] Every clause is an ordinary expression, and an
+        // [actor-spawn-expr] Every clause is an ordinary expression, and an
         // argument that crosses to the child may itself assign.
         Expr::Spawn {
             handler,
@@ -11262,15 +11262,15 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             collect_assigned_expr(capacity, out);
             collect_assigned_expr(pool, out);
         }
-        // [async-replyto] The captures are ordinary expressions.
+        // [actor-replyto] The captures are ordinary expressions.
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
                 collect_assigned_expr(capture, out);
             }
         }
-        // [async-self-send] A leaf: the selector names a handler member.
+        // [actor-self-send] A leaf: the selector names a handler member.
         Expr::SelfScoped { .. } => {}
-        // [async-waitfor] The bridge's block is ordinary code.
+        // [actor-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => collect_assigned(body, out),
         // A lambda body's assignments happen when the value is called, and
         // the checker cannot see where that is: counted here, so a
@@ -11475,7 +11475,7 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         // [try] The delimiter's body is ordinary code — a value mentioned
         // only inside it is still mentioned.
         Expr::Try { body, .. } => block_mentions(body),
-        // [async-spawn-expr] A spawn's clauses mention values the same way a
+        // [actor-spawn-expr] A spawn's clauses mention values the same way a
         // call's arguments do — and a value sent to a child is consumed by
         // it, so this must see through every clause.
         Expr::Spawn {
@@ -11490,11 +11490,11 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
                 || expr_mentions(capacity, name)
                 || expr_mentions(pool, name)
         }
-        // [async-replyto] A capture is a value the continuation takes.
+        // [actor-replyto] A capture is a value the continuation takes.
         Expr::ReplyTo { captures, .. } => captures.iter().any(|c| expr_mentions(c, name)),
-        // [async-self-send] A leaf: it mentions no value of its own.
+        // [actor-self-send] A leaf: it mentions no value of its own.
         Expr::SelfScoped { .. } => false,
-        // [async-waitfor] The bridge's block is ordinary code.
+        // [actor-waitfor] The bridge's block is ordinary code.
         Expr::WaitFor { body, .. } => block_mentions(body),
         // [fn-overload-at] The name is a *function*, never a value; only the
         // dot-notation receiver can mention anything.
@@ -12389,7 +12389,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // holding an obligation may be moved out of — that is how a queue of
         // parked tokens is drained — provided the activation puts something
         // back before it returns (`check_state_whole`, at every exit). The
-        // process owns the obligation across activations; what is forbidden is
+        // actor owns the obligation across activations; what is forbidden is
         // leaving a hole in state a later activation would read. A
         // *constructor parameter* stays refused: it is the handler's own
         // record of how it was built, and nothing can restore it.
@@ -13229,7 +13229,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
-            // [async-spawn-expr] The asynchronous binding of a handler: its
+            // [actor-spawn-expr] The asynchronous binding of a handler: its
             // value is the child's `Addr<E>`.
             Expr::Spawn {
                 handler,
@@ -13238,7 +13238,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 pool,
                 span,
             } => self.check_spawn(handler, uses, capacity, pool, *span),
-            // [async-self-send] A selector is a *callee*, never a value: a
+            // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
             // member is [effect-not-data]. Reached only when one is written
             // without a call.
@@ -13253,7 +13253,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 Ty::Unknown
             }
-            // [async-replyto] A parked one-shot continuation targeting a
+            // [actor-replyto] A parked one-shot continuation targeting a
             // member of the enclosing handler; its value is the linear token.
             Expr::ReplyTo {
                 member,
@@ -13261,7 +13261,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 gated,
                 span,
             } => self.check_replyto(member, captures, *gated, *span),
-            // [async-waitfor] `main`'s bridge: its value is what was sent to
+            // [actor-waitfor] `main`'s bridge: its value is what was sent to
             // the token it mints.
             Expr::WaitFor {
                 binding,
@@ -14193,11 +14193,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A lambda body is a loop barrier: `break`/`continue` inside it
         // never bind a loop enclosing the lambda expression.
         let saved_loops = std::mem::take(&mut self.loop_stack);
-        // [async-spawn-expr] [async-waitfor] [async-replyto] …and a barrier
+        // [actor-spawn-expr] [actor-waitfor] [actor-replyto] …and a barrier
         // for the asynchronous capabilities, for the same reason: a lambda is
         // a *value*, so where its body runs is decided by whoever calls it,
         // and no first-pass form may cross a closure. A fn type cannot
-        // declare `spawn` [async-spawn-effect], `waitfor` needs `main`'s own
+        // declare `spawn` [actor-spawn-effect], `waitfor` needs `main`'s own
         // thread, and a `replyto` continuation belongs to the handler that
         // minted it — none of which travels with a function value.
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
@@ -15997,7 +15997,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // a target-language method means declaring it (as a member of a
         // `platform effect`), so an unknown name here is an error, not
         // interop pass-through [call-resolve].
-        // [async-self-send] `k@self(args)` — a message to the process the
+        // [actor-self-send] `k@self(args)` — a message to the actor the
         // enclosing member belongs to. A selector, so it arrives as its own
         // callee shape rather than as a receiver that has to be told apart
         // from a value.
@@ -16006,9 +16006,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Expr::Field { base, field, .. } = callee {
             let name = field.name.as_str();
-            // [async-use-addr] `p.total(out)` where `p` is an `Addr<E>`: the
+            // [actor-use-addr] `p.total(out)` where `p` is an `Addr<E>`: the
             // inline form of `use p` — the member is E's, and the receiver is
-            // the process it goes to rather than a first argument. Checked
+            // the actor it goes to rather than a first argument. Checked
             // before the ordinary dot rules, because those would make the addr
             // argument zero of a member that never declared it.
             if let Some(effect) = self.addr_receiver(base) {
@@ -17518,7 +17518,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let mut resolved: Vec<Ty> = Vec::new();
-        // [async-spawn-effect] The `spawn` capability **propagates like any
+        // [actor-spawn-effect] The `spawn` capability **propagates like any
         // other effect**: `pool` and `watch` declare it, and std's own
         // documentation says declaring it is "what makes creating one a
         // capability the caller must hold" — so a caller that has not been
@@ -17908,14 +17908,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             match own {
                 Some(of) => {
-                    // [async-self-send] For a **send** member the remedy now
-                    // exists: `self.k(…)`, a message to this process, which
+                    // [actor-self-send] For a **send** member the remedy now
+                    // exists: `self.k(…)`, a message to this actor, which
                     // runs as its own later activation. For a member that
                     // answers, self-dispatch is still nothing a handler can
                     // do.
                     let remedy = if member.is_send {
                         format!(
-                            "send it to this process instead: `{}@self(…)`, which runs \
+                            "send it to this actor instead: `{}@self(…)`, which runs \
                              as its own later activation",
                             member.name.name
                         )

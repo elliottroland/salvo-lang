@@ -26,7 +26,7 @@ const STD_PRELUDE: &str = concat!(
     // [col-literal] Arrays lost their literal syntax, so a test that wants
     // one builds it with the constructor.
     "intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
-    // [async-spawn-expr] Std's process handle, whose type argument is an
+    // [actor-spawn-expr] Std's process handle, whose type argument is an
     // *effect* — the one sanctioned exception to [effect-not-data], and the
     // checker keys on this declaration to grant it.
     "intrinsic type Addr<E>\n",
@@ -307,10 +307,10 @@ handler MemCounter of Counter {
     }
 }
 
-// [async-effect-kind] An `Addr` needs a *process* protocol behind it, so the
+// [actor-effect-kind] An `Addr` needs a *process* protocol behind it, so the
 // addr cases below have one to name; `Counter` stays plain, which is what the
 // narrowness case needs.
-async effect Chatter {
+actor effect Chatter {
     send fn say(what: Str) => !what
 }
 "#;
@@ -373,7 +373,7 @@ fn effect_types_are_rejected_in_data_positions() {
     }
 }
 
-/// [effect-not-data] [async-spawn-expr] The one exception (user decision
+/// [effect-not-data] [actor-spawn-expr] The one exception (user decision
 /// 2026-09-15): `Addr<E>`'s type argument. An addr is a handle to a process, and
 /// the effect the process serves is what a holder may *do* with it — which is
 /// also what lets a process and a locally `use`d handler stand behind one
@@ -815,7 +815,7 @@ fn an_unused_parameter_does_not_warn() {
     );
 }
 
-// ===== [async-send-fn] Send members: what they may declare =====
+// ===== [actor-send-fn] Send members: what they may declare =====
 
 /// A `send fn` is a *message*: sending it enqueues an invocation and answers
 /// nothing, so a written return type is an error naming the shape that does
@@ -826,7 +826,7 @@ fn an_unused_parameter_does_not_warn() {
 fn a_send_member_cannot_declare_a_return_type() {
     let errors = messages(
         "\
-async effect Counter {
+actor effect Counter {
     send fn total() -> Int
 }
 ",
@@ -842,7 +842,7 @@ async effect Counter {
 fn a_send_member_in_a_handler_cannot_declare_a_return_type() {
     let errors = messages(
         "\
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int)
 }
 
@@ -868,7 +868,7 @@ handler Counting() of Counter {
 fn send_members_without_a_return_type_are_accepted() {
     let errors = messages(
         "\
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int)
 }
 
@@ -887,7 +887,7 @@ handler Counting() of Counter {
     );
 }
 
-/// [async-spawn-effect] `[spawn]` is accepted where a body may create a
+/// [actor-spawn-effect] `[spawn]` is accepted where a body may create a
 /// process — on a function, and on a handler's dependency list (a supervisor
 /// spawns its children) — and refused on a fn *type*, exactly as `use` is:
 /// the capability belongs to the body that spawns, not to a value's type.
@@ -895,7 +895,7 @@ handler Counting() of Counter {
 fn the_spawn_capability_is_accepted_on_fns_and_handlers() {
     let errors = messages(
         "\
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int)
 }
 

@@ -1095,7 +1095,7 @@ impl<'p> Walk<'_, 'p> {
             // can leave it early, so an addition inside one does not reach
             // the contract [qual-refn-infer].
             Expr::Try { body, .. } => self.cond_block(body),
-            // [async-spawn-expr] A spawn's arguments cross the seam, so a
+            // [actor-spawn-expr] A spawn's arguments cross the seam, so a
             // value passed to a child is *consumed* — walked as ordinary
             // reads here (the send-as-move accounting arrives with the
             // checker slice, which is what types these forms at all).
@@ -1113,15 +1113,15 @@ impl<'p> Walk<'_, 'p> {
                 self.expr(capacity);
                 self.expr(pool);
             }
-            // [async-self-send] A leaf: nothing to walk into.
+            // [actor-self-send] A leaf: nothing to walk into.
             Expr::SelfScoped { .. } => {}
-            // [async-replyto] The captures are reads.
+            // [actor-replyto] The captures are reads.
             Expr::ReplyTo { captures, .. } => {
                 for capture in captures {
                     self.expr(capture);
                 }
             }
-            // [async-waitfor] Its block runs once, like a `try` body.
+            // [actor-waitfor] Its block runs once, like a `try` body.
             Expr::WaitFor { body, .. } => self.cond_block(body),
             // Leaves: nothing to walk into. Listed rather than defaulted so
             // a new expression form cannot hide a consuming call from the

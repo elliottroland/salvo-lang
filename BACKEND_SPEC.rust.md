@@ -1332,17 +1332,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     boring reason worth recording: an immediately-applied closure literal
     (`(|r| …)(x)`) leaves rustc with nothing to infer the parameter type from
     (E0282), while a `for_each` argument is typed by the `FnMut` bound.
-* [rs-process] **Asynchronous effect handlers** lower to three generated
+* [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
   [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a
   program that spawns:
   * **The protocol's message enum**, `__Msg_E`, beside the effect it belongs
     to: one variant per `send fn`, owning its payload. It is the *effect's*,
     not a handler's, because a sender holds an `Addr` and knows only the effect
-    it serves — the same reason a process and a locally `use`d handler are
-    interchangeable [async-types].
-  * **The process body**, `__Proc_H`, beside the handler: a struct owning the
-    handler instance (a process's state *is* the handler's) whose
+    it serves — the same reason an actor and a locally `use`d handler are
+    interchangeable [actor-types].
+  * **The actor body**, `__Proc_H`, beside the handler: a struct owning the
+    handler instance (an actor's state *is* the handler's) whose
     `SalvoProcess::handle` downcasts the message enum and calls the member the
     variant names.
     * Member invocation lives in **one** place, a private
@@ -1356,25 +1356,25 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
       (whose supertrait must be proved). Getting the middle one wrong is an
       `E0277` naming the dependency's trait.
   * **The parked-continuation table, and the address, live on the handler.** A
-    handler of an `async effect` carries two generated fields, whichever way it
+    handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
     * `__addr: Option<usize>` — written by `handle`/`resume` from the
       activation's `SalvoCtx` before the member runs, and `None` when the
       instance was bound with `use` instead. That absence is the **self-send's
-      discriminator** [async-self-send].
+      discriminator** [actor-self-send].
     * `__parked: HashMap<u64, __Cont_E>` — slot → continuation, emitted when
       the protocol has any member that could be a target.
 
     They sit on the *handler* rather than on `__Proc_H` because the **mint**
     happens in a member body, which holds `&mut self` on the handler and cannot
-    see the process struct; `resume` reaches them through `self.handler` (user
+    see the actor struct; `resume` reaches them through `self.handler` (user
     decision 2026-09-15, D5-b). The alternative — a table in the runtime —
     would have changed `SalvoProcess::resume`'s decided signature, and the two
     runtimes are the most exactly-mirrored code in the phase.
   * **The protocol's continuation enum**, `__Cont_E`, beside `__Msg_E` and
     named after the effect for the same reason: one variant per send member
     with at least one parameter, carrying that member's parameters **minus the
-    trailing one**. The last parameter is the answer itself [async-replyto],
+    trailing one**. The last parameter is the answer itself [actor-replyto],
     which arrives with the reply rather than being stored — so the variant tells
     `resume` both *which* member to call and *what type* to downcast the answer
     to. A parameterless member gets no variant: there is no answer for a token
@@ -1407,10 +1407,10 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
       gets `Send` from the auto trait.
     * The fields are in the handler's **declaration** order, and the clause is
       in the program's; the checker's matching record is what keeps them
-      straight ([async-spawn-expr]).
+      straight ([actor-spawn-expr]).
     * A clause item becomes an instance the same way `use` makes one: a
       construction is `D::new(args)`, an addr is `__Stub_D::new(addr)`. So a
-      dependency can be a local handler in one program and a process in the
+      dependency can be a local handler in one program and an actor in the
       next with no change to the child.
     * `__Prov_H` is named after the *handler* while the provider **traits** of
       [rs-effect-fusion] are named after their effect sets (`__Prov_A_B`). Two
@@ -1440,7 +1440,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
     `pool(n)` → `salvo_pool(n as usize)`; `watch(a, out)` →
     `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`.
-  * **A `watch` carries its own `Exit` constructor** [async-watch]. The runtime
+  * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo struct, so the watch site
     passes a `fn(String) -> SalvoMsg` alongside the token and the scheduler
     calls it at death — which keeps a watcher's payload byte-identical to an
@@ -1455,19 +1455,19 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_E::K(caps)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the
     runtime's business, not the emitter's. The `expect` cannot fire: a parking
-    handler may only be spawned ([async-replyto], checked), so its members run
+    handler may only be spawned ([actor-replyto], checked), so its members run
     as activations and `__addr` was written before the body did.
   * **`k@self(args)`** → `match self.__addr { Some(__a) => salvo_send(__a,
     Box::new(__Msg_E::K(args))), None => <inline> }`, where the inline reading
     is `E::k(self, args)` — or `__Impl_H::k(self, &mut *__fx, args)` for a
     dependent handler, forwarding the fused value the body already holds
-    [rs-effect-fusion]. One field, both readings [async-self-send].
+    [rs-effect-fusion]. One field, both readings [actor-self-send].
   * **The forwarding stub**, `__Stub_E`, beside the effect: a struct holding an
     addr that `impl`s the effect trait by sending. `use addr` builds one and
     binds it exactly as a handler instance is bound — under the fusion too,
     since `emit_fusion_instance` takes the *expression* that makes the instance
     and no longer cares which kind it is. That indifference is the point: a
-    handler is compiled once and bound many ways [async-use-addr]. A spawn
+    handler is compiled once and bound many ways [actor-use-addr]. A spawn
     clause's addr becomes the same stub, in the child's provider.
   * **Still refused** (each a diagnostic, none silent): spawning a **generic**
     handler and a **generic effect** as a protocol.

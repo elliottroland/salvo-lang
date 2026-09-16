@@ -1,8 +1,8 @@
-//! [async-spawn-expr] [async-replyto] [async-waitfor] [async-use-addr] The
+//! [actor-spawn-expr] [actor-replyto] [actor-waitfor] [actor-use-addr] The
 //! asynchronous surface's *checker* rules: what a `spawn` needs to be legal,
 //! what a `replyto` may target, where a `waitfor` may stand, and how an `Addr`
 //! is called. The forms' syntax is tested in `salvo-syntax`; the types they
-//! produce and consume are `core.process`'s ([async-types]).
+//! produce and consume are `core.actor`'s ([actor-types]).
 //!
 //! The shape every test here rests on: a process is a handler bound
 //! asynchronously, so almost every rule is one `use` already had, moved to
@@ -12,7 +12,7 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-/// A stand-in for `core.process` and the little of std these tests need.
+/// A stand-in for `core.actor` and the little of std these tests need.
 /// `intrinsic` is std-only [intrinsic-std-only], so it is loaded as a std
 /// file rather than pasted into the source under test.
 const STD_PRELUDE: &str = "\
@@ -34,12 +34,12 @@ intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => 
 /// The effects and handlers the cases share: a `Counter` protocol with a
 /// request/response pair, a `Log` dependency, and handlers for both.
 const PRELUDE: &str = r#"
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
 
-async effect Log {
+actor effect Log {
     send fn note(what: Str) => !what
 }
 
@@ -69,7 +69,7 @@ fn errors(src: &str) -> Vec<String> {
         .collect()
 }
 
-/// [async-deadlock-cycle] The other severity: a warning reports something the
+/// [actor-deadlock-cycle] The other severity: a warning reports something the
 /// program should look at without refusing it, and the back-pressure cycle is
 /// the one on this surface.
 fn warnings(src: &str) -> Vec<String> {
@@ -148,9 +148,9 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "the first-pass surface must check: {errs:?}");
 }
 
-// ===== [async-spawn-expr] The spawn =====
+// ===== [actor-spawn-expr] The spawn =====
 
-/// [async-spawn-effect] The capability gate: creating a process is something
+/// [actor-spawn-effect] The capability gate: creating a process is something
 /// a function must declare, exactly as registering a handler is.
 #[test]
 fn a_spawn_requires_the_spawn_capability() {
@@ -272,7 +272,7 @@ fn main() [use, spawn] {
     );
 }
 
-// ===== [async-use-addr] Sends through an addr =====
+// ===== [actor-use-addr] Sends through an addr =====
 
 /// A dot-call through an addr resolves against the effect the process serves,
 /// with the receiver naming *where* the message goes rather than being the
@@ -348,7 +348,7 @@ fn main() [use, spawn] {
     );
 }
 
-// ===== [async-replyto] The mint =====
+// ===== [actor-replyto] The mint =====
 
 /// `replyto` targets a member of the handler it is written in, so it is
 /// illegal outside one — and the diagnostic names `main`'s alternative.
@@ -390,7 +390,7 @@ handler Asking() [Counter] of Log {
 
     let not_send = errors(
         "\
-async effect Ask {
+actor effect Ask {
     send fn go(out: Reply<Int>) => !out
     fn ready() -> Bool
 }
@@ -422,7 +422,7 @@ handler Asker() [Counter] of Ask {
 fn replyto_captures_are_the_members_leading_parameters() {
     let errs = errors(
         "\
-async effect Ask {
+actor effect Ask {
     send fn go() 
     send fn arrived(id: Int, sum: Int) => !id, !sum
 }
@@ -450,7 +450,7 @@ handler Asker() [Counter] of Ask {
 fn a_replyto_types_its_token_from_the_answer_parameter() {
     let errs = errors(
         "\
-async effect Ask {
+actor effect Ask {
     send fn go()
     send fn arrived(id: Int, sum: Int) => !id, !sum
     send fn wrong(id: Int, text: Str) => !id, !text
@@ -471,7 +471,7 @@ handler Asker() [Counter] of Ask {
 
     let mismatch = errors(
         "\
-async effect Ask {
+actor effect Ask {
     send fn go()
     send fn wrong(id: Int, text: Str) => !id, !text
 }
@@ -493,7 +493,7 @@ handler Asker() [Counter] of Ask {
     );
 }
 
-// ===== [async-waitfor] The bridge =====
+// ===== [actor-waitfor] The bridge =====
 
 /// `waitfor` blocks a real thread, so only `main` may write one.
 #[test]
@@ -578,7 +578,7 @@ fn main() [use, spawn] {
 
 // ===== The leftovers this slice closed =====
 
-/// [async-use-addr] A receiver is any **place** whose type is an addr, not just
+/// [actor-use-addr] A receiver is any **place** whose type is an addr, not just
 /// a variable: a field chain (a registry of children, a supervisor's state)
 /// and an array element both work, which is what a program holding several
 /// processes writes.
@@ -602,7 +602,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "an addr place must be a receiver: {errs:?}");
 }
 
-/// [async-spawn-expr] [async-waitfor] [async-replyto] The asynchronous forms
+/// [actor-spawn-expr] [actor-waitfor] [actor-replyto] The asynchronous forms
 /// stop at a **closure**: a function value's body runs wherever it is called,
 /// a fn type cannot declare `spawn`, `waitfor` needs `main`'s own thread, and
 /// a continuation belongs to the handler that minted it. Each diagnostic says
@@ -644,7 +644,7 @@ fn main() [use, spawn] {
 
     let minted = errors(
         "\
-async effect Ask {
+actor effect Ask {
     send fn go()
     send fn arrived(sum: Int) => !sum
 }
@@ -674,7 +674,7 @@ handler Asker() [Counter] of Ask {
 fn an_overloaded_send_member_is_picked_by_arity() {
     let ok = errors(
         "\
-async effect Sink {
+actor effect Sink {
     send fn put(a: Int) => !a
     send fn put(a: Int, b: Int) => !a, !b
 }
@@ -695,7 +695,7 @@ fn main() [use, spawn] {
 
     let tie = errors(
         "\
-async effect Sink {
+actor effect Sink {
     send fn put(a: Int) => !a
     send fn put(a: Str) => !a
 }
@@ -718,7 +718,7 @@ fn main() [use, spawn] {
     );
 }
 
-// ===== [async-self-send] `k@self(args)` =====
+// ===== [actor-self-send] `k@self(args)` =====
 
 /// The form's point is *ordering*: an unqualified call would run `k` inside
 /// this activation, and a self-send runs it as its own later one — which is
@@ -728,7 +728,7 @@ fn main() [use, spawn] {
 fn a_member_can_send_to_its_own_process() {
     let errs = errors(
         "\
-async effect Work {
+actor effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }
@@ -771,7 +771,7 @@ handler Working() of Log {
 
     let not_send = errors(
         "\
-async effect Work {
+actor effect Work {
     send fn start(n: Int) => !n
     fn ready() -> Bool
 }
@@ -820,7 +820,7 @@ fn main() [use, spawn] {
 fn a_self_send_types_and_consumes_its_arguments() {
     let errs = errors(
         "\
-async effect Work {
+actor effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }
@@ -841,7 +841,7 @@ handler Working() of Work {
     );
 }
 
-/// [async-self-send] `self` is **contextual**, not reserved: it means the
+/// [actor-self-send] `self` is **contextual**, not reserved: it means the
 /// enclosing handler only immediately after `@`, so it stays an ordinary name
 /// elsewhere — and a local of that name can never shadow the form, which is
 /// what the selector spelling buys over the `self.k(…)` receiver it replaced.
@@ -908,19 +908,19 @@ handler Counting2() of Counter {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("send it to this process instead: `bump@self(…)`")),
+            .any(|m| m.contains("send it to this actor instead: `bump@self(…)`")),
         "expected the diagnostic to name the self-send: {errs:?}"
     );
 }
 
-// ===== [async-effect-kind] [async-sendable] The effect kind =====
+// ===== [actor-effect-kind] [actor-sendable] The effect kind =====
 
 /// The kind is declared, not diagnosed (user decision 2026-09-15, EU-5): an
-/// author choosing between `effect` and `async effect` is deciding whether the
-/// protocol crosses threads, so `send fn` needs the async kind and the
+/// author choosing between `effect` and `actor effect` is deciding whether the
+/// protocol crosses threads, so `send fn` needs the actor kind and the
 /// diagnostic names the marker.
 #[test]
-fn a_send_member_needs_an_async_effect() {
+fn a_send_member_needs_an_actor_effect() {
     let errs = errors(
         "\
 effect Plain {
@@ -930,17 +930,17 @@ effect Plain {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("needs an `async effect`") && m.contains("async effect Plain")),
+            .any(|m| m.contains("needs an `actor effect`") && m.contains("actor effect Plain")),
         "expected the kind requirement: {errs:?}"
     );
 }
 
-/// And inside an `async effect`, everything a seam cannot carry is refused
+/// And inside an `actor effect`, everything a seam cannot carry is refused
 /// **at the declaration**, where the choice is being made: a kept parameter, a
 /// `Mut` parameter, and a non-sendable payload — each naming the law rather
 /// than the symptom.
 #[test]
-fn an_async_effect_refuses_what_cannot_cross_a_seam() {
+fn an_actor_effect_refuses_what_cannot_cross_a_seam() {
     let errs = errors(
         "\
 struct Job {
@@ -948,7 +948,7 @@ struct Job {
     run: () -> Int
 }
 
-async effect Bad {
+actor effect Bad {
     send fn keeps(s: Str) => s
     send fn mutates(xs: Mut List<Int>) => !xs
     send fn unsendable(j: Job) => !j
@@ -972,7 +972,7 @@ async effect Bad {
     );
 }
 
-/// [async-sendable] The other half of C-4(a): a `proj` view borrows the
+/// [actor-sendable] The other half of C-4(a): a `proj` view borrows the
 /// sender's value, so it cannot cross either.
 #[test]
 fn a_view_is_not_sendable() {
@@ -982,7 +982,7 @@ struct Window {
     over: proj List<Int>
 }
 
-async effect Peek {
+actor effect Peek {
     send fn look(w: Window) => !w
 }
 ",
@@ -994,12 +994,12 @@ async effect Peek {
     );
 }
 
-/// [async-effect-kind] The binding gate, which is what closes the design's
+/// [actor-effect-kind] The binding gate, which is what closes the design's
 /// carried named question: a plain effect is **never** process-backed, so
-/// `spawn`, `use addr` and even naming `Addr<E>` require the async kind. The
+/// `spawn`, `use addr` and even naming `Addr<E>` require the actor kind. The
 /// last is reported where the type is written, before any spawn exists.
 #[test]
-fn only_an_async_effect_can_be_bound_to_a_process() {
+fn only_an_actor_effect_can_be_bound_to_an_actor() {
     let errs = errors(
         "\
 effect Plain {
@@ -1022,21 +1022,21 @@ fn main() [use, spawn] {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("`Addr<Plain>` needs an `async effect`")),
+        errs.iter().any(|m| m.contains("`Addr<Plain>` needs an `actor effect`")),
         "expected the addr-type gate: {errs:?}"
     );
     assert!(
-        errs.iter().any(|m| m.contains("`spawn` cannot bind `Plain` to a process")
+        errs.iter().any(|m| m.contains("`spawn` cannot bind `Plain` to an actor")
             && m.contains("no mailbox")),
         "expected the spawn gate: {errs:?}"
     );
 }
 
-/// A **plain** handler binding of an async effect stays legal — that is
+/// A **plain** handler binding of an actor effect stays legal — that is
 /// Example 6's binding swap, and the reason the kind sits on the effect rather
 /// than on the handler.
 #[test]
-fn an_async_effect_can_still_be_used_synchronously() {
+fn an_actor_effect_can_still_be_used_synchronously() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -1048,7 +1048,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "the binding swap must stay legal: {errs:?}");
 }
 
-/// [async-replyto] A handler that **parks** may only be spawned (user decision
+/// [actor-replyto] A handler that **parks** may only be spawned (user decision
 /// 2026-09-15, D5-c). Bound with `use`, its member bodies run inline on the
 /// caller's thread: the mint would target a member of a *local* instance, which
 /// has no mailbox for the answer to arrive on and no dispatcher to run it, so
@@ -1062,7 +1062,7 @@ fn main() [use, spawn] {
 fn a_parking_handler_may_not_be_used_synchronously() {
     let errs = errors(
         "\
-async effect Waiting {
+actor effect Waiting {
     send fn ask() 
     send fn got(n: Int) => !n
 }
@@ -1095,7 +1095,7 @@ fn main() [use, spawn] {
 fn a_parking_handler_may_be_spawned() {
     let errs = errors(
         "\
-async effect Waiting {
+actor effect Waiting {
     send fn ask() 
     send fn got(n: Int) => !n
 }
@@ -1117,7 +1117,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "spawning a parking handler must be legal: {errs:?}");
 }
 
-/// [async-replyto] A **remote** mint — `k` naming a member of another `async
+/// [actor-replyto] A **remote** mint — `k` naming a member of another `actor
 /// effect` in scope rather than of the enclosing handler — is the generalized
 /// form (EFFECT_UNIFICATION.md EU-7b, decided) and a later slice: it makes the
 /// mint itself send-like, since capacity must be reserved in the *target's*
@@ -1127,7 +1127,7 @@ fn main() [use, spawn] {
 fn a_remote_mint_target_is_refused_by_name() {
     let errs = errors(
         "\
-async effect Waiting {
+actor effect Waiting {
     send fn ask() 
 }
 
@@ -1146,14 +1146,14 @@ fn main() [use, spawn] {
     );
     assert!(
         errs.iter().any(|m| m.contains("`bump` is a member of `Counter` instead")
-            && m.contains("minting toward another process's member is not supported yet")),
+            && m.contains("minting toward another actor's member is not supported yet")),
         "expected the remote-mint refusal naming the effect: {errs:?}"
     );
 }
 
-// ===== [async-watch] the monitor surface =====
+// ===== [actor-watch] the monitor surface =====
 
-/// [async-watch] The whole of it: a token minted like any other, handed to
+/// [actor-watch] The whole of it: a token minted like any other, handed to
 /// `watch`, and answered by the scheduler when the process dies. `main`'s
 /// token comes from `waitfor`, so a program can wait for a child's death
 /// without a handler of its own.
@@ -1173,7 +1173,7 @@ fn main() [use, spawn] {
     assert!(errs.is_empty(), "watching a process must be legal: {errs:?}");
 }
 
-/// [async-watch] [linear-obligation] The registration *is* the obligation:
+/// [actor-watch] [linear-obligation] The registration *is* the obligation:
 /// the token is consumed by `watch`, so a `waitfor` block that mints one and
 /// registers nothing is the ordinary leak — which is how "you cannot silently
 /// forget you were watching" is enforced, with no rule of its own.
@@ -1196,7 +1196,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// [async-watch] [async-spawn-effect] Watching is a `spawn`-capability
+/// [actor-watch] [actor-spawn-effect] Watching is a `spawn`-capability
 /// operation: a monitor is part of running processes, so a function that has
 /// not been given the capability cannot register one.
 #[test]
@@ -1214,7 +1214,7 @@ fn observe(c: Addr<Counter>, out: Reply<Exit>) [] -> None => c, !out {
     );
 }
 
-/// [async-spawn-effect] And the capability **propagates**, like any effect: a
+/// [actor-spawn-effect] And the capability **propagates**, like any effect: a
 /// helper that creates a pool needs `[spawn]`, and so does everyone who calls
 /// it. Until 2026-09-16 the gate sat on the `spawn` *expression* only, which
 /// made `[spawn]` on `pool` and `watch` decorative — a caller reached them
@@ -1235,8 +1235,8 @@ fn make() -> Pool {
     );
 }
 
-// ===== [async-deadlock-cycle] the static deadlock baseline =====
-/// [async-deadlock-cycle] Example 4, the committed baseline: two processes
+// ===== [actor-deadlock-cycle] the static deadlock baseline =====
+/// [actor-deadlock-cycle] Example 4, the committed baseline: two processes
 /// that each park a **gated** continuation on the other's answer. Neither
 /// handler is wrong on its own — the bug is a property of the pair, and it is
 /// interleaving-dependent, so it is the possibility that is reported.
@@ -1244,12 +1244,12 @@ fn make() -> Pool {
 fn two_processes_that_gate_on_each_other_are_refused() {
     let errs = errors(
         "\
-async effect OrderApi {
+actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
 }
 
-async effect CreditApi {
+actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
@@ -1283,19 +1283,19 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
     );
 }
 
-/// [async-deadlock-cycle] The rule the refusal keys on: a **bare** `replyto`
+/// [actor-deadlock-cycle] The rule the refusal keys on: a **bare** `replyto`
 /// leaves the mailbox open, so a cycle where one side keeps serving is not a
 /// deadlock. It is still the back-pressure class, so what is left is the
 /// warning — the program compiles.
 #[test]
 fn one_ungated_side_downgrades_the_cycle_to_a_warning() {
     let src = "\
-async effect OrderApi {
+actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
 }
 
-async effect CreditApi {
+actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
@@ -1334,7 +1334,7 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
     );
 }
 
-/// [async-deadlock-cycle] **Interception is exempt**, and it has to be: a
+/// [actor-deadlock-cycle] **Interception is exempt**, and it has to be: a
 /// handler of `E` declaring `[E]` is the phase's showcase pattern — a policy
 /// wrapper around the process already serving `E` — and it is an `E → E` edge
 /// by construction. The dependency binds strictly *outward*, so the chain ends
@@ -1366,13 +1366,13 @@ handler Caching() [Counter] of Counter {
     );
 }
 
-/// [async-deadlock-cycle] A one-directional pair is the common, correct
+/// [actor-deadlock-cycle] A one-directional pair is the common, correct
 /// topology and must stay silent: the requester gates, the answerer only ever
 /// fulfils tokens, and a fulfil contributes no edge at all.
 #[test]
 fn a_one_way_request_response_pair_is_silent() {
     let src = "\
-async effect Waiting {
+actor effect Waiting {
     send fn ask()
     send fn got(n: Int) => !n
 }

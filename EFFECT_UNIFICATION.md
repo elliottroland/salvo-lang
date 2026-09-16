@@ -4,7 +4,7 @@ Status: **DECIDED** (user, 2026-09-15, rounds 4–6) — see "The decisions" at
 the end of the document for the decided list and what remains as
 propagation. The trail: round 1 proposed a full sync/async unification,
 **rejected** ("not a promising way to go"); round 2 surfaced the divide at
-the effect declaration (`async effect`); round 3 generalized the mint and
+the effect declaration (`actor effect`); round 3 generalized the mint and
 dissolved the running-in entry; round 4 decided EU-5, EU-6, and EU-7b;
 round 5 settled the remaining details and revised the self-directed
 spelling to **`@self`** (the selector form) in place of the in-flight
@@ -22,7 +22,7 @@ options, trade-offs, and recommendations.
 
 **Propagation owed (this session is read-only outside this file):** the
 decisions below have propagated **nowhere** yet — and the first-pass
-session has meanwhile **landed `self.m`** (and built [async-send-fn] in its
+session has meanwhile **landed `self.m`** (and built [actor-send-fn] in its
 per-member shape), so two of the outcomes are now changes to shipped
 surface rather than coordination items. That is an ordinary outcome under
 the no-backwards-compatibility invariant (AGENTS.md): the old spelling
@@ -37,8 +37,8 @@ Sources: CONCURRENCY.md ("The direction", "The first pass", "Carried to the
 call-sugar pass", C-9, C-10), CONCURRENCY_EXAMPLES.effects.md ("The kernel,
 and the sugar tower", Example 6), CONCURRENCY_EXAMPLES.md ("What a `Reply<T>`
 is"), LANGUAGE.md ("Effects", "Handlers with dependencies", "Implicit
-parameters", "Throwing"), LANGUAGE_SPEC.md ([async-send-fn], [async-use-pid],
-[async-types], [async-replyto], [async-waitfor], [effect-decl],
+parameters", "Throwing"), LANGUAGE_SPEC.md ([actor-send-fn], [actor-use-addr],
+[actor-types], [actor-replyto], [actor-waitfor], [effect-decl],
 [deduce-syntax], [decl-explicit], [effect-not-a-type], [implicit-fn-only],
 [linear-obligation], [backend-never-wrong]), BACKEND_SPEC.rust.md
 ([rs-effects], [rs-effect-fusion], [rs-throw-controlflow], [rs-fn-field]),
@@ -96,7 +96,7 @@ The user read round 1 and turned the direction around. Three thoughts,
 restated and numbered so the new sections can be judged against them:
 
 1. **Hiding the sync/async difference is a mistake.** Sync effects can keep
-   arguments; async effects cannot. That is something the user of the
+   arguments; actor effects cannot. That is something the user of the
    language needs to reckon with *when deciding which effects to use* — a
    design-time choice, not a diagnosed-at-the-binding surprise. (Round 1's
    EU-3 classification, accepted as fact — but promoted to surfaced language
@@ -108,10 +108,10 @@ restated and numbered so the new sections can be judged against them:
    synchronization (a synchronous reader on another thread can observe state
    mid-activation, which is precisely what scheduler serialization exists to
    prevent), which strengthens the conclusion. Therefore the kind is declared
-   **on the effect** — `async effect` versus plain `effect` — governing how
+   **on the effect** — `actor effect` versus plain `effect` — governing how
    its members are interpreted and limited. This is EU-5.
-3. **The open question:** a function's effect list says which async effect
-   members are *available to call*. Could it also specify which async effect
+3. **The open question:** a function's effect list says which actor effect
+   members are *available to call*. Could it also specify which actor effect
    the function is **running in** — licensing `replyto` / `replyto!` for that
    effect's members in functions outside the handler body, and, once effect
    polymorphism wires effect lists through to lambdas, in lambdas too? This
@@ -120,20 +120,20 @@ restated and numbered so the new sections can be judged against them:
 What this settles and opens: EU-1 is rejected in its (a) form — the outcome
 is (b)-shaped but stronger, with the kind made *explicit* rather than left
 emergent; EU-2 is mooted (no unified sync `Reply` exists; the
-[async-use-pid] forwarding stub remains the async mechanism); EU-3 transforms
+[actor-use-addr] forwarding stub remains the async mechanism); EU-3 transforms
 into a declaration rule (the async-effect restriction list, EU-5); EU-4's
 context rule stands for the async side, with §0b.3 as a signature-carried
 extension of where the explicit continuation forms reach (EU-7). One round-1
 finding survives intact and becomes load-bearing: the sync-only feature list
 (keep deductions, `Mut` parameters, `proj` returns, non-sendable payloads) is
-now the *content* of what `async effect` refuses.
+now the *content* of what `actor effect` refuses.
 
 ## 1. Fixed points — already decided, inherited here
 
 - **Collapse 1 already exists, as sugar, on the process side.** "A member's
   `-> T` is an implicit trailing `reply: Reply<T>` parameter — the only
   primitive member kind is `tell`" (the kernel; CONCURRENCY_EXAMPLES.effects.md).
-  The first pass deliberately ships without it, and [async-send-fn] reserves
+  The first pass deliberately ships without it, and [actor-send-fn] reserves
   the unmarked `fn` member spelling for the later call-member sugar. §0.1 asks
   to promote this sugar to the *definition* of every effect member.
 - **The named question is already open, with three sketched options**
@@ -153,7 +153,7 @@ now the *content* of what `async effect` refuses.
   [deduce-syntax] [decl-explicit]. A member's written clause decides parameter
   modes in generated code: kept plain → `&T`, kept `Mut` → `&mut T`, consumed
   → owned. And a **send payload always crosses the seam and so is always
-  consumed** ([async-send-fn]'s deduction bullet). Collision: a member that
+  consumed** ([actor-send-fn]'s deduction bullet). Collision: a member that
   *keeps* a parameter (`fn println(message: Str) -> None => message`) has no
   faithful send reading — this is EU-3's subject, and it is the largest single
   cost of §0.1.
@@ -171,11 +171,11 @@ now the *content* of what `async effect` refuses.
 - **Run-to-completion, seams, and the bridge are decided.** A handler
   activation cannot block; parking (the seam transform) exists only in handler
   member bodies; `waitfor` is main's explicit blocking bridge, and **main's
-  only token source is `waitfor`** ([async-waitfor]; CONCURRENCY.md "The first
+  only token source is `waitfor`** ([actor-waitfor]; CONCURRENCY.md "The first
   pass"). No colouring, ever (user decision 2026-09-04; C-7 dissolved). These
   jointly produce the *context residue* of EU-4: §0.2's "the caller
   determines" is bounded by what the calling frame can afford.
-- **`use pid` is a generated forwarding stub** [async-use-pid] — a binding of
+- **`use pid` is a generated forwarding stub** [actor-use-addr] — a binding of
   an effect to stub member bodies that talk to the `Pid`. This is the
   implementation shape that makes a caller-side sync/async split feasible
   without touching call sites: the *stub* is where a different `Reply`
@@ -312,7 +312,7 @@ And what the binding side means. A protocol has one handler text; the
 *Superseded with §0 (§0b). Of the seven benefits: 2 (the named question) is
 delivered differently by EU-5; 1 survives only within the async kind
 (Example 6's swap — a local test binding of an async-effect handler); 3's
-spec economy is partially kept by EU-6 (Collapse 1 scoped to async effects);
+spec economy is partially kept by EU-6 (Collapse 1 scoped to actor effects);
 5, 6, 7 lapse or defer. Kept for the argument trail.*
 
 1. **One handler form; the binding decides.** Example 6's swap — production
@@ -472,7 +472,7 @@ not a reason to prefer (b). Sequence it after the first pass lands (§5.6).
 ## EU-2. What the synchronous `Reply` is
 
 *Mooted by round 2 (§0b): with the unification rejected there is no
-synchronous `Reply` to define; the [async-use-pid] forwarding stub remains
+synchronous `Reply` to define; the [actor-use-addr] forwarding stub remains
 the async-side mechanism. Kept for the argument trail.*
 
 §0.2 proposes "a different implementation that requires synchronous
@@ -491,7 +491,7 @@ evaluation". Three shapes:
   call in the language — a whole-program tax to unify a path the compiler
   can specialize statically; violates "pay for what you use".
 - **(c) Stub-mediated (where the design already is).** Tokens materialize
-  only in the [async-use-pid] forwarding stub: a Pid-backed binding generates
+  only in the [actor-use-addr] forwarding stub: a Pid-backed binding generates
   member bodies that mint/park (handler context) or mint/block (main), while
   local bindings keep the native convention. *Observation:* (c) is (a) seen
   from the implementation side — the "different implementation" of §0.2 is
@@ -547,7 +547,7 @@ where in-place mutation and borrowing legitimately live.
 
 ## EU-4. The context rule: where a unified call may park or block
 
-*Reshaped by round 2: the rule stands for calls on async effects (park at
+*Reshaped by round 2: the rule stands for calls on actor effects (park at
 member-body seams, block via the bridge in `main`), and §0b.3's running-in
 entry (EU-7) is a signature-carried extension of where the explicit
 continuation forms reach — the implicit-seam boundary stated here survives
@@ -628,21 +628,21 @@ strongest argument that the unification is the right frame: it pays the same
 costs once, for the whole language, and gets the definitional simplification
 in return.
 
-## EU-5. The effect kind: `async effect`, and what it forbids
+## EU-5. The effect kind: `actor effect`, and what it forbids
 
 Folds §0b.1 and §0b.2. The divide is declared, not inferred and not hidden.
 
-- **(a) An effect-level marker (the user's proposal).** `async effect E
+- **(a) An effect-level marker (the user's proposal).** `actor effect E
   { … }` declares a process protocol; plain `effect` stays exactly today's.
-  The marker governs the members: inside an async effect every member is
+  The marker governs the members: inside an actor effect every member is
   asynchronous — payloads always cross the seam and are always consumed
-  ([async-send-fn]'s deduction rule), sendability is required (C-4, checked
+  ([actor-send-fn]'s deduction rule), sendability is required (C-4, checked
   at the declaration where types are concrete and at instantiation where
   generic), and the sync-only features are refused *by name at the
   declaration*: keep deductions (`=> message`), `Mut` parameters, `proj`
   returns, non-sendable payload types. Inside a plain effect, `send fn` is
   refused symmetrically. *Cost:* one new declaration form, and the in-flight
-  [async-send-fn] rule moves house — "is this member asynchronous" is
+  [actor-send-fn] rule moves house — "is this member asynchronous" is
   answered by the effect header, not per member (coordination with the
   first-pass session owed). *Benefit:* the reader knows the kind from the
   first line; the diagnostics name a law ("`Mut` parameter in an `async
@@ -665,7 +665,7 @@ Folds §0b.1 and §0b.2. The divide is declared, not inferred and not hidden.
 
 **Sub-decisions under (a):**
 
-- **Spelling.** `async effect` (the user's proposal) is honest — the
+- **Spelling.** `actor effect` (the user's proposal) is honest — the
   direction's own name is "asynchronous effect handlers", and it does not
   reopen C-7: the 2026-09-04 record rejected async as a *function colour*,
   and this word marks a *declaration kind*, not a call site or a fn type.
@@ -695,7 +695,7 @@ Folds §0b.1 and §0b.2. The divide is declared, not inferred and not hidden.
   round 1's retrofit cost (§5.2's audit) vanishes by construction.
 
 **Recommendation (the user's call):** (a), with `send fn` kept inside, and
-the [async-send-fn] relocation coordinated with the in-flight session.
+the [actor-send-fn] relocation coordinated with the in-flight session.
 
 ## EU-6. What `-> T` means, per kind — Collapse 1, scoped
 
@@ -704,13 +704,13 @@ With the kind declared, the call-member sugar pass gets a clean landing:
 - **(a) Two readings, keyed by the declaration kind** — §0b.2's "governs how
   the members are interpreted", applied to the sugar pass. In a plain
   effect, `fn m(a) -> T` is today's synchronous member, unchanged forever.
-  In an async effect it is the call member: implicit trailing `Reply<T>`,
+  In an actor effect it is the call member: implicit trailing `Reply<T>`,
   fulfil-at-every-return, call syntax = auto-mint + gate, per the decided
   tower. The reader is never ambushed, because the effect's first line
   states the kind. This is Collapse 1 adopted exactly where it is true and
   nowhere it is not — round 1's spec-economy benefit at none of its
   grounding cost.
-- **(b) No `-> T` in async effects, ever** — the first-pass explicit-token
+- **(b) No `-> T` in actor effects, ever** — the first-pass explicit-token
   surface is final. *Cost:* Example 1's clean form never exists; every
   call-shaped protocol is written in continuation style forever. The sugar
   pass dies.
@@ -718,7 +718,7 @@ With the kind declared, the call-member sugar pass gets a clean landing:
   keyword) so the member shows its reading without the header. *Cost:*
   syntax for a distinction the header already makes; noise on every line.
 
-Worth pinning under (a): within an async effect the full axis is `send fn
+Worth pinning under (a): within an actor effect the full axis is `send fn
 m(a)` = no completion; `fn m(a) -> T` = call member; `fn m(a) -> None` = the
 acknowledged form — completion signal, no payload. That is round 1 §3's
 `do_something`/`send_something` distinction, relocated inside the kind where
@@ -737,13 +737,13 @@ and the implicit-seam boundary at the end carry over unchanged.*
 
 The question restated: `[E]` in a function's effect list says E's members
 are available to call. Can a list also say the function is **running in** an
-activation of a handler of async effect E — licensing `replyto k(…)` /
+activation of a handler of actor effect E — licensing `replyto k(…)` /
 `replyto! k(…)` for E's members in that function, and later in lambdas, once
 effect polymorphism threads effect lists through fn values?
 
 **Why the mechanism is sound before any design choice:** `replyto` does not
 park the current frame. It allocates a parked invocation of a *member* and
-yields the linear token ([async-replyto]) — the resume point is a member,
+yields the linear token ([actor-replyto]) — the resume point is a member,
 never the current stack. So licensing it outside the member body needs no
 continuation capture at all; it needs only the process identity (self
 address + slot allocation), which a capability entry can thread exactly as
@@ -839,7 +839,7 @@ falls out of the existing scoping machinery:
 > against the enclosing handler's members first (the first-pass rule,
 > unchanged: private send members live in no effect and self is never in
 > scope), otherwise **through the effect list** against a member of an
-> `async effect` in scope. The former is the classic self-continuation; the
+> `actor effect` in scope. The former is the classic self-continuation; the
 > latter is a *remote mint*: a token that, when sent to, enqueues
 > `k(captures…, value)` on whatever process backs that binding.
 
@@ -866,7 +866,7 @@ user's "any effect we can name". No running-in entry.
   lambdas is clean *by construction* for remote targets — no outlives fence
   needed. (Self-mints in lambdas stay out, and lose their motivation: see
   the residue.)
-- **The kind marker earns more keep.** Only `async effect` members are
+- **The kind marker earns more keep.** Only `actor effect` members are
   mintable-toward (a sync member has no queue to land on) — EU-5's
   declaration-level kind is exactly the rule that makes this a one-line
   check.
@@ -912,7 +912,7 @@ must be a send member whose parameters are the captures plus a trailing
 
 **Sub-questions the generalization opens** (details, not blockers):
 
-- **A remote mint through a *local* binding of an async effect.** Example
+- **A remote mint through a *local* binding of an actor effect.** Example
   6's test wiring binds `DbApi` to a handler constructed on the hosting
   process; a token minted toward its member should enqueue on the hosting
   process (fulfil-is-enqueue is unconditional), which falls out — but a
@@ -934,12 +934,12 @@ propagates.
 
 ## The decisions (user, 2026-09-15, round 4)
 
-- **EU-5 = (a): `async effect`, with `send fn` kept inside.** The
+- **EU-5 = (a): `actor effect`, with `send fn` kept inside.** The
   effect-level kind marker as proposed, carrying the whole of option (a):
   the refusal list (keep deductions, `Mut` parameters, `proj` returns,
-  non-sendable payloads refused inside an async effect; `send fn` refused in
+  non-sendable payloads refused inside an actor effect; `send fn` refused in
   a plain effect), bindings following the kind (`spawn` / `use pid` require
-  an async effect — **CONCURRENCY.md's carried named question closes as
+  an actor effect — **CONCURRENCY.md's carried named question closes as
   "forbid, with the async kind as the sanctioned spelling"**), and std
   untouched. `send fn` is kept **so that the non-send (sugar) member forms
   can be stated against it** (the user's stated reason): within an async
@@ -958,7 +958,7 @@ propagates.
   data-dependent self-minting in helpers is what would reopen a narrow
   entry.
 - **New input, same round: `self.m` syntax.** The parallel session is adding
-  `self.m` inside async effect handlers; the user notes it can disambiguate
+  `self.m` inside actor effect handlers; the user notes it can disambiguate
   self-directed mints if need be. *(Spelling revised in round 5, below: the
   selector form `@self` replaces the dot form.)* Recorded for the `replyto`
   checker slice either way: an explicit self form gives the resolution rule
@@ -1023,15 +1023,15 @@ domain-noun shadowing cost. Runner-up: `Inbox<E>`.
 
 **Decided (user, 2026-09-15): `Addr`** — the abbreviated form of the
 recommendation (the user wrote `Addr<R>`; the parameter is unchanged — the
-effect the process serves [async-types] — the letter is presentational).
+effect the process serves [actor-types] — the letter is presentational).
 It keeps the address reading, stays short in signature-heavy code
 (`List<Addr<ShardApi>>`), and drops most of the domain-noun collision:
 `Addr` is rarely a model name where `Address` is common. `Pid<E>` is landed
-surface ([async-types], `core.process`), so the rename joins **plan item
+surface ([actor-types], `core.process`), so the rename joins **plan item
 1's respelling sweep**: the intrinsic type and its spec rules, every
-signature, test and snapshot, [async-use-pid]'s label refreshed, and the
+signature, test and snapshot, [actor-use-addr]'s label refreshed, and the
 prose renamed with it (`use pid` → binding an effect to an *addr*; the
-spawn clause's `pid` metavariable in [async-spawn-expr]).
+spawn clause's `pid` metavariable in [actor-spawn-expr]).
 
 ### Round 7 (user, 2026-09-15) — OPEN: respelling the spawn line
 
@@ -1046,7 +1046,7 @@ spawn NoticeFetcher(25, seconds(5)) use MemFs(root), StdOutConsole() capacity 16
 explicitly marked revisitable when frozen ("nothing downstream depends on
 the words"). The constraints the *decided* record imposes on any respelling:
 `spawn` stays a form, not a call (handler constructions are not values —
-the named-parameter function shape is already rejected [async-spawn-expr]);
+the named-parameter function shape is already rejected [actor-spawn-expr]);
 the clause keywords are the named parameters Salvo does not otherwise have;
 `capacity` and `on` are required with no defaults; the `use` clause stays a
 restricted form (constructions and `Addr`s, no closures).
@@ -1080,7 +1080,7 @@ restricted form (constructions and `Addr`s, no closures).
   Principled reading: the block is the **child's init preamble** — `use`
   inside it registers the child's handlers, which is exactly what the
   spawn-site clause already means ("a spawn is a `use` whose dependencies
-  come from its own clause" [async-spawn-expr]). Aligns with the recorded
+  come from its own clause" [actor-spawn-expr]). Aligns with the recorded
   later-sugar latitude ("the `use`-block spawn form", CONCURRENCY.md
   pending table), and has room to grow if supervision options ever join
   the spawn site. *Costs:* a braced block that is neither code nor a
@@ -1123,20 +1123,20 @@ landed under them; they head the list. In order:
    a module path — [effect-at]); the dot form becomes a **plain parse
    error**, no transitional accept (the `canbe` precedent — nothing outside
    this repository writes Salvo). The rename: the `core.process` intrinsic
-   type, its [async-types] rule, [async-use-pid]'s label refreshed, every
+   type, its [actor-types] rule, [actor-use-addr]'s label refreshed, every
    signature, diagnostic text, test and snapshot, and the spec prose that
-   says "pid" (including [async-spawn-expr]'s clause metavariable). One
+   says "pid" (including [actor-spawn-expr]'s clause metavariable). One
    sweep for both: `grep -rn 'self\.\|Pid\b\|pid'` across crates/, std/,
    examples/ and the spec files; sites that cannot be rewritten confidently
    are listed for the user, per AGENTS.md.
 2. **Move the member-kind question to the effect header** (EU-5). The
-   `async effect` marker; `send fn` legal only inside one and refused in a
+   `actor effect` marker; `send fn` legal only inside one and refused in a
    plain effect; the refusal list (keep deductions, `Mut` parameters,
    `proj` returns, non-sendable payloads) checked at the declaration;
-   `spawn` / `use pid` requiring an async effect — which closes
-   CONCURRENCY.md's carried named question. [async-send-fn]'s spec text
+   `spawn` / `use pid` requiring an actor effect — which closes
+   CONCURRENCY.md's carried named question. [actor-send-fn]'s spec text
    moves with it; the diagnostics name the law ("`Mut` parameter in an
-   `async effect`").
+   `actor effect`").
 3. **With the call-member sugar pass** (EU-6 + EU-7b). The per-kind `-> T`
    reading (plain effects untouched; async: implicit trailing `Reply<T>`,
    fulfil-at-every-return, call syntax = auto-mint + gate). The generalized
@@ -1162,7 +1162,7 @@ revisit (EU-7(a)).
 The answer to §0b and round 3, in one paragraph: surfacing the divide at the
 effect declaration keeps everything round 1 found true and drops everything
 it strained for. The sync-only feature list stops being a diagnosis and
-becomes the `async effect` refusal list, checked where the author is
+becomes the `actor effect` refusal list, checked where the author is
 deciding; mixed effects are refused outright, which one shared-state
 argument suffices to justify; the carried named question closes ("a sync
 effect is never a process — declare the protocol async if you want one");

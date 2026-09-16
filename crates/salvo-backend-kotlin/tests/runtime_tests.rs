@@ -101,7 +101,7 @@ fn runtime_modules_carry_the_generated_header() {
 // **The scenarios and the expected output are verbatim the Rust backend's
 // `runtime_tests.rs`** — that equality is the parity assertion: the two
 // schedulers implement one decided design (run-to-completion activations,
-// per-process bounded queues that block the sender, replies with reserved
+// per-actor bounded queues that block the sender, replies with reserved
 // capacity, the gate, death by faulted activation with `watch`, sends to
 // the dead as no-ops, the idle-with-parked-gates report), so they must
 // answer identically.
@@ -158,7 +158,7 @@ fn scheduler_behaves_as_decided() {
         SchedulerCase {
             tag: "queue-and-reply",
             driver: r#"
-class Adder : SalvoProcess {
+class Adder : SalvoActor {
     var sum = 0L
 
     override fun handle(ctx: SalvoCtx, msg: Any?) {
@@ -191,13 +191,13 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // The gate: while a gated continuation is outstanding, the process
+        // The gate: while a gated continuation is outstanding, the actor
         // serves *only* the awaited reply — a user message that arrived
         // first waits.
         SchedulerCase {
             tag: "gate",
             driver: r#"
-class Caller(val echo: Int) : SalvoProcess {
+class Caller(val echo: Int) : SalvoActor {
     val log = mutableListOf<String>()
 
     override fun handle(ctx: SalvoCtx, msg: Any?) {
@@ -216,7 +216,7 @@ class Caller(val echo: Int) : SalvoProcess {
     }
 }
 
-class Echo : SalvoProcess {
+class Echo : SalvoActor {
     override fun handle(ctx: SalvoCtx, msg: Any?) {
         if (msg is SalvoReply) {
             Thread.sleep(120)
@@ -243,16 +243,16 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
-        // Death: a faulted activation kills the process, `watch` reports the
+        // Death: a faulted activation kills the actor, `watch` reports the
         // reason as an ordinary one-shot reply — built by the *watch site*,
         // since the language's `Exit` is not the runtime's to construct
-        // [async-watch] — and later sends to the corpse are silent no-ops
+        // [actor-watch] — and later sends to the corpse are silent no-ops
         // rather than errors. A watch registered *after* the death answers
         // immediately, with the reason the death recorded.
         SchedulerCase {
             tag: "fault-and-watch",
             driver: r#"
-class Fragile : SalvoProcess {
+class Fragile : SalvoActor {
     override fun handle(ctx: SalvoCtx, msg: Any?) {
         if (msg == "boom") {
             throw RuntimeException("boom")
@@ -287,7 +287,7 @@ fun main() {
         SchedulerCase {
             tag: "idle-report",
             driver: r#"
-class Idle : SalvoProcess {
+class Idle : SalvoActor {
     override fun handle(ctx: SalvoCtx, msg: Any?) {}
 
     override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
@@ -305,7 +305,7 @@ fun main() {
 "#,
             expected_stdout: "waiting\n",
             expect_success: false,
-            stderr_contains: "salvo: deadlock: all processes idle while main waits",
+            stderr_contains: "salvo: deadlock: all actors idle while main waits",
         },
     ];
 

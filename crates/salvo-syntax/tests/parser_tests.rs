@@ -1511,7 +1511,7 @@ fn obligation_keywords_are_reserved() {
     );
 }
 
-/// [async-send-fn] [async-spawn-effect] The asynchronous surface's
+/// [actor-send-fn] [actor-spawn-effect] The asynchronous surface's
 /// declaration forms: `send fn` members of an effect and of a handler, and
 /// the `[spawn]` capability in an effect list. Both new words are
 /// **contextual** — the test below also declares a *state field* named
@@ -1519,7 +1519,7 @@ fn obligation_keywords_are_reserved() {
 #[test]
 fn send_members_and_the_spawn_capability_parse() {
     let source = "\
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int)
     send fn report(out: Reply<Int>)
 }
@@ -1603,7 +1603,7 @@ fn main() [use, spawn] {
     );
 }
 
-/// [async-send-fn] Neither new word is reserved: `send` remains usable as a
+/// [actor-send-fn] Neither new word is reserved: `send` remains usable as a
 /// field and a function name, and `spawn` as a function name — which is what
 /// makes `r.send(v)` (a reply's discharge) and a user's own `spawn` legal.
 #[test]
@@ -1632,7 +1632,7 @@ fn use_them(m: Mailer) -> Int {
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-/// [async-spawn-expr] [async-replyto] [async-waitfor] The asynchronous
+/// [actor-spawn-expr] [actor-replyto] [actor-waitfor] The asynchronous
 /// surface's *expression* forms, in one program that uses every clause:
 /// `spawn` with a spawn-site `use` clause, a mailbox `capacity` and an `on`
 /// pool; `replyto` and its gated `replyto!`; and `waitfor`, `main`'s bridge.
@@ -1641,7 +1641,7 @@ fn the_asynchronous_expression_forms_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
 
     let source = "\
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int)
     send fn total(out: Reply<Int>)
     send fn totalled(n: Int)
@@ -1815,7 +1815,7 @@ fn collect_replyto(
     }
 }
 
-/// [async-spawn-expr] The clause words are **contextual**, and the two
+/// [actor-spawn-expr] The clause words are **contextual**, and the two
 /// required clauses are required: a spawn without them is a parse error that
 /// names the missing clause, and `capacity`/`on`/`replyto`/`waitfor` all stay
 /// usable as ordinary names.
@@ -1890,7 +1890,7 @@ fn use_them() -> Int {
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-/// [async-self-send] `k@self(args)` — the self-send, parsed as one more
+/// [actor-self-send] `k@self(args)` — the self-send, parsed as one more
 /// member of the selector family (`k@E`, `k@module`) rather than as a
 /// receiver. `self` is contextual: only special immediately after `@`, so it
 /// remains an ordinary name — and the *old* `self.k(…)` spelling is a plain
@@ -1900,7 +1900,7 @@ fn the_self_selector_parses_and_the_receiver_form_does_not() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
 
     let source = "\
-async effect Work {
+actor effect Work {
     send fn start(n: Int) => !n
     send fn step(n: Int) => !n
 }

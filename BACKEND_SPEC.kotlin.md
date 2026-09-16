@@ -881,7 +881,7 @@ where Rust had to build the fusion to get the same programs running
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
   Four exist: `throw.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
-  ([kt-bytes]) and `scheduler.kt` ([kt-process]).
+  ([kt-bytes]) and `scheduler.kt` ([kt-actor]).
 * `compare.kt` holds `__salvoCompare`, the structural comparison
   [kt-ordered] [col-sorted] needs. It exists because the JVM's own ordering
   cannot answer for Salvo's types: a `List` and a tuple are not
@@ -905,26 +905,26 @@ where Rust had to build the fusion to get the same programs running
   * `replace(map, k, v)` is `put`, which already answers the previous value on
     the JVM — the two Salvo functions differ only in what the language lets you
     do with the answer [linear-container].
-* [kt-process] **Asynchronous effect handlers** lower to three generated
+* [kt-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.kt`
   [kt-runtime-source] — emitted only into a program that spawns, in package
   `salvo`, which every generated file already imports:
   * **The protocol's message type**, `sealed class __Msg_E` with one nested
     class per `send fn`, beside the effect it belongs to. It is the *effect's*
     because a sender holds an `Addr` and knows only the effect it serves
-    [async-types].
-  * **The process body**, `class __Proc_H(private val handler: H) :
+    [actor-types].
+  * **The actor body**, `class __Proc_H(private val handler: H) :
     SalvoProcess`, beside the handler: `handle` casts the message and calls the
     member the class names, in a `when` over the sealed type — exhaustive by
     construction, and factored into a private `__dispatch(m: __Msg_E)` so
     `resume` can rebuild a call for the same one place.
   * **The parked-continuation table, and the address, live on the handler.** A
-    handler of an `async effect` carries two generated fields, whichever way it
+    handler of an `actor effect` carries two generated fields, whichever way it
     is bound — a handler is compiled once:
     * `internal var __addr: Int? = null` — written by `handle`/`resume` from
       the activation's `SalvoCtx`, and `null` when the instance was bound with
       `use`. That absence is the **self-send's discriminator**
-      [async-self-send].
+      [actor-self-send].
     * `internal val __parked: MutableMap<Long, __Cont_E>` — slot →
       continuation, emitted when the protocol has any member that could be a
       target.
@@ -934,7 +934,7 @@ where Rust had to build the fusion to get the same programs running
     same file — has to write one and read the other. (Rust needs no such care:
     its privacy is per module, and both live in one.) They sit on the handler
     rather than on `__Proc_H` for the same reason as on the Rust side: the mint
-    happens in a member body, which cannot see the process class (user decision
+    happens in a member body, which cannot see the actor class (user decision
     2026-09-15, D5-b).
   * **The protocol's continuation class**, `sealed class __Cont_E`, beside
     `__Msg_E`: one subclass per send member with at least one parameter,
@@ -948,11 +948,11 @@ where Rust had to build the fusion to get the same programs running
   * **A dependent handler's process is generic in the same carrier the handler
     stores.** A dependent handler holds its environment as a bounded type
     parameter (`class Counting<__Fx>(private val __fx: __Fx) : Counter where
-    __Fx : __Has_Log` [kt-effect-fusion]), so the process repeats it:
+    __Fx : __Has_Log` [kt-effect-fusion]), so the actor repeats it:
     `class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) :
     salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally`. Nothing is
     threaded per activation and no provider is generated — where Rust has to
-    own one and rebuild the view per member call ([rs-process]), Kotlin's
+    own one and rebuild the view per member call ([rs-actor]), Kotlin's
     objects alias, so the handler already holds everything.
     * The **spawn site** builds the carrier, exactly as a `use` site does:
       `emit_fx_class` over the handler's declared dependencies, instantiated
@@ -962,11 +962,11 @@ where Rust had to build the fusion to get the same programs running
     * The carrier's constructor takes its effects in the fused class's
       canonical order, which is neither the handler's declaration order nor the
       program's clause order; the checker's clause-to-dependency matching
-      resolves the second, `emit_fx_class` the first ([async-spawn-expr]).
+      resolves the second, `emit_fx_class` the first ([actor-spawn-expr]).
     * Kotlin infers `__Fx` at the spawn from the constructor argument, so no
       type-argument list is written — unlike the `use` path, which appends the
       carrier class for a *generic* handler because Kotlin takes such a list
-      whole or not at all. A generic handler is refused as a process anyway.
+      whole or not at all. A generic handler is refused as an actor anyway.
   * **The three types erase to scheduler handles**: `Addr<E>` and `Pool` are
     `Int` ids, `Reply<T>` is `salvo.SalvoReply` — and the runtime speaks the same
     word (`SalvoSched.send(addr, …)`, `SalvoCtx.addr`), as the Rust mirror does; the Salvo type arguments have
@@ -981,7 +981,7 @@ where Rust had to build the fusion to get the same programs running
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `watch(a, out)` →
     `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`.
-  * **A `watch` carries its own `Exit` constructor** [async-watch]. The runtime
+  * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo class, so the watch site
     passes a `(String) -> Any?` alongside the token and the scheduler calls it
     at death — which keeps a watcher's payload identical to an ordinary
@@ -1002,7 +1002,7 @@ where Rust had to build the fusion to get the same programs running
   * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
     beside the effect: `use addr` builds one and binds it through the same path
     a handler instance takes (`bind_effect_instance`, extracted for exactly
-    this), fusion included [async-use-addr]. A spawn clause's addr becomes the
+    this), fusion included [actor-use-addr]. A spawn clause's addr becomes the
     same stub, inside the child's carrier.
   * **Still refused**, matching the Rust backend one for one: a generic
     handler and a generic effect as a protocol.

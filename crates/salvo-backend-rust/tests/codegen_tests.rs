@@ -8604,15 +8604,15 @@ fn rustc_compiles_and_runs_a_member_named_like_a_std_fn() {
     run_rust_files(&files, "member-name-collision", MEMBER_NAME_COLLISION_OUTPUT);
 }
 
-// ===== [rs-process] asynchronous effect handlers =====
+// ===== [rs-actor] asynchronous effect handlers =====
 
-/// [async-spawn-expr] [async-use-addr] [async-waitfor] The first program that
+/// [actor-spawn-expr] [actor-use-addr] [actor-waitfor] The first program that
 /// *runs* a process: a counter handler bound asynchronously, two sends, then
 /// `main`'s bridge asking for the total. The expected output is identical on
 /// the Kotlin backend — the parity assertion for the whole surface, not just
 /// the scheduler library it rests on.
-const PROCESS: &str = r#"
-async effect Counter {
+const ACTOR: &str = r#"
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
@@ -8641,26 +8641,26 @@ fn main() [use, spawn] {
 }
 "#;
 
-fn generate_process_demo() -> Vec<salvo_backend_rust::EmittedFile> {
-    generate(&[("main.sv", PROCESS)])
+fn generate_actor_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", ACTOR)])
 }
 
 #[test]
-fn rustc_compiles_and_runs_a_process() {
+fn rustc_compiles_and_runs_an_actor() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate_process_demo();
-    run_rust_files(&files, "process", "sum 5\n");
+    let files = generate_actor_demo();
+    run_rust_files(&files, "actor", "sum 5\n");
 }
 
-/// [rs-process] What the lowering *is*, asserted on the generated text so a
-/// regression names itself: a message enum per protocol, a process struct
+/// [rs-actor] What the lowering *is*, asserted on the generated text so a
+/// regression names itself: a message enum per protocol, an actor struct
 /// wrapping the handler, and the scheduler module carried into the output.
 #[test]
-fn a_process_lowers_to_a_message_enum_and_a_body() {
-    let files = generate_process_demo();
+fn an_actor_lowers_to_a_message_enum_and_a_body() {
+    let files = generate_actor_demo();
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.rs")
@@ -8671,8 +8671,8 @@ fn a_process_lowers_to_a_message_enum_and_a_body() {
         main.content
     );
     assert!(
-        main.content.contains("impl crate::scheduler::SalvoProcess for __Proc_Counting"),
-        "the process body is missing:\n{}",
+        main.content.contains("impl crate::scheduler::SalvoActor for __Actor_Counting"),
+        "the actor body is missing:\n{}",
         main.content
     );
     assert!(
@@ -8688,7 +8688,7 @@ fn a_process_lowers_to_a_message_enum_and_a_body() {
     );
 }
 
-/// [async-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
+/// [actor-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
 /// declares `[Log, Tally]` and the spawn's `use` clause supplies one of each
 /// kind — `Recording()` as a **construction**, built on the child, and `tally`
 /// as an **`Addr`**, bound to a forwarding stub. That is the binding swap
@@ -8697,22 +8697,22 @@ fn a_process_lowers_to_a_message_enum_and_a_body() {
 ///
 /// The ordering is deterministic without any synchronisation, and that is the
 /// point of arrival order: `bump`, `bump`, `report` are served in that order by
-/// one process, `report` forwards `main`'s own token to the child's `Log`
+/// one actor, `report` forwards `main`'s own token to the child's `Log`
 /// instance (so the answer comes from *inside* the child), and the two `tick`s
 /// the bumps sent are already in `tally`'s queue by the time `main` asks it for
 /// a total. The expected output is identical on the Kotlin backend.
 const DEP_SPAWN: &str = r#"
-async effect Log {
+actor effect Log {
     send fn note(what: Str) => !what
     send fn dump(out: Reply<Str>) => !out
 }
 
-async effect Tally {
+actor effect Tally {
     send fn tick(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
 
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn report(out: Reply<Str>) => !out
 }
@@ -8785,7 +8785,7 @@ fn rustc_compiles_and_runs_a_dependent_spawn() {
     run_rust_files(&files, "dep-spawn", DEP_SPAWN_OUTPUT);
 }
 
-/// [rs-process] [rs-effect-fusion] The shape a dependent spawn lowers to: a
+/// [rs-actor] [rs-effect-fusion] The shape a dependent spawn lowers to: a
 /// **flat provider** owning one dependency instance per declared dependency,
 /// implementing each one's Has-accessor trait; a process generic in those
 /// instances; and a `handle` that builds the same `__Deps_H` view a fusion's
@@ -8838,7 +8838,7 @@ fn a_dependent_spawn_lowers_to_a_flat_provider() {
 fn the_remaining_process_cuts_are_errors() {
     let generic = expect_errors(
         r#"
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
 }
 
@@ -8859,9 +8859,9 @@ fn main() [use, spawn] {
     );
 }
 
-// ===== [async-replyto] [async-self-send] parked continuations =====
+// ===== [actor-replyto] [actor-self-send] parked continuations =====
 
-/// [async-replyto] **The shape the slice exists for: `main` is not in the
+/// [actor-replyto] **The shape the slice exists for: `main` is not in the
 /// loop.** A fetcher process asks a database process for a row, parking a
 /// continuation for the answer; the database replies *to the fetcher*, whose
 /// continuation runs and only then fulfils `main`'s `waitfor` token. Before
@@ -8876,11 +8876,11 @@ fn main() [use, spawn] {
 /// `main` blocks until the whole chain has run. Identical output on the Kotlin
 /// backend.
 const REPLYTO_CHAIN: &str = r#"
-async effect Db {
+actor effect Db {
     send fn lookup(id: Int, out: Reply<Str>) => !id, !out
 }
 
-async effect Notices {
+actor effect Notices {
     send fn fetch(id: Int, out: Reply<Str>) => !id, !out
     send fn arrived(out: Reply<Str>, text: Str) => !out, !text
 }
@@ -8913,18 +8913,18 @@ fn main() [use, spawn] {
 }
 "#;
 
-/// [async-replyto] `replyto!` — the **gate**: bounded selective receive, at
-/// most one outstanding per process. `start` mints a gated continuation and
+/// [actor-replyto] `replyto!` — the **gate**: bounded selective receive, at
+/// most one outstanding per actor. `start` mints a gated continuation and
 /// `main` then sends `note("late")`, which is already queued when the
 /// activation ends; while gated the process serves *only* the awaited reply, so
 /// the recorded order is `reply R, user late`. Ungated it would be the other
 /// way round, which is what makes the output the assertion.
 const REPLYTO_GATE: &str = r#"
-async effect Echo {
+actor effect Echo {
     send fn ping(out: Reply<Str>) => !out
 }
 
-async effect Trace {
+actor effect Trace {
     send fn start()
     send fn arrived(text: Str) => !text
     send fn note(what: Str) => !what
@@ -8971,14 +8971,14 @@ fn main() [use, spawn] {
 }
 "#;
 
-/// [async-self-send] `k@self(args)` and **both** its readings, in one program
-/// and with the same answer from each: an enqueue on the process's own mailbox
+/// [actor-self-send] `k@self(args)` and **both** its readings, in one program
+/// and with the same answer from each: an enqueue on the actor's own mailbox
 /// when the handler was spawned, and the ordinary inline member call when it
 /// was `use`d. A handler is compiled once, so which one applies is a property
 /// of the *instance* — the emitters discriminate on the generated `__addr`
 /// field at run time rather than compiling the member twice.
 const SELF_SEND: &str = r#"
-async effect Steps {
+actor effect Steps {
     send fn begin(n: Int, out: Reply<Str>) => !n, !out
     send fn again(n: Int, out: Reply<Str>) => !n, !out
 }
@@ -9049,7 +9049,7 @@ fn rustc_compiles_and_runs_both_readings_of_a_self_send() {
     );
 }
 
-/// [async-watch] The monitor surface, end to end: a process faults, the
+/// [actor-watch] The monitor surface, end to end: an actor faults, the
 /// scheduler answers the watcher's token with an `Exit`, a watch registered
 /// *after* the death answers immediately, and a send to the corpse is a silent
 /// no-op. `main` gets its token from `waitfor`, so watching needs no handler of
@@ -9058,10 +9058,10 @@ fn rustc_compiles_and_runs_both_readings_of_a_self_send() {
 /// The reason's *text* is deliberately not printed: it is the host's account of
 /// the fault (a panic message here, an exception's on the Kotlin backend), the
 /// one thing on this surface that is not identical across backends
-/// [async-watch]. Everything else is, and the expected output below is
+/// [actor-watch]. Everything else is, and the expected output below is
 /// verbatim the Kotlin backend's.
 const WATCH: &str = r#"
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn crash()
 }
@@ -9105,7 +9105,7 @@ const WATCH_OUTPUT: &str =
     "died with a reason: true\nlate watch answered: true\ndone\n";
 
 /// [linear-container] [linear-state] **Obligations in a collection**, end to
-/// end: a process parks reply tokens in `Mut List<Reply<Str>>` state, answers
+/// end: an actor parks reply tokens in `Mut List<Reply<Str>>` state, answers
 /// them one at a time with `remove_first`, and `drain`s the rest on shutdown —
 /// putting a fresh list back, because an activation may not leave its state
 /// with a hole. Two waiters ask before any answer arrives, so the queue really
@@ -9113,7 +9113,7 @@ const WATCH_OUTPUT: &str =
 ///
 /// Expected output is verbatim the Kotlin backend's.
 const LINEAR_QUEUE: &str = r#"
-async effect Desk {
+actor effect Desk {
     send fn ticket(out: Reply<Str>) => !out
     send fn serve(name: Str) => !name
     send fn close_up(reason: Str) => !reason
@@ -9207,7 +9207,7 @@ fn rustc_compiles_and_runs_a_death_watch() {
     run_rust_files(&files, "watch", WATCH_OUTPUT);
 }
 
-/// [async-watch] [rs-process] What a `watch` lowers to: the scheduler call
+/// [actor-watch] [rs-actor] What a `watch` lowers to: the scheduler call
 /// **plus the `Exit` builder** the watch site closes over — the runtime holds a
 /// reason string and cannot construct a Salvo struct, so the constructor
 /// travels with the registration.
@@ -9227,7 +9227,7 @@ fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
     );
 }
 
-/// [rs-process] [async-replyto] The lowering: a continuation enum beside the
+/// [rs-actor] [actor-replyto] The lowering: a continuation enum beside the
 /// message enum; the two generated fields on the handler; a `__dispatch`
 /// factored out of `handle` so member invocation lives in one place; and a
 /// `resume` that pops the slot, casts the answer to the target member's
@@ -9266,11 +9266,11 @@ fn a_parked_continuation_lowers_to_a_slot_table() {
     );
 }
 
-/// [async-replyto] The two refusals this slice adds, both checker-side. A
+/// [actor-replyto] The two refusals this slice adds, both checker-side. A
 /// handler that parks may only be **spawned** (user decision 2026-09-15): bound
 /// with `use` its members run inline, so the answer would have no mailbox to
 /// arrive on and no dispatcher to run it — the continuation would silently never
-/// run. And a **remote** mint — `k` naming a member of another async effect in
+/// run. And a **remote** mint — `k` naming a member of another actor effect in
 /// scope — is the generalized form of a later slice, named rather than
 /// mis-resolved.
 #[test]
@@ -9286,17 +9286,17 @@ fn the_replyto_refusals_are_errors() {
     assert!(
         remote
             .iter()
-            .any(|e| e.contains("minting toward another process's member is not supported yet")),
+            .any(|e| e.contains("minting toward another actor's member is not supported yet")),
         "expected the remote-mint refusal, got {remote:?}"
     );
 }
 
 const REPLYTO_USED: &str = r#"
-async effect Db {
+actor effect Db {
     send fn lookup(id: Int, out: Reply<Str>) => !id, !out
 }
 
-async effect Notices {
+actor effect Notices {
     send fn fetch(id: Int) => !id
     send fn arrived(id: Int, text: Str) => !id, !text
 }
@@ -9321,12 +9321,12 @@ fn main() [use, spawn] {
 "#;
 
 const REMOTE_MINT: &str = r#"
-async effect Db {
+actor effect Db {
     send fn lookup(id: Int, out: Reply<Str>) => !id, !out
     send fn arrived(id: Int, text: Str) => !id, !text
 }
 
-async effect Ask {
+actor effect Ask {
     send fn go(id: Int) => !id
 }
 
@@ -9348,14 +9348,14 @@ fn main() [use, spawn] {
 }
 "#;
 
-// ===== [async-use-addr] the forwarding stub =====
+// ===== [actor-use-addr] the forwarding stub =====
 
-/// [async-use-addr] `use addr` binds an effect to a **stub** that sends to a
+/// [actor-use-addr] `use addr` binds an effect to a **stub** that sends to a
 /// process, so a function declaring `[Log]` never learns that its capability is
 /// a process — the point of the form, and the shape a dependent spawn will
 /// reuse. Same program and same expected output on the Kotlin backend.
 const ADDR_STUB: &str = r#"
-async effect Log {
+actor effect Log {
     send fn note(what: Str) => !what
     send fn count(out: Reply<Int>) => !out
 }

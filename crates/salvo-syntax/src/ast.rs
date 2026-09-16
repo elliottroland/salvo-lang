@@ -291,18 +291,18 @@ pub struct EffectDecl {
     /// apply to one: the two sets are disjoint, so keeping them apart makes
     /// the invariant structural.
     pub platform: bool,
-    /// [async-effect-kind] True for `async effect` — a **process protocol**
+    /// [actor-effect-kind] True for `actor effect` — a **actor protocol**
     /// (user decision 2026-09-15, EU-5). The kind is declared on the effect
     /// rather than diagnosed at a binding, because it is a design-time choice:
-    /// an async effect's members give up what cannot cross a seam (kept
+    /// an actor effect's members give up what cannot cross a seam (kept
     /// parameters, `Mut` parameters, `proj` returns, non-sendable payloads),
-    /// and only an async effect may be bound with `spawn` or `use addr`. A
-    /// plain effect is never process-backed.
+    /// and only an actor effect may be bound with `spawn` or `use addr`. A
+    /// plain effect is never actor-backed.
     ///
     /// Like `platform`, a flag rather than a shared enum: the two are
-    /// independent (a `platform effect` is a host interface, an `async effect`
+    /// independent (a `platform effect` is a host interface, an `actor effect`
     /// a message protocol) and nothing yet is both.
-    pub is_async: bool,
+    pub is_actor: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     pub fns: Vec<FnDecl>,
@@ -380,11 +380,11 @@ pub struct FnDecl {
     /// [effect-handler]; the initializer may read the subject and runs when the
     /// pass is minted.
     pub iter_state: Vec<FieldDecl>,
-    /// [async-send-fn] `send fn bump(n: Int)`: an **asynchronous** member —
+    /// [actor-send-fn] `send fn bump(n: Int)`: an **asynchronous** member —
     /// a message, not a call. Sending one enqueues an invocation on the
-    /// target process and returns immediately, so the member answers
+    /// target actor and returns immediately, so the member answers
     /// nothing: a reply travels as a `Reply<T>` parameter the sender mints
-    /// with `replyto`. In the first pass every member of a process protocol
+    /// with `replyto`. In the first pass every member of an actor protocol
     /// is one, and the unmarked `fn` spelling stays reserved for the later
     /// call-member sugar (a `-> T` member desugars *to* a `send fn` with a
     /// trailing token). Contextual, like `iter fn`: `send` is not a
@@ -441,7 +441,7 @@ pub struct Param {
 pub enum EffectRef {
     /// The special `use` effect, allowing handler registration.
     Use(Span),
-    /// [async-spawn-effect] The special `spawn` effect, allowing process
+    /// [actor-spawn-effect] The special `spawn` effect, allowing actor
     /// creation. Lowercase and compiler-owned like `use`: it names a
     /// capability rather than a declared effect, so there is no handler to
     /// resolve and nothing to thread — `fn main() [use, spawn]` is the
@@ -937,7 +937,7 @@ pub enum Expr {
     Try { body: Block, span: Span },
     /// `...expr` — spread in call arguments or struct literals.
     Spread { operand: Box<Expr>, span: Span },
-    /// [async-self-send] `k@self(args)` — a message to **the process the
+    /// [actor-self-send] `k@self(args)` — a message to **the actor the
     /// enclosing member belongs to**: the selector names the enclosing
     /// handler, as `k@E` names an effect and `k@module` a module's overload.
     ///
@@ -945,9 +945,9 @@ pub enum Expr {
     /// the handler the code is written in. Legal only as a call's callee, and
     /// only inside a handler member — both the checker's rules.
     SelfScoped { name: Ident, span: Span },
-    /// [async-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
+    /// [actor-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
     /// capacity 16 on pool(2)` — bind a handler *asynchronously*: the
-    /// process. Read left to right: what to run, what it depends on, how
+    /// actor. Read left to right: what to run, what it depends on, how
     /// deep its queue is, where it runs. Its value is the child's `Addr`.
     ///
     /// `spawn` and the three clause words are **contextual** (the `iter fn`
@@ -972,15 +972,15 @@ pub enum Expr {
         pool: Box<Expr>,
         span: Span,
     },
-    /// [async-replyto] `replyto batch_arrived(id)` — allocate a parked
+    /// [actor-replyto] `replyto batch_arrived(id)` — allocate a parked
     /// one-shot continuation targeting a member of the *enclosing handler*,
     /// yielding its linear `Reply<T>` [linear-obligation]. The arguments are
     /// the continuation's *captures*: what the member needs besides the
     /// answer it is waiting for.
     ///
     /// `replyto!` (`gated`) is the same mint plus the gate — bounded
-    /// selective receive, at most one outstanding per process — so the
-    /// process serves nothing else until the answer arrives.
+    /// selective receive, at most one outstanding per actor — so the
+    /// actor serves nothing else until the answer arrives.
     ReplyTo {
         member: Ident,
         captures: Vec<Expr>,
@@ -988,7 +988,7 @@ pub enum Expr {
         gated: bool,
         span: Span,
     },
-    /// [async-waitfor] `waitfor out: Reply<Int> { counter.total(out) }` —
+    /// [actor-waitfor] `waitfor out: Reply<Int> { counter.total(out) }` —
     /// `main`'s explicit bridge into the asynchronous world, and `main`'s
     /// only source of a token: mints one, requires the block to consume it
     /// (ordinary linearity), blocks the real thread until it is sent to, and

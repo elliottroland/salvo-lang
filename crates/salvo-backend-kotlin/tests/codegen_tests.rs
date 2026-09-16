@@ -2042,7 +2042,7 @@ fn main() [use] {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
-    kotlinc_compiles_and_runs_a_process,
+    kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
@@ -9021,13 +9021,13 @@ fn kotlinc_compiles_and_runs_a_member_named_like_a_std_fn() -> KotlinCase {
     )
 }
 
-// ===== [kt-process] asynchronous effect handlers =====
+// ===== [kt-actor] asynchronous effect handlers =====
 
-/// [async-spawn-expr] [async-use-addr] [async-waitfor] The same program the
+/// [actor-spawn-expr] [actor-use-addr] [actor-waitfor] The same program the
 /// Rust backend runs, with **the same expected output** — the parity assertion
 /// for the surface, not just for the scheduler library underneath it.
-const PROCESS: &str = r#"
-async effect Counter {
+const ACTOR: &str = r#"
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
@@ -9056,20 +9056,20 @@ fn main() [use, spawn] {
 }
 "#;
 
-fn generate_process_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
-    generate_files(&[("main.sv", PROCESS)])
+fn generate_actor_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", ACTOR)])
 }
 
-fn kotlinc_compiles_and_runs_a_process() -> KotlinCase {
-    kotlin_case(generate_process_demo(), "process", "sum 5\n")
+fn kotlinc_compiles_and_runs_an_actor() -> KotlinCase {
+    kotlin_case(generate_actor_demo(), "actor", "sum 5\n")
 }
 
-/// [kt-process] What the lowering *is*, asserted on the generated text: a
-/// sealed message class per protocol, a process class wrapping the handler,
+/// [kt-actor] What the lowering *is*, asserted on the generated text: a
+/// sealed message class per protocol, an actor class wrapping the handler,
 /// and the scheduler file carried into the output.
 #[test]
-fn a_process_lowers_to_message_classes_and_a_body() {
-    let files = generate_process_demo();
+fn an_actor_lowers_to_message_classes_and_a_body() {
+    let files = generate_actor_demo();
     let main = files
         .iter()
         .find(|f| f.rel_path.to_string_lossy() == "main.kt")
@@ -9081,8 +9081,8 @@ fn a_process_lowers_to_message_classes_and_a_body() {
     );
     assert!(
         main.content
-            .contains("class __Proc_Counting(private val handler: Counting) : salvo.SalvoProcess"),
-        "the process class is missing:\n{}",
+            .contains("class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor"),
+        "the actor class is missing:\n{}",
         main.content
     );
     assert!(
@@ -9098,7 +9098,7 @@ fn a_process_lowers_to_message_classes_and_a_body() {
     );
 }
 
-// ===== [async-replyto] [async-self-send] parked continuations =====
+// ===== [actor-replyto] [actor-self-send] parked continuations =====
 
 /// The same three programs the Rust backend runs, with the same expected
 /// output. The first is the shape the slice exists for — **`main` is not in the
@@ -9106,11 +9106,11 @@ fn a_process_lowers_to_message_classes_and_a_body() {
 /// fulfils `main`'s token. The caller's token travels as a continuation
 /// *capture*, which is what makes it writable before linearity-in-collections.
 const REPLYTO_CHAIN: &str = r#"
-async effect Db {
+actor effect Db {
     send fn lookup(id: Int, out: Reply<Str>) => !id, !out
 }
 
-async effect Notices {
+actor effect Notices {
     send fn fetch(id: Int, out: Reply<Str>) => !id, !out
     send fn arrived(out: Reply<Str>, text: Str) => !out, !text
 }
@@ -9143,15 +9143,15 @@ fn main() [use, spawn] {
 }
 "#;
 
-/// `replyto!` — the gate. While gated the process serves only the awaited
+/// `replyto!` — the gate. While gated the actor serves only the awaited
 /// reply, so the already-queued `note("late")` waits: `reply R, user late`
 /// rather than the other way round.
 const REPLYTO_GATE: &str = r#"
-async effect Echo {
+actor effect Echo {
     send fn ping(out: Reply<Str>) => !out
 }
 
-async effect Trace {
+actor effect Trace {
     send fn start()
     send fn arrived(text: Str) => !text
     send fn note(what: Str) => !what
@@ -9200,7 +9200,7 @@ fn main() [use, spawn] {
 
 /// `k@self(args)` and both its readings, answering the same thing from each.
 const SELF_SEND: &str = r#"
-async effect Steps {
+actor effect Steps {
     send fn begin(n: Int, out: Reply<Str>) => !n, !out
     send fn again(n: Int, out: Reply<Str>) => !n, !out
 }
@@ -9258,18 +9258,18 @@ fn kotlinc_compiles_and_runs_both_readings_of_a_self_send() -> KotlinCase {
     )
 }
 
-/// [async-watch] The monitor surface, end to end. Source and expected stdout
+/// [actor-watch] The monitor surface, end to end. Source and expected stdout
 /// are **verbatim** the Rust backend's `rustc_compiles_and_runs_a_death_watch`:
-/// a process faults, the scheduler answers the watcher's token with an `Exit`,
+/// an actor faults, the scheduler answers the watcher's token with an `Exit`,
 /// a watch registered *after* the death answers immediately, and a send to the
 /// corpse is a silent no-op.
 ///
 /// The reason's *text* is deliberately not printed: it is the host's account of
 /// the fault (an exception's message here, a panic message on the Rust
 /// backend), the one thing on this surface that is not identical across
-/// backends [async-watch].
+/// backends [actor-watch].
 const WATCH: &str = r#"
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn crash()
 }
@@ -9311,11 +9311,11 @@ fn main() [use, spawn] {
 
 /// [linear-container] [linear-state] **Obligations in a collection**, end to
 /// end. Source and expected stdout are **verbatim** the Rust backend's
-/// `rustc_compiles_and_runs_obligations_in_a_collection`: a process parks reply
+/// `rustc_compiles_and_runs_obligations_in_a_collection`: an actor parks reply
 /// tokens in `Mut List<Reply<Str>>` state, answers one with `remove_first`, and
 /// `drain`s the rest on shutdown, putting a fresh list back.
 const LINEAR_QUEUE: &str = r#"
-async effect Desk {
+actor effect Desk {
     send fn ticket(out: Reply<Str>) => !out
     send fn serve(name: Str) => !name
     send fn close_up(reason: Str) => !reason
@@ -9369,7 +9369,7 @@ fn kotlinc_compiles_and_runs_obligations_in_a_collection() -> KotlinCase {
     )
 }
 
-/// [kt-process] [linear-container] The lowering: Kotlin needs no `mem::take`
+/// [kt-actor] [linear-container] The lowering: Kotlin needs no `mem::take`
 /// equivalent — objects are references, and the checker made the member assign
 /// a fresh list before it returned — so a drain is `forEach` over a snapshot.
 #[test]
@@ -9394,7 +9394,7 @@ fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {
     )
 }
 
-/// [async-watch] [kt-process] What a `watch` lowers to, mirroring the Rust
+/// [actor-watch] [kt-actor] What a `watch` lowers to, mirroring the Rust
 /// backend: the scheduler call **plus the `Exit` builder** the watch site
 /// closes over, since the runtime cannot construct a Salvo class.
 #[test]
@@ -9412,9 +9412,9 @@ fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder_kotlin() {
     );
 }
 
-/// [kt-process] [async-replyto] The lowering, mirroring the Rust backend's: a
+/// [kt-actor] [actor-replyto] The lowering, mirroring the Rust backend's: a
 /// continuation class beside the message class, the two generated fields on the
-/// handler — **not** `private`, since `__Proc_H` is a different class and
+/// handler — **not** `private`, since `__Actor_H` is a different class and
 /// Kotlin's class-level `private` does not reach across one — a `__dispatch`
 /// factored out of `handle`, and a `resume` that pops the slot and casts the
 /// answer to the target member's trailing parameter type.
@@ -9453,11 +9453,11 @@ fn a_parked_continuation_lowers_to_a_slot_table_kotlin() {
     );
 }
 
-// ===== [async-use-addr] the forwarding stub =====
+// ===== [actor-use-addr] the forwarding stub =====
 
 /// The same program the Rust backend runs, with the same expected output.
 const ADDR_STUB: &str = r#"
-async effect Log {
+actor effect Log {
     send fn note(what: Str) => !what
     send fn count(out: Reply<Int>) => !out
 }
@@ -9518,25 +9518,25 @@ fn a_stub_implements_the_effect_by_sending_kotlin() {
     );
 }
 
-// ===== [async-spawn-expr] dependent-handler spawns =====
+// ===== [actor-spawn-expr] dependent-handler spawns =====
 
 /// The same program the Rust backend runs, with the same expected output: a
 /// child declaring `[Log, Tally]` whose spawn clause supplies one dependency as
 /// a **construction** and one as an **`Addr`**. The parity assertion for the
 /// binding swap — one handler, compiled once, with a local instance behind one
-/// of its effects and a process behind the other.
+/// of its effects and an actor behind the other.
 const DEP_SPAWN: &str = r#"
-async effect Log {
+actor effect Log {
     send fn note(what: Str) => !what
     send fn dump(out: Reply<Str>) => !out
 }
 
-async effect Tally {
+actor effect Tally {
     send fn tick(n: Int) => !n
     send fn total(out: Reply<Int>) => !out
 }
 
-async effect Counter {
+actor effect Counter {
     send fn bump(n: Int) => !n
     send fn report(out: Reply<Str>) => !out
 }
@@ -9605,7 +9605,7 @@ fn kotlinc_compiles_and_runs_a_dependent_spawn() -> KotlinCase {
     )
 }
 
-/// [kt-process] [kt-effect-fusion] The shape: the process is generic in the
+/// [kt-actor] [kt-effect-fusion] The shape: the actor is generic in the
 /// **same carrier** the handler stores, and the spawn site builds one of the
 /// generated `__Fx_N` classes out of its clause — a construction for one
 /// dependency, a forwarding stub for the addr. Kotlin needs no provider of its
@@ -9620,13 +9620,13 @@ fn a_dependent_spawn_builds_the_childs_carrier() {
     let text = &main.content;
     assert!(
         text.contains(
-            "class __Proc_Counting<__Fx>(private val handler: Counting<__Fx>) : \
-             salvo.SalvoProcess where __Fx : __Has_Log, __Fx : __Has_Tally"
+            "class __Actor_Counting<__Fx>(private val handler: Counting<__Fx>) : \
+             salvo.SalvoActor where __Fx : __Has_Log, __Fx : __Has_Tally"
         ),
-        "the process class does not carry the handler's carrier:\n{text}"
+        "the actor class does not carry the handler's carrier:\n{text}"
     );
     assert!(
-        text.contains("__Proc_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))"),
+        text.contains("__Actor_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))"),
         "the spawn does not build the carrier from its clause:\n{text}"
     );
 }

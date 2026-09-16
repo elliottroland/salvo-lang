@@ -1,29 +1,29 @@
-//! [async-deadlock-cycle] The static deadlock baseline: a cycle check over
-//! the **effect graph** of processes that wait for one another.
+//! [actor-deadlock-cycle] The static deadlock baseline: a cycle check over
+//! the **effect graph** of actors that wait for one another.
 //!
 //! The design's committed baseline (CONCURRENCY.md, "Deadlock statics";
-//! CONCURRENCY_EXAMPLES.md Example 4). Two processes that each park a *gated*
+//! CONCURRENCY_EXAMPLES.md Example 4). Two actors that each park a *gated*
 //! continuation on the other's answer wait forever, and the failure is
 //! interleaving-dependent — it passes every test and deadlocks in production
 //! on the rare crossing — so what is caught here is the **possibility**,
 //! whole-program, rather than the occurrence at run time.
 //!
-//! Nodes are `async effect`s, because that is what an `Addr` is typed by, and
+//! Nodes are `actor effect`s, because that is what an `Addr` is typed by, and
 //! there are two kinds of edge:
 //!
 //! * a **wait-for** edge, from a gate. While a `replyto!` continuation is
-//!   outstanding the process serves nothing but its answer, so a cycle of
+//!   outstanding the actor serves nothing but its answer, so a cycle of
 //!   gates is a deadlock that no amount of load changes. Reported as an
 //!   **error**.
 //! * a **back-pressure** edge, from an ordinary send. A send into a full
 //!   bounded mailbox blocks its activation, so a cycle of sends deadlocks
 //!   *only* when the mailboxes involved are simultaneously full. Reported as
 //!   a **warning** (user decision 2026-09-16): the program is legal and
-//!   usually fine, and refusing every pair of processes that send to each
+//!   usually fine, and refusing every pair of actors that send to each
 //!   other would refuse most useful topologies.
 //!
 //! The imprecision is stated rather than discovered, and it is the same one
-//! the design predicted: the graph is over process **types**, not instances,
+//! the design predicted: the graph is over actor **types**, not instances,
 //! so a chain of same-protocol workers each sending to the next is a
 //! self-loop here and acyclic in the running program. What that costs is a
 //! warning on a legal program; stratification (a tier qualifier on an addr)
@@ -31,10 +31,10 @@
 //! nuisance, deliberately not built until they are observed.
 //!
 //! **Interception is exempt**, which the design documents did not anticipate:
-//! a handler of `E` that declares `[E]` — a policy wrapper around the process
+//! a handler of `E` that declares `[E]` — a policy wrapper around the actor
 //! already serving `E`, the phase's showcase pattern — is an `E → E` edge by
 //! construction. It can never deadlock, because the dependency binds strictly
-//! *outward*: the wrapped instance is a different process, and the chain ends
+//! *outward*: the wrapped instance is a different actor, and the chain ends
 //! at the innermost one. So an edge a handler gets from its **own-effect
 //! dependency** is dropped, while an addr of its own protocol (a genuine peer
 //! mesh) still counts.
@@ -51,7 +51,7 @@ use crate::program::{Program, Symbols};
 /// Where an edge came from, for the diagnostic and for the severity.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum EdgeKind {
-    /// A gated mint: the process waits, whatever the load.
+    /// A gated mint: the actor waits, whatever the load.
     Wait,
     /// A send that can block on a full mailbox.
     BackPressure,
@@ -67,7 +67,7 @@ struct Edge {
     span: Span,
 }
 
-/// [async-deadlock-cycle] Reports every cycle in the wait-for graph: an error
+/// [actor-deadlock-cycle] Reports every cycle in the wait-for graph: an error
 /// per cycle of gates, a warning per cycle that needs a back-pressure edge to
 /// close.
 pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
@@ -117,13 +117,13 @@ fn build(
     out: &Checked,
 ) -> BTreeMap<String, BTreeMap<String, Edge>> {
     let mut graph: BTreeMap<String, BTreeMap<String, Edge>> = BTreeMap::new();
-    let is_async = |name: &str| {
+    let is_actor = |name: &str| {
         symbols
             .effects
             .get(name)
-            .is_some_and(|decl| decl.is_async)
+            .is_some_and(|decl| decl.is_actor)
     };
-    // Every handler of an async effect: the protocol it serves, whether any
+    // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for item in &ast.items {
@@ -131,11 +131,11 @@ fn build(
             let Some(served) = base_name(&h.of) else {
                 continue;
             };
-            if !is_async(served) {
+            if !is_actor(served) {
                 continue;
             }
             let gate = out
-                .async_gates
+                .actor_gates
                 .iter()
                 .find(|(handler, _)| *handler == h.name.name)
                 .map(|(_, key)| *key);
@@ -149,22 +149,22 @@ fn build(
                 let name = r.name.name.as_str();
                 // Interception: an own-effect dependency binds outward, so it
                 // closes no cycle.
-                if !is_async(name) || name == served {
+                if !is_actor(name) || name == served {
                     continue;
                 }
                 targets.push((name.to_string(), file_idx, r.span));
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
-            for (handler, target, (file, span)) in &out.async_sends {
-                if *handler == h.name.name && is_async(target) {
+            for (handler, target, (file, span)) in &out.actor_sends {
+                if *handler == h.name.name && is_actor(target) {
                     targets.push((target.clone(), *file, *span));
                 }
             }
             for (target, file, span) in targets {
                 let (kind, file, span) = match gate {
                     // A gate anywhere in the handler makes its sends waits:
-                    // the process is serving nothing else meanwhile.
+                    // the actor is serving nothing else meanwhile.
                     Some((gfile, gspan)) => (EdgeKind::Wait, gfile, gspan),
                     None => (EdgeKind::BackPressure, file, span),
                 };
@@ -263,19 +263,19 @@ fn report(
             first.file,
             first.span,
             format!(
-                "these processes wait for each other: {path} ({handlers}). A `replyto!` \
+                "these actors wait for each other: {path} ({handlers}). A `replyto!` \
                  gate serves nothing but its own answer, so each of them is waiting for \
                  a reply the next can only produce after its own arrives — a deadlock \
                  whenever the requests cross. Break the cycle: make one side's \
                  continuation ungated (`replyto`, whose mailbox stays open), or have \
-                 the answer come from a third process neither of them waits on"
+                 the answer come from a third actor neither of them waits on"
             ),
         )),
         EdgeKind::BackPressure => out.errors.push(FileDiagnostic::warning(
             first.file,
             first.span,
             format!(
-                "these processes send to each other in a cycle: {path} ({handlers}). A \
+                "these actors send to each other in a cycle: {path} ({handlers}). A \
                  send blocks while the target's mailbox is full, so this deadlocks if \
                  the mailboxes fill at the same time — a failure that appears under \
                  load and not in a test. Give the queues room (a larger `capacity`), or \

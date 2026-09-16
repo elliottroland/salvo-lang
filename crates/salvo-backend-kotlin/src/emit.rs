@@ -115,7 +115,7 @@ pub fn emit_program_reporting(
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
     // anywhere in the program [bytes-type].
     let mut needs_bytes = false;
-    // [kt-process] And for the scheduler, when a program spawns.
+    // [kt-actor] And for the scheduler, when a program spawns.
     let mut needs_scheduler = false;
     // [kt-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
@@ -405,7 +405,7 @@ fn generate_compare_file() -> String {
 ///
 /// Source in `runtime/bytes.kt`, included verbatim and compiled directly by
 /// `runtime_tests.rs`.
-/// [kt-process] The process scheduler asynchronous effect handlers run on —
+/// [kt-actor] The actor scheduler asynchronous effect handlers run on —
 /// the mirror of the Rust backend's, with identical decided semantics and
 /// identical observable behaviour (asserted by the runtime tests). Emitted
 /// only when a program spawns.
@@ -414,14 +414,14 @@ fn generate_scheduler_file() -> String {
     include_str!("../runtime/scheduler.kt").to_string()
 }
 
-/// [async-use-addr] The forwarding stub of a protocol: `__Stub_Counter`.
+/// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`.
 fn stub_class_name(effect: &str) -> String {
     format!("__Stub_{effect}")
 }
 
 /// The base name of a *rendered* effect instance (`Store<Int>` → `Store`) —
-/// what a generated class named after the effect declaration needs. An async
-/// effect is never generic today ([async-effect-kind] refuses one as a
+/// what a generated class named after the effect declaration needs. An actor
+/// effect is never generic today ([actor-effect-kind] refuses one as a
 /// protocol), so this only ever strips nothing; it is written for the day one
 /// is allowed.
 fn base_of_rendered(rendered: &str) -> &str {
@@ -431,20 +431,20 @@ fn base_of_rendered(rendered: &str) -> &str {
     }
 }
 
-/// [kt-process] The message class of a protocol: `__Msg_Counter`, named after
-/// the *effect*, since that is what a sender knows [async-types].
+/// [kt-actor] The message class of a protocol: `__Msg_Counter`, named after
+/// the *effect*, since that is what a sender knows [actor-types].
 fn msg_class_name(effect: &str) -> String {
     format!("__Msg_{effect}")
 }
 
-/// [kt-process] [async-replyto] The parked-continuation class of a protocol:
+/// [kt-actor] [actor-replyto] The parked-continuation class of a protocol:
 /// `__Cont_Counter`. Beside the message class and named the same way — a
 /// continuation is a member invocation waiting for its last argument.
 fn cont_class_name(effect: &str) -> String {
     format!("__Cont_{effect}")
 }
 
-/// [kt-process] One nested class of it, named after the member in upper camel
+/// [kt-actor] One nested class of it, named after the member in upper camel
 /// so the generated Kotlin reads like Kotlin.
 fn msg_variant_name(member: &str) -> String {
     let mut out = String::new();
@@ -464,11 +464,11 @@ fn msg_variant_name(member: &str) -> String {
     out
 }
 
-/// [kt-process] The generated body a spawn hands the scheduler:
-/// `__Proc_Counting`, wrapping the handler instance and dispatching messages
+/// [kt-actor] The generated body a spawn hands the scheduler:
+/// `__Actor_Counting`, wrapping the handler instance and dispatching messages
 /// onto its members.
-fn process_class_name(handler: &str) -> String {
-    format!("__Proc_{handler}")
+fn actor_class_name(handler: &str) -> String {
+    format!("__Actor_{handler}")
 }
 
 fn generate_bytes_file() -> String {
@@ -763,7 +763,7 @@ struct Emitter<'p> {
     /// effect's, which differs from the written one when the member is
     /// overloaded (`close(InStream)` / `close(OutStream)`).
     handler_member_effect: Option<String>,
-    /// [async-replyto] [async-self-send] The **name** of the handler whose
+    /// [actor-replyto] [actor-self-send] The **name** of the handler whose
     /// members are being emitted, when any are: a `replyto` mints against the
     /// enclosing handler's protocol and a self-send calls its member. `None`
     /// in ordinary fns, which is where the checker has already refused both.
@@ -815,7 +815,7 @@ struct Emitter<'p> {
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
-    /// [kt-process] This file spawns, sends to an addr, or bridges with
+    /// [kt-actor] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler file is part of the program.
     needs_scheduler: bool,
     /// [iter-fn] Of those, the ones held in a nullable property
@@ -1422,10 +1422,10 @@ impl<'p> Emitter<'p> {
             self.generics = member_saved;
         }
         out.push_str("}\n");
-        // [kt-process] [async-use-addr] The forwarding stub: the effect,
+        // [kt-actor] [actor-use-addr] The forwarding stub: the effect,
         // implemented by sending to an addr.
         out.push_str(&self.emit_addr_stub(e));
-        // [kt-process] [async-send-fn] The protocol's **message type**: a
+        // [kt-actor] [actor-send-fn] The protocol's **message type**: a
         // sealed class with one nested class per send member. It belongs to
         // the *effect*, because a sender holds an `Addr` and knows only the
         // effect it serves — the same reason the binding swap works.
@@ -1434,15 +1434,15 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [kt-process] `sealed class __Msg_E { class Member(payload…) : __Msg_E() }`
-    /// — the messages a process serving `E` receives, and the whole of what
+    /// [kt-actor] `sealed class __Msg_E { class Member(payload…) : __Msg_E() }`
+    /// — the messages an actor serving `E` receives, and the whole of what
     /// crosses the seam at runtime (the scheduler is untyped: `Any?`).
-    /// [async-use-addr] [kt-process] `__Stub_E`: the effect implemented by
+    /// [actor-use-addr] [kt-actor] `__Stub_E`: the effect implemented by
     /// **sending to an addr** — what `use addr` binds, and what a spawned child
     /// receives for an addr-supplied dependency. Per *effect*, since that is
     /// all it depends on.
     fn emit_addr_stub(&mut self, e: &EffectDecl) -> String {
-        if !e.is_async || !e.generics.is_empty() {
+        if !e.is_actor || !e.generics.is_empty() {
             return String::new();
         }
         let sends: Vec<(usize, &FnDecl)> = e
@@ -1482,8 +1482,8 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_message_classes(&mut self, e: &EffectDecl) -> String {
-        // [async-effect-kind] The kind is the gate, as in the Rust backend.
-        if !e.is_async {
+        // [actor-effect-kind] The kind is the gate, as in the Rust backend.
+        if !e.is_actor {
             return String::new();
         }
         let sends: Vec<(usize, &FnDecl)> = e
@@ -1498,7 +1498,7 @@ impl<'p> Emitter<'p> {
         if !e.generics.is_empty() {
             self.error(format!(
                 "effect `{}` is generic, which the kotlin backend cannot make a \
-                 process protocol of yet",
+                 actor protocol of yet",
                 e.name.name
             ));
             return String::new();
@@ -1525,7 +1525,7 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [kt-process] [async-replyto] `__Cont_E`: the **parked continuation**,
+    /// [kt-actor] [actor-replyto] `__Cont_E`: the **parked continuation**,
     /// beside the message class and named after the effect for the same reason
     /// — the members are the protocol's.
     ///
@@ -1533,7 +1533,7 @@ impl<'p> Emitter<'p> {
     /// back; `resume` looks it up, and the subclass says which member to call
     /// and therefore what to cast the answer to. So a subclass carries the
     /// member's parameters **minus the trailing one**: that last parameter is
-    /// the answer itself [async-replyto], which arrives with the reply.
+    /// the answer itself [actor-replyto], which arrives with the reply.
     ///
     /// A parameterless member can never be a target — there is no answer for
     /// the token to carry — so it gets no subclass.
@@ -1788,24 +1788,24 @@ impl<'p> Emitter<'p> {
                 kt_ident(&field.name.name)
             ));
         }
-        // [kt-process] [async-self-send] [async-replyto] The two generated
-        // fields a handler of an `async effect` carries, whichever way it is
+        // [kt-actor] [actor-self-send] [actor-replyto] The two generated
+        // fields a handler of an `actor effect` carries, whichever way it is
         // bound (a handler is compiled once):
         //
-        // * `__addr` — the process this instance *is*, written by `__Proc_H`
+        // * `__addr` — the actor this instance *is*, written by `__Actor_H`
         //   from the activation's `SalvoCtx`, and `null` when the instance was
         //   bound with `use` instead. That absence is the self-send's
         //   discriminator (user decision 2026-09-15, D5-a).
         // * `__parked` — the parked-continuation table, slot → `__Cont_E`. On
-        //   the handler rather than on `__Proc_H` because the *mint* happens in
-        //   a member body, which cannot see the process class (D5-b).
+        //   the handler rather than on `__Actor_H` because the *mint* happens in
+        //   a member body, which cannot see the actor class (D5-b).
         //
         // Neither may be `private`: Kotlin's class-level `private` is visible
-        // only inside the class itself, and `__Proc_H` — a different class —
+        // only inside the class itself, and `__Actor_H` — a different class —
         // has to write one and read the other. (Rust needs no such care: its
         // privacy is per module, and both live in one.)
-        let async_handler = self.handler_is_async(h);
-        if async_handler {
+        let actor_handler = self.handler_is_actor(h);
+        if actor_handler {
             out.push_str("    internal var __addr: Int? = null\n");
             if let Some(cont) = self.handler_cont_type(h) {
                 out.push_str(&format!(
@@ -1827,7 +1827,7 @@ impl<'p> Emitter<'p> {
             &mut self.handler_member_effect,
             type_base_name(&h.of).map(|n| n.to_string()),
         );
-        // [async-replyto] [async-self-send] Both forms resolve against the
+        // [actor-replyto] [actor-self-send] Both forms resolve against the
         // handler whose members these are.
         let saved_handler =
             std::mem::replace(&mut self.current_handler, Some(h.name.name.clone()));
@@ -1839,26 +1839,26 @@ impl<'p> Emitter<'p> {
         self.ctor_implicits = saved_ctor;
         self.handler_deps = saved_deps;
         out.push_str("}\n");
-        // [kt-process] The body a `spawn` hands the scheduler, for a handler
+        // [kt-actor] The body a `spawn` hands the scheduler, for a handler
         // that can be one.
-        out.push_str(&self.emit_process_body(h, &deps));
+        out.push_str(&self.emit_actor_body(h, &deps));
         self.generics = saved;
         out
     }
 
-    /// [kt-process] `__Proc_H`: the `SalvoProcess` a spawn hands the
-    /// scheduler. It owns the handler instance — a process's state *is* the
+    /// [kt-actor] `__Actor_H`: the `SalvoActor` a spawn hands the
+    /// scheduler. It owns the handler instance — an actor's state *is* the
     /// handler's — and `handle` casts the protocol's message and calls the
     /// member the class names.
     ///
     /// A **dependent** handler *stores* its fused environment
     /// ([kt-effect-fusion]), as a constructor argument whose type is the
-    /// handler's extra type parameter. So a process over one is generic in the
+    /// handler's extra type parameter. So an actor over one is generic in the
     /// same carrier and passes it nowhere: the handler already holds it, and
     /// the spawn site builds it. That is the whole of the difference here —
     /// where Rust has to own a provider and rebuild the view per activation
-    /// ([rs-process]), Kotlin's objects alias.
-    fn emit_process_body(&mut self, h: &HandlerDecl, deps: &[String]) -> String {
+    /// ([rs-actor]), Kotlin's objects alias.
+    fn emit_actor_body(&mut self, h: &HandlerDecl, deps: &[String]) -> String {
         let Some(effect_name) = type_base_name(&h.of).map(|n| n.to_string()) else {
             return String::new();
         };
@@ -1871,12 +1871,12 @@ impl<'p> Emitter<'p> {
             .enumerate()
             .filter(|(_, f)| f.is_send)
             .collect();
-        // [async-effect-kind] Only a process protocol gets a process body.
-        if !effect.is_async || sends.is_empty() || !h.generics.is_empty() {
+        // [actor-effect-kind] Only an actor protocol gets an actor body.
+        if !effect.is_actor || sends.is_empty() || !h.generics.is_empty() {
             return String::new();
         }
         self.needs_scheduler = true;
-        let proc_name = process_class_name(&h.name.name);
+        let proc_name = actor_class_name(&h.name.name);
         let msg = msg_class_name(&effect_name);
         // The carrier's type parameter and its bounds, repeated from the
         // handler's own declaration: a `Counting<__Fx>` field needs the same
@@ -1896,7 +1896,7 @@ impl<'p> Emitter<'p> {
         };
         let mut out = format!(
             "\nclass {proc_name}{proc_generics}(private val handler: {handler_ty}) : \
-             salvo.SalvoProcess{where_clause} {{\n    \
+             salvo.SalvoActor{where_clause} {{\n    \
              override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {{\n        \
              handler.__addr = ctx.addr\n        \
              __dispatch(msg as {msg})\n    }}\n\n    \
@@ -1918,7 +1918,7 @@ impl<'p> Emitter<'p> {
             ));
         }
         out.push_str("        }\n    }\n");
-        // [async-replyto] The other half of the table: the slot names the
+        // [actor-replyto] The other half of the table: the slot names the
         // parked continuation, and its subclass says which member to resume
         // and therefore what the answer casts to — its *trailing* parameter's
         // type.
@@ -1960,23 +1960,23 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [kt-process] [async-effect-kind] Does `h` implement an **`async
-    /// effect`**? The gate for the two generated fields and for the process
-    /// class: a plain effect is never process-backed.
-    fn handler_is_async(&self, h: &HandlerDecl) -> bool {
+    /// [kt-actor] [actor-effect-kind] Does `h` implement an **`actor
+    /// effect`**? The gate for the two generated fields and for the actor
+    /// class: a plain effect is never actor-backed.
+    fn handler_is_actor(&self, h: &HandlerDecl) -> bool {
         type_base_name(&h.of)
             .and_then(|n| self.symbols.effects.get(n))
-            .is_some_and(|e| e.is_async)
+            .is_some_and(|e| e.is_actor)
     }
 
-    /// [async-replyto] The `__Cont_E` class of `h`'s protocol — `None` when the
+    /// [actor-replyto] The `__Cont_E` class of `h`'s protocol — `None` when the
     /// protocol has no member that could be a continuation target (every send
     /// member is parameterless, so no answer could be carried), in which case
     /// no `__parked` table is emitted either.
     fn handler_cont_type(&self, h: &HandlerDecl) -> Option<String> {
         let name = type_base_name(&h.of)?;
         let effect = self.symbols.effects.get(name)?;
-        if !effect.is_async {
+        if !effect.is_actor {
             return None;
         }
         let any_target = effect
@@ -2001,7 +2001,7 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 EffectRef::Effect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
-                // [async-spawn-effect] A capability, not an effect type: no
+                // [actor-spawn-effect] A capability, not an effect type: no
                 // handler parameter is threaded for it.
                 EffectRef::Spawn(_) => None,
             })
@@ -2822,7 +2822,7 @@ impl<'p> Emitter<'p> {
             if name == "Bytes" {
                 self.needs_bytes = true;
             }
-            // [kt-process] The scheduler's handles are not generic here: an addr
+            // [kt-actor] The scheduler's handles are not generic here: an addr
             // is an `Int` and a token is one class, so the Salvo type argument
             // has no rendering — the generated message classes carry it.
             if matches!(name, "Addr" | "Pool" | "Reply") {
@@ -2835,7 +2835,7 @@ impl<'p> Emitter<'p> {
         // backend has no mapping for cannot pass through: its Salvo name
         // means nothing in Kotlin, so emitting it would hand kotlinc a
         // dangling reference instead of reporting the gap here. (`Addr`,
-        // `Reply` and `Pool` are exactly this until the process classes
+        // `Reply` and `Pool` are exactly this until the actor classes
         // land.)
         if self.symbols.intrinsic_types.contains_key(name) {
             self.error(format!(
@@ -3234,8 +3234,8 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [async-spawn-expr] [kt-process] `spawn H(args) capacity N on P` →
-    /// `SalvoSched.spawn(pool, bound, __Proc_H(H(args)))`, whose value is the
+    /// [actor-spawn-expr] [kt-actor] `spawn H(args) capacity N on P` →
+    /// `SalvoSched.spawn(pool, bound, __Actor_H(H(args)))`, whose value is the
     /// addr. Construction is the `use` path's, minus the registration: a spawn
     /// does not put the handler in *this* scope.
     fn emit_spawn(
@@ -3292,12 +3292,12 @@ impl<'p> Emitter<'p> {
         let pool_code = self.emit_expr(pool);
         format!(
             "salvo.SalvoSched.spawn({pool_code}, {bound}, {}({ctor}({})))",
-            process_class_name(&handler_name),
+            actor_class_name(&handler_name),
             args.join(", ")
         )
     }
 
-    /// [async-spawn-expr] [kt-process] The carrier a spawned dependent handler
+    /// [actor-spawn-expr] [kt-actor] The carrier a spawned dependent handler
     /// stores: `__Fx_N(d0, d1)` over the clause's instances, in the handler's
     /// declaration order (the fused class takes them in its own canonical
     /// order, which is what `emit_fx_class` answers).
@@ -3335,11 +3335,11 @@ impl<'p> Emitter<'p> {
         Some(format!("{class}({})", ordered.join(", ")))
     }
 
-    /// [async-spawn-expr] One clause item as the expression that *makes* an
+    /// [actor-spawn-expr] One clause item as the expression that *makes* an
     /// instance: a handler construction is `D(args)`, an `Addr` is the
     /// forwarding stub over it (`__Stub_D(addr)`) — the same two shapes `use`
     /// binds, which is what lets a child's dependency be a local handler in
-    /// one program and a process in the next.
+    /// one program and an actor in the next.
     fn spawn_dep_instance(&mut self, item: &Expr, dep: &str) -> String {
         let named = match item {
             Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
@@ -3362,7 +3362,7 @@ impl<'p> Emitter<'p> {
         format!("{}({addr_code})", stub_class_name(base_of_rendered(dep)))
     }
 
-    /// [async-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:
+    /// [actor-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:
     /// mint the waiter, run the block that sends the token somewhere, then
     /// block this thread for the answer and cast it.
     fn emit_waitfor(&mut self, binding: &Ident, ty: &Type, body: &Block, _span: Span) -> String {
@@ -3393,7 +3393,7 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [async-use-addr] [kt-process] `addr.member(args)` →
+    /// [actor-use-addr] [kt-actor] `addr.member(args)` →
     /// `SalvoSched.send(addr, __Msg_E.Member(args))`.
     fn emit_addr_send(
         &mut self,
@@ -3426,7 +3426,7 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
-        // [async-use-addr] `use addr` binds the effect to a **forwarding stub**
+        // [actor-use-addr] `use addr` binds the effect to a **forwarding stub**
         // over the addr: `__Stub_E(addr)` is an ordinary instance of the effect
         // as far as the rest of this scope is concerned, which is exactly why
         // nothing downstream needs to know the difference.
@@ -3546,7 +3546,7 @@ impl<'p> Emitter<'p> {
         self.bind_effect_instance(effect_ty, rendered, handler_code, indent)
     }
 
-    /// [kt-effect-fusion] [async-use-addr] Bind one effect **instance** into
+    /// [kt-effect-fusion] [actor-use-addr] Bind one effect **instance** into
     /// the current scope, given the expression that constructs it: a handler
     /// construction from `use H(…)`, or a forwarding stub from `use addr`.
     /// Everything past this point is identical for the two, which is the whole
@@ -4683,8 +4683,8 @@ impl<'p> Emitter<'p> {
                 self.emit_when_cond(branches, else_block, indent, true)
             }
             Expr::Error { .. } => "TODO()".to_string(),
-            // [async-spawn-expr] [kt-process] Construct the handler, wrap it
-            // in its generated process body, hand it to the scheduler; the
+            // [actor-spawn-expr] [kt-actor] Construct the handler, wrap it
+            // in its generated actor body, hand it to the scheduler; the
             // value is the addr.
             Expr::Spawn {
                 handler,
@@ -4693,20 +4693,20 @@ impl<'p> Emitter<'p> {
                 pool,
                 span,
             } => self.emit_spawn(handler, uses, capacity, pool, *span),
-            // [async-waitfor] `main`'s bridge, as a `run { }` expression.
+            // [actor-waitfor] `main`'s bridge, as a `run { }` expression.
             Expr::WaitFor {
                 binding,
                 ty,
                 body,
                 span,
             } => self.emit_waitfor(binding, ty, body, *span),
-            // [async-self-send] A bare selector outside a call is a checker
+            // [actor-self-send] A bare selector outside a call is a checker
             // error; the call form is lowered in `emit_call`.
             Expr::SelfScoped { .. } => {
                 self.error("internal: `@self` outside a call reached emission");
                 "TODO()".to_string()
             }
-            // [async-replyto] The mint: allocate a slot, park the
+            // [actor-replyto] The mint: allocate a slot, park the
             // continuation, hand back the token.
             Expr::ReplyTo {
                 member,
@@ -4717,8 +4717,8 @@ impl<'p> Emitter<'p> {
         }
     }
 
-    /// [async-replyto] [kt-process] `replyto k(captures)` → mint a slot on
-    /// **this process**, store `__Cont_E.K(captures)` under it, and evaluate to
+    /// [actor-replyto] [kt-actor] `replyto k(captures)` → mint a slot on
+    /// **this actor**, store `__Cont_E.K(captures)` under it, and evaluate to
     /// the token:
     ///
     /// ```text
@@ -4729,7 +4729,7 @@ impl<'p> Emitter<'p> {
     /// gate lives — the runtime's business, not the emitter's.
     ///
     /// The `!!` cannot fire: a handler that mints may only be spawned
-    /// ([async-replyto], checked), so its members run as activations and
+    /// ([actor-replyto], checked), so its members run as activations and
     /// `__addr` was written before the body ran.
     fn emit_replyto(
         &mut self,
@@ -4767,7 +4767,7 @@ impl<'p> Emitter<'p> {
         )
     }
 
-    /// [async-replyto] The `__Cont_E` class for the handler whose member is
+    /// [actor-replyto] The `__Cont_E` class for the handler whose member is
     /// being emitted — the enclosing handler, since a mint is lexical.
     fn current_cont_type(&self) -> Option<String> {
         let name = self.current_handler.as_deref()?;
@@ -4775,10 +4775,10 @@ impl<'p> Emitter<'p> {
         self.handler_cont_type(h)
     }
 
-    /// [async-self-send] [kt-process] `k@self(args)` — send to **the process the
+    /// [actor-self-send] [kt-actor] `k@self(args)` — send to **the actor the
     /// enclosing member belongs to**, and its two readings, chosen at run time
     /// off `__addr` because a handler is compiled once and bound many ways: an
-    /// enqueue on its own mailbox when this instance is a process, and the
+    /// enqueue on its own mailbox when this instance is an actor, and the
     /// ordinary inline member call when it was bound with `use`.
     ///
     /// Kotlin needs no fusion care here that Rust needed: a member call on
@@ -5576,13 +5576,13 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
-        // [async-use-addr] [kt-process] A send to a process: build the
+        // [actor-use-addr] [kt-actor] A send to an actor: build the
         // protocol's message and enqueue it. The receiver names where it goes,
         // not an argument.
         if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
             return self.emit_addr_send(&effect, callee, args, span);
         }
-        // [async-self-send] `k@self(args)`: a message to the process the
+        // [actor-self-send] `k@self(args)`: a message to the actor the
         // enclosing member belongs to.
         if let Some(member) = self
             .checked
@@ -5842,7 +5842,7 @@ impl<'p> Emitter<'p> {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
-            // [kt-process] The scheduler's own intrinsics: answering a reply
+            // [kt-actor] The scheduler's own intrinsics: answering a reply
             // token, building a pool, and registering a death watch.
             if recv == Some("Reply") || f.name.name == "pool" || f.name.name == "watch" {
                 self.needs_scheduler = true;
@@ -7168,7 +7168,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [try] The delimiter's body is ordinary code: a variable mutated
         // only inside it still needs the mutable declaration.
         Expr::Try { body, .. } => collect_mutated(body, out),
-        // [async-spawn-expr] [async-replyto] [async-waitfor] The clauses,
+        // [actor-spawn-expr] [actor-replyto] [actor-waitfor] The clauses,
         // captures and bridge block are ordinary code.
         Expr::Spawn {
             handler,
@@ -7189,7 +7189,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
                 collect_mutated_expr(capture, out);
             }
         }
-        // [async-self-send] A leaf.
+        // [actor-self-send] A leaf.
         Expr::SelfScoped { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.

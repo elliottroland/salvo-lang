@@ -10,7 +10,7 @@
 //!   `kotlinc`, once per *install*: asking `kotlinc` for its version starts
 //!   a JVM and costs about as much as a small compile, so its probe result
 //!   is remembered on disk next to the stamps (keyed by the resolved
-//!   executable, so upgrading kotlinc re-probes). A per-process cache alone
+//!   executable, so upgrading kotlinc re-probes). A per-actor cache alone
 //!   made the availability check itself one of the most expensive things in
 //!   the suite — and under nextest, which runs every test in its own
 //!   process, it made every cached kotlin test pay for a JVM start.
@@ -94,7 +94,7 @@ pub fn toolchain(program: &str, version_arg: &str) -> Toolchain {
 /// Like [`toolchain`], but remembers a successful probe *on disk* (in the
 /// same directory as the stamps), so it survives across processes. This is
 /// for probes that are expensive to run — `kotlinc -version` starts a JVM
-/// and costs about as much as a small compile, and a per-process cache
+/// and costs about as much as a small compile, and a per-actor cache
 /// still pays it once per test *binary* under `cargo test` and once per
 /// *test* under nextest, where every test is its own process.
 ///
@@ -158,7 +158,7 @@ pub fn toolchain_disk_cached(target_tmpdir: &str, program: &str, version_arg: &s
     found
 }
 
-/// The per-process probe cache, shared by both probe flavors.
+/// The per-actor probe cache, shared by both probe flavors.
 fn probe_cache() -> &'static Mutex<HashMap<String, Toolchain>> {
     static PROBED: OnceLock<Mutex<HashMap<String, Toolchain>>> = OnceLock::new();
     PROBED.get_or_init(|| Mutex::new(HashMap::new()))

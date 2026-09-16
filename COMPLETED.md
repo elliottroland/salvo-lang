@@ -122,7 +122,66 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Phase 5, sequence item 7: linearity in collections (2026-09-16).** L8's
+**Phase 5: the concurrency vocabulary becomes "actor" (user decision
+2026-09-16).** Three words named one concept — `async` at the declaration,
+`Addr` for the handle, "process" for the thing running — and the user asked
+whether the design resembles the actor model closely enough to collapse them
+onto that word. It does, on every property the industry treats as
+definitional: private state, serialized run-to-completion activations,
+addresses as the only reference, asynchronous messages, spawn, monitors
+(`watch`), supervision as a pattern. The two honest divergences are shared with
+mainstream implementations rather than with the theory — **bounded mailboxes
+with blocking sends** (Akka's too; classic actor theory assumes eventual
+delivery, which is why the cycle check exists at all) and **no location
+transparency** (actors run on thread pools in one program). Behaviour change
+(`become`) is replaced by mutable private state, as every practical actor
+system does, and selective receive exists in the one bounded shape
+(`replyto!`'s gate), as Erlang's does in full.
+
+**So: `actor effect E`, `Addr<E>` unchanged, and "actor" is the answer to
+"what is running".** The handle keeps its name because *address* is the actor
+model's own word for a handle (Hewitt's mail address, Erlang's pid, Akka's
+`ActorRef`) — it was never a third vocabulary, and `List<Addr<ShardApi>>` stays
+short. `ActorRef<E>` was the more literal option and `Actor<E>` the shorter
+one; the address won on both counts.
+
+**The argument that decided it was not the model, though — it was colouring.**
+The design's own decision was that "async dissolves: no colouring", and `async`
+survived as the single place the word appeared in the language, teaching every
+reader to expect coloured functions and await points. The rename deletes the
+implication. `async effect` is now a parse error with a diagnostic of its own
+(rather than "expected item"), since `async` is what an author arriving from
+another language will reach for.
+
+**What the sweep touched**, mechanically and in one pass: the contextual
+modifier (`ACTOR_MODIFIER`) and its new diagnostic; `EffectDecl::is_actor`;
+**fourteen rule labels** `[async-*]` → `[actor-*]`, plus `[rs-process]` →
+`[rs-actor]` and `[kt-process]` → `[kt-actor]`, across code, tests and four
+spec documents; `std/core/process.sv` → `std/core/actor.sv` (so the module is
+`core.actor`, which every generated program's mount table shows);
+`SalvoProcess` → `SalvoActor` and `__Proc_H` → `__Actor_H` in both runtimes and
+both emitters — generated code appears in the user's own stack traces, which is
+exactly where a second name for one thing costs; the scheduler's internals
+(`ActorState`, `actors`) and its **runtime message**, now "salvo: deadlock: all
+actors idle while main waits"; every diagnostic that said "process";
+`tests/async_tests.rs` → `tests/actor_tests.rs`; and the prose of LANGUAGE.md,
+LANGUAGE_SPEC.md (whose section is now "Actors — effect handlers bound
+asynchronously") and both backend specs. Tests: **1051**, unchanged — a rename
+that changes a test count is a rename that changed behaviour.
+
+**One stale label fell out**: `[async-use-pid]` still existed in eight places,
+missed by the `Pid` → `Addr` sweep on 2026-09-15 — a label naming a rule no
+spec had, which is exactly the bug AGENTS.md warns about. It is
+`[actor-use-addr]` now.
+
+**Left deliberately**: the working documents (CONCURRENCY.md, the two examples
+files, EFFECT_UNIFICATION.md) keep "process" in their prose. Their labels and
+their `actor effect` syntax are swept, but item 8 rewrites those files anyway
+(`capacity N` postdates them), so respelling their narrative twice was the
+thing this rename was scheduled early to avoid. Historical decision-log entries
+above keep the word they were written with, as the `Pid` → `Addr` entry does.
+
+
 answer, built: **a container is linear exactly when its element type is**, so a
 process can park reply tokens in `waiting: Mut List<Reply<Str>>`, answer them
 one at a time, and drain the rest on shutdown — on both backends with identical
@@ -215,8 +274,8 @@ program can now watch a process die — `watch(c, out)` with a token minted by
 `waitfor` or `replyto`, answered by the scheduler with an `Exit` — and a
 topology that could deadlock is reported *before* it runs: a cycle of gated
 mints is an error, a cycle of ordinary sends a warning. Tests: **1032 (+11)**.
-Rules: [async-watch], [async-deadlock-cycle], plus a propagation fix under
-[async-spawn-effect].
+Rules: [actor-watch], [actor-deadlock-cycle], plus a propagation fix under
+[actor-spawn-effect].
 
 **Three design points were settled before any code** (user decisions, D6-a/b/c
 presented with options and recommendations):
@@ -280,7 +339,7 @@ test; without it, `Caching [Counter] of Counter` does not compile.
 - **A handler's declared dependencies stand in for its call graph.** A member
   cannot declare effects [effect-member-no-effects], so any helper fn it calls
   that performs `Q` requires the *handler* to declare `Q` — which means the
-  declaration already names every async effect a member can reach through
+  declaration already names every actor effect a member can reach through
   helpers, and the check needs no call-graph walk to be sound. Dot-calls
   through an addr add the rest.
 - **The reason string is the one parity hole on this surface**, and it is
@@ -364,7 +423,7 @@ with options and recommendations):
 **Remote mints stayed out, deliberately.** The user pointed at
 EFFECT_UNIFICATION.md's EU-7b — `replyto` resolving lexically-then-by-effect-list
 — which is decided and answers the *target* question: a token is a curried send,
-so anyone who can call `k` may mint toward it, and only `async effect` members
+so anyone who can call `k` may mint toward it, and only `actor effect` members
 are mintable-toward. It also anticipated D5-c's gap verbatim ("to be pinned when
 the mint's checker slice lands"). But EU-7b belongs to the sugar pass: it makes
 the **mint itself send-like**, since capacity has to be reserved in the
@@ -491,16 +550,16 @@ else — the protocol decides its members and the message type — so one per as
 effect is emitted beside the message type, and every `use addr` of that effect
 shares it.
 
-**Phase 5, sequence item 2: the `async effect` kind and sendability
+**Phase 5, sequence item 2: the `actor effect` kind and sendability
 (2026-09-15).** The kind marker, its refusal list, and the binding gate that
 closes the design's carried named question. Tests: **1000 (+5)**.
 
 **What the kind buys is a *declaration-time* answer.** Before it, "can this
 protocol be a process?" was answerable only by trying to spawn it; now
-`async effect` says so, and everything a seam cannot carry is refused where the
+`actor effect` says so, and everything a seam cannot carry is refused where the
 author is choosing: a **kept** parameter (a send payload always crosses, so the
 clause must say `=> !p`), a **`Mut`** parameter, a **`proj` return**, and a
-**non-sendable** payload [async-sendable]. `send fn` requires the kind, and
+**non-sendable** payload [actor-sendable]. `send fn` requires the kind, and
 `spawn`, `use addr` and even *naming* `Addr<E>` refuse a plain effect — the
 last reported where the type is written rather than at a spawn that could never
 have produced it. What stays legal is the binding swap: `use H()` on an
@@ -541,7 +600,7 @@ before any more emission was built on the old spellings. Tests: **995 (+2)**.
 declaration, the checker's constant and its five side tables and predicates
 (`addr_calls`, `use_addrs`, `addr_effect`, `addr_receiver`, `check_addr_call`),
 both backends' type maps and lowerings, every test, the spec rules (with
-[async-use-pid] refreshed to **[async-use-addr]**) and the prose. Two things a
+[actor-use-addr] refreshed to **[actor-use-addr]**) and the prose. Two things a
 mechanical rename teaches: **it breaks articles** — "a addr", "a `Addr`" —
 which needed a second pass and is worth doing in the same commit; and **it
 edits its own record**, turning ROADMAP's and COMPLETED's "`Pid<E>` →
@@ -587,9 +646,9 @@ an agreed eight-item order, in ROADMAP.md. The three calls:
    landed surface, and both are cheapest now: `Pid` is in ~124 places already
    and one emitter slice added a third of them, while the self-send is checked
    but **not yet emitted**, so no lowering has to be rewritten. Then
-   `async effect` (EU-5), because it changes the gate the emitters key on and
+   `actor effect` (EU-5), because it changes the gate the emitters key on and
    its blast radius is smallest before the remaining emission lands.
-2. **Sendability is part of `async effect`'s refusal list, not a slice of its
+2. **Sendability is part of `actor effect`'s refusal list, not a slice of its
    own.** A payload that transitively holds a **fn-typed field** ([rs-fn-field]
    lowers one to `Rc`, which is not `Send`) or a **`proj` view** is refused —
    checked at the *declaration* for member payloads, which is where the author
@@ -638,7 +697,7 @@ state *is* the handler's) and dispatches messages onto its members. The three
 types **erase to scheduler handles**: `Addr<E>` and `Pool` to `usize`/`Int`,
 `Reply<T>` to `SalvoReply` — with their Salvo type arguments dropped, since the
 runtime is untyped and the message type is what carries payloads across.
-[rs-process], [kt-process].
+[rs-actor], [kt-actor].
 
 **What the slice taught, worth keeping.**
 
@@ -669,7 +728,7 @@ handler, a **generic effect** as a protocol, `replyto` (needs the
 parked-continuation table `resume` dispatches on), a **self-send** (needs the
 activation's own addr), and `use addr` (needs the forwarding stub). Sequence
 item 3 closed `use addr` and item 4 the dependencies, both later the same day;
-the current list is in [rs-process] / [kt-process].
+the current list is in [rs-actor] / [kt-actor].
 
 **Phase 5 step two, slice four's leftovers closed the same day
 (2026-09-15).** Three of the four gaps the checker slice recorded are gone;
@@ -686,7 +745,7 @@ self-send.
   diagnostics and count a move twice, and a place is exactly the shape whose
   type can be read without doing either. A receiver that is a *call* still
   needs a `let`, recorded in the rule.
-- **The forms stop at a closure** [async-no-closure]. `can_spawn`, `in_main`
+- **The forms stop at a closure** [actor-no-closure]. `can_spawn`, `in_main`
   and `own_handler` are saved and cleared around a lambda body, beside the
   loop-stack barrier that was already there — so `spawn`, `waitfor` and
   `replyto` inside a lambda are errors. The wording matters as much as the
@@ -751,7 +810,7 @@ and names `send` as its discharge. A payload crossing a seam is
 `fate_move` — the same consumption a `use` argument gets — which is what makes
 `counter.total(out)` discharge the token's obligation. And a spawn's value
 being `Addr<E>` needed no new typing: `Addr`'s argument is the effect
-[async-types], so the handler's own `of` clause answers it.
+[actor-types], so the handler's own `of` clause answers it.
 
 **Three rules that did need stating, each with a reading worth recording.**
 (1) **`replyto k(captures)` takes `k`'s parameters as captures-then-answer** —
@@ -835,20 +894,20 @@ writes its deduction clause** — `send fn go(c: Config)` in an effect needs
 `=> !c` — deferred rather than denied: a send payload always crosses the
 seam, so implying consumption would be sound, but the clause stays until the
 surface is real enough to judge it noise or documentation. Both are in
-LANGUAGE_SPEC.md under [async-spawn-expr] and [async-send-fn].
+LANGUAGE_SPEC.md under [actor-spawn-expr] and [actor-send-fn].
 
 **Phase 5 step two, slices one and two: the asynchronous surface's syntax
 (2026-09-15).** The declaration forms, then the expression forms — both
 **contextual**, so phase 5 reserved *not one word*. What checks: `send fn`
-members of effects and handlers [async-send-fn] and `[spawn]` in effect lists
-[async-spawn-effect]. What parses and is then refused: `spawn H(args) use …
-capacity N on POOL` [async-spawn-expr], `replyto k(c)` / `replyto! k(c)`
-[async-replyto], `waitfor out: Reply<T> { … }` [async-waitfor], and `use addr`
-[async-use-addr] — the last needing no syntax at all, since the `use`
+members of effects and handlers [actor-send-fn] and `[spawn]` in effect lists
+[actor-spawn-effect]. What parses and is then refused: `spawn H(args) use …
+capacity N on POOL` [actor-spawn-expr], `replyto k(c)` / `replyto! k(c)`
+[actor-replyto], `waitfor out: Reply<T> { … }` [actor-waitfor], and `use addr`
+[actor-use-addr] — the last needing no syntax at all, since the `use`
 statement already takes an expression. Tests: **959 (+13)** — 3 parser tests
 and 3 checker tests in this slice, on top of the declaration slice's 2 and 5.
 The rules are now written down: LANGUAGE_SPEC.md gained an "Asynchronous
-effect handlers" section ([async-process] … [async-use-addr]), which also
+effect handlers" section ([actor-kind] … [actor-use-addr]), which also
 closed the dangling-label bug the declaration slice left (two labels lived in
 code with no rule behind them). LANGUAGE.md is deliberately untouched until
 the feature runs.
@@ -6277,7 +6336,7 @@ slice landed, a death watch) through an undeclared helper without ever holding
 the capability.
 
 **Root cause**: `can_spawn` gated the `spawn` *expression* only
-([async-spawn-expr]'s check), while callee requirements are matched against the
+([actor-spawn-expr]'s check), while callee requirements are matched against the
 caller's environment in `check_callee_effects` — which walks a callee's effect
 list with `let EffectRef::Effect(r) = eff else { continue }` and so skipped
 `spawn` (and `use`) along with everything that names no instance to resolve. For
@@ -6288,7 +6347,7 @@ functions.
 **Fixed** by refusing it where the two meet: a callee declaring `[spawn]`
 requires `self.can_spawn`, with a diagnostic naming the list to add it to.
 Guarded by `the_spawn_capability_propagates_through_calls`, and the rule now
-states the propagation explicitly [async-spawn-effect].
+states the propagation explicitly [actor-spawn-effect].
 
 
 
@@ -7300,7 +7359,7 @@ The first slice of *handler control* beyond "always resumes at the tail",
 which is all E1 supports. The exploration ran through four rungs of handler
 power — tail-resumptive (today, free), throw (resume zero or one time),
 suspend (resume later), multi-shot (resume repeatedly) — and settled on
-building the second, with the third deferred to an *explicit* async effect
+building the second, with the third deferred to an *explicit* actor effect
 and the fourth ruled out.
 
 **Multi-shot is closed on principle, not for want of a mechanism**:
@@ -11191,17 +11250,17 @@ cache, with per-test timings.
   another interceptor — and a plain `use` shadowing an earlier registration
   with no dependency anywhere; and 2 handler-state tests [effect-handler]: a
   state field initializer checked against its declared type, a well-typed
-  one accepted; plus 2 [async-types] tests: `Addr<Counter>` accepted as a
+  one accepted; plus 2 [actor-types] tests: `Addr<Counter>` accepted as a
   field, a parameter and a return — the sanctioned effect-as-type-argument —
   and `List<Counter>` still refused, so nothing else widened; plus 5
-  asynchronous-declaration tests [async-send-fn] [async-spawn-effect]: a
+  asynchronous-declaration tests [actor-send-fn] [actor-spawn-effect]: a
   `send fn` refused a return type on an effect and on a handler, the legal
   no-return shape checking clean, `[spawn]` accepted on a fn and a handler
   and refused on a fn type. The three pending-refusal tests for
   `spawn`/`replyto`/`waitfor` were **deleted** by the slice that implemented
   them, as they were written to be)
-  + 28 asynchronous-checker tests (`tests/async_tests.rs` [async-spawn-expr]
-  [async-replyto] [async-waitfor] [async-use-addr]: the whole first-pass
+  + 28 asynchronous-checker tests (`tests/async_tests.rs` [actor-spawn-expr]
+  [actor-replyto] [actor-waitfor] [actor-use-addr]: the whole first-pass
   surface checking clean in one `main` — the canary for the feature — then the
   capability gate; a spawned handler refused the spawning scope's
   registrations, an unused clause item, and a clause construction with
@@ -11213,17 +11272,17 @@ cache, with per-test timings.
   taken from the *trailing* parameter; and `waitfor` outside `main`, with a
   non-token binding, leaking its token, and answering that token's payload;
   plus the three leftovers closed the same day — an addr place of any shape as a
-  receiver, all three forms refused inside a lambda [async-no-closure] with
+  receiver, all three forms refused inside a lambda [actor-no-closure] with
   closure-specific wording, and an overloaded send member picked by arity with
-  a same-arity tie refused; plus 6 [async-self-send] cases: a member sending
+  a same-arity tie refused; plus 6 [actor-self-send] cases: a member sending
   to its own process, an unknown and a non-`send` target, the form outside a
   handler member, its arguments typed, `self` refused as a variable in a member
   while staying legal in an ordinary fn, and the self-dispatch diagnostic
   naming `bump@self(…)`)
-  + 8 [async-watch] / [async-deadlock-cycle] cases (added 2026-09-16): `watch`
+  + 8 [actor-watch] / [actor-deadlock-cycle] cases (added 2026-09-16): `watch`
   taking an addr and a token, an unregistered token reported as a leak, `watch`
   refused without `[spawn]`, and the capability propagating through an ordinary
-  call ([async-spawn-effect], the defect that slice found); then the deadlock
+  call ([actor-spawn-effect], the defect that slice found); then the deadlock
   baseline — Example 4's mutual gates refused, one ungated side downgrading it
   to the back-pressure *warning*, an intercepting handler that gates staying
   silent (the own-effect-dependency exemption), and a one-way request/response
@@ -11723,8 +11782,8 @@ cache, with per-test timings.
   `else`, a subject still parsing as the arm form, and the four parse
   errors — missing `else`, `else`-only, a branch after the `else`, and an
   `else` in the subject form), and 5 asynchronous-surface tests
-  ([async-send-fn] [async-spawn-effect] [async-spawn-expr] [async-replyto]
-  [async-waitfor]: the declaration forms with a state field named `send`
+  ([actor-send-fn] [actor-spawn-effect] [actor-spawn-expr] [actor-replyto]
+  [actor-waitfor]: the declaration forms with a state field named `send`
   beside them; the expression forms in one program covering every clause —
   a spawn with and without a `use` clause, `replyto` and `replyto!` with
   their captures, `waitfor`'s binder and written type, and `use addr` as a
@@ -11743,19 +11802,19 @@ cache, with per-test timings.
   ada`) [linear-container] [linear-state] — and the death watch: a process that faults, a
   watcher answered with an `Exit`, a *late* watch answered immediately, and a
   send to the corpse changing nothing (`died with a reason: true` / `late watch
-  answered: true` / `done`) [async-watch] — its reason text is the one thing
+  answered: true` / `done`) [actor-watch] — its reason text is the one thing
   not asserted, being the host's; and the parked-continuation trio: a fetcher
   that
   parks a continuation for a database process's answer and fulfils `main`'s
   token from inside its own activation (`got row 7`), the gate whose *ordering*
   is the assertion (`reply R, user late`), and both readings of `k@self`
-  answering alike [async-replyto] [async-self-send]. Beside them: the
+  answering alike [actor-replyto] [actor-self-send]. Beside them: the
   member-name-collision case, which pins both halves of that defect by
   *running* — a member named `add` beside std's own, and
   `to_upper@core.string` versus `to_upper@Shout` [effect-available]; the
   dependent-spawn case, a child whose `[Log, Tally]` arrive as a construction
   and an addr (`last bumped 3` / `sum 5`); and the plain process case's
-  `sum 5` [kt-process]. Every one of them asserts the *same* output the Rust
+  `sum 5` [kt-actor]. Every one of them asserts the *same* output the Rust
   backend asserts). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
@@ -11928,7 +11987,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 185 - including twelve [rs-process] tests (the first
+- `salvo-backend-rust`: 185 - including twelve [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -11942,7 +12001,7 @@ cache, with per-test timings.
   and a remote mint target; a **death watch** compiled and run, printing the
   `died with a reason: true` / `late watch answered: true` / `done` Kotlin
   prints, with its `Exit`-builder lowering asserted on the generated text
-  [async-watch]; and the generic-handler cut reported as a codegen
+  [actor-watch]; and the generic-handler cut reported as a codegen
   error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
