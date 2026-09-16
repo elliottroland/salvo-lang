@@ -14,4 +14,5 @@
 1. issued #6 for 2C
 6. queued 2
 1. redeemed #5
+1. redeemed #6
 6. queue drained

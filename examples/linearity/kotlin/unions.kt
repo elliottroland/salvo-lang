@@ -6,3 +6,15 @@ sealed interface Union2<out T1, out T2> {
 }
 data class U2_1<out T1, out T2>(override val value: T1) : Union2<T1, T2>
 data class U2_2<out T1, out T2>(override val value: T2) : Union2<T1, T2>
+
+sealed interface Union8<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8> {
+    val value: Any?
+}
+data class U8_1<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T1) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_2<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T2) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_3<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T3) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_4<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T4) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_5<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T5) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_6<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T6) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_7<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T7) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+data class U8_8<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T8) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>

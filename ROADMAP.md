@@ -239,45 +239,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-### A `while <call> is T name` evaluates its subject twice — silently dropping values
-
-**Found 2026-09-16**, while writing `examples/actors/`. The subject of a
-`while … is T name` loop is emitted **once for the test and once for the
-binding**, so a subject with side effects runs twice per iteration. With
-take-by-move that silently discards elements — and for a linear element, its
-obligation with them:
-
-```
-let queue: Mut List<Ticket> = mut_list_of()
-add(queue, Ticket { id: 1 })
-add(queue, Ticket { id: 2 })
-while remove_first(queue) is Ticket next {
-    redeem(next)          // prints "redeemed 2" only — #1 vanished
-}
-drain(queue, scrap)
-```
-
-Both backends do it, and both compile clean:
-
-```rust
-while ({ … Some(__l.remove(0)) }.is_some()) {
-    let mut next = { … Some(__l.remove(0)) }.as_ref().unwrap().clone();
-```
-
-**Root cause**: the loop condition is emitted by the ordinary expression path
-(`<subject>.is_some()` / `!= null`) and the *binding* comes from the narrowing
-machinery, which re-emits the subject from the AST — correct for a place, wrong
-for anything with an effect. The Rust arm also `.clone()`s the payload, which is
-how a **linear** value gets duplicated where the checker thinks it moved.
-
-**The fix shape**: hoist the subject into a per-iteration temporary and both
-test and bind from it — `while let Some(mut name) = <subject> {` on Rust (the
-pass-loop path already emits `while let`), and `while (true) { val name =
-<subject> ?: break; … }` on Kotlin. The checker needs to record nothing new; a
-place subject keeps today's rendering. **This is the worst class this repository
-has (silently wrong output), so it should go first.**
-
-**Six open**, the one above first. (Closed in the sessions before this one, with repros and
+**Five open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -1392,9 +1354,9 @@ compiler today, so its own output is the work list.
    feature exists. The `Reply<T>` reservation rule moved into [actor-types]
    where the type is defined, and the one thing the documents still had open —
    the spawn-line respelling — is now a **DECISION** in this file (below).
-   Two things fell out of writing the example, both recorded above: the
-   `while <call> is T` defect, and that **nothing in the suite read the
-   examples** (now two guards per backend).
+   Two things fell out of writing the example: the `while <call> is T` defect
+   (**fixed the same day** — [is-bind-once]) and that **nothing in the suite
+   read the examples** (now two guards per backend).
 
 **The leftovers the checker slice found are all closed** (2026-09-15) — the
 record, with what each taught, is in COMPLETED.md's decision log; the last of

@@ -138,9 +138,18 @@ fn a_queue_of_tickets() [Console] -> None {
         is None {}
     }
 
-    // The terminal consumes the container and hands every element over.
-    // Without it `queue` is an ordinary leak — and the diagnostic names
-    // `drain`, not `redeem`, because it is the *queue* that owes.
+    // The rest leave through a loop, because `redeem` *prints* and a `drain`
+    // callback is a pure position [is-bind-once]: `remove_first` is called
+    // exactly once per turn — the test and the binding share one evaluation —
+    // so nothing is skipped and nothing is dropped.
+    while remove_first(queue) is Ticket next {
+        redeem(next)
+    }
+
+    // The container still owes: emptiness is not a static fact, so the
+    // terminal is what ends it. `scrap` never runs here, and without this
+    // line `queue` is an ordinary leak — whose diagnostic names `drain`, not
+    // `redeem`, because it is the *queue* that owes.
     drain(queue, scrap)
     println("6. queue drained")
 }

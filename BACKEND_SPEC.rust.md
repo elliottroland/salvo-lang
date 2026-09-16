@@ -1307,6 +1307,20 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     *not dropping*: `replace(key, value) -> Option<V>` (`insert` answers
     nothing, so it cannot be the write for a map of obligations) and
     `into_values() -> Vec<V>`, which is what `drain(map, each)` walks.
+* [rs-is-hoist] [is-bind-once] **A non-place `is` subject becomes a
+  temporary**, read by both the test and the binding: `let mut __is1 = <subject>;`
+  before an `if`, and inside a `loop` for a `while` — which is why a `while`
+  whose condition binds over a call lowers as
+  `loop { let mut __is1 = …; if !(__is1.is_some()) { break; } let mut x = __is1.unwrap(); … }`
+  rather than as a `while` with the subject in its condition. `place_storage`
+  answers the temporary for that subject's span, so the test, the binding and
+  any nested read all agree.
+  * The **take-by-move list intrinsics are trait methods** for the reason
+    `set(Mut Str)` is one: `remove_first`/`remove_at` lower to
+    `salvo_remove_first()` / `salvo_remove_at(i)` on the generated `SalvoTake`
+    trait (`runtime/seq.rs`), because a `Mut List<T>` parameter *is* a
+    `&mut Vec<T>` and an inline `&mut` cannot re-borrow it — and method syntax
+    splices the receiver exactly once [rs-borrows].
 * [rs-state-take] [linear-state] **Taking a container out of handler state is
   `std::mem::take`.** A field behind `&mut self` cannot be moved out (E0507),
   and cloning it would duplicate every obligation inside — so the read the

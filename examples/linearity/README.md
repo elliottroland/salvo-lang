@@ -50,8 +50,10 @@ one. Obligations leave one at a time with `remove_first`, which answers
 `Ticket?` — a **move**, which is why `get` stays closed here: a borrow would
 let two paths discharge one ticket. Forget the `drain` and the leak names
 `drain` rather than `redeem`, because it is the queue that owes. One shape to
-know about: a drain callback is a *pure* position, so the discharger that
-prints cannot fill it and the quiet `scrap` does.
+know about: a `drain` callback is a *pure* position, so the discharger that
+prints goes in a `while remove_first(queue) is Ticket next` loop instead —
+where the subject is evaluated exactly once per turn [is-bind-once] — and the
+quiet `scrap` fills the terminal.
 
 ## Where the errors are
 

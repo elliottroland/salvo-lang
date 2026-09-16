@@ -1,6 +1,8 @@
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "seq.rs"]
+pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
 #[path = "scheduler.rs"]
@@ -45,6 +47,7 @@ use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::seq::*;
 
 pub trait Counter {
     fn bump(&mut self, n: i32);
@@ -346,7 +349,7 @@ impl Desk for Desking {
     }
 
     fn serve(&mut self, name: String) {
-        let mut next = { let __l = &mut self.waiting; if __l.is_empty() { None } else { Some(__l.remove(0)) } };
+        let mut next = self.waiting.salvo_remove_first();
         match next {
             Some(_) => {
                 (next.unwrap()).send(Box::new(format!("served {}", name)));

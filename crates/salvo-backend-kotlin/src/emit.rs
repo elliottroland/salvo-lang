@@ -818,6 +818,12 @@ struct Emitter<'p> {
     /// [kt-actor] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler file is part of the program.
     needs_scheduler: bool,
+    /// [is-bind-once] Hoisted `is` subjects: the span of a subject that is not
+    /// a place, mapped to the `val` holding its single evaluation. The test and
+    /// the binding both read it through `emit_place_storage`; they used to
+    /// emit the subject independently, so a call ran twice per test.
+    is_temps: HashMap<(usize, Span), String>,
+    is_temp_id: usize,
     /// [iter-fn] Of those, the ones held in a nullable property
     /// because their type has no zero value: reads unwrap with `!!`.
     gen_slots: HashSet<String>,
@@ -918,6 +924,8 @@ impl<'p> Emitter<'p> {
             needs_compare: false,
             needs_bytes: false,
             needs_scheduler: false,
+            is_temps: HashMap::new(),
+            is_temp_id: 0,
             gen_slots: HashSet::new(),
                             implicits: Vec::new(),
             pending_mints: Vec::new(),
@@ -3640,8 +3648,23 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}var {ran} = false\n"));
                 }
-                let c = self.emit_expr(cond);
-                out.push_str(&format!("{pad}while ({c}) {{\n"));
+                // [is-bind-once] A subject that is not a place is evaluated
+                // **once per iteration**, into a `val` the test and the
+                // binding share: `while <call> is T x` used to emit the call
+                // twice per turn, silently dropping every other value.
+                match self.hoistable_is(cond) {
+                    Some(subject) => {
+                        out.push_str(&format!("{pad}while (true) {{\n"));
+                        let temp = self.emit_is_temp(subject, indent + 1);
+                        out.push_str(&temp);
+                        let c = self.emit_expr(cond);
+                        out.push_str(&format!("{inner_pad}if (!({c})) break\n"));
+                    }
+                    None => {
+                        let c = self.emit_expr(cond);
+                        out.push_str(&format!("{pad}while ({c}) {{\n"));
+                    }
+                }
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true\n"));
                 }
@@ -3762,6 +3785,22 @@ impl<'p> Emitter<'p> {
         let pad = "    ".repeat(indent);
         let mut out = String::new();
         for (i, (cond, block)) in branches.iter().enumerate() {
+            // [is-bind-once] The subject is evaluated once, before the test.
+            // Only the first branch can carry a `val` here, which is what the
+            // checker allows; a later one is refused there, so this arm guards
+            // against the two drifting apart [backend-never-wrong].
+            if let Some(subject) = self.hoistable_is(cond) {
+                if i == 0 {
+                    let temp = self.emit_is_temp(subject, indent);
+                    out.push_str(&temp);
+                } else {
+                    self.error(
+                        "an `is` binding over a call in an `elif` condition cannot be \
+                         lowered: bind the subject with `let` first"
+                            .to_string(),
+                    );
+                }
+            }
             let kw = if i == 0 {
                 format!("{pad}if")
             } else {
@@ -3977,6 +4016,36 @@ impl<'p> Emitter<'p> {
     /// For a condition containing `x is T name`, emits the binding
     /// declaration inside the branch: unwrapping the union arm value for
     /// wrapper unions, a plain cast otherwise.
+    /// [is-bind-once] The `is` subject a condition needs hoisted, if any — the
+    /// mirror of the Rust backend's rule, and the same shapes: a binding `is`
+    /// over a non-place subject, as the whole condition.
+    fn hoistable_is<'a>(&self, cond: &'a Expr) -> Option<&'a Expr> {
+        match cond {
+            Expr::Is {
+                subject,
+                binding: Some(_),
+                ..
+            } if !is_place_expr(subject) => Some(subject),
+            _ => None,
+        }
+    }
+
+    /// Emits the single evaluation of a hoisted subject and registers the
+    /// temporary. Answers the line to place before the test.
+    fn emit_is_temp(&mut self, subject: &Expr, indent: usize) -> String {
+        self.is_temp_id += 1;
+        let name = format!("__is{}", self.is_temp_id);
+        let code = self.emit_expr(subject);
+        self.is_temps
+            .insert((self.file_idx, subject.span()), name.clone());
+        // A `var`, not a `val`: kotlinc smart-casts a `val` after the null
+        // test and then calls the binding's cast "useless" — a warning in
+        // generated code the author cannot edit. A `var` is not smart-cast, so
+        // the cast the general (wrapper-union) case needs stays warning-free
+        // here too, and nothing ever reassigns it [kt-suppress-cast].
+        format!("{}var {name} = {code}\n", "    ".repeat(indent))
+    }
+
     fn emit_is_bindings(&mut self, cond: &Expr, indent: usize) -> String {
         let pad = "    ".repeat(indent);
         let mut collected: Vec<(&Expr, &[TypeRef], &Ident, Span)> = Vec::new();
@@ -4012,6 +4081,13 @@ impl<'p> Emitter<'p> {
                         // are erased: the binding is the subject itself.
                         format!("val {} = {subj}", kt_ident(&binding.name))
                     } else {
+                        // [kt-suppress-cast] kotlinc smart-casts a local after
+                        // the null test and then calls this cast "useless" — a
+                        // warning in code the author cannot edit — while for a
+                        // property (a handler's state field) the cast is
+                        // genuinely needed. One spelling for both, with the
+                        // suppression the mechanism already carries.
+                        self.note_payload_cast();
                         let ty = self.emit_is_check_type(check);
                         format!("val {} = {subj} as {ty}", kt_ident(&binding.name))
                     }
@@ -4152,6 +4228,10 @@ impl<'p> Emitter<'p> {
     /// `is` bindings and `when` subjects read through this, since they
     /// operate on the declared representation.
     fn emit_place_storage(&mut self, expr: &Expr) -> String {
+        // [is-bind-once] A hoisted subject *is* its temporary.
+        if let Some(temp) = self.is_temps.get(&(self.file_idx, expr.span())) {
+            return temp.clone();
+        }
         match expr {
             Expr::Ident(_)
             | Expr::Field { .. }
@@ -4865,7 +4945,20 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
+        // [is-bind-once] An `if` *expression* has nowhere to put a statement,
+        // so a hoisted subject wraps the whole thing: `run { val __is1 = …; if
+        // … }`. Only the first branch can need it — a later one is refused by
+        // the checker.
+        let hoist = branches
+            .first()
+            .and_then(|(cond, _)| self.hoistable_is(cond))
+            .map(|subject| self.emit_is_temp(subject, indent + 1));
         let mut out = String::new();
+        if let Some(temp) = &hoist {
+            out.push_str("run {\n");
+            out.push_str(temp);
+            out.push_str(&pad);
+        }
         for (i, (cond, block)) in branches.iter().enumerate() {
             let kw = if i == 0 { "if" } else { " else if" };
             let c = self.emit_expr(cond);
@@ -4886,6 +4979,10 @@ impl<'p> Emitter<'p> {
                 let inner = "    ".repeat(indent + 1);
                 out.push_str(&format!(" else {{\n{inner}null\n{pad}}}"));
             }
+        }
+        // [is-bind-once] Close the `run { }` the hoisted subject opened.
+        if hoist.is_some() {
+            out.push_str(&format!("\n{pad}}}"));
         }
         out
     }
@@ -5147,8 +5244,20 @@ impl<'p> Emitter<'p> {
                 if else_block.is_some() {
                     out.push_str(&format!("var {ran} = false\n"));
                 }
-                let c = self.emit_expr(cond);
-                out.push_str(&format!("while ({c}) {{\n"));
+                // [is-bind-once] As in statement position.
+                match self.hoistable_is(cond) {
+                    Some(subject) => {
+                        out.push_str("while (true) {\n");
+                        let temp = self.emit_is_temp(subject, 0);
+                        out.push_str(&temp);
+                        let c = self.emit_expr(cond);
+                        out.push_str(&format!("if (!({c})) break\n"));
+                    }
+                    None => {
+                        let c = self.emit_expr(cond);
+                        out.push_str(&format!("while ({c}) {{\n"));
+                    }
+                }
                 if else_block.is_some() {
                     out.push_str(&format!("{ran} = true\n"));
                 }
@@ -7372,6 +7481,17 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
 
 /// Walks a condition for `is`-checks with bindings and invokes `f` for each
 /// (with the span of the `is` expression itself).
+/// [is-bind-once] Whether an expression is a **place** — a name or a
+/// field/index/tuple chain over one — and so safe to read twice.
+fn is_place_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(_) => true,
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => is_place_expr(base),
+        Expr::Index { base, index, .. } => is_place_expr(base) && is_place_expr(index),
+        _ => false,
+    }
+}
+
 fn collect_is_bindings<'a>(
     cond: &'a Expr,
     f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span),

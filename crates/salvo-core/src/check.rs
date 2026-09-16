@@ -13278,6 +13278,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [while-value] The loop is an expression: its value is the
                 // body's tail (last iteration), a `break value`, or the
                 // `else` tail when the loop never ran.
+                // [is-bind-once] A binding `is` over a non-place subject is the
+                // loop's whole condition or it is refused.
+                self.reject_unhoistable_is(cond, true, "inside a larger condition");
                 let info = self.analyze_cond(cond);
                 self.loop_stack.push(LoopCtx {
                     entry_depth: self.locals.len(),
@@ -14523,6 +14526,51 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= conditions & narrowing =================
 
     /// Checks a condition expression and derives narrowing facts.
+    /// [is-bind-once] Where a binding `is` may take a subject that is **not a
+    /// place** (a call, above all): as the *whole* condition of a `while`, or
+    /// of an `if`'s first branch. Those two are the shapes the emitters hoist
+    /// into a single evaluation — one temporary, read by both the test and the
+    /// binding.
+    ///
+    /// Everywhere else it is refused rather than emitted, because the honest
+    /// alternatives are both bad: evaluating the subject twice is what this
+    /// rule exists to stop (it silently dropped values — the defect closed
+    /// 2026-09-16), and hoisting it out of a `&&` chain or an `else if` would
+    /// evaluate it when short-circuiting says it should not run at all.
+    fn reject_unhoistable_is(&mut self, cond: &'p Expr, hoistable: bool, what: &str) {
+        // The whole condition being the hoistable shape is the legal case.
+        if hoistable {
+            if let Expr::Is {
+                subject,
+                binding: Some(_),
+                ..
+            } = cond
+            {
+                if !is_place_expr(subject) {
+                    return;
+                }
+            }
+        }
+        let mut offenders: Vec<Span> = Vec::new();
+        collect_binding_is(cond, &mut |subject, span| {
+            if !is_place_expr(subject) {
+                offenders.push(span);
+            }
+        });
+        for span in offenders {
+            self.error(
+                span,
+                format!(
+                    "this `is` binds its subject, and the subject is not a variable or \
+                     a field chain — so it has to be evaluated exactly once, which is \
+                     only possible when the `is` is the whole condition of a `while` or \
+                     of an `if`'s first branch (here it is {what}). Bind the subject \
+                     first: `let x = …` and then test `x`"
+                ),
+            );
+        }
+    }
+
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
             // [qual-widen] The dual of `is`: same test, generalized type.
@@ -14954,7 +15002,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // and merged at the join — a branch that always exits never
         // contributes to the state after the `if`.
         let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
-        for (cond, block) in branches {
+        for (i, (cond, block)) in branches.iter().enumerate() {
+            // [is-bind-once] Only the first branch's condition can be hoisted
+            // into a single evaluation; a later one would need the temporary
+            // declared where Rust has no statement position for it.
+            self.reject_unhoistable_is(
+                cond,
+                i == 0,
+                if i == 0 { "inside a larger condition" } else { "an `elif` condition" },
+            );
             let info = self.with_narrows(&acc_else.clone(), |c| c.analyze_cond(cond));
             let entry = self.snapshot_narrows();
             let mut narrows = acc_else.clone();
@@ -18587,4 +18643,37 @@ fn member_consumes_type(member: &FnDecl, type_name: &str) -> bool {
                     && matches!(d.kind, ast::DeductionKind::Moved)
             })
     })
+}
+
+/// [is-bind-once] Whether an expression is a **place** — a name, or a
+/// field/tuple/index chain over one — and so free of side effects to read
+/// twice. Everything else has to be evaluated once into a temporary.
+fn is_place_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(_) => true,
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => is_place_expr(base),
+        Expr::Index { base, index, .. } => is_place_expr(base) && is_place_expr(index),
+        _ => false,
+    }
+}
+
+/// [is-bind-once] Every `is` **with a binding** inside a condition, with its
+/// subject: the shapes whose subject is read twice (once by the test, once by
+/// the binding) unless the emitters hoist it.
+fn collect_binding_is<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
+    match cond {
+        Expr::Is {
+            subject,
+            binding: Some(_),
+            span,
+            ..
+        } => f(subject, *span),
+        Expr::Is { subject, .. } => collect_binding_is(subject, f),
+        Expr::Unary { operand, .. } => collect_binding_is(operand, f),
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_binding_is(lhs, f);
+            collect_binding_is(rhs, f);
+        }
+        _ => {}
+    }
 }

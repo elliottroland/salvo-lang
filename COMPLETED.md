@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1055 tests, complete: the toolchain tests are
+cargo test                  # 1063 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,64 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**An `is` binding evaluated its subject twice — fixed 2026-09-16.** The worst
+class this repository has, closed the day it was found: both backends emitted an
+`is` subject once for the *test* and again for the *binding*, so a subject with
+side effects ran twice per test. The shape that found it is the one the language
+had just been built to want:
+
+```
+while remove_first(queue) is Ticket next {
+    redeem(next)              // printed "redeemed 2" only — #1 vanished
+}
+```
+
+Two calls per turn, so every other element was silently discarded — and with a
+linear element its **obligation** went with it, past a checker that believed the
+value had moved exactly once. The Rust arm also `.clone()`d the payload, which
+is how a one-shot value got duplicated. `if <call> is T x` had it too (two calls,
+the *second* one's value bound), and it is not new: the double read predates
+phase 5 and only became destructive when take-by-move arrived.
+
+**The fix is one temporary, in four places.** A subject that is not a **place**
+is emitted once into a temp that the test and the binding share — which the
+emitters already had the seam for, since both read the subject through
+`place_storage` / `emit_place_storage`; teaching those two to answer the temp for
+that span was the whole redirection. The structure around it is per position: a
+`let`/`val` before an `if`, and a `loop`/`while (true)` with the test inside for
+a `while`, so the single evaluation happens once *per iteration*. Rules:
+[is-bind-once], [rs-is-hoist], [kt-is-hoist]. Tests: **1063 (+8)**, including a
+compile-and-run case per backend over all four emitter paths — the case asserts
+`took 1/2/3` and `left 0`, which is exactly what the defect got wrong.
+
+**Two positions are now refused rather than emitted** [is-bind-once], and the
+refusal is the interesting half of the design: inside a `&&`/`||` chain,
+hoisting would evaluate a subject that short-circuiting says must not run, and
+*not* hoisting is the defect — so a non-place subject there is an error naming
+the `let` remedy. In an `elif` condition there is no statement position for the
+temporary, so the same. A **place** subject is unrestricted (reading one twice is
+free) and a subject without a binding needs nothing (the test is its only read).
+Both emitters keep a matching refusal for the `elif` case, so a drift between
+checker and emitter cannot become wrong code rather than a diagnostic.
+
+**Two things fell out of the fix.** The list take-by-move intrinsics moved to
+**trait methods** (`salvo_remove_first` / `salvo_remove_at` on `SalvoTake`, in
+`runtime/seq.rs`): the inline `{ let __l = &mut <place>; … }` form worked inside
+a condition but not as a hoisted statement, because a `Mut List<T>` parameter
+*is* a `&mut Vec<T>` and an inline `&mut` cannot re-borrow one — the same
+lesson `set(Mut Str)` recorded, arrived at from the other direction. And the
+Kotlin binding's cast now carries the file's existing
+`@Suppress("UNCHECKED_CAST", "USELESS_CAST")`: kotlinc smart-casts a local after
+a null test and calls the cast useless, so *every* program with an optional `is`
+binding had been emitting a warning into code its author cannot edit.
+
+**The payoff beyond the fix**: `while remove_first(xs) is T x { … }` is now
+correct, which is the answer to item 7's effectful-discharger gap. A `drain`
+callback is a pure position, but a **loop body is not a lambda** — so an
+effectful discharger runs in the loop, and the emptied container is settled by
+`drain(xs, <pure>)` whose callback never runs. `examples/linearity/` shows it,
+and the gap's ROADMAP note now says so.
 
 **Phase 5, sequence item 8 — propagation and retirement, and the phase closes
 (2026-09-16).** The four remaining working documents are **deleted**:
@@ -6390,6 +6448,45 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
+### ~~An `is` binding evaluates its subject twice, silently dropping values~~ — found and closed 2026-09-16
+
+**Was reproduced** while writing `examples/actors/`, by the loop the language
+had just been built to want:
+
+```
+let queue: Mut List<Ticket> = mut_list_of()
+add(queue, Ticket { id: 1 })
+add(queue, Ticket { id: 2 })
+while remove_first(queue) is Ticket next {
+    redeem(next)          // prints "redeemed 2" only — #1 vanished
+}
+drain(queue, scrap)
+```
+
+and by the same shape without a loop (`if next_val(d) is Int v` called
+`next_val` twice and bound the *second* answer). Both backends, both compiling
+clean:
+
+```rust
+while ({ … Some(__l.remove(0)) }.is_some()) {
+    let mut next = { … Some(__l.remove(0)) }.as_ref().unwrap().clone();
+```
+
+**Root cause**: an `is` with a binding is two reads of one subject — the test
+from the ordinary expression path, the payload from the narrowing machinery,
+each emitting the subject from the AST independently. Correct for a place,
+destructive for anything with an effect; and the `.clone()` on the second read
+is how a linear payload got duplicated past a checker that believed it moved
+once. Pre-existing, and harmless until take-by-move gave subjects side effects.
+
+**Fixed** by hoisting a non-place subject into one temporary that both reads
+share — `place_storage`/`emit_place_storage` answer it for that span — with a
+`loop`/`while (true)` carrying the test inside so the evaluation is once *per
+iteration*, plus a refusal for the two positions where a single evaluation has
+nowhere to live (a `&&` chain, an `elif`). Rules [is-bind-once], [rs-is-hoist],
+[kt-is-hoist]; guarded by `is_bind_tests.rs` and a compile-and-run case per
+backend over all four emitter paths.
+
 ### ~~The `spawn` capability did not propagate through calls~~ — found and closed 2026-09-16
 
 **Was reproduced** by three lines, no processes needed — found while writing the
@@ -11205,7 +11302,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1055)
+## Test inventory (all green: 1063)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11213,7 +11310,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 588 - 19 unit tests (file classification, including the
+- `salvo-core`: 593 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -11359,6 +11456,11 @@ cache, with per-test timings.
   to the back-pressure *warning*, an intercepting handler that gates staying
   silent (the own-effect-dependency exemption), and a one-way request/response
   pair producing neither diagnostic
+  + 5 [is-bind-once] tests (`tests/is_bind_tests.rs`, added 2026-09-16 with the
+  fix): a call subject legal as a `while`'s whole condition and as an `if`'s
+  first branch, refused inside a `&&` chain and in an `elif` (each naming the
+  `let` remedy), a place subject unrestricted everywhere, and a subject without
+  a binding needing no hoist at all
   + 16 linear-container tests (`tests/linear_container_tests.rs`
   [linear-container] [linear-state], added 2026-09-16): a list of obligations
   owing and `drain` discharging it; the leak naming **`drain`**; the same
@@ -11862,7 +11964,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 104 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 105 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -12059,7 +12161,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 187 - including twelve [rs-actor] tests (the first
+- `salvo-backend-rust`: 189 - including twelve [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —

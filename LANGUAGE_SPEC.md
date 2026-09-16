@@ -1110,6 +1110,27 @@ Conventions:
     loop barrier.
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body.
+* [is-bind-once] **An `is` binding evaluates its subject exactly once.** The
+  test and the payload are two reads of the same subject, so a subject that is
+  not a **place** (a call, above all) is evaluated into one temporary that both
+  read — per *iteration* for a `while`. This was a defect until 2026-09-16:
+  both backends emitted the subject twice, so
+  `while remove_first(q) is Ticket t` called `remove_first` twice per turn and
+  silently dropped every other element — with a linear element, its obligation
+  with it.
+  * **Where a non-place subject may go**: as the whole condition of a `while`,
+    or of an `if`'s **first** branch. Those are the positions with somewhere to
+    put the single evaluation, and they are the shapes programs want — the
+    take-until-empty loop above all, which is how an *effectful* discharger
+    drains a container of obligations [linear-container].
+  * **Everywhere else it is refused**, naming the `let` remedy: inside a
+    `&&`/`||` chain, hoisting would evaluate a subject that short-circuiting
+    says must not run, and *not* hoisting is the defect; in an `elif`
+    condition, there is no statement position for the temporary. A **place**
+    subject is unrestricted, since reading one twice is free, and a subject
+    without a binding is read once by the test and so needs nothing.
+  * `when` needs no rule of its own: its subject must already be a plain
+    variable [when-union-subject].
 * [for-iter] `for x in e` drives `e` when it is a pass [iter-protocol] and
   otherwise iterates `iter(e)` implicitly [iter-pass]; missing or ambiguous
   `iter` resolution is an error [iter-resolve].

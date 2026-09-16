@@ -3,6 +3,7 @@ package salvo.main
 import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.console.*
+import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*
@@ -61,6 +62,7 @@ fun scrap(ticket: Ticket) {
     (ticket).let {}
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun a_queue_of_tickets(console: Console) {
     val queue: MutableList<Ticket> = mutableListOf<Ticket>()
     queue.add(issue(console, 5, "2B"))
@@ -73,6 +75,12 @@ fun a_queue_of_tickets(console: Console) {
         }
         else -> {
         }
+    }
+    while (true) {
+        var __is1 = (queue).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
+        if (!(__is1 != null)) break
+        val next = __is1 as Ticket
+        redeem(console, next)
     }
     (queue).toList().forEach(::scrap)
     println(console, "6. queue drained")

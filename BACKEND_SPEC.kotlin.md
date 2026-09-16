@@ -892,6 +892,18 @@ where Rust had to build the fusion to get the same programs running
   * It is emitted when a module declares a `canbe ordered` struct or builds
     a sorted collection, and the sorted constructors pass it as an explicit
     `Comparator` rather than relying on natural ordering.
+* [kt-is-hoist] [is-bind-once] **A non-place `is` subject becomes a `var`**,
+  read by both the test and the binding: declared before an `if`, and inside
+  `while (true) { … if (!(cond)) break … }` for a loop, so the subject is
+  evaluated once per iteration. `emit_place_storage` answers the temporary for
+  that subject's span.
+  * The binding's cast (`val x = __is1 as Int`) now carries the file's
+    `@Suppress("UNCHECKED_CAST", "USELESS_CAST")` [kt-suppress-cast]: kotlinc
+    smart-casts a local after the null test and calls the cast useless, while
+    for a *property* (a handler's state field) the same cast is required — one
+    spelling for both, with the suppression the mechanism already had. Before
+    2026-09-16 that warning reached every program with an optional `is`
+    binding.
 * [kt-linear-container] [linear-state] **Obligations in a collection need no
   special rendering**: a `Mut List<Reply<Str>>` is a `MutableList<SalvoReply>`,
   taking one out is `removeAt(0)`, and taking the *container* out of a state

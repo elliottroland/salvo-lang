@@ -181,16 +181,13 @@ pub fn fn_call(
         // these legal for a `List<Reply<T>>` where `get` (a borrow) is not.
         // A block, so the receiver is named once and the emptiness test and
         // the removal cannot disagree about it.
-        ("remove_first", Some("List")) => format!(
-            "{{ let __l = &mut {}; if __l.is_empty() {{ None }} else {{ Some(__l.remove(0)) }} }}",
-            a(0)
-        ),
-        ("remove_at", Some("List")) => format!(
-            "{{ let __l = &mut {}; let __i = ({}) as usize; \
-             if __i < __l.len() {{ Some(__l.remove(__i)) }} else {{ None }} }}",
-            a(0),
-            a(1)
-        ),
+        // Methods on the generated `SalvoTake` trait rather than an inline
+        // `&mut` block, for the reason `set(Mut Str)` is one: a `Mut List<T>`
+        // parameter *is* a `&mut Vec<T>` and cannot be re-borrowed by an inline
+        // `&mut`, and method syntax splices the receiver exactly once
+        // [rs-borrows].
+        ("remove_first", Some("List")) => format!("{}.salvo_remove_first()", a(0)),
+        ("remove_at", Some("List")) => format!("{}.salvo_remove_at({})", a(0), a(1)),
         // [linear-container] The terminal: the list is consumed (so a state
         // field arrives here as a `mem::take`) and every element is handed to
         // the callback, which owns it.

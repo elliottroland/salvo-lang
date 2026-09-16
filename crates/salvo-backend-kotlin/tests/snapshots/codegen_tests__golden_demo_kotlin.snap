@@ -375,6 +375,7 @@ data class Person(
     val age: Int,
 )
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun full_name(person: Person): String {
     if (person.surname != null) {
         val surname = person.surname as String

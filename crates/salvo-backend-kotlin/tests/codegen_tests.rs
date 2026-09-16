@@ -2053,6 +2053,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
+    kotlinc_compiles_and_runs_is_bindings_over_calls,
     // the checked-in examples, one case each
     kotlin_example_actors,
     kotlin_example_collections,
@@ -9639,6 +9640,86 @@ fn a_dependent_spawn_builds_the_childs_carrier() {
     assert!(
         text.contains("__Actor_Counting(Counting(__Fx_2(Recording(), __Stub_Tally(tally))))"),
         "the spawn does not build the carrier from its clause:\n{text}"
+    );
+}
+
+
+/// [is-bind-once] The defect this rule closed, as a program — source and
+/// expected stdout **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_is_bindings_over_calls`: an `is` binding whose
+/// subject is a call must evaluate it exactly once, in all four emitter paths
+/// (`while` and `if`, statement and value position). Until 2026-09-16 both
+/// backends emitted the subject twice and silently dropped every other element.
+const IS_BIND_ONCE: &str = r#"
+fn drain_ints(xs: Mut List<Int>) [Console] -> None => xs: Mut {
+    // statement `while`: one call per turn, so every element is seen
+    while remove_first(xs) is Int n {
+        println("  took ${n}")
+    }
+}
+
+fn first_or(xs: Mut List<Int>, fallback: Int) [] -> Int => xs: Mut, fallback {
+    // value-position `if`: one call, and the binding is that call's value
+    return if remove_first(xs) is Int n { n } else { fallback }
+}
+
+fn sum_down(xs: Mut List<Int>) [] -> Int => xs: Mut {
+    let total = 0
+    // value-position `while`: the loop's value is its last body value
+    let last = while remove_first(xs) is Int n {
+        total = total + n
+        n
+    } else { 0 }
+    discard(last)
+    return total
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let a: Mut List<Int> = mut_list_of(1, 2, 3)
+    drain_ints(a)
+    println("left ${size(a)}")
+
+    let b: Mut List<Int> = mut_list_of(7, 8)
+    println("first ${first_or(b, 0)} then ${size(b)}")
+
+    let c: Mut List<Int> = mut_list_of(1, 2, 3, 4)
+    println("sum ${sum_down(c)} left ${size(c)}")
+
+    // statement `if`: the call happens once, so the list loses exactly one
+    let d: Mut List<Int> = mut_list_of(5, 6)
+    if remove_first(d) is Int n {
+        println("one ${n} left ${size(d)}")
+    }
+}
+"#;
+
+fn kotlinc_compiles_and_runs_is_bindings_over_calls() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", IS_BIND_ONCE)]),
+        "is-bind-once",
+        "  took 1\n  took 2\n  took 3\nleft 0\nfirst 7 then 1\nsum 10 left 0\none 5 left 1\n",
+    )
+}
+
+/// [is-bind-once] …and the shape: one `val`, read by the test and the binding,
+/// with the `while` becoming `while (true)` so the single evaluation happens
+/// once *per iteration*.
+#[test]
+fn an_is_binding_over_a_call_hoists_its_subject_kotlin() {
+    let files = generate_files(&[("main.sv", IS_BIND_ONCE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains("while (true) {") && text.contains("if (!(__is1 != null)) break"),
+        "the while did not become a test-inside loop:\n{text}"
+    );
+    assert!(
+        text.contains("val n = __is1 as Int"),
+        "the binding does not read the hoisted temporary:\n{text}"
     );
 }
 

@@ -1,6 +1,8 @@
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "seq.rs"]
+pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
 #[path = "core/array.rs"]
@@ -9,6 +11,8 @@ pub mod core_array;
 pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
+#[path = "core/fs.rs"]
+pub mod core_fs;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -17,6 +21,8 @@ pub mod core_list;
 pub mod core_map;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
+#[path = "core/result.rs"]
+pub mod core_result;
 #[path = "core/seq.rs"]
 pub mod core_seq;
 #[path = "core/set.rs"]
@@ -29,12 +35,14 @@ pub mod core_string;
 use crate::core_array::*;
 use crate::core_bytes::*;
 use crate::core_console::*;
+use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::seq::*;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ticket {
@@ -94,13 +102,21 @@ pub fn a_queue_of_tickets(console: &mut dyn Console) {
     queue.push(issue(console, 5, "2B".to_string()));
     queue.push(issue(console, 6, "2C".to_string()));
     println(console, &(format!("6. queued {}", (queue.len() as i32))));
-    let mut first = { let __l = &mut queue; if __l.is_empty() { None } else { Some(__l.remove(0)) } };
+    let mut first = queue.salvo_remove_first();
     match first {
         Some(_) => {
             redeem(console, first.unwrap());
         }
         None => {
         }
+    }
+    loop {
+        let mut __is1 = queue.salvo_remove_first();
+        if !(__is1.is_some()) {
+            break;
+        }
+        let mut next = __is1.as_ref().unwrap().clone();
+        redeem(console, next);
     }
     queue.into_iter().for_each(|mut __a0| scrap(__a0));
     println(console, &("6. queue drained".to_string()));

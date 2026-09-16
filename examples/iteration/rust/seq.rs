@@ -20,3 +20,38 @@ pub fn salvo_reduce<T, A, F: FnMut(&A, &T) -> A>(xs: &[T], init: A, mut f: F) ->
     }
     acc
 }
+
+/// [linear-container] [rs-borrows] Take-by-move out of a list, as **methods**
+/// rather than an inline `&mut` block: a `Mut List<T>` parameter is already a
+/// `&mut Vec<T>` and cannot be re-borrowed by an inline `&mut` (it is not a
+/// `mut` binding), while method syntax auto-refs an owned local and re-borrows
+/// a reference alike — and splices the receiver exactly once, which an
+/// `if is_empty() … remove(0)` expression cannot.
+pub trait SalvoTake<T> {
+    /// `remove_first(list)`: the first element, moved out.
+    fn salvo_remove_first(&mut self) -> Option<T>;
+    /// `remove_at(list, i)`: the element at `i`, moved out.
+    fn salvo_remove_at(&mut self, index: i32) -> Option<T>;
+}
+
+impl<T> SalvoTake<T> for Vec<T> {
+    fn salvo_remove_first(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.remove(0))
+        }
+    }
+
+    fn salvo_remove_at(&mut self, index: i32) -> Option<T> {
+        if index < 0 {
+            return None;
+        }
+        let index = index as usize;
+        if index < self.len() {
+            Some(self.remove(index))
+        } else {
+            None
+        }
+    }
+}

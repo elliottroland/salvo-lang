@@ -124,6 +124,16 @@ while string_or_number is Int i {
 }
 ```
 
+The subject can be a call rather than a variable, and then it is evaluated **exactly once** — per iteration, for a `while`, which is what makes the take-until-empty loop the natural way to drain a collection:
+
+```
+while remove_first(queue) is Ticket next {
+    redeem(next)                    // one `remove_first` per turn
+}
+```
+
+Because the binding and the test are two reads of one subject, a call subject is only allowed where that single evaluation has somewhere to live: as the whole condition of a `while`, or of an `if`'s first branch. Inside a `&&` chain or an `elif` condition it is an error naming the remedy — bind it with `let` first — since hoisting it there would run it when short-circuiting says it should not. A variable or field chain is unrestricted, because reading one twice costs nothing.
+
 It makes no sense to have duplicate types in a union (unless they are qualified, see below): `Str | Str` is equivalent and simplified to `Str`.
 
 The type of a variable can never get more general (although its qualifiers can change, more on this later), and we don't support variable shadowing. In the above example, it is only because the type of `string_or_number` _started_ as a union, it could move between `Str` and `Int`.
