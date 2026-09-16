@@ -2,6 +2,7 @@
 //! checking, and (later) IR lowering.
 
 pub mod check;
+pub mod deadlock;
 pub mod deduce;
 pub mod diag;
 pub mod effects;

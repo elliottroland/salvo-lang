@@ -401,6 +401,20 @@ pub struct Checked {
     /// way (an enqueue on the running activation's own mailbox, or, under a
     /// synchronous binding, an ordinary member call).
     pub self_sends: HashMap<Key, String>,
+    /// [async-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
+    /// members: `(handler name, the mint's site)`. While a gated
+    /// continuation is outstanding the process serves *nothing else*, so
+    /// every gate is a wait-for edge's tail — which is why the graph is
+    /// keyed on these and not on `replyto`, whose continuation leaves the
+    /// mailbox open.
+    pub async_gates: Vec<(String, Key)>,
+    /// [async-deadlock-cycle] Sends from inside a handler's members to a
+    /// process of another protocol: `(handler name, target effect name, the
+    /// call's site)`. Recorded for dot-calls through an `Addr`; sends
+    /// reached through the handler's *declared dependencies* are read off
+    /// the declaration instead, and a `k@self(…)` is not here at all — a
+    /// self-send waits for no other process.
+    pub async_sends: Vec<(String, String, Key)>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -885,6 +899,12 @@ fn check_once<'p>(
         checker.check_module(ast);
     }
     check_intrinsic_is_std_only(program, &mut out);
+    // [async-deadlock-cycle] The static deadlock baseline, over the whole
+    // program: a cycle of waiting processes is an error, a cycle of blocking
+    // sends a warning. Last, because it reads what this round's checking
+    // recorded (`async_gates`, `async_sends`) — and inside the round, so its
+    // diagnostics land with the round whose diagnostics are kept.
+    crate::deadlock::check(program, symbols, &mut out);
     out
 }
 
@@ -8430,6 +8450,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fate_move(a, "send", "a send to a process", a.span());
         }
         self.out.addr_calls.insert(self.key(span), instance.clone());
+        // [async-deadlock-cycle] A send from inside a member body is an edge
+        // in the wait-for graph: it blocks while the target's bounded mailbox
+        // is full. Recorded with the handler doing the sending, so the graph
+        // pass can key it on the protocol that handler serves.
+        if let (Some(h), Ty::Named { name, .. }) = (self.own_handler, instance.strip_quals()) {
+            self.out
+                .async_sends
+                .push((h.name.name.clone(), name.clone(), self.key(span)));
+        }
         // [async-send-fn] A send answers nothing.
         Ty::none()
     }
@@ -8761,6 +8790,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // it, and a synchronously bound instance has neither. Refused at the
         // `use` site (below), which is where the binding is chosen.
         self.parking_handlers.insert(h.name.name.clone());
+        // [async-deadlock-cycle] The gate is the wait-for graph's tail: while
+        // this continuation is outstanding the process serves only its answer,
+        // so whatever this handler can send to must be able to answer without
+        // waiting on *it*. A bare `replyto` leaves the mailbox open and
+        // contributes nothing.
+        if gated {
+            self.out
+                .async_gates
+                .push((h.name.name.clone(), self.key(span)));
+        }
         let answer = param_tys
             .last()
             .cloned()
@@ -17260,6 +17299,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let mut resolved: Vec<Ty> = Vec::new();
+        // [async-spawn-effect] The `spawn` capability **propagates like any
+        // other effect**: `pool` and `watch` declare it, and std's own
+        // documentation says declaring it is "what makes creating one a
+        // capability the caller must hold" — so a caller that has not been
+        // given it cannot reach one through a helper either. Checked here
+        // rather than beside `can_spawn`'s other use because this is where a
+        // callee's requirements meet the caller's environment; there is
+        // nothing to *resolve*, since the capability names no instance.
+        if !self.can_spawn
+            && decl
+                .effects
+                .iter()
+                .flatten()
+                .any(|e| matches!(e, EffectRef::Spawn(_)))
+        {
+            self.error(
+                span,
+                format!(
+                    "`{name}` requires the `spawn` capability, so this function must \
+                     declare it too (`[spawn]` in its effect list)"
+                ),
+            );
+        }
         // The callee's *effective* effect list: what it declares, plus what
         // it inherited from its fn-typed parameters [fn-effects] — a caller
         // has to supply those too, since they are how the callee calls the

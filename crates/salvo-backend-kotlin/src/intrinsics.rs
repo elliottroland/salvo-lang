@@ -59,6 +59,21 @@ pub fn fn_call(
         // [async-spawn-expr] A pool is a scheduler id; `pool(n)` starts its
         // daemon worker threads.
         ("pool", Some("Int")) => format!("salvo.SalvoSched.pool({})", a(0)),
+        // [async-watch] Registering a death watch hands the scheduler the
+        // token *and* a builder for the `Exit` it will carry: the runtime
+        // holds a reason string and cannot construct a Salvo class, so the
+        // watch site closes over the constructor instead.
+        //
+        // `Exit` is named unqualified, which is safe rather than lucky: the
+        // file star-imports every module whose names it uses, and a
+        // `Reply<Exit>` cannot be *obtained* in a file where `Exit` means
+        // something else (the annotation naming std's `Exit` would not
+        // resolve), so a shadowing declaration and this emission never meet.
+        ("watch", Some("Addr")) => format!(
+            "salvo.SalvoSched.watch({}, {}, {{ __reason -> Exit(__reason) }})",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

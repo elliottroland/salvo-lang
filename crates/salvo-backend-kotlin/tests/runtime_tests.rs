@@ -244,8 +244,11 @@ fun main() {
             stderr_contains: "",
         },
         // Death: a faulted activation kills the process, `watch` reports the
-        // reason as an ordinary one-shot reply, and later sends to the
-        // corpse are silent no-ops rather than errors.
+        // reason as an ordinary one-shot reply — built by the *watch site*,
+        // since the language's `Exit` is not the runtime's to construct
+        // [async-watch] — and later sends to the corpse are silent no-ops
+        // rather than errors. A watch registered *after* the death answers
+        // immediately, with the reason the death recorded.
         SchedulerCase {
             tag: "fault-and-watch",
             driver: r#"
@@ -263,18 +266,18 @@ fun main() {
     val pool = SalvoSched.pool(2)
     val fragile = SalvoSched.spawn(pool, 4, Fragile())
     val (token, wid) = SalvoSched.waiter()
-    SalvoSched.watch(fragile, token)
+    SalvoSched.watch(fragile, token, { reason -> "exit($reason)" })
     SalvoSched.send(fragile, "boom")
     println("exit: ${SalvoSched.awaitReply(wid)}")
     // A send to the dead is a no-op: this neither blocks nor fails.
     SalvoSched.send(fragile, "ignored")
     // And a watch registered after the death answers immediately.
     val (lateToken, lateWid) = SalvoSched.waiter()
-    SalvoSched.watch(fragile, lateToken)
+    SalvoSched.watch(fragile, lateToken, { reason -> "exit($reason)" })
     println("late watch: ${SalvoSched.awaitReply(lateWid)}")
 }
 "#,
-            expected_stdout: "exit: fault: boom\nlate watch: fault\n",
+            expected_stdout: "exit: exit(boom)\nlate watch: exit(boom)\n",
             expect_success: true,
             stderr_contains: "",
         },

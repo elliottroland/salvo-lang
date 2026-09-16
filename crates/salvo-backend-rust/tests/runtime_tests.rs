@@ -353,7 +353,9 @@ fn main() {
 
 /// Death: a faulted activation kills the process, `watch` reports the
 /// reason as an ordinary one-shot reply, and later sends to the corpse are
-/// silent no-ops rather than errors.
+/// silent no-ops rather than errors. The `Exit` value is built by the *watch
+/// site*, since the language's struct is not the runtime's to construct
+/// [async-watch].
 #[test]
 fn scheduler_reports_a_faulted_activation_to_watchers() {
     run_scheduler_program(
@@ -375,20 +377,21 @@ fn main() {
     let pool = salvo_pool(2);
     let fragile = salvo_spawn(pool, 4, Box::new(Fragile));
     let (token, wid) = salvo_waiter();
-    salvo_watch(fragile, token);
+    salvo_watch(fragile, token, |reason| Box::new(format!("exit({reason})")));
     salvo_send(fragile, Box::new("boom".to_string()));
     let exit = salvo_wait(wid);
     println!("exit: {}", exit.downcast_ref::<String>().unwrap());
     // A send to the dead is a no-op: this neither blocks nor fails.
     salvo_send(fragile, Box::new("ignored".to_string()));
-    // And a watch registered after the death answers immediately.
+    // And a watch registered after the death answers immediately, with the
+    // reason the death recorded.
     let (late_token, late_wid) = salvo_waiter();
-    salvo_watch(fragile, late_token);
+    salvo_watch(fragile, late_token, |reason| Box::new(format!("exit({reason})")));
     let late = salvo_wait(late_wid);
     println!("late watch: {}", late.downcast_ref::<String>().unwrap());
 }
 "#,
-        "exit: fault: boom\nlate watch: fault\n",
+        "exit: exit(boom)\nlate watch: exit(boom)\n",
         true,
         "",
     );

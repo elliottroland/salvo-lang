@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1021 tests, complete: the toolchain tests are
+cargo test                  # 1032 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,7 +122,113 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Phase 5, sequence item 5: `replyto` and `@self` emission (2026-09-15).** The
+**Phase 5, sequence item 6: `watch` and the deadlock baseline (2026-09-16).**
+The supervision surface and the static check that keeps processes from waiting
+on each other, both landing on **both backends with identical output**. A
+program can now watch a process die — `watch(c, out)` with a token minted by
+`waitfor` or `replyto`, answered by the scheduler with an `Exit` — and a
+topology that could deadlock is reported *before* it runs: a cycle of gated
+mints is an error, a cycle of ordinary sends a warning. Tests: **1032 (+11)**.
+Rules: [async-watch], [async-deadlock-cycle], plus a propagation fix under
+[async-spawn-effect].
+
+**Three design points were settled before any code** (user decisions, D6-a/b/c
+presented with options and recommendations):
+
+- **D6-a, how `watch` is spelled: an `intrinsic fn` in `core.process`.**
+  SUPERVISION.md's S-2 put it "on the spawn effect", but `spawn` is a
+  lowercase compiler-owned *capability* with no member list, so a member was
+  never available. `intrinsic fn watch<E>(target: Addr<E>, on_exit:
+  Reply<Exit>) [spawn] -> None => target, !on_exit` sits beside `send` and
+  `pool` and needs no new checker rule: `[spawn]` is the capability gate, the
+  token's linearity is the "you cannot forget you were watching" enforcement,
+  and `target` is kept because an addr is freely copyable. The one novelty is
+  that `E` is a generic parameter instantiated with an **effect** — the first
+  in std, since `send<T>` is generic over data — and it worked unchanged: the
+  effect-in-a-type-argument allowance is about `Addr`'s *position*, and a
+  generic there unifies with the effect at the call.
+- **D6-b, what `Exit` carries, and who builds it: a plain
+  `struct Exit { reason: Str }`, built at the watch site.** The runtime knows
+  only a reason string and cannot construct a Salvo struct, so the three
+  options were a bare `Reply<Str>` (no struct at all), an opaque
+  `intrinsic type Exit` with a `reason` accessor (the runtime owns the value),
+  or the struct with a **builder handed to the scheduler**. The struct won on
+  the ground that decided it: a user may legitimately hold a `Reply<Exit>` and
+  answer it themselves, so the payload's representation must be the same
+  whether the scheduler or a program sent it. The cheap-looking alternative —
+  a special case in `resume` that reads a `String` where the parameter says
+  `Exit` — would have been *silently wrong output* the first time a program
+  fulfilled such a token itself. The cost is one extra runtime parameter per
+  backend (`fn(String) -> SalvoMsg` in Rust, `(String) -> Any?` in Kotlin) and
+  one intrinsic template each.
+- **D6-c, the cycle check's edge set: gated mints are errors, blocking sends
+  are warnings** — the user's amendment to the recommendation, which had put
+  back-pressure edges off the table for want of a warning severity. There *is*
+  one (`Severity::Warning`, `Checker::warn`, the CLI's "N errors, M warnings",
+  the LSP's `DiagnosticSeverity::WARNING`), so the honest edge set is the full
+  one with two severities. A gate cycle deadlocks whatever the load; a send
+  cycle deadlocks only when the mailboxes fill together, and refusing it would
+  refuse most useful topologies.
+
+**The finding worth carrying: a per-type effect graph refuses interception.**
+A handler of `E` declaring `[E]` — the phase's showcase pattern, a policy
+wrapper around the process already serving `E` — is an `E → E` edge by
+construction, so a naive cycle check refuses the thing item 3 and item 4 were
+built to make possible. It can never deadlock, because the dependency binds
+strictly outward [effect-intercept]: the wrapped instance is a different
+process and the chain ends at the innermost one. So an edge from a handler's
+**own-effect dependency** is dropped, while an `Addr` of its own protocol (a
+peer mesh) still counts — and the distinction is available exactly where the
+edges are collected, which is why it cost nothing. The exemption has its own
+test; without it, `Caching [Counter] of Counter` does not compile.
+
+**What the build cost, in four notes worth keeping:**
+
+- **No new expression walker.** The graph's raw material is collected by the
+  checker's own traversal into two `Checked` vectors — `async_gates` at
+  `check_replyto`'s tail, `async_sends` where `addr_calls` is already recorded
+  — and the whole-program pass (`deadlock.rs`) runs at the end of `check_once`,
+  beside `check_intrinsic_is_std_only`. Inside the round, so its diagnostics
+  land with the round whose diagnostics are kept; per-round, so nothing
+  double-counts across the fixpoint.
+- **A handler's declared dependencies stand in for its call graph.** A member
+  cannot declare effects [effect-member-no-effects], so any helper fn it calls
+  that performs `Q` requires the *handler* to declare `Q` — which means the
+  declaration already names every async effect a member can reach through
+  helpers, and the check needs no call-graph walk to be sound. Dot-calls
+  through an addr add the rest.
+- **The reason string is the one parity hole on this surface**, and it is
+  unavoidable: Rust reports a panic message, Kotlin an exception's, so
+  `died.reason` prints different text on the two backends (`called
+  'Option::unwrap()' on a 'None' value` versus `NullPointerException`). The
+  compile-and-run case therefore asserts `size(died.reason) > 0` rather than
+  the text — and the doc comment says to print it, never to branch on it. The
+  same hole `IoError { message: Str }` accepted in phase 4.
+- **A late watch now answers the real reason.** The runtime kept `dead: bool`
+  and answered a stale-watch registration with the literal `"fault"`; it keeps
+  `exit_reason` now, so a watch that lost the race to a fast fault learns what
+  the earlier watchers learned. Also worth remembering for Kotlin: a captured
+  `var` does not smart-cast inside a lambda, so the worker's `fault: String?`
+  had to become a local `val` before the `Exit` builder could take it.
+
+**A defect surfaced and was fixed the same day: `[spawn]` did not propagate.**
+The capability was checked at `spawn` *expressions* only, so a function calling
+one that declares `[spawn]` needed nothing — which made the declaration on
+std's `pool` decorative (`fn make() -> Pool { return pool(1) }` compiled from
+an undeclared caller), and would have made `watch`'s gate decorative too.
+`check_callee_effects` now refuses it, naming the list to add it to. It is a
+one-site fix because ordinary effects were always propagated there; `spawn` was
+skipped along with `use` for having no instance to resolve. Repro and record
+under "Defects found and closed".
+
+**Two gaps recorded rather than closed** (ROADMAP.md): a `k@self(…)` into a
+*full own mailbox* wedges the process for real, and it is deliberately not an
+edge — warning on every self-send would drown the form the phase just built,
+and the runtime's idle report cannot see it (a blocked sender is not idle). And
+the graph is over process *types*, so a chain of same-protocol workers reads as
+a self-loop; stratification is the recorded answer if it bites.
+
+
 slice the phase was blocked on: **request/response now runs without `main` in
 the loop**, on both backends with identical output. A fetcher process asks a
 database process for a row, parks a continuation for the answer, and the
@@ -6067,7 +6173,38 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
-### ~~An effect member named like a std fn breaks std's emission — and `@module` runs the wrong one~~ — found and closed 2026-09-15
+### ~~The `spawn` capability did not propagate through calls~~ — found and closed 2026-09-16
+
+**Was reproduced** by three lines, no processes needed — found while writing the
+`watch` slice's capability test, which failed by *passing*:
+
+```
+fn make() -> Pool {
+    return pool(1)
+}
+```
+
+That compiled clean. `pool` declares `[spawn]`, and std's own doc comment says
+declaring it "is what makes creating one a capability the caller must hold" —
+but nothing checked a *caller*, so `main` could reach a pool (and, once the
+slice landed, a death watch) through an undeclared helper without ever holding
+the capability.
+
+**Root cause**: `can_spawn` gated the `spawn` *expression* only
+([async-spawn-expr]'s check), while callee requirements are matched against the
+caller's environment in `check_callee_effects` — which walks a callee's effect
+list with `let EffectRef::Effect(r) = eff else { continue }` and so skipped
+`spawn` (and `use`) along with everything that names no instance to resolve. For
+`use` that is right: it registers *in* the caller's scope and does not travel.
+For `spawn` it was simply a hole, invisible until there were two `[spawn]`
+functions.
+
+**Fixed** by refusing it where the two meet: a callee declaring `[spawn]`
+requires `self.can_spawn`, with a diagnostic naming the list to add it to.
+Guarded by `the_spawn_capability_propagates_through_calls`, and the rule now
+states the propagation explicitly [async-spawn-effect].
+
+
 
 **Was reproduced** by an ordinary effect, no concurrency involved — found while
 writing the dependent-spawn test, whose child wanted a member called `add`:
@@ -10851,7 +10988,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1021)
+## Test inventory (all green: 1032)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10859,7 +10996,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 564 - 19 unit tests (file classification, including the
+- `salvo-core`: 572 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -10997,6 +11134,14 @@ cache, with per-test timings.
   handler member, its arguments typed, `self` refused as a variable in a member
   while staying legal in an ordinary fn, and the self-dispatch diagnostic
   naming `bump@self(…)`)
+  + 8 [async-watch] / [async-deadlock-cycle] cases (added 2026-09-16): `watch`
+  taking an addr and a token, an unregistered token reported as a leak, `watch`
+  refused without `[spawn]`, and the capability propagating through an ordinary
+  call ([async-spawn-effect], the defect that slice found); then the deadlock
+  baseline — Example 4's mutual gates refused, one ungated side downgrading it
+  to the back-pressure *warning*, an intercepting handler that gates staying
+  silent (the own-effect-dependency exemption), and a one-way request/response
+  pair producing neither diagnostic
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
@@ -11488,13 +11633,18 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 100 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 101 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 89 cases as of the parked-continuation trio: a fetcher that
+  (2026-09-12; 90 cases as of the death watch: a process that faults, a
+  watcher answered with an `Exit`, a *late* watch answered immediately, and a
+  send to the corpse changing nothing (`died with a reason: true` / `late watch
+  answered: true` / `done`) [async-watch] — its reason text is the one thing
+  not asserted, being the host's; and the parked-continuation trio: a fetcher
+  that
   parks a continuation for a database process's answer and fulfils `main`'s
   token from inside its own activation (`got row 7`), the gate whose *ordering*
   is the assertion (`reply R, user late`), and both readings of `k@self`
@@ -11677,7 +11827,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 181 - including ten [rs-process] tests (the first
+- `salvo-backend-rust`: 183 - including twelve [rs-process] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -11688,7 +11838,10 @@ cache, with per-test timings.
   the **gate** (`reply R, user late`), **both readings of `k@self`**, the
   continuation enum / `__addr` / `__parked` / `resume` asserted on the
   generated text, and the two `replyto` refusals — a parking handler `use`d,
-  and a remote mint target; and the generic-handler cut reported as a codegen
+  and a remote mint target; a **death watch** compiled and run, printing the
+  `died with a reason: true` / `late watch answered: true` / `done` Kotlin
+  prints, with its `Exit`-builder lowering asserted on the generated text
+  [async-watch]; and the generic-handler cut reported as a codegen
   error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
@@ -11883,6 +12036,33 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A whole-program graph check belongs at the end of a checking round, not in
+  a pass of its own.** The deadlock cycle check needs facts from every file
+  (which handlers gate, which send where), so the instinct is a new pass over
+  the AST after checking. It went beside `check_intrinsic_is_std_only` at the
+  end of `check_once` instead: *inside* the round, so its diagnostics land with
+  the round whose diagnostics are kept, and per-round, so a fixpoint that runs
+  four times does not report four times or accumulate stale edges. The raw
+  material is two `Checked` vectors filled at sites the checker already visits
+  (2026-09-16).
+- **When a runtime has to hand a value back to the language, make the *call
+  site* build it.** `watch` delivers an `Exit`, and the scheduler — plain Rust
+  and Kotlin, written once and shared by every program — cannot construct a
+  generated Salvo struct. The tempting shortcut is to deliver the reason
+  `String` and teach `resume` to wrap it when the parameter's type says `Exit`;
+  that is *silently wrong output* the first time a program fulfils a
+  `Reply<Exit>` itself, since the payload would then really be an `Exit`.
+  Passing a one-line builder along with the token keeps one representation for
+  both senders, and the builder can name the struct unqualified because the
+  emitted file already glob-imports the module it comes from (2026-09-16).
+- **A capability that is only checked at the form that uses it is decorative.**
+  `[spawn]` gated the `spawn` *expression*, so std's `pool` — declared
+  `[spawn]` precisely to make pool creation a capability — was reachable
+  through an undeclared one-line helper. Effects propagate at call sites
+  because `check_callee_effects` matches a callee's list against the caller's
+  environment; `spawn` was skipped there for having no instance to resolve.
+  When adding a capability, check it where *callee requirements meet caller
+  environments*, not only where the syntax appears (2026-09-16).
 - **Before adding a walker, ask whether the traversal you need already runs.**
   "Does this handler park?" is a syntactic property of member bodies, and the
   obvious implementation is a recursive `Expr` walk — the tenth one, and

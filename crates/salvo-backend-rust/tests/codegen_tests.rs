@@ -9049,6 +9049,91 @@ fn rustc_compiles_and_runs_both_readings_of_a_self_send() {
     );
 }
 
+/// [async-watch] The monitor surface, end to end: a process faults, the
+/// scheduler answers the watcher's token with an `Exit`, a watch registered
+/// *after* the death answers immediately, and a send to the corpse is a silent
+/// no-op. `main` gets its token from `waitfor`, so watching needs no handler of
+/// its own.
+///
+/// The reason's *text* is deliberately not printed: it is the host's account of
+/// the fault (a panic message here, an exception's on the Kotlin backend), the
+/// one thing on this surface that is not identical across backends
+/// [async-watch]. Everything else is, and the expected output below is
+/// verbatim the Kotlin backend's.
+const WATCH: &str = r#"
+async effect Counter {
+    send fn bump(n: Int) => !n
+    send fn crash()
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    // A faulted activation is what death *is* — there is no `kill`, and a
+    // Salvo-level throw cannot cross a member boundary.
+    send fn crash() {
+        let xs: List<Int> = [1]
+        sum = sum + get(xs, 9)!
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let c = spawn Counting() capacity 8 on pool(1)
+    c.bump(2)
+    let died = waitfor out: Reply<Exit> {
+        watch(c, out)
+        c.crash()
+    }
+    println("died with a reason: ${size(died.reason) > 0}")
+    let again = waitfor out: Reply<Exit> {
+        watch(c, out)
+    }
+    println("late watch answered: ${size(again.reason) > 0}")
+    // Sends to the dead are silent no-ops, so this changes nothing and the
+    // program ends normally.
+    c.bump(3)
+    println("done")
+}
+"#;
+
+const WATCH_OUTPUT: &str =
+    "died with a reason: true\nlate watch answered: true\ndone\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_death_watch() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", WATCH)]);
+    run_rust_files(&files, "watch", WATCH_OUTPUT);
+}
+
+/// [async-watch] [rs-process] What a `watch` lowers to: the scheduler call
+/// **plus the `Exit` builder** the watch site closes over — the runtime holds a
+/// reason string and cannot construct a Salvo struct, so the constructor
+/// travels with the registration.
+#[test]
+fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
+    let files = generate(&[("main.sv", WATCH)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains(
+            "crate::scheduler::salvo_watch(c, out, |__reason| Box::new(Exit { reason: __reason }))"
+        ),
+        "the watch registration or its `Exit` builder is missing:\n{}",
+        main.content
+    );
+}
+
 /// [rs-process] [async-replyto] The lowering: a continuation enum beside the
 /// message enum; the two generated fields on the handler; a `__dispatch`
 /// factored out of `handle` so member invocation lives in one place; and a

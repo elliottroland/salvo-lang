@@ -109,6 +109,21 @@ pub fn fn_call(
         // [async-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
         // worker threads.
         ("pool", Some("Int")) => format!("crate::scheduler::salvo_pool((({}) as usize))", a(0)),
+        // [async-watch] Registering a death watch hands the scheduler the
+        // token *and* a builder for the `Exit` it will carry: the runtime
+        // holds a reason string and cannot construct a Salvo struct, so the
+        // watch site closes over the constructor instead.
+        //
+        // `Exit` is named unqualified, which is safe rather than lucky: the
+        // file glob-imports every module whose names it uses, and a
+        // `Reply<Exit>` cannot be *obtained* in a file where `Exit` means
+        // something else (the annotation naming std's `Exit` would not
+        // resolve), so a shadowing declaration and this emission never meet.
+        ("watch", Some("Addr")) => format!(
+            "crate::scheduler::salvo_watch({}, {}, |__reason| Box::new(Exit {{ reason: __reason }}))",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a

@@ -10137,8 +10137,8 @@ impl<'p> Emitter<'p> {
                 self.needs_str = true;
             }
             // [rs-process] The scheduler's own intrinsics: answering a reply
-            // token and building a pool.
-            if recv == Some("Reply") || f.name.name == "pool" {
+            // token, building a pool, and registering a death watch.
+            if recv == Some("Reply") || f.name.name == "pool" || f.name.name == "watch" {
                 self.needs_scheduler = true;
             }
             // [rs-seq] The `List` fast paths lower to the generated

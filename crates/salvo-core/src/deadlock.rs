@@ -1,0 +1,295 @@
+//! [async-deadlock-cycle] The static deadlock baseline: a cycle check over
+//! the **effect graph** of processes that wait for one another.
+//!
+//! The design's committed baseline (CONCURRENCY.md, "Deadlock statics";
+//! CONCURRENCY_EXAMPLES.md Example 4). Two processes that each park a *gated*
+//! continuation on the other's answer wait forever, and the failure is
+//! interleaving-dependent — it passes every test and deadlocks in production
+//! on the rare crossing — so what is caught here is the **possibility**,
+//! whole-program, rather than the occurrence at run time.
+//!
+//! Nodes are `async effect`s, because that is what an `Addr` is typed by, and
+//! there are two kinds of edge:
+//!
+//! * a **wait-for** edge, from a gate. While a `replyto!` continuation is
+//!   outstanding the process serves nothing but its answer, so a cycle of
+//!   gates is a deadlock that no amount of load changes. Reported as an
+//!   **error**.
+//! * a **back-pressure** edge, from an ordinary send. A send into a full
+//!   bounded mailbox blocks its activation, so a cycle of sends deadlocks
+//!   *only* when the mailboxes involved are simultaneously full. Reported as
+//!   a **warning** (user decision 2026-09-16): the program is legal and
+//!   usually fine, and refusing every pair of processes that send to each
+//!   other would refuse most useful topologies.
+//!
+//! The imprecision is stated rather than discovered, and it is the same one
+//! the design predicted: the graph is over process **types**, not instances,
+//! so a chain of same-protocol workers each sending to the next is a
+//! self-loop here and acyclic in the running program. What that costs is a
+//! warning on a legal program; stratification (a tier qualifier on an addr)
+//! and the fallbacks are the recorded answers if the false positives become a
+//! nuisance, deliberately not built until they are observed.
+//!
+//! **Interception is exempt**, which the design documents did not anticipate:
+//! a handler of `E` that declares `[E]` — a policy wrapper around the process
+//! already serving `E`, the phase's showcase pattern — is an `E → E` edge by
+//! construction. It can never deadlock, because the dependency binds strictly
+//! *outward*: the wrapped instance is a different process, and the chain ends
+//! at the innermost one. So an edge a handler gets from its **own-effect
+//! dependency** is dropped, while an addr of its own protocol (a genuine peer
+//! mesh) still counts.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use salvo_syntax::ast::{self, EffectRef, Item};
+use salvo_syntax::span::Span;
+
+use crate::check::Checked;
+use crate::diag::FileDiagnostic;
+use crate::program::{Program, Symbols};
+
+/// Where an edge came from, for the diagnostic and for the severity.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum EdgeKind {
+    /// A gated mint: the process waits, whatever the load.
+    Wait,
+    /// A send that can block on a full mailbox.
+    BackPressure,
+}
+
+/// One edge of the graph: who waits, on what, and where it is written.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Edge {
+    kind: EdgeKind,
+    /// The handler whose member the site is in, for the diagnostic.
+    handler: String,
+    file: usize,
+    span: Span,
+}
+
+/// [async-deadlock-cycle] Reports every cycle in the wait-for graph: an error
+/// per cycle of gates, a warning per cycle that needs a back-pressure edge to
+/// close.
+pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
+    let graph = build(program, symbols, out);
+    if graph.is_empty() {
+        return;
+    }
+    // Errors first, over the wait-for subgraph alone, so a genuine gate cycle
+    // is never reported as the weaker thing.
+    let waits: BTreeMap<String, BTreeMap<String, Edge>> = graph
+        .iter()
+        .map(|(from, tos)| {
+            (
+                from.clone(),
+                tos.iter()
+                    .filter(|(_, e)| e.kind == EdgeKind::Wait)
+                    .map(|(to, e)| (to.clone(), e.clone()))
+                    .collect::<BTreeMap<_, _>>(),
+            )
+        })
+        .filter(|(_, tos)| !tos.is_empty())
+        .collect();
+    let mut reported: BTreeSet<Vec<String>> = BTreeSet::new();
+    for cycle in cycles(&waits) {
+        if !reported.insert(cycle.clone()) {
+            continue;
+        }
+        report(&waits, &cycle, out, EdgeKind::Wait);
+    }
+    // Then the whole graph: a cycle that only closes through a send is the
+    // load-conditioned class, and a warning.
+    let seen_nodes: BTreeSet<String> = reported.iter().flatten().cloned().collect();
+    for cycle in cycles(&graph) {
+        if cycle.iter().all(|n| seen_nodes.contains(n)) {
+            continue;
+        }
+        report(&graph, &cycle, out, EdgeKind::BackPressure);
+    }
+}
+
+/// The graph, keyed effect → effect. At most one edge per pair is kept — the
+/// strongest one, at its first site — because the diagnostic names a cycle,
+/// not every way of writing it.
+fn build(
+    program: &Program,
+    symbols: &Symbols<'_>,
+    out: &Checked,
+) -> BTreeMap<String, BTreeMap<String, Edge>> {
+    let mut graph: BTreeMap<String, BTreeMap<String, Edge>> = BTreeMap::new();
+    let is_async = |name: &str| {
+        symbols
+            .effects
+            .get(name)
+            .is_some_and(|decl| decl.is_async)
+    };
+    // Every handler of an async effect: the protocol it serves, whether any
+    // of its members gates, and what it can send to.
+    for (file_idx, ast) in program.modules.iter().enumerate() {
+        for item in &ast.items {
+            let Item::Handler(h) = item else { continue };
+            let Some(served) = base_name(&h.of) else {
+                continue;
+            };
+            if !is_async(served) {
+                continue;
+            }
+            let gate = out
+                .async_gates
+                .iter()
+                .find(|(handler, _)| *handler == h.name.name)
+                .map(|(_, key)| *key);
+            // Declared dependencies: any member may call any of them, and a
+            // helper fn declaring `[Q]` is reachable only if the handler
+            // declares `Q` too — so the declaration covers the whole call
+            // graph without walking it.
+            let mut targets: Vec<(String, usize, Span)> = Vec::new();
+            for dep in h.effects.iter().flatten() {
+                let EffectRef::Effect(r) = dep else { continue };
+                let name = r.name.name.as_str();
+                // Interception: an own-effect dependency binds outward, so it
+                // closes no cycle.
+                if !is_async(name) || name == served {
+                    continue;
+                }
+                targets.push((name.to_string(), file_idx, r.span));
+            }
+            // Sends through an addr the handler holds: the peer half of the
+            // graph, and the only place an own-protocol edge survives.
+            for (handler, target, (file, span)) in &out.async_sends {
+                if *handler == h.name.name && is_async(target) {
+                    targets.push((target.clone(), *file, *span));
+                }
+            }
+            for (target, file, span) in targets {
+                let (kind, file, span) = match gate {
+                    // A gate anywhere in the handler makes its sends waits:
+                    // the process is serving nothing else meanwhile.
+                    Some((gfile, gspan)) => (EdgeKind::Wait, gfile, gspan),
+                    None => (EdgeKind::BackPressure, file, span),
+                };
+                let edge = Edge {
+                    kind,
+                    handler: h.name.name.clone(),
+                    file,
+                    span,
+                };
+                let slot = graph.entry(served.to_string()).or_default();
+                match slot.get(&target) {
+                    // Keep the stronger edge; ties keep the first site.
+                    Some(existing) if existing.kind <= edge.kind => {}
+                    _ => {
+                        slot.insert(target, edge);
+                    }
+                }
+            }
+        }
+    }
+    graph
+}
+
+/// Every elementary cycle worth reporting: one per strongly connected
+/// component, as the shortest cycle through its lowest-named node, so the
+/// output is deterministic and a component does not produce a diagnostic per
+/// permutation.
+fn cycles(graph: &BTreeMap<String, BTreeMap<String, Edge>>) -> Vec<Vec<String>> {
+    let mut out: Vec<Vec<String>> = Vec::new();
+    let mut done: BTreeSet<String> = BTreeSet::new();
+    for start in graph.keys() {
+        if done.contains(start) {
+            continue;
+        }
+        // Breadth-first from `start` back to `start`: the shortest cycle it
+        // sits on, or none.
+        let mut queue: std::collections::VecDeque<Vec<String>> =
+            std::collections::VecDeque::new();
+        queue.push_back(vec![start.clone()]);
+        let mut visited: BTreeSet<String> = BTreeSet::new();
+        let mut found: Option<Vec<String>> = None;
+        while let Some(path) = queue.pop_front() {
+            let last = path.last().expect("a path has a last node");
+            for next in graph.get(last).into_iter().flatten().map(|(to, _)| to) {
+                if next == start {
+                    let mut cycle = path.clone();
+                    cycle.push(start.clone());
+                    found = Some(cycle);
+                    break;
+                }
+                if visited.insert(next.clone()) {
+                    let mut longer = path.clone();
+                    longer.push(next.clone());
+                    queue.push_back(longer);
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        if let Some(cycle) = found {
+            // Everything on the cycle is answered by this one report.
+            for node in &cycle {
+                done.insert(node.clone());
+            }
+            out.push(cycle);
+        }
+    }
+    out
+}
+
+/// The diagnostic: the cycle as a path, the handlers on it, and what to do.
+/// Reported at the site of the *first* edge, which is the seam that closes it
+/// — a `replyto!` for a wait cycle, a send for a back-pressure one.
+fn report(
+    graph: &BTreeMap<String, BTreeMap<String, Edge>>,
+    cycle: &[String],
+    out: &mut Checked,
+    kind: EdgeKind,
+) {
+    let mut edges: Vec<&Edge> = Vec::new();
+    for pair in cycle.windows(2) {
+        if let Some(edge) = graph.get(&pair[0]).and_then(|tos| tos.get(&pair[1])) {
+            edges.push(edge);
+        }
+    }
+    let Some(first) = edges.first().copied() else {
+        return;
+    };
+    let path = cycle.join(" → ");
+    let handlers: BTreeSet<&str> = edges.iter().map(|e| e.handler.as_str()).collect();
+    let handlers: Vec<String> = handlers.iter().map(|h| format!("`{h}`")).collect();
+    let handlers = handlers.join(", ");
+    match kind {
+        EdgeKind::Wait => out.errors.push(FileDiagnostic::error(
+            first.file,
+            first.span,
+            format!(
+                "these processes wait for each other: {path} ({handlers}). A `replyto!` \
+                 gate serves nothing but its own answer, so each of them is waiting for \
+                 a reply the next can only produce after its own arrives — a deadlock \
+                 whenever the requests cross. Break the cycle: make one side's \
+                 continuation ungated (`replyto`, whose mailbox stays open), or have \
+                 the answer come from a third process neither of them waits on"
+            ),
+        )),
+        EdgeKind::BackPressure => out.errors.push(FileDiagnostic::warning(
+            first.file,
+            first.span,
+            format!(
+                "these processes send to each other in a cycle: {path} ({handlers}). A \
+                 send blocks while the target's mailbox is full, so this deadlocks if \
+                 the mailboxes fill at the same time — a failure that appears under \
+                 load and not in a test. Give the queues room (a larger `capacity`), or \
+                 break the cycle by routing one direction through a reply token, which \
+                 has capacity reserved and never blocks"
+            ),
+        )),
+    }
+}
+
+/// The base name of a written type, for a handler's `of` clause.
+fn base_name(ty: &ast::Type) -> Option<&str> {
+    match ty {
+        ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+        _ => None,
+    }
+}

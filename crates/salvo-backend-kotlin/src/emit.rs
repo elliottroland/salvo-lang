@@ -5843,8 +5843,8 @@ impl<'p> Emitter<'p> {
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
             // [kt-process] The scheduler's own intrinsics: answering a reply
-            // token and building a pool.
-            if recv == Some("Reply") || f.name.name == "pool" {
+            // token, building a pool, and registering a death watch.
+            if recv == Some("Reply") || f.name.name == "pool" || f.name.name == "watch" {
                 self.needs_scheduler = true;
             }
             // [col-sorted] [kt-ordered] The sorted constructors build their

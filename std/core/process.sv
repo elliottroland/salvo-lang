@@ -57,3 +57,28 @@ intrinsic type Pool
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes
 // creating one a capability the caller must hold.
 intrinsic fn pool(size: Int) [spawn] -> Pool => size
+
+// [async-watch] Why a process died, delivered to whoever was watching it.
+//
+// A death is always abnormal: an activation faulted, and the process is gone
+// with whatever it still owed. [reason] is the host's account of the fault —
+// a panic message on the Rust backend, an exception's on the Kotlin one — so
+// it is the one thing on this surface whose *text* is the target's rather
+// than the language's. Print it in a diagnostic, do not branch on it.
+struct Exit { reason: Str }
+
+// [async-watch] Watch [target] for death: when it dies, the scheduler sends
+// an [Exit] to [on_exit]. The whole monitor surface — one function, one
+// struct — because a death notification is itself an answer, so the
+// request/response machinery already carries it.
+//
+// The token is minted like any other (`replyto died(...)` in a handler,
+// `waitfor` in `main`) and is **consumed** here: a watch is a promise to
+// handle the answer, and forgetting one is the ordinary leak diagnostic
+// [linear-obligation] rather than a silently dropped registration. Watching a
+// process that has *already* died answers immediately, so there is no race to
+// lose between a spawn and its watch.
+//
+// [target] is kept, since an addr is freely copyable: watching does not spend
+// the handle, and the same process may be watched by many.
+intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit

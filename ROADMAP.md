@@ -55,7 +55,9 @@ and each themed section is tagged with the phase it belongs to. **Phase 5
 SUPERVISION.md, LINEARITY_COLLECTIONS.md — the decision space is empty), the
 scheduler library is built, and the surface is landing in slices — processes
 spawn, send, park continuations and bridge on both backends today, dependent
-handlers included, and request/response no longer needs `main` in the loop.
+handlers included, request/response no longer needs `main` in the loop, and a
+process's death is both watchable and — where a topology could deadlock —
+reported before it runs.
 See "Threading and concurrency" for what remains.
 
 ## The sequence (user decision 2026-09-09)
@@ -176,9 +178,10 @@ below.) Designed (user decisions 2026-09-14/15) and **being built**: the
 scheduler library, the whole surface's syntax, its types and its checker rules
 are in, and processes **run on both backends with identical output** —
 including a **dependent** handler whose dependencies its spawn clause supplies,
-and a request/response chain that never passes through `main`.
-What is left of the agreed eight-item sequence: `watch` and the deadlock
-baseline, linearity in collections, and propagation.
+a request/response chain that never passes through `main`, and (2026-09-16) a
+**death watch** plus the **static deadlock baseline**.
+What is left of the agreed eight-item sequence: linearity in collections, and
+propagation.
 **The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
 call syntax, `then`, `defer` and merge/join become later items with their own
@@ -1143,7 +1146,8 @@ parameters (linear, statically one-shot); `replyto k(captures)` /
 per process); `r.send(v)` discharges; `spawn H(args) use Handler(...), addr
 on pool(n)`; lowercase `[use, spawn]`; `use addr`; `waitfor` as main's
 explicit bridge, and **the program ends when `main` returns**. Deadlock
-baseline: the effect-graph cycle check. The sugar tower (`-> T` + call
+baseline: the effect-graph cycle check — **built 2026-09-16**, with gate cycles
+as errors and blocking-send cycles as warnings. The sugar tower (`-> T` + call
 syntax, `then`/`then!`, `defer`, merge/join, the gate member-set
 generalization) comes in later passes, each with its own decision surface.
 
@@ -1156,9 +1160,9 @@ report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
 **The implementation**, per the first-pass plan in CONCURRENCY.md. **A
-program spawns, sends, parks continuations and bridges — on both backends,
-with identical output** (2026-09-15; the build records and what each slice
-cost are in COMPLETED.md's decision log). Everything landed the same day: the
+program spawns, sends, parks continuations, bridges, and watches its
+children die — on both backends, with identical output** (2026-09-15/16; the
+build records and what each slice cost are in COMPLETED.md's decision log). Everything landed the same day: the
 scheduler library, the declaration forms, the expression forms, the types, the
 checker rules, the emitters' first cut — then the respelling sweep, the
 `async effect` kind, the forwarding stub, **dependent-handler spawns**, and
@@ -1169,8 +1173,8 @@ backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
 *for* is the fetcher beside it, which parks a continuation for a database
 process's answer and fulfils `main`'s token from inside its own activation.
 As-built rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers"
-([async-process] … [async-types]) plus [linear-opaque], [rs-process] and
-[kt-process].
+([async-process] … [async-types], [async-watch], [async-deadlock-cycle]) plus
+[linear-opaque], [rs-process] and [kt-process].
 
 **The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
 after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
@@ -1263,10 +1267,33 @@ compiler today, so its own output is the work list.
    assertion (`reply R, user late`); and both readings of `k@self` answering
    the same thing. **All four "not emitted yet" refusals are gone** — including
    the two whose text still named the pre-item-1 `self.k(…)` spelling.
-6. **`watch` and the deadlock baseline.** `watch` needs a token, so it follows
-   item 5. `salvo_watch` is already in both runtimes; the language side is the
-   linear `Exit` token SUPERVISION.md decided. The effect-graph cycle check
-   (Example 4 a/b, the committed baseline) needs the mint sites item 5 created.
+6. ✅ **`watch` and the deadlock baseline — done 2026-09-16.** The monitor
+   surface and the static check, both on both backends with identical output.
+   Three design points were settled first (user decisions, D6-a/b/c): `watch`
+   as an `intrinsic fn` in `core.process` rather than a member of the
+   capability-only `spawn` effect; `Exit` a plain struct whose value the
+   **watch site** builds, since the runtime cannot construct a Salvo struct
+   (and a `resume`-side special case would have been silently wrong the moment
+   a program fulfilled a `Reply<Exit>` itself); and the cycle check's two
+   severities — a gate cycle is an error, a **blocking-send cycle a warning**
+   (the user's amendment: the compiler already has a warning severity, so the
+   honest edge set is the full one). Interception is exempt, which no design
+   document had anticipated: a handler of `E` declaring `[E]` is an `E → E`
+   edge by construction and can never deadlock, because the dependency binds
+   outward. A `[spawn]`-propagation defect surfaced and was fixed the same day.
+   Rules: [async-watch], [async-deadlock-cycle], [async-spawn-effect]; the
+   record is in COMPLETED.md's log. **Two gaps recorded, not closed**:
+   * **A self-send into a full own mailbox wedges the process**, and
+     `k@self(…)` deliberately contributes no edge — warning on every self-send
+     would drown the form, and the runtime's idle report cannot see it (a
+     blocked sender is not idle). The alternatives when it bites: exempt a
+     self-send from the queue bound in both runtimes (a semantics call), or
+     warn at the form. **DECISION** when it matters.
+   * **The graph is over process types, not instances**, so a chain of
+     same-protocol workers reads as a self-loop, and a handler's declared
+     dependencies stand in for what its members reach. Stratification (a tier
+     qualifier on an addr) and the fallbacks (a timeout form, a per-edge
+     reentrant opt-in) stay unbuilt until the false positives are *observed*.
 7. **Linearity in collections** (user decision 2026-09-15: after item 6).
    Decided already (LINEARITY_COLLECTIONS.md) and unbuilt; it is what a
    handler queueing `waiting: Mut List<Reply<T>>` needs, which is the shape
@@ -1281,6 +1308,8 @@ compiler today, so its own output is the work list.
    `examples/processes/`; then the working documents retire into the decision
    log per their charters — with the sugar pass's decided content folded into
    this file first, so nothing open lives outside ROADMAP.md.
+   **SUPERVISION.md is ready to go now**: item 6 put its S-1…S-4 content into
+   code and into [async-watch], and its decisions are in COMPLETED.md's log.
 
 **The leftovers the checker slice found are all closed** (2026-09-15) — the
 record, with what each taught, is in COMPLETED.md's decision log; the last of

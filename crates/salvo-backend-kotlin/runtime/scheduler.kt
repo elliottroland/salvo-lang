@@ -39,7 +39,20 @@ private class SalvoProcState(val bound: Int, val pool: Int, var body: SalvoProce
     var gate: Long? = null
     var running = false
     var dead = false
-    val watchers = mutableListOf<SalvoReply>()
+
+    /**
+     * The host's account of the fault that killed it, kept so a watch
+     * registered *after* the death answers what the earlier watchers got.
+     */
+    var exitReason: String? = null
+
+    /**
+     * [async-watch] Registered death watches: the token to fulfil and the
+     * **builder** generated code handed over with it, which turns the reason
+     * into the language's `Exit` value. The runtime cannot construct a Salvo
+     * class, so the watch site supplies the constructor.
+     */
+    val watchers = mutableListOf<Pair<SalvoReply, (String) -> Any?>>()
 }
 
 private class SalvoWaiterState {
@@ -123,16 +136,22 @@ object SalvoSched {
         }
 
     /**
-     * Registers a death watch: [onExit] is sent the reason when the
-     * process dies. Watching an already-dead process answers immediately.
+     * [async-watch] Registers a death watch: [onExit] is sent the `Exit`
+     * [exit] builds when the process dies. Watching an already-dead process
+     * answers immediately, with the reason its death recorded — so a watch
+     * that loses the race to a fast fault is not a watch that never answers.
      */
-    fun watch(addr: Int, onExit: SalvoReply) {
+    fun watch(
+        addr: Int,
+        onExit: SalvoReply,
+        exit: (String) -> Any?,
+    ) {
         lock.withLock {
             if (procs[addr].dead) {
-                deliverReply(onExit, "fault")
+                deliverReply(onExit, exit(procs[addr].exitReason ?: "fault"))
                 cv.signalAll()
             } else {
-                procs[addr].watchers.add(onExit)
+                procs[addr].watchers.add(Pair(onExit, exit))
             }
         }
     }
@@ -263,17 +282,21 @@ object SalvoSched {
                 val p = procs[addr]
                 p.running = false
                 active -= 1
-                if (fault == null) {
+                // A local `val`, because a captured `var` does not smart-cast
+                // inside a lambda and the `Exit` builder wants a `String`.
+                val reason = fault
+                if (reason == null) {
                     p.body = body
                 } else {
                     p.dead = true
+                    p.exitReason = reason
                     p.queue.clear()
                     p.userLen = 0
                     p.gate = null
                     val watchers = p.watchers.toList()
                     p.watchers.clear()
-                    for (w in watchers) {
-                        deliverReply(w, "fault: $fault")
+                    for ((w, exit) in watchers) {
+                        deliverReply(w, exit(reason))
                     }
                 }
                 cv.signalAll()

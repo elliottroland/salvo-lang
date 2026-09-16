@@ -64,11 +64,22 @@ struct ProcState {
     gate: Option<u64>,
     running: bool,
     dead: bool,
+    /// The host's account of the fault that killed it, kept so a watch
+    /// registered *after* the death answers what the earlier watchers got.
+    exit_reason: Option<String>,
     pool: usize,
-    watchers: Vec<SalvoReply>,
+    /// [async-watch] Registered death watches: the token to fulfil and the
+    /// **builder** generated code handed over with it, which turns the
+    /// reason into the language's `Exit` value. The runtime cannot construct
+    /// a Salvo struct, so the watch site supplies the constructor.
+    watchers: Vec<(SalvoReply, ExitOf)>,
     /// Taken out while an activation runs.
     body: Option<Box<dyn SalvoProcess>>,
 }
+
+/// [async-watch] Builds the `Exit` payload from the fault's reason. A plain
+/// fn pointer, so it is `Send` without a bound.
+pub type ExitOf = fn(String) -> SalvoMsg;
 
 struct WaiterState {
     value: Option<SalvoMsg>,
@@ -170,6 +181,7 @@ pub fn salvo_spawn(pool: usize, bound: usize, body: Box<dyn SalvoProcess>) -> us
         gate: None,
         running: false,
         dead: false,
+        exit_reason: None,
         pool,
         watchers: Vec::new(),
         body: Some(body),
@@ -230,16 +242,22 @@ pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
     )
 }
 
-/// Registers a death watch: `on_exit` is sent the reason when the process
-/// dies. Watching an already-dead process answers immediately.
-pub fn salvo_watch(addr: usize, on_exit: SalvoReply) {
+/// [async-watch] Registers a death watch: `on_exit` is sent the `Exit`
+/// `exit` builds when the process dies. Watching an already-dead process
+/// answers immediately, with the reason its death recorded — so a watch that
+/// loses the race to a fast fault is not a watch that never answers.
+pub fn salvo_watch(addr: usize, on_exit: SalvoReply, exit: ExitOf) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     if s.procs[addr].dead {
-        deliver_reply(&mut s, on_exit, Box::new("fault".to_string()));
+        let reason = s.procs[addr]
+            .exit_reason
+            .clone()
+            .unwrap_or_else(|| "fault".to_string());
+        deliver_reply(&mut s, on_exit, exit(reason));
         cv.notify_all();
     } else {
-        s.procs[addr].watchers.push(on_exit);
+        s.procs[addr].watchers.push((on_exit, exit));
     }
 }
 
@@ -361,12 +379,14 @@ fn worker(pool: usize) {
                     .or_else(|| panic.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "fault".to_string());
                 s.procs[addr].dead = true;
+                s.procs[addr].exit_reason = Some(reason.clone());
                 s.procs[addr].queue.clear();
                 s.procs[addr].user_len = 0;
                 s.procs[addr].gate = None;
                 let watchers = std::mem::take(&mut s.procs[addr].watchers);
-                for w in watchers {
-                    deliver_reply(&mut s, w, Box::new(format!("fault: {reason}")));
+                for (w, exit) in watchers {
+                    let value = exit(reason.clone());
+                    deliver_reply(&mut s, w, value);
                 }
             }
         }

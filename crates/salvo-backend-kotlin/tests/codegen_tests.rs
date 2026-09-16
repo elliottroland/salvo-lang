@@ -2049,6 +2049,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_parked_continuation,
     kotlinc_compiles_and_runs_a_gated_continuation,
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
+    kotlinc_compiles_and_runs_a_death_watch,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -9254,6 +9255,83 @@ fn kotlinc_compiles_and_runs_both_readings_of_a_self_send() -> KotlinCase {
         "self-send",
         "spawned begin 1, again 2\ninline begin 1, again 2\n",
     )
+}
+
+/// [async-watch] The monitor surface, end to end. Source and expected stdout
+/// are **verbatim** the Rust backend's `rustc_compiles_and_runs_a_death_watch`:
+/// a process faults, the scheduler answers the watcher's token with an `Exit`,
+/// a watch registered *after* the death answers immediately, and a send to the
+/// corpse is a silent no-op.
+///
+/// The reason's *text* is deliberately not printed: it is the host's account of
+/// the fault (an exception's message here, a panic message on the Rust
+/// backend), the one thing on this surface that is not identical across
+/// backends [async-watch].
+const WATCH: &str = r#"
+async effect Counter {
+    send fn bump(n: Int) => !n
+    send fn crash()
+}
+
+handler Counting() of Counter {
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    // A faulted activation is what death *is* — there is no `kill`, and a
+    // Salvo-level throw cannot cross a member boundary.
+    send fn crash() {
+        let xs: List<Int> = [1]
+        sum = sum + get(xs, 9)!
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let c = spawn Counting() capacity 8 on pool(1)
+    c.bump(2)
+    let died = waitfor out: Reply<Exit> {
+        watch(c, out)
+        c.crash()
+    }
+    println("died with a reason: ${size(died.reason) > 0}")
+    let again = waitfor out: Reply<Exit> {
+        watch(c, out)
+    }
+    println("late watch answered: ${size(again.reason) > 0}")
+    // Sends to the dead are silent no-ops, so this changes nothing and the
+    // program ends normally.
+    c.bump(3)
+    println("done")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", WATCH)]),
+        "watch",
+        "died with a reason: true\nlate watch answered: true\ndone\n",
+    )
+}
+
+/// [async-watch] [kt-process] What a `watch` lowers to, mirroring the Rust
+/// backend: the scheduler call **plus the `Exit` builder** the watch site
+/// closes over, since the runtime cannot construct a Salvo class.
+#[test]
+fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder_kotlin() {
+    let files = generate_files(&[("main.sv", WATCH)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content
+            .contains("salvo.SalvoSched.watch(c, out, { __reason -> Exit(__reason) })"),
+        "the watch registration or its `Exit` builder is missing:\n{}",
+        main.content
+    );
 }
 
 /// [kt-process] [async-replyto] The lowering, mirroring the Rust backend's: a

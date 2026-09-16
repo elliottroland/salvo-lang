@@ -2447,6 +2447,12 @@ LANGUAGE.md remains the source of truth for everything that does.
   handler's dependency list (a supervisor spawns its children); refused on a
   fn *type*, exactly as `use` is, because the capability belongs to the body
   that spawns rather than to a value's type.
+  * It **propagates through calls** like any effect: a function calling one
+    that declares `[spawn]` — std's `pool` and `watch`, or a helper of your
+    own — must declare it too. Until 2026-09-16 the gate sat on the `spawn`
+    *expression* only, which made the declaration on `pool` decorative: a
+    caller reached it through an undeclared helper. Fixed with the `watch`
+    slice, since `watch` is the second `[spawn]` function there has ever been.
 * [async-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL` is
   the asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, how deep its queue is, where it
@@ -2658,13 +2664,100 @@ LANGUAGE.md remains the source of truth for everything that does.
   * An addr is **never linear and freely copied**: a send to a dead process is
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
+  * **`Exit`**, with `intrinsic fn watch<E>(target: Addr<E>, on_exit:
+    Reply<Exit>) [spawn]` — the monitor surface [async-watch]. The only
+    `<E>` in std that stands for an *effect*, which is what makes one
+    function serve every protocol.
+* [async-watch] **`watch(target, on_exit)` is the whole monitor surface**
+  (user decisions 2026-09-15 S-1…S-4, spelled 2026-09-16): one function, one
+  struct, and no new syntax — because a death notification *is* an answer, so
+  the request/response machinery already carries it.
+  * **Death is a faulted activation**, and nothing else. There is no `kill`,
+    and a Salvo-level `throw` cannot cross a member boundary
+    ([effect-member-no-effects] means a `send fn` can never carry
+    `[Throw<M>]`), so a program with no platform handlers and no backend
+    faults cannot experience death at all. Each backend catches at its
+    dispatch boundary (`catch_unwind` / `try`), marks the process dead, and
+    records the reason.
+  * **The registration is the obligation**: `on_exit` is consumed, so a
+    minted-and-unregistered token is the ordinary leak [linear-obligation] —
+    "you cannot silently forget you were watching" needs no rule of its own.
+    `main` mints with `waitfor`, a handler with `replyto`, so watching needs
+    no special context.
+  * **Watching an already-dead process answers immediately**, with the reason
+    that death recorded — so a watch that loses the race to a fast fault is
+    not a watch that never answers, and a spawn-then-watch pair needs no
+    ordering care.
+  * **`[spawn]`-gated**, like `pool`: a monitor is part of running processes.
+  * **The corpse**: its queue is dropped, its obligations are lost (statically
+    checked linearity cannot survive a crash [linear-static]), and sends and
+    fulfils to it are **silent no-ops** — the only composable rule, since a
+    send that could fail on a dead target would make *every* send fallible.
+    The monitor is the recovery mechanism; a requester gated on a dead callee
+    is caught by the runtime's **idle-with-parked-gates report**, which names
+    the parked processes and exits non-zero instead of hanging.
+  * **`Exit`'s `reason` is the host's text** — a panic message on the Rust
+    backend, an exception's on the Kotlin one. It is the one thing on this
+    surface that is *not* identical across backends (the same hole
+    `IoError { message: Str }` already accepts): print it in a diagnostic, do
+    not branch on it. The struct rather than a bare `Str` is the growth point
+    for a `kind` when a non-fault death becomes expressible.
+  * **The runtime cannot build it**, so the *watch site* hands the scheduler a
+    builder along with the token ([rs-process], [kt-process]) — which keeps a
+    watcher's payload identical to an ordinary `r.send(Exit{…})` instead of
+    special-casing the delivery.
+  * **Supervision is a pattern, not a construct**: an interceptor (a handler
+    of `E` depending on `E`) that holds its child's addr privately, watches
+    it, and respawns on `Exit` gives clients a stable addr and never lets them
+    observe the death. Restart strategies, intensity budgets and escalation are
+    handler logic; a std `Supervisor` waits for real usage to shape it.
+* [async-deadlock-cycle] **The static deadlock baseline: a cycle check over
+  the effect graph** (design decision 2026-09-14, built 2026-09-16). Nodes are
+  `async effect`s — that is what an `Addr` is typed by — and a cycle means
+  processes that can wait for each other. Two severities, because there are
+  two kinds of edge:
+  * A **gated mint** (`replyto!`) is a *wait-for* edge: while the
+    continuation is outstanding the process serves nothing but its answer, so
+    a cycle of gates deadlocks whenever the requests cross, whatever the load.
+    An **error**, naming the cycle as a path, the handlers on it, and the two
+    ways out (make one side's continuation ungated, or have the answer come
+    from a third process). A bare `replyto` leaves the mailbox open and
+    contributes **no** edge — which is why one ungated side is enough.
+  * An ordinary **send** is a *back-pressure* edge: it blocks while the
+    target's bounded mailbox is full, so a cycle of sends deadlocks only when
+    the mailboxes fill together. A **warning** (user decision 2026-09-16):
+    the program is legal and usually fine, and refusing every pair of
+    processes that send to each other would refuse most useful topologies.
+    The remedies it names are a larger `capacity` or routing one direction
+    through a reply token, whose capacity is reserved at park time.
+  * A `fulfil` (`r.send(v)`) contributes nothing: the capacity is already
+    reserved, so it never blocks. Neither does a `k@self(…)` — a self-send
+    waits for no *other* process (the wedge a full own mailbox could cause is
+    a recorded gap, in ROADMAP.md).
+  * **Interception is exempt.** A handler of `E` declaring `[E]` — a policy
+    wrapper around the process already serving `E` — is an `E → E` edge by
+    construction, and it can never deadlock: the dependency binds strictly
+    *outward* [effect-intercept], so the chain ends at the innermost instance.
+    An edge from a handler's **own-effect dependency** is therefore dropped,
+    while an `Addr` of its own protocol (a genuine peer mesh) still counts.
+  * **Sound, not precise, and stated so.** The graph is over process *types*,
+    not instances, so a chain of same-protocol workers is a self-loop here and
+    acyclic in the running program; and a handler's *declared dependencies*
+    stand in for what its members can reach, so a gate in one member and a
+    send in an unrelated one make an edge. What that costs is a diagnostic on
+    a legal program. Stratification (a tier qualifier on an addr) and the
+    fallbacks (a timeout form, a per-edge reentrant opt-in) are the recorded
+    answers, deliberately unbuilt until the false positives are *observed*
+    rather than predicted.
 * **Built so far, and what is refused meanwhile.** The surface **runs**, and as
   of 2026-09-15 it runs **without `main` in the loop**: a program can spawn a
   handler — a **dependent** one included, its dependencies supplied by its own
   `use` clause as constructions, as addrs, or a mix — send to it through its
   `Addr`, park a continuation with `replyto` / `replyto!` for an answer that
   arrives *at another process*, continue an activation with `k@self(…)`, and
-  bridge with `waitfor`. All of it on **both backends, with identical output**
+  bridge with `waitfor`. Since 2026-09-16 it can also **watch a process die**
+  [async-watch], and a topology that could deadlock is reported before it runs
+  [async-deadlock-cycle]. All of it on **both backends, with identical output**
   ([rs-process], [kt-process]). `use addr` **runs**: it binds a generated
   forwarding stub, so a function declaring `[Log]` never learns that its
   capability is a process — and the same stub is what a spawn clause's addr

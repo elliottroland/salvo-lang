@@ -966,7 +966,16 @@ where Rust had to build the fusion to get the same programs running
     `SalvoSched.send(addr, __Msg_E.Member(args))`; `waitfor out: Reply<T> { … }`
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
-    → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`.
+    → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `watch(a, out)` →
+    `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`.
+  * **A `watch` carries its own `Exit` constructor** [async-watch]. The runtime
+    holds a reason `String` and cannot build a Salvo class, so the watch site
+    passes a `(String) -> Any?` alongside the token and the scheduler calls it
+    at death — which keeps a watcher's payload identical to an ordinary
+    `r.send(Exit{…})` instead of teaching `resume` a special case. `Exit` is
+    named **unqualified**, safely: the file star-imports every module whose
+    names it uses, and a `Reply<Exit>` cannot be obtained in a file where
+    `Exit` means something else.
   * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
     __parked[__s] = __Cont_E.K(caps); __r }`, with `mintGated` for `replyto!`.
     `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —

@@ -1409,7 +1409,19 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `salvo_send(addr, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
     { … }` → a block expression that mints a waiter, runs the block, then
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
-    `pool(n)` → `salvo_pool(n as usize)`.
+    `pool(n)` → `salvo_pool(n as usize)`; `watch(a, out)` →
+    `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`.
+  * **A `watch` carries its own `Exit` constructor** [async-watch]. The runtime
+    holds a reason `String` and cannot build a Salvo struct, so the watch site
+    passes a `fn(String) -> SalvoMsg` alongside the token and the scheduler
+    calls it at death — which keeps a watcher's payload byte-identical to an
+    ordinary `r.send(Exit{…})` instead of teaching `resume` a special case
+    (that special case would have been *silently wrong* the moment a program
+    fulfilled a `Reply<Exit>` itself). `Exit` is named **unqualified**, which
+    is safe rather than lucky: the file glob-imports every module whose names
+    it uses, and a `Reply<Exit>` cannot be obtained in a file where `Exit`
+    means something else, so a shadowing declaration and this emission never
+    meet.
   * **`replyto k(caps)`** → a block that mints, parks and answers the token:
     `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_E::K(caps)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the

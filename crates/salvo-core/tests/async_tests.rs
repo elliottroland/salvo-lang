@@ -27,6 +27,8 @@ intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
 intrinsic type Pool
 intrinsic fn pool(size: Int) [spawn] -> Pool => size
+struct Exit { reason: Str }
+intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 ";
 
 /// The effects and handlers the cases share: a `Counter` protocol with a
@@ -60,6 +62,26 @@ handler Counting() [Log] of Counter {
 "#;
 
 fn errors(src: &str) -> Vec<String> {
+    diagnostics(src)
+        .into_iter()
+        .filter(|(error, _)| *error)
+        .map(|(_, message)| message)
+        .collect()
+}
+
+/// [async-deadlock-cycle] The other severity: a warning reports something the
+/// program should look at without refusing it, and the back-pressure cycle is
+/// the one on this surface.
+fn warnings(src: &str) -> Vec<String> {
+    diagnostics(src)
+        .into_iter()
+        .filter(|(error, _)| !*error)
+        .map(|(_, message)| message)
+        .collect()
+}
+
+/// Every diagnostic the program produces, as `(is_error, message)`.
+fn diagnostics(src: &str) -> Vec<(bool, String)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -96,8 +118,7 @@ fn errors(src: &str) -> Vec<String> {
         .errors
         .iter()
         .chain(checked.errors.iter())
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| (d.is_error(), d.message.clone()))
         .collect()
 }
 
@@ -1128,4 +1149,241 @@ fn main() [use, spawn] {
             && m.contains("minting toward another process's member is not supported yet")),
         "expected the remote-mint refusal naming the effect: {errs:?}"
     );
+}
+
+// ===== [async-watch] the monitor surface =====
+
+/// [async-watch] The whole of it: a token minted like any other, handed to
+/// `watch`, and answered by the scheduler when the process dies. `main`'s
+/// token comes from `waitfor`, so a program can wait for a child's death
+/// without a handler of its own.
+#[test]
+fn watch_takes_an_addr_and_a_reply_token() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let e = waitfor out: Reply<Exit> {
+        watch(c, out)
+    }
+    discard(e.reason)
+}
+",
+    );
+    assert!(errs.is_empty(), "watching a process must be legal: {errs:?}");
+}
+
+/// [async-watch] [linear-obligation] The registration *is* the obligation:
+/// the token is consumed by `watch`, so a `waitfor` block that mints one and
+/// registers nothing is the ordinary leak — which is how "you cannot silently
+/// forget you were watching" is enforced, with no rule of its own.
+#[test]
+fn a_watch_token_that_is_never_registered_leaks() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let e = waitfor out: Reply<Exit> {
+        discard(c)
+    }
+    discard(e.reason)
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("out")),
+        "an unregistered token must be reported as a leak: {errs:?}"
+    );
+}
+
+/// [async-watch] [async-spawn-effect] Watching is a `spawn`-capability
+/// operation: a monitor is part of running processes, so a function that has
+/// not been given the capability cannot register one.
+#[test]
+fn watch_needs_the_spawn_capability() {
+    let errs = errors(
+        "\
+fn observe(c: Addr<Counter>, out: Reply<Exit>) [] -> None => c, !out {
+    watch(c, out)
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("spawn")),
+        "watch without `[spawn]` must be refused: {errs:?}"
+    );
+}
+
+/// [async-spawn-effect] And the capability **propagates**, like any effect: a
+/// helper that creates a pool needs `[spawn]`, and so does everyone who calls
+/// it. Until 2026-09-16 the gate sat on the `spawn` *expression* only, which
+/// made `[spawn]` on `pool` and `watch` decorative — a caller reached them
+/// through an undeclared helper.
+#[test]
+fn the_spawn_capability_propagates_through_calls() {
+    let errs = errors(
+        "\
+fn make() -> Pool {
+    return pool(1)
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`pool` requires the `spawn` capability")),
+        "calling a `[spawn]` fn without the capability must be refused: {errs:?}"
+    );
+}
+
+// ===== [async-deadlock-cycle] the static deadlock baseline =====
+/// [async-deadlock-cycle] Example 4, the committed baseline: two processes
+/// that each park a **gated** continuation on the other's answer. Neither
+/// handler is wrong on its own — the bug is a property of the pair, and it is
+/// interleaving-dependent, so it is the possibility that is reported.
+#[test]
+fn two_processes_that_gate_on_each_other_are_refused() {
+    let errs = errors(
+        "\
+async effect OrderApi {
+    send fn place(id: Int, out: Reply<Str>) => !out
+    send fn open_orders(id: Int, out: Reply<Int>) => !out
+}
+
+async effect CreditApi {
+    send fn credit(id: Int, out: Reply<Bool>) => !out
+}
+
+handler Orders(credit: Addr<CreditApi>) of OrderApi {
+    send fn place(id: Int, out: Reply<Str>) {
+        credit.credit(id, replyto! placed(out))
+    }
+    send fn placed(out: Reply<Str>, ok: Bool) {
+        out.send(\"placed\")
+    }
+    send fn open_orders(id: Int, out: Reply<Int>) {
+        out.send(0)
+    }
+}
+
+handler Credit(orders: Addr<OrderApi>) of CreditApi {
+    send fn credit(id: Int, out: Reply<Bool>) {
+        orders.open_orders(id, replyto! counted(out))
+    }
+    send fn counted(out: Reply<Bool>, n: Int) {
+        out.send(true)
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("wait for each other")
+            && m.contains("OrderApi")
+            && m.contains("CreditApi")),
+        "the gate cycle must be an error naming both protocols: {errs:?}"
+    );
+}
+
+/// [async-deadlock-cycle] The rule the refusal keys on: a **bare** `replyto`
+/// leaves the mailbox open, so a cycle where one side keeps serving is not a
+/// deadlock. It is still the back-pressure class, so what is left is the
+/// warning — the program compiles.
+#[test]
+fn one_ungated_side_downgrades_the_cycle_to_a_warning() {
+    let src = "\
+async effect OrderApi {
+    send fn place(id: Int, out: Reply<Str>) => !out
+    send fn open_orders(id: Int, out: Reply<Int>) => !out
+}
+
+async effect CreditApi {
+    send fn credit(id: Int, out: Reply<Bool>) => !out
+}
+
+handler Orders(credit: Addr<CreditApi>) of OrderApi {
+    send fn place(id: Int, out: Reply<Str>) {
+        credit.credit(id, replyto! placed(out))
+    }
+    send fn placed(out: Reply<Str>, ok: Bool) {
+        out.send(\"placed\")
+    }
+    send fn open_orders(id: Int, out: Reply<Int>) {
+        out.send(0)
+    }
+}
+
+handler Credit(orders: Addr<OrderApi>) of CreditApi {
+    send fn credit(id: Int, out: Reply<Bool>) {
+        orders.open_orders(id, replyto counted(out))
+    }
+    send fn counted(out: Reply<Bool>, n: Int) {
+        out.send(true)
+    }
+}
+";
+    assert!(
+        errors(src).is_empty(),
+        "an ungated side is not a deadlock: {:?}",
+        errors(src)
+    );
+    assert!(
+        warnings(src)
+            .iter()
+            .any(|m| m.contains("send to each other in a cycle")),
+        "the load-conditioned cycle must still be reported: {:?}",
+        warnings(src)
+    );
+}
+
+/// [async-deadlock-cycle] **Interception is exempt**, and it has to be: a
+/// handler of `E` declaring `[E]` is the phase's showcase pattern — a policy
+/// wrapper around the process already serving `E` — and it is an `E → E` edge
+/// by construction. The dependency binds strictly *outward*, so the chain ends
+/// at the innermost instance and no instance ever waits for itself.
+#[test]
+fn an_intercepting_handler_that_gates_is_not_a_cycle() {
+    let src = "\
+handler Caching() [Counter] of Counter {
+    send fn bump(n: Int) {
+        bump(n)
+    }
+    send fn total(out: Reply<Int>) {
+        total(replyto! answered(out))
+    }
+    send fn answered(out: Reply<Int>, n: Int) {
+        out.send(n)
+    }
+}
+";
+    assert!(
+        errors(src).is_empty(),
+        "an own-effect dependency must not close a cycle: {:?}",
+        errors(src)
+    );
+    assert!(
+        warnings(src).is_empty(),
+        "and it must not warn either: {:?}",
+        warnings(src)
+    );
+}
+
+/// [async-deadlock-cycle] A one-directional pair is the common, correct
+/// topology and must stay silent: the requester gates, the answerer only ever
+/// fulfils tokens, and a fulfil contributes no edge at all.
+#[test]
+fn a_one_way_request_response_pair_is_silent() {
+    let src = "\
+async effect Waiting {
+    send fn ask()
+    send fn got(n: Int) => !n
+}
+
+handler Asking(c: Addr<Counter>) of Waiting {
+    send fn ask() {
+        c.total(replyto! got())
+    }
+    send fn got(n: Int) {}
+}
+";
+    assert!(errors(src).is_empty(), "{:?}", errors(src));
+    assert!(warnings(src).is_empty(), "{:?}", warnings(src));
 }
