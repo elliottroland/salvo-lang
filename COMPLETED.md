@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1063 tests, complete: the toolchain tests are
+cargo test                  # 1070 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,99 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The mailbox moves to the handler; the spawn line loses a clause (user
+decision 2026-09-16).** The last open phase-5 question, and it went the opposite
+way to the frozen design: `capacity N` is gone from the spawn site, and a handler
+of an `actor effect` declares its own queue depth.
+
+```
+handler Desking(room: Int) of Desk {
+    mailbox { capacity: room }
+    …
+}
+
+let desk = spawn Desking(8) on workers
+```
+
+**The argument that changed.** The frozen rule put the bound at the spawn site
+because "the mailbox is a property of *this instance*", and a bound on the
+declaration "would be meaningless for a `use`d handler". The first half loses to
+a better question — *who knows the answer?* — which is the handler's author, not
+every caller of `spawn`; and a per-instance bound stays expressible by taking it
+as a constructor parameter, which needs no grammar at all. The second half
+survives as a rule: a mailbox on a handler of a **plain** effect is refused, and
+on an actor handler bound with `use` it is simply inert. It also improves on
+"required with no default": the bound is now written **once per handler** rather
+than at every spawn, and is still required.
+
+**The survey that shaped it.** Asked what *other* parameters an actor handler
+might carry, the answer split cleanly by who knows it, and that split is the
+design: **mailbox shape** (capacity, later an overflow policy, a distinct
+gate/stash bound, priority ordering) belongs to the handler's author, while
+**placement** (the pool, later throughput/batch, pinning, actor priority)
+belongs to the spawner and stays in `on`. Three families were named and
+excluded: restart/intensity/escalation (supervision is a *pattern*, decided),
+logging/metrics/clock (capabilities, so effect dependencies — anything that is a
+capability must never become a spawn keyword), and naming/persistence/idle
+timeouts (absent or deferred). That is why `mailbox` is the right *name* — with
+placement gone to the spawn site, nearly everything left is queue-shaped — and
+why the block is not called `settings`, which would have invited the knobs the
+split just assigned elsewhere.
+
+**The slot reading, which is what made it cheap.** `mailbox` names a
+compiler-known **slot** whose type is std's `struct Mailbox { capacity: Int }`,
+and the braces are that struct's literal *with the type elided* — the user's
+"share the struct syntax". So the parser synthesises a `StructLit` for
+`Mailbox`, and every field rule comes free: `capacity: "lots"` is
+"field `capacity` expects `Int`, found `Str`", `depth: 4` is
+"struct `Mailbox` has no field `depth`", and an empty block is
+"missing field `capacity`". A future setting is a **field** on that struct
+rather than new grammar, which is the whole reason to prefer a slot over a
+keyword. `mailbox` is contextual: a state field may still be called `mailbox`,
+and only a brace makes the slot.
+
+**Scope: constructor parameters only** (user's call, and the implementation
+wanted it anyway). The bound is needed *before the actor exists* — the scheduler
+takes it at `salvo_spawn`, ahead of every state initialiser — so state fields are
+not in scope and no effect can be performed to compute one. Consuming a
+parameter there needed no rule of its own: [effect-state-store] already refuses
+it and names `copy`, a `Copy` scalar excepted, which is exactly why the ordinary
+`capacity: room` shape is fine. A first draft of the check duplicated that rule
+and produced two diagnostics for one mistake; deleting it was the fix.
+
+**Emission is a generated field, and the ordering is the point.** Both backends
+put the bound *on the handler* — `__mailbox_capacity: i32` / `internal val
+__mailboxCapacity: Int` — initialised by the constructor from the slot's
+expression, which is precisely where a state field's initialiser is computed and
+where the constructor parameters are already in scope. A spawn then reads it off
+the instance before that instance moves into the actor body:
+`({ let __h = H::new(args); let __cap = __h.__mailbox_capacity; salvo_spawn(pool,
+__cap as usize, Box::new(__Actor_H::new(__h))) })`. The alternative — emitting
+the slot's expression at the *spawn site* — would have needed the constructor
+arguments in scope there and would have evaluated them twice, which is the same
+mistake [is-bind-once] had just been fixed for. Rules: [actor-mailbox],
+[rs-mailbox], [kt-mailbox].
+
+**What the sweep cost**, since it is the third respelling of landed surface this
+phase: the parser (a contextual slot plus one clause removed), the `Spawn` node
+losing a field and every walker with it, `check_spawn`, both emitters, and then
+**every spawn in the repository** — 30 sites in the actor tests alone, both
+backends' codegen tests, the parser tests, `examples/actors/`, the specs, the
+README and TIME.md's sketches. Two lessons worth keeping. Scripted patching of
+test sources has to know **which quoting each source uses** — inserting `\n`
+into a raw string writes a literal backslash-n, and the parse errors that follow
+name a column nowhere near the cause. And a per-*name* patch is wrong when two
+test files declare handlers of the same name for opposite purposes: `Counting`
+is an actor handler in one file and a plain-effect handler in another, so a
+global "add a mailbox to `Counting`" broke the second while fixing the first.
+Both were caught by the suite, and both would have been avoided by patching
+per-file with the file's own effect kinds in hand — which is what the second pass
+did.
+
+Tests: **1070 (+7)**, the new ones covering both shapes (literal and
+constructor-parameter), the required/refused pair, the constructor-params-only
+scope, the consuming refusal, and the struct diagnostics the slot inherits.
 
 **An `is` binding evaluated its subject twice — fixed 2026-09-16.** The worst
 class this repository has, closed the day it was found: both backends emitted an
@@ -11302,7 +11395,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1063)
+## Test inventory (all green: 1070)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11310,7 +11403,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 593 - 19 unit tests (file classification, including the
+- `salvo-core`: 600 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -11448,6 +11541,12 @@ cache, with per-test timings.
   handler member, its arguments typed, `self` refused as a variable in a member
   while staying legal in an ordinary fn, and the self-dispatch diagnostic
   naming `bump@self(…)`)
+  + 7 [actor-mailbox] cases (added 2026-09-16 with the slot): both shapes —
+  a literal bound and one taken as a constructor parameter; the slot **required**
+  on an actor handler and **refused** on a plain-effect one; constructor
+  parameters only, so a state field in it is an unresolved name; consuming a
+  parameter refused by [effect-state-store]; and the struct diagnostics the slot
+  inherits (unknown field, missing field, wrong field type)
   + 8 [actor-watch] / [actor-deadlock-cycle] cases (added 2026-09-16): `watch`
   taking an addr and a token, an unregistered token reported as a leak, `watch`
   refused without `[spawn]`, and the capability propagating through an ordinary

@@ -38,6 +38,7 @@ sealed class __Cont_Counter {
 
 class Counting : Counter {
     private var sum: Int = 0
+    internal val __mailboxCapacity: Int = 8
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Counter> = mutableMapOf()
 
@@ -99,6 +100,7 @@ sealed class __Cont_Ledger {
 }
 
 class Bookkeeping<__Fx>(private val __fx: __Fx) : Ledger where __Fx : __Has_Counter {
+    internal val __mailboxCapacity: Int = 4
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Ledger> = mutableMapOf()
 
@@ -165,8 +167,9 @@ sealed class __Cont_Desk {
     class CloseUp() : __Cont_Desk()
 }
 
-class Desking : Desk {
+class Desking(private val room: Int) : Desk {
     private var waiting: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
+    internal val __mailboxCapacity: Int = room
     internal var __addr: Int? = null
     internal val __parked: MutableMap<Long, __Cont_Desk> = mutableMapOf()
 
@@ -233,6 +236,7 @@ sealed class __Msg_Fragile {
 }
 
 class Breaking : Fragile {
+    internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null
 
     override fun crash() {
@@ -262,7 +266,7 @@ class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
-    val counter = salvo.SalvoSched.spawn(workers, 8, __Actor_Counting(Counting()))
+    val counter = run { val __h = Counting(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h)) }
     salvo.SalvoSched.send(counter, __Msg_Counter.Bump(2))
     salvo.SalvoSched.send(counter, __Msg_Counter.Bump(3))
     val sum = run {
@@ -271,14 +275,14 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx, "1. counter total is $sum")
-    val ledger = salvo.SalvoSched.spawn(workers, 4, __Actor_Bookkeeping(Bookkeeping(__Fx_2(__Stub_Counter(counter)))))
+    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h)) }
     val line = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.send(ledger, __Msg_Ledger.Report("counter", out))
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "3. ledger says $line")
-    val desk = salvo.SalvoSched.spawn(workers, 8, __Actor_Desking(Desking()))
+    val desk = run { val __h = Desking(8); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h)) }
     val first = run {
         val (a, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.send(desk, __Msg_Desk.Ticket(a))
@@ -293,7 +297,7 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "4. first waiter got: $first")
-    val fragile = salvo.SalvoSched.spawn(workers, 1, __Actor_Breaking(Breaking()))
+    val fragile = run { val __h = Breaking(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h)) }
     val exit = run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.watch(fragile, gone, { __reason -> Exit(__reason) })

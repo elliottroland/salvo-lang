@@ -22,6 +22,7 @@ intrinsic type Bool
 intrinsic type List<T> canbe Mut
 intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
 intrinsic type Addr<E>
+struct Mailbox { capacity: Int }
 linear intrinsic type Reply<T>
 intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
@@ -44,10 +45,14 @@ actor effect Log {
 }
 
 handler Printing() of Log {
+    mailbox { capacity: 4 }
+
     send fn note(what: Str) {}
 }
 
 handler Counting() [Log] of Counter {
+    mailbox { capacity: 16 }
+
     sum: Int = 0
 
     send fn bump(n: Int) {
@@ -134,8 +139,8 @@ fn the_first_pass_surface_checks_clean() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let logger = spawn Printing() capacity 4 on pool(1)
-    let counter = spawn Counting() use logger capacity 16 on pool(2)
+    let logger = spawn Printing() on pool(1)
+    let counter = spawn Counting() use logger on pool(2)
     counter.bump(2)
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
@@ -157,7 +162,7 @@ fn a_spawn_requires_the_spawn_capability() {
     let errs = errors(
         "\
 fn start() [use] -> Int {
-    let c = spawn Printing() capacity 1 on pool(1)
+    let c = spawn Printing() on pool(1)
     return 1
 }
 ",
@@ -179,7 +184,7 @@ fn a_spawned_handler_cannot_inherit_the_spawning_scope() {
         "\
 fn main() [use, spawn] {
     use Printing()
-    let counter = spawn Counting() capacity 1 on pool(1)
+    let counter = spawn Counting() on pool(1)
 }
 ",
     );
@@ -200,7 +205,7 @@ fn a_spawn_cannot_supply_an_unused_dependency() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Printing() use Printing() capacity 1 on pool(1)
+    let counter = spawn Printing() use Printing() on pool(1)
 }
 ",
     );
@@ -219,7 +224,7 @@ fn a_clause_construction_cannot_have_dependencies_of_its_own() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Counting() capacity 1 on pool(1)
+    let c = spawn Counting() use Counting() on pool(1)
 }
 ",
     );
@@ -230,26 +235,32 @@ fn main() [use, spawn] {
     );
 }
 
-/// The two required clauses are typed: a mailbox bound is an `Int`, and a
-/// spawn runs on a `Pool` — which `pool(n)` is the way to get.
+/// [actor-mailbox] The mailbox is typed where it is declared — its `capacity`
+/// is an `Int`, checked as any struct field's value is — and the spawn's one
+/// remaining clause is typed too: `on` takes a `Pool`, which `pool(n)` is the
+/// way to get.
 #[test]
-fn the_capacity_and_pool_clauses_are_typed() {
+fn the_mailbox_and_the_pool_clause_are_typed() {
     let errs = errors(
         "\
+handler Loud() of Log {
+    mailbox { capacity: \"lots\" }
+    send fn note(what: Str) {}
+}
+
 fn main() [use, spawn] {
-    let a = spawn Printing() capacity \"lots\" on pool(1)
-    let b = spawn Printing() capacity 1 on 7
+    let b = spawn Printing() on 7
 }
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("mailbox bound is an `Int`")),
+        errs.iter()
+            .any(|m| m.contains("field `capacity` expects `Int`, found `Str`")),
         "expected the capacity type error: {errs:?}"
     );
     assert!(
-        errs.iter()
-            .any(|m| m.contains("runs on a `Pool`") && m.contains("on pool(2)")),
-        "expected the pool type error naming the remedy: {errs:?}"
+        errs.iter().any(|m| m.contains("`Pool`") && m.contains("on pool(2)")),
+        "expected the pool type error: {errs:?}"
     );
 }
 
@@ -262,7 +273,7 @@ fn a_spawn_answers_a_addr_of_the_handlers_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c: Int = spawn Counting() use Printing() capacity 1 on pool(1)
+    let c: Int = spawn Counting() use Printing() on pool(1)
 }
 ",
     );
@@ -282,7 +293,7 @@ fn a_addr_call_resolves_against_the_served_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     counter.wind_down()
 }
 ",
@@ -299,7 +310,7 @@ fn a_addr_call_checks_its_arguments() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     counter.bump(\"two\")
 }
 ",
@@ -319,7 +330,7 @@ fn use_addr_binds_the_effect_and_keeps_the_addr() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     use counter
     bump(1)
     counter.bump(2)
@@ -375,6 +386,8 @@ fn replyto_needs_a_send_member_of_its_own_handler() {
     let unknown = errors(
         "\
 handler Asking() [Counter] of Log {
+    mailbox { capacity: 1 }
+
     send fn note(what: Str) {
         total(replyto arrived())
     }
@@ -396,6 +409,8 @@ actor effect Ask {
 }
 
 handler Asker() [Counter] of Ask {
+    mailbox { capacity: 1 }
+
     send fn go(out: Reply<Int>) {
         out.send(1)
     }
@@ -428,6 +443,8 @@ actor effect Ask {
 }
 
 handler Asker() [Counter] of Ask {
+    mailbox { capacity: 1 }
+
     send fn go() {
         total(replyto arrived())
     }
@@ -457,6 +474,8 @@ actor effect Ask {
 }
 
 handler Asker() [Counter] of Ask {
+    mailbox { capacity: 1 }
+
     send fn go() {
         total(replyto arrived(7))
     }
@@ -501,7 +520,7 @@ fn waitfor_is_legal_only_in_main() {
     let errs = errors(
         "\
 fn helper() [use, spawn] -> Int {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     return waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -562,7 +581,7 @@ fn a_waitfor_answers_its_tokens_payload() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     let sum: Str = waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -591,7 +610,7 @@ struct Registry {
 }
 
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     let r = Registry { counter: counter }
     r.counter.bump(1)
     let many: Addr<Counter>[] = array_of(r.counter)
@@ -612,7 +631,7 @@ fn the_asynchronous_forms_stop_at_a_lambda() {
     let spawned = errors(
         "\
 fn main() [use, spawn] {
-    let f = () -> spawn Printing() capacity 1 on pool(1)
+    let f = () -> spawn Printing() on pool(1)
 }
 ",
     );
@@ -627,7 +646,7 @@ fn main() [use, spawn] {
     let waited = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() capacity 1 on pool(1)
+    let counter = spawn Counting() use Printing() on pool(1)
     let f = () -> waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -680,12 +699,14 @@ actor effect Sink {
 }
 
 handler Dropping() of Sink {
+    mailbox { capacity: 1 }
+
     send fn put(a: Int) {}
     send fn put(a: Int, b: Int) {}
 }
 
 fn main() [use, spawn] {
-    let s = spawn Dropping() capacity 1 on pool(1)
+    let s = spawn Dropping() on pool(1)
     s.put(1)
     s.put(1, 2)
 }
@@ -706,7 +727,7 @@ handler Dropping() of Sink {
 }
 
 fn main() [use, spawn] {
-    let s = spawn Dropping() capacity 1 on pool(1)
+    let s = spawn Dropping() on pool(1)
     s.put(1)
 }
 ",
@@ -734,6 +755,8 @@ actor effect Work {
 }
 
 handler Working() of Work {
+    mailbox { capacity: 1 }
+
     done: Int = 0
 
     send fn start(n: Int) {
@@ -756,6 +779,8 @@ fn a_self_send_needs_a_send_member_of_this_handler() {
     let unknown = errors(
         "\
 handler Working() of Log {
+    mailbox { capacity: 1 }
+
     send fn note(what: Str) {
         later@self(what)
     }
@@ -777,6 +802,8 @@ actor effect Work {
 }
 
 handler Working() of Work {
+    mailbox { capacity: 1 }
+
     send fn start(n: Int) {
         ready@self()
     }
@@ -826,6 +853,8 @@ actor effect Work {
 }
 
 handler Working() of Work {
+    mailbox { capacity: 1 }
+
     send fn start(n: Int) {
         step@self(\"one\")
     }
@@ -850,6 +879,8 @@ fn self_stays_an_ordinary_name_away_from_the_selector() {
     let errs = errors(
         "\
 handler Working() of Log {
+    mailbox { capacity: 1 }
+
     send fn note(what: Str) {
         let self = 1
         note@self(what)
@@ -1007,6 +1038,8 @@ effect Plain {
 }
 
 handler Pinging() of Plain {
+    mailbox { capacity: 1 }
+
     fn ping() -> Int {
         return 1
     }
@@ -1017,7 +1050,7 @@ fn hold(a: Addr<Plain>) -> Int => a {
 }
 
 fn main() [use, spawn] {
-    let p = spawn Pinging() capacity 1 on pool(1)
+    let p = spawn Pinging() on pool(1)
 }
 ",
     );
@@ -1068,6 +1101,8 @@ actor effect Waiting {
 }
 
 handler Asking() [Counter] of Waiting {
+    mailbox { capacity: 1 }
+
     send fn ask() {
         total(replyto got())
     }
@@ -1075,7 +1110,7 @@ handler Asking() [Counter] of Waiting {
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let c = spawn Counting() use Printing() on pool(1)
     use c
     use Asking()
     ask()
@@ -1101,6 +1136,8 @@ actor effect Waiting {
 }
 
 handler Asking() [Counter] of Waiting {
+    mailbox { capacity: 1 }
+
     send fn ask() {
         total(replyto got())
     }
@@ -1108,8 +1145,8 @@ handler Asking() [Counter] of Waiting {
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
-    let a = spawn Asking() use c capacity 1 on pool(1)
+    let c = spawn Counting() use Printing() on pool(1)
+    let a = spawn Asking() use c on pool(1)
     a.ask()
 }
 ",
@@ -1133,14 +1170,16 @@ actor effect Waiting {
 }
 
 handler Asking() [Counter] of Waiting {
+    mailbox { capacity: 1 }
+
     send fn ask() {
         total(replyto bump())
     }
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
-    let a = spawn Asking() use c capacity 1 on pool(1)
+    let c = spawn Counting() use Printing() on pool(1)
+    let a = spawn Asking() use c on pool(1)
     a.ask()
 }
 ",
@@ -1163,7 +1202,7 @@ fn watch_takes_an_addr_and_a_reply_token() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let c = spawn Counting() use Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         watch(c, out)
     }
@@ -1183,7 +1222,7 @@ fn a_watch_token_that_is_never_registered_leaks() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let c = spawn Counting() use Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         discard(c)
     }
@@ -1255,6 +1294,8 @@ actor effect CreditApi {
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
+    mailbox { capacity: 1 }
+
     send fn place(id: Int, out: Reply<Str>) {
         credit.credit(id, replyto! placed(out))
     }
@@ -1267,6 +1308,8 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
 }
 
 handler Credit(orders: Addr<OrderApi>) of CreditApi {
+    mailbox { capacity: 1 }
+
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto! counted(out))
     }
@@ -1301,6 +1344,8 @@ actor effect CreditApi {
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
+    mailbox { capacity: 1 }
+
     send fn place(id: Int, out: Reply<Str>) {
         credit.credit(id, replyto! placed(out))
     }
@@ -1313,6 +1358,8 @@ handler Orders(credit: Addr<CreditApi>) of OrderApi {
 }
 
 handler Credit(orders: Addr<OrderApi>) of CreditApi {
+    mailbox { capacity: 1 }
+
     send fn credit(id: Int, out: Reply<Bool>) {
         orders.open_orders(id, replyto counted(out))
     }
@@ -1344,6 +1391,8 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
 fn an_intercepting_handler_that_gates_is_not_a_cycle() {
     let src = "\
 handler Caching() [Counter] of Counter {
+    mailbox { capacity: 1 }
+
     send fn bump(n: Int) {
         bump(n)
     }
@@ -1379,6 +1428,8 @@ actor effect Waiting {
 }
 
 handler Asking(c: Addr<Counter>) of Waiting {
+    mailbox { capacity: 1 }
+
     send fn ask() {
         c.total(replyto! got())
     }
@@ -1387,4 +1438,149 @@ handler Asking(c: Addr<Counter>) of Waiting {
 ";
     assert!(errors(src).is_empty(), "{:?}", errors(src));
     assert!(warnings(src).is_empty(), "{:?}", warnings(src));
+}
+
+// ===== [actor-mailbox] the actor settings slot =====
+
+/// [actor-mailbox] The slot in its two shapes (user decision 2026-09-16): a
+/// literal bound, and one taken as a constructor parameter — which is what
+/// "optionally exposed as a constructor argument" means, and needs no new
+/// grammar because the block's expressions are checked in the constructor's
+/// scope.
+#[test]
+fn a_mailbox_may_be_literal_or_a_constructor_parameter() {
+    let errs = errors(
+        "\
+handler Fixed() of Log {
+    mailbox { capacity: 16 }
+    send fn note(what: Str) {}
+}
+
+handler Sized(room: Int) of Log {
+    mailbox { capacity: room }
+    send fn note(what: Str) {}
+}
+
+fn main() [use, spawn] {
+    let a = spawn Fixed() on pool(1)
+    let b = spawn Sized(4) on pool(1)
+}
+",
+    );
+    assert!(errs.is_empty(), "both mailbox shapes must check clean: {errs:?}");
+}
+
+/// [actor-mailbox] It is **required** on a handler of an actor effect: the
+/// queue bound had no default at the spawn site and has none here either — a
+/// bound the compiler picked would be a performance cliff nobody wrote. What
+/// changed is only *where* it is said, and by whom.
+#[test]
+fn an_actor_handler_must_declare_its_mailbox() {
+    let errs = errors(
+        "\
+handler Quiet() of Log {
+    send fn note(what: Str) {}
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("has a mailbox and has to say how deep it is")
+            && m.contains("mailbox { capacity: 16 }")),
+        "expected the missing-mailbox error: {errs:?}"
+    );
+}
+
+/// [actor-mailbox] …and refused on a handler of a **plain** effect, where
+/// there is no queue: its members run on the caller's thread. This is the
+/// half of the old objection that survives — a mailbox means nothing to a
+/// synchronously bound handler — and it is now a diagnostic instead of an
+/// inert setting.
+#[test]
+fn a_plain_handler_has_no_mailbox() {
+    let errs = errors(
+        "\
+effect Plain {
+    fn ask() -> Int
+}
+
+handler Answering() of Plain {
+    mailbox { capacity: 4 }
+    fn ask() -> Int {
+        return 1
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("only a handler of an `actor effect` has a mailbox")),
+        "expected the plain-effect refusal: {errs:?}"
+    );
+}
+
+/// [actor-mailbox] The scope is **constructor parameters only**: the bound is
+/// wanted before the actor exists — the scheduler needs it at spawn time,
+/// ahead of every state initialiser — so a state field is not in scope.
+#[test]
+fn a_mailbox_sees_constructor_parameters_only() {
+    let errs = errors(
+        "\
+handler Loud() of Log {
+    room: Int = 8
+    mailbox { capacity: room }
+    send fn note(what: Str) {}
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("no variable or function named `room`")),
+        "a state field must not be in scope: {errs:?}"
+    );
+}
+
+/// [actor-mailbox] The slot only *reads* — and that needs no rule of its own:
+/// [effect-state-store] already refuses consuming what the handler was built
+/// with, and names `copy` as the remedy. A `Copy` scalar is exempt, which is
+/// why the ordinary `capacity: room` shape above is fine [copy-scalar-free].
+#[test]
+fn a_mailbox_may_not_consume_a_parameter() {
+    let errs = errors(
+        "\
+fn measure(names: List<Str>) [] -> Int => !names {
+    return 1
+}
+
+handler Wasteful(names: List<Str>) of Log {
+    mailbox { capacity: measure(names) }
+    send fn note(what: Str) {}
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("cannot move `names`")
+            && m.contains("constructor parameter of handler `Wasteful`")),
+        "expected the consuming refusal: {errs:?}"
+    );
+}
+
+/// [actor-mailbox] The slot is a struct literal, so the field diagnostics are
+/// the ordinary ones — which is the whole point of the slot reading: a future
+/// setting is a *field* on `Mailbox` rather than new grammar.
+#[test]
+fn the_mailbox_slot_is_an_ordinary_struct_literal() {
+    let errs = errors(
+        "\
+handler Odd() of Log {
+    mailbox { depth: 4 }
+    send fn note(what: Str) {}
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("has no field `depth`")),
+        "expected the unknown-field error: {errs:?}"
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("missing field `capacity`")),
+        "expected the missing-field error: {errs:?}"
+    );
 }

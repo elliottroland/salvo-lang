@@ -89,6 +89,7 @@ pub enum __Cont_Counter {
 
 pub struct Counting {
     sum: i32,
+    __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, crate::__Cont_Counter>,
 }
@@ -97,6 +98,7 @@ impl Counting {
     pub fn new() -> Self {
         Self {
             sum: 0,
+            __mailbox_capacity: 8,
             __addr: None,
             __parked: std::collections::HashMap::new(),
         }
@@ -191,6 +193,7 @@ pub enum __Cont_Ledger {
 }
 
 pub struct Bookkeeping {
+    __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, crate::__Cont_Ledger>,
 }
@@ -198,6 +201,7 @@ pub struct Bookkeeping {
 impl Bookkeeping {
     pub fn new() -> Self {
         Self {
+            __mailbox_capacity: 4,
             __addr: None,
             __parked: std::collections::HashMap::new(),
         }
@@ -327,15 +331,19 @@ pub enum __Cont_Desk {
 }
 
 pub struct Desking {
+    room: i32,
     waiting: Vec<crate::scheduler::SalvoReply>,
+    __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, crate::__Cont_Desk>,
 }
 
 impl Desking {
-    pub fn new() -> Self {
+    pub fn new(room: i32) -> Self {
         Self {
+            room,
             waiting: vec![],
+            __mailbox_capacity: room,
             __addr: None,
             __parked: std::collections::HashMap::new(),
         }
@@ -435,12 +443,14 @@ pub enum __Msg_Fragile {
 }
 
 pub struct Breaking {
+    __mailbox_capacity: i32,
     __addr: Option<usize>,
 }
 
 impl Breaking {
     pub fn new() -> Self {
         Self {
+            __mailbox_capacity: 1,
             __addr: None,
         }
     }
@@ -488,7 +498,7 @@ impl crate::scheduler::SalvoActor for __Actor_Breaking {
 pub fn main() {
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
-    let mut counter = crate::scheduler::salvo_spawn(workers, (8) as usize, Box::new(__Actor_Counting::new(Counting::new())));
+    let mut counter = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Counting::new(__h))) });
     crate::scheduler::salvo_send(counter, Box::new(crate::__Msg_Counter::Bump(2)));
     crate::scheduler::salvo_send(counter, Box::new(crate::__Msg_Counter::Bump(3)));
     let mut sum = {
@@ -497,14 +507,14 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("1. counter total is {}", sum)));
-    let mut ledger = crate::scheduler::salvo_spawn(workers, (4) as usize, Box::new(__Actor_Bookkeeping::new(Bookkeeping::new(), __Prov_Bookkeeping { __d0: __Stub_Counter::new(counter) })));
+    let mut ledger = ({ let __h = Bookkeeping::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Bookkeeping::new(__h, __Prov_Bookkeeping { __d0: __Stub_Counter::new(counter) }))) });
     let mut line = {
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_send(ledger, Box::new(crate::__Msg_Ledger::Report("counter".to_string(), out)));
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("3. ledger says {}", line)));
-    let mut desk = crate::scheduler::salvo_spawn(workers, (8) as usize, Box::new(__Actor_Desking::new(Desking::new())));
+    let mut desk = ({ let __h = Desking::new(8); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Desking::new(__h))) });
     let mut first = {
         let (mut a, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_send(desk, Box::new(crate::__Msg_Desk::Ticket(a)));
@@ -519,7 +529,7 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
     println(&mut __fx, &(format!("4. first waiter got: {}", first)));
-    let mut fragile = crate::scheduler::salvo_spawn(workers, (1) as usize, Box::new(__Actor_Breaking::new(Breaking::new())));
+    let mut fragile = ({ let __h = Breaking::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(workers, __cap as usize, Box::new(__Actor_Breaking::new(__h))) });
     let mut exit = {
         let (mut gone, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_watch(fragile, gone, |__reason| Box::new(Exit { reason: __reason }));

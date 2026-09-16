@@ -33,6 +33,8 @@ actor effect Counter {
 // and every member runs to completion before the next one starts — so
 // `sum = sum + n` needs no lock and cannot interleave.
 handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
     sum: Int = 0
 
     send fn bump(n: Int) {
@@ -68,6 +70,8 @@ actor effect Ledger {
 // `[Counter]` — and the spawn site supplies it. The child never learns whether
 // its `Counter` is another actor or a local handler.
 handler Bookkeeping() [Counter] of Ledger {
+    mailbox { capacity: 4 }
+
     send fn report(label: Str, out: Reply<Str>) {
         total(replyto reported(label, out))
     }
@@ -88,7 +92,12 @@ actor effect Desk {
     send fn close_up(reason: Str) => !reason
 }
 
-handler Desking() of Desk {
+// The bound as a **constructor parameter**: the slot's expressions may read
+// them (and nothing else — it is computed before the actor exists), which is
+// how a caller chooses a per-instance queue depth without a spawn-site clause.
+handler Desking(room: Int) of Desk {
+    mailbox { capacity: room }
+
     waiting: Mut List<Reply<Str>> = mut_list_of()
 
     send fn ticket(out: Reply<Str>) {
@@ -126,6 +135,8 @@ actor effect Fragile {
 }
 
 handler Breaking() of Fragile {
+    mailbox { capacity: 1 }
+
     send fn crash() {
         let empty: List<Int> = []
         // Reading past the end answers `None`; asserting it is the fault.
@@ -147,10 +158,10 @@ fn main() [use, spawn] {
     // A pool is an ordinary value: one pool, several actors on it.
     let workers = pool(2)
 
-    // 1 — spawn, send, and bridge back. `capacity` is the mailbox bound and
-    // is required: an actor's queue is a property of the instance, so it is
-    // named where the instance is made.
-    let counter = spawn Counting() capacity 8 on workers
+    // 1 — spawn, send, and bridge back. The queue depth is not here: the
+    // handler declared it (`mailbox { capacity: 8 }`), so a spawn says what to
+    // run, what it depends on, and where.
+    let counter = spawn Counting() on workers
     counter.bump(2)
     counter.bump(3)
     let sum = waitfor out: Reply<Int> {
@@ -161,7 +172,7 @@ fn main() [use, spawn] {
     // 3 — an actor that depends on another actor. The dependency arrives as
     // an addr in the spawn's `use` clause; a construction (`use Counting()`)
     // would have been the same act.
-    let ledger = spawn Bookkeeping() use counter capacity 4 on workers
+    let ledger = spawn Bookkeeping() use counter on workers
     let line = waitfor out: Reply<Str> {
         ledger.report("counter", out)
     }
@@ -170,7 +181,7 @@ fn main() [use, spawn] {
     // 4 — two waiters, one served, the rest answered by the drain. Arrival
     // order is the whole ordering story: these four sends are served in the
     // order they were made, by one actor, one at a time.
-    let desk = spawn Desking() capacity 8 on workers
+    let desk = spawn Desking(8) on workers
     let first = waitfor a: Reply<Str> {
         desk.ticket(a)
         let second = waitfor b: Reply<Str> {
@@ -185,7 +196,7 @@ fn main() [use, spawn] {
     // 5 — watch, then kill it with a fault. The `Exit`'s reason is the host's
     // text (a panic message on Rust, an exception's on Kotlin), so this prints
     // only *that* there was one.
-    let fragile = spawn Breaking() capacity 1 on workers
+    let fragile = spawn Breaking() on workers
     let exit = waitfor gone: Reply<Exit> {
         watch(fragile, gone)
         fragile.crash()

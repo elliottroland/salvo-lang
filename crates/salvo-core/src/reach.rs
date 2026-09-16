@@ -275,7 +275,6 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -283,7 +282,6 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             for handler in uses {
                 expr_names(handler, used);
             }
-            expr_names(capacity, used);
             expr_names(pool, used);
         }
         // [actor-self-send] The member is the enclosing handler's, so the

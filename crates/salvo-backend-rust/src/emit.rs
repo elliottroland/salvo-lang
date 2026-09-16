@@ -2399,6 +2399,14 @@ impl<'p> Emitter<'p> {
         //   `SalvoActor`'s decided signature untouched.
         let actor_handler = self.handler_is_actor(h);
         if actor_handler {
+            // [rs-mailbox] [actor-mailbox] The mailbox bound, evaluated by the
+            // constructor exactly as a state field's initialiser is — which is
+            // what it is, structurally: an expression over constructor
+            // parameters, computed once when the handler is built. The spawn
+            // site reads it off the instance *before* handing it to the actor
+            // body, so the scheduler learns the bound without the spawn line
+            // saying it and without the arguments being evaluated twice.
+            out.push_str("    __mailbox_capacity: i32,\n");
             out.push_str("    __addr: Option<usize>,\n");
             if let Some(cont) = self.handler_cont_type(h) {
                 out.push_str(&format!(
@@ -2465,6 +2473,8 @@ impl<'p> Emitter<'p> {
         // [rs-actor] `None` until an activation writes it: an instance that
         // never becomes an actor keeps it, and that is the marker.
         if actor_handler {
+            let cap = self.mailbox_capacity_code(h);
+            out.push_str(&format!("            __mailbox_capacity: {cap},\n"));
             out.push_str("            __addr: None,\n");
             if self.handler_cont_type(h).is_some() {
                 out.push_str("            __parked: std::collections::HashMap::new(),\n");
@@ -5719,11 +5729,29 @@ impl<'p> Emitter<'p> {
     /// `salvo_spawn(pool, bound, Box::new(__Actor_H::new(H::new(args))))`,
     /// whose value is the addr. Construction is the `use` path's, minus the
     /// registration: a spawn does not put the handler in *this* scope.
+    /// [rs-mailbox] [actor-mailbox] The `capacity` expression of a handler's
+    /// `mailbox` slot, rendered as an `i32`. The checker has already required
+    /// the slot on a handler of an `actor effect` and confined its expressions
+    /// to constructor parameters, so this is an ordinary emission in the
+    /// constructor's scope; a missing slot is an internal inconsistency rather
+    /// than a language cut.
+    fn mailbox_capacity_code(&mut self, h: &HandlerDecl) -> String {
+        match h.mailbox.as_ref().and_then(mailbox_capacity_expr) {
+            Some(expr) => self.emit_owned(expr),
+            None => {
+                self.error(format!(
+                    "internal: actor handler `{}` has no `mailbox {{ capacity: … }}`",
+                    h.name.name
+                ));
+                "0".to_string()
+            }
+        }
+    }
+
     fn emit_spawn(
         &mut self,
         handler: &Expr,
         uses: &[Expr],
-        capacity: &Expr,
         pool: &Expr,
         span: Span,
     ) -> String {
@@ -5775,16 +5803,18 @@ impl<'p> Emitter<'p> {
         // `use crate::<module>::*` globs bring both into scope unqualified —
         // the same reason `handler_ctor_path` answers a bare name.
         let held = format!("{}::new({})", ctor, arg_code.join(", "));
+        // [actor-mailbox] The bound is the *handler's*, computed by its
+        // constructor from its own parameters — so the instance is built into a
+        // local, the bound read off it, and only then does it move into the
+        // actor body. That ordering is the whole reason this is a block.
         let body = match prov {
-            Some(prov) => format!(
-                "{}::new({held}, {prov})",
-                actor_struct_name(&handler_name)
-            ),
-            None => format!("{}::new({held})", actor_struct_name(&handler_name)),
+            Some(prov) => format!("{}::new(__h, {prov})", actor_struct_name(&handler_name)),
+            None => format!("{}::new(__h)", actor_struct_name(&handler_name)),
         };
-        let bound = self.emit_owned(capacity);
         let pool_code = self.emit_owned(pool);
-        format!("crate::scheduler::salvo_spawn({pool_code}, ({bound}) as usize, Box::new({body}))")
+        let spawn_call =
+            format!("crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}))");
+        format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; {spawn_call} }})")
     }
 
     /// [actor-spawn-expr] [rs-actor] The child's flat provider, built from
@@ -7893,10 +7923,9 @@ impl<'p> Emitter<'p> {
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, capacity, pool, *span),
+            } => self.emit_spawn(handler, uses, pool, *span),
             // [actor-waitfor] `main`'s bridge, as a block expression: mint a
             // waiter token, run the block that sends it somewhere, then block
             // this thread until the answer arrives.
@@ -12135,7 +12164,6 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -12143,7 +12171,6 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_mutated_expr(handler, out);
             }
-            collect_mutated_expr(capacity, out);
             collect_mutated_expr(pool, out);
         }
         Expr::ReplyTo { captures, .. } => {
@@ -12357,7 +12384,6 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -12365,7 +12391,6 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_declared_expr(handler, out);
             }
-            collect_declared_expr(capacity, out);
             collect_declared_expr(pool, out);
         }
         Expr::ReplyTo { captures, .. } => {
@@ -12507,6 +12532,21 @@ fn expr_terminates(expr: &Expr) -> bool {
 /// field/index/tuple chain over one — and so free of side effects to read
 /// twice. Everything else (a call above all) has to be evaluated once into a
 /// temporary before an `is` binding reads it.
+/// [actor-mailbox] The `capacity` field's value expression inside a handler's
+/// `mailbox { … }` slot — the slot *is* a struct literal, so this is one field
+/// lookup rather than a new AST shape.
+fn mailbox_capacity_expr(mailbox: &Expr) -> Option<&Expr> {
+    let Expr::StructLit { fields, .. } = mailbox else {
+        return None;
+    };
+    fields.iter().find_map(|f| match &f.kind {
+        salvo_syntax::ast::StructLitFieldKind::Named { name, value } if name.name == "capacity" => {
+            Some(value)
+        }
+        _ => None,
+    })
+}
+
 fn is_place_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(_) => true,

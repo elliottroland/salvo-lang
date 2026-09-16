@@ -346,6 +346,19 @@ pub struct HandlerDecl {
     /// any other code does. `None` when the list is absent, as on a fn.
     pub effects: Option<Vec<EffectRef>>,
     pub of: Type,
+    /// [actor-mailbox] `mailbox { capacity: 16 }` — the **actor settings slot**
+    /// (user decision 2026-09-16). A handler of an `actor effect` states its
+    /// mailbox here rather than at every spawn: the author who knows the
+    /// protocol's traffic is the one writing the handler, and the bound is then
+    /// written once instead of at each binding site.
+    ///
+    /// Held as the **struct literal it is**: `mailbox` names a compiler-known
+    /// slot whose type is std's `Mailbox`, and the braces are that struct's
+    /// literal with the type elided, so field names, types, defaults and
+    /// diagnostics are the ordinary ones. Its field expressions may read
+    /// **constructor parameters only** — the value is needed before the actor
+    /// exists, ahead of any state initialiser.
+    pub mailbox: Option<Expr>,
     /// State fields with initializers, e.g. `i: Int = 0`.
     pub state: Vec<FieldDecl>,
     pub fns: Vec<FnDecl>,
@@ -946,11 +959,16 @@ pub enum Expr {
     /// only inside a handler member — both the checker's rules.
     SelfScoped { name: Ident, span: Span },
     /// [actor-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
-    /// capacity 16 on pool(2)` — bind a handler *asynchronously*: the
-    /// actor. Read left to right: what to run, what it depends on, how
-    /// deep its queue is, where it runs. Its value is the child's `Addr`.
+    /// on pool(2)` — bind a handler *asynchronously*: the actor. Read left to
+    /// right: what to run, what it depends on, where it runs. Its value is the
+    /// child's `Addr`.
     ///
-    /// `spawn` and the three clause words are **contextual** (the `iter fn`
+    /// The mailbox is **not** here: it is the handler's own
+    /// `mailbox { capacity: … }` slot [actor-mailbox], stated once by the
+    /// author who knows the protocol rather than at every spawn (user decision
+    /// 2026-09-16, replacing the frozen `capacity N` clause).
+    ///
+    /// `spawn` and the clause words are **contextual** (the `iter fn`
     /// precedent): the form is recognised from `spawn` followed by a name,
     /// so a function called `spawn` keeps working.
     Spawn {
@@ -963,10 +981,7 @@ pub enum Expr {
         /// dependencies [effect-handler-deps]. Arguments evaluate in the
         /// parent and cross the seam; construction happens on the child.
         uses: Vec<Expr>,
-        /// `capacity N` — this instance's mailbox bound. Explicit and
-        /// required, with no default: it is a property of the instance, so
-        /// it sits at the spawn site rather than on the handler.
-        capacity: Box<Expr>,
+
         /// `on POOL` — an ordinary expression. `pool(n)` is a function, not
         /// syntax.
         pool: Box<Expr>,

@@ -952,7 +952,6 @@ impl Rewrite {
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 ..
             } => {
@@ -960,7 +959,6 @@ impl Rewrite {
                 for handler in uses {
                     self.expr(handler);
                 }
-                self.expr(capacity);
                 self.expr(pool);
             }
             // [actor-self-send] A leaf: the selector names the enclosing
@@ -1129,7 +1127,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 ..
             } => {
@@ -1137,7 +1134,6 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 for handler in uses {
                     walk_expr(handler, reserved, out);
                 }
-                walk_expr(capacity, reserved, out);
                 walk_expr(pool, reserved, out);
             }
             Expr::ReplyTo { captures, .. } => {

@@ -212,6 +212,7 @@ Module {
                         span: 156..165,
                     },
                 },
+                mailbox: None,
                 state: [
                     FieldDecl {
                         docs: [],
@@ -378,6 +379,7 @@ Module {
                         span: 307..314,
                     },
                 },
+                mailbox: None,
                 state: [],
                 fns: [
                     FnDecl {

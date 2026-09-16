@@ -1814,6 +1814,13 @@ impl<'p> Emitter<'p> {
         // privacy is per module, and both live in one.)
         let actor_handler = self.handler_is_actor(h);
         if actor_handler {
+            // [kt-mailbox] [actor-mailbox] The mailbox bound, computed where a
+            // state field's initialiser is computed — which is what it is: an
+            // expression over constructor parameters, evaluated once when the
+            // handler is built. The spawn site reads it off the instance, so the
+            // spawn line never says it and the arguments are evaluated once.
+            let cap = self.mailbox_capacity_code(h);
+            out.push_str(&format!("    internal val __mailboxCapacity: Int = {cap}\n"));
             out.push_str("    internal var __addr: Int? = null\n");
             if let Some(cont) = self.handler_cont_type(h) {
                 out.push_str(&format!(
@@ -3246,11 +3253,27 @@ impl<'p> Emitter<'p> {
     /// `SalvoSched.spawn(pool, bound, __Actor_H(H(args)))`, whose value is the
     /// addr. Construction is the `use` path's, minus the registration: a spawn
     /// does not put the handler in *this* scope.
+    /// [kt-mailbox] [actor-mailbox] The `capacity` expression of a handler's
+    /// `mailbox` slot. The checker has already required the slot on a handler of
+    /// an `actor effect` and confined it to constructor parameters, so a missing
+    /// one is an internal inconsistency rather than a language cut.
+    fn mailbox_capacity_code(&mut self, h: &HandlerDecl) -> String {
+        match h.mailbox.as_ref().and_then(mailbox_capacity_expr) {
+            Some(expr) => self.emit_expr(expr),
+            None => {
+                self.error(format!(
+                    "internal: actor handler `{}` has no `mailbox {{ capacity: … }}`",
+                    h.name.name
+                ));
+                "0".to_string()
+            }
+        }
+    }
+
     fn emit_spawn(
         &mut self,
         handler: &Expr,
         uses: &[Expr],
-        capacity: &Expr,
         pool: &Expr,
         span: Span,
     ) -> String {
@@ -3296,12 +3319,14 @@ impl<'p> Emitter<'p> {
             }
         }
         let ctor = self.handler_ctor_name(&handler_name, decl);
-        let bound = self.emit_expr(capacity);
         let pool_code = self.emit_expr(pool);
+        // [actor-mailbox] The bound is the handler's own, so the instance is
+        // built into a local and read before it is wrapped.
         format!(
-            "salvo.SalvoSched.spawn({pool_code}, {bound}, {}({ctor}({})))",
-            actor_class_name(&handler_name),
-            args.join(", ")
+            "run {{ val __h = {ctor}({}); salvo.SalvoSched.spawn({pool_code}, \
+             __h.__mailboxCapacity, {}(__h)) }}",
+            args.join(", "),
+            actor_class_name(&handler_name)
         )
     }
 
@@ -4769,10 +4794,9 @@ impl<'p> Emitter<'p> {
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, capacity, pool, *span),
+            } => self.emit_spawn(handler, uses, pool, *span),
             // [actor-waitfor] `main`'s bridge, as a `run { }` expression.
             Expr::WaitFor {
                 binding,
@@ -7282,7 +7306,6 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -7290,7 +7313,6 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_mutated_expr(handler, out);
             }
-            collect_mutated_expr(capacity, out);
             collect_mutated_expr(pool, out);
         }
         Expr::ReplyTo { captures, .. } => {
@@ -7483,6 +7505,20 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
 /// (with the span of the `is` expression itself).
 /// [is-bind-once] Whether an expression is a **place** — a name or a
 /// field/index/tuple chain over one — and so safe to read twice.
+/// [actor-mailbox] The `capacity` field's value inside a handler's `mailbox`
+/// slot — the slot is a struct literal, so this is one field lookup.
+fn mailbox_capacity_expr(mailbox: &Expr) -> Option<&Expr> {
+    let Expr::StructLit { fields, .. } = mailbox else {
+        return None;
+    };
+    fields.iter().find_map(|f| match &f.kind {
+        salvo_syntax::ast::StructLitFieldKind::Named { name, value } if name.name == "capacity" => {
+            Some(value)
+        }
+        _ => None,
+    })
+}
+
 fn is_place_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(_) => true,

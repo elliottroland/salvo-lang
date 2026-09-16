@@ -892,6 +892,12 @@ where Rust had to build the fusion to get the same programs running
   * It is emitted when a module declares a `canbe ordered` struct or builds
     a sorted collection, and the sorted constructors pass it as an explicit
     `Comparator` rather than relying on natural ordering.
+* [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
+  `internal val __mailboxCapacity: Int`, initialised from the slot's expression
+  where a constructor parameter is in scope for free. The spawn reads it off the
+  instance: `run { val __h = H(args); SalvoSched.spawn(pool,
+  __h.__mailboxCapacity, __Actor_H(__h)) }` — `internal` rather than `private`
+  for the reason `__addr` is, since `__Actor_H` is a different class.
 * [kt-is-hoist] [is-bind-once] **A non-place `is` subject becomes a `var`**,
   read by both the test and the binding: declared before an `if`, and inside
   `while (true) { … if (!(cond)) break … }` for a loop, so the subject is

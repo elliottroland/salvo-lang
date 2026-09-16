@@ -116,6 +116,7 @@ Module {
                         span: 157..164,
                     },
                 },
+                mailbox: None,
                 state: [],
                 fns: [],
                 span: 132..164,

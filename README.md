@@ -162,7 +162,8 @@ fn main() [use] {
 - **Actors**: an **actor** is an effect handler bound asynchronously — `spawn`
   instead of `use`. An `actor effect` declares the protocol (`send fn` members,
   which enqueue and answer nothing), a handler of it is ordinary Salvo, and
-  `spawn Counting() capacity 8 on pool(2)` gives it a mailbox and answers an
+  `spawn Counting() on pool(2)` gives it a mailbox — whose depth the handler
+  declares, `mailbox { capacity: 8 }` — and answers an
   `Addr<Counter>`. Its state is its own and its members run one at a time, so
   the serialization *is* the mutual exclusion. An answer travels back through a
   **linear** one-shot `Reply<T>`: minted with `replyto`, which parks a

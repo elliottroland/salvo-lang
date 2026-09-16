@@ -46,6 +46,18 @@ linear intrinsic type Reply<T>
 // send is.
 intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
+// [actor-mailbox] An actor's mailbox, declared by its handler:
+// `mailbox { capacity: 16 }` (user decision 2026-09-16). The block is this
+// struct's literal with the type elided — `mailbox` names the slot, and the
+// slot's type is this — so field names, types and diagnostics are the ordinary
+// struct ones, and a future setting is a *field* here rather than new syntax.
+//
+// [capacity] is the number of user messages the queue holds before a send
+// blocks; replies do not count against it, since their room is reserved when the
+// request is made. There is no default: a bound the compiler chose would be a
+// performance cliff nobody wrote.
+struct Mailbox { capacity: Int }
+
 // [actor-spawn-expr] Where actors run: a pool of threads, named by a
 // spawn's `on POOL` clause. A pool is an ordinary value, so one can be built
 // once and handed to many spawns — which is how a program says "these

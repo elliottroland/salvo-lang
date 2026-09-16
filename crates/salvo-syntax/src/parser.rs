@@ -56,6 +56,17 @@ pub const SELF_SELECTOR: &str = "self";
 /// colouring functions.
 pub const ACTOR_MODIFIER: &str = "actor";
 
+/// [actor-mailbox] The contextual name of an actor handler's settings slot:
+/// `mailbox { capacity: 16 }` (user decision 2026-09-16). Contextual like every
+/// other word this phase added — a state field may still be called `mailbox`;
+/// only a brace after it makes the slot.
+pub const MAILBOX_SLOT: &str = "mailbox";
+
+/// [actor-mailbox] The std struct the slot's braces build: the block is that
+/// struct's literal with the type elided, which is what gives the fields their
+/// names, types, defaults and diagnostics for free.
+pub const MAILBOX_TYPE: &str = "Mailbox";
+
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
         let mut line_starts = vec![0u32];
@@ -1151,16 +1162,45 @@ impl<'s> Parser<'s> {
         let of = self.parse_type()?;
         let mut state = Vec::new();
         let mut fns = Vec::new();
+        let mut mailbox = None;
         let mut end = of.span();
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 // [actor-send-fn] `send fn` is a member too; anything else
-                // that is not a `fn` is a state field.
+                // that is not a `fn` — or the `mailbox` slot — is a state
+                // field.
                 let is_send_member =
                     self.at_word("send") && matches!(self.peek_at(1).kind, TokenKind::KwFn);
+                let is_mailbox = self.at_word(MAILBOX_SLOT)
+                    && matches!(self.peek_at(1).kind, TokenKind::LBrace);
                 if self.at(&TokenKind::KwFn) || is_send_member {
                     fns.push(self.parse_member_fn()?);
+                } else if is_mailbox {
+                    // [actor-mailbox] The slot is a struct literal with its
+                    // type elided: `mailbox { capacity: 16 }` *is*
+                    // `Mailbox { capacity: 16 }`, so every field rule, default
+                    // and diagnostic is the struct machinery's. Contextual, so
+                    // `mailbox` stays an ordinary field name — a state field
+                    // called `mailbox` is `mailbox: T = …`, and only a brace
+                    // makes it the slot.
+                    let start = self.bump().span;
+                    let lit = self.parse_struct_lit_body(Some(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            name: Ident {
+                                name: MAILBOX_TYPE.to_string(),
+                                span: start,
+                            },
+                            args: Vec::new(),
+                            from: Vec::new(),
+                            span: start,
+                        },
+                    }))?;
+                    if mailbox.is_some() {
+                        self.error("a handler declares one `mailbox` slot", start);
+                    }
+                    mailbox = Some(lit);
                 } else {
                     state.push(self.parse_field_decl()?);
                     self.eat(&TokenKind::Comma);
@@ -1177,6 +1217,7 @@ impl<'s> Parser<'s> {
             params,
             effects,
             of,
+            mailbox,
             state,
             fns,
             span: start.to(end),
@@ -3394,10 +3435,10 @@ impl<'s> Parser<'s> {
         Some(Expr::Try { body, span })
     }
 
-    /// [actor-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL`
-    /// — the asynchronous binding of a handler. The `use` clause is optional
-    /// (a handler with no dependencies needs none); `capacity` and `on` are
-    /// not, since neither the mailbox bound nor the pool has a default.
+    /// [actor-spawn-expr] `spawn H(args) use D1(...), addr on POOL` — the
+    /// asynchronous binding of a handler. The `use` clause is optional (a
+    /// handler with no dependencies needs none); `on` is not, since a pool has
+    /// no default. The mailbox bound is the *handler's* [actor-mailbox].
     ///
     /// No clause takes a `{ ... }` body, so struct-literal speculation stays
     /// on throughout: a constructor argument may be a struct literal like
@@ -3421,11 +3462,6 @@ impl<'s> Parser<'s> {
             }
         }
         self.expect_word(
-            "capacity",
-            "a spawn states its mailbox bound: `spawn H(...) capacity 16 on pool(2)`",
-        )?;
-        let capacity = self.parse_expr()?;
-        self.expect_word(
             "on",
             "a spawn states where it runs: `on pool(2)` (`pool` is an ordinary function)",
         )?;
@@ -3434,7 +3470,6 @@ impl<'s> Parser<'s> {
         Some(Expr::Spawn {
             handler: Box::new(handler),
             uses,
-            capacity: Box::new(capacity),
             pool: Box::new(pool),
             span,
         })

@@ -3,8 +3,9 @@
 An **actor** is an effect handler bound asynchronously. That sentence is the
 whole design: `actor effect Counter { send fn bump(n: Int) }` declares a
 protocol, `handler Counting() of Counter` implements it exactly as a
-synchronous handler does, and `spawn Counting() capacity 8 on workers` brings
-it to life with a mailbox instead of binding it inline. Nothing about the
+synchronous handler does — plus a `mailbox { capacity: 8 }` slot saying how deep
+its queue is — and `spawn Counting() on workers` brings it to life with that
+mailbox instead of binding it inline. Nothing about the
 handler changes; the *binding* is what makes it an actor.
 
 Run it:
@@ -18,7 +19,11 @@ cargo run -- run --backend kotlin --src examples/actors/salvo
 
 **1 — the smallest actor.** `send fn` means the call enqueues and answers
 nothing, so a payload always crosses a thread boundary and is always consumed
-(`=> !n`). State is the actor's alone and members run one at a time to
+(`=> !n`). The handler's `mailbox { capacity: 8 }` is how deep the queue is: a
+required slot on any handler of an actor effect, stated once by the author who
+knows the protocol's traffic rather than at every spawn — and `Desking` further
+down takes it as a constructor parameter, which is how a per-instance bound is
+written. State is the actor's alone and members run one at a time to
 completion, which is why `sum = sum + n` needs no lock: the scheduler's
 serialization *is* the mutual exclusion. `main` reads the total through
 `waitfor`, its own bridge into the surface — it mints a token, hands it over,

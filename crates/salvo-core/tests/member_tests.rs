@@ -30,6 +30,7 @@ const STD_PRELUDE: &str = concat!(
     // *effect* — the one sanctioned exception to [effect-not-data], and the
     // checker keys on this declaration to grant it.
     "intrinsic type Addr<E>\n",
+    "struct Mailbox { capacity: Int }\n",
     "intrinsic type List<T> canbe Mut\n",
 );
 
@@ -847,6 +848,8 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
     send fn bump(n: Int) -> Int {
         return n
     }
@@ -873,6 +876,8 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
     sum: Int = 0
 
     send fn bump(n: Int) {
@@ -900,6 +905,8 @@ actor effect Counter {
 }
 
 handler Counting() [spawn] of Counter {
+    mailbox { capacity: 8 }
+
     send fn bump(n: Int) {}
 }
 

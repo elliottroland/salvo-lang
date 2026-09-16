@@ -8618,6 +8618,8 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
     sum: Int = 0
 
     send fn bump(n: Int) {
@@ -8631,7 +8633,7 @@ handler Counting() of Counter {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let counter = spawn Counting() capacity 8 on pool(1)
+    let counter = spawn Counting() on pool(1)
     counter.bump(2)
     counter.bump(3)
     let sum = waitfor out: Reply<Int> {
@@ -8718,6 +8720,8 @@ actor effect Counter {
 }
 
 handler Recording() of Log {
+    mailbox { capacity: 1 }
+
     last: Str = "none"
 
     send fn note(what: Str) {
@@ -8730,6 +8734,8 @@ handler Recording() of Log {
 }
 
 handler Summing() of Tally {
+    mailbox { capacity: 8 }
+
     sum: Int = 0
 
     send fn tick(n: Int) {
@@ -8742,6 +8748,8 @@ handler Summing() of Tally {
 }
 
 handler Counting() [Log, Tally] of Counter {
+    mailbox { capacity: 8 }
+
     send fn bump(n: Int) {
         note("bumped ${n}")
         tick(n)
@@ -8754,8 +8762,8 @@ handler Counting() [Log, Tally] of Counter {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let tally = spawn Summing() capacity 8 on pool(1)
-    let counter = spawn Counting() use Recording(), tally capacity 8 on pool(1)
+    let tally = spawn Summing() on pool(1)
+    let counter = spawn Counting() use Recording(), tally on pool(1)
     counter.bump(2)
     counter.bump(3)
     let last = waitfor out: Reply<Str> {
@@ -8843,11 +8851,13 @@ actor effect Counter {
 }
 
 handler Counting<T>(seed: T) of Counter {
+    mailbox { capacity: 8 }
+
     send fn bump(n: Int) {}
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting(1) capacity 1 on pool(1)
+    let c = spawn Counting(1) on pool(1)
 }
 "#,
     );
@@ -8886,12 +8896,16 @@ actor effect Notices {
 }
 
 handler Rows() of Db {
+    mailbox { capacity: 4 }
+
     send fn lookup(id: Int, out: Reply<Str>) {
         out.send("row ${id}")
     }
 }
 
 handler Fetching() [Db] of Notices {
+    mailbox { capacity: 4 }
+
     send fn fetch(id: Int, out: Reply<Str>) {
         lookup(id, replyto arrived(out))
     }
@@ -8904,8 +8918,8 @@ handler Fetching() [Db] of Notices {
 fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(2)
-    let rows = spawn Rows() capacity 4 on p
-    let fetcher = spawn Fetching() use rows capacity 4 on p
+    let rows = spawn Rows() on p
+    let fetcher = spawn Fetching() use rows on p
     let answer = waitfor out: Reply<Str> {
         fetcher.fetch(7, out)
     }
@@ -8932,12 +8946,16 @@ actor effect Trace {
 }
 
 handler Echoing() of Echo {
+    mailbox { capacity: 4 }
+
     send fn ping(out: Reply<Str>) {
         out.send("R")
     }
 }
 
 handler Tracing() [Echo] of Trace {
+    mailbox { capacity: 4 }
+
     steps: Mut List<Str> = mut_list_of()
 
     send fn start() {
@@ -8960,8 +8978,8 @@ handler Tracing() [Echo] of Trace {
 fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(3)
-    let echo = spawn Echoing() capacity 4 on p
-    let tracer = spawn Tracing() use echo capacity 4 on p
+    let echo = spawn Echoing() on p
+    let tracer = spawn Tracing() use echo on p
     tracer.start()
     tracer.note("late")
     let got = waitfor out: Reply<Str> {
@@ -8984,6 +9002,8 @@ actor effect Steps {
 }
 
 handler Stepping() of Steps {
+    mailbox { capacity: 4 }
+
     steps: Mut List<Str> = mut_list_of()
 
     send fn begin(n: Int, out: Reply<Str>) {
@@ -8999,7 +9019,7 @@ handler Stepping() of Steps {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let s = spawn Stepping() capacity 4 on pool(1)
+    let s = spawn Stepping() on pool(1)
     let spawned = waitfor out: Reply<Str> {
         s.begin(1, out)
     }
@@ -9067,6 +9087,8 @@ actor effect Counter {
 }
 
 handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
     sum: Int = 0
 
     send fn bump(n: Int) {
@@ -9083,7 +9105,7 @@ handler Counting() of Counter {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let c = spawn Counting() capacity 8 on pool(1)
+    let c = spawn Counting() on pool(1)
     c.bump(2)
     let died = waitfor out: Reply<Exit> {
         watch(c, out)
@@ -9120,6 +9142,8 @@ actor effect Desk {
 }
 
 handler Desking() of Desk {
+    mailbox { capacity: 8 }
+
     waiting: Mut List<Reply<Str>> = mut_list_of()
 
     send fn ticket(out: Reply<Str>) {
@@ -9145,7 +9169,7 @@ handler Desking() of Desk {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let desk = spawn Desking() capacity 8 on pool(1)
+    let desk = spawn Desking() on pool(1)
     let first = waitfor a: Reply<Str> {
         desk.ticket(a)
         let second = waitfor b: Reply<Str> {
@@ -9302,10 +9326,14 @@ actor effect Notices {
 }
 
 handler Rows() of Db {
+    mailbox { capacity: 8 }
+
     send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
 }
 
 handler Fetching() [Db] of Notices {
+    mailbox { capacity: 8 }
+
     send fn fetch(id: Int) {
         lookup(copy(id), replyto arrived(id))
     }
@@ -9313,7 +9341,7 @@ handler Fetching() [Db] of Notices {
 }
 
 fn main() [use, spawn] {
-    let rows = spawn Rows() capacity 4 on pool(1)
+    let rows = spawn Rows() on pool(1)
     use rows
     use Fetching()
     fetch(9)
@@ -9331,19 +9359,23 @@ actor effect Ask {
 }
 
 handler Rows() of Db {
+    mailbox { capacity: 8 }
+
     send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
     send fn arrived(id: Int, text: Str) {}
 }
 
 handler Asking() [Db] of Ask {
+    mailbox { capacity: 4 }
+
     send fn go(id: Int) {
         lookup(copy(id), replyto arrived(id))
     }
 }
 
 fn main() [use, spawn] {
-    let rows = spawn Rows() capacity 4 on pool(1)
-    let a = spawn Asking() use rows capacity 4 on pool(1)
+    let rows = spawn Rows() on pool(1)
+    let a = spawn Asking() use rows on pool(1)
     a.go(1)
 }
 "#;
@@ -9361,6 +9393,8 @@ actor effect Log {
 }
 
 handler Counting() of Log {
+    mailbox { capacity: 8 }
+
     seen: Int = 0
 
     send fn note(what: Str) {
@@ -9379,7 +9413,7 @@ fn work() [Log] {
 
 fn main() [use, spawn] {
     use StdOutConsole()
-    let logger = spawn Counting() capacity 8 on pool(1)
+    let logger = spawn Counting() on pool(1)
     use logger
     work()
     let n = waitfor out: Reply<Int> {

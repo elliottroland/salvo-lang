@@ -86,7 +86,8 @@ handler shape — that collision is T-4.
   never be wedged by a full mailbox.
 - **The first-pass surface is frozen**: `send fn` members only, explicit
   `replyto`/`replyto!`, `r.send(v)`, `Addr<T>`, `use addr`, spawn-site `use`
-  clause, `capacity N on POOL`, and `waitfor` **legal only in `main`** —
+  clause, `on POOL` (the mailbox is the handler's `mailbox { capacity: … }`
+  slot since 2026-09-16), and `waitfor` **legal only in `main`** —
   main's sole token source. T-5 is the proposal to amend the last item.
 - **A handler implements one effect** (the shape today). The pure-Salvo test
   timer therefore needs a forwarding handler between its `Timer` face and its
@@ -342,7 +343,7 @@ draining, stats — the test control here is one instance).
 ```
 handler ManualTime of Timer, TimerCtl { … }
 
-let (timer, ctl) = spawn ManualTime() capacity 64 on pool(1)
+let (timer, ctl) = spawn ManualTime() on pool(1)
 //   ^Addr<Timer>  ^Addr<TimerCtl> — least authority falls out of the types:
 //   production code holding `timer` cannot name `advance`.
 ```
@@ -444,11 +445,11 @@ against a 2000ms deadline via two bare `replyto` mints over a pending map).
 ```
 fn main() [use, spawn] {
     use DefaultClock()                          // intrinsic: OS monotonic
-    let timer  = spawn DefaultTimer() capacity 256 on pool(1)
+    let timer  = spawn DefaultTimer() on pool(1)
     //           intrinsic: deadline heap + one waiting thread (Rust),
     //           ScheduledThreadPoolExecutor (JVM) — §2
-    let credit = spawn CreditBureau(...) capacity 64 on pool(4)
-    let orders = spawn OrderService(credit) [timer] capacity 64 on pool(4)
+    let credit = spawn CreditBureau(...) on pool(4)
+    let orders = spawn OrderService(credit) [timer] on pool(4)
     // ... serve; the program ends when main returns — pending timers die with it
 }
 ```
@@ -478,9 +479,9 @@ handler ManualTime of Timer, TimerCtl {          // T-4: two faces, one state
 
 fn main() [use, spawn] {
     let p = pool(1)
-    let (timer, ctl) = spawn ManualTime() capacity 64 on p
-    let credit       = spawn SilentCredit() capacity 16 on p    // never answers
-    let orders       = spawn OrderService(credit) [timer] capacity 16 on p
+    let (timer, ctl) = spawn ManualTime() on p
+    let credit       = spawn SilentCredit() on p    // never answers
+    let orders       = spawn OrderService(credit) [timer] on p
 
     let outcome = waitfor result: Reply<Placed | Rejected Str> {
         orders.place(order(7), result)
@@ -516,9 +517,9 @@ handler TestClock of Clock [Timer, waitfor] {    // T-5(b): dependency, not colo
 fn main() [use, spawn] {
     let tp = pool(1)                              // the timer's own pool — T-5's
     let p  = pool(1)                              //   wedge hazard, budgeted away
-    let (timer, ctl) = spawn ManualTime() capacity 64 on tp
-    let credit       = spawn SilentCredit() capacity 16 on p
-    let orders       = spawn OrderService(credit) [use TestClock(), timer] capacity 16 on p
+    let (timer, ctl) = spawn ManualTime() on tp
+    let credit       = spawn SilentCredit() on p
+    let orders       = spawn OrderService(credit) [use TestClock(), timer] on p
 
     let outcome = waitfor result: Reply<Placed | Rejected Str> {
         orders.place(order(7), result)

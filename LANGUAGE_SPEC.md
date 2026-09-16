@@ -2479,25 +2479,63 @@ LANGUAGE.md remains the source of truth for everything that does.
     *expression* only, which made the declaration on `pool` decorative: a
     caller reached it through an undeclared helper. Fixed with the `watch`
     slice, since `watch` is the second `[spawn]` function there has ever been.
-* [actor-spawn-expr] `spawn H(args) use D1(...), addr capacity N on POOL` is
-  the asynchronous binding, and its value is the child's `Addr`. Read left to
-  right: what to run, what it depends on, how deep its queue is, where it
-  runs.
+* [actor-mailbox] **A handler of an actor effect declares its mailbox** (user
+  decision 2026-09-16, replacing the frozen `capacity N` spawn clause):
+
+  ```
+  handler Desking(room: Int) of Desk {
+      mailbox { capacity: room }
+      …
+  }
+  ```
+
+  * **`mailbox` names a compiler-known slot**, and the braces are a **struct
+    literal with the type elided** — the slot's type is std's
+    `struct Mailbox { capacity: Int }`, so field names, types, a missing field
+    and an unknown one are the ordinary struct diagnostics, and a *future*
+    setting (an overflow policy, say) is a **field** on that struct rather than
+    new grammar. That is what keeps `mailbox` one word of grammar instead of a
+    special case.
+  * **Required** on a handler of an `actor effect`, with no default: a queue
+    bound the compiler chose would be a performance cliff nobody wrote. What
+    moved is only *where* it is said — once, by the author who knows the
+    protocol's traffic, instead of at every spawn.
+  * **Refused** on a handler of a plain effect: its members run on the
+    caller's thread, so there is no queue to bound. Under `use`, an actor
+    handler's mailbox is simply **inert** — the same handler binds both ways
+    [actor-kind], and only one of the two has a queue.
+  * Its field expressions see **constructor parameters only** — the bound is
+    wanted before the actor exists, ahead of every state initialiser — so a
+    state field is not in scope and no effect can be performed to compute one.
+    Consuming a parameter there is refused by [effect-state-store] already, a
+    `Copy` scalar excepted [copy-scalar-free], which is why
+    `mailbox { capacity: room }` is the ordinary shape.
+  * `mailbox` is **contextual**: a state field may still be called `mailbox`
+    (`mailbox: Int = 3`), and only a brace after the word makes the slot.
+  * **No spawn-site override**, deliberately: exposing the bound as a
+    constructor parameter *is* the override, and it needs no grammar.
+* [actor-spawn-expr] `spawn H(args) use D1(...), addr on POOL` is the
+  asynchronous binding, and its value is the child's `Addr`. Read left to
+  right: what to run, what it depends on, where it runs — the queue depth is
+  the handler's [actor-mailbox].
   * The **`use` clause is optional** and supplies the child's declared
     dependencies [effect-handler-deps]; each item is a handler
     *construction* or an `Addr` (the same effect backed by an actor),
     which is what lets an actor and a local handler swap without touching
     the consuming code. Arguments evaluate in the parent and cross the
     seam; construction happens on the child.
-  * **`capacity N` is required, with no default**: the mailbox bound is a
-    property of *this instance*, so it sits at the spawn site and not on the
-    handler (a bound on the declaration would be meaningless for a `use`d
-    handler, and would mark handlers async-only).
+  * **The mailbox is not a clause here.** It was `capacity N` until
+    2026-09-16, on the argument that a bound is a property of *this instance*;
+    the counter-argument won (user decision): the author who knows the
+    protocol's traffic is the handler's, the bound is then written once instead
+    of per spawn, and a per-instance bound stays expressible by taking it as a
+    constructor parameter. What the old rationale got right survives as the
+    plain-effect refusal [actor-mailbox].
   * **`on POOL` is required** (user decision 2026-09-15, confirming the
     frozen grammar's reading) and takes an ordinary expression: `pool(n)` is
     a function declared `[spawn]`, not syntax. Every spawn therefore says
     where it runs; there is no ambient default pool to inherit.
-  * `spawn` and the three clause words are **contextual**; the form is
+  * `spawn` and its clause words are **contextual**; the form is
     recognised from `spawn` followed by a name, so a function named `spawn`
     is still callable. A handler construction is **not a value** — only
     `use` and `spawn` may write one — which is why this is a form with
@@ -2520,7 +2558,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     the child's environment in declaration order without re-deriving it
     (and without disagreeing about it) — `use tally, Recording()` and
     `use Recording(), tally` are one program.
-  * `capacity` must be an `Int` and `on` a `Pool`.
+  * `on` must be a `Pool`; the mailbox is typed where it is declared.
 * [actor-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
   and `main`'s only token source (`replyto` targets a member of the enclosing
   handler, and `main` has none): it mints a token, requires the block to

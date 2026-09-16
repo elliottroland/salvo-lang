@@ -217,11 +217,11 @@ links to the section that states the options.
 | **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
-| **The spawn line** — is `capacity` folded into the `on` expression (and are clauses breakable across lines)? | next, now that phase 5 is done | "The spawn line" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 
-(**One phase-5 row remains**, added when its design document retired: the
-spawn-line respelling. The four original DECISIONs, the
+(**No phase-5 rows remain**: the spawn-line respelling, the last one, was
+decided and built 2026-09-16 — the mailbox moved to the handler
+[actor-mailbox]. The four original DECISIONs, the
 supervision/monitors story, and the three questions the build itself surfaced
 — self-sends, sendability's content, and the sequencing of the effect
 unification against the rest of the phase — were all decided 2026-09-14/15;
@@ -1177,7 +1177,7 @@ scheduler library, the declaration forms, the expression forms, the types, the
 checker rules, the emitters' first cut — then the respelling sweep, the
 `actor effect` kind, the forwarding stub, **dependent-handler spawns**, and
 **`replyto` / `@self`**. The smallest running program is the counter in both
-backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
+backends' codegen tests: `spawn Counting() on pool(1)`,
 `counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
 `sum 5` from Kotlin and Rust alike; the one that shows what the surface is
 *for* is the fetcher beside it, which parks a continuation for a database
@@ -1377,61 +1377,24 @@ consumption; linearity survived sends [linear-obligation] and became the
 reply-token guarantee; supervision-as-handler became interception across the
 scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
 
-## The spawn line — DECISION (carried out of the retired design document)
+## The spawn line — ✅ decided and built 2026-09-16
 
-The one thing phase 5's working documents still had open when they retired
-(2026-09-16). The user finds the frozen spawn line cumbersome — several keyword
-clauses running together:
+The cumbersome three-clause spawn line is gone: **the mailbox moved to the
+handler** (`mailbox { capacity: 16 }`, a slot whose braces are a `Mailbox`
+struct literal with the type elided), so a spawn now reads
+`spawn H(args) use deps on pool(2)` — what to run, what it depends on, where.
+The record, the options considered and what the survey of *other* actor
+parameters settled (mailbox shape belongs to the handler, placement to the
+spawn site) are in COMPLETED.md's log; the rules are [actor-mailbox] and
+[actor-spawn-expr].
 
-```
-spawn NoticeFetcher(25, seconds(5)) use MemFs(root), StdOutConsole() capacity 16 on pool(2)
-```
-
-The spelling was marked revisitable when it was frozen ("nothing downstream
-depends on the words"), and what the decided record constrains is only this:
-`spawn` stays a **form**, not a call (a handler construction is not a value);
-the clause keywords are the named parameters the language does not otherwise
-have; `capacity` and `on` are required with no defaults; the `use` clause stays
-restricted to constructions and `Addr`s.
-
-- **(a) Continuation-line clauses — layout only.** Each clause may start on its
-  own line; the form ends after `on`. Precedent: a deduction clause is legal
-  "on the same line or the next" [deduce-syntax]. Fixes the scanning problem at
-  zero grammar cost, and keeps every frozen word.
-- **(b) Fold `capacity` into the `on` expression.** A `Placement` value built
-  by ordinary functions — `pool(2).queue(16)`, or `io.queue(16)` over a shared
-  pool — with `on` taking a `Placement` and a bare `Pool` refused, so "capacity
-  explicit, required, no default" survives as a *type* rule rather than a
-  keyword. Three clauses become two; the bound is labeled by a function name,
-  which is how Salvo labels arguments without named parameters; a `Placement`
-  is an ordinary shareable value. Cost: the bound belongs to the actor, and the
-  chain visually attaches it to the pool; one new `core.actor` type.
-- **(c) The spawn block** — clauses one per line inside braces, read as the
-  child's init preamble:
-
-  ```
-  let fetcher = spawn NoticeFetcher(25, seconds(5)) {
-      use ddb, SystemTimer()
-      capacity 16
-      on pool(2)
-  }
-  ```
-
-  Principled ("a spawn is a `use` whose dependencies come from its own clause"
-  [actor-spawn-expr]) and has room to grow if supervision options ever join the
-  spawn site. Costs: a braced block that is neither code nor a struct literal,
-  and a call on whether the inline form survives beside it.
-- **(d) Rejected for the record**: a bracketed dependency list
-  (`spawn H(25) [DbApi: db, Timer: clock]`) — colon pairs exist nowhere else,
-  the positional form is fragile against declaration reordering, and `use`
-  already says the right thing.
-
-**Recommendation: (b) + (a)** — `spawn H(args) use deps on io.queue(16)`,
-breakable across lines. The smallest change that attacks both complaints, with
-(c) held in reserve for when the clause set grows. Whichever is chosen is an
-outright respelling of landed surface: the parser, [actor-spawn-expr], both
-emitters' spawn paths, the actor tests, `examples/actors/` and its two
-generated trees. Roughly the size of item 1's sweep.
+What that leaves for the spawn line itself, if it is ever revisited:
+**continuation-line clauses** (each clause may start on its own line, as a
+deduction clause may) were part of the recommendation and are *not* built — two
+clauses fit on a line, so the need went away with `capacity`. And **placement**
+is where the remaining knobs would go: `on pool(2).throughput(50)` or
+`on pinned()` if a fairness or affinity control is ever wanted, which is the
+half of the parameter survey the spawn site owns.
 
 ## The sugar pass — after phase 5 (user decision 2026-09-15)
 

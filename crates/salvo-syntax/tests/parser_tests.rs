@@ -1634,8 +1634,9 @@ fn use_them(m: Mailer) -> Int {
 
 /// [actor-spawn-expr] [actor-replyto] [actor-waitfor] The asynchronous
 /// surface's *expression* forms, in one program that uses every clause:
-/// `spawn` with a spawn-site `use` clause, a mailbox `capacity` and an `on`
-/// pool; `replyto` and its gated `replyto!`; and `waitfor`, `main`'s bridge.
+/// `spawn` with a spawn-site `use` clause and an `on` pool (the mailbox is the
+/// handler's slot [actor-mailbox]); `replyto` and its gated `replyto!`; and
+/// `waitfor`, `main`'s bridge.
 #[test]
 fn the_asynchronous_expression_forms_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
@@ -1665,8 +1666,8 @@ handler Counting() of Counter {
 }
 
 fn main() [use, spawn] {
-    let counter = spawn Counting() capacity 16 on pool(2)
-    let audited = spawn Counting() use counter, Counting() capacity 4 on pool(1)
+    let counter = spawn Counting() on pool(2)
+    let audited = spawn Counting() use counter, Counting() on pool(1)
     use counter
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
@@ -1737,7 +1738,6 @@ fn main() [use, spawn] {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -1746,10 +1746,6 @@ fn main() [use, spawn] {
                 "the handler construction is a call: {handler:?}"
             );
             assert!(uses.is_empty(), "no `use` clause was written");
-            assert!(
-                matches!(capacity.as_ref(), Expr::Int { value: 16, .. }),
-                "capacity 16: {capacity:?}"
-            );
             assert!(
                 matches!(pool.as_ref(), Expr::Call { .. }),
                 "`on pool(2)` is an ordinary call: {pool:?}"
@@ -1815,31 +1811,16 @@ fn collect_replyto(
     }
 }
 
-/// [actor-spawn-expr] The clause words are **contextual**, and the two
-/// required clauses are required: a spawn without them is a parse error that
-/// names the missing clause, and `capacity`/`on`/`replyto`/`waitfor` all stay
-/// usable as ordinary names.
+/// [actor-spawn-expr] [actor-mailbox] The clause words are **contextual**, and
+/// `on` is required: a spawn without it is a parse error naming the clause. The
+/// mailbox bound is no longer a clause at all — it is the handler's `mailbox`
+/// slot (user decision 2026-09-16), which is why `capacity` is an ordinary word
+/// again everywhere except inside that block.
 #[test]
-fn a_spawn_states_its_capacity_and_its_pool() {
-    let missing_capacity = "\
-handler H() of E {
-}
-
-fn main() [use, spawn] {
-    let h = spawn H() on pool(1)
-}
-";
-    let (_m, diagnostics) = salvo_syntax::parse_module(missing_capacity);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("mailbox bound")),
-        "expected the missing-capacity error: {diagnostics:?}"
-    );
-
+fn a_spawn_states_its_pool() {
     let missing_pool = "\
 fn main() [use, spawn] {
-    let h = spawn H() capacity 8
+    let h = spawn H()
 }
 ";
     let (_m, diagnostics) = salvo_syntax::parse_module(missing_pool);
@@ -1848,6 +1829,73 @@ fn main() [use, spawn] {
             .iter()
             .any(|d| d.is_error() && d.message.contains("where it runs")),
         "expected the missing-pool error: {diagnostics:?}"
+    );
+
+    // `capacity` outside the slot is an ordinary identifier.
+    let ordinary = "\
+fn main() [use] -> Int {
+    let capacity = 8
+    return capacity
+}
+";
+    let (_m, diagnostics) = salvo_syntax::parse_module(ordinary);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "`capacity` is not reserved: {errors:?}");
+}
+
+/// [actor-mailbox] The slot itself: a struct literal with its type elided, and
+/// `mailbox` contextual — a state field may still be called `mailbox`.
+#[test]
+fn a_handler_declares_its_mailbox() {
+    use salvo_syntax::ast::{Expr, Item};
+
+    let source = "\
+actor effect E {
+    send fn ping()
+}
+
+handler H(room: Int) of E {
+    mailbox { capacity: room }
+    seen: Int = 0
+    send fn ping() {}
+}
+
+handler Odd() of E {
+    mailbox { capacity: 1 }
+    mailbox: Int = 3
+    send fn ping() {}
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let handlers: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Handler(h) => Some(h),
+            _ => None,
+        })
+        .collect();
+    let slot = handlers[0]
+        .mailbox
+        .as_ref()
+        .expect("the slot parsed into the handler");
+    match slot {
+        Expr::StructLit { ty, fields, .. } => {
+            assert!(
+                format!("{ty:?}").contains("Mailbox"),
+                "the slot's type is elided-but-known: {ty:?}"
+            );
+            assert_eq!(fields.len(), 1, "one field: {fields:?}");
+        }
+        other => panic!("the slot is a struct literal, got {other:?}"),
+    }
+    // A *field* called `mailbox` is still a field: only a brace makes the slot.
+    assert!(
+        handlers[1].mailbox.is_some() && handlers[1].state.len() == 1,
+        "a state field named `mailbox` must survive: {:?}",
+        handlers[1].state
     );
 }
 
@@ -1906,6 +1954,8 @@ actor effect Work {
 }
 
 handler Working() of Work {
+    mailbox { capacity: 1 }
+
     send fn start(n: Int) {
         step@self(n)
     }
@@ -1937,6 +1987,8 @@ handler Working() of Work {
 
     let old_form = "\
 handler Working() of Work {
+    mailbox { capacity: 1 }
+
     send fn start(n: Int) {
         self.step(n)
     }

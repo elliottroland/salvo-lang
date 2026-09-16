@@ -1307,6 +1307,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     *not dropping*: `replace(key, value) -> Option<V>` (`insert` answers
     nothing, so it cannot be the write for a map of obligations) and
     `into_values() -> Vec<V>`, which is what `drain(map, each)` walks.
+* [rs-mailbox] [actor-mailbox] **The mailbox bound is a generated field on the
+  handler**, `__mailbox_capacity: i32`, initialised by `new` from the slot's
+  expression — which is exactly where a state field's initialiser is computed,
+  and the reason the slot's expressions are confined to constructor parameters:
+  in `new`'s scope they are simply in scope.
+  * A spawn therefore reads the bound **off the instance**, before it moves
+    into the actor body: `({ let __h = H::new(args); let __cap =
+    __h.__mailbox_capacity; salvo_spawn(pool, __cap as usize,
+    Box::new(__Actor_H::new(__h))) })`. The ordering is the point — the
+    alternative (emitting the slot's expression at the spawn site) would need
+    the constructor arguments in scope there, and would evaluate them twice.
 * [rs-is-hoist] [is-bind-once] **A non-place `is` subject becomes a
   temporary**, read by both the test and the binding: `let mut __is1 = <subject>;`
   before an `if`, and inside a `loop` for a `while` — which is why a `while`

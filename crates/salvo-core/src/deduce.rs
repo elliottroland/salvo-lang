@@ -1102,7 +1102,6 @@ impl<'p> Walk<'_, 'p> {
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 ..
             } => {
@@ -1110,7 +1109,6 @@ impl<'p> Walk<'_, 'p> {
                 for handler in uses {
                     self.expr(handler);
                 }
-                self.expr(capacity);
                 self.expr(pool);
             }
             // [actor-self-send] A leaf: nothing to walk into.

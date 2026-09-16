@@ -257,6 +257,10 @@ pub const THROWN_QUALIFIER: &str = "Thrown";
 pub const ADDR_TYPE: &str = "Addr";
 /// [actor-replyto] The linear one-shot answer token, from `core.actor`.
 pub const REPLY_TYPE: &str = "Reply";
+/// [actor-mailbox] The std struct a handler's `mailbox { … }` slot builds,
+/// from `core.actor`: the slot is that struct's literal with the type elided.
+pub const MAILBOX_TYPE: &str = "Mailbox";
+
 /// [actor-spawn-expr] The thread pool a spawn names in its `on` clause,
 /// from `core.actor`.
 pub const POOL_TYPE: &str = "Pool";
@@ -1678,6 +1682,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
                     let saved_of =
                         std::mem::replace(&mut self.handler_of, Some(of_ty.clone()));
+                    // [actor-mailbox] The actor settings slot, before the
+                    // state fields: it is the one part of a handler that is
+                    // computed *before* any state exists.
+                    self.check_mailbox_slot(h, &of_ty);
                     for field in &h.state {
                         self.validate_type(&field.ty);
                         self.check_proj_field(&h.name.name, field);
@@ -4595,6 +4603,109 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         (env, can_use, can_spawn)
+    }
+
+    /// [actor-mailbox] The `mailbox { capacity: … }` slot on a handler (user
+    /// decision 2026-09-16). Three rules, and each one is why the slot is
+    /// better placed here than at every spawn:
+    ///
+    /// * **required** on a handler of an `actor effect` — the queue depth has
+    ///   no default, exactly as it had none at the spawn site, but now it is
+    ///   stated once by the author who knows the protocol's traffic;
+    /// * **refused** on a handler of a plain effect, where there is no queue to
+    ///   bound (a synchronous handler's members run on the caller's thread);
+    /// * its field expressions see **constructor parameters only**. The value
+    ///   is wanted before the actor exists — the scheduler needs the bound at
+    ///   spawn time, ahead of any state initialiser — so state fields are not
+    ///   in scope, and an effect cannot be performed to compute it. Consuming
+    ///   one of those parameters is refused by [effect-state-store] already
+    ///   (the handler stores what it was built with), so there is no rule here
+    ///   for it.
+    ///
+    /// The braces are a `Mailbox` struct literal with the type elided, so the
+    /// field names, their types, a missing one and an unknown one are all the
+    /// ordinary struct diagnostics.
+    fn check_mailbox_slot(&mut self, h: &'p ast::HandlerDecl, of: &Ty) {
+        let is_actor = match of.strip_quals() {
+            Ty::Named { name, .. } => self
+                .scope
+                .effects
+                .get(name.as_str())
+                .is_some_and(|e| e.is_actor),
+            _ => false,
+        };
+        match (&h.mailbox, is_actor) {
+            (None, true) => {
+                self.error(
+                    h.name.span,
+                    format!(
+                        "`{}` handles an actor effect, so it has a mailbox and has to \
+                         say how deep it is: add `mailbox {{ capacity: 16 }}` (or take \
+                         it as a constructor parameter — `mailbox {{ capacity: \
+                         capacity }}`). There is no default, because a queue bound \
+                         chosen by the compiler is a performance cliff nobody wrote",
+                        h.name.name
+                    ),
+                );
+            }
+            (Some(mailbox), false) => {
+                self.error(
+                    mailbox.span(),
+                    format!(
+                        "only a handler of an `actor effect` has a mailbox, and `{}` \
+                         handles a plain one: its members run on the caller's thread, \
+                         so there is no queue to bound",
+                        h.name.name
+                    ),
+                );
+            }
+            (Some(mailbox), true) => {
+                // Constructor parameters only: the bound is computed when the
+                // handler is built, before any state exists.
+                let mut top: HashMap<String, LocalVar> = HashMap::new();
+                for p in &h.params {
+                    let ty = self.lower_type(&p.ty);
+                    let id = self.next_var_id;
+                    self.next_var_id += 1;
+                    top.insert(
+                        p.name.name.clone(),
+                        LocalVar {
+                            declared: ty.clone(),
+                            narrowed: ty,
+                            id,
+                            links: Vec::new(),
+                            poison: None,
+                            consumed_by: None,
+                            linear_settled: false,
+                            is_param: true,
+                            for_origin: None,
+                            decl_span: p.name.span,
+                            lambda_kept: false,
+                            is_handler_state: false,
+                            widened: None,
+                            place_narrows: Vec::new(),
+                            moved_places: Vec::new(),
+                            used: true,
+                        },
+                    );
+                }
+                self.locals.push(top);
+                let expected = Ty::named(MAILBOX_TYPE);
+                let got = self.check_expr(mailbox, Some(&expected));
+                if !got.is_unknown() && !is_subtype(&got, &expected) {
+                    self.error(
+                        mailbox.span(),
+                        format!("a `mailbox` slot builds a `{expected}`, found `{got}`"),
+                    );
+                }
+                self.locals.pop();
+                // Consuming a constructor parameter here needs no rule of its
+                // own: [effect-state-store] already refuses it, because the
+                // handler stores what it was built with — and its message names
+                // `copy`, which is the remedy here too.
+            }
+            (None, false) => {}
+        }
     }
 
     /// Lowers one named entry of an effect list, validating that it refers
@@ -8591,30 +8702,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::none()
     }
 
-    /// [actor-spawn-expr] `spawn H(args) use D(...), addr capacity N on POOL`
-    /// — the asynchronous binding of a handler. Almost every rule here is a
-    /// rule `use` already has, moved to the spawn site: the same handler
+    /// [actor-spawn-expr] `spawn H(args) use D(...), addr on POOL` — the
+    /// asynchronous binding of a handler. Almost every rule here is a rule
+    /// `use` already has, moved to the spawn site: the same handler
     /// construction, the same dependency resolution, the same
     /// argument-is-stored consumption. What differs is *where* the
     /// dependencies come from — the spawn's own `use` clause, because a
     /// handler never crosses into an actor (only construction does) — and
     /// that the result is a value: the child's `Addr<E>`.
+    ///
+    /// [actor-mailbox] The mailbox bound is **not** a clause here: it is the
+    /// handler's own slot (user decision 2026-09-16), so a spawn says what to
+    /// run, what it depends on and where — and the queue depth is stated once,
+    /// by the author who knows the protocol.
     fn check_spawn(
         &mut self,
         handler: &'p Expr,
         uses: &'p [Expr],
-        capacity: &'p Expr,
         pool: &'p Expr,
         span: Span,
     ) -> Ty {
-        // The mailbox bound and the pool are ordinary expressions.
-        let cap_ty = self.check_expr(capacity, Some(&Ty::named("Int")));
-        if !cap_ty.is_unknown() && !is_subtype(&cap_ty, &Ty::named("Int")) {
-            self.error(
-                capacity.span(),
-                format!("a mailbox bound is an `Int`, found `{cap_ty}`"),
-            );
-        }
         let pool_ty = self.check_expr(pool, Some(&Ty::named(POOL_TYPE)));
         if !pool_ty.is_unknown() && !is_subtype(&pool_ty, &Ty::named(POOL_TYPE)) {
             self.error(
@@ -8689,7 +8796,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "handler `{}` depends on effect `{want}`, which this spawn does \
                          not supply: a spawned handler's dependencies come from its own \
-                         `use` clause (`spawn {}(...) use SomeHandler() capacity 1 on \
+                         `use` clause (`spawn {}(...) use SomeHandler() on \
                          pool(1)`), never from the spawning scope",
                         id.name, id.name
                     ),
@@ -11251,7 +11358,6 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
@@ -11259,7 +11365,6 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_assigned_expr(handler, out);
             }
-            collect_assigned_expr(capacity, out);
             collect_assigned_expr(pool, out);
         }
         // [actor-replyto] The captures are ordinary expressions.
@@ -11481,13 +11586,11 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         Expr::Spawn {
             handler,
             uses,
-            capacity,
             pool,
             ..
         } => {
             expr_mentions(handler, name)
                 || uses.iter().any(|h| expr_mentions(h, name))
-                || expr_mentions(capacity, name)
                 || expr_mentions(pool, name)
         }
         // [actor-replyto] A capture is a value the continuation takes.
@@ -13234,10 +13337,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Spawn {
                 handler,
                 uses,
-                capacity,
                 pool,
                 span,
-            } => self.check_spawn(handler, uses, capacity, pool, *span),
+            } => self.check_spawn(handler, uses, pool, *span),
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
             // member is [effect-not-data]. Reached only when one is written
