@@ -2050,6 +2050,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_gated_continuation,
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
+    kotlinc_compiles_and_runs_obligations_in_a_collection,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -9307,6 +9308,83 @@ fn main() [use, spawn] {
     println("done")
 }
 "#;
+
+/// [linear-container] [linear-state] **Obligations in a collection**, end to
+/// end. Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_obligations_in_a_collection`: a process parks reply
+/// tokens in `Mut List<Reply<Str>>` state, answers one with `remove_first`, and
+/// `drain`s the rest on shutdown, putting a fresh list back.
+const LINEAR_QUEUE: &str = r#"
+async effect Desk {
+    send fn ticket(out: Reply<Str>) => !out
+    send fn serve(name: Str) => !name
+    send fn close_up(reason: Str) => !reason
+}
+
+handler Desking() of Desk {
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn ticket(out: Reply<Str>) {
+        add(waiting, out)
+    }
+
+    // One obligation leaves the queue, and the `None` arm owes nothing.
+    send fn serve(name: Str) {
+        let next = remove_first(waiting)
+        when next {
+            is Reply<Str> { next.send("served ${name}") }
+            is None { discard(name) }
+        }
+    }
+
+    // The terminal: every parked token is answered, and the state is whole
+    // again before the activation ends.
+    send fn close_up(reason: Str) {
+        drain(waiting, r -> send(r, "closed: ${reason}"))
+        waiting = mut_list_of()
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let desk = spawn Desking() capacity 8 on pool(1)
+    let first = waitfor a: Reply<Str> {
+        desk.ticket(a)
+        let second = waitfor b: Reply<Str> {
+            desk.ticket(b)
+            desk.serve("ada")
+            desk.close_up("end of day")
+        }
+        println("second ${second}")
+    }
+    println("first ${first}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_obligations_in_a_collection() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", LINEAR_QUEUE)]),
+        "linear-queue",
+        "second closed: end of day\nfirst served ada\n",
+    )
+}
+
+/// [kt-process] [linear-container] The lowering: Kotlin needs no `mem::take`
+/// equivalent — objects are references, and the checker made the member assign
+/// a fresh list before it returned — so a drain is `forEach` over a snapshot.
+#[test]
+fn draining_state_lowers_to_a_foreach_kotlin() {
+    let files = generate_files(&[("main.sv", LINEAR_QUEUE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content.contains("(waiting).toList().forEach("),
+        "the drain is not a forEach over a snapshot:\n{}",
+        main.content
+    );
+}
 
 fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {
     kotlin_case(

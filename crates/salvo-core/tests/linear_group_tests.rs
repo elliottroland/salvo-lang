@@ -13,12 +13,15 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic type List<T> canbe Mut\n\
+     intrinsic type List<T canbe linear> canbe Mut\n\
      intrinsic fn copy<T>(value: T) [] -> T => value\n\
      intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
      intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
      intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
+     intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut\n\
+     intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None\
+     =>[each] !x => !list, each\n\
      \
      qualifier Emitted<T> of T\n\
      struct Finished {}\n\
@@ -259,13 +262,18 @@ fn a_struct_field_cannot_hold_a_linear_value() {
 /// A field of *composite* type is refused at the composite, not at the
 /// field: the message names the position the value would have landed in.
 #[test]
-fn a_struct_field_cannot_hold_a_list_of_linear_values() {
+fn a_struct_field_holding_a_container_of_obligations_needs_the_marker() {
+    // [linear-container] LC-3 (user decision 2026-09-15): a `List<Lines>` is
+    // itself linear now, so a struct field of that type makes the *struct* a
+    // resource — and contagion stays **spelled**: the marker is the remedy,
+    // exactly as it is for a concrete linear field.
     let errs = errors(&format!(
         "{LINES}\nstruct Holder {{\n    handles: Mut List<Lines>\n}}\n"
     ));
     assert_eq!(errs.len(), 1, "got {errs:?}");
     assert!(
-        errs[0].contains("`Lines` is linear, so it cannot be a type argument of `List`"),
+        errs[0].contains("field `Holder.handles` makes the container a resource too")
+            && errs[0].contains("declare `linear struct Holder`"),
         "got {errs:?}"
     );
 }
@@ -273,19 +281,35 @@ fn a_struct_field_cannot_hold_a_list_of_linear_values() {
 /// A handler's state is a composite too — the same refusal, at the same
 /// place in the message.
 #[test]
-fn handler_state_cannot_hold_a_linear_value() {
+fn handler_state_holds_containers_but_not_bare_obligations() {
+    // [linear-state] LC-4 (user decision 2026-09-15): a process owns its
+    // obligations, and the shapes the concurrency surface is for live in
+    // handler state — but a **bare** obligation in a field could never be
+    // taken back out (that would leave a hole, and nothing could be put
+    // back), so the container is the form and the diagnostic says so.
     let errs = errors(&format!(
         "{LINES}\n\
-         effect Log {{\n    fn note(m: Str) -> None\n}}\n\
+         effect Log {{\n    fn note(m: Str) -> None => !m\n}}\n\
          handler Keeper of Log {{\n    held: Lines = open_lines(\"a\")\n\n    \
          fn note(m: Str) -> None {{}}\n}}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains(
-            "`Lines` is linear, so it cannot be the type of field `Keeper.held`"
-        )),
+        errs.iter().any(|e| e
+            .contains("field `Keeper.held` would hold an obligation this handler can never discharge")
+            && e.contains("Mut List<Lines>")),
         "got {errs:?}"
     );
+
+    // A *container* field is legal, and an activation that drains it puts a
+    // fresh one back — which is the whole of LC-4's discipline.
+    let errs = errors(&format!(
+        "{LINES}\n\
+         effect Log {{\n    fn note(m: Str) -> None => !m\n}}\n\
+         handler Keeper of Log {{\n    held: Mut List<Lines> = mut_list_of()\n\n    \
+         fn note(m: Str) -> None {{\n        drain(held, close)\n        \
+         held = mut_list_of()\n    }}\n}}\n"
+    ));
+    assert!(errs.is_empty(), "a drained-and-restored state field is legal: {errs:?}");
 }
 
 /// Written type positions: an array element, a tuple component, a union
@@ -295,7 +319,6 @@ fn written_composite_positions_are_refused() {
     for (ty, position) in [
         ("Lines[]", "an array's element type"),
         ("(Lines, Int)", "a tuple component"),
-        ("List<Lines>", "a type argument of `List`"),
     ] {
         let errs = errors(&format!(
             "{LINES}\nfn take(x: {ty}) -> None => !x {{}}\n"
@@ -375,16 +398,25 @@ fn a_generic_struct_cannot_be_instantiated_with_a_linear_type() {
 /// `<T canbe linear>` does not help, since no container can carry the
 /// obligation yet.
 #[test]
-fn storing_through_a_generic_call_is_refused() {
+fn storing_into_a_container_makes_the_container_owe() {
+    // [linear-container] LC-1/LC-2 (user decisions 2026-09-15/16): the store
+    // is no longer the error — the *container* carries the obligation, and the
+    // leak diagnostic names its terminal.
     let errs = errors(&format!(
-        "{LINES}\nfn go() -> None {{\n    let xs = mut_list_of()\n    \
+        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = mut_list_of()\n    \
          add(xs, open_lines(\"a\"))\n}}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains("`Lines` is linear")
-            && e.contains("stored in the `Mut List<T>` of `add`")),
+        errs.iter().any(|e| e.contains("`xs` still owns a linear value")
+            && e.contains("discharge it with `drain`")),
         "got {errs:?}"
     );
+    // …and draining it discharges every element through the callback.
+    let errs = errors(&format!(
+        "{LINES}\nfn go() -> None {{\n    let xs: Mut List<Lines> = mut_list_of()\n    \
+         add(xs, open_lines(\"a\"))\n    drain(xs, close)\n}}\n"
+    ));
+    assert!(errs.is_empty(), "got {errs:?}");
 }
 
 /// But a signature that only *reads* a composite of `T` stores nothing:

@@ -401,8 +401,21 @@ pub struct Checked {
     /// way (an enqueue on the running activation's own mailbox, or, under a
     /// synchronous binding, an ordinary member call).
     pub self_sends: HashMap<Key, String>,
+    /// [linear-container] Reads that **move a linear value**, keyed by the
+    /// read's span: the emitters must hand the value over rather than copy
+    /// it. Rust's narrowed-read path clones by default (`x.as_ref()
+    /// .unwrap().clone()`), which duplicates an obligation — harmless for a
+    /// handle type that happens to be `Clone`, impossible for one that is not
+    /// (a reply token), and wrong either way.
+    pub linear_moves: HashSet<Key>,
+    /// [linear-state] Reads of a handler **state field** that *move* the
+    /// value out (LC-4's allowance: a container of obligations being drained),
+    /// keyed by the read's span. Rust cannot move out of a field behind
+    /// `&mut self`, so the emitter renders these as `std::mem::take` — which
+    /// is the semantics too, since the checker requires the member to put
+    /// something back before it returns.
+    pub state_takes: HashSet<Key>,
     /// [async-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
-    /// members: `(handler name, the mint's site)`. While a gated
     /// continuation is outstanding the process serves *nothing else*, so
     /// every gate is a wait-for edge's tail — which is why the graph is
     /// keyed on these and not on `replyto`, whose continuation leaves the
@@ -4503,6 +4516,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [linear-obligation] A moved-in linear parameter must be
         // discharged by the body.
         self.check_linear_frame_drop();
+        // [linear-state] …and a handler member must leave its state whole.
+        self.check_state_whole(f.name.span, "end this member");
         self.locals.pop();
         // [fn-must-return] A fn with a non-`None` return type must return
         // on every path. Yield-based iterator fns are exempt: their body
@@ -7178,25 +7193,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.has_auto_linear(name) {
                     return true;
                 }
-                let Some(s) = self.scope.structs.get(name.as_str()) else {
-                    return false;
-                };
-                if s.generic_canbe.is_empty() || args.is_empty() {
+                if args.is_empty() {
                     return false;
                 }
-                // Which opted-in parameters reach a field, and whether the
-                // instantiation makes any of those arguments linear.
-                s.generic_canbe
-                    .iter()
-                    .filter(|(_, q)| q.name.name == "linear")
-                    .filter_map(|(id, _)| {
-                        let i = s.generics.iter().position(|g| g.name == id.name)?;
-                        let reaches = s
-                            .fields
-                            .iter()
-                            .any(|f| type_mentions_generic(&f.ty, &id.name));
-                        (reaches).then(|| args.get(i)).flatten()
-                    })
+                // [linear-container] Which parameters hold, then whether the
+                // instantiation puts a linear type in one of them.
+                self.linear_opt_in_positions(name.as_str())
+                    .into_iter()
+                    .filter_map(|i| args.get(i))
                     .any(|arg| self.ty_own_linear_guarded(arg, depth + 1))
             }
             Ty::Union(arms) => arms
@@ -7243,6 +7247,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is an ordinary drop.
     fn linear_capable(&self, name: &str) -> bool {
         if self.opaque_linear(name) {
+            return true;
+        }
+        // [linear-container] An opaque conditional container (`intrinsic type
+        // List<T canbe linear>`) can owe too, so its file's consuming fns —
+        // `drain` — are dischargers.
+        if !self.linear_opt_in_positions(name).is_empty() {
             return true;
         }
         self.scope.structs.get(name).is_some_and(|s| {
@@ -7311,7 +7321,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `linear intrinsic type` [linear-group].
         let struct_file = match self.scope.structs.get(type_name) {
             Some(_) => self.scope.struct_files.get(type_name).copied(),
-            None if self.opaque_linear(type_name) => {
+            // [linear-container] …or a **conditional container**, whose
+            // terminal is what a leak diagnostic must name: `drain` for a
+            // `List`/`Map` of obligations (user decision 2026-09-16). An
+            // opaque type qualifies whether it is linear outright
+            // (`linear intrinsic type Reply<T>`) or only when instantiated
+            // with one.
+            None if self.opaque_linear(type_name)
+                || !self.linear_opt_in_positions(type_name).is_empty() =>
+            {
                 self.scope.opaque_type_files.get(type_name).copied()
             }
             None => return Vec::new(),
@@ -7512,24 +7530,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.has_auto_linear(name) {
                     return Some(name.clone());
                 }
-                // [linear-generics] A conditional container written with a
-                // linear argument in an opted-in, field-reaching position
-                // (`Box<Lines>`) is linear itself.
-                if let Some(s) = self.scope.structs.get(name.as_str()) {
-                    for (id, q) in &s.generic_canbe {
-                        if q.name.name != "linear" {
-                            continue;
-                        }
-                        let Some(i) = s.generics.iter().position(|g| g.name == id.name) else {
-                            continue;
-                        };
-                        if !s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name)) {
-                            continue;
-                        }
-                        if let Some(arg) = base.args.get(i) {
-                            if let Some(found) = self.ast_type_own_linear(arg) {
-                                return Some(found);
-                            }
+                // [linear-container] A conditional container written with a
+                // linear argument in an opted-in, holding position
+                // (`Box<Lines>`, `List<Reply<Int>>`) is linear itself.
+                for i in self.linear_opt_in_positions(name.as_str()) {
+                    if let Some(arg) = base.args.get(i) {
+                        if let Some(found) = self.ast_type_own_linear(arg) {
+                            return Some(found);
                         }
                     }
                 }
@@ -7542,6 +7549,38 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Nullable { inner, .. } => self.ast_type_own_linear(inner),
             _ => None,
         }
+    }
+
+    /// [linear-container] Which of `name`'s type parameters opt into holding
+    /// **linear** values (`<T canbe linear>`) *and* actually hold one — the
+    /// positions that make an instantiation linear when their argument is
+    /// (user decisions 2026-09-12 for structs, 2026-09-16 for opaque types).
+    ///
+    /// The two kinds differ in how "holds" is decided: a struct's parameter
+    /// must **reach a field** (`Box<T canbe linear> { item: T }`), because a
+    /// parameter the fields never mention stores nothing; an **opaque** type
+    /// has no fields to read, so an opted parameter holds by definition —
+    /// which is exactly what `intrinsic type List<T canbe linear>` claims
+    /// about its elements.
+    fn linear_opt_in_positions(&self, name: &str) -> Vec<usize> {
+        if let Some(s) = self.scope.structs.get(name) {
+            return s
+                .generic_canbe
+                .iter()
+                .filter(|(_, q)| q.name.name == "linear")
+                .filter(|(id, _)| s.fields.iter().any(|f| type_mentions_generic(&f.ty, &id.name)))
+                .filter_map(|(id, _)| s.generics.iter().position(|g| g.name == id.name))
+                .collect();
+        }
+        if let Some(t) = self.scope.opaque_types.get(name) {
+            return t
+                .generic_canbe
+                .iter()
+                .filter(|(_, q)| q.name.name == "linear")
+                .filter_map(|(id, _)| t.generics.iter().position(|g| g.name == id.name))
+                .collect();
+        }
+        Vec::new()
     }
 
     /// [linear-composite] R4 part 2 (interim, user decision 2026-09-08):
@@ -7558,12 +7597,43 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.error(
             span,
             format!(
-                "`{linear}` is linear, so it cannot be {position}: a linear value's \
-                 obligation cannot travel inside a composite yet, so keep it in a \
-                 local, a parameter or a return value and discharge it with its \
-                 discharger"
+                "`{linear}` is linear, so it cannot be {position}: nothing here would \
+                 carry its obligation onward. A linear value lives in a local, a \
+                 parameter, a return value, a union arm, a `linear struct`'s field, or \
+                 a container that opts in — a `Mut List<{linear}>` or a \
+                 `Mut Map<K, {linear}>`, whose terminal is `drain` [linear-container]"
             ),
         );
+    }
+
+    /// [linear-container] Why a *particular* container position refuses an
+    /// obligation, where the general rule would be unhelpful (LC-3, user
+    /// decision 2026-09-15). Both cases are **semantic** — the container drops
+    /// a value as part of doing its job — rather than fences the
+    /// implementation could remove later, so the diagnostic says which.
+    fn linear_position_reason(&self, container: &str, index: usize) -> Option<String> {
+        // Std's own containers, not a program's types of the same name.
+        if !self.scope.opaque_types.contains_key(container) {
+            return None;
+        }
+        match (container, index) {
+            ("Set", 0) | ("SortedSet", 0) => Some(
+                "a set **deduplicates**: inserting a value equal to one already there \
+                 drops one of the two, and silently dropping an obligation is exactly \
+                 what linearity prevents. A `Mut List<T>` holds obligations (its \
+                 terminal is `drain`); a set of *identifiers* with the obligations in a \
+                 `Mut Map<K, T>` beside it is the other shape"
+                    .to_string(),
+            ),
+            ("Map", 0) | ("SortedMap", 0) => Some(
+                "a map's **keys** are compared and retained, and storing under a key \
+                 that is already there drops one of the two. Keys are data; the \
+                 *values* are where obligations go — `Mut Map<K, V>` opts its values \
+                 in, and `remove`/`replace`/`drain` are how they leave"
+                    .to_string(),
+            ),
+            _ => None,
+        }
     }
 
     /// The immediate components of a written composite type, refused when
@@ -7573,34 +7643,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `List<List<Lines>>` is one error, at the inner list.
     fn check_linear_components(&mut self, ty: &ast::Type) {
         let mut found: Vec<(Span, String, String)> = Vec::new();
+        // [linear-container] LC-3's positions, which explain themselves.
+        let mut reasoned: Vec<(Span, String, String)> = Vec::new();
         match ty {
             ast::Type::Named { base, .. } => {
+                let opted = self.linear_opt_in_positions(base.name.name.as_str());
                 for (i, a) in base.args.iter().enumerate() {
                     if let Some(linear) = self.ast_type_own_linear(a) {
-                        // [linear-generics] A parameter that declares
+                        // [linear-container] A parameter that declares
                         // `canbe linear` accepts a linear argument: the
                         // container is then *conditionally linear* and the
                         // obligation is checked on the container itself
-                        // (user decision 2026-09-12).
-                        let opted = self
-                            .scope
-                            .structs
-                            .get(base.name.name.as_str())
-                            .is_some_and(|s| {
-                                s.generics.get(i).is_some_and(|g| {
-                                    s.generic_canbe
-                                        .iter()
-                                        .any(|(id, q)| id.name == g.name && q.name.name == "linear")
-                                })
-                            });
-                        if opted {
+                        // (user decision 2026-09-12, extended to opaque
+                        // containers like `List` 2026-09-16).
+                        if opted.contains(&i) {
                             continue;
                         }
-                        found.push((
-                            a.span(),
-                            linear,
-                            format!("a type argument of `{}`", base.name.name),
-                        ));
+                        match self.linear_position_reason(base.name.name.as_str(), i) {
+                            // [linear-container] LC-3's two semantic refusals
+                            // say why in their own words.
+                            Some(reason) => reasoned.push((a.span(), linear, reason)),
+                            None => found.push((
+                                a.span(),
+                                linear,
+                                format!("a type argument of `{}`", base.name.name),
+                            )),
+                        }
                     }
                 }
             }
@@ -7627,6 +7695,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for (span, linear, position) in found {
             self.refuse_linear_composite(span, &linear, position);
+        }
+        for (span, linear, reason) in reasoned {
+            self.error(
+                span,
+                format!("`{linear}` is linear, so it cannot go here: {reason}"),
+            );
         }
     }
 
@@ -7687,6 +7761,60 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.ty_own_linear(&var.narrowed);
         }
         self.ty_own_linear(&var.declared)
+    }
+
+    /// [linear-state] LC-4's second half (user decision 2026-09-15): an
+    /// activation must leave **every state field whole**. Taking an
+    /// obligation out of handler state is legal — draining a queue of parked
+    /// tokens is the point — but a member that returns with a field moved out
+    /// has left a hole a later activation would read, and no analysis can see
+    /// what the process holds at an arbitrary future point. So the rule is
+    /// per activation, exactly as it is for a `Mut` parameter: put something
+    /// back (`waiting = mut_list_of()`), or do not move.
+    ///
+    /// Called at every exit from a member body, beside the linear-leak checks
+    /// it complements: that one asks whether a *value* still owes, this one
+    /// whether the *storage* is intact.
+    fn check_state_whole(&mut self, span: Span, what: &str) {
+        if self.own_handler.is_none() || self.inferred.is_none() {
+            return;
+        }
+        let holes: Vec<String> = self
+            .locals
+            .iter()
+            .flat_map(|frame| {
+                frame
+                    .iter()
+                    .filter(|(_, var)| {
+                        var.is_handler_state
+                            // Only obligation-holding state: a `Copy` scalar
+                            // field is "moved" by every read that hands it
+                            // over, and copying it leaves no hole at all —
+                            // which is why [effect-state-store] exempts it.
+                            && self.ty_own_linear(&var.declared)
+                            && (matches!(var.narrowed, Ty::Nothing) || !var.moved_places.is_empty())
+                    })
+                    .map(|(name, _)| name.clone())
+            })
+            .collect();
+        for name in holes {
+            self.error(
+                span,
+                format!(
+                    "cannot {what}: the state field `{name}` was moved out of and \
+                     nothing was put back, so this activation would leave the \
+                     handler with a hole — assign it a value first (`{name} = …`), \
+                     since the obligations a process holds must survive between \
+                     activations"
+                ),
+            );
+            if let Some(var) = self.lookup_mut(&name) {
+                // Reported once: treat it as whole again so an enclosing exit
+                // does not repeat it.
+                var.narrowed = Ty::Unknown;
+                var.moved_places.clear();
+            }
+        }
     }
 
     /// Reports every live linear obligation in the top scope frame —
@@ -10286,32 +10414,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         let inside =
             |c: &ast::Type| Self::type_mentions_var(c, var) || self.var_in_composite(c, var);
         match ty {
-            // [linear-generics] A type argument to a *conditional
+            // [linear-container] A type argument to a *conditional
             // container's* opted-in parameter is not a refused store (user
-            // decision 2026-09-12): the container carries the obligation
-            // itself (`take(source, 2)` building a `Take<It>`), and its
-            // discharge set is checked at its declaration.
+            // decision 2026-09-12, extended to opaque containers like `List`
+            // 2026-09-16): the container carries the obligation itself
+            // (`take(source, 2)` building a `Take<It>`, `add(waiting, out)`
+            // filling a `Mut List<Reply<Str>>`), and its terminal is checked
+            // where the container is.
             ast::Type::Named { base, .. } => {
-                base.args.iter().enumerate().any(|(i, a)| {
-                    let opted = self
-                        .scope
-                        .structs
-                        .get(base.name.name.as_str())
-                        .is_some_and(|s| {
-                            s.generics.get(i).is_some_and(|g| {
-                                s.generic_canbe
-                                    .iter()
-                                    .any(|(id, q)| id.name == g.name && q.name.name == "linear")
-                            })
-                        });
-                    !opted && inside(a)
-                })
+                let opted = self.linear_opt_in_positions(base.name.name.as_str());
+                base.args
+                    .iter()
+                    .enumerate()
+                    .any(|(i, a)| !opted.contains(&i) && inside(a))
             }
             ast::Type::QualifiedGroup { base, .. } => self.var_in_composite(base, var),
             ast::Type::Array { elem, .. } => inside(elem),
             ast::Type::Tuple { elems, .. } => elems.iter().any(|e| inside(e)),
-            ast::Type::Union { arms, .. } => arms.iter().any(|a| inside(a)),
-            ast::Type::Nullable { inner, .. } => inside(inner),
+            // [linear-union-arm] A union — and `T?`, which is one — is **not**
+            // a composite (O-C2): the value *is* the value, so an arm carries
+            // the obligation and narrowing settles it. That is what makes
+            // every take-by-move answer (`remove_first(list) -> T?`,
+            // `replace(map, k, v) -> V?`) a legal signature rather than a
+            // store: the obligation comes back out through it.
+            ast::Type::Union { .. } | ast::Type::Nullable { .. } => false,
             // A fn type neither owns nor stores what it is handed.
             ast::Type::Fn { .. } => false,
         }
@@ -10378,8 +10504,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // discharge set, so the contents have a legal death through it.
         // Unmarked, the store stays refused — with the marker as the
         // remedy. (A `canbe linear` generic field is the *conditional*
-        // case and is not a concrete store; handler state has no marker
-        // and stays refused outright.)
+        // case and is not a concrete store.)
         if let Some(linear) = self.ast_type_own_linear(&field.ty) {
             let owner_is_linear = self
                 .scope
@@ -10401,11 +10526,63 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return;
             }
-            self.refuse_linear_composite(
-                field.ty.span(),
-                &linear,
-                format!("the type of field `{owner}.{}`", field.name.name),
-            );
+            // [linear-state] Handler state is the exception, and the reason
+            // this rule has an exception at all (LC-4, user decision
+            // 2026-09-15): a process *is* its state, and the shapes the
+            // concurrency surface is for — a queue of parked reply tokens, a
+            // map of gathers — live in a handler field. No marker exists to
+            // ask for, and none is wanted: the handler already has a lifetime
+            // of its own, so the obligation rests with the **process** until
+            // it ends. What an activation may not do is leave a hole
+            // (checked where a member returns), and what death does with
+            // parked obligations is `watch`'s answer [async-watch].
+            //
+            // One shape is refused: a **bare** obligation (a `linear struct`
+            // or a linear opaque type, rather than a container of them). It
+            // could be stored and never taken back out — a member consuming
+            // it is the hole this rule forbids, and there is nothing to put
+            // back — so the obligation would have no reachable discharge at
+            // all. Hold it in a container, whose take-by-move operations
+            // leave the storage itself intact.
+            if self.has_auto_linear(&linear) && self.container_of_linear(&field.ty).is_none() {
+                self.error(
+                    field.ty.span(),
+                    format!(
+                        "`{linear}` is linear, so field `{owner}.{}` would hold an \
+                         obligation this handler can never discharge: taking it back \
+                         out would leave the state with a hole, and nothing could be \
+                         put back. Hold it in a container instead — a \
+                         `Mut List<{linear}>` or a `Mut Map<K, {linear}>`, whose \
+                         `remove_first`/`remove` take one element at a time and whose \
+                         `drain` is the terminal",
+                        field.name.name
+                    ),
+                );
+            }
+        }
+    }
+
+    /// [linear-container] The container a field's linearity comes *through*,
+    /// if any: `Mut List<Reply<Str>>` answers `List`, a bare `Reply<Str>`
+    /// answers `None`. What distinguishes "state holds a queue of
+    /// obligations" (legal, LC-4) from "state holds one" (refused: nothing
+    /// could take it out again).
+    fn container_of_linear(&self, ty: &ast::Type) -> Option<String> {
+        match ty {
+            ast::Type::Named { base, .. } => {
+                let name = base.name.name.clone();
+                let opted = self.linear_opt_in_positions(name.as_str());
+                if opted
+                    .iter()
+                    .filter_map(|i| base.args.get(*i))
+                    .any(|a| self.ast_type_own_linear(a).is_some())
+                {
+                    return Some(name);
+                }
+                None
+            }
+            ast::Type::QualifiedGroup { base, .. } => self.container_of_linear(base),
+            _ => None,
         }
     }
 
@@ -11864,6 +12041,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [linear-obligation] Nothing linear may be
                         // alive anywhere when the fn exits.
                         self.check_linear_exit(0, *span, "return");
+                        // [linear-state] …and no state field may be left
+                        // with a hole in it.
+                        self.check_state_whole(*span, "return");
                     }
                     None => {
                         if !expected.is_none_ty() && !expected.is_unknown() {
@@ -11874,6 +12054,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                         // [linear-obligation]
                         self.check_linear_exit(0, *span, "return");
+                        // [linear-state]
+                        self.check_state_whole(*span, "return");
                     }
                 }
                 Ty::Nothing
@@ -12038,6 +12220,25 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// with `moved_by` naming the event in the use-site diagnostic) and
     /// poisons its derived variables [fate-poison], exactly like a
     /// call-site move.
+    /// [linear-container] Records a read that **moves a linear value**, so the
+    /// emitters hand it over rather than copy it: Rust's narrowed-read path
+    /// clones through a borrow, which duplicates an obligation — and a reply
+    /// token is not `Clone` at all. Called from both consumption paths (the
+    /// deduction-driven one at a call, and `fate_move`) while the variable's
+    /// live type is still readable, i.e. before it is marked consumed.
+    fn note_linear_move(&mut self, name: &str, span: Span) {
+        let live = self.lookup(name).map(|v| {
+            if matches!(v.narrowed, Ty::Unknown) {
+                v.declared.clone()
+            } else {
+                v.narrowed.clone()
+            }
+        });
+        if live.is_some_and(|t| self.ty_own_linear(&t)) {
+            self.out.linear_moves.insert(self.key(span));
+        }
+    }
+
     fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
         // [proj-anywhere] Returning or storing a view of a temporary. Driving
         // one (`for x in iter(list_of(1, 2))`) is fine: the temporary lives for
@@ -12140,13 +12341,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.consume_kept_lambda_param(&name, id.span) {
             return;
         }
+        self.note_linear_move(&name, id.span);
         self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
         if let Some(var) = self.lookup_mut(&id.name) {
             var.narrowed = Ty::Nothing;
             var.consumed_by = Some(moved_by);
         }
     }
-
     /// [effect-state-store] Is `name` one of the *enclosing handler's* stored
     /// values — a state field or a constructor parameter — being consumed?
     /// Reports if so and answers whether it did.
@@ -12184,6 +12385,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         // question here.
         let linear = self.ty_own_linear(&ty);
         let handler = h.name.name.clone();
+        // [linear-state] LC-4 (user decision 2026-09-15): a **state field**
+        // holding an obligation may be moved out of — that is how a queue of
+        // parked tokens is drained — provided the activation puts something
+        // back before it returns (`check_state_whole`, at every exit). The
+        // process owns the obligation across activations; what is forbidden is
+        // leaving a hole in state a later activation would read. A
+        // *constructor parameter* stays refused: it is the handler's own
+        // record of how it was built, and nothing can restore it.
+        if linear && kind == "state field" {
+            // [linear-state] [rs-state-take] Recorded for the emitters: on
+            // Rust a field cannot simply be moved out of `&mut self`, so the
+            // read becomes a `std::mem::take` — which is also exactly the
+            // semantics (the field is empty until the member puts something
+            // back, and the checker made it).
+            self.out.state_takes.insert(self.key(span));
+            return false;
+        }
         if linear {
             self.error(
                 span,
@@ -16996,6 +17214,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if self.consume_kept_lambda_param(&name, id.span) {
                         continue;
                     }
+                    self.note_linear_move(&name, id.span);
                     self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = Ty::Nothing;

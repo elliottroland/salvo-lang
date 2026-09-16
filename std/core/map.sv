@@ -13,11 +13,14 @@
 // `Double`/`Float` deliberately excluded (Rust's `f64` is neither `Eq` nor
 // `Hash`, so a float-keyed map is not representable on both backends
 // [backend-parity]). Structs opt in with `canbe hashed`. **Values** are
-// unrestricted.
+// unrestricted — and, with `<V canbe linear>`, may be **obligations**
+// [linear-container]: `Map<Int, Reply<Str>>` is a linear type whose terminal
+// is [drain], while a key never can be (keys are compared and retained, and
+// a repeated key would drop one).
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-intrinsic type Map<K, V> canbe Mut
+intrinsic type Map<K, V canbe linear> canbe Mut
 
 // Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -60,20 +63,43 @@ intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)? => map
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
 // keeps its position in the iteration order [col-insertion-order].
+//
+// [linear-container] It answers nothing, so it **drops** whatever it
+// replaced — which is why it is closed to linear values: storing one under an
+// occupied key would discard an obligation in silence. [replace] is the form
+// that hands the displaced value back, and the diagnostic names it.
 intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
+    => map: Mut, !key, !value
+
+// [linear-container] Stores [value] under [key] and answers what was there,
+// or `None` for a fresh key: [put] with the displaced value handed back
+// instead of dropped, which is the only shape a map of obligations can have a
+// write in.
+intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
     => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back, or `None` when
 // there was none. The value is **moved out** of the map — which is what
 // makes a map usable as a table of things you take back out again — while
 // the key is only read, so it is kept.
-intrinsic fn remove<K, V>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
+//
+// [linear-container] This is take-by-move, so it is how an obligation leaves
+// a map: the `V?` shape makes the absence check the union narrow
+// [linear-union-arm], and nothing is aliased or dropped on the way.
+intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
 
 // Whether the map holds an entry under [key].
 intrinsic fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
 
 // Returns the number of entries in the map
-intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map
+intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
+
+// [linear-container] The **terminal**, as a list's [drain] is: consumes the
+// map and hands every value to [each], in insertion order. The keys go with
+// the map — they were never obligations — so what the callback sees is the
+// values, one at a time, each moved in.
+intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
+    =>[each] !x => !map, each
 
 // The text form of a map, for string interpolation [interp-to-str]:
 // `{a: 1, b: 2}` in insertion order — the map *literal* that would build it

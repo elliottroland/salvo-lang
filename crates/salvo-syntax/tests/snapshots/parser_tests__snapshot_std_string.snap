@@ -27,6 +27,7 @@ Module {
                     span: 775..778,
                 },
                 generics: [],
+                generic_canbe: [],
                 auto_qualifiers: [
                     TypeRef {
                         name: Ident {

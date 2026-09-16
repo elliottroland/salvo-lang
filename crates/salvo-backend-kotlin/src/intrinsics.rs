@@ -117,6 +117,30 @@ pub fn fn_call(
         ),
         ("get", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
         ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),
+        // [linear-container] Take-by-move: the element leaves the list. A
+        // `let` so the receiver is evaluated once, and `removeAt` answers the
+        // element it removed.
+        ("remove_first", Some("List")) => format!(
+            "({}).let {{ __l -> if (__l.isEmpty()) null else __l.removeAt(0) }}",
+            a(0)
+        ),
+        ("remove_at", Some("List")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __i -> \
+             if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null }} }}",
+            a(0),
+            a(1)
+        ),
+        // [linear-container] The terminal: every element is handed to the
+        // callback, which owns it. Over a snapshot, so the callback may touch
+        // the collection the list came from; the list itself is spent — the
+        // checker made the caller put a fresh one back.
+        // `forEach` rather than a `for` loop: the callback's parameter type is
+        // then inferred from the receiver through `forEach`'s own signature,
+        // where an immediately-applied lambda literal leaves kotlinc asking
+        // for an explicit type ("an explicit type is required on a value
+        // parameter"). Over a snapshot, so the callback may touch the
+        // collection the list came from.
+        ("drain", Some("List")) => format!("({}).toList().forEach({})", a(0), a(1)),
         ("first", Some("List")) => format!("{}.firstOrNull()", a(0)),
         ("size", Some("List")) => format!("{}.size", a(0)),
         // [interp-to-str] `[1, 2, 3]`, the language's format rather than the
@@ -279,8 +303,15 @@ pub fn fn_call(
         // Absence is `null`, never a default [type-nullable].
         ("get", Some("Map")) => format!("{}[{}]", a(0), a(1)),
         ("put", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
+        // [linear-container] `put` answers the previous value on the JVM
+        // already, which is exactly `replace`'s contract; the two differ only
+        // in what Salvo lets you *do* with the answer.
+        ("replace", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
         // `remove` already answers the removed value or `null`.
         ("remove", Some("Map")) => format!("{}.remove({})", a(0), a(1)),
+        // [linear-container] The terminal: the values, in insertion order,
+        // each handed to the callback. Over a snapshot, as a list's drain is.
+        ("drain", Some("Map")) => format!("({}).values.toList().forEach({})", a(0), a(1)),
         ("contains_key", Some("Map")) => format!("{}.containsKey({})", a(0), a(1)),
         ("size", Some("Map")) => format!("{}.size", a(0)),
         // [col-insertion-order] A `LinkedHashMap`'s keys are in insertion

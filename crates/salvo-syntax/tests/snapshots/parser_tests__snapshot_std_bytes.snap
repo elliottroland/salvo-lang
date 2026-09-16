@@ -35,6 +35,7 @@ Module {
                     span: 1144..1149,
                 },
                 generics: [],
+                generic_canbe: [],
                 auto_qualifiers: [
                     TypeRef {
                         name: Ident {

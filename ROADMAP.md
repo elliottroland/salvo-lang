@@ -52,12 +52,13 @@ complete 2026-09-14, bytes and worked example included)**. What is left is
 below, grouped by theme; **"The sequence" is the order it will be done in**,
 and each themed section is tagged with the phase it belongs to. **Phase 5
 (threading) is under way**: its design is settled (CONCURRENCY.md,
-SUPERVISION.md, LINEARITY_COLLECTIONS.md — the decision space is empty), the
+SUPERVISION.md — the decision space is empty), the
 scheduler library is built, and the surface is landing in slices — processes
 spawn, send, park continuations and bridge on both backends today, dependent
-handlers included, request/response no longer needs `main` in the loop, and a
+handlers included, request/response no longer needs `main` in the loop, a
 process's death is both watchable and — where a topology could deadlock —
-reported before it runs.
+reported before it runs, and a handler may park a queue of obligations in its
+own state.
 See "Threading and concurrency" for what remains.
 
 ## The sequence (user decision 2026-09-09)
@@ -180,8 +181,9 @@ are in, and processes **run on both backends with identical output** —
 including a **dependent** handler whose dependencies its spawn clause supplies,
 a request/response chain that never passes through `main`, and (2026-09-16) a
 **death watch** plus the **static deadlock baseline**.
-What is left of the agreed eight-item sequence: linearity in collections, and
-propagation.
+What is left of the agreed eight-item sequence: **propagation** (item 8) —
+the worked `examples/processes/`, the examples-file respelling, and the working
+documents' retirement.
 **The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
 call syntax, `then`, `defer` and merge/join become later items with their own
@@ -433,13 +435,12 @@ linear source) runs on both backends. What the phase leaves open:
 - **Bare generic struct literals do not infer type arguments**:
   `Box { item: open_lines(n) }` needs `Box<Lines> { … }` written.
   Pre-existing; surfaced by the conditional-container work.
-- **Intrinsic containers** (`List<linear T>` with drain-style discharges)
-  — deferred by decision (2026-09-12); user structs and unions first.
-  **Decided 2026-09-15** (LINEARITY_COLLECTIONS.md, LC-1…LC-5, user):
-  `List`/`Map` values opt in, take-by-move APIs returning `T?`,
-  `drain`+`for` as the terminal, `Set`/keys refused (dedup is dropping),
-  handler state owns obligations across activations. Built with phase 5 —
-  the concurrency first pass is the first customer.
+- ✅ **Intrinsic containers** — decided 2026-09-15 and **built 2026-09-16**
+  (phase 5 item 7): `List`/`Map` values opt in with `canbe linear` on the type
+  declaration, take-by-move answers `T?`, `drain(container, each)` is the
+  terminal, `Set`/keys are refused because dedup is dropping, and handler state
+  owns obligations across activations [linear-container] [linear-state]. What
+  it left open is under phase 5 item 7 in "The sequence".
 
 
 ## Effects
@@ -1128,9 +1129,12 @@ after Ahman & Pretnar's Æff, its closest formal relative.
 **The documents**: CONCURRENCY.md (option space → the direction → the frozen
 first pass → remaining opens), CONCURRENCY_EXAMPLES.md and
 CONCURRENCY_EXAMPLES.effects.md (worked examples, the kernel and sugar tower,
-the deadlock example), LINEARITY_COLLECTIONS.md (prerequisite 1, **decided**),
-DESIGN_DOC.md (the template). They stay alive until implementation lands, as
-FILE_SYSTEM.md did for phase 4.
+the deadlock example), DESIGN_DOC.md (the template). They stay alive until
+implementation lands, as FILE_SYSTEM.md did for phase 4.
+**LINEARITY_COLLECTIONS.md has retired** into COMPLETED.md's decision log per
+its charter: item 7 carries its content in code and in [linear-container] /
+[linear-state]. SUPERVISION.md stays until item 8 — the runtime files cite its
+section numbers, so its retirement is a sweep rather than a delete.
 
 **The four answers, one line each**: sendability = structural rule +
 diagnostic (C-4(a), `Arc`-where-sent inference as growth); a spawned process's
@@ -1294,10 +1298,44 @@ compiler today, so its own output is the work list.
      dependencies stand in for what its members reach. Stratification (a tier
      qualifier on an addr) and the fallbacks (a timeout form, a per-edge
      reentrant opt-in) stay unbuilt until the false positives are *observed*.
-7. **Linearity in collections** (user decision 2026-09-15: after item 6).
-   Decided already (LINEARITY_COLLECTIONS.md) and unbuilt; it is what a
-   handler queueing `waiting: Mut List<Reply<T>>` needs, which is the shape
-   the interesting examples use. Nothing before it needs it.
+7. ✅ **Linearity in collections — done 2026-09-16.** L8's answer, built: a
+   container is linear exactly when its element type is, so
+   `waiting: Mut List<Reply<Str>>` in handler state works — `add` parks a
+   token, `remove_first` answers one, `drain` is the terminal, and a container
+   that is never drained is a leak naming `drain`. Five build-time decisions
+   (D7-a…e, user 2026-09-16) settled the surface; the one that changed the
+   design document's sketch is the terminal — a **consuming callback**
+   (`drain(list, each)`) rather than `for x in drain(list)`, since a `for`
+   cannot consume a linear temporary [iter-drive-in-place] and no implicit
+   discharge site exists. Rules: [linear-container], [linear-state], a
+   rewritten [linear-composite], [rs-state-take], [rs-linear-move],
+   [kt-linear-container]; the record is in COMPLETED.md's log. **Three things
+   left behind**, below: the effectful-discharger gap, the list's missing
+   positional write, and bare obligations in state.
+
+   * **An effectful discharger cannot drain a container.** A lambda performs
+     only the effects its *type* declares [fn-effects], and `drain`'s callback
+     type is pure — so `close(s: InStream) [Fs]`, or anything that logs, cannot
+     fill it, which makes a `List<InStream>` undrainable. Reply tokens are
+     unaffected (`send(r, v)` is pure), which is why the slice shipped. Two
+     candidate answers, both **DECISION**s: a `for`-driven terminal (a
+     `let`-bound drain pass, which needs a rule for what discharges a pass that
+     stopped early), or letting a *pure* callback position accept an effectful
+     argument by widening the call's own requirements (effect polymorphism at
+     the call site, which is E3 step 4's neighbourhood). Worth doing when a
+     real program wants it; the workaround meanwhile is a discharger that takes
+     the effect's *handler* as data, or draining into a plain list first.
+   * **No positional list write**: `replace(list, i, v)` would have to answer
+     `None` for an out-of-range index and drop the value it was handed. Take an
+     element out and add a new one, or key the collection with a `Map` (whose
+     `replace` has no such hole). Add it if a customer appears, with a
+     `Ok T | Err T`-shaped answer.
+   * **A bare obligation in handler state is refused**, naming the container:
+     taking it out would leave a hole nothing could fill, so its obligation
+     would have no reachable discharge. It is also what keeps LC-4 sound on
+     Rust, where a non-`Default` field has no representable temporarily-empty
+     state. A `linear struct Gather` living *in* a map is the shape that works,
+     and is what the examples use.
 8. **Propagation and retirement.** The COMPLETED.md entries (including
    EFFECT_UNIFICATION.md's round-1 rejection as an explored-and-abandoned
    option); CONCURRENCY.md's pending table (the named question closes);
@@ -1308,8 +1346,12 @@ compiler today, so its own output is the work list.
    `examples/processes/`; then the working documents retire into the decision
    log per their charters — with the sugar pass's decided content folded into
    this file first, so nothing open lives outside ROADMAP.md.
-   **SUPERVISION.md is ready to go now**: item 6 put its S-1…S-4 content into
-   code and into [async-watch], and its decisions are in COMPLETED.md's log.
+   **LINEARITY_COLLECTIONS.md is already gone** (item 7 carried its content
+   into code, the spec rules and the decision log). SUPERVISION.md is ready to
+   follow — its S-1…S-4 content is in [async-watch] and in the log — but the
+   two runtime files and their tests cite its section numbers, so its
+   retirement is a small sweep; CONCURRENCY.md, the two examples files and
+   EFFECT_UNIFICATION.md follow it.
 
 **The leftovers the checker slice found are all closed** (2026-09-15) — the
 record, with what each taught, is in COMPLETED.md's decision log; the last of

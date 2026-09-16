@@ -161,6 +161,14 @@ pub struct TypeDecl {
     pub linear: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// [linear-container] Per-parameter `canbe` opt-ins, exactly as a
+    /// struct's (`intrinsic type List<T canbe linear>`, user decision
+    /// 2026-09-16): an opaque container opts a parameter into holding
+    /// **linear** values, and the instantiation is then linear exactly when
+    /// that argument is. An opaque type has no fields to inspect, so an opted
+    /// parameter is taken to reach one — which is what `List` means by
+    /// holding its elements.
+    pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
     /// into the language-level `Mut` qualifier (like `struct ... canbe
     /// Mut` [struct-mut]).

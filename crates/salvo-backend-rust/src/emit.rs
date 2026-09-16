@@ -7000,6 +7000,29 @@ impl<'p> Emitter<'p> {
         self.narrow_unwrap(id.span, storage)
     }
 
+    /// [linear-container] [rs-linear-move] The **moving** form of a narrowed
+    /// read, for a linear value being handed over: `first.unwrap()` moves the
+    /// payload out of its `Option` where the ordinary path would clone through
+    /// a borrow. Only the plain-optional shape (`T?`, which is what every
+    /// take-by-move operation answers) — a narrowed *union arm* keeps the
+    /// existing accessor path, where a linear payload is a `Clone` handle
+    /// today and a non-`Clone` one is a loud rustc error rather than wrong
+    /// code.
+    fn linear_move_unwrap(&mut self, id: &Ident) -> Option<String> {
+        if !self.checked.repr_ty.contains_key(&(self.file_idx, id.span)) {
+            return None;
+        }
+        if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef)) {
+            return None;
+        }
+        let n = self.narrowing_of(id.span)?;
+        if n.arm.is_some() || n.copy || !n.optional {
+            return None;
+        }
+        let storage = self.binding_place(&id.name);
+        Some(format!("{storage}.unwrap()"))
+    }
+
     /// The narrowing unwrap for a *projection place* read [flow-place]:    /// `h.field` narrowed by `h.field is T` reads its payload out of the
     /// declared representation, exactly as a narrowed identifier does. The
     /// storage code keeps the base's own unwraps (a narrowed base must be
@@ -7406,11 +7429,41 @@ impl<'p> Emitter<'p> {
                 if id.name == "None" {
                     return "None".to_string();
                 }
+                // [linear-container] [rs-linear-move] A narrowed **linear**
+                // value handed over is *moved*, not cloned: the generic path
+                // reads `x.as_ref().unwrap().clone()`, which duplicates an
+                // obligation — and a reply token is not `Clone` at all, so it
+                // would not even compile. Moving out of the `Option` is both
+                // legal and the semantics: the checker consumed the variable,
+                // so nothing reads it again.
+                if self
+                    .checked
+                    .linear_moves
+                    .contains(&(self.file_idx, id.span))
+                {
+                    if let Some(code) = self.linear_move_unwrap(id) {
+                        return code;
+                    }
+                }
                 if let Some(unwrapped) = self.ident_unwrap(id) {
                     return unwrapped;
                 }
                 let place = self.binding_place(&id.name);
                 let copy = self.ty_of(id.span).is_some_and(|t| Self::is_copy_ty(t));
+                // [linear-state] [rs-state-take] A state field the checker
+                // let the member **move** out of (LC-4: a container of
+                // obligations being drained) cannot be moved out of `&mut
+                // self` at all in Rust — and must not be cloned, which would
+                // duplicate every obligation in it. `mem::take` is both the
+                // legal and the honest rendering: the field is empty until the
+                // member puts something back, which the checker required.
+                if self
+                    .checked
+                    .state_takes
+                    .contains(&(self.file_idx, id.span))
+                {
+                    return format!("std::mem::take(&mut {place})");
+                }
                 match self.bindings.get(id.name.as_str()) {
                     Some(BindKind::Ref) | Some(BindKind::RefMut) if !copy => {
                         format!("{place}.clone()")

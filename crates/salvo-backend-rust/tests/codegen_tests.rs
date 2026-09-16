@@ -9104,6 +9104,99 @@ fn main() [use, spawn] {
 const WATCH_OUTPUT: &str =
     "died with a reason: true\nlate watch answered: true\ndone\n";
 
+/// [linear-container] [linear-state] **Obligations in a collection**, end to
+/// end: a process parks reply tokens in `Mut List<Reply<Str>>` state, answers
+/// them one at a time with `remove_first`, and `drain`s the rest on shutdown —
+/// putting a fresh list back, because an activation may not leave its state
+/// with a hole. Two waiters ask before any answer arrives, so the queue really
+/// holds two obligations at once; the second is answered by the drain.
+///
+/// Expected output is verbatim the Kotlin backend's.
+const LINEAR_QUEUE: &str = r#"
+async effect Desk {
+    send fn ticket(out: Reply<Str>) => !out
+    send fn serve(name: Str) => !name
+    send fn close_up(reason: Str) => !reason
+}
+
+handler Desking() of Desk {
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn ticket(out: Reply<Str>) {
+        add(waiting, out)
+    }
+
+    // One obligation leaves the queue, and the `None` arm owes nothing.
+    send fn serve(name: Str) {
+        let next = remove_first(waiting)
+        when next {
+            is Reply<Str> { next.send("served ${name}") }
+            is None { discard(name) }
+        }
+    }
+
+    // The terminal: every parked token is answered, and the state is whole
+    // again before the activation ends.
+    send fn close_up(reason: Str) {
+        drain(waiting, r -> send(r, "closed: ${reason}"))
+        waiting = mut_list_of()
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let desk = spawn Desking() capacity 8 on pool(1)
+    let first = waitfor a: Reply<Str> {
+        desk.ticket(a)
+        let second = waitfor b: Reply<Str> {
+            desk.ticket(b)
+            desk.serve("ada")
+            desk.close_up("end of day")
+        }
+        println("second ${second}")
+    }
+    println("first ${first}")
+}
+"#;
+
+const LINEAR_QUEUE_OUTPUT: &str = "second closed: end of day\nfirst served ada\n";
+
+#[test]
+fn rustc_compiles_and_runs_obligations_in_a_collection() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LINEAR_QUEUE)]);
+    run_rust_files(&files, "linear-queue", LINEAR_QUEUE_OUTPUT);
+}
+
+/// [rs-state-take] [linear-container] The lowering the case rests on: taking a
+/// container out of handler state is `std::mem::take` (a field behind
+/// `&mut self` cannot be moved, and cloning it would duplicate every
+/// obligation in it), and the drain hands each element to the callback by
+/// value.
+#[test]
+fn draining_state_lowers_to_a_take() {
+    let files = generate(&[("main.sv", LINEAR_QUEUE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content
+            .contains("std::mem::take(&mut self.waiting).into_iter().for_each("),
+        "the drain of a state field is not a take:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("(first.unwrap()).send(")
+            || main.content.contains("(next.unwrap()).send("),
+        "a taken obligation must be moved, not cloned:\n{}",
+        main.content
+    );
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_death_watch() {
     if !rustc_available() {

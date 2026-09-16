@@ -579,7 +579,11 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwType)?.span;
         let name = self.ident_type("type")?;
-        let generics = self.parse_generics();
+        // [linear-container] A type declaration takes per-parameter `canbe`
+        // opt-ins like a struct's: `intrinsic type List<T canbe linear>` is
+        // what makes `List<Reply<T>>` a linear type and `List<Int>` a plain
+        // one (user decision 2026-09-16).
+        let (generics, generic_canbe) = self.parse_generics_canbe();
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
@@ -615,6 +619,7 @@ impl<'s> Parser<'s> {
             linear,
             name,
             generics,
+            generic_canbe,
             auto_qualifiers,
             alias,
             span: start.to(end),

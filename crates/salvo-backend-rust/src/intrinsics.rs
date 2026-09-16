@@ -176,6 +176,29 @@ pub fn fn_call(
             format!("{}.get(({}) as usize)", a(0), a(1))
         }
         ("add", Some("List")) => format!("{}.push({})", a(0), a(1)),
+        // [linear-container] Take-by-move: the element leaves the list, so
+        // nothing is cloned and nothing is left behind — which is what makes
+        // these legal for a `List<Reply<T>>` where `get` (a borrow) is not.
+        // A block, so the receiver is named once and the emptiness test and
+        // the removal cannot disagree about it.
+        ("remove_first", Some("List")) => format!(
+            "{{ let __l = &mut {}; if __l.is_empty() {{ None }} else {{ Some(__l.remove(0)) }} }}",
+            a(0)
+        ),
+        ("remove_at", Some("List")) => format!(
+            "{{ let __l = &mut {}; let __i = ({}) as usize; \
+             if __i < __l.len() {{ Some(__l.remove(__i)) }} else {{ None }} }}",
+            a(0),
+            a(1)
+        ),
+        // [linear-container] The terminal: the list is consumed (so a state
+        // field arrives here as a `mem::take`) and every element is handed to
+        // the callback, which owns it.
+        // `for_each` rather than a `for` loop: the callback's parameter type
+        // is then inferred from the iterator's item through the `FnMut` bound,
+        // where an immediately-applied closure literal (`(|r| …)(x)`) leaves
+        // rustc with nothing to infer from (E0282).
+        ("drain", Some("List")) => format!("{}.into_iter().for_each({})", a(0), a(1)),
         // `first` is a derived return (`proj[from: list]`), so it
         // borrows rather than clones [readonly-return].
         ("first", Some("List")) | ("first", Some("[]")) => format!("{}.first()", a(0)),
@@ -353,8 +376,17 @@ pub fn fn_call(
         // keep it says `copy` [copy-opt-in].
         ("get", Some("Map")) => format!("{}.get(&{})", a(0), a(1)),
         ("put", Some("Map")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
+        // [linear-container] The displacing write: what was there comes back
+        // instead of being dropped.
+        ("replace", Some("Map")) => format!("{}.replace({}, {})", a(0), a(1), a(2)),
         // Hands the value back owned, which is what `-> V?` promises.
         ("remove", Some("Map")) => format!("{}.remove(&{})", a(0), a(1)),
+        // [linear-container] The terminal: the map is consumed and its values
+        // — never its keys, which were not obligations — are handed over one
+        // at a time, in insertion order.
+        ("drain", Some("Map")) => {
+            format!("{}.into_values().into_iter().for_each({})", a(0), a(1))
+        }
         ("contains_key", Some("Map")) => format!("{}.contains_key(&{})", a(0), a(1)),
         ("size", Some("Map")) => format!("({}.len() as i32)", a(0)),
         // [col-insertion-order] The runtime type's `keys` is insertion

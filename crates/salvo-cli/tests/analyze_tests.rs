@@ -365,7 +365,7 @@ fn inferred_moves_consume_arguments() {
 
 // [deduce-consume] A kept parameter sheds its removal set (declared −
 // kept qualifiers) from the argument at the call site: after
-// `remove_first` (`[list: Mut]` on a `NonEmpty Mut` param) the variable
+// `take_head` (`[list: Mut]` on a `NonEmpty Mut` param) the variable
 // is no longer `NonEmpty`, so a second call fails overload resolution.
 // The explicit-empty `[list:]` form strips all declared qualifiers.
 #[test]
@@ -374,16 +374,16 @@ fn calls_remove_qualifiers_per_declared_deductions() {
     fs::write(
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
-         fn remove_first<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
+         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    let strings = mut_list_of(\"a\", \"b\")\n    \
-         if strings is NonEmpty {\n        let s = remove_first(strings)\n        let t = remove_first(strings)\n    }\n}\n",
+         if strings is NonEmpty {\n        let s = take_head(strings)\n        let t = take_head(strings)\n    }\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("no matching overload for `remove_first(Mut List<Str>)`"),
+        stderr.contains("no matching overload for `take_head(Mut List<Str>)`"),
         "stderr: {stderr}"
     );
 
@@ -577,16 +577,16 @@ fn partial_qualifier_removal_merges_conservatively() {
     fs::write(
         dir.join("main.sv"),
         "qualifier NonEmpty<T> of List<T> {\n    fn qualifies(list: List<T>) -> Bool {\n        return list.size() > 0\n    }\n}\n\n\
-         fn remove_first<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
+         fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {\n    return list.get(0)!\n}\n\n\
          fn partial(flag: Bool) {\n    let strings = mut_list_of(\"a\", \"b\")\n    \
-         if strings is NonEmpty {\n        if flag {\n            let x = remove_first(strings)\n        }\n        let y = remove_first(strings)\n    }\n}\n",
+         if strings is NonEmpty {\n        if flag {\n            let x = take_head(strings)\n        }\n        let y = take_head(strings)\n    }\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("no matching overload for `remove_first(Mut List<Str>)`"),
+        stderr.contains("no matching overload for `take_head(Mut List<Str>)`"),
         "stderr: {stderr}"
     );
 }
@@ -1427,18 +1427,24 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
         stderr.contains("a linear value cannot be passed in a variadic position"),
         "stderr: {stderr}"
     );
+    // [linear-container] The container *itself* owes now (LC-1, 2026-09-16):
+    // `Mut List<FileHandle>` is a linear type, so the `xs` that was built —
+    // however badly — has to be drained or moved onward, and the diagnostic
+    // names the terminal rather than the element's discharger.
+    assert!(
+        stderr.contains("`xs` still owns a linear value when it goes out of scope")
+            && stderr.contains("discharge it with `drain`"),
+        "stderr: {stderr}"
+    );
     // ok_hold is clean (its discharge is `close`, not `discard`
-    // [linear-group]). Five errors total: the four above plus the
-    // follow-on leak in `variadic_refused` (the refused `h` is never
-    // discharged).
+    // [linear-group]). Six errors total: the four above, the follow-on leak
+    // in `variadic_refused` (the refused `h` is never discharged), and the
+    // container's own obligation.
     //
-    // Two shapes this used to cover are gone. The opted-std
-    // `List<FileHandle>` workflow: under [linear-group] a linear value's
-    // discharge is its own `close`, and a `List<FileHandle>` has none. And
-    // the `xs` leak that followed it: since R4 part 2 a composite never
-    // *holds* a linear value [linear-composite], so the store is the one
-    // error and the container that was never built owes nothing.
-    assert!(stderr.contains("5 errors"), "stderr: {stderr}");
+    // The variadic refusal stays what it was: a variadic position is not
+    // tracked, so a linear value may not travel through one — `add` is how an
+    // obligation enters a list [linear-container].
+    assert!(stderr.contains("6 errors"), "stderr: {stderr}");
 }
 
 // [once-fn] L7b: `once` on fn types means callable at most once,

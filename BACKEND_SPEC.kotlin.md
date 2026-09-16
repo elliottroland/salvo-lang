@@ -892,6 +892,19 @@ where Rust had to build the fusion to get the same programs running
   * It is emitted when a module declares a `canbe ordered` struct or builds
     a sorted collection, and the sorted constructors pass it as an explicit
     `Comparator` rather than relying on natural ordering.
+* [kt-linear-container] [linear-state] **Obligations in a collection need no
+  special rendering**: a `Mut List<Reply<Str>>` is a `MutableList<SalvoReply>`,
+  taking one out is `removeAt(0)`, and taking the *container* out of a state
+  field is reading the field — objects are references, and the checker made the
+  member assign a fresh list before returning, so nothing is left dangling
+  (the Rust backend needs a `mem::take` for the same code; see its spec).
+  * `drain` is `toList().forEach(each)`: over a **snapshot**, so the callback
+    may touch the collection the list came from, and `forEach` rather than a
+    `for` loop because an immediately-applied lambda literal makes kotlinc ask
+    for an explicit parameter type.
+  * `replace(map, k, v)` is `put`, which already answers the previous value on
+    the JVM — the two Salvo functions differ only in what the language lets you
+    do with the answer [linear-container].
 * [kt-process] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.kt`
   [kt-runtime-source] — emitted only into a program that spawns, in package

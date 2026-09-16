@@ -2173,8 +2173,9 @@ Conventions:
     [effect-member-no-effects]. The `Err` arm is linear, so a result that
     is never looked at is a compile error, and narrowing to `Ok` discharges
     it [linear-union-arm]. `ignore(e)` acknowledges, `detach(e)` hands back
-    the droppable kind (a linear value may not be stored
-    [linear-composite]).
+    the droppable kind — which is what an aggregation collects, since a list
+    of *errors* wants no obligations in it even now that a container could
+    hold them [linear-container].
 * [fs-token] A stream token is **opaque and never `Mut`** (user decision
   2026-09-14): its only field is the handle, and every byte of mutable
   state — position, buffer, the resource — lives in *handler* state, where
@@ -2627,9 +2628,10 @@ LANGUAGE.md remains the source of truth for everything that does.
     a remote mint can block and contributes its own wait-for edge.
   * A capture is *stored* in the continuation, so passing a bare name moves
     it ([deduce-consume]), like a `use` constructor argument. A caller's own
-    reply token travelling as a capture is the ordinary way to answer later —
-    and the way to do it before linearity in collections, since storing a
-    token in handler state is still [linear-composite]'s refusal.
+    reply token travelling as a capture is the ordinary way to answer later;
+    since 2026-09-16 a handler may also park tokens in **state**, in a
+    `Mut List<Reply<T>>` whose terminal is `drain` [linear-container]
+    [linear-state].
   * `replyto!` is the same mint **plus the gate**: bounded selective
     receive, at most one outstanding per process, so the process serves
     nothing else until the answer arrives. Self-only by nature, so it stays
@@ -3657,42 +3659,121 @@ LANGUAGE.md remains the source of truth for everything that does.
     is `None`).
   * Backends: nothing — linearity is static and backend-identical
     [linear-static]; the union lowers as any union does.
-* [linear-composite] A composite may not **hold** a linear value
-  (interim rule, user decision 2026-09-08, roadmap R4 part 2 — replacing
-  decision L6d's contagion, under which a composite containing a linear
-  component became linear itself; **union arms carved out 2026-09-12**
-  [linear-union-arm]). Its obligation would have to travel
-  with the container, and composition plus conditional linearity are one
-  design question (roadmap L8), so until that is answered a linear value
-  lives only in a **local, a parameter or a return value** — or a union
-  arm. Refused *at
-  the store*, so the container is never built and there is no follow-on
-  leak to report:
-  * a **struct or handler-state field** whose declared type is linear —
-    at the field, naming it (`Holder.handle`);
-  * a **written composite** with a linear component, one level at a time
-    so a nested one reports at its own node: a type argument
-    (`List<Lines>`), an array element (`Lines[]`), a tuple component —
-    but **not** a union arm [linear-union-arm];
+* [linear-composite] A composite may not **hold** a linear value **unless it
+  opts in** (the interim refusal of 2026-09-08 — roadmap R4 part 2, replacing
+  decision L6d's contagion — narrowed by [linear-union-arm] on 2026-09-12 and
+  by [linear-container] on 2026-09-16, which is L8's answer). What remains
+  refused, always *at the store*, so the container is never built and there is
+  no follow-on leak to report:
+  * a **struct field** whose declared type is linear — including a container
+    of obligations (`handles: Mut List<Lines>`), which makes the struct a
+    resource too: contagion stays **spelled**, so the diagnostic asks for
+    `linear struct` [linear-group];
+  * a **written composite** with a linear component and no opt-in, one level
+    at a time so a nested one reports at its own node: an array element
+    (`Lines[]`), a tuple component — but **not** a union arm
+    [linear-union-arm], and not an opted container position
+    [linear-container];
   * an **array or tuple literal** whose element type is linear (nothing
     written to refuse);
   * a **struct literal** field taking a linear value where the field's
-    declared type is generic (`struct Box<T> { item: T }`), which is the
-    store the struct's own declaration cannot see;
-  * a **call** that takes a bare `T` and puts a `T` inside a composite —
-    `add(list: Mut List<T>, elem: T)` is the shape — refused whatever the
-    callee's `<T canbe linear>` claims, since no container can carry the
-    obligation yet. A signature that only *reads* a composite of `T`
-    (`size(list: List<T>) -> Int`) stores nothing and stays legal.
+    declared type is generic and unopted (`struct Box<T> { item: T }`), which
+    is the store the struct's own declaration cannot see;
+  * a **call** that takes a bare `T` and puts a `T` inside an *unopted*
+    composite. `add(list: Mut List<T>, elem: T)` was this refusal's shape
+    until `List` opted in; a signature that only *reads* a composite of `T`
+    (`size(list: List<T>) -> Int`) stores nothing and was always legal.
   * Consequently a *union* is not a container: a value of `Lines | Int`
     **is** the linear value, so the obligation survives narrowing and
-    branch merges (an inferred union arm keeps it, a written one is the
-    refusal above).
-  * **Known casualties**, both recorded rather than worked around: a
-    linear pass cannot be composed (a wrapper pass over `open_lines("a")`
-    stores its source), and the fallible-open shape `Ok InputStream | Err Str`
-    is unavailable to S-IO until union arms get an exception or the result
-    shape changes.
+    branch merges (an inferred union arm keeps it, a written one is legal).
+    Neither is `T?`, which is a union — and that is what makes every
+    take-by-move signature (`remove_first(list) -> T?`) express "the
+    obligation comes back out" rather than "the obligation is stored".
+  * **Arrays and tuples stay out** of the opt-in for now (LC-3): an array
+    sits next to the untracked variadic boundary, and a tuple has the
+    union-arm alternative for the two-things case. Neither is a customer
+    shape; extend if one appears.
+  * **The casualty that remains** is the composed linear pass (a wrapper pass
+    over `open_lines("a")` stores its source in an unopted field). The
+    fallible-open shape `Ok InStream | Err FsError` was the other one and
+    shipped with phase 4 [linear-union-arm].
+* [linear-container] **A container is linear exactly when its element type
+  is** (LC-1/LC-5, user decisions 2026-09-15/16 — the answer to roadmap L8's
+  "composition plus conditional linearity are one design question"). This is
+  Linear Haskell's model, and it needs no new spelling: the *element's*
+  declaration is the source of the linearity, the container's `canbe linear`
+  is a conditional carrier, and nothing at a use site ever says which.
+  * **The opt-in** is per type parameter, on the declaration:
+    `struct Box<T canbe linear>` for a user type (2026-09-12) and
+    `intrinsic type List<T canbe linear>` for an opaque one (2026-09-16). A
+    struct's parameter must **reach a field** to count — a parameter the
+    fields never mention stores nothing — while an opaque type has no fields
+    to read, so an opted parameter holds by definition, which is exactly what
+    `List` claims about its elements.
+  * **The judgment is structural and transitive**: an instantiation is linear
+    iff a type argument in an opted position is, so `List<Reply<Str>>` and
+    `List<Mut List<Token>>` owe while `List<Int>` is an ordinary list.
+    Depth-guarded, and mutually recursive containers terminate
+    conservatively.
+  * **Which containers**: `List` and `Map` **values** (LC-3). `Set`,
+    `SortedSet` and map **keys** are refused, and the diagnostic says *why* —
+    insertion deduplicates, so an equal element or a repeated key drops one of
+    the two values, and a silent drop is what linearity exists to prevent. It
+    is semantics, not an implementation fence: no API reshaping fixes it,
+    because returning the displaced element would make set-insert
+    order-dependent in a way `==`-based dedup cannot honestly express.
+  * **The operations** (LC-2), audited into std under `<T canbe linear>`:
+    * **in**: `add(list, v)` moves the value in; the obligation joins the
+      container's. `put(map, k, v)` stays closed to obligations — it answers
+      nothing, so what it overwrote would be dropped — and the diagnostic
+      names `replace(map, k, v) -> V?`, which hands the displaced value back.
+    * **out, one at a time**: `remove_first(list) -> T?`,
+      `remove_at(list, i) -> T?`, `remove(map, k) -> V?`. The `T?` shape is
+      the whole absence story: the `None` arm owes nothing, so the emptiness
+      check *is* the union narrow [linear-union-arm]. `get`/`first` stay
+      closed — they answer a borrow, and an alias would let one obligation be
+      discharged twice.
+    * **the terminal**: `drain(list, each)` / `drain(map, each)` consumes the
+      container and hands every element to a consuming callback
+      (`=>[each] !x`). A container that is neither drained nor moved onward is
+      an ordinary leak whose diagnostic names **`drain`**, which is the whole
+      point of the model: forgetting a queue of obligations is a compile
+      error.
+    * **no `clear`**, which would be a mass drop, and **no positional write**
+      for a list: `replace(list, i, v)` would have to answer `None` for an
+      out-of-range index and drop the value it was handed. A map's `replace`
+      has no such hole (a fresh key simply stores it).
+  * **The terminal is a callback rather than a `for`** (D7-a, user decision
+    2026-09-16): a `for` cannot consume a linear temporary
+    [iter-drive-in-place] and the language has no implicit discharge site, so
+    `for x in drain(list)` — the shape the design document sketched —
+    would have needed one of the two rules to change. A callback also has no
+    half-drained state to account for: a drain either happened or did not.
+    The cost is that a *lambda* performs only the effects its type declares
+    [fn-effects], so an **effectful** discharger cannot fill the position
+    today; the recorded shape for it is a `for`-driven form, in ROADMAP.md.
+* [linear-state] **Handler state may hold obligations, and an activation must
+  leave it whole** (LC-4, user decision 2026-09-15). This is where the
+  concurrency surface actually lives — a queue of parked reply tokens, a map
+  of gathers — and it is the one place the strong guarantee weakens, so the
+  weakening is stated rather than discovered: **the process owes until it
+  ends**, and what end-of-life does with parked obligations is `watch`'s
+  answer [async-watch].
+  * Within an activation the discipline is unchanged: take an obligation out
+    of a field, and either discharge it or put something back. A member that
+    *returns* with a state field moved out is an error — it would leave the
+    process with a hole a later activation would read, and no analysis can
+    know what a process holds at an arbitrary future point.
+  * **A container is the form.** A *bare* obligation in a field
+    (`held: Token`) is refused, naming the container: taking it out would
+    leave the hole above and nothing could be put back, so its obligation
+    would have no reachable discharge at all. `Mut List<T>` and
+    `Mut Map<K, V>` take one element at a time and leave the storage intact.
+  * A `Copy` scalar field is unaffected: handing one over copies it, which
+    leaves no hole — the exemption [effect-state-store] already grants.
+  * Drain paths stay *forced* wherever the code path exists: a `Shutdown`
+    member that does not answer its parked tokens is a leak, so the drain
+    loop is compulsory rather than stylistic.
 * [linear-generics] An unconstrained generic parameter cannot be
   instantiated with a linear type (decision L6d): unopted generic code
   does not honor the obligation. A fn opts in *per type parameter* with
@@ -3721,23 +3802,24 @@ LANGUAGE.md remains the source of truth for everything that does.
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
-    audit opts in `list`, `mut_list_of`, `add`, `size`, and `discard`
-    (whose declaration is now honestly
-    `intrinsic fn discard<T canbe linear>(value: T) -> None` — no => !value
-    blessed-by-name special case), while `get` stays out (returns an
-    alias of an element) and `copy` refuses with a dedicated message
-    (duplicating an obligation is meaningless). The opt-ins are
-    **signatures, not permissions to store**: since R4 part 2 a call that
-    would put a linear value into `List<T>` is refused by
-    [linear-composite] regardless, so the audited surface now means only
-    "these may be *called* with a linear `T`" — `size` of a list of them,
-    never a list of them;
+    audit opts in `list_of`, `mut_list_of`, `add`, `size`, `discard`
+    (whose declaration is honestly
+    `intrinsic fn discard<T canbe linear>(value: T) -> None`) and — since
+    2026-09-16 — the take-by-move and terminal surface (`remove_first`,
+    `remove_at`, `drain`; `remove`, `replace`, `drain` on a map), while
+    `get`/`first` stay out (they answer an alias of an element), `put` stays
+    out (it drops what it overwrites) and `copy` refuses with a dedicated
+    message (duplicating an obligation is meaningless). Since
+    [linear-container] the opt-ins are permissions to **store** as well: the
+    container carries the obligation, and its terminal is where it dies;
   * a linear value cannot be passed in a *variadic* position (variadic
     arguments are untracked, so the obligation would be physically
     moved but statically unresolvable);
-  * `canbe` on type parameters of non-fn declarations (structs,
-    qualifiers, effects) is a parse error for now (struct-side deferred
-    by user decision); only `Linear` is accepted in the clause.
+  * `canbe` on a type parameter is accepted on **fns**, **structs** and
+    **type declarations** (the last since 2026-09-16, which is what makes an
+    opaque container conditional [linear-container]); on a qualifier's or an
+    effect's parameters it stays a parse error. Only `linear` is accepted in
+    the clause.
   * Effect members with their own generics are not yet covered by the
     ban (known leftover).
 * [linear-lambda] A lambda may read-capture a linear value (an alias,

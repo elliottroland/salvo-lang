@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1032 tests, complete: the toolchain tests are
+cargo test                  # 1051 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,7 +122,93 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Phase 5, sequence item 6: `watch` and the deadlock baseline (2026-09-16).**
+**Phase 5, sequence item 7: linearity in collections (2026-09-16).** L8's
+answer, built: **a container is linear exactly when its element type is**, so a
+process can park reply tokens in `waiting: Mut List<Reply<Str>>`, answer them
+one at a time, and drain the rest on shutdown — on both backends with identical
+output. This is the shape every interesting concurrency example uses, and the
+last thing standing between the phase and its worked examples. Tests: **1051
+(+19)**. Rules: [linear-container], [linear-state], a rewritten
+[linear-composite], plus [rs-state-take], [rs-linear-move] and
+[kt-linear-container].
+
+**Five decisions were already made** (LINEARITY_COLLECTIONS.md, LC-1…LC-5, user
+2026-09-15); building them needed five more, all presented and answered
+2026-09-16 (D7-a…e). The one that mattered:
+
+- **D7-a, the terminal is a consuming callback, not a `for`.** LC-2 wrote
+  `for x in drain(list)`, and that spelling cannot work as built: a `for` may
+  not consume a **linear temporary** [iter-drive-in-place], and the same 2026-09-12
+  decision deliberately deleted the loop's implicit release, since "no implicit
+  discharge site" is a phase-3 fixed point. So `drain(list, each)` it is —
+  `=>[each] !x`, the container consumed, every element handed over exactly
+  once. The property that decided it: a callback has **no half-drained state**,
+  so no path can drop the elements it did not reach, where a `let`-bound drain
+  pass would have needed a rule for "what discharges a pass that stopped
+  early" (its `close` would silently drop the rest).
+- **D7-b, `remove` stays `remove`.** Map's `remove(map, k) -> V?` already *was*
+  LC-2's `take`, audited and shaped exactly right, so the list side took its
+  vocabulary (`remove_first`, `remove_at`) rather than renaming a std function
+  across the repo for a synonym. Rust's `HashMap::remove` answering the value
+  is the same convention.
+- **D7-c, the opt-in list**, as recommended: `get`/`first` stay closed (they
+  answer a borrow, and an alias would let one obligation be discharged twice),
+  `put` stays closed (it answers nothing, so it drops what it overwrote —
+  `replace` is the form that hands it back), and `iter`/`next` stay closed too,
+  since a read-only view of an obligation can do nothing with it.
+- **D7-d/e**, LC-3's refusals and LC-4's state rule as decided.
+
+**What the build discovered, in five notes worth keeping:**
+
+- **A `List<InStream>` is undrainable, and that is a language-level gap.** A
+  lambda performs only the effects its *type* declares [fn-effects], and
+  `drain`'s callback type is pure — so a discharger that needs an effect
+  (`close(s: InStream) [Fs]`, and anything that logs) cannot fill the position.
+  The reply-token customer is unaffected (`send(r, v)` is pure), so the slice
+  ships, but the gap is real and recorded in ROADMAP.md with the two candidate
+  answers (a `for`-driven terminal, or call-site effect widening for a pure
+  callback position). Found by writing the obvious test rather than by
+  reasoning: `drain(held, h -> release(h))` where `release` prints.
+- **`T?` was being read as a composite.** `var_in_composite` treated a union
+  and an optional as containers, so a signature *answering* `V?` counted as a
+  store and `replace(map, k, v) -> V?` was refused at every call. It is the
+  opposite: a union value **is** the value [linear-union-arm], which is exactly
+  what makes take-by-move expressible. One arm of one match, and the whole LC-2
+  surface depended on it.
+- **Rust needed two new move paths, both for the same reason** — the ordinary
+  ones *copy*, and copying an obligation is either wrong or impossible.
+  `std::mem::take(&mut self.waiting)` for a state field being drained (a field
+  behind `&mut self` cannot be moved out at all), and `first.unwrap()` instead
+  of `first.as_ref().unwrap().clone()` for a narrowed linear optional
+  (`SalvoReply` is not `Clone` on purpose). Both are driven by new checker
+  records rather than by the emitter guessing: `state_takes` and `linear_moves`.
+- **Both backends refused an immediately-applied lambda literal.** The first
+  `drain` lowering was `for __x in xs { (|r| …)(__x); }`, and rustc could not
+  infer the closure's parameter type (E0282); Kotlin asked for an explicit type
+  in the same place. `into_iter().for_each(f)` / `toList().forEach(f)` fixed
+  both, because there the parameter type comes from the callee's own signature.
+  A generated call to a generated lambda wants a *typed* callee.
+- **A new std name is a language change.** `remove_first` collided with a
+  test's own helper of that name, which then resolved to std's overload and
+  made an expected diagnostic vanish (the analyze tests' `take_head` now). The
+  no-backwards-compatibility invariant cuts both ways: adding to std rewrites
+  whoever picked the same name.
+
+**LINEARITY_COLLECTIONS.md retires here**, per its charter: LC-1…LC-5's
+outcomes are the rules above, the argument trails they rest on are in this entry
+and in the 2026-09-15 decision entry, and the document itself is deleted. The
+one sentence of its own it asked to have written verbatim — "the process owes
+until it ends" — is in LANGUAGE.md and in [linear-state].
+
+**Two deliberate cuts, both recorded in the rules:** there is **no positional
+write for a list** (`replace(list, i, v)` would have to answer `None` for an
+out-of-range index and drop the value it was handed — a silent leak; a map's
+`replace` has no such hole), and a **bare** obligation in handler state is
+refused, naming the container. The second is what keeps LC-4 sound on Rust: a
+field of a non-`Default` type has no representable "temporarily empty" state,
+and the checker says so instead of the backend discovering it.
+
+
 The supervision surface and the static check that keeps processes from waiting
 on each other, both landing on **both backends with identical output**. A
 program can now watch a process die — `watch(c, out)` with a token minted by
@@ -10988,7 +11074,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1032)
+## Test inventory (all green: 1051)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10996,7 +11082,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 572 - 19 unit tests (file classification, including the
+- `salvo-core`: 588 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -11142,6 +11228,18 @@ cache, with per-test timings.
   to the back-pressure *warning*, an intercepting handler that gates staying
   silent (the own-effect-dependency exemption), and a one-way request/response
   pair producing neither diagnostic
+  + 16 linear-container tests (`tests/linear_container_tests.rs`
+  [linear-container] [linear-state], added 2026-09-16): a list of obligations
+  owing and `drain` discharging it; the leak naming **`drain`**; the same
+  container with a plain element owing nothing; nesting carrying the obligation
+  through; take-by-move handing over one obligation and the taken one still
+  owing; `get` and `put` still refused with the instantiation ban; a map
+  written with `replace` and drained; `Set` refused with the *dedup is
+  dropping* wording and a map **key** refused with its own; arrays and tuples
+  still refused, now naming the container remedy; and LC-4's three: a handler
+  parking obligations in state, an activation refused for leaving a hole, and a
+  bare obligation in state refused naming the container — plus the `Copy`
+  scalar field that must stay unaffected
   + 15 type-argument tests (`tests/type_arg_tests.rs` [call-type-args]:
   an undetermined type argument reported with both remedies; determined by
   the arguments, by an explicit list, by a `let` annotation, by the
@@ -11633,13 +11731,16 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 101 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 102 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 90 cases as of the death watch: a process that faults, a
+  (2026-09-12; 91 cases as of the obligation queue — a process parking reply
+  tokens in `Mut List<Reply<Str>>` state, answering one with `remove_first` and
+  draining the rest on shutdown (`second closed: end of day` / `first served
+  ada`) [linear-container] [linear-state] — and the death watch: a process that faults, a
   watcher answered with an `Exit`, a *late* watch answered immediately, and a
   send to the corpse changing nothing (`died with a reason: true` / `late watch
   answered: true` / `done`) [async-watch] — its reason text is the one thing
@@ -11827,7 +11928,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 183 - including twelve [rs-process] tests (the first
+- `salvo-backend-rust`: 185 - including twelve [rs-process] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12036,6 +12137,30 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A generated call to a generated lambda wants a typed callee.** The first
+  `drain` lowering applied the callback literal directly —
+  `for __x in xs { (|r| …)(__x); }` — and *both* target compilers refused it
+  for the same reason: rustc could not infer the closure's parameter type
+  (E0282) and kotlinc asked for an explicit one. Routing it through a function
+  whose signature types the argument (`into_iter().for_each(f)`,
+  `toList().forEach(f)`) fixed both. When an emitted higher-order call does not
+  compile, the question to ask is where the parameter type is supposed to come
+  from (2026-09-16).
+- **Adding a name to std rewrites whoever already used it.** `remove_first`
+  landed in `core.list` and immediately broke two analyze tests that declared
+  helpers of that name: their calls started resolving to std's overload, and an
+  expected diagnostic disappeared. Nothing was wrong with either side — it is
+  the no-backwards-compatibility invariant applying to *std growth*, so budget
+  a sweep for a new std function's name (2026-09-16).
+- **Rust's ordinary reads copy, and an obligation must not be copied.** Two
+  paths needed new spellings when containers began holding linear values:
+  moving a container *out of a state field* (`std::mem::take`, because a field
+  behind `&mut self` cannot be moved and a clone would duplicate every
+  obligation inside) and reading a *narrowed linear optional* (`x.unwrap()`
+  rather than `x.as_ref().unwrap().clone()`, which does not even compile for a
+  non-`Clone` token). Both are driven by checker records rather than by the
+  emitter inferring intent — the emitter cannot tell "hand over" from "read"
+  without being told (2026-09-16).
 - **A whole-program graph check belongs at the end of a checking round, not in
   a pass of its own.** The deadlock cycle check needs facts from every file
   (which handlers gate, which send where), so the instinct is a new pass over

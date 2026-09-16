@@ -271,6 +271,8 @@ An **empty** literal has nothing to infer from, so its type comes from the posit
 
 A map literal's keys are expressions, which is why `{x: 1}` is *not* a map: a brace whose first entry is `identifier:` is a bare struct literal, which came first and stays. Write `{"x": 1}`, or `map_of((x, 1))` when the key really is a variable.
 
+Taking something back **out** of a collection is a move, not a copy: `remove_first(list)` and `remove_at(list, i)` answer `T?` — the element, or `None` when there is nothing at that position — and `remove(map, key)` does the same for a map's value. `replace(map, key, value)` is the write that hands back what it displaced. None of them leaves a hole or duplicates anything, which is what lets a collection hold values that must be used exactly once (see "Linear types"); for ordinary data they are simply the operations you would expect. `drain(list, each)` consumes a collection and hands every element to a function, in order.
+
 For a collection kept in order rather than in insertion order, there are `SortedSet<T>` and `SortedMap<K, V>`:
 
 ```
@@ -1663,7 +1665,7 @@ qualifier NonEmpty<T> of List<T>
 If we remove an element from the list, then we don't know if it's non-empty any more. We can capture this as follows:
 
 ```
-fn remove_first<T>(list: Mut NonEmpty List<T>) -> T => list: Mut
+fn take_head<T>(list: Mut NonEmpty List<T>) -> T => list: Mut
 ```
 
 The entries, by shape:
@@ -1684,7 +1686,7 @@ Why does an exhaustive entry drop "qualifiers this function never mentions"? Bec
 
 The flip side is deliberate over-strictness: `add` cannot promise to preserve `NonEmpty` either, even though appending to a list can never empty it. The function is the wrong party to ask — it has never heard of `NonEmpty` — so the claim's *owner* states it instead, in a **refinement** (see "Refinements" below). Without one, re-test with `is NonEmpty` after a mutating call.
 
-These are enforced at each call site: passing a variable to `remove_first` above removes `NonEmpty` from what the compiler knows about it, so a second `remove_first(list)` without an intervening `is NonEmpty` check fails overload resolution:
+These are enforced at each call site: passing a variable to `take_head` above removes `NonEmpty` from what the compiler knows about it, so a second `take_head(list)` without an intervening `is NonEmpty` check fails overload resolution:
 
 ```
 let list: Mut List<Int> = mut_list_of(1, 2, 3)
@@ -1692,10 +1694,10 @@ let list: Mut List<Int> = mut_list_of(1, 2, 3)
 // We will discuss this "predicate qualifier" later
 if list is NonEmpty {
     // Type of `list` is `Mut NonEmpty List<T>`
-    let first = remove_first(list) // can call this because we have `list: NonEmpty Mut`
+    let first = take_head(list) // can call this because we have `list: NonEmpty Mut`
 
     // At _this_ point, `list` is no longer NonEmpty, but only Mut
-    let second = remove_first(list) // Invalid: there is no function for this
+    let second = take_head(list) // Invalid: there is no function for this
     let size = list.size() // Still valid, because `list` is a List<T>
 }
 ```
@@ -1713,11 +1715,11 @@ Consuming calls are not the only way a value moves. Every other escape route con
 **Write what inference cannot reach; the rest is inferred.** A parameter the clause does not mention gets the contract the compiler reads off the body — kept with the qualifiers that survive every call the body makes, or consumed when the body moves it — so most functions write no clause at all, and a clause may be *partial*: `=> list: Mut` on a three-parameter function says nothing about the other two. What is written is checked against the body (a promise to keep what the body moves is an error) and is otherwise fixed. Two places have no body to infer from and must therefore say everything: an `effect` member (including a `platform effect`'s) and an `intrinsic fn` must mention every parameter — except Copy scalars (`Int`, `Bool`, …), whose fate is nothing to deduce. A function *type* is bodiless too but keeps the default of keeping everything; `=>[f] …` on the enclosing declaration is how to say otherwise, and it needs the fn type's parameters named (`f: (v: List<Int>) -> Int`).
 
 ```
-// Nothing written: `list` is inferred `Mut` (because `remove_first` might be
+// Nothing written: `list` is inferred `Mut` (because `take_head` might be
 // called on it) — the hover shows `=> list: Mut`.
-fn maybe_remove_first<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
+fn maybe_take_head<T>(list: Mut NonEmpty List<T>) [Random<Int>] -> T? {
     if next_random() > 0 {
-        return remove_first(list)
+        return take_head(list)
     }
     return None
 }
@@ -1984,8 +1986,12 @@ fn no_leak(flag: Bool) {
 Rules that keep the obligation sound:
 
 - **Linearity is declared, not applied**: `linear` cannot be written in a use-site type — every value of a `linear struct` type is linear, always. (A spelling you could forget would defeat the point.) `canbe linear` on a declaration is an error naming the modifier; on a *type parameter* it keeps its spelling, where it means something else entirely (below).
-- **A composite may not hold a linear value** — for now. Storing a handle in a struct field, an array, a tuple, a union arm or a type argument (`List<FileHandle>`) is an error *at the store*, rather than moving the obligation into the container: a linear value lives only in a local, a parameter or a return value. This is an interim rule; carrying an obligation through a container is one design question together with conditional linearity ("a `Box<T>` is linear exactly when `T` is"), and until that is answered the compiler refuses rather than guesses. The store is refused wherever it is written — the field's declaration, the literal, or a call like `add(list, handle)` that would put a bare value into a container.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list`, `mut_list_of`, `add`, `size`), but that means only that those functions may be *called* with a linear `T` — putting one *into* a `List<T>` is refused by the composite rule above. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
+- **A container is linear exactly when its element is.** A `List<FileHandle>` owes; a `List<Int>` does not; nothing at a use site says which — the element's declaration is the source, and the container opts a parameter in on *its* declaration (`intrinsic type List<T canbe linear>`, `struct Box<T canbe linear>`). Obligations enter with `add`/`replace`, leave one at a time with `remove_first`/`remove_at`/`remove` (each answering `T?`, so the emptiness check is the ordinary narrow), and the container's **terminal** is `drain(container, each)`: it consumes the container and hands every element to a callback that consumes it. A container that is neither drained nor moved onward is an ordinary leak, and the diagnostic names `drain`.
+
+  What a container may *not* do is drop an element on your behalf, so the surface has no `clear`, no positional list write, and no `get` for obligations (that would hand out an alias). `Set`, `SortedSet` and map **keys** refuse obligations outright: insertion deduplicates, and dedup *is* dropping — an equal element or a repeated key discards one of the two values, which no API reshaping can fix. A struct field holding either an obligation or a container of them makes the struct a resource too, so it takes the `linear struct` marker: contagion is spelled, never inferred. Arrays and tuples stay out for now, and a linear value still cannot travel through a *variadic* position (those are untracked).
+
+- **Handler state may hold obligations, and the process owes until it ends.** A queue of parked reply tokens (`waiting: Mut List<Reply<Str>>`) is what the concurrency surface is for, so a handler field may hold a container of obligations. Within one activation the discipline is unchanged — take one out, and either discharge it or put something back — and a member that *returns* with a state field moved out is an error, because it would leave the process with a hole a later activation would read. This is the one place the promise weakens: static analysis cannot know what a process holds at an arbitrary future point, so the guarantee becomes "the process owes until it ends", and what a *death* does with parked obligations is what `watch` reports. A **bare** obligation in a field is refused, naming the container: taking it out would leave that hole and nothing could be put back, so its obligation would have no reachable discharge at all.
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`list_of`, `mut_list_of`, `add`, `size`, `remove_first`, `remove_at`, `drain`, and a map's `remove`/`replace`/`drain`), and since containers carry obligations those opt-ins are permissions to *store* as well as to call. `get` stays out (it returns an alias of an element, which would duplicate the obligation) and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed in a *variadic* position (those are untracked).
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.
 

@@ -1303,6 +1303,35 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * The runtime is emitted only into a program whose modules mention one of
     the types or call one of their constructors, and the crate root mounts
     it with `mod collections;` [rs-crate].
+  * [linear-container] The obligation surface added two methods, both about
+    *not dropping*: `replace(key, value) -> Option<V>` (`insert` answers
+    nothing, so it cannot be the write for a map of obligations) and
+    `into_values() -> Vec<V>`, which is what `drain(map, each)` walks.
+* [rs-state-take] [linear-state] **Taking a container out of handler state is
+  `std::mem::take`.** A field behind `&mut self` cannot be moved out (E0507),
+  and cloning it would duplicate every obligation inside — so the read the
+  checker recorded as a state-field move (`Checked::state_takes`) renders as
+  `std::mem::take(&mut self.waiting)`. That is also the honest semantics: the
+  field is empty until the member puts something back, which [linear-state]
+  requires it to do before returning. `mem::take` needs `Default`, which
+  `Vec` and `SalvoMap` have — and a *bare* obligation in state (whose type
+  need not) is refused by the checker, so the emitter never meets one.
+* [rs-linear-move] [linear-container] **A narrowed linear value is moved, not
+  cloned.** Rust's ordinary narrowed read is `x.as_ref().unwrap().clone()`,
+  which for `remove_first(waiting)`'s `Option<SalvoReply>` would duplicate a
+  one-shot token — and `SalvoReply` is deliberately not `Clone`, so it would
+  not even compile. Where the checker recorded a move of a linear value
+  (`Checked::linear_moves`), the plain-optional shape renders as
+  `first.unwrap()`, moving the payload out; the checker has consumed the
+  variable, so nothing reads it again. A narrowed *union arm* keeps the
+  existing accessor path, where a linear payload is a `Clone` handle today
+  (phase 4's tokens) and a non-`Clone` one is a loud rustc error rather than
+  wrong code.
+  * The two intrinsic terminals are `into_iter().for_each(f)` /
+    `into_values().into_iter().for_each(f)` rather than a `for` loop, for one
+    boring reason worth recording: an immediately-applied closure literal
+    (`(|r| …)(x)`) leaves rustc with nothing to infer the parameter type from
+    (E0282), while a `for_each` argument is typed by the `FnMut` bound.
 * [rs-process] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
   [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a

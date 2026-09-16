@@ -2,7 +2,13 @@
 // [type-canbe-mut]: a backend may map `Mut List<T>` to a different native
 // type (Kotlin's `MutableList<T>`) or to the same one (Rust's `Vec<T>`,
 // where mutability lives in the binding).
-intrinsic type List<T> canbe Mut
+//
+// [linear-container] `<T canbe linear>` is what lets a list **hold
+// obligations**: `List<Reply<Int>>` is a linear type — it owes, and its
+// terminal is [drain] — while `List<Int>` is an ordinary list. The
+// element's declaration is the source of the linearity; a list never
+// spells it.
+intrinsic type List<T canbe linear> canbe Mut
 
 // Constructor. The elements are stored in the new list, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].
@@ -27,6 +33,45 @@ intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => li
 // is moved; the list itself is mutated, which is why its surviving
 // qualifiers are listed exhaustively [deduce-syntax].
 intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
+
+// [linear-container] Takes the **first** element out of the list, or answers
+// `None` when it is empty: the way an obligation leaves a list one at a time.
+// The element is *moved* out — nothing is left behind and nothing is
+// duplicated, which is what makes it legal for a `List<Reply<T>>` where [get]
+// (an alias) is not.
+//
+// The `T?` shape is the whole absence story: the `None` arm owes nothing, so
+// the emptiness check *is* the union narrow [linear-union-arm]. Pairs with
+// `while` for a take-until-empty loop, and with [drain] for the terminal.
+intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
+
+// [linear-container] The same, at an index: the element at [index] is moved
+// out and the elements after it shift down. `None` when the index is past the
+// end.
+intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
+    => list: Mut, index
+
+// [linear-container] There is deliberately **no** positional write for a list
+// of obligations. `replace(list, index, elem) -> T?` looks like the map's, but
+// a list index can be *out of range*, and then the value written has nowhere
+// to go: answering `None` would drop it (a silent leak, exactly what this
+// surface exists to prevent), handing it back would make "displaced" and
+// "bounced" indistinguishable, and refusing at run time is not how the rest of
+// std treats an index [col-bounds]. Take the element out and add a new one, or
+// key the collection with a `Map`, whose `replace` has no such hole.
+
+// [linear-container] The **terminal**: consumes the list and hands every
+// element to [each], in order. This is how a list of obligations ends — the
+// container is spent, and each element's obligation continues into the
+// callback, which consumes it (`=>[each] !x`).
+//
+// It is a function rather than a `for`-shaped pass because there is then no
+// half-drained state to account for: a drain either happened or did not, and
+// no path can drop the elements it did not reach. The callback's own effects
+// travel to the caller [fn-effects], so draining into an effectful discharger
+// needs no annotation here.
+intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
+    =>[each] !x => !list, each
 
 intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list
 
