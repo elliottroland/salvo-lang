@@ -2542,6 +2542,12 @@ LANGUAGE.md remains the source of truth for everything that does.
     enqueue on the process's own mailbox when the handler was spawned, and the
     ordinary inline member call when it was `use`d (which is what a local
     binding of a `send` protocol already does).
+    * A handler is compiled **once**, so which reading applies is a property
+      of the *instance*, not of the source: both emitters discriminate at run
+      time on the same generated field the mint reads — the process's own
+      address, absent exactly when the instance was bound synchronously
+      ([rs-process], [kt-process]). One field, two rules, no second
+      compilation.
   * `k` must be a member of the enclosing handler and a **`send fn`**: a
     member that answers would have to wait for itself. Arguments are typed
     against its parameters and *consumed* — the message outlives this
@@ -2592,11 +2598,36 @@ LANGUAGE.md remains the source of truth for everything that does.
     **`send fn`**: an answer arrives as a message. Outside a handler the form
     is an error naming `main`'s alternative, `waitfor` — `main` has no members
     for a continuation to target.
+  * **A parking handler may only be `spawn`ed** (user decision 2026-09-15):
+    bound with `use`, its member bodies run inline on the caller's thread, so
+    the mint would target a member of a *local* instance — which has no
+    mailbox for the answer to arrive on and no dispatcher to run it, leaving
+    the continuation silently dead. Refused at the `use` site, naming `spawn`.
+    * The gate is syntactic per **handler**, not per member, because effects
+      propagate: a fn declaring `[E]` may call any member, so a `use` site
+      cannot know which ones its scope will reach. The over-refusal that
+      buys — a `use` of a handler whose *other* members are the only ones
+      called — was judged theoretical: parking is the one thing only a
+      process can do, so a handler that parks is a process.
+    * It does not touch Example 6's binding swap, which swaps a *dependency*
+      between a construction and an `Addr` in a spawn clause, never a `use`.
+  * **The target is resolved lexically**, against the enclosing handler's
+    members. Naming a member of another `async effect` in scope is a *remote
+    mint* — the generalized form (EFFECT_UNIFICATION.md EU-7b, decided) — and
+    is refused for now with the workaround that needs nothing new: a token is
+    an ordinary linear value, so the handler that owns `k` mints it and passes
+    it. The generalization is a later slice because it makes the mint itself
+    send-like: capacity has to be reserved in the *target's* bounded queue, so
+    a remote mint can block and contributes its own wait-for edge.
   * A capture is *stored* in the continuation, so passing a bare name moves
-    it ([deduce-consume]), like a `use` constructor argument.
+    it ([deduce-consume]), like a `use` constructor argument. A caller's own
+    reply token travelling as a capture is the ordinary way to answer later —
+    and the way to do it before linearity in collections, since storing a
+    token in handler state is still [linear-composite]'s refusal.
   * `replyto!` is the same mint **plus the gate**: bounded selective
     receive, at most one outstanding per process, so the process serves
-    nothing else until the answer arrives.
+    nothing else until the answer arrives. Self-only by nature, so it stays
+    lexical with everything above.
   * A token is one-shot *statically*, which is what linearity buys over the
     dynamic enforcement the effects literature settles for.
 * [async-types] The three types the forms produce and consume live in
@@ -2627,22 +2658,24 @@ LANGUAGE.md remains the source of truth for everything that does.
   * An addr is **never linear and freely copied**: a send to a dead process is
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
-* **Built so far, and what is refused meanwhile.** The surface **runs**: as of
-  2026-09-15 a program can spawn a handler — a **dependent** one included,
-  its dependencies supplied by its own `use` clause as constructions, as
-  addrs, or a mix — send to it through its `Addr`, and bridge with `waitfor`,
-  on **both backends, with identical output** ([rs-process], [kt-process]).
-  `use addr` **runs**: it binds a generated forwarding stub, so a function
-  declaring `[Log]` never learns that its capability is a process — and the
-  same stub is what a spawn clause's addr becomes, which is how a child's
-  dependency swaps between a local handler and a process without the child
-  changing at all. Everything above checks; what is still refused at
-  emission, each with a diagnostic naming it: spawning a **generic** handler,
-  a **generic effect** as a protocol, `replyto` (needs the process body's
-  resume table) and a **self-send** (needs the activation's own address).
-  The sugar tower — member `-> T` with call syntax, `then`/`then!`, `defer`,
-  merge/join, the gate's member-set generalization — is later passes, each
-  with its own decision surface.
+* **Built so far, and what is refused meanwhile.** The surface **runs**, and as
+  of 2026-09-15 it runs **without `main` in the loop**: a program can spawn a
+  handler — a **dependent** one included, its dependencies supplied by its own
+  `use` clause as constructions, as addrs, or a mix — send to it through its
+  `Addr`, park a continuation with `replyto` / `replyto!` for an answer that
+  arrives *at another process*, continue an activation with `k@self(…)`, and
+  bridge with `waitfor`. All of it on **both backends, with identical output**
+  ([rs-process], [kt-process]). `use addr` **runs**: it binds a generated
+  forwarding stub, so a function declaring `[Log]` never learns that its
+  capability is a process — and the same stub is what a spawn clause's addr
+  becomes, which is how a child's dependency swaps between a local handler and
+  a process without the child changing at all. What is still refused, each with
+  a diagnostic naming it: spawning a **generic** handler, a **generic effect**
+  as a protocol, a **remote mint** (a `replyto` target reached through the
+  effect list rather than lexically), and `use` of a handler that parks. The
+  sugar tower — member `-> T` with call syntax, `then`/`then!`, `defer`,
+  merge/join, the gate's member-set generalization, and the generalized mint —
+  is later passes, each with its own decision surface.
 
 ## Deductions
 

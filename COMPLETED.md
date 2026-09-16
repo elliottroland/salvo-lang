@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1012 tests, complete: the toolchain tests are
+cargo test                  # 1021 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -122,7 +122,92 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Phase 5, sequence item 4: dependent-handler spawns (2026-09-15).** A spawned
+**Phase 5, sequence item 5: `replyto` and `@self` emission (2026-09-15).** The
+slice the phase was blocked on: **request/response now runs without `main` in
+the loop**, on both backends with identical output. A fetcher process asks a
+database process for a row, parks a continuation for the answer, and the
+continuation — running as its own later activation, inside the fetcher — fulfils
+`main`'s `waitfor` token. Before this every answer had to come back through
+`main`, which is why the earlier process tests all chained through it. Tests:
+**1021 (+9)**; the last four "not emitted yet" refusals are gone, two of which
+still named the pre-item-1 `self.k(…)` spelling.
+
+**Three design points were settled before any code** (user decisions, presented
+with options and recommendations):
+
+- **D5-a, how a member body reaches its own address: a generated `__addr` field
+  on the handler**, written by `__Proc_H` from the activation's `SalvoCtx`. The
+  option ruled out first was threading `SalvoCtx` into the member — a member's
+  signature is the *effect trait's*, so an extra parameter lands on `__Stub_E`,
+  on the fusion's forwarding impl and on `__Impl_H`, and a `use`d handler has no
+  ctx to supply. That would have broken the property items 3 and 4 were built to
+  preserve. A runtime thread-local was the other candidate and lost to the
+  field's second job: **absence is the self-send's discriminator.** A handler is
+  compiled once, so which reading `k@self(…)` takes is a property of the
+  *instance*; one nullable field gives both readings without a second
+  compilation.
+- **D5-b, where the parked table lives: on the handler too**, `__parked: slot →
+  __Cont_E`, with `__Cont_E` beside `__Msg_E` carrying each target member's
+  parameters *minus the trailing answer* (the answer arrives with the reply, and
+  the variant is what says which member to resume and what to cast to). It has
+  to be reachable from the **mint**, which happens in a member body holding
+  `&mut self` on the handler and unable to see the process struct. Putting it in
+  the runtime instead would have changed `SalvoProcess::resume`'s decided
+  signature — and the two runtimes are the most exactly-mirrored code in the
+  phase, so not editing them was worth a field.
+- **D5-c, `replyto` under a `use` binding: refused statically, at the `use`
+  site.** A handler that parks may only be spawned. Bound synchronously its
+  member bodies run inline on the caller's thread, so the mint targets a member
+  of a *local* instance — no mailbox for the answer, no dispatcher to run it,
+  and the continuation silently never runs. The example that settled it was
+  written and *run* (it checks clean today), which is the argument: the
+  alternative reading is a program whose continuation is dead. The gate is
+  syntactic per **handler** rather than per member, because effects propagate —
+  a fn declaring `[E]` may call any member, so a `use` site cannot know which
+  ones its scope reaches. The over-refusal that buys (a `use` of a parking
+  handler that only ever calls its *other* members) was judged theoretical, and
+  the rule does not touch Example 6's binding swap, which swaps a dependency in
+  a spawn clause and never a `use`.
+
+**Remote mints stayed out, deliberately.** The user pointed at
+EFFECT_UNIFICATION.md's EU-7b — `replyto` resolving lexically-then-by-effect-list
+— which is decided and answers the *target* question: a token is a curried send,
+so anyone who can call `k` may mint toward it, and only `async effect` members
+are mintable-toward. It also anticipated D5-c's gap verbatim ("to be pinned when
+the mint's checker slice lands"). But EU-7b belongs to the sugar pass: it makes
+the **mint itself send-like**, since capacity has to be reserved in the
+*target's* bounded queue, so a mint can block and contributes its own wait-for
+edge — which item 6's cycle check would then have to read. So this pass ships
+lexical mints, and a target reached through the effect list is a diagnostic
+naming the effect and the workaround that needs nothing new: a token is an
+ordinary linear value, so the handler that owns `k` mints it and passes it.
+
+**What the build cost, in three notes worth keeping:**
+
+- **The checker needed no new walker.** "Does this handler park?" is a
+  syntactic property, and writing a tenth exhaustive expression walker is
+  exactly what COMPLETED's own gotcha warns against. Instead the answer is
+  collected *by the checker's own traversal* into a cross-round accumulator,
+  `parking_handlers`, threaded like `move_candidates`: round one fills it, and
+  round two — whose diagnostics are the ones kept — refuses. A `use` may be
+  checked before the handler it names, and this is the existing machinery for
+  exactly that.
+- **`__Proc_H` needs three renderings of one parameter list** once it is
+  generic in dependency instances: bare (struct, `new`), with the
+  dependencies' trait bounds (`__dispatch`, which builds the `__Deps_H` view),
+  and with `+ Send + 'static` (the `SalvoProcess` impl, whose supertrait must
+  be proved). Factoring `__dispatch` out of `handle` — so member invocation
+  lives in one place for both delivery kinds — is what surfaced it, as an
+  `E0277` naming the dependency's trait.
+- **Kotlin's generated fields may not be `private`.** Class-level `private` in
+  Kotlin is visible only inside that class, and `__Proc_H` is a *different*
+  class in the same file; `internal` is what lets it write `__addr` and read
+  `__parked`. Rust needed no care at all — its privacy is per module, and both
+  types live in one. Also on the Kotlin side, `SalvoSched.mint`/`mintGated` now
+  answer a `Pair` of token and slot, mirroring Rust and `waiter()`: generated
+  code keys the table by the slot.
+
+
 child can now have effect dependencies, supplied by its own `use` clause as
 handler constructions, as addrs, or a mix — on **both backends, with identical
 output**. It was the biggest remaining piece of the phase and it landed exactly
@@ -10766,7 +10851,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1012)
+## Test inventory (all green: 1021)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -10774,7 +10859,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 561 - 19 unit tests (file classification, including the
+- `salvo-core`: 564 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -11403,19 +11488,24 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 99 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 100 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 86 cases as of the member-name-collision case, which pins both
-  halves of that defect by *running* — a member named `add` beside std's own,
-  and `to_upper@core.string` versus `to_upper@Shout` [effect-available]. Beside
-  it, the dependent-spawn case runs a child whose `[Log, Tally]` arrive as a
-  construction and an addr, asserting the same `last bumped 3` / `sum 5` the
-  Rust backend does, and the plain process case asserts `sum 5`
-  [kt-process]). The remaining tests: golden snapshots of the M2 demo, the M3
+  (2026-09-12; 89 cases as of the parked-continuation trio: a fetcher that
+  parks a continuation for a database process's answer and fulfils `main`'s
+  token from inside its own activation (`got row 7`), the gate whose *ordering*
+  is the assertion (`reply R, user late`), and both readings of `k@self`
+  answering alike [async-replyto] [async-self-send]. Beside them: the
+  member-name-collision case, which pins both halves of that defect by
+  *running* — a member named `add` beside std's own, and
+  `to_upper@core.string` versus `to_upper@Shout` [effect-available]; the
+  dependent-spawn case, a child whose `[Log, Tally]` arrive as a construction
+  and an addr (`last bumped 3` / `sum 5`); and the plain process case's
+  `sum 5` [kt-process]. Every one of them asserts the *same* output the Rust
+  backend asserts). The remaining tests: golden snapshots of the M2 demo, the M3
   unions demo, the M4 qualifiers demo, the M5 effects demo, and the M6
   loops demo;
   M7 assertions (only-used-modules + companion copying, per-module
@@ -11587,14 +11677,19 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 176 - including five [rs-process] tests (the first
+- `salvo-backend-rust`: 181 - including ten [rs-process] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
   one dependency a construction, the other an addr — printing the
   `last bumped 3` / `sum 5` Kotlin prints; its flat provider, `__Deps_H`
-  view and `__Impl_H` dispatch asserted on the generated text; and the
-  generic-handler cut reported as a codegen error) - and the
+  view and `__Impl_H` dispatch asserted on the generated text; a **parked
+  continuation** compiled and run with `main` out of the loop (`got row 7`),
+  the **gate** (`reply R, user late`), **both readings of `k@self`**, the
+  continuation enum / `__addr` / `__parked` / `resume` asserted on the
+  generated text, and the two `replyto` refusals — a parking handler `use`d,
+  and a remote mint target; and the generic-handler cut reported as a codegen
+  error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
   *output* - golden snapshots of the same five demos
@@ -11787,6 +11882,50 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Before adding a walker, ask whether the traversal you need already runs.**
+  "Does this handler park?" is a syntactic property of member bodies, and the
+  obvious implementation is a recursive `Expr` walk — the tenth one, and
+  exhaustive-or-wrong (see the `Expr` variant gotcha below). The checker
+  already visits every expression, so the answer was collected *at the site
+  that recognises the form* into a cross-round accumulator threaded like
+  `move_candidates`: round one fills it, round two refuses. It cost five lines
+  and cannot go stale as the grammar grows (2026-09-15).
+- **Two `&mut` accumulators are the shape for "a fact from an earlier round".**
+  A `use` may be checked before the handler it names, so a rule that keys on a
+  whole-program property cannot be decided in one pass. `check_program` already
+  loops check→infer until stable and carries `candidates`/`claims`/`mutations`
+  across rounds; a new fact joins that convoy rather than needing a pre-pass,
+  and round one's diagnostics being discarded is what makes it correct
+  (2026-09-15).
+- **Factoring a generated method out of another can move it out of its
+  bounds.** Pulling the message `match` out of `handle` into a `__dispatch` on
+  `impl<__D0> __Proc_H<__D0>` compiled the emitter fine and produced Rust that
+  failed with `E0277`: the *bounds* lived on the `SalvoProcess` impl, and
+  `__dispatch` needs them because it builds the `__Deps_H` view. A generic
+  generated type can need several renderings of one parameter list — here
+  three: bare, trait-bounded, and `+ Send + 'static` — and which one each impl
+  block gets is part of the design, not a detail (2026-09-15).
+- **Kotlin `private` is per class; Rust `private` is per module.** Generated
+  code that spans two types in one file — a handler and its `__Proc_H` — can
+  share a field freely on the Rust side and not at all on Kotlin's, where
+  `internal` is the smallest visibility that works. Any time a mirrored pair of
+  emitters puts collaborating state on *different* generated types, check the
+  visibility rule of each language rather than assuming file scope
+  (2026-09-15).
+- **A concurrency test's determinism should come from the semantics, not from
+  timing.** The parked-continuation case is deterministic because `main` blocks
+  until the whole chain has run, and the gate case is deterministic because the
+  gate *is* the ordering it asserts (`reply R, user late` is the only legal
+  output; ungated it would be the reverse). Both are better assertions than a
+  sleep, and the gate one would fail loudly if the gate stopped working
+  (2026-09-15).
+- **Write the "what would it mean?" program before refusing a form.** D5-c was
+  settled by writing the `use` of a parking handler, running it through the
+  checker (it passes today), and tracing what would happen: mint, send, reply
+  arrives, nothing dispatches, `seen` stays 0. That trace is the argument for
+  the refusal and it went into the decision record — far more convincing than
+  the abstract claim that a local instance has no mailbox (2026-09-15).
 
 - **When two passes answer one question from different tables, the narrower
   table must publish for *every* case.** The checker resolves a call with an

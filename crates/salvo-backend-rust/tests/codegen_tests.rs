@@ -8859,6 +8859,317 @@ fn main() [use, spawn] {
     );
 }
 
+// ===== [async-replyto] [async-self-send] parked continuations =====
+
+/// [async-replyto] **The shape the slice exists for: `main` is not in the
+/// loop.** A fetcher process asks a database process for a row, parking a
+/// continuation for the answer; the database replies *to the fetcher*, whose
+/// continuation runs and only then fulfils `main`'s `waitfor` token. Before
+/// this, every answer had to come back through `main`, which is why the earlier
+/// process tests all chain through it.
+///
+/// The caller's token travels as a **capture** of the continuation
+/// (`replyto arrived(out)`), which is what makes the shape writable without
+/// linearity-in-collections: the token is moved into the continuation rather
+/// than stored in handler state ([linear-composite] still refuses that, and
+/// storing one is item 7). Deterministic without any synchronisation, because
+/// `main` blocks until the whole chain has run. Identical output on the Kotlin
+/// backend.
+const REPLYTO_CHAIN: &str = r#"
+async effect Db {
+    send fn lookup(id: Int, out: Reply<Str>) => !id, !out
+}
+
+async effect Notices {
+    send fn fetch(id: Int, out: Reply<Str>) => !id, !out
+    send fn arrived(out: Reply<Str>, text: Str) => !out, !text
+}
+
+handler Rows() of Db {
+    send fn lookup(id: Int, out: Reply<Str>) {
+        out.send("row ${id}")
+    }
+}
+
+handler Fetching() [Db] of Notices {
+    send fn fetch(id: Int, out: Reply<Str>) {
+        lookup(id, replyto arrived(out))
+    }
+
+    send fn arrived(out: Reply<Str>, text: Str) {
+        out.send("got ${text}")
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let rows = spawn Rows() capacity 4 on p
+    let fetcher = spawn Fetching() use rows capacity 4 on p
+    let answer = waitfor out: Reply<Str> {
+        fetcher.fetch(7, out)
+    }
+    println(answer)
+}
+"#;
+
+/// [async-replyto] `replyto!` — the **gate**: bounded selective receive, at
+/// most one outstanding per process. `start` mints a gated continuation and
+/// `main` then sends `note("late")`, which is already queued when the
+/// activation ends; while gated the process serves *only* the awaited reply, so
+/// the recorded order is `reply R, user late`. Ungated it would be the other
+/// way round, which is what makes the output the assertion.
+const REPLYTO_GATE: &str = r#"
+async effect Echo {
+    send fn ping(out: Reply<Str>) => !out
+}
+
+async effect Trace {
+    send fn start()
+    send fn arrived(text: Str) => !text
+    send fn note(what: Str) => !what
+    send fn report(out: Reply<Str>) => !out
+}
+
+handler Echoing() of Echo {
+    send fn ping(out: Reply<Str>) {
+        out.send("R")
+    }
+}
+
+handler Tracing() [Echo] of Trace {
+    steps: Mut List<Str> = mut_list_of()
+
+    send fn start() {
+        ping(replyto! arrived())
+    }
+
+    send fn arrived(text: Str) {
+        add(steps, "reply ${text}")
+    }
+
+    send fn note(what: Str) {
+        add(steps, "user ${what}")
+    }
+
+    send fn report(out: Reply<Str>) {
+        out.send(join(steps, ", "))
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(3)
+    let echo = spawn Echoing() capacity 4 on p
+    let tracer = spawn Tracing() use echo capacity 4 on p
+    tracer.start()
+    tracer.note("late")
+    let got = waitfor out: Reply<Str> {
+        tracer.report(out)
+    }
+    println(got)
+}
+"#;
+
+/// [async-self-send] `k@self(args)` and **both** its readings, in one program
+/// and with the same answer from each: an enqueue on the process's own mailbox
+/// when the handler was spawned, and the ordinary inline member call when it
+/// was `use`d. A handler is compiled once, so which one applies is a property
+/// of the *instance* — the emitters discriminate on the generated `__addr`
+/// field at run time rather than compiling the member twice.
+const SELF_SEND: &str = r#"
+async effect Steps {
+    send fn begin(n: Int, out: Reply<Str>) => !n, !out
+    send fn again(n: Int, out: Reply<Str>) => !n, !out
+}
+
+handler Stepping() of Steps {
+    steps: Mut List<Str> = mut_list_of()
+
+    send fn begin(n: Int, out: Reply<Str>) {
+        add(steps, "begin ${n}")
+        again@self(n + 1, out)
+    }
+
+    send fn again(n: Int, out: Reply<Str>) {
+        add(steps, "again ${n}")
+        out.send(join(steps, ", "))
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let s = spawn Stepping() capacity 4 on pool(1)
+    let spawned = waitfor out: Reply<Str> {
+        s.begin(1, out)
+    }
+    println("spawned ${spawned}")
+    use Stepping()
+    let inline = waitfor out: Reply<Str> {
+        begin(1, out)
+    }
+    println("inline ${inline}")
+}
+"#;
+
+fn generate_replyto_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", REPLYTO_CHAIN)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_parked_continuation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    run_rust_files(&generate_replyto_demo(), "replyto-chain", "got row 7\n");
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_gated_continuation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", REPLYTO_GATE)]);
+    run_rust_files(&files, "replyto-gate", "reply R, user late\n");
+}
+
+#[test]
+fn rustc_compiles_and_runs_both_readings_of_a_self_send() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SELF_SEND)]);
+    run_rust_files(
+        &files,
+        "self-send",
+        "spawned begin 1, again 2\ninline begin 1, again 2\n",
+    );
+}
+
+/// [rs-process] [async-replyto] The lowering: a continuation enum beside the
+/// message enum; the two generated fields on the handler; a `__dispatch`
+/// factored out of `handle` so member invocation lives in one place; and a
+/// `resume` that pops the slot, casts the answer to the target member's
+/// *trailing* parameter type, and dispatches.
+#[test]
+fn a_parked_continuation_lowers_to_a_slot_table() {
+    let files = generate_replyto_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    assert!(
+        text.contains("pub enum __Cont_Notices {")
+            && text.contains("Arrived(crate::scheduler::SalvoReply),"),
+        "the continuation enum is missing, or its captures are wrong:\n{text}"
+    );
+    assert!(
+        text.contains("__addr: Option<usize>,")
+            && text.contains("__parked: std::collections::HashMap<u64, crate::__Cont_Notices>,"),
+        "the handler's generated fields are missing:\n{text}"
+    );
+    assert!(
+        text.contains("self.handler.__addr = Some(_ctx.addr);"),
+        "the activation does not write its own address:\n{text}"
+    );
+    assert!(
+        text.contains("crate::scheduler::salvo_mint(self.__addr")
+            && text.contains("self.__parked.insert(__s,"),
+        "the mint does not park a continuation:\n{text}"
+    );
+    assert!(
+        text.contains("let Some(__cont) = self.handler.__parked.remove(&slot)")
+            && text.contains("*value.downcast::<String>().expect(\"the awaited answer\")"),
+        "`resume` does not dispatch the parked continuation:\n{text}"
+    );
+}
+
+/// [async-replyto] The two refusals this slice adds, both checker-side. A
+/// handler that parks may only be **spawned** (user decision 2026-09-15): bound
+/// with `use` its members run inline, so the answer would have no mailbox to
+/// arrive on and no dispatcher to run it — the continuation would silently never
+/// run. And a **remote** mint — `k` naming a member of another async effect in
+/// scope — is the generalized form of a later slice, named rather than
+/// mis-resolved.
+#[test]
+fn the_replyto_refusals_are_errors() {
+    let parking = expect_errors(REPLYTO_USED);
+    assert!(
+        parking
+            .iter()
+            .any(|e| e.contains("mints a continuation with `replyto`, so it can only be `spawn`ed")),
+        "expected the parking-handler `use` refusal, got {parking:?}"
+    );
+    let remote = expect_errors(REMOTE_MINT);
+    assert!(
+        remote
+            .iter()
+            .any(|e| e.contains("minting toward another process's member is not supported yet")),
+        "expected the remote-mint refusal, got {remote:?}"
+    );
+}
+
+const REPLYTO_USED: &str = r#"
+async effect Db {
+    send fn lookup(id: Int, out: Reply<Str>) => !id, !out
+}
+
+async effect Notices {
+    send fn fetch(id: Int) => !id
+    send fn arrived(id: Int, text: Str) => !id, !text
+}
+
+handler Rows() of Db {
+    send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
+}
+
+handler Fetching() [Db] of Notices {
+    send fn fetch(id: Int) {
+        lookup(copy(id), replyto arrived(id))
+    }
+    send fn arrived(id: Int, text: Str) {}
+}
+
+fn main() [use, spawn] {
+    let rows = spawn Rows() capacity 4 on pool(1)
+    use rows
+    use Fetching()
+    fetch(9)
+}
+"#;
+
+const REMOTE_MINT: &str = r#"
+async effect Db {
+    send fn lookup(id: Int, out: Reply<Str>) => !id, !out
+    send fn arrived(id: Int, text: Str) => !id, !text
+}
+
+async effect Ask {
+    send fn go(id: Int) => !id
+}
+
+handler Rows() of Db {
+    send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
+    send fn arrived(id: Int, text: Str) {}
+}
+
+handler Asking() [Db] of Ask {
+    send fn go(id: Int) {
+        lookup(copy(id), replyto arrived(id))
+    }
+}
+
+fn main() [use, spawn] {
+    let rows = spawn Rows() capacity 4 on pool(1)
+    let a = spawn Asking() use rows capacity 4 on pool(1)
+    a.go(1)
+}
+"#;
+
 // ===== [async-use-addr] the forwarding stub =====
 
 /// [async-use-addr] `use addr` binds an effect to a **stub** that sends to a

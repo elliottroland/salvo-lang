@@ -903,7 +903,35 @@ where Rust had to build the fusion to get the same programs running
   * **The process body**, `class __Proc_H(private val handler: H) :
     SalvoProcess`, beside the handler: `handle` casts the message and calls the
     member the class names, in a `when` over the sealed type — exhaustive by
-    construction. `resume` is where parked continuations will dispatch.
+    construction, and factored into a private `__dispatch(m: __Msg_E)` so
+    `resume` can rebuild a call for the same one place.
+  * **The parked-continuation table, and the address, live on the handler.** A
+    handler of an `async effect` carries two generated fields, whichever way it
+    is bound — a handler is compiled once:
+    * `internal var __addr: Int? = null` — written by `handle`/`resume` from
+      the activation's `SalvoCtx`, and `null` when the instance was bound with
+      `use`. That absence is the **self-send's discriminator**
+      [async-self-send].
+    * `internal val __parked: MutableMap<Long, __Cont_E>` — slot →
+      continuation, emitted when the protocol has any member that could be a
+      target.
+
+    Neither may be `private`: Kotlin's class-level `private` is visible only
+    inside the class itself, and `__Proc_H` — a *different* class, even in the
+    same file — has to write one and read the other. (Rust needs no such care:
+    its privacy is per module, and both live in one.) They sit on the handler
+    rather than on `__Proc_H` for the same reason as on the Rust side: the mint
+    happens in a member body, which cannot see the process class (user decision
+    2026-09-15, D5-b).
+  * **The protocol's continuation class**, `sealed class __Cont_E`, beside
+    `__Msg_E`: one subclass per send member with at least one parameter,
+    carrying that member's parameters **minus the trailing one** — the answer
+    arrives with the reply rather than being stored, and the subclass is what
+    tells `resume` which member to call and what to cast the answer to.
+  * **`resume`** writes `__addr`, pops the slot
+    (`handler.__parked.remove(slot) ?: return` — a reply whose continuation is
+    gone runs nothing), `when`s over the subclass, casts `value` to the
+    trailing parameter's type, and calls the member.
   * **A dependent handler's process is generic in the same carrier the handler
     stores.** A dependent handler holds its environment as a bounded type
     parameter (`class Counting<__Fx>(private val __fx: __Fx) : Counter where
@@ -939,13 +967,23 @@ where Rust had to build the fusion to get the same programs running
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`.
+  * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
+    __parked[__s] = __Cont_E.K(caps); __r }`, with `mintGated` for `replyto!`.
+    `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —
+    changed with this slice, mirroring the Rust runtime and `waiter()`, because
+    generated code keys `__parked` by the slot.
+  * **`k@self(args)`** → `run { val __a = __addr; if (__a != null)
+    SalvoSched.send(__a, __Msg_E.K(args)) else this.k(args) }`. Kotlin needs no
+    fusion care in the inline reading that Rust needed: a member call on `this`
+    reaches the handler's dependencies through the stored carrier
+    [kt-effect-fusion].
   * **The forwarding stub**, `class __Stub_E(private val addr: Int) : E`,
     beside the effect: `use addr` builds one and binds it through the same path
     a handler instance takes (`bind_effect_instance`, extracted for exactly
     this), fusion included [async-use-addr]. A spawn clause's addr becomes the
     same stub, inside the child's carrier.
   * **Still refused**, matching the Rust backend one for one: a generic
-    handler, a generic effect as a protocol, `replyto`, and a self-send.
+    handler and a generic effect as a protocol.
   * Pool threads are **daemon** threads, which is what makes "the program ends
     when `main` returns" true on the JVM without any shutdown handshake.
 

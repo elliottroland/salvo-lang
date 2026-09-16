@@ -712,6 +712,10 @@ pub fn check_program<'p>(
     // not keep "everything else", since mutation can invalidate
     // qualifiers the signature never mentions.
     let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
+    // [async-replyto] Handlers whose members mint a self-targeted
+    // continuation. Only grows, and complete after round one — so the `use`
+    // refusal it drives lands in the round whose diagnostics are kept.
+    let mut parking: HashSet<String> = HashSet::new();
 
     // [qual-refn] Refinements are resolved and validated once: they depend
     // on declarations and per-file visibility only, not on anything a
@@ -731,6 +735,7 @@ pub fn check_program<'p>(
         &mut candidates,
         &mut claims,
         &mut mutations,
+        &mut parking,
     );
     crate::deduce::infer(program, &mut out, &claims, &mutations);
     let mut inferred = std::mem::take(&mut out.deductions);
@@ -760,6 +765,7 @@ pub fn check_program<'p>(
             &mut candidates,
             &mut claims,
             &mut mutations,
+            &mut parking,
         );
         // Deductions are a whole-program fact (strictest over the call
         // graph), re-inferred against this round's final call
@@ -817,6 +823,7 @@ fn check_once<'p>(
     move_candidates: &mut HashSet<Key>,
     param_claims: &mut HashMap<FnKey, HashSet<String>>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    parking_handlers: &mut HashSet<String>,
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
@@ -851,6 +858,7 @@ fn check_once<'p>(
             next_var_id: 0,
             move_candidates,
             param_claims,
+            parking_handlers,
             param_mutations,
             own_fn: None,
             own_contract: None,
@@ -1245,6 +1253,19 @@ struct Checker<'p, 'r> {
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
     param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+    /// [async-replyto] Handlers whose member bodies mint a **self**-targeted
+    /// continuation — the names of every handler in which a `replyto` /
+    /// `replyto!` resolved lexically. Collected across rounds like
+    /// `move_candidates`, and for the same reason: a `use` may be checked
+    /// before the handler it names, so round one fills this and round two
+    /// (whose diagnostics are the ones kept) refuses.
+    ///
+    /// The refusal is [async-replyto]'s: parking is the one thing only a
+    /// process can do, so a parking handler may only be `spawn`ed. Using the
+    /// checker's own traversal to find the mints — rather than a tenth
+    /// exhaustive expression walker — is what keeps this complete as the
+    /// grammar grows.
+    parking_handlers: &'r mut HashSet<String>,
     /// The fn currently being checked, when it is a top-level `fn` item
     /// (member fns have no key).
     own_fn: Option<FnKey>,
@@ -4606,6 +4627,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return;
         };
+        // [async-replyto] A handler whose members mint a self-targeted
+        // continuation may only be **spawned** (user decision 2026-09-15).
+        // Bound with `use`, its member bodies run inline on the caller's
+        // thread: the mint would target a member of a *local* instance, which
+        // has no mailbox for the answer to arrive on and no dispatcher to run
+        // it — so the continuation would silently never run. Parking is the
+        // one thing only a process can do, so this costs nothing real.
+        //
+        // The gate is syntactic per *handler* rather than per member, because
+        // effects propagate: a fn declaring `[E]` may call any member, so a
+        // `use` site cannot know which ones this scope will reach.
+        if self.parking_handlers.contains(id.name.as_str()) {
+            self.error(
+                span,
+                format!(
+                    "handler `{}` mints a continuation with `replyto`, so it can only \
+                     be `spawn`ed: bound with `use` its members run inline, and the \
+                     answer would have nowhere to arrive — write `spawn {}(...) \
+                     capacity N on pool(1)` instead",
+                    id.name, id.name
+                ),
+            );
+        }
         self.finish_use(id, concrete, deps, span);
     }
 
@@ -8608,6 +8652,43 @@ impl<'p, 'r> Checker<'p, 'r> {
             for c in captures {
                 self.check_expr(c, None);
             }
+            // [async-replyto] A **remote** mint — `k` is a member of an
+            // `async effect` in scope rather than of this handler — is the
+            // generalized form (EFFECT_UNIFICATION.md EU-7b, decided) and a
+            // later slice: it makes the mint itself send-like, since capacity
+            // has to be reserved in the *target's* queue. Named here rather
+            // than reported as an unresolved name, with the workaround that
+            // needs nothing new: a token is an ordinary linear value, so the
+            // handler that owns `k` mints it and hands it over.
+            let remote = self
+                .scope
+                .effect_members
+                .get(member.name.as_str())
+                .map(|ms| {
+                    ms.iter()
+                        .filter(|(e, _)| e.is_async)
+                        .map(|(e, _)| format!("`{}`", e.name.name))
+                        .collect::<Vec<_>>()
+                })
+                .filter(|names| !names.is_empty());
+            if let Some(mut names) = remote {
+                names.sort();
+                names.dedup();
+                self.error(
+                    member.span,
+                    format!(
+                        "`{form}` targets a member of the handler it is written in, and \
+                         `{}` is a member of {} instead: minting toward another \
+                         process's member is not supported yet. Have the handler that \
+                         owns `{}` mint the token and pass it here — a `Reply<T>` is an \
+                         ordinary linear value",
+                        member.name,
+                        names.join(", "),
+                        member.name
+                    ),
+                );
+                return Ty::Unknown;
+            }
             self.error_unresolved(
                 member.span,
                 format!(
@@ -8675,6 +8756,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .replyto_members
             .insert(self.key(span), member.name.clone());
+        // [async-replyto] This handler parks, so it may only be spawned: the
+        // continuation needs a mailbox to arrive on and a dispatcher to run
+        // it, and a synchronously bound instance has neither. Refused at the
+        // `use` site (below), which is where the binding is chosen.
+        self.parking_handlers.insert(h.name.name.clone());
         let answer = param_tys
             .last()
             .cloned()

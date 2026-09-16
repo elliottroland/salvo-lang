@@ -2046,6 +2046,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
+    kotlinc_compiles_and_runs_a_parked_continuation,
+    kotlinc_compiles_and_runs_a_gated_continuation,
+    kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -9090,6 +9093,207 @@ fn a_process_lowers_to_message_classes_and_a_body() {
             .iter()
             .any(|f| f.rel_path.to_string_lossy() == "scheduler.kt"),
         "the scheduler file is not part of the program"
+    );
+}
+
+// ===== [async-replyto] [async-self-send] parked continuations =====
+
+/// The same three programs the Rust backend runs, with the same expected
+/// output. The first is the shape the slice exists for — **`main` is not in the
+/// loop**: the database replies to the *fetcher*, whose parked continuation then
+/// fulfils `main`'s token. The caller's token travels as a continuation
+/// *capture*, which is what makes it writable before linearity-in-collections.
+const REPLYTO_CHAIN: &str = r#"
+async effect Db {
+    send fn lookup(id: Int, out: Reply<Str>) => !id, !out
+}
+
+async effect Notices {
+    send fn fetch(id: Int, out: Reply<Str>) => !id, !out
+    send fn arrived(out: Reply<Str>, text: Str) => !out, !text
+}
+
+handler Rows() of Db {
+    send fn lookup(id: Int, out: Reply<Str>) {
+        out.send("row ${id}")
+    }
+}
+
+handler Fetching() [Db] of Notices {
+    send fn fetch(id: Int, out: Reply<Str>) {
+        lookup(id, replyto arrived(out))
+    }
+
+    send fn arrived(out: Reply<Str>, text: Str) {
+        out.send("got ${text}")
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(2)
+    let rows = spawn Rows() capacity 4 on p
+    let fetcher = spawn Fetching() use rows capacity 4 on p
+    let answer = waitfor out: Reply<Str> {
+        fetcher.fetch(7, out)
+    }
+    println(answer)
+}
+"#;
+
+/// `replyto!` — the gate. While gated the process serves only the awaited
+/// reply, so the already-queued `note("late")` waits: `reply R, user late`
+/// rather than the other way round.
+const REPLYTO_GATE: &str = r#"
+async effect Echo {
+    send fn ping(out: Reply<Str>) => !out
+}
+
+async effect Trace {
+    send fn start()
+    send fn arrived(text: Str) => !text
+    send fn note(what: Str) => !what
+    send fn report(out: Reply<Str>) => !out
+}
+
+handler Echoing() of Echo {
+    send fn ping(out: Reply<Str>) {
+        out.send("R")
+    }
+}
+
+handler Tracing() [Echo] of Trace {
+    steps: Mut List<Str> = mut_list_of()
+
+    send fn start() {
+        ping(replyto! arrived())
+    }
+
+    send fn arrived(text: Str) {
+        add(steps, "reply ${text}")
+    }
+
+    send fn note(what: Str) {
+        add(steps, "user ${what}")
+    }
+
+    send fn report(out: Reply<Str>) {
+        out.send(join(steps, ", "))
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(3)
+    let echo = spawn Echoing() capacity 4 on p
+    let tracer = spawn Tracing() use echo capacity 4 on p
+    tracer.start()
+    tracer.note("late")
+    let got = waitfor out: Reply<Str> {
+        tracer.report(out)
+    }
+    println(got)
+}
+"#;
+
+/// `k@self(args)` and both its readings, answering the same thing from each.
+const SELF_SEND: &str = r#"
+async effect Steps {
+    send fn begin(n: Int, out: Reply<Str>) => !n, !out
+    send fn again(n: Int, out: Reply<Str>) => !n, !out
+}
+
+handler Stepping() of Steps {
+    steps: Mut List<Str> = mut_list_of()
+
+    send fn begin(n: Int, out: Reply<Str>) {
+        add(steps, "begin ${n}")
+        again@self(n + 1, out)
+    }
+
+    send fn again(n: Int, out: Reply<Str>) {
+        add(steps, "again ${n}")
+        out.send(join(steps, ", "))
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let s = spawn Stepping() capacity 4 on pool(1)
+    let spawned = waitfor out: Reply<Str> {
+        s.begin(1, out)
+    }
+    println("spawned ${spawned}")
+    use Stepping()
+    let inline = waitfor out: Reply<Str> {
+        begin(1, out)
+    }
+    println("inline ${inline}")
+}
+"#;
+
+fn generate_replyto_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", REPLYTO_CHAIN)])
+}
+
+fn kotlinc_compiles_and_runs_a_parked_continuation() -> KotlinCase {
+    kotlin_case(generate_replyto_demo(), "replyto-chain", "got row 7\n")
+}
+
+fn kotlinc_compiles_and_runs_a_gated_continuation() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", REPLYTO_GATE)]),
+        "replyto-gate",
+        "reply R, user late\n",
+    )
+}
+
+fn kotlinc_compiles_and_runs_both_readings_of_a_self_send() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", SELF_SEND)]),
+        "self-send",
+        "spawned begin 1, again 2\ninline begin 1, again 2\n",
+    )
+}
+
+/// [kt-process] [async-replyto] The lowering, mirroring the Rust backend's: a
+/// continuation class beside the message class, the two generated fields on the
+/// handler — **not** `private`, since `__Proc_H` is a different class and
+/// Kotlin's class-level `private` does not reach across one — a `__dispatch`
+/// factored out of `handle`, and a `resume` that pops the slot and casts the
+/// answer to the target member's trailing parameter type.
+#[test]
+fn a_parked_continuation_lowers_to_a_slot_table_kotlin() {
+    let files = generate_replyto_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains("sealed class __Cont_Notices {")
+            && text.contains("class Arrived(val out: salvo.SalvoReply) : __Cont_Notices()"),
+        "the continuation class is missing, or its captures are wrong:\n{text}"
+    );
+    assert!(
+        text.contains("internal var __addr: Int? = null")
+            && text.contains(
+                "internal val __parked: MutableMap<Long, __Cont_Notices> = mutableMapOf()"
+            ),
+        "the handler's generated fields are missing:\n{text}"
+    );
+    assert!(
+        text.contains("handler.__addr = ctx.addr"),
+        "the activation does not write its own address:\n{text}"
+    );
+    assert!(
+        text.contains("salvo.SalvoSched.mint(__addr!!)") && text.contains("__parked[__s] ="),
+        "the mint does not park a continuation:\n{text}"
+    );
+    assert!(
+        text.contains("val c = handler.__parked.remove(slot) ?: return")
+            && text.contains("value as String"),
+        "`resume` does not dispatch the parked continuation:\n{text}"
     );
 }
 

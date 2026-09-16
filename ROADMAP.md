@@ -54,7 +54,8 @@ and each themed section is tagged with the phase it belongs to. **Phase 5
 (threading) is under way**: its design is settled (CONCURRENCY.md,
 SUPERVISION.md, LINEARITY_COLLECTIONS.md — the decision space is empty), the
 scheduler library is built, and the surface is landing in slices — processes
-spawn, send and bridge on both backends today, dependent handlers included.
+spawn, send, park continuations and bridge on both backends today, dependent
+handlers included, and request/response no longer needs `main` in the loop.
 See "Threading and concurrency" for what remains.
 
 ## The sequence (user decision 2026-09-09)
@@ -174,9 +175,10 @@ collections it needs.
 below.) Designed (user decisions 2026-09-14/15) and **being built**: the
 scheduler library, the whole surface's syntax, its types and its checker rules
 are in, and processes **run on both backends with identical output** —
-including a **dependent** handler whose dependencies its spawn clause supplies.
-What is left of the agreed eight-item sequence: `replyto`/`@self` emission and
-`watch`, the deadlock baseline, linearity in collections, and propagation.
+including a **dependent** handler whose dependencies its spawn clause supplies,
+and a request/response chain that never passes through `main`.
+What is left of the agreed eight-item sequence: `watch` and the deadlock
+baseline, linearity in collections, and propagation.
 **The sugar pass leaves the phase** (user decision 2026-09-15;
 "The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
 call syntax, `then`, `defer` and merge/join become later items with their own
@@ -1154,19 +1156,21 @@ report, supervision as a pattern with no syntax). Its opening requirement
 (LC-4's dying-with-obligations) is answered there.
 
 **The implementation**, per the first-pass plan in CONCURRENCY.md. **A
-program spawns, sends and bridges — on both backends, with identical output**
-(2026-09-15; the build records and what each slice cost are in COMPLETED.md's
-decision log). Six slices landed the same day: the scheduler library, the
-declaration forms, the expression forms, the types, the checker rules, then
-the emitters' first cut — and on top of it the respelling sweep, the
-`async effect` kind, the forwarding stub and **dependent-handler spawns**.
-The smallest running program is the counter in both backends' codegen tests:
-`spawn Counting() capacity 8 on pool(1)`, `counter.bump(2)`,
-`waitfor out: Reply<Int> { counter.total(out) }`, printing
-`sum 5` from Kotlin and Rust alike; the largest is the dependent spawn beside
-it, whose child's `[Log, Tally]` are a construction and an addr. As-built
-rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers" ([async-process] …
-[async-types]) plus [linear-opaque], [rs-process] and [kt-process].
+program spawns, sends, parks continuations and bridges — on both backends,
+with identical output** (2026-09-15; the build records and what each slice
+cost are in COMPLETED.md's decision log). Everything landed the same day: the
+scheduler library, the declaration forms, the expression forms, the types, the
+checker rules, the emitters' first cut — then the respelling sweep, the
+`async effect` kind, the forwarding stub, **dependent-handler spawns**, and
+**`replyto` / `@self`**. The smallest running program is the counter in both
+backends' codegen tests: `spawn Counting() capacity 8 on pool(1)`,
+`counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
+`sum 5` from Kotlin and Rust alike; the one that shows what the surface is
+*for* is the fetcher beside it, which parks a continuation for a database
+process's answer and fulfils `main`'s token from inside its own activation.
+As-built rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers"
+([async-process] … [async-types]) plus [linear-opaque], [rs-process] and
+[kt-process].
 
 **The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
 after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
@@ -1223,16 +1227,46 @@ compiler today, so its own output is the work list.
    colliding with a std fn, and consuming a handler's stored values; each
    turned out to have a *silently wrong output* half, and both records are in
    COMPLETED.md.
-5. **`replyto` and `@self` emission.** The parked-continuation table (slot →
-   member plus captures) that `resume` dispatches on, and the self-send's two
-   readings (an enqueue when the handler was spawned, the ordinary inline
-   member call when it was `use`d). With this the request/response shape works
-   without `main` in the loop. **One design point to settle in the slice**: how
-   a member body reaches its own address — a hidden field set at spawn, or the
-   activation's `SalvoCtx` threaded in.
+5. ✅ **`replyto` and `@self` emission — done 2026-09-15.** The slice the phase
+   was blocked on: **request/response now works without `main` in the loop**.
+   Three design points were settled first (user decisions, D5-a/b/c):
+   * **The address**: a generated `__addr` field on any handler of an `async
+     effect`, written by `__Proc_H` from the activation's `SalvoCtx`. Chosen
+     over threading `SalvoCtx` into the member (which would land on the
+     effect *trait*, and so on the stub, the fusion and `__Impl_H`) and over a
+     runtime thread-local. Its absence doubles as the **self-send's
+     discriminator**, which is what lets `k@self(…)` have both its readings
+     without compiling the member twice.
+   * **The parked table**: `__parked: slot → __Cont_E` on the same handler,
+     with `__Cont_E` beside `__Msg_E` carrying each target member's parameters
+     minus the trailing answer. On the handler because the *mint* happens in a
+     member body, which cannot see the process struct — and this left
+     `SalvoProcess::resume`'s decided signature untouched, which was the point.
+   * **`replyto` under a `use` binding**: refused **statically**, at the `use`
+     site — a handler that parks may only be spawned. Bound synchronously its
+     mint targets a *local* instance with no mailbox and no dispatcher, so the
+     continuation would silently never run. The gate is syntactic per handler
+     (effects propagate, so a `use` site cannot know which members a scope
+     reaches); it does not touch Example 6's binding swap, which is a spawn
+     clause.
+   * **Remote mints stay out** (user decision 2026-09-15): `replyto` resolves
+     lexically only in this pass. The generalized mint (EU-7b) makes the mint
+     itself send-like — capacity reserved in the *target's* queue, so it can
+     block and contributes its own wait-for edge — and belongs with the sugar
+     pass; a target reached through the effect list is a diagnostic naming the
+     workaround, which needs nothing new (a token is a linear value: mint it
+     where `k` lives and pass it).
+
+   Verified by three compile-and-run cases per backend with identical output:
+   a fetcher parking a continuation for a database's answer and only then
+   fulfilling `main`'s token (`got row 7`); the gate, whose ordering *is* the
+   assertion (`reply R, user late`); and both readings of `k@self` answering
+   the same thing. **All four "not emitted yet" refusals are gone** — including
+   the two whose text still named the pre-item-1 `self.k(…)` spelling.
 6. **`watch` and the deadlock baseline.** `watch` needs a token, so it follows
-   item 5; the effect-graph cycle check (Example 4 a/b, the committed
-   baseline) needs the mint sites the same item creates.
+   item 5. `salvo_watch` is already in both runtimes; the language side is the
+   linear `Exit` token SUPERVISION.md decided. The effect-graph cycle check
+   (Example 4 a/b, the committed baseline) needs the mint sites item 5 created.
 7. **Linearity in collections** (user decision 2026-09-15: after item 6).
    Decided already (LINEARITY_COLLECTIONS.md) and unbuilt; it is what a
    handler queueing `waiting: Mut List<Reply<T>>` needs, which is the shape

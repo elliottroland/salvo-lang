@@ -97,11 +97,16 @@ object SalvoSched {
         }
     }
 
-    /** Mints a reply token targeting a process's parked continuation. */
-    fun mint(addr: Int): SalvoReply =
+    /**
+     * Mints a reply token targeting a process's parked continuation, and
+     * answers the slot beside it: the slot is what generated code keys its
+     * parked-continuation table by. A `Pair`, like [waiter], and the mirror
+     * of the Rust runtime's `salvo_mint`.
+     */
+    fun mint(addr: Int): Pair<SalvoReply, Long> =
         lock.withLock {
             nextSlot += 1
-            SalvoReply(SalvoTargetProc(addr), nextSlot)
+            Pair(SalvoReply(SalvoTargetProc(addr), nextSlot), nextSlot)
         }
 
     /**
@@ -109,12 +114,12 @@ object SalvoSched {
      * serves nothing else. At most one gate may be outstanding — a second
      * is a fault in the calling activation.
      */
-    fun mintGated(addr: Int): SalvoReply =
+    fun mintGated(addr: Int): Pair<SalvoReply, Long> =
         lock.withLock {
             check(procs[addr].gate == null) { "a gated continuation is already outstanding" }
             nextSlot += 1
             procs[addr].gate = nextSlot
-            SalvoReply(SalvoTargetProc(addr), nextSlot)
+            Pair(SalvoReply(SalvoTargetProc(addr), nextSlot), nextSlot)
         }
 
     /**

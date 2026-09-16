@@ -1153,6 +1153,13 @@ struct Emitter<'p> {
     hoist_id: usize,
     /// The fn currently being emitted, for readable generated names.
     current_fn: String,
+    /// [async-replyto] [async-self-send] The **name** of the handler whose
+    /// member body is being emitted, when one is: a `replyto` mints against
+    /// the *enclosing* handler's protocol and a self-send calls its member.
+    /// `None` in ordinary fns, which is where the checker has already refused
+    /// both. A name rather than a reference because `FnStyle` carries its own
+    /// lifetime; the declaration is one `symbols.handlers` lookup away.
+    current_handler: Option<String>,
     /// Generic-parameter substitutions while rendering a forwarding impl
     /// for an *instantiated* effect (`Random<T>` members at `Random<i32>`).
     type_subst: HashMap<String, String>,
@@ -1345,6 +1352,7 @@ impl<'p> Emitter<'p> {
             platform_hosts: BTreeSet::new(),
             hoist_id: 0,
             current_fn: String::new(),
+            current_handler: None,
             type_subst: HashMap::new(),
             exit_splices: Vec::new(),
             splice_floor: 0,
@@ -2000,10 +2008,51 @@ impl<'p> Emitter<'p> {
             }
         }
         out.push_str("}\n");
+        out.push_str(&self.emit_cont_enum(e, &sends));
         out
     }
 
-    /// [platform-tree] [rs-platform-host] One host implementation skeleton:
+    /// [rs-process] [async-replyto] `__Cont_E`: the **parked continuation**,
+    /// beside the message enum and named after the effect for the same reason
+    /// — the members are the protocol's.
+    ///
+    /// A `replyto k(captures)` stores one of these in the minting process's
+    /// `__parked` table under the slot the runtime handed back; when the
+    /// answer arrives, `SalvoProcess::resume` looks it up, and the variant is
+    /// what says *which* member to call and therefore what type to downcast
+    /// the answer to. So a variant carries the member's parameters **minus
+    /// the trailing one**: that last parameter is the answer itself
+    /// [async-replyto], which arrives with the reply rather than being stored.
+    ///
+    /// A member with no parameters can never be a target (there is no answer
+    /// for the token to carry), so it gets no variant.
+    fn emit_cont_enum(&mut self, e: &EffectDecl, sends: &[(usize, &FnDecl)]) -> String {
+        let targets: Vec<(usize, &FnDecl)> = sends
+            .iter()
+            .copied()
+            .filter(|(_, f)| f.params.iter().any(|p| !p.implicit))
+            .collect();
+        if targets.is_empty() {
+            return String::new();
+        }
+        let mut out = format!("\npub enum {} {{\n", cont_enum_name(&e.name.name));
+        for (i, f) in &targets {
+            let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+            let captures: Vec<String> = fixed[..fixed.len() - 1]
+                .iter()
+                // A capture is *stored* in the continuation, so it is owned.
+                .map(|p| self.param_type(&p.ty, p.variadic, ParamMode::Owned))
+                .collect();
+            let variant = msg_variant_name(&salvo_core::effect_member_name(e, *i));
+            if captures.is_empty() {
+                out.push_str(&format!("    {variant},\n"));
+            } else {
+                out.push_str(&format!("    {variant}({}),\n", captures.join(", ")));
+            }
+        }
+        out.push_str("}\n");
+        out
+    }
     /// a unit struct implementing the generated trait, every member stubbed
     /// with `todo!`. The signatures come from [`Emitter::emit_effect`]'s own
     /// renderers, so a skeleton that drifts from the trait is impossible by
@@ -2322,6 +2371,31 @@ impl<'p> Emitter<'p> {
                 g.name, g.name
             ));
         }
+        // [rs-process] [async-self-send] [async-replyto] The two generated
+        // fields a handler of an `async effect` carries, whichever way it is
+        // bound (a handler is compiled once):
+        //
+        // * `__addr` — the address of the process this instance *is*, written
+        //   by `__Proc_H` from the activation's `SalvoCtx` at the start of
+        //   every activation, and `None` when the instance was bound with
+        //   `use` instead. That absence is the self-send's discriminator: a
+        //   `k@self(…)` enqueues when it is present and calls the member
+        //   inline when it is not (user decision 2026-09-15, D5-a).
+        // * `__parked` — the parked-continuation table, slot → `__Cont_E`.
+        //   Kept on the handler rather than on `__Proc_H` because the *mint*
+        //   happens in a member body, which has `&mut self` on the handler and
+        //   cannot see the process struct; `resume` reaches it through
+        //   `self.handler` (D5-b). Keeping it here is also what leaves
+        //   `SalvoProcess`'s decided signature untouched.
+        let async_handler = self.handler_is_async(h);
+        if async_handler {
+            out.push_str("    __addr: Option<usize>,\n");
+            if let Some(cont) = self.handler_cont_type(h) {
+                out.push_str(&format!(
+                    "    __parked: std::collections::HashMap<u64, {cont}>,\n"
+                ));
+            }
+        }
         out.push_str("}\n");
 
         // Constructor: `new` takes ctor params owned (a `use` argument is
@@ -2377,6 +2451,14 @@ impl<'p> Emitter<'p> {
                 "            __phantom_{}: std::marker::PhantomData,\n",
                 g.name
             ));
+        }
+        // [rs-process] `None` until an activation writes it: an instance that
+        // never becomes a process keeps it, and that is the marker.
+        if async_handler {
+            out.push_str("            __addr: None,\n");
+            if self.handler_cont_type(h).is_some() {
+                out.push_str("            __parked: std::collections::HashMap::new(),\n");
+            }
         }
         out.push_str("        }\n    }\n}\n");
 
@@ -2447,8 +2529,19 @@ impl<'p> Emitter<'p> {
         // Sized generic to a `dyn` [rs-effect-fusion]).
         let dep_params: Vec<String> = (0..deps.len()).map(|i| format!("__D{i}")).collect();
         let mut out = String::new();
-        let (proc_generics, proc_impl_generics, prov_field, prov_ty) = if deps.is_empty() {
-            (String::new(), String::new(), String::new(), String::new())
+        // Three renderings of the same parameter list: bare on the struct and
+        // on `new`, with the dependencies' own trait bounds on `__dispatch`
+        // (which builds the `__Deps_H` view), and with `Send + 'static` added
+        // on the `SalvoProcess` impl (whose supertrait must be proved).
+        let (proc_generics, proc_dispatch_generics, proc_impl_generics, prov_field, prov_ty) =
+        if deps.is_empty() {
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
         } else {
             let prov = prov_struct_name(&h.name.name);
             let bounds: Vec<String> = deps
@@ -2482,6 +2575,7 @@ impl<'p> Emitter<'p> {
                 .collect();
             (
                 format!("<{params}>"),
+                format!("<{}>", bounds.join(", ")),
                 format!("<{}>", send_bounds.join(", ")),
                 format!("    prov: {prov_ty},\n"),
                 prov_ty,
@@ -2497,17 +2591,24 @@ impl<'p> Emitter<'p> {
             "\npub struct {proc_name}{proc_generics} {{\n    handler: {name},\n{prov_field}}}\n\
              \nimpl{proc_generics} {proc_name}{proc_generics} {{\n    \
              pub fn new({ctor_params}) -> Self {{\n        \
-             Self {{ {ctor_fields} }}\n    }}\n}}\n\
-             \nimpl{proc_impl_generics} crate::scheduler::SalvoProcess for \
-             {proc_name}{proc_generics} {{\n    \
-             fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {{\n        \
-             let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n"
+             Self {{ {ctor_fields} }}\n    }}\n}}\n"
         ));
-        // [rs-effect-fusion] The adapter: a Sized Has-implementing view over
-        // the one provider field, exactly as a forwarding impl builds one over
-        // `__outer`. Disjoint from `&mut self.handler`, which is why both
-        // borrows can be live in the same call.
+        out.push_str(&format!(
+            "\nimpl{proc_dispatch_generics} {proc_name}{proc_generics} {{\n"
+        ));
+        // [rs-process] Member invocation lives in **one** place: `handle`
+        // downcasts a message into it, `resume` rebuilds one from a parked
+        // continuation plus the answer that just arrived. Factoring it out is
+        // what keeps a dependent handler's `__Deps_H` view built once
+        // [rs-effect-fusion].
+        out.push_str(&format!(
+            "    fn __dispatch(&mut self, msg: {msg_path}) {{\n"
+        ));
         if !deps.is_empty() {
+            // [rs-effect-fusion] The adapter: a Sized Has-implementing view
+            // over the one provider field, exactly as a forwarding impl builds
+            // one over `__outer`. Disjoint from `&mut self.handler`, which is
+            // why both borrows can be live in the same call.
             out.push_str(&format!(
                 "        let mut __deps = __Deps_{name}{{ __p: &mut self.prov }};\n"
             ));
@@ -2547,12 +2648,114 @@ impl<'p> Emitter<'p> {
                 call_args.join(", ")
             ));
         }
-        out.push_str(
-            "        }\n    }\n\n    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
-             _slot: u64, _value: crate::scheduler::SalvoMsg) {\n        \
-             unreachable!(\"no parked continuations are generated yet\")\n    }\n}\n",
-        );
+        out.push_str("        }\n    }\n}\n");
+        // [rs-process] [async-self-send] Every activation writes the
+        // process's own address into the handler before running a member, so
+        // `k@self(…)` and `replyto` can read it. Written per activation
+        // rather than once at spawn because the addr only exists after
+        // `salvo_spawn` allocates it, and the ctx carries it to every
+        // delivery anyway.
+        let cont = self.handler_cont_type(h);
+        out.push_str(&format!(
+            "\nimpl{proc_impl_generics} crate::scheduler::SalvoProcess for \
+             {proc_name}{proc_generics} {{\n    \
+             fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {{\n        \
+             self.handler.__addr = Some(_ctx.addr);\n        \
+             let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n        \
+             self.__dispatch(msg);\n    }}\n"
+        ));
+        // [async-replyto] The other half of the table: look the slot up, and
+        // the variant says which member to resume and therefore what the
+        // answer downcasts to — its *trailing* parameter's type.
+        match &cont {
+            None => out.push_str(
+                "\n    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
+                 _slot: u64, _value: crate::scheduler::SalvoMsg) {\n        \
+                 unreachable!(\"this protocol has no continuation targets\")\n    }\n",
+            ),
+            Some(cont_path) => {
+                out.push_str(&format!(
+                    "\n    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
+                     slot: u64, value: crate::scheduler::SalvoMsg) {{\n        \
+                     self.handler.__addr = Some(_ctx.addr);\n        \
+                     let Some(__cont) = self.handler.__parked.remove(&slot) else {{\n            \
+                     return; // a reply whose continuation is gone: nothing to run\n        \
+                     }};\n        match __cont {{\n"
+                ));
+                for (i, f) in &sends {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let member = salvo_core::effect_member_name(effect, *i);
+                    let variant = msg_variant_name(&member);
+                    let caps: Vec<String> = fixed[..fixed.len() - 1]
+                        .iter()
+                        .map(|p| rs_ident(&p.name.name))
+                        .collect();
+                    let bind = if caps.is_empty() {
+                        String::new()
+                    } else {
+                        format!("({})", caps.join(", "))
+                    };
+                    let answer_ty = {
+                        let last = fixed[fixed.len() - 1];
+                        self.param_type(&last.ty, last.variadic, ParamMode::Owned)
+                    };
+                    let mut args: Vec<String> = caps.clone();
+                    args.push(format!(
+                        "*value.downcast::<{answer_ty}>().expect(\"the awaited answer\")"
+                    ));
+                    out.push_str(&format!(
+                        "            {cont_path}::{variant}{bind} => \
+                         self.__dispatch({msg_path}::{variant}({})),\n",
+                        args.join(", ")
+                    ));
+                }
+                out.push_str("        }\n    }\n");
+            }
+        }
+        out.push_str("}\n");
         out
+    }
+
+    /// [rs-process] [async-effect-kind] Does `h` implement an **`async
+    /// effect`**? The gate for the two generated fields and for the process
+    /// body: a plain effect is never process-backed, so its handler carries
+    /// nothing extra.
+    fn handler_is_async(&self, h: &HandlerDecl) -> bool {
+        match &h.of {
+            Type::Named { base, .. } => self
+                .symbols
+                .effects
+                .get(base.name.name.as_str())
+                .is_some_and(|e| e.is_async),
+            _ => false,
+        }
+    }
+
+    /// [async-replyto] The `__Cont_E` type of `h`'s protocol, as a path usable
+    /// from `h`'s own module — `None` when the protocol has no member that
+    /// could be a continuation target (every send member is parameterless, so
+    /// no answer could be carried), in which case no `__parked` table is
+    /// emitted either.
+    fn handler_cont_type(&mut self, h: &HandlerDecl) -> Option<String> {
+        let Type::Named { base, .. } = &h.of else {
+            return None;
+        };
+        let name = base.name.name.clone();
+        let effect = self.symbols.effects.get(name.as_str()).copied()?;
+        if !effect.is_async {
+            return None;
+        }
+        let any_target = effect
+            .fns
+            .iter()
+            .any(|f| f.is_send && f.params.iter().any(|p| !p.implicit));
+        if !any_target {
+            return None;
+        }
+        Some(self.effect_path(&name, &cont_enum_name(&name)))
     }
 
     /// [rs-effect-fusion] The member bodies of a *dependent* handler. They
@@ -3134,6 +3337,12 @@ impl<'p> Emitter<'p> {
             FnStyle::DepMember(h) | FnStyle::DepMemberSig(h) => Some(h),
             _ => None,
         };
+        // [async-replyto] [async-self-send] Both forms resolve against the
+        // enclosing handler, so the body needs to know which one it is in.
+        let saved_handler = std::mem::replace(
+            &mut self.current_handler,
+            handler_of_style.map(|h| h.name.name.clone()),
+        );
         if let Some(h) = handler_of_style {
             for p in &h.params {
                 self.bindings
@@ -3761,6 +3970,7 @@ impl<'p> Emitter<'p> {
             self.derived_return_fn = saved_derived;
             self.taken_names = saved_taken;
             self.current_fn = saved_fn;
+            self.current_handler = saved_handler;
             self.hoist_id = saved_hoist;
             return format!(
                 "\n{pad}{vis}fn {name}{generics}({}){ret};\n",
@@ -3801,6 +4011,7 @@ impl<'p> Emitter<'p> {
         self.derived_return_fn = saved_derived;
         self.taken_names = saved_taken;
         self.current_fn = saved_fn;
+        self.current_handler = saved_handler;
         self.hoist_id = saved_hoist;
         self.ret_is_unit = saved_ret_unit;
         self.exit_splices = saved_splices;
@@ -4637,6 +4848,13 @@ fn stub_struct_name(effect: &str) -> String {
 /// the *effect*, since that is what a sender knows [async-types].
 fn msg_enum_name(effect: &str) -> String {
     format!("__Msg_{}", rs_ident(effect))
+}
+
+/// [rs-process] [async-replyto] The parked-continuation enum of a protocol:
+/// `__Cont_Counter`. Beside the message enum and named the same way — a
+/// continuation is a member invocation waiting for its last argument.
+fn cont_enum_name(effect: &str) -> String {
+    format!("__Cont_{}", rs_ident(effect))
 }
 
 /// [rs-process] One variant of it, named after the member. Upper-camel, since
@@ -7558,28 +7776,164 @@ impl<'p> Emitter<'p> {
                 body,
                 span,
             } => self.emit_waitfor(binding, ty, body, *span),
-            // [async-self-send] As in the Kotlin backend: a selector outside a
-            // call is a checker error, and a self-send's lowering waits with
-            // `replyto` for the process body's own address.
+            // [async-self-send] A bare selector outside a call is a checker
+            // error; the call form is lowered in `emit_call`.
             Expr::SelfScoped { .. } => {
-                self.error(
-                    "a self-send is not emitted yet: `k@self(…)` needs the process \
-                     body's own address",
-                );
+                self.error("internal: `@self` outside a call reached emission");
                 "todo!()".to_string()
             }
-            // [async-replyto] Parsed and checked, not yet lowered: a mint
-            // needs the parked-continuation table in the process body, which
-            // is the next slice. A refusal, never output
-            // [backend-never-wrong].
-            Expr::ReplyTo { .. } => {
-                self.error(
-                    "`replyto` is not emitted yet: a parked continuation needs the \
-                     process body's resume table",
-                );
-                "todo!()".to_string()
-            }
+            // [async-replyto] The mint: allocate a slot, park the
+            // continuation, hand back the token.
+            Expr::ReplyTo {
+                member,
+                captures,
+                gated,
+                span,
+            } => self.emit_replyto(member, captures, *gated, *span),
         }
+    }
+
+    /// [async-replyto] [rs-process] `replyto k(captures)` → mint a slot on
+    /// **this process**, store `__Cont_E::K(captures)` under it, and evaluate
+    /// to the token:
+    ///
+    /// ```text
+    /// { let (__r, __s) = salvo_mint(self.__addr.expect(…));
+    ///   self.__parked.insert(__s, __Cont_E::K(caps)); __r }
+    /// ```
+    ///
+    /// `replyto!` differs only in the mint (`salvo_mint_gated`), which is
+    /// where the gate lives — the runtime's business, not the emitter's.
+    ///
+    /// The `expect` cannot fire: a handler that mints may only be spawned
+    /// ([async-replyto], checked), so its members run as activations and
+    /// `__addr` was written before the body ran.
+    fn emit_replyto(
+        &mut self,
+        member: &Ident,
+        captures: &[Expr],
+        gated: bool,
+        span: Span,
+    ) -> String {
+        self.needs_scheduler = true;
+        let Some(target) = self
+            .checked
+            .replyto_members
+            .get(&(self.file_idx, span))
+            .cloned()
+        else {
+            self.error(format!(
+                "internal: no continuation target recorded for `replyto {}`",
+                member.name
+            ));
+            return "todo!()".to_string();
+        };
+        let Some(cont) = self.current_cont_type() else {
+            self.error(format!(
+                "internal: `replyto {}` has no continuation enum in scope",
+                member.name
+            ));
+            return "todo!()".to_string();
+        };
+        let variant = msg_variant_name(&target);
+        // A capture is *stored* in the continuation, so it is emitted owned —
+        // the same rule a message payload follows.
+        let caps: Vec<String> = captures.iter().map(|c| self.emit_owned(c)).collect();
+        let built = if caps.is_empty() {
+            format!("{cont}::{variant}")
+        } else {
+            format!("{cont}::{variant}({})", caps.join(", "))
+        };
+        let mint = if gated {
+            "salvo_mint_gated"
+        } else {
+            "salvo_mint"
+        };
+        format!(
+            "{{ let (__r, __s) = crate::scheduler::{mint}(self.__addr\
+             .expect(\"a parking handler runs as a process\")); \
+             self.__parked.insert(__s, {built}); __r }}"
+        )
+    }
+
+    /// [async-self-send] [rs-process] `k@self(args)` — send to **the process
+    /// the enclosing member belongs to**, and its two readings, chosen at run
+    /// time off `__addr` because a handler is compiled once and bound many
+    /// ways:
+    ///
+    /// * `__addr` present — this instance *is* a process, so the send is an
+    ///   enqueue on its own mailbox: `k` becomes its own later activation,
+    ///   which is the ordering the form exists to express.
+    /// * `__addr` absent — the instance was bound with `use`, so the send is
+    ///   the ordinary inline member call a local binding of a send protocol
+    ///   already makes.
+    ///
+    /// A dependent handler's members live in `__Impl_H` and take the fused
+    /// value, so the inline reading forwards the one the body already holds
+    /// [rs-effect-fusion].
+    fn emit_self_send(&mut self, member: &str, args: &[Expr]) -> String {
+        self.needs_scheduler = true;
+        let Some(handler) = self.current_handler.clone() else {
+            self.error("internal: a self-send outside a handler member");
+            return "todo!()".to_string();
+        };
+        let Some(decl) = self.symbols.handlers.get(handler.as_str()).copied() else {
+            self.error(format!("internal: no handler `{handler}` for a self-send"));
+            return "todo!()".to_string();
+        };
+        let Some(effect_name) = self.named_type_parts(&decl.of).map(|(base, _)| base) else {
+            self.error(format!(
+                "internal: handler `{handler}` implements a type with no name"
+            ));
+            return "todo!()".to_string();
+        };
+        // The message owns its payload either way: it outlives the send when
+        // it is queued, and the member's parameters are consumed when it is
+        // called [async-self-send].
+        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        let msg = self.effect_path(&effect_name, &msg_enum_name(&effect_name));
+        let variant = msg_variant_name(member);
+        let built = if payload.is_empty() {
+            format!("{msg}::{variant}")
+        } else {
+            format!("{msg}::{variant}({})", payload.join(", "))
+        };
+        // The inline reading: the dependent-member trait when the handler has
+        // dependencies, the effect trait otherwise.
+        let deps = self.handler_dep_effects(decl);
+        let inline = if deps.is_empty() {
+            let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
+            format!("{trait_path}::{}(self, {})", rs_ident(member), "__PAYLOAD__")
+        } else {
+            let fx = self
+                .effect_env
+                .iter()
+                .rev()
+                .find(|e| !e.is_local)
+                .map(|e| e.var.clone())
+                .unwrap_or_else(|| "__fx".to_string());
+            format!(
+                "__Impl_{}::{}(self, &mut *{fx}, {})",
+                rs_ident(&handler),
+                rs_ident(member),
+                "__PAYLOAD__"
+            )
+        };
+        let inline = inline.replace("__PAYLOAD__", &payload.join(", "));
+        // A trailing `, )` when the member takes nothing.
+        let inline = inline.replace(", )", ")");
+        format!(
+            "match self.__addr {{ Some(__a) => crate::scheduler::salvo_send(__a, Box::new({built})), \
+             None => {inline} }}"
+        )
+    }
+
+    /// [async-replyto] The `__Cont_E` path for the handler whose member is
+    /// being emitted — the enclosing handler, since a mint is lexical.
+    fn current_cont_type(&mut self) -> Option<String> {
+        let name = self.current_handler.clone()?;
+        let h = self.symbols.handlers.get(name.as_str()).copied()?;
+        self.handler_cont_type(h)
     }
 
     /// A binary/unary operand, parenthesized when its precedence is lower
@@ -9159,13 +9513,15 @@ impl<'p> Emitter<'p> {
         if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
             return self.emit_addr_send(&effect, callee, args, span);
         }
-        // [async-self-send] As in the Kotlin backend.
-        if self.checked.self_sends.contains_key(&(self.file_idx, span)) {
-            self.error(
-                "a self-send is not emitted yet: `self.k(…)` needs the \
-                 generated process struct its member belongs to",
-            );
-            return "todo!()".to_string();
+        // [async-self-send] `k@self(args)` — a message to the process this
+        // member belongs to.
+        if let Some(member) = self
+            .checked
+            .self_sends
+            .get(&(self.file_idx, span))
+            .cloned()
+        {
+            return self.emit_self_send(&member, args);
         }
         // [throw] [rs-throw-controlflow] A call that may throw is not an
         // ordinary call: `throw` itself *is* the control transfer, and a

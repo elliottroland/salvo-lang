@@ -1026,3 +1026,106 @@ fn main() [use, spawn] {
     );
     assert!(errs.is_empty(), "the binding swap must stay legal: {errs:?}");
 }
+
+/// [async-replyto] A handler that **parks** may only be spawned (user decision
+/// 2026-09-15, D5-c). Bound with `use`, its member bodies run inline on the
+/// caller's thread: the mint would target a member of a *local* instance, which
+/// has no mailbox for the answer to arrive on and no dispatcher to run it, so
+/// the continuation would silently never run. Parking is the one thing only a
+/// process can do, so the restriction costs nothing real.
+///
+/// The gate is syntactic per *handler*, not per member, because effects
+/// propagate: a fn declaring `[Counter]` may call any member, so a `use` site
+/// cannot know which ones a scope will reach.
+#[test]
+fn a_parking_handler_may_not_be_used_synchronously() {
+    let errs = errors(
+        "\
+async effect Waiting {
+    send fn ask() 
+    send fn got(n: Int) => !n
+}
+
+handler Asking() [Counter] of Waiting {
+    send fn ask() {
+        total(replyto got())
+    }
+    send fn got(n: Int) {}
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    use c
+    use Asking()
+    ask()
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m
+            .contains("mints a continuation with `replyto`, so it can only be `spawn`ed")),
+        "expected the parking-handler `use` refusal: {errs:?}"
+    );
+}
+
+/// …and spawning it is fine, which is what makes the refusal a *binding* rule
+/// rather than a restriction on the form.
+#[test]
+fn a_parking_handler_may_be_spawned() {
+    let errs = errors(
+        "\
+async effect Waiting {
+    send fn ask() 
+    send fn got(n: Int) => !n
+}
+
+handler Asking() [Counter] of Waiting {
+    send fn ask() {
+        total(replyto got())
+    }
+    send fn got(n: Int) {}
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let a = spawn Asking() use c capacity 1 on pool(1)
+    a.ask()
+}
+",
+    );
+    assert!(errs.is_empty(), "spawning a parking handler must be legal: {errs:?}");
+}
+
+/// [async-replyto] A **remote** mint — `k` naming a member of another `async
+/// effect` in scope rather than of the enclosing handler — is the generalized
+/// form (EFFECT_UNIFICATION.md EU-7b, decided) and a later slice: it makes the
+/// mint itself send-like, since capacity must be reserved in the *target's*
+/// queue. Named, with the workaround that needs nothing new — a token is an
+/// ordinary linear value, so the handler that owns `k` mints it and passes it.
+#[test]
+fn a_remote_mint_target_is_refused_by_name() {
+    let errs = errors(
+        "\
+async effect Waiting {
+    send fn ask() 
+}
+
+handler Asking() [Counter] of Waiting {
+    send fn ask() {
+        total(replyto bump())
+    }
+}
+
+fn main() [use, spawn] {
+    let c = spawn Counting() use Printing() capacity 1 on pool(1)
+    let a = spawn Asking() use c capacity 1 on pool(1)
+    a.ask()
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("`bump` is a member of `Counter` instead")
+            && m.contains("minting toward another process's member is not supported yet")),
+        "expected the remote-mint refusal naming the effect: {errs:?}"
+    );
+}
