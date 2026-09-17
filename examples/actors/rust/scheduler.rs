@@ -11,11 +11,21 @@
 // no-ops), `watch` notification as a one-shot reply, and the
 // idle-with-parked-gates report (all queues idle while `main` waits is a
 // named runtime error, not a hang).
+//
+// [main-pool] [waitfor-pump] `main` is the **single worker of its own
+// pool** (pool 0), which is given no OS thread: `main`'s own thread is its
+// worker, and it works while it waits. A wait therefore *serves* its pool
+// rather than merely blocking on it — the uniform rule is that a `waitfor`
+// serves its own pool's work except activations of the actor doing the
+// waiting, so a waiting actor's mailbox stays stalled (serialization is
+// preserved) while `main`, which has no mailbox, serves everything placed
+// on its pool. Blocking is the degenerate case of an empty queue.
 
 use std::any::Any;
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::{Condvar, Mutex, OnceLock};
+use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 /// A message payload: any sendable value. The checker owns sendability
 /// statically; the runtime is untyped.
@@ -100,13 +110,43 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
             Mutex::new(Sched {
                 actors: Vec::new(),
                 waiters: Vec::new(),
-                pools: 0,
+                // [main-pool] Pool 0 exists from the start and belongs to
+                // `main`; the first `salvo_pool` therefore answers 1.
+                pools: 1,
                 next_slot: 0,
                 active: 0,
             }),
             Condvar::new(),
         )
     })
+}
+
+/// [main-pool] The pool `main` is the single worker of. It is never given a
+/// worker thread of its own: `main`'s thread is the worker, and it runs the
+/// pool's work while it waits in `salvo_wait`.
+pub const SALVO_MAIN_POOL: usize = 0;
+
+thread_local! {
+    /// Where this thread is: the pool it works for, and the actor whose
+    /// activation it is currently inside (`None` on `main` and between
+    /// activations). Both are what [waitfor-pump] reads — the pool to
+    /// serve, and the one actor a wait must not serve.
+    static HERE: Cell<(usize, Option<usize>)> = Cell::new((SALVO_MAIN_POOL, None));
+}
+
+/// [main-pool] The pool the calling thread works for — what a `spawn` or a
+/// mint with no `on` clause inherits. `main`'s thread answers the main pool.
+pub fn salvo_current_pool() -> usize {
+    HERE.with(|h| h.get().0)
+}
+
+/// [waitfor-dedicated] A pool of exactly one thread, for work that may
+/// occupy its thread until an answer arrives. Identical to `salvo_pool(1)`
+/// at run time — what makes it different is static: the language types it as
+/// a `Dedicated Pool` and the `on` clause consumes it, so a dedicated thread
+/// has exactly one occupant.
+pub fn salvo_thread() -> usize {
+    salvo_pool(1)
 }
 
 /// The index of the first deliverable entry for an actor, honouring the
@@ -133,10 +173,23 @@ fn idle(s: &Sched) -> bool {
     s.active == 0 && s.actors.iter().all(|p| deliverable(p).is_none())
 }
 
+/// [waitfor-pump] The next job a thread working for `pool` may run:
+/// `exclude` is the actor whose own activation is waiting, which a wait must
+/// never serve — re-entering an actor mid-activation is precisely what
+/// serialization exists to prevent. A pool worker excludes nothing.
+fn pick(s: &Sched, pool: usize, exclude: Option<usize>) -> Option<(usize, usize)> {
+    s.actors
+        .iter()
+        .enumerate()
+        .filter(|(addr, p)| p.pool == pool && Some(*addr) != exclude)
+        .find_map(|(addr, p)| deliverable(p).map(|at| (addr, at)))
+}
+
 /// The idle-with-parked-gates report [actor-watch]: the scheduler
-/// is idle while `main` waits, so nothing can ever change — a named error
-/// instead of a silent hang.
-fn report_deadlock(s: &Sched) -> ! {
+/// is idle while a wait is outstanding, so nothing can ever change — a named
+/// error instead of a silent hang. `waiter` names the frame that is waiting,
+/// which since [waitfor-effect] need not be `main`.
+fn report_deadlock(s: &Sched, waiter: Option<usize>) -> ! {
     let parked: Vec<String> = s
         .actors
         .iter()
@@ -144,8 +197,12 @@ fn report_deadlock(s: &Sched) -> ! {
         .filter(|(_, p)| p.gate.is_some() && !p.dead)
         .map(|(i, _)| format!("actor {i}"))
         .collect();
+    let who = match waiter {
+        None => "main".to_string(),
+        Some(addr) => format!("actor {addr}"),
+    };
     eprintln!(
-        "salvo: deadlock: all actors idle while main waits{}",
+        "salvo: deadlock: all actors idle while {who} waits{}",
         if parked.is_empty() {
             String::new()
         } else {
@@ -190,10 +247,18 @@ pub fn salvo_spawn(pool: usize, bound: usize, body: Box<dyn SalvoActor>) -> usiz
 
 /// Sends a user message. Blocks while the target's queue is full; a send
 /// to a dead actor is a silent no-op.
+///
+/// [main-pool] One block is a *guaranteed* wedge rather than back-pressure:
+/// the main pool has exactly one worker — `main`'s own thread, which serves
+/// work only inside a `waitfor` — so a full main-pool mailbox blocked on
+/// from that same thread can never drain. Reported by name instead of hung.
 pub fn salvo_send(addr: usize, msg: SalvoMsg) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     while !s.actors[addr].dead && s.actors[addr].user_len >= s.actors[addr].bound {
+        if salvo_current_pool() == SALVO_MAIN_POOL && s.actors[addr].pool == SALVO_MAIN_POOL {
+            report_main_pool_wedge(addr);
+        }
         s = cv.wait(s).unwrap();
     }
     if s.actors[addr].dead {
@@ -202,6 +267,19 @@ pub fn salvo_send(addr: usize, msg: SalvoMsg) {
     s.actors[addr].queue.push_back(Entry::User(msg));
     s.actors[addr].user_len += 1;
     cv.notify_all();
+}
+
+/// [main-pool] The full-main-pool-mailbox report: a named error, since the
+/// only thread that could drain the queue is the one blocked on it.
+fn report_main_pool_wedge(addr: usize) -> ! {
+    eprintln!(
+        "salvo: deadlock: the main pool's actor {addr} has a full mailbox and the \
+         only thread that could drain it is the one sending: the main pool has one \
+         worker, `main` itself, and it serves work only inside a `waitfor` — send \
+         fewer messages before waiting, raise the handler's `mailbox` capacity, or \
+         place the actor on a pool of its own"
+    );
+    std::process::exit(1);
 }
 
 /// Mints a reply token targeting an actor's parked continuation `slot`.
@@ -278,18 +356,27 @@ pub fn salvo_waiter() -> (SalvoReply, usize) {
     )
 }
 
-/// Blocks the calling (main) thread until the waiter's token is sent, and
-/// answers the value. If the scheduler is idle and can never fulfil it,
-/// reports the deadlock instead of hanging.
+/// [waitfor-pump] Blocks the calling thread until the waiter's token is
+/// sent, and answers the value — *serving this thread's pool while it waits*
+/// (everything on it except the waiting actor's own activations, which stay
+/// stalled). For `main`, whose pool has no other worker, that is what runs
+/// main-pool work at all; where the queue is empty the wait is a plain
+/// block. If the scheduler is idle and can never fulfil the token, reports
+/// the deadlock instead of hanging.
 pub fn salvo_wait(wid: usize) -> SalvoMsg {
     let (lock, cv) = state();
+    let (pool, own) = HERE.with(|h| h.get());
     let mut s = lock.lock().unwrap();
     loop {
         if let Some(v) = s.waiters[wid].value.take() {
             return v;
         }
+        if let Some((addr, at)) = pick(&s, pool, own) {
+            s = run_job(lock, cv, s, addr, at);
+            continue;
+        }
         if idle(&s) {
-            report_deadlock(&s);
+            report_deadlock(&s, own);
         }
         s = cv.wait(s).unwrap();
     }
@@ -323,72 +410,87 @@ impl SalvoReply {
     }
 }
 
+/// Runs one activation to completion: takes the entry out of the queue,
+/// releases the lock for the body, catches a fault at this boundary and
+/// turns it into the actor's death, then answers the reacquired guard. Both
+/// callers — a pool worker and a `waitfor` pumping its own pool
+/// [waitfor-pump] — go through here, so an activation means the same thing
+/// whichever thread runs it.
+fn run_job<'g>(
+    lock: &'g Mutex<Sched>,
+    cv: &Condvar,
+    mut s: MutexGuard<'g, Sched>,
+    addr: usize,
+    at: usize,
+) -> MutexGuard<'g, Sched> {
+    let entry = s.actors[addr].queue.remove(at).unwrap();
+    if matches!(entry, Entry::User(_)) {
+        s.actors[addr].user_len -= 1;
+    }
+    if let Entry::Reply(slot, _) = entry {
+        if s.actors[addr].gate == Some(slot) {
+            s.actors[addr].gate = None;
+        }
+    }
+    let mut body = s.actors[addr].body.take().unwrap();
+    let pool = s.actors[addr].pool;
+    s.actors[addr].running = true;
+    s.active += 1;
+    cv.notify_all(); // a user entry left the queue: unblock senders
+    drop(s);
+
+    // The activation runs *here*: an ambient mint inside it inherits this
+    // pool, and a nested wait must not serve this actor [waitfor-pump].
+    let saved = HERE.with(|h| h.replace((pool, Some(addr))));
+    let ctx = SalvoCtx { addr };
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        match entry {
+            Entry::User(msg) => body.handle(&ctx, msg),
+            Entry::Reply(slot, value) => body.resume(&ctx, slot, value),
+        }
+        body
+    }));
+    HERE.with(|h| h.set(saved));
+
+    s = lock.lock().unwrap();
+    s.actors[addr].running = false;
+    s.active -= 1;
+    match outcome {
+        Ok(body) => {
+            s.actors[addr].body = Some(body);
+        }
+        Err(panic) => {
+            let reason = panic
+                .downcast_ref::<&str>()
+                .map(|m| (*m).to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "fault".to_string());
+            s.actors[addr].dead = true;
+            s.actors[addr].exit_reason = Some(reason.clone());
+            s.actors[addr].queue.clear();
+            s.actors[addr].user_len = 0;
+            s.actors[addr].gate = None;
+            let watchers = std::mem::take(&mut s.actors[addr].watchers);
+            for (w, exit) in watchers {
+                let value = exit(reason.clone());
+                deliver_reply(&mut s, w, value);
+            }
+        }
+    }
+    cv.notify_all();
+    s
+}
+
 /// One pool worker: pick a deliverable entry for an actor on this pool,
-/// run the activation to completion, repeat. Faults are caught at this
-/// boundary and become the actor's death.
+/// run the activation to completion, repeat.
 fn worker(pool: usize) {
+    HERE.with(|h| h.set((pool, None)));
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     loop {
-        let job = s
-            .actors
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.pool == pool)
-            .find_map(|(addr, p)| deliverable(p).map(|at| (addr, at)));
-        let Some((addr, at)) = job else {
-            s = cv.wait(s).unwrap();
-            continue;
-        };
-        let entry = s.actors[addr].queue.remove(at).unwrap();
-        if matches!(entry, Entry::User(_)) {
-            s.actors[addr].user_len -= 1;
+        match pick(&s, pool, None) {
+            Some((addr, at)) => s = run_job(lock, cv, s, addr, at),
+            None => s = cv.wait(s).unwrap(),
         }
-        if let Entry::Reply(slot, _) = entry {
-            if s.actors[addr].gate == Some(slot) {
-                s.actors[addr].gate = None;
-            }
-        }
-        let mut body = s.actors[addr].body.take().unwrap();
-        s.actors[addr].running = true;
-        s.active += 1;
-        cv.notify_all(); // a user entry left the queue: unblock senders
-        drop(s);
-
-        let ctx = SalvoCtx { addr };
-        let outcome = catch_unwind(AssertUnwindSafe(|| {
-            match entry {
-                Entry::User(msg) => body.handle(&ctx, msg),
-                Entry::Reply(slot, value) => body.resume(&ctx, slot, value),
-            }
-            body
-        }));
-
-        s = lock.lock().unwrap();
-        s.actors[addr].running = false;
-        s.active -= 1;
-        match outcome {
-            Ok(body) => {
-                s.actors[addr].body = Some(body);
-            }
-            Err(panic) => {
-                let reason = panic
-                    .downcast_ref::<&str>()
-                    .map(|m| (*m).to_string())
-                    .or_else(|| panic.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "fault".to_string());
-                s.actors[addr].dead = true;
-                s.actors[addr].exit_reason = Some(reason.clone());
-                s.actors[addr].queue.clear();
-                s.actors[addr].user_len = 0;
-                s.actors[addr].gate = None;
-                let watchers = std::mem::take(&mut s.actors[addr].watchers);
-                for (w, exit) in watchers {
-                    let value = exit(reason.clone());
-                    deliver_reply(&mut s, w, value);
-                }
-            }
-        }
-        cv.notify_all();
     }
 }

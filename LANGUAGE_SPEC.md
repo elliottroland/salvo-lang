@@ -1929,6 +1929,10 @@ Conventions:
     [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
     effects stays an error: the dependency belongs to the implementation,
     not the interface.
+  * **One exception, since 2026-09-17: `[waitfor]`** [waitfor-effect]. It
+    names no effect type, so there is nothing to thread and the reason above
+    does not reach it — and "this member may occupy your thread" is a fact
+    about the *interface*, which is exactly what a member declaration is for.
 * [effect-handler] `handler H<G>(ctor params) [effects] of E<G> { state fns }`
   implements every member of its effect; state fields have initializers
   and persist for the handler's lifetime.
@@ -2531,10 +2535,16 @@ LANGUAGE.md remains the source of truth for everything that does.
     of per spawn, and a per-instance bound stays expressible by taking it as a
     constructor parameter. What the old rationale got right survives as the
     plain-effect refusal [actor-mailbox].
-  * **`on POOL` is required** (user decision 2026-09-15, confirming the
-    frozen grammar's reading) and takes an ordinary expression: `pool(n)` is
-    a function declared `[spawn]`, not syntax. Every spawn therefore says
-    where it runs; there is no ambient default pool to inherit.
+  * **`on POOL` is optional**, and takes an ordinary expression: `pool(n)` is
+    a function declared `[spawn]`, not syntax. Omitted, the child runs on the
+    pool **current where the spawn was written** [main-pool] (user decision
+    2026-09-17, FC-3's inheritance rule extended to `spawn`) — which is how a
+    spawn site names `main`'s own pool without new vocabulary, and what makes
+    "run where the work that created you runs" true of a member's spawns too.
+    It was required until then (user decision 2026-09-15), on the argument
+    that every spawn should say where it runs; what changed is that there is
+    now an ambient pool *everywhere* the language owns a thread, so the
+    default has a meaning instead of a hole.
   * `spawn` and its clause words are **contextual**; the form is
     recognised from `spawn` followed by a name, so a function named `spawn`
     is still callable. A handler construction is **not a value** — only
@@ -2558,12 +2568,17 @@ LANGUAGE.md remains the source of truth for everything that does.
     the child's environment in declaration order without re-deriving it
     (and without disagreeing about it) — `use tally, Recording()` and
     `use Recording(), tally` are one program.
-  * `on` must be a `Pool`; the mailbox is typed where it is declared.
-* [actor-waitfor] `waitfor out: Reply<T> { ... }` is `main`'s explicit bridge
-  and `main`'s only token source (`replyto` targets a member of the enclosing
-  handler, and `main` has none): it mints a token, requires the block to
-  consume it, blocks main's real thread until it is sent to, and yields what
-  was sent. Legal only in `main`.
+  * `on` must be a `Pool`; the mailbox is typed where it is declared. A
+    `Dedicated Pool` placement is additionally **consumed** by the clause
+    [waitfor-dedicated].
+* [actor-waitfor] `waitfor out: Reply<T> { ... }` is the explicit bridge into
+  the asynchronous world and `main`'s only token source (`replyto` targets a
+  member of the enclosing handler, and `main` has none): it mints a token,
+  requires the block to consume it, occupies the thread until it is sent to,
+  and yields what was sent. Legal wherever the `[waitfor]` capability was
+  declared [waitfor-effect] — it was `main`-only until 2026-09-17, and `main`
+  was only ever special by owning its thread, which is now what the rule
+  says.
   * "The block must consume it" is **not a rule of its own**: the binding is
     an ordinary linear local, so [linear-obligation] reports a token the
     block never sent to, naming `send` as the discharge. The expression's
@@ -2573,6 +2588,97 @@ LANGUAGE.md remains the source of truth for everything that does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
+* [waitfor-effect] **`[waitfor]` is a capability effect**: the right to occupy
+  the thread you are running on until an answer arrives (user decision
+  2026-09-17, TIME.md's T-5(c)). Lowercase and compiler-owned like `use` and
+  `spawn`, contextual for the same reason, and it names no effect type — so
+  there is nothing to thread and nothing to resolve. What validates holding it
+  is not *who* you are but *where you run* [waitfor-dedicated].
+  * **It propagates through calls like any effect**: a function reaching a
+    wait through a helper declares `[waitfor]` too. (The `[spawn]` capability
+    was decorative for exactly this reason once; the same mistake is not
+    repeated.)
+  * **Accepted on a function, on a handler's dependency list, and — alone
+    among effect refs — on an *effect declaration's member*** (user
+    refinement 2026-09-17). "This member may occupy your thread" is a fact
+    about the protocol, so it belongs where the protocol is written, and it
+    reaches callers as an ordinary propagation. That is the one exception to
+    [effect-member-no-effects], whose reason (a member's dispatch cannot
+    thread handler arguments) does not apply to a capability that threads
+    nothing.
+  * **Refused on a fn type** [actor-no-closure], exactly as `use` and `spawn`
+    are: a function value runs wherever it is called, and the capability is a
+    claim about *where*.
+  * A handler that declares it makes **every member** able to wait, and its
+    `use` sites carry it outward: binding such a handler is refused unless the
+    binding scope declares `[waitfor]` too. Effect *callers* learn nothing —
+    a handler's dependencies are invisible to them by the ordinary rule — so
+    the hazard keys on the binding, which is where it is visible. The
+    motivating customer is a test clock that asks a timer for the time
+    (`handler TestClock() of Clock [Timer, waitfor]`).
+  * It contributes the deadlock graph's **third edge kind**
+    [actor-deadlock-cycle], from the declaration rather than from a site.
+* [waitfor-dedicated] **A wait is validated by placement.** `thread()` (std)
+  answers a **`Dedicated Pool`** — one fresh thread, owned by whatever is
+  placed on it; `pool(n)` answers a plain `Pool`. "May occupy this thread" is
+  thereby an affordance in the type, and every grant is a binding-site check:
+  * `spawn H(...) on P` where `H` declares `[waitfor]`: `P` must type as
+    `Dedicated Pool`. An omitted `on` is refused with it — the current pool is
+    a shared one (`main`'s included), and inheriting a dedicated one would put
+    a second occupant on it.
+  * **The `on` clause consumes a `Dedicated Pool`** (user refinement
+    2026-09-17): reusing a thread is impossible *by linearity* rather than by
+    convention, so a second spawn onto the same `thread()` is the ordinary
+    use-after-move diagnostic and needs no rule. `Dedicated` is a **provenance
+    qualifier** — a claim about where the handle came from, not about the
+    pool's contents — so it survives stores and calls [qual-subject], and it
+    is erased in the generated code like every qualifier [qual-erasure].
+  * `main` declares `[waitfor]` like anything else (`fn main() [use, spawn,
+    waitfor]`); a `main` that never waits does not say it. Its own thread is
+    the dedicated one, which is why no placement is written for it.
+  * An actor on its own thread **may** block: it wedges only itself, which is
+    its own business, like a gate. What placement does *not* remove is a wait
+    whose fulfilment routes back through the waiter's own stalled mailbox —
+    that is the edge kind [actor-deadlock-cycle] gains.
+* [main-pool] **`main` is the single worker of its own pool** (user decision
+  2026-09-17, FREE_CONCURRENCY.md's FC-4(a)). The pool exists from the start
+  and is never given a thread of its own: `main`'s thread is its worker.
+  * So **an ambient placement exists on every thread the language owns**, and
+    a spawn or (from the task kernel on) a mint with no `on` clause has
+    somewhere to land wherever it is written. That is the uniformity the rule
+    is for: a function called from `main` and the same function called from an
+    actor behave identically.
+  * **Actors may be spawned onto it**, which yields genuinely single-threaded
+    cooperatively-scheduled programs. The main pool is plain-`Pool`-typed, so
+    no `[waitfor]` grant can flow to an actor placed there: nothing but `main`
+    itself may ever occupy `main`'s thread.
+  * Two consequences, each the existing rule seen from a new angle: work
+    placed there runs **only while `main` waits** [waitfor-pump], and it dies
+    when `main` returns [actor-waitfor].
+  * One hazard the statics do not cover: `main` filling a main-pool actor's
+    mailbox past its bound blocks the only thread that could drain it. Both
+    runtimes report that by name and exit non-zero rather than hanging — the
+    sibling of the idle-with-parked-gates report.
+* [waitfor-pump] **A wait serves its own pool.** One semantics everywhere
+  (user requirement 2026-09-17: no blocking/pumping fork): *a `waitfor` serves
+  the work of the pool it is running on, except activations of the actor doing
+  the waiting.* Blocking is the degenerate case of an empty queue, so
+  "blocking versus pumping" is not a fork at all — one rule whose behaviour
+  depends on what is queued, identical on both backends.
+  * **For `main`**, which has no mailbox, that is everything on its pool: this
+    is what runs main-pool work at all, since nothing else serves it.
+  * **For an actor on a dedicated thread**, its mailbox stays stalled while it
+    waits, so serialization is preserved and the behaviour is observably
+    identical to blocking for *messages*. And since a dedicated pool has
+    exactly one occupant [waitfor-dedicated], "except its own" and "never
+    activations" coincide there.
+  * **Costs, stated**: pumped work runs nested on the waiter's stack
+    (recursion — a pumped item that itself waits nests further, with stack
+    depth the budget, the nested-`runBlocking` precedent), and side effects
+    are observable *during* a wait. Only the waiting actor's mailbox is quiet.
+  * The rule is stated in terms of *work* because the task kernel is what
+    fills a pool with things that are not activations; until it lands, what a
+    wait can serve is main-pool actors.
 * [actor-use-addr] `use addr` binds an effect in the current scope to a
   generated forwarding stub over an `Addr` — first-pass surface, not sugar, and
   no new syntax: the `use` statement already takes an expression, and whether
@@ -2646,9 +2752,10 @@ LANGUAGE.md remains the source of truth for everything that does.
   `waitfor` and `replyto` are all errors inside a lambda body, and so is
   `k@self(…)` — `self` names nothing there. A function
   value's body runs wherever it is *called*, and none of the three can travel
-  with it — a fn type cannot declare `spawn` [actor-spawn-effect], `waitfor`
-  blocks the thread it runs on and only `main` has one to block, and a
-  continuation belongs to the handler that minted it. Each diagnostic says so
+  with it — a fn type cannot declare `spawn` [actor-spawn-effect] or `waitfor`
+  [waitfor-effect] (both are claims about the frame, and a `waitfor` needs a
+  thread it may occupy), and a continuation belongs to the handler that minted
+  it. Each diagnostic says so
   in the closure's terms, since "add the capability to the effect list" is not
   available for a lambda. ([fate-lambda], the escaping-closure work, is
   deferred to the call-sugar pass for exactly this reason: nothing in the
@@ -2734,7 +2841,12 @@ LANGUAGE.md remains the source of truth for everything that does.
   * **`Pool`**, with `intrinsic fn pool(size: Int) [spawn] -> Pool` — an
     ordinary value, so one pool can be shared by many spawns; `on pool(2)`
     is a call, and the `[spawn]` on the function is what makes creating one
-    a capability.
+    a capability. **`intrinsic fn thread() [spawn] -> Dedicated Pool`** is the
+    other one: a pool of exactly one thread, and the placement a
+    `[waitfor]`-carrying handler needs [waitfor-dedicated]. `Dedicated` is a
+    `provenance qualifier` on `Pool`, declared in `core.actor` like any other
+    — the compiler owns no new vocabulary for it — and the `on` clause
+    consumes a value carrying it.
   * An addr is **never linear and freely copied**: a send to a dead actor is
     a silent no-op, so a stale addr is safe to hold and death is *observed*
     with `watch` rather than tripped over.
@@ -2804,6 +2916,14 @@ LANGUAGE.md remains the source of truth for everything that does.
     actors that send to each other would refuse most useful topologies.
     The remedies it names are a larger `capacity` or routing one direction
     through a reply token, whose capacity is reserved at park time.
+  * A **declared `[waitfor]`** is a *wait-for* edge too, and the third edge
+    kind [waitfor-effect]: a handler that may occupy its thread serves no
+    message while it does, so a cycle through it deadlocks exactly as a gate
+    cycle does — and a thread of its own does not save it, because the
+    fulfilment has to route back through the stalled mailbox. An **error**,
+    reported at the *declaration*: this edge comes from a signature rather
+    than from a site, which is the modular form the retired survey predicted
+    for awaits and which arrives here for blocks.
   * A `fulfil` (`r.send(v)`) contributes nothing: the capacity is already
     reserved, so it never blocks. Neither does a `k@self(…)` — a self-send
     waits for no *other* actor (the wedge a full own mailbox could cause is

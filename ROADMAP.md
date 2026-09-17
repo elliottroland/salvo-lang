@@ -56,8 +56,10 @@ and each themed section is tagged with the phase it belongs to. **All five
 phases are complete** (phase 5 landed 2026-09-16): actors spawn, send, park
 continuations, bridge into `main`, depend on one another, watch each other die
 and hold queues of obligations — on both backends with identical output, with a
-worked example in `examples/actors/`. What is left is not a phase: the open
-defects below, the decisions waiting on the user, and the themed sections.
+worked example in `examples/actors/`. What is in progress is **"The second
+sequence"** below: step 1, the `waitfor` package, landed 2026-09-17, and step 2,
+the task kernel, is next. Beside it: the open defects below, the decisions
+waiting on the user, and the themed sections.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -212,20 +214,14 @@ argument trails and carry the delete-when-built charter). What remains is
 implementation, in this order — each step independently shippable, so the
 sequence can pause anywhere and leave the tree consistent:
 
-1. **The `waitfor` package** (FC-4 + T-5(c)): `main` becomes the single
-   worker of its own pool; the uniform wait rule (*a `waitfor` serves its
-   own pool's detached tasks, never activations* — blocking is the
-   empty-queue degenerate case); `[waitfor]` as a capability effect (effect
-   declaration members may carry it); `thread()` answering a
-   **`Dedicated Pool`** that the `on` clause **consumes** — reusing a thread
-   is impossible by linearity. Actors may be spawned onto the main pool
-   (plain-`Pool`-typed there, so no `[waitfor]` grant flows — an actor may
-   never block `main`'s thread); how a spawn site names the main pool is an
-   implementation detail (recommended: FC-3's inheritance extended to
-   `spawn` — `on` omitted means the current pool). Runtime shape first
-   (main pool, pump loop, `thread()`), static enforcement second (effect
-   propagation, the qualifier, the grant checks, the new deadlock-edge
-   kind).
+1. ✅ **The `waitfor` package** — **built 2026-09-17**, the whole of FC-4(a) +
+   T-5(c): the main pool, the pump, `thread()`'s `Dedicated Pool` consumed by
+   `on`, `[waitfor]` as a propagating capability effect (on fns, handler
+   dependency lists and effect *members*), the two grant checks, the optional
+   `on` clause, and the deadlock graph's signature-level third edge. The
+   record is COMPLETED.md's log; the rules are [main-pool], [waitfor-pump],
+   [waitfor-effect], [waitfor-dedicated]. What it left behind is listed under
+   "The `waitfor` package — leftovers" below. **Step 2 is next.**
 2. **The task kernel** (FC-1 + FC-2 + FC-3, with FC-5/FC-6 riding): free
    `send fn` (refusal list at the declaration; `send`/plain overloading
    refused), `replyto` targeting any send-kind function (mint legal in any
@@ -254,6 +250,46 @@ sequence can pause anywhere and leave the tree consistent:
 6. **The coupling stance** (T-2): time-as-data as the std posture; the
    unified `TestClock [Timer, waitfor]` becomes writable (steps 1 + 5);
    scheduler-owned virtual time stays the recorded, un-built upgrade path.
+
+### The `waitfor` package — leftovers (2026-09-17)
+
+Found while building step 1; none blocks step 2.
+
+- **A pool's sole worker blocking on its own pool wedges, and only the
+  `main` case is caught.** Both runtimes report a full *main-pool* mailbox
+  by name (the sending thread is the only one that could drain it). The
+  general shape — a one-thread pool whose occupant sends into a full mailbox
+  on that same pool, `thread()` included — still hangs. The precise runtime
+  condition is "no thread other than this one can serve the target's pool",
+  which the scheduler could compute (it knows each pool's worker count); the
+  reason it is not built is that the interesting case arrives with step 2,
+  when a pool holds tasks as well as actors. Sibling of the recorded
+  self-send mailbox wedge.
+- **A `use` site does not check the `[spawn]` capability**, where it now
+  checks `[waitfor]`. A handler declaring `[spawn]` among its dependencies
+  can be `use`d from a function that does not hold it, and its members
+  inherit the capability — so `[spawn]` is manufactured from nothing at that
+  seam. Noticed while writing the `waitfor` grant check (which does the check
+  `spawn` is missing). Not reproduced as a program yet; the fix is the same
+  five lines, and `handler_dep_effects`'s `EffectRef::Spawn(_) => continue`
+  is where it belongs.
+- **`waitfor` inside a `use`-bound handler's member is legal and untested.**
+  The capability flows outward to the binding scope, so it type-checks and
+  should behave exactly like a wait written in that scope (the member runs
+  inline). The tested paths are `main`, a plain fn, and a *spawned* handler on
+  a dedicated thread.
+- **The actor surface is still absent from LANGUAGE.md.** Phase 5 and this
+  step put every actor rule in LANGUAGE_SPEC.md, and LANGUAGE.md mentions
+  actors only in the linearity chapter's "the actor owes until it ends"
+  bullet. The narrative chapter is owed — the source-of-truth document should
+  not lag a shipped surface — and it is cheaper written once the second
+  sequence's surface settles (tasks, `on_idle`, `core.time`).
+- **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
+  takes ~1m50s against AGENTS.md's ~55–70s, of which ~105s is the single
+  `kotlinc_compiles_and_runs_every_case` driver (100 cases in batched
+  invocations). Nothing new is wrong — the driver's *cached/skipped* cost is
+  the open defect above — but the budget line in AGENTS.md and COMPLETED.md
+  is now optimistic for a cold run.
 
 Parked with named triggers: FC-7 (host bridging — until a host caller
 exists); FC-5's minter-attribution refinement (if the sink proves too coarse

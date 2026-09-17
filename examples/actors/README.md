@@ -26,8 +26,10 @@ down takes it as a constructor parameter, which is how a per-instance bound is
 written. State is the actor's alone and members run one at a time to
 completion, which is why `sum = sum + n` needs no lock: the scheduler's
 serialization *is* the mutual exclusion. `main` reads the total through
-`waitfor`, its own bridge into the surface — it mints a token, hands it over,
-and blocks the real thread until the answer arrives.
+`waitfor`, the bridge into the surface — it mints a token, hands it over, and
+occupies the thread until the answer arrives. That is a capability like any
+other, which is why `main` declares `[waitfor]`: a function may wait when it
+says it may, and what makes it safe is *where* it runs (section 7).
 
 **2 — the reply token is linear.** `Reply<Int>` is a one-shot answer channel,
 and `total` must send to it exactly once on every path or the program does not
@@ -84,6 +86,19 @@ same members inline on `main`'s thread: no mailbox, no scheduler, no addr, and
 token is answered *before* `total(out)` returns. The inline total is 9 and the
 spawned one is 5 — two bindings, two states, one handler.
 
+**7 — `main`'s own pool.** The last spawn writes no `on` clause, and an omitted
+one means *the pool current where the spawn was written*. In `main` that is a
+pool whose single worker is `main` itself — so this actor's activations run on
+main's own thread, during the `waitfor`, because a wait **serves** its own pool
+while it waits rather than merely blocking on it. The result is a genuinely
+single-threaded cooperatively-scheduled program with no `pool(n)` in it, and
+the same actor code as everywhere above. Two consequences worth knowing: work
+placed there runs only while `main` waits, and it dies when `main` returns —
+which is not a new rule, only the existing one seen from a new angle. Where a
+wait needs a thread it can occupy without stalling anyone, `thread()` answers a
+`Dedicated Pool`, which the `on` clause **consumes**: one thread, one occupant,
+by linearity rather than by convention.
+
 ## What the generated code looks like
 
 Worth opening `rust/main.rs` and `kotlin/main.kt` side by side:
@@ -104,7 +119,8 @@ Worth opening `rust/main.rs` and `kotlin/main.kt` side by side:
   only into a program that spawns. It is a library, not a runtime baked into
   the emitted code: bounded arrival-order queues, run-to-completion
   activations, reply capacity reserved at park time, a per-activation catch that
-  turns a fault into a death, and the idle-with-parked-gates report.
+  turns a fault into a death, the idle-with-parked-gates report, and the pump
+  that makes a wait serve its own pool (section 7).
 
 The Rust program also prints a panic message on **stderr** when section 5's
 actor faults — Rust's default hook does that before the scheduler's catch sees

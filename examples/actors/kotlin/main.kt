@@ -315,6 +315,14 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx2, "6. inline total is $inline")
+    val mine = run { val __h = Counting(); salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h)) }
+    salvo.SalvoSched.send(mine, __Msg_Counter.Bump(6))
+    val local = run {
+        val (out, __wid) = salvo.SalvoSched.waiter()
+        salvo.SalvoSched.send(mine, __Msg_Counter.Total(out))
+        salvo.SalvoSched.awaitReply(__wid) as Int
+    }
+    println(__fx2, "7. the main pool's own actor totalled $local")
     println(__fx2, "done")
 }
 

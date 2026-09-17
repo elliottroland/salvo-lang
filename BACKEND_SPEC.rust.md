@@ -1454,17 +1454,33 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     cost, and where a real OS pid (a `platform effect` wrapping process
     management) could sit next to it. "Process" stays the noun for the thing an
     addr names, so `SalvoProcess` and `procs` are untouched.
-  * **The forms**: `spawn H(args) capacity N on P` →
-    `salvo_spawn(P, N as usize, Box::new(__Proc_H::new(H::new(args))))`, whose
-    value is the addr — with the child's provider as a second constructor
-    argument when the handler has dependencies
-    (`__Proc_H::new(H::new(args), __Prov_H { __d0: …, __d1: … })`);
+  * **The forms**: `spawn H(args) on P` →
+    `{ let __h = H::new(args); let __cap = __h.__mailbox_capacity;
+    salvo_spawn(P, __cap as usize, Box::new(__Actor_H::new(__h))) }`, whose
+    value is the addr — the bound is read off the instance because it is the
+    *handler's* [actor-mailbox], and the child's provider is a second
+    constructor argument when the handler has dependencies
+    (`__Actor_H::new(__h, __Prov_H { __d0: …, __d1: … })`);
     `addr.member(args)` →
     `salvo_send(addr, Box::new(__Msg_E::Member(args)))`; `waitfor out: Reply<T>
     { … }` → a block expression that mints a waiter, runs the block, then
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
-    `pool(n)` → `salvo_pool(n as usize)`; `watch(a, out)` →
+    `pool(n)` → `salvo_pool(n as usize)`; `thread()` → `salvo_thread()`;
+    `watch(a, out)` →
     `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`.
+  * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
+    thread-local read, so the placement a spawn inherits costs nothing and
+    needs no signature. `main`'s thread answers pool 0, the pool it is the
+    single worker of; a worker thread answers its own; and an activation
+    answers the pool its actor runs on, which is what makes "run where the
+    work that created you runs" true inside a member too.
+  * **[waitfor-pump] `salvo_wait` serves while it waits.** The runtime's wait
+    is a loop, not a condvar park: it runs deliverable work for *this thread's*
+    pool — everything except activations of the actor doing the waiting — and
+    only parks when there is none. That is what runs main-pool work at all
+    (nothing else serves pool 0), and the pumped activation runs nested on the
+    waiter's stack. `salvo_thread()` is `salvo_pool(1)`: `Dedicated` is erased
+    like every qualifier [qual-erasure], and what it buys is static.
   * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo struct, so the watch site
     passes a `fn(String) -> SalvoMsg` alongside the token and the scheduler

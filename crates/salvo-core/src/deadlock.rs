@@ -15,6 +15,14 @@
 //!   outstanding the actor serves nothing but its answer, so a cycle of
 //!   gates is a deadlock that no amount of load changes. Reported as an
 //!   **error**.
+//! * a **block** edge [waitfor-effect], from a signature: a handler that
+//!   declares `[waitfor]` may occupy its thread until an answer arrives, and
+//!   its mailbox stays stalled while it does — so it waits exactly as a gate
+//!   does, and the cycle it can close is the one a dedicated thread does *not*
+//!   remove: a wait whose fulfilment routes back through the waiter's own
+//!   mailbox. Reported as an **error** too, and the third edge kind arrives
+//!   *from declarations* rather than from sites, which is the modular form the
+//!   retired survey predicted for awaits.
 //! * a **back-pressure** edge, from an ordinary send. A send into a full
 //!   bounded mailbox blocks its activation, so a cycle of sends deadlocks
 //!   *only* when the mailboxes involved are simultaneously full. Reported as
@@ -53,8 +61,19 @@ use crate::program::{Program, Symbols};
 enum EdgeKind {
     /// A gated mint: the actor waits, whatever the load.
     Wait,
+    /// [waitfor-effect] A declared `[waitfor]`: the actor may occupy its
+    /// thread until an answer arrives, and serves no message meanwhile.
+    Block,
     /// A send that can block on a full mailbox.
     BackPressure,
+}
+
+impl EdgeKind {
+    /// Whether the edge waits unconditionally — the error class. Both a gate
+    /// and a declared block do; back-pressure needs full mailboxes.
+    fn unconditional(self) -> bool {
+        matches!(self, EdgeKind::Wait | EdgeKind::Block)
+    }
 }
 
 /// One edge of the graph: who waits, on what, and where it is written.
@@ -83,7 +102,7 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
             (
                 from.clone(),
                 tos.iter()
-                    .filter(|(_, e)| e.kind == EdgeKind::Wait)
+                    .filter(|(_, e)| e.kind.unconditional())
                     .map(|(to, e)| (to.clone(), e.clone()))
                     .collect::<BTreeMap<_, _>>(),
             )
@@ -95,7 +114,7 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
         if !reported.insert(cycle.clone()) {
             continue;
         }
-        report(&waits, &cycle, out, EdgeKind::Wait);
+        report(&waits, &cycle, out, true);
     }
     // Then the whole graph: a cycle that only closes through a send is the
     // load-conditioned class, and a warning.
@@ -104,7 +123,7 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
         if cycle.iter().all(|n| seen_nodes.contains(n)) {
             continue;
         }
-        report(&graph, &cycle, out, EdgeKind::BackPressure);
+        report(&graph, &cycle, out, false);
     }
 }
 
@@ -139,6 +158,13 @@ fn build(
                 .iter()
                 .find(|(handler, _)| *handler == h.name.name)
                 .map(|(_, key)| *key);
+            // [waitfor-effect] The signature half: a handler that declares
+            // `[waitfor]` waits like a gate, and the declaration is the site
+            // to blame — that is what "from signatures" means.
+            let blocks = h.effects.iter().flatten().find_map(|e| match e {
+                EffectRef::WaitFor(span) => Some((file_idx, *span)),
+                _ => None,
+            });
             // Declared dependencies: any member may call any of them, and a
             // helper fn declaring `[Q]` is reachable only if the handler
             // declares `Q` too — so the declaration covers the whole call
@@ -162,11 +188,14 @@ fn build(
                 }
             }
             for (target, file, span) in targets {
-                let (kind, file, span) = match gate {
+                let (kind, file, span) = match (gate, blocks) {
                     // A gate anywhere in the handler makes its sends waits:
                     // the actor is serving nothing else meanwhile.
-                    Some((gfile, gspan)) => (EdgeKind::Wait, gfile, gspan),
-                    None => (EdgeKind::BackPressure, file, span),
+                    (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
+                    // [waitfor-effect] So does a declared block, for the same
+                    // reason and with the declaration as its site.
+                    (None, Some((bfile, bspan))) => (EdgeKind::Block, bfile, bspan),
+                    (None, None) => (EdgeKind::BackPressure, file, span),
                 };
                 let edge = Edge {
                     kind,
@@ -243,7 +272,7 @@ fn report(
     graph: &BTreeMap<String, BTreeMap<String, Edge>>,
     cycle: &[String],
     out: &mut Checked,
-    kind: EdgeKind,
+    unconditional: bool,
 ) {
     let mut edges: Vec<&Edge> = Vec::new();
     for pair in cycle.windows(2) {
@@ -258,8 +287,25 @@ fn report(
     let handlers: BTreeSet<&str> = edges.iter().map(|e| e.handler.as_str()).collect();
     let handlers: Vec<String> = handlers.iter().map(|h| format!("`{h}`")).collect();
     let handlers = handlers.join(", ");
-    match kind {
-        EdgeKind::Wait => out.errors.push(FileDiagnostic::error(
+    // [waitfor-effect] Which unconditional cycle this is decides what the
+    // remedy is: a gate is respelled, a declared block is a design to move
+    // off the waiting path.
+    let blocking = edges.iter().any(|e| e.kind == EdgeKind::Block);
+    match (unconditional, blocking) {
+        (true, true) => out.errors.push(FileDiagnostic::error(
+            first.file,
+            first.span,
+            format!(
+                "these actors wait for each other: {path} ({handlers}). A handler that \
+                 declares `[waitfor]` serves no message while it waits, so each of them \
+                 is waiting for an answer the next can only produce after its own \
+                 arrives — and a thread of its own does not help, since the fulfilment \
+                 routes back through a stalled mailbox. Break the cycle: park a \
+                 continuation with `replyto` instead of waiting, or have the answer \
+                 come from a third actor neither of them waits on"
+            ),
+        )),
+        (true, false) => out.errors.push(FileDiagnostic::error(
             first.file,
             first.span,
             format!(
@@ -271,7 +317,7 @@ fn report(
                  the answer come from a third actor neither of them waits on"
             ),
         )),
-        EdgeKind::BackPressure => out.errors.push(FileDiagnostic::warning(
+        (false, _) => out.errors.push(FileDiagnostic::warning(
             first.file,
             first.span,
             format!(

@@ -6,9 +6,10 @@
 // the backend's business and never Salvo's.
 //
 // The forms that use them are language syntax rather than functions, because
-// a handler is not a value: `spawn H(args) use D(...) capacity N on POOL`
+// a handler is not a value: `spawn H(args) use D(...) on POOL`
 // mints an [Addr], `replyto k(captures)` mints a [Reply], and `waitfor` is
-// `main`'s bridge into both. See LANGUAGE_SPEC.md's "Actors".
+// the bridge into both — `main`'s, and any frame's that declares
+// `[waitfor]`. See LANGUAGE_SPEC.md's "Actors".
 
 // [actor-spawn-expr] A handle to a running actor, and the *only* thing a
 // spawn hands back: the state behind it is the child's alone, so an `Addr` is
@@ -62,12 +63,32 @@ struct Mailbox { capacity: Int }
 // spawn's `on POOL` clause. A pool is an ordinary value, so one can be built
 // once and handed to many spawns — which is how a program says "these
 // actors share these threads".
+//
+// [main-pool] `main` has a pool of its own, of which it is the single
+// worker: a spawn that writes no `on` clause runs on the pool current where
+// it was written, which in `main` is that one. Work placed there runs while
+// `main` waits in a `waitfor` and dies when `main` returns.
 intrinsic type Pool
 
 // [actor-spawn-expr] A pool of [size] threads. An ordinary function, not
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes
 // creating one a capability the caller must hold.
 intrinsic fn pool(size: Int) [spawn] -> Pool => size
+
+// [waitfor-dedicated] A pool of exactly one thread, and the placement that
+// grants the right to *block* it. It is a claim about where the handle came
+// from rather than about the pool's contents, so it is a provenance
+// qualifier: only [thread] mints one, and the `on` clause **consumes** it —
+// which is what makes "a dedicated thread has exactly one occupant" a fact
+// of the type system instead of a convention.
+provenance qualifier Dedicated of Pool
+
+// [waitfor-dedicated] One fresh thread, owned by whatever is placed on it.
+// This is the placement a `[waitfor]`-carrying handler needs: a wait may
+// occupy its thread until the answer arrives, so it must not be a thread
+// anything else was counting on. Spending the value is spending the thread —
+// `on thread()` consumes it, and there is no second spawn onto the same one.
+intrinsic fn thread() [spawn] -> Dedicated Pool
 
 // [actor-watch] Why an actor died, delivered to whoever was watching it.
 //

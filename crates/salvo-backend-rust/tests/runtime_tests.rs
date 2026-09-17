@@ -397,6 +397,104 @@ fn main() {
     );
 }
 
+/// [main-pool] [waitfor-pump] `main` is the single worker of its own pool,
+/// and a wait *serves* that pool: an actor spawned on the main pool runs on
+/// `main`'s own thread, while `main` waits — including while it waits for an
+/// answer from somewhere else entirely. `salvo_thread()`, the dedicated
+/// placement, is the somewhere else.
+#[test]
+fn scheduler_runs_main_pool_actors_while_main_waits() {
+    run_scheduler_program(
+        "main-pool",
+        r#"
+struct Adder {
+    sum: i64,
+}
+
+impl SalvoActor for Adder {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        match msg.downcast::<i64>() {
+            Ok(n) => self.sum += *n,
+            Err(other) => {
+                if let Ok(reply) = other.downcast::<SalvoReply>() {
+                    reply.send(Box::new(self.sum));
+                }
+            }
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+/// Answers any reply token it is sent. Placed on a dedicated thread, so it
+/// runs without `main` doing anything.
+struct Echo;
+
+impl SalvoActor for Echo {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        if let Ok(reply) = msg.downcast::<SalvoReply>() {
+            reply.send(Box::new("R".to_string()));
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let dedicated = salvo_thread();
+    let echo = salvo_spawn(dedicated, 2, Box::new(Echo));
+    // No thread serves the main pool: `main` is its single worker, so
+    // nothing queued here can have run before the first wait.
+    let adder = salvo_spawn(SALVO_MAIN_POOL, 4, Box::new(Adder { sum: 0 }));
+    for n in 1..=3i64 {
+        salvo_send(adder, Box::new(n));
+    }
+    println!("queued on pool {}", salvo_current_pool());
+    // A wait for an answer from the *dedicated* actor still serves the main
+    // pool while it waits — which is where the three sends above run.
+    let (echo_token, echo_wid) = salvo_waiter();
+    salvo_send(echo, Box::new(echo_token));
+    println!("echo: {}", salvo_wait(echo_wid).downcast_ref::<String>().unwrap());
+    let (token, wid) = salvo_waiter();
+    salvo_send(adder, Box::new(token));
+    let total = salvo_wait(wid);
+    println!("sum: {}", total.downcast_ref::<i64>().unwrap());
+}
+"#,
+        "queued on pool 0\necho: R\nsum: 6\n",
+        true,
+        "",
+    );
+}
+
+/// [main-pool] The full-main-pool-mailbox report: `main` fills a main-pool
+/// actor's queue past its bound, and the only thread that could drain it is
+/// the one blocked on it. A named error, not a hang.
+#[test]
+fn scheduler_reports_a_full_main_pool_mailbox() {
+    run_scheduler_program(
+        "main-pool-wedge",
+        r#"
+struct Sink;
+
+impl SalvoActor for Sink {
+    fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {}
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let sink = salvo_spawn(SALVO_MAIN_POOL, 2, Box::new(Sink));
+    println!("filling");
+    for n in 1..=3i64 {
+        salvo_send(sink, Box::new(n));
+    }
+    println!("unreachable");
+}
+"#,
+        "filling\n",
+        false,
+        "salvo: deadlock: the main pool's actor 0 has a full mailbox",
+    );
+}
+
 /// The idle-with-parked-gates report: `main` waits for a reply nothing can
 /// ever send, and the scheduler says so and exits non-zero instead of
 /// hanging [actor-watch].

@@ -4,4 +4,5 @@
 4. first waiter got: served ada
 5. it died with a reason: true
 6. inline total is 9
+7. the main pool's own actor totalled 6
 done

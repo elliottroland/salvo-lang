@@ -2985,9 +2985,9 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 EffectRef::Effect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
-                // [actor-spawn-effect] A capability, not an effect type: no
-                // handler parameter is threaded for it.
-                EffectRef::Spawn(_) => None,
+                // [actor-spawn-effect] [waitfor-effect] Capabilities, not
+                // effect types: no handler parameter is threaded for either.
+                EffectRef::Spawn(_) | EffectRef::WaitFor(_) => None,
             })
             .collect();
         refs.iter()
@@ -5752,7 +5752,7 @@ impl<'p> Emitter<'p> {
         &mut self,
         handler: &Expr,
         uses: &[Expr],
-        pool: &Expr,
+        pool: Option<&Expr>,
         span: Span,
     ) -> String {
         self.needs_scheduler = true;
@@ -5811,7 +5811,12 @@ impl<'p> Emitter<'p> {
             Some(prov) => format!("{}::new(__h, {prov})", actor_struct_name(&handler_name)),
             None => format!("{}::new(__h)", actor_struct_name(&handler_name)),
         };
-        let pool_code = self.emit_owned(pool);
+        // [main-pool] An omitted `on` clause means the pool current where the
+        // spawn runs — `main`'s own pool in `main`, the actor's in a member.
+        let pool_code = match pool {
+            Some(pool) => self.emit_owned(pool),
+            None => "crate::scheduler::salvo_current_pool()".to_string(),
+        };
         let spawn_call =
             format!("crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}))");
         format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; {spawn_call} }})")
@@ -7925,7 +7930,7 @@ impl<'p> Emitter<'p> {
                 uses,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, pool, *span),
+            } => self.emit_spawn(handler, uses, pool.as_deref(), *span),
             // [actor-waitfor] `main`'s bridge, as a block expression: mint a
             // waiter token, run the block that sends it somewhere, then block
             // this thread until the answer arrives.
@@ -10326,8 +10331,11 @@ impl<'p> Emitter<'p> {
                 self.needs_str = true;
             }
             // [rs-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool, and registering a death watch.
-            if recv == Some("Reply") || f.name.name == "pool" || f.name.name == "watch" {
+            // token, building a pool (plain or dedicated), and registering a
+            // death watch.
+            if recv == Some("Reply")
+                || matches!(f.name.name.as_str(), "pool" | "thread" | "watch")
+            {
                 self.needs_scheduler = true;
             }
             // [rs-seq] The `List` fast paths lower to the generated
@@ -12171,7 +12179,9 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_mutated_expr(handler, out);
             }
-            collect_mutated_expr(pool, out);
+            if let Some(pool) = pool {
+                collect_mutated_expr(pool, out);
+            }
         }
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {
@@ -12391,7 +12401,9 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_declared_expr(handler, out);
             }
-            collect_declared_expr(pool, out);
+            if let Some(pool) = pool {
+                collect_declared_expr(pool, out);
+            }
         }
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {

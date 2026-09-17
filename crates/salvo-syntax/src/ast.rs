@@ -460,6 +460,13 @@ pub enum EffectRef {
     /// resolve and nothing to thread — `fn main() [use, spawn]` is the
     /// typical entry point.
     Spawn(Span),
+    /// [waitfor-effect] The special `waitfor` effect: the right to occupy
+    /// this thread until an answer arrives. Lowercase and compiler-owned like
+    /// the other two, and validated by *placement* — whatever carries it must
+    /// run on a `Dedicated Pool` [waitfor-dedicated], of which `main`'s own
+    /// thread is one. Accepted on a function, on a handler's dependency list,
+    /// and — alone among the effect refs — on an effect declaration's member.
+    WaitFor(Span),
     /// A named effect, possibly generic: `Random<Int>`.
     Effect(TypeRef),
 }
@@ -683,6 +690,7 @@ impl fmt::Display for EffectRef {
         match self {
             EffectRef::Use(_) => write!(f, "use"),
             EffectRef::Spawn(_) => write!(f, "spawn"),
+            EffectRef::WaitFor(_) => write!(f, "waitfor"),
             EffectRef::Effect(r) => write!(f, "{r}"),
         }
     }
@@ -984,7 +992,13 @@ pub enum Expr {
 
         /// `on POOL` — an ordinary expression. `pool(n)` is a function, not
         /// syntax.
-        pool: Box<Expr>,
+        ///
+        /// [main-pool] **Optional**: omitted, the child runs on the pool
+        /// current where the spawn is written (in `main`, the main pool; in a
+        /// member, the actor's own pool) — FC-3's inheritance rule extended
+        /// to `spawn`, which is also how a spawn site *names* the main pool
+        /// without new vocabulary.
+        pool: Option<Box<Expr>>,
         span: Span,
     },
     /// [actor-replyto] `replyto batch_arrived(id)` — allocate a parked

@@ -8631,7 +8631,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let counter = spawn Counting() on pool(1)
     counter.bump(2)
@@ -8760,7 +8760,7 @@ handler Counting() [Log, Tally] of Counter {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let tally = spawn Summing() on pool(1)
     let counter = spawn Counting() use Recording(), tally on pool(1)
@@ -8915,7 +8915,7 @@ handler Fetching() [Db] of Notices {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let p = pool(2)
     let rows = spawn Rows() on p
@@ -8975,7 +8975,7 @@ handler Tracing() [Echo] of Trace {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let p = pool(3)
     let echo = spawn Echoing() on p
@@ -9017,7 +9017,7 @@ handler Stepping() of Steps {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let s = spawn Stepping() on pool(1)
     let spawned = waitfor out: Reply<Str> {
@@ -9103,7 +9103,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let c = spawn Counting() on pool(1)
     c.bump(2)
@@ -9167,7 +9167,7 @@ handler Desking() of Desk {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let desk = spawn Desking() on pool(1)
     let first = waitfor a: Reply<Str> {
@@ -9411,7 +9411,7 @@ fn work() [Log] {
     note("b")
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
     let logger = spawn Counting() on pool(1)
     use logger
@@ -9425,6 +9425,99 @@ fn main() [use, spawn] {
 
 fn generate_addr_stub_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", ADDR_STUB)])
+}
+
+
+/// [waitfor-effect] [waitfor-dedicated] [main-pool] The `waitfor` package, as a
+/// program. Three things run here that could not be written before 2026-09-17:
+/// a **handler** that waits (`[waitfor]` in its dependency list, so its members
+/// may occupy the thread), the **dedicated placement** its spawn therefore
+/// needs (`on thread()`, a `Dedicated Pool` the clause consumes), and an actor
+/// on **`main`'s own pool** — a spawn with no `on` clause, whose activations
+/// run on main's thread while main waits [waitfor-pump]. The Kotlin backend
+/// asserts the same output.
+const WAITFOR_PACKAGE: &str = r#"
+actor effect TimerApi {
+    send fn after(ms: Int, out: Reply<Int>) => !out
+}
+
+actor effect ClockApi {
+    send fn now(out: Reply<Int>) => !out
+}
+
+actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Timing(at: Int) of TimerApi {
+    mailbox { capacity: 4 }
+
+    send fn after(ms: Int, out: Reply<Int>) {
+        out.send(at + ms)
+    }
+}
+
+// The T-5 shape: a handler whose member *waits* for another actor's answer.
+// It declares the capability, so every spawn of it must give it a thread.
+handler Clocking() [TimerApi, waitfor] of ClockApi {
+    mailbox { capacity: 4 }
+
+    send fn now(out: Reply<Int>) {
+        let at = waitfor fired: Reply<Int> {
+            after(0, fired)
+        }
+        out.send(at)
+    }
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 4 }
+
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+
+    let timer = spawn Timing(1000) on pool(1)
+    // `thread()` is consumed here: one thread, one occupant.
+    let clock = spawn Clocking() use timer on thread()
+    let now = waitfor out: Reply<Int> {
+        clock.now(out)
+    }
+    println("the clock says ${now}")
+
+    // No `on`: the pool current here, of which `main` is the single worker.
+    // These activations run during the `waitfor` below, on main's own thread.
+    let counter = spawn Counting()
+    counter.bump(2)
+    counter.bump(3)
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+    println("the main pool's actor says ${sum}")
+}
+"#;
+
+const WAITFOR_PACKAGE_OUTPUT: &str = "the clock says 1000\nthe main pool's actor says 5\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_waitfor_package() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", WAITFOR_PACKAGE)]);
+    run_rust_files(&files, "waitfor-package", WAITFOR_PACKAGE_OUTPUT);
 }
 
 #[test]

@@ -59,6 +59,10 @@ pub fn fn_call(
         // [actor-spawn-expr] A pool is a scheduler id; `pool(n)` starts its
         // daemon worker threads.
         ("pool", Some("Int")) => format!("salvo.SalvoSched.pool({})", a(0)),
+        // [waitfor-dedicated] `thread()` is a pool of one, and the only
+        // placement the language types `Dedicated` — the qualifier is erased,
+        // so what reaches here is a plain pool id.
+        ("thread", None) => "salvo.SalvoSched.thread()".to_string(),
         // [actor-watch] Registering a death watch hands the scheduler the
         // token *and* a builder for the `Exit` it will carry: the runtime
         // holds a reason string and cannot construct a Salvo class, so the

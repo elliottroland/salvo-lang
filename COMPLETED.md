@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1070 tests, complete: the toolchain tests are
+cargo test                  # 1081 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,80 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The second sequence, step 1: the `waitfor` package (built 2026-09-17,
+FC-4(a) + T-5(c)).** The first step of the second sequence, and the whole of
+its decided content: `waitfor` stops being a `main`-only special case and
+becomes a **capability validated by placement**, `main` becomes an ordinary
+pool with an unusual worker, and a wait *serves* its pool instead of merely
+blocking on it. Five new rule labels: **[main-pool]**, **[waitfor-pump]**,
+**[waitfor-effect]**, **[waitfor-dedicated]** (LANGUAGE_SPEC.md) plus the
+backend halves in both backend specs. What it took, in the order the ROADMAP
+said (runtime shape first, statics second):
+
+- **The runtime, both backends, identical.** Pool 0 exists from scheduler
+  init and is `main`'s, with no worker thread of its own; a thread-local
+  (`HERE` / a `ThreadLocal<SalvoHere>`) carries *where this thread is* — its
+  pool, and the actor whose activation it is inside. `salvo_wait` /
+  `awaitReply` became a **pump loop** over `pick(pool, exclude_self)`, and the
+  activation runner was factored out of the worker (`run_job`) so a pumped
+  activation is the same act as a scheduled one — same lock discipline, same
+  fault boundary, same bookkeeping. `salvo_thread()` is `pool(1)`.
+- **The reconciliation the two decisions needed.** T-5 states the wait rule as
+  "serves its own pool's tasks, **never activations**"; FC-4(a) allows actors
+  on the main pool and advertises single-threaded cooperative programs. Read
+  literally those contradict — only `main` can serve pool 0, so a main-pool
+  actor would never run. The rule as built: **a wait serves its own pool's
+  work except activations of the actor doing the waiting.** For an actor the
+  two readings coincide (a `Dedicated Pool` has exactly one occupant, so
+  "except its own" *is* "never activations", and its mailbox stays stalled —
+  serialization preserved); for `main`, which has no mailbox, it is what makes
+  main-pool actors run at all.
+- **One hazard the statics cannot see, so the runtime names it**: `main`
+  filling a main-pool actor's mailbox past its bound blocks the only thread
+  that could drain it. Both runtimes detect exactly that case (caller on pool
+  0, target on pool 0, queue full) and report it by name, exiting non-zero —
+  the sibling of the idle-with-parked-gates report. The general case (a
+  pool's sole worker blocking on its own pool) is recorded in ROADMAP as the
+  remaining gap.
+- **The surface**: `provenance qualifier Dedicated of Pool` and
+  `intrinsic fn thread() [spawn] -> Dedicated Pool` in `core.actor` — the
+  language needed no new vocabulary for either, which is the point of the
+  qualifier being a *provenance* one. The `on` clause became **optional**
+  (`pool: Option<Box<Expr>>` through parser, checker and both emitters,
+  lowering to `salvo_current_pool()` / `SalvoSched.currentPool()`), which is
+  how a spawn site names the main pool.
+- **The statics**: `EffectRef::WaitFor`, a `can_wait` gate beside
+  `can_spawn` (with `handler_waits` for the dependency-list form), call-site
+  propagation for plain fns *and* for effect members, the fn-type refusal
+  [actor-no-closure], the lambda barrier, the two grant checks (a
+  `[waitfor]` handler's spawn must place it on a `Dedicated Pool`; a `use` of
+  one requires the capability in the binding scope), and the consumption of a
+  dedicated placement — which makes a second spawn onto the same `thread()`
+  the ordinary use-after-move diagnostic rather than a new rule. The checker's
+  `in_main` flag went with the old rule: nothing else ever read it, and a
+  capability that any frame may hold has no use for "am I the entry point".
+- **The deadlock graph's third edge kind**, from a *declaration* rather than a
+  site: a handler declaring `[waitfor]` waits like a gate, so a cycle through
+  it is an error naming the declaration. This is the hazard placement does not
+  remove — a wait whose fulfilment routes back through the waiter's own
+  stalled mailbox — and the modular, signature-level form the retired survey
+  predicted for awaits.
+- **Verified end to end on both backends with identical output**: two new
+  scheduler behaviour scenarios (a main-pool actor served by `main`'s wait
+  while it waits for a *dedicated* actor's answer; the full-main-pool report),
+  a new compile-and-run case that is T-5's motivating program — a handler that
+  waits, on `thread()`, answered by a timer actor on another pool — and
+  `examples/actors/` gained **section 7**, the main pool, with its checked-in
+  Rust and Kotlin regenerated. Tests: **1081 (+11)**.
+- **The sweep**: every `main` that waits now declares `[waitfor]` (the
+  examples, the corpus of inline test sources, both backends' codegen tests);
+  `waitfor_is_legal_only_in_main` became
+  `waitfor_needs_the_waitfor_capability`; the parser test that asserted `on`
+  was required now asserts the omitted clause parses to no pool. Two stale
+  `capacity N` spellings from 2026-09-16 were found in prose while sweeping —
+  in both backend specs' "The forms" bullet and in a checker diagnostic — and
+  are fixed.
 
 **Time and free concurrency: every open call decided (user decisions
 2026-09-17).** The two working documents' full decision surfaces — TIME.md
@@ -11515,7 +11589,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1070)
+## Test inventory (all green: 1081)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11523,7 +11597,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 600 - 19 unit tests (file classification, including the
+- `salvo-core`: 607 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -12114,7 +12188,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 87 (three parser tests for the scope selector and
+- `salvo-syntax`: 89 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -12380,7 +12454,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 189 - including twelve [rs-actor] tests (the first
+- `salvo-backend-rust`: 192 - including twelve [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12394,8 +12468,11 @@ cache, with per-test timings.
   and a remote mint target; a **death watch** compiled and run, printing the
   `died with a reason: true` / `late watch answered: true` / `done` Kotlin
   prints, with its `Exit`-builder lowering asserted on the generated text
-  [actor-watch]; and the generic-handler cut reported as a codegen
-  error) - and the
+  [actor-watch]; the **`waitfor` package** compiled and run — a handler that
+  declares `[waitfor]` and blocks on a timer actor's answer from its own
+  `thread()`, plus an actor on `main`'s pool served by `main`'s wait
+  [waitfor-effect] [waitfor-dedicated] [main-pool]; and the generic-handler cut
+  reported as a codegen error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
   *output* - golden snapshots of the same five demos
@@ -12589,6 +12666,35 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **Two decided rules can read as contradictory; reconcile them explicitly
+  rather than picking one** (2026-09-17, the `waitfor` package). T-5 said a
+  wait "never serves activations"; FC-4(a) said actors may live on `main`'s
+  pool and yield single-threaded cooperative programs. Taken literally the
+  first makes the second dead on arrival, since only `main` serves that pool.
+  The resolution was to find the rule under which *both* hold — serve the
+  pool's work **except the waiting actor's own activations**, which for an
+  actor is observably "never activations" (a dedicated pool has one occupant)
+  and for `main` is "everything". The lesson: when two decisions collide,
+  the collision is usually in the *wording* of one of them, and the fix is a
+  formulation that entails both — recorded and flagged to the user, not
+  silently chosen.
+- **A wait that serves work must share the worker's activation path.** The
+  pump was written by factoring the pool worker's body into `run_job` /
+  `runJob` rather than by writing a second, smaller runner: the fault
+  boundary, the `running`/`active` bookkeeping, the reserved-capacity
+  wakeups and the "where am I" thread-local all have to be identical, and a
+  parallel implementation is where they drift. On Kotlin this means the
+  helper is **called with the lock held and returns with it held**, releasing
+  it only around the body — `withLock` cannot express that, so the pump and
+  the worker both use explicit `lock()`/`unlock()` with `try`/`finally`. A
+  future edit that reintroduces `withLock` around either will deadlock.
+- **A single-worker pool turns back-pressure into a wedge, so name it.**
+  `main` sending past a main-pool actor's mailbox bound blocks the only
+  thread that could drain it — a hang, not a diagnostic, and the statics
+  cannot see it (the bound is a runtime value). Both runtimes now detect the
+  precise case (caller on pool 0, target on pool 0, queue full) and report it
+  by name. The general shape — *a pool's sole worker blocking on its own
+  pool* — is the remaining gap, recorded in ROADMAP.
 - **The examples are part of the contract, so test them.** `examples/effects/`
   stopped compiling on 2026-09-15 and nobody knew for a day: nothing in the
   suite read `examples/`, so the only signal was a human running one. Two

@@ -1109,7 +1109,9 @@ impl<'p> Walk<'_, 'p> {
                 for handler in uses {
                     self.expr(handler);
                 }
-                self.expr(pool);
+                if let Some(pool) = pool {
+                    self.expr(pool);
+                }
             }
             // [actor-self-send] A leaf: nothing to walk into.
             Expr::SelfScoped { .. } => {}

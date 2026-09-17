@@ -164,11 +164,18 @@ fn main() [use] {
   which enqueue and answer nothing), a handler of it is ordinary Salvo, and
   `spawn Counting() on pool(2)` gives it a mailbox — whose depth the handler
   declares, `mailbox { capacity: 8 }` — and answers an
-  `Addr<Counter>`. Its state is its own and its members run one at a time, so
+  `Addr<Counter>`; the `on` clause is optional, and omitted means the pool the
+  spawn itself runs on, which in `main` is a pool `main` is the single worker
+  of. Its state is its own and its members run one at a time, so
   the serialization *is* the mutual exclusion. An answer travels back through a
   **linear** one-shot `Reply<T>`: minted with `replyto`, which parks a
   continuation on one of your own members so no thread waits anywhere, and
-  discharged exactly once because the compiler says so. Actors depend on each
+  discharged exactly once because the compiler says so. Where a frame does mean
+  to wait, `waitfor` is the bridge and `[waitfor]` the capability it takes —
+  validated by *placement*, since `thread()` answers a `Dedicated Pool` that
+  the `on` clause consumes, so a thread that may be occupied has exactly one
+  occupant. A wait serves its own pool while it waits rather than merely
+  blocking on it. Actors depend on each
   other through ordinary effect lists (`use addr` binds one to a scope, so
   callers never learn their capability is an actor), hold queues of obligations
   in state, `watch` each other die, and a topology whose actors could wait for

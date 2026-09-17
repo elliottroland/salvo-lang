@@ -11,6 +11,15 @@
 // to the dead are silent no-ops; watchers are notified with the reason),
 // and the idle-with-parked-gates report. Pool threads are daemon threads:
 // the program ends when main returns.
+//
+// [main-pool] [waitfor-pump] `main` is the **single worker of its own pool**
+// (pool 0), which is given no thread of its own: main's thread is the
+// worker, and it works while it waits. A wait therefore *serves* its pool
+// rather than merely blocking on it — the uniform rule is that a `waitfor`
+// serves its own pool's work except activations of the actor doing the
+// waiting, so a waiting actor's mailbox stays stalled (serialization is
+// preserved) while main, which has no mailbox, serves everything placed on
+// its pool. Blocking is the degenerate case of an empty queue.
 package salvo
 
 import kotlin.concurrent.withLock
@@ -61,17 +70,32 @@ private class SalvoWaiterState {
 }
 
 /**
+ * [main-pool] [waitfor-pump] Where a thread is: the pool it works for, and
+ * the actor whose activation it is currently inside (`null` on main and
+ * between activations). The pool is what an `on`-less spawn or mint
+ * inherits; the actor is the one thing a wait must not serve.
+ */
+private class SalvoHere(val pool: Int, val actor: Int?)
+
+/**
  * The scheduler: one shared lock (its own monitor) over all state, pool
  * worker threads, and the waiter bridge for `main`.
  */
 object SalvoSched {
+    /**
+     * [main-pool] The pool main is the single worker of. It never gets a
+     * worker thread: main's own thread runs its work, while it waits.
+     */
+    const val MAIN_POOL = 0
+
     private val lock = java.util.concurrent.locks.ReentrantLock()
     private val cv = lock.newCondition()
     private val actors = mutableListOf<SalvoActorState>()
     private val waiters = mutableListOf<SalvoWaiterState>()
-    private var pools = 0
+    private var pools = 1
     private var nextSlot = 0L
     private var active = 0
+    private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
 
     /** Creates a pool of [n] daemon worker threads and answers its id. */
     fun pool(n: Int): Int {
@@ -85,6 +109,21 @@ object SalvoSched {
         return id
     }
 
+    /**
+     * [main-pool] The pool the calling thread works for — what a spawn or a
+     * mint with no `on` clause inherits. Main's thread answers [MAIN_POOL].
+     */
+    fun currentPool(): Int = here.get().pool
+
+    /**
+     * [waitfor-dedicated] A pool of exactly one thread, for work that may
+     * occupy its thread until an answer arrives. Identical to `pool(1)` at
+     * run time — what makes it different is static: the language types it as
+     * a `Dedicated Pool` and the `on` clause consumes it, so a dedicated
+     * thread has exactly one occupant.
+     */
+    fun thread(): Int = pool(1)
+
     /** Spawns an actor on a pool. The queue bound is explicit and required. */
     fun spawn(pool: Int, bound: Int, body: SalvoActor): Int =
         lock.withLock {
@@ -95,10 +134,19 @@ object SalvoSched {
     /**
      * Sends a user message. Blocks while the target's queue is full; a
      * send to a dead actor is a silent no-op.
+     *
+     * [main-pool] One block is a *guaranteed* wedge rather than
+     * back-pressure: the main pool has exactly one worker — main's own
+     * thread, which serves work only inside a `waitfor` — so a full
+     * main-pool mailbox blocked on from that same thread can never drain.
+     * Reported by name instead of hung.
      */
     fun send(addr: Int, msg: Any?) {
         lock.withLock {
             while (!actors[addr].dead && actors[addr].userLen >= actors[addr].bound) {
+                if (currentPool() == MAIN_POOL && actors[addr].pool == MAIN_POOL) {
+                    reportMainPoolWedge(addr)
+                }
                 cv.await()
             }
             if (actors[addr].dead) {
@@ -108,6 +156,21 @@ object SalvoSched {
             actors[addr].userLen += 1
             cv.signalAll()
         }
+    }
+
+    /**
+     * [main-pool] The full-main-pool-mailbox report: a named error, since
+     * the only thread that could drain the queue is the one blocked on it.
+     */
+    private fun reportMainPoolWedge(addr: Int): Nothing {
+        System.err.println(
+            "salvo: deadlock: the main pool's actor $addr has a full mailbox and the " +
+                "only thread that could drain it is the one sending: the main pool has one " +
+                "worker, `main` itself, and it serves work only inside a `waitfor` — send " +
+                "fewer messages before waiting, raise the handler's `mailbox` capacity, or " +
+                "place the actor on a pool of its own",
+        )
+        kotlin.system.exitProcess(1)
     }
 
     /**
@@ -165,22 +228,35 @@ object SalvoSched {
         }
 
     /**
-     * Blocks the calling (main) thread until the waiter's token is sent,
-     * and answers the value. If the scheduler is idle and can never
-     * fulfil it, reports the deadlock instead of hanging.
+     * [waitfor-pump] Blocks the calling thread until the waiter's token is
+     * sent, and answers the value — *serving this thread's pool while it
+     * waits* (everything on it except the waiting actor's own activations,
+     * which stay stalled). For main, whose pool has no other worker, that is
+     * what runs main-pool work at all; where the queue is empty the wait is a
+     * plain block. If the scheduler is idle and can never fulfil the token,
+     * reports the deadlock instead of hanging.
      */
     fun awaitReply(wid: Int): Any? {
-        lock.withLock {
+        val spot = here.get()
+        lock.lock()
+        try {
             while (true) {
                 if (waiters[wid].filled) {
                     waiters[wid].filled = false
                     return waiters[wid].value
                 }
+                val job = pick(spot.pool, spot.actor)
+                if (job != null) {
+                    runJob(job.first, job.second)
+                    continue
+                }
                 if (idle()) {
-                    reportDeadlock()
+                    reportDeadlock(spot.actor)
                 }
                 cv.await()
             }
+        } finally {
+            lock.unlock()
         }
     }
 
@@ -220,87 +296,115 @@ object SalvoSched {
     /** True when nothing can ever run again without outside input. */
     private fun idle(): Boolean = active == 0 && actors.all { deliverable(it) == null }
 
-    /** The idle-with-parked-gates report [actor-watch]. */
-    private fun reportDeadlock(): Nothing {
+    /**
+     * [waitfor-pump] The next job a thread working for [pool] may run:
+     * [exclude] is the actor whose own activation is waiting, which a wait
+     * must never serve — re-entering an actor mid-activation is precisely
+     * what serialization exists to prevent. A pool worker excludes nothing.
+     */
+    private fun pick(
+        pool: Int,
+        exclude: Int?,
+    ): Pair<Int, Int>? =
+        actors.withIndex().firstNotNullOfOrNull { (i, p) ->
+            if (p.pool != pool || i == exclude) null else deliverable(p)?.let { Pair(i, it) }
+        }
+
+    /**
+     * The idle-with-parked-gates report [actor-watch]. [waiter] names the
+     * frame that is waiting, which since [waitfor-effect] need not be main.
+     */
+    private fun reportDeadlock(waiter: Int?): Nothing {
         val parked =
             actors.withIndex().filter { it.value.gate != null && !it.value.dead }.map { "actor ${it.index}" }
+        val who = if (waiter == null) "main" else "actor $waiter"
         System.err.println(
-            "salvo: deadlock: all actors idle while main waits" +
+            "salvo: deadlock: all actors idle while $who waits" +
                 if (parked.isEmpty()) "" else " (parked gates: ${parked.joinToString(", ")})",
         )
         kotlin.system.exitProcess(1)
     }
 
+    /**
+     * Runs one activation to completion. Called with the lock held and
+     * answers with it held, releasing it for the body itself: a fault is
+     * caught at this boundary and becomes the actor's death. Both callers —
+     * a pool worker and a `waitfor` pumping its own pool [waitfor-pump] — go
+     * through here, so an activation means the same thing whichever thread
+     * runs it.
+     */
+    private fun runJob(
+        addr: Int,
+        at: Int,
+    ) {
+        val p = actors[addr]
+        val entry = p.queue.removeAt(at)
+        if (entry is SalvoEntry.User) {
+            p.userLen -= 1
+        }
+        if (entry is SalvoEntry.Reply && p.gate == entry.slot) {
+            p.gate = null
+        }
+        val body = p.body
+        p.body = null
+        p.running = true
+        active += 1
+        cv.signalAll() // a user entry left the queue
+        lock.unlock()
+
+        // The activation runs *here*: an ambient mint inside it inherits this
+        // pool, and a nested wait must not serve this actor [waitfor-pump].
+        val spot = here.get()
+        here.set(SalvoHere(p.pool, addr))
+        val ctx = SalvoCtx(addr)
+        var fault: String? = null
+        try {
+            when (entry) {
+                is SalvoEntry.User -> body!!.handle(ctx, entry.msg)
+                is SalvoEntry.Reply -> body!!.resume(ctx, entry.slot, entry.value)
+            }
+        } catch (t: Throwable) {
+            fault = t.message ?: t.javaClass.simpleName
+        } finally {
+            here.set(spot)
+            lock.lock()
+        }
+        p.running = false
+        active -= 1
+        // A local `val`, because a captured `var` does not smart-cast
+        // inside a lambda and the `Exit` builder wants a `String`.
+        val reason = fault
+        if (reason == null) {
+            p.body = body
+        } else {
+            p.dead = true
+            p.exitReason = reason
+            p.queue.clear()
+            p.userLen = 0
+            p.gate = null
+            val watchers = p.watchers.toList()
+            p.watchers.clear()
+            for ((w, exit) in watchers) {
+                deliverReply(w, exit(reason))
+            }
+        }
+        cv.signalAll()
+    }
+
     private fun worker(pool: Int) {
-        while (true) {
-            var addr = -1
-            var entry: SalvoEntry? = null
-            var body: SalvoActor? = null
-            lock.withLock {
-                while (true) {
-                    val job =
-                        actors.withIndex().firstNotNullOfOrNull { (i, p) ->
-                            if (p.pool != pool) {
-                                null
-                            } else {
-                                deliverable(p)?.let { Triple(i, it, p) }
-                            }
-                        }
-                    if (job != null) {
-                        val (i, at, p) = job
-                        addr = i
-                        entry = p.queue.removeAt(at)
-                        if (entry is SalvoEntry.User) {
-                            p.userLen -= 1
-                        }
-                        val e = entry
-                        if (e is SalvoEntry.Reply && p.gate == e.slot) {
-                            p.gate = null
-                        }
-                        body = p.body
-                        p.body = null
-                        p.running = true
-                        active += 1
-                        cv.signalAll() // a user entry left the queue
-                        break
-                    }
+        here.set(SalvoHere(pool, null))
+        lock.lock()
+        try {
+            while (true) {
+                val job = pick(pool, null)
+                if (job == null) {
                     cv.await()
-                }
-            }
-            val ctx = SalvoCtx(addr)
-            var fault: String? = null
-            try {
-                when (val e = entry) {
-                    is SalvoEntry.User -> body!!.handle(ctx, e.msg)
-                    is SalvoEntry.Reply -> body!!.resume(ctx, e.slot, e.value)
-                    null -> {}
-                }
-            } catch (t: Throwable) {
-                fault = t.message ?: t.javaClass.simpleName
-            }
-            lock.withLock {
-                val p = actors[addr]
-                p.running = false
-                active -= 1
-                // A local `val`, because a captured `var` does not smart-cast
-                // inside a lambda and the `Exit` builder wants a `String`.
-                val reason = fault
-                if (reason == null) {
-                    p.body = body
                 } else {
-                    p.dead = true
-                    p.exitReason = reason
-                    p.queue.clear()
-                    p.userLen = 0
-                    p.gate = null
-                    val watchers = p.watchers.toList()
-                    p.watchers.clear()
-                    for ((w, exit) in watchers) {
-                        deliverReply(w, exit(reason))
-                    }
+                    runJob(job.first, job.second)
                 }
-                cv.signalAll()
             }
+        } finally {
+            lock.unlock()
         }
     }
 }

@@ -547,6 +547,14 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&mut __fx2, &(format!("6. inline total is {}", inline)));
+    let mut mine = ({ let __h = Counting::new(); let __cap = __h.__mailbox_capacity; crate::scheduler::salvo_spawn(crate::scheduler::salvo_current_pool(), __cap as usize, Box::new(__Actor_Counting::new(__h))) });
+    crate::scheduler::salvo_send(mine, Box::new(crate::__Msg_Counter::Bump(6)));
+    let mut local = {
+        let (mut out, __wid) = crate::scheduler::salvo_waiter();
+        crate::scheduler::salvo_send(mine, Box::new(crate::__Msg_Counter::Total(out)));
+        *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
+    };
+    println(&mut __fx2, &(format!("7. the main pool's own actor totalled {}", local)));
     println(&mut __fx2, &("done".to_string()));
 }
 

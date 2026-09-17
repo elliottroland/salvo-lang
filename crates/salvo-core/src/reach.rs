@@ -282,7 +282,9 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             for handler in uses {
                 expr_names(handler, used);
             }
-            expr_names(pool, used);
+            if let Some(pool) = pool {
+                expr_names(pool, used);
+            }
         }
         // [actor-self-send] The member is the enclosing handler's, so the
         // selector names nothing a module could provide.

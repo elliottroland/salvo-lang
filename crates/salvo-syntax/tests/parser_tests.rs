@@ -1536,7 +1536,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = 0
 }
 ";
@@ -1665,7 +1665,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() on pool(2)
     let audited = spawn Counting() use counter, Counting() on pool(1)
     use counter
@@ -1747,7 +1747,7 @@ fn main() [use, spawn] {
             );
             assert!(uses.is_empty(), "no `use` clause was written");
             assert!(
-                matches!(pool.as_ref(), Expr::Call { .. }),
+                matches!(pool.as_deref(), Some(Expr::Call { .. })),
                 "`on pool(2)` is an ordinary call: {pool:?}"
             );
         }
@@ -1811,25 +1811,48 @@ fn collect_replyto(
     }
 }
 
-/// [actor-spawn-expr] [actor-mailbox] The clause words are **contextual**, and
-/// `on` is required: a spawn without it is a parse error naming the clause. The
-/// mailbox bound is no longer a clause at all — it is the handler's `mailbox`
-/// slot (user decision 2026-09-16), which is why `capacity` is an ordinary word
-/// again everywhere except inside that block.
+/// [actor-spawn-expr] [actor-mailbox] [main-pool] The clause words are
+/// **contextual**, and both clauses are optional: an omitted `on` parses to no
+/// pool expression at all, which means the pool current where the spawn was
+/// written (user decision 2026-09-17, FC-4(a) — that is how a spawn names the
+/// main pool). The mailbox bound is not a clause either — it is the handler's
+/// `mailbox` slot (user decision 2026-09-16), which is why `capacity` is an
+/// ordinary word again everywhere except inside that block.
 #[test]
 fn a_spawn_states_its_pool() {
-    let missing_pool = "\
-fn main() [use, spawn] {
+    let no_pool = "\
+fn main() [use, spawn, waitfor] {
     let h = spawn H()
 }
 ";
-    let (_m, diagnostics) = salvo_syntax::parse_module(missing_pool);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("where it runs")),
-        "expected the missing-pool error: {diagnostics:?}"
-    );
+    let (module, diagnostics) = salvo_syntax::parse_module(no_pool);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "`on` is optional: {errors:?}");
+    let main = module
+        .items
+        .iter()
+        .find_map(|i| match i {
+            salvo_syntax::ast::Item::Fn(f) if f.name.name == "main" => Some(f),
+            _ => None,
+        })
+        .expect("main is declared");
+    let bound = main
+        .body
+        .as_ref()
+        .and_then(|b| {
+            b.stmts.iter().find_map(|s| match s {
+                salvo_syntax::ast::Stmt::Let { value, .. } => Some(value),
+                _ => None,
+            })
+        })
+        .expect("the spawn is bound to a local");
+    match bound {
+        salvo_syntax::ast::Expr::Spawn { pool, .. } => assert!(
+            pool.is_none(),
+            "an omitted `on` carries no pool expression: {pool:?}"
+        ),
+        other => panic!("expected a spawn, got {other:?}"),
+    }
 
     // `capacity` outside the slot is an ordinary identifier.
     let ordinary = "\

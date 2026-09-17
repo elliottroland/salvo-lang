@@ -2016,9 +2016,9 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 EffectRef::Effect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
-                // [actor-spawn-effect] A capability, not an effect type: no
-                // handler parameter is threaded for it.
-                EffectRef::Spawn(_) => None,
+                // [actor-spawn-effect] [waitfor-effect] Capabilities, not
+                // effect types: no handler parameter is threaded for either.
+                EffectRef::Spawn(_) | EffectRef::WaitFor(_) => None,
             })
             .collect();
         refs.iter().map(|r| self.emit_type_ref(r)).collect()
@@ -3274,7 +3274,7 @@ impl<'p> Emitter<'p> {
         &mut self,
         handler: &Expr,
         uses: &[Expr],
-        pool: &Expr,
+        pool: Option<&Expr>,
         span: Span,
     ) -> String {
         self.needs_scheduler = true;
@@ -3319,7 +3319,12 @@ impl<'p> Emitter<'p> {
             }
         }
         let ctor = self.handler_ctor_name(&handler_name, decl);
-        let pool_code = self.emit_expr(pool);
+        // [main-pool] An omitted `on` clause means the pool current where the
+        // spawn runs — main's own pool in `main`, the actor's in a member.
+        let pool_code = match pool {
+            Some(pool) => self.emit_expr(pool),
+            None => "salvo.SalvoSched.currentPool()".to_string(),
+        };
         // [actor-mailbox] The bound is the handler's own, so the instance is
         // built into a local and read before it is wrapped.
         format!(
@@ -4796,7 +4801,7 @@ impl<'p> Emitter<'p> {
                 uses,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, pool, *span),
+            } => self.emit_spawn(handler, uses, pool.as_deref(), *span),
             // [actor-waitfor] `main`'s bridge, as a `run { }` expression.
             Expr::WaitFor {
                 binding,
@@ -5976,8 +5981,11 @@ impl<'p> Emitter<'p> {
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
             // [kt-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool, and registering a death watch.
-            if recv == Some("Reply") || f.name.name == "pool" || f.name.name == "watch" {
+            // token, building a pool (plain or dedicated), and registering a
+            // death watch.
+            if recv == Some("Reply")
+                || matches!(f.name.name.as_str(), "pool" | "thread" | "watch")
+            {
                 self.needs_scheduler = true;
             }
             // [col-sorted] [kt-ordered] The sorted constructors build their
@@ -7313,7 +7321,9 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
             for handler in uses {
                 collect_mutated_expr(handler, out);
             }
-            collect_mutated_expr(pool, out);
+            if let Some(pool) = pool {
+                collect_mutated_expr(pool, out);
+            }
         }
         Expr::ReplyTo { captures, .. } => {
             for capture in captures {

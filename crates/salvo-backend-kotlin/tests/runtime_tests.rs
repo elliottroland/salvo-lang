@@ -281,6 +281,91 @@ fun main() {
             expect_success: true,
             stderr_contains: "",
         },
+        // [main-pool] [waitfor-pump] Main is the single worker of its own
+        // pool, and a wait *serves* that pool: an actor spawned on the main
+        // pool runs on main's own thread, while main waits — including while
+        // it waits for an answer from somewhere else entirely.
+        // `SalvoSched.thread()`, the dedicated placement, is the somewhere
+        // else.
+        SchedulerCase {
+            tag: "main-pool",
+            driver: r#"
+class Adder : SalvoActor {
+    var sum = 0L
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is Long) {
+            sum += msg
+            return
+        }
+        if (msg is SalvoReply) {
+            msg.send(sum)
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+/** Answers any reply token it is sent, from a dedicated thread of its own. */
+class Echo : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is SalvoReply) {
+            msg.send("R")
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val dedicated = SalvoSched.thread()
+    val echo = SalvoSched.spawn(dedicated, 2, Echo())
+    // No thread serves the main pool: main is its single worker, so nothing
+    // queued here can have run before the first wait.
+    val adder = SalvoSched.spawn(SalvoSched.MAIN_POOL, 4, Adder())
+    for (n in 1L..3L) {
+        SalvoSched.send(adder, n)
+    }
+    println("queued on pool ${SalvoSched.currentPool()}")
+    // A wait for an answer from the *dedicated* actor still serves the main
+    // pool while it waits — which is where the three sends above run.
+    val (echoToken, echoWid) = SalvoSched.waiter()
+    SalvoSched.send(echo, echoToken)
+    println("echo: ${SalvoSched.awaitReply(echoWid)}")
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.send(adder, token)
+    println("sum: ${SalvoSched.awaitReply(wid)}")
+}
+"#,
+            expected_stdout: "queued on pool 0\necho: R\nsum: 6\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // [main-pool] The full-main-pool-mailbox report: main fills a
+        // main-pool actor's queue past its bound, and the only thread that
+        // could drain it is the one blocked on it. A named error, not a hang.
+        SchedulerCase {
+            tag: "main-pool-wedge",
+            driver: r#"
+class Sink : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {}
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val sink = SalvoSched.spawn(SalvoSched.MAIN_POOL, 2, Sink())
+    println("filling")
+    for (n in 1L..3L) {
+        SalvoSched.send(sink, n)
+    }
+    println("unreachable")
+}
+"#,
+            expected_stdout: "filling\n",
+            expect_success: false,
+            stderr_contains: "salvo: deadlock: the main pool's actor 0 has a full mailbox",
+        },
         // The idle-with-parked-gates report: `main` waits for a reply
         // nothing can ever send, and the scheduler says so and exits
         // non-zero instead of hanging [actor-watch].

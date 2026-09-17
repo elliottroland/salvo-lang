@@ -14,6 +14,7 @@
 //   4. an actor holding a queue of obligations, drained on shutdown
 //   5. death, and watching for it
 //   6. the same handler bound synchronously, which is not an actor at all
+//   7. `main`'s own pool: an actor with no `on`, running on main's thread
 //
 // The sibling example `effects/` shows the synchronous half of this surface;
 // nothing here changes how effects are declared or called.
@@ -152,7 +153,7 @@ handler Breaking() of Fragile {
 // no addr — and `Counter`'s callers cannot tell the difference. Asynchrony is
 // a property of the **binding**, not of the handler. See the end of `main`.
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use StdOutConsole()
 
     // A pool is an ordinary value: one pool, several actors on it.
@@ -216,6 +217,18 @@ fn main() [use, spawn] {
         total(out)
     }
     println("6. inline total is ${inline}")
+
+    // 7 — `main`'s own pool. `on` is optional: omitted, an actor runs on the
+    // pool current where the spawn was written, and in `main` that is a pool
+    // whose single worker is `main` itself. So this actor's activations run on
+    // main's thread — during the `waitfor`, which serves that pool while it
+    // waits. One thread, cooperatively scheduled, no `pool(n)` anywhere.
+    let mine = spawn Counting()
+    mine.bump(6)
+    let local = waitfor out: Reply<Int> {
+        mine.total(out)
+    }
+    println("7. the main pool's own actor totalled ${local}")
 
     println("done")
 }

@@ -294,20 +294,9 @@ impl<'s> Parser<'s> {
 
     /// True when the current token is the *contextual* keyword `word` — an
     /// identifier the grammar reads as a keyword in one position without
-    /// reserving it anywhere else (`send fn`, `spawn`, `capacity`, `on`).
+    /// reserving it anywhere else (`send fn`, `spawn`, `mailbox`, `on`).
     fn at_word(&self, word: &str) -> bool {
         matches!(self.kind(), TokenKind::Ident(name) if name == word)
-    }
-
-    /// Consumes the contextual keyword `word`, or reports `message` against
-    /// the token that stands where it should have been.
-    fn expect_word(&mut self, word: &str, message: &str) -> Option<Span> {
-        if self.at_word(word) {
-            return Some(self.bump().span);
-        }
-        let span = self.peek().span;
-        self.error(message.to_string(), span);
-        None
     }
 
     // --- Module / items ---
@@ -1440,6 +1429,14 @@ impl<'s> Parser<'s> {
                 TokenKind::Ident(name) if name == "spawn" => {
                     let tok = self.bump();
                     effects.push(EffectRef::Spawn(tok.span));
+                }
+                // [waitfor-effect] `[waitfor]`: the right to occupy this
+                // thread until an answer arrives. Contextual too — the
+                // expression form is `waitfor out: Reply<T> { … }`, and a
+                // function named `waitfor` stays callable.
+                TokenKind::Ident(name) if name == "waitfor" => {
+                    let tok = self.bump();
+                    effects.push(EffectRef::WaitFor(tok.span));
                 }
                 _ => match self.parse_type_ref() {
                     Some(r) => effects.push(EffectRef::Effect(r)),
@@ -3436,9 +3433,10 @@ impl<'s> Parser<'s> {
     }
 
     /// [actor-spawn-expr] `spawn H(args) use D1(...), addr on POOL` — the
-    /// asynchronous binding of a handler. The `use` clause is optional (a
-    /// handler with no dependencies needs none); `on` is not, since a pool has
-    /// no default. The mailbox bound is the *handler's* [actor-mailbox].
+    /// asynchronous binding of a handler. Both clauses are optional: a
+    /// handler with no dependencies needs no `use`, and an omitted `on` means
+    /// the pool current at the spawn [main-pool] — which in `main` is the
+    /// main pool. The mailbox bound is the *handler's* [actor-mailbox].
     ///
     /// No clause takes a `{ ... }` body, so struct-literal speculation stays
     /// on throughout: a constructor argument may be a struct literal like
@@ -3461,17 +3459,21 @@ impl<'s> Parser<'s> {
                 }
             }
         }
-        self.expect_word(
-            "on",
-            "a spawn states where it runs: `on pool(2)` (`pool` is an ordinary function)",
-        )?;
-        let pool = self.parse_expr()?;
-        let span = start.to(pool.span());
+        let mut end = handler.span();
+        let mut pool = None;
+        if self.at_word("on") {
+            self.bump();
+            let expr = self.parse_expr()?;
+            end = expr.span();
+            pool = Some(Box::new(expr));
+        } else if let Some(last) = uses.last() {
+            end = last.span();
+        }
         Some(Expr::Spawn {
             handler: Box::new(handler),
             uses,
-            pool: Box::new(pool),
-            span,
+            pool,
+            span: start.to(end),
         })
     }
 

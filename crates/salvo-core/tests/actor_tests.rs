@@ -28,6 +28,8 @@ intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
 intrinsic type Pool
 intrinsic fn pool(size: Int) [spawn] -> Pool => size
+provenance qualifier Dedicated of Pool
+intrinsic fn thread() [spawn] -> Dedicated Pool
 struct Exit { reason: Str }
 intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 ";
@@ -138,7 +140,7 @@ fn diagnostics(src: &str) -> Vec<(bool, String)> {
 fn the_first_pass_surface_checks_clean() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let logger = spawn Printing() on pool(1)
     let counter = spawn Counting() use logger on pool(2)
     counter.bump(2)
@@ -182,7 +184,7 @@ fn start() [use] -> Int {
 fn a_spawned_handler_cannot_inherit_the_spawning_scope() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use Printing()
     let counter = spawn Counting() on pool(1)
 }
@@ -204,7 +206,7 @@ fn main() [use, spawn] {
 fn a_spawn_cannot_supply_an_unused_dependency() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Printing() use Printing() on pool(1)
 }
 ",
@@ -223,7 +225,7 @@ fn main() [use, spawn] {
 fn a_clause_construction_cannot_have_dependencies_of_its_own() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Counting() on pool(1)
 }
 ",
@@ -248,7 +250,7 @@ handler Loud() of Log {
     send fn note(what: Str) {}
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let b = spawn Printing() on 7
 }
 ",
@@ -272,7 +274,7 @@ fn main() [use, spawn] {
 fn a_spawn_answers_a_addr_of_the_handlers_effect() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c: Int = spawn Counting() use Printing() on pool(1)
 }
 ",
@@ -292,7 +294,7 @@ fn main() [use, spawn] {
 fn a_addr_call_resolves_against_the_served_effect() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     counter.wind_down()
 }
@@ -309,7 +311,7 @@ fn main() [use, spawn] {
 fn a_addr_call_checks_its_arguments() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     counter.bump(\"two\")
 }
@@ -329,7 +331,7 @@ fn main() [use, spawn] {
 fn use_addr_binds_the_effect_and_keeps_the_addr() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     use counter
     bump(1)
@@ -346,7 +348,7 @@ fn main() [use, spawn] {
 fn use_of_a_plain_value_is_refused() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let n = 1
     use n
 }
@@ -367,7 +369,7 @@ fn main() [use, spawn] {
 fn replyto_is_illegal_outside_a_handler() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let r = replyto somewhere()
 }
 ",
@@ -514,9 +516,12 @@ handler Asker() [Counter] of Ask {
 
 // ===== [actor-waitfor] The bridge =====
 
-/// `waitfor` blocks a real thread, so only `main` may write one.
+/// [waitfor-effect] `waitfor` may occupy the thread it runs on, so the
+/// function must hold the capability — and since 2026-09-17 that is all it
+/// takes: `main` was never special except by owning its thread, and any
+/// function may say so (user decision, T-5(c)).
 #[test]
-fn waitfor_is_legal_only_in_main() {
+fn waitfor_needs_the_waitfor_capability() {
     let errs = errors(
         "\
 fn helper() [use, spawn] -> Int {
@@ -529,9 +534,274 @@ fn helper() [use, spawn] -> Int {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("only\n `main` may do") || m.contains("only `main` may do")),
-        "expected the main-only rule: {errs:?}"
+            .any(|m| m.contains("must declare `[waitfor]`")),
+        "expected the capability rule: {errs:?}"
     );
+
+    let declared = errors(
+        "\
+fn helper() [use, spawn, waitfor] -> Int {
+    let counter = spawn Counting() use Printing() on pool(1)
+    return waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+}
+",
+    );
+    assert!(
+        declared.is_empty(),
+        "a fn that declares `[waitfor]` may wait, wherever it is: {declared:?}"
+    );
+}
+
+/// [waitfor-effect] And it **propagates through calls** like any effect: a
+/// caller that reaches a wait through a helper is a frame that may be
+/// occupied, which is what the placement check downstream reads. (The
+/// `[spawn]` capability was decorative for exactly this reason once.)
+#[test]
+fn the_waitfor_capability_propagates_through_calls() {
+    let errs = errors(
+        "\
+fn waits() [use, spawn, waitfor] -> Int {
+    let counter = spawn Counting() use Printing() on pool(1)
+    return waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+}
+
+fn caller() [use, spawn] -> Int {
+    return waits()
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("may occupy the thread it runs on")
+            && m.contains("[waitfor]")),
+        "expected the propagation error: {errs:?}"
+    );
+}
+
+/// [waitfor-dedicated] The grant check, and the whole point of typing a
+/// placement: a handler that declares `[waitfor]` may occupy its thread, so it
+/// must own one. `thread()` answers a `Dedicated Pool`; `pool(n)` does not, and
+/// neither does the pool current at the spawn (`main`'s included).
+#[test]
+fn a_waiting_handler_must_be_spawned_on_a_dedicated_thread() {
+    const WAITING: &str = "\
+handler Slow() [Counter, waitfor] of Log {
+    mailbox { capacity: 2 }
+
+    send fn note(what: Str) {
+        let sum = waitfor out: Reply<Int> {
+            total(out)
+        }
+        discard(what)
+        discard(sum)
+    }
+}
+";
+    let shared = errors(&format!(
+        "{WAITING}
+fn main() [use, spawn] {{
+    let counter = spawn Counting() use Printing() on pool(1)
+    let slow = spawn Slow() use counter on pool(2)
+}}
+"
+    ));
+    assert!(
+        shared.iter().any(|m| m.contains("declares `[waitfor]`")
+            && m.contains("on thread()")),
+        "expected the dedicated-placement rule: {shared:?}"
+    );
+
+    let inherited = errors(&format!(
+        "{WAITING}
+fn main() [use, spawn] {{
+    let counter = spawn Counting() use Printing() on pool(1)
+    let slow = spawn Slow() use counter
+}}
+"
+    ));
+    assert!(
+        inherited.iter().any(|m| m.contains("declares `[waitfor]`")),
+        "an omitted `on` inherits a shared pool, so it is refused too: {inherited:?}"
+    );
+
+    let dedicated = errors(&format!(
+        "{WAITING}
+fn main() [use, spawn] {{
+    let counter = spawn Counting() use Printing() on pool(1)
+    let slow = spawn Slow() use counter on thread()
+}}
+"
+    ));
+    assert!(
+        dedicated.is_empty(),
+        "`on thread()` is the placement it needs: {dedicated:?}"
+    );
+}
+
+/// [waitfor-dedicated] A dedicated thread has exactly one occupant, and the
+/// `on` clause is what spends it: reusing the value is the ordinary
+/// use-after-move diagnostic rather than a rule of its own (user refinement
+/// 2026-09-17).
+#[test]
+fn an_on_clause_consumes_a_dedicated_pool() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let own = thread()
+    let a = spawn Printing() on own
+    let b = spawn Printing() on own
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("`own`") && m.contains("consumed")),
+        "expected the move diagnostic on the second spawn: {errs:?}"
+    );
+
+    let shared = errors(
+        "\
+fn main() [use, spawn] {
+    let many = pool(2)
+    let a = spawn Printing() on many
+    let b = spawn Printing() on many
+}
+",
+    );
+    assert!(
+        shared.is_empty(),
+        "a plain `Pool` is shared by many spawns: {shared:?}"
+    );
+}
+
+/// [waitfor-effect] Binding a `[waitfor]`-carrying handler with `use` makes
+/// *this* frame one that may be occupied: the capability flows outward from
+/// the binding, so the binder declares it too. Effect callers learn nothing —
+/// a handler's dependencies are invisible to them by the ordinary rule.
+#[test]
+fn using_a_waiting_handler_needs_the_capability() {
+    const WAITING: &str = "\
+handler Slow() [Counter, waitfor] of Log {
+    mailbox { capacity: 2 }
+
+    send fn note(what: Str) {
+        let sum = waitfor out: Reply<Int> {
+            total(out)
+        }
+        discard(what)
+        discard(sum)
+    }
+}
+";
+    let errs = errors(&format!(
+        "{WAITING}
+fn main() [use, spawn] {{
+    let counter = spawn Counting() use Printing() on pool(1)
+    use counter
+    use Slow()
+}}
+"
+    ));
+    assert!(
+        errs.iter().any(|m| m.contains("declares `[waitfor]`")
+            && m.contains("must declare")),
+        "expected the use-site grant check: {errs:?}"
+    );
+
+    let declared = errors(&format!(
+        "{WAITING}
+fn main() [use, spawn, waitfor] {{
+    let counter = spawn Counting() use Printing() on pool(1)
+    use counter
+    use Slow()
+}}
+"
+    ));
+    assert!(
+        declared.is_empty(),
+        "declaring it is all it takes: {declared:?}"
+    );
+}
+
+/// [waitfor-effect] An **effect declaration's member** may carry `[waitfor]`
+/// (user decision 2026-09-17, the T-5 refinement): "this member may occupy
+/// your thread" is a fact about the protocol, so it belongs where the protocol
+/// is written — and a caller must then hold the capability. It is the only
+/// effect ref a member may declare [effect-member-no-effects].
+#[test]
+fn an_effect_member_may_declare_waitfor() {
+    const CLOCK: &str = "\
+effect Clock {
+    fn now() [waitfor] -> Int
+}
+
+handler Ticking() of Clock {
+    fn now() [waitfor] -> Int {
+        return 7
+    }
+}
+";
+    let ok = errors(&format!(
+        "{CLOCK}
+fn reader() [Clock, waitfor] -> Int {{
+    return now()
+}}
+"
+    ));
+    assert!(
+        ok.is_empty(),
+        "`[waitfor]` is legal on an effect member and its handler: {ok:?}"
+    );
+
+    let missing = errors(&format!(
+        "{CLOCK}
+fn reader() [Clock] -> Int {{
+    return now()
+}}
+"
+    ));
+    assert!(
+        missing
+            .iter()
+            .any(|m| m.contains("may occupy the thread it runs on")),
+        "a caller of a waiting member must hold the capability: {missing:?}"
+    );
+
+    let other = errors(
+        "\
+effect Clock {
+    fn now() [Log] -> Int
+}
+",
+    );
+    assert!(
+        other
+            .iter()
+            .any(|m| m.contains("cannot declare effect dependencies")),
+        "every other effect ref is still refused on a member: {other:?}"
+    );
+}
+
+/// [main-pool] An omitted `on` clause means the pool current at the spawn —
+/// `main`'s own pool in `main` (FC-4(a)), the actor's own in a member. It is
+/// how a spawn site names the main pool without new vocabulary.
+#[test]
+fn a_spawn_may_omit_its_pool() {
+    let errs = errors(
+        "\
+fn main() [use, spawn, waitfor] {
+    let counter = spawn Counting() use Printing()
+    counter.bump(2)
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+}
+",
+    );
+    assert!(errs.is_empty(), "`on` is optional: {errs:?}");
 }
 
 /// Its binding is a reply token; anything else is a mistake about what the
@@ -540,7 +810,7 @@ fn helper() [use, spawn] -> Int {
 fn waitfor_binds_a_reply_token() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let n = waitfor out: Int {
         let x = 1
     }
@@ -560,7 +830,7 @@ fn main() [use, spawn] {
 fn a_waitfor_that_never_sends_its_token_leaks() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let sum = waitfor out: Reply<Int> {
         let x = 1
     }
@@ -580,7 +850,7 @@ fn main() [use, spawn] {
 fn a_waitfor_answers_its_tokens_payload() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     let sum: Str = waitfor out: Reply<Int> {
         counter.total(out)
@@ -609,7 +879,7 @@ struct Registry {
     counter: Addr<Counter>
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     let r = Registry { counter: counter }
     r.counter.bump(1)
@@ -630,7 +900,7 @@ fn main() [use, spawn] {
 fn the_asynchronous_forms_stop_at_a_lambda() {
     let spawned = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let f = () -> spawn Printing() on pool(1)
 }
 ",
@@ -645,7 +915,7 @@ fn main() [use, spawn] {
 
     let waited = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let counter = spawn Counting() use Printing() on pool(1)
     let f = () -> waitfor out: Reply<Int> {
         counter.total(out)
@@ -657,7 +927,7 @@ fn main() [use, spawn] {
         waited
             .iter()
             .any(|m| m.contains("cannot be written inside a lambda")
-                && m.contains("write the bridge in `main`")),
+                && m.contains("a fn type cannot declare `waitfor`")),
         "expected the lambda-waitfor refusal: {waited:?}"
     );
 
@@ -705,7 +975,7 @@ handler Dropping() of Sink {
     send fn put(a: Int, b: Int) {}
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let s = spawn Dropping() on pool(1)
     s.put(1)
     s.put(1, 2)
@@ -726,7 +996,7 @@ handler Dropping() of Sink {
     send fn put(a: Str) {}
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let s = spawn Dropping() on pool(1)
     s.put(1)
 }
@@ -828,7 +1098,7 @@ handler Working() of Work {
 fn a_self_send_is_illegal_outside_a_handler_member() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     bump@self(1)
 }
 ",
@@ -1049,7 +1319,7 @@ fn hold(a: Addr<Plain>) -> Int => a {
     return 1
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let p = spawn Pinging() on pool(1)
 }
 ",
@@ -1072,7 +1342,7 @@ fn main() [use, spawn] {
 fn an_actor_effect_can_still_be_used_synchronously() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     use Printing()
     note(\"inline\")
 }
@@ -1109,7 +1379,7 @@ handler Asking() [Counter] of Waiting {
     send fn got(n: Int) {}
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Printing() on pool(1)
     use c
     use Asking()
@@ -1144,7 +1414,7 @@ handler Asking() [Counter] of Waiting {
     send fn got(n: Int) {}
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Printing() on pool(1)
     let a = spawn Asking() use c on pool(1)
     a.ask()
@@ -1177,7 +1447,7 @@ handler Asking() [Counter] of Waiting {
     }
 }
 
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Printing() on pool(1)
     let a = spawn Asking() use c on pool(1)
     a.ask()
@@ -1201,7 +1471,7 @@ fn main() [use, spawn] {
 fn watch_takes_an_addr_and_a_reply_token() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         watch(c, out)
@@ -1221,7 +1491,7 @@ fn main() [use, spawn] {
 fn a_watch_token_that_is_never_registered_leaks() {
     let errs = errors(
         "\
-fn main() [use, spawn] {
+fn main() [use, spawn, waitfor] {
     let c = spawn Counting() use Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         discard(c)
@@ -1324,6 +1594,56 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
             && m.contains("OrderApi")
             && m.contains("CreditApi")),
         "the gate cycle must be an error naming both protocols: {errs:?}"
+    );
+}
+
+/// [waitfor-effect] [actor-deadlock-cycle] The third edge kind, and it comes
+/// from a **signature**: a handler that declares `[waitfor]` serves no message
+/// while it waits, so a cycle through it deadlocks exactly as a gate cycle
+/// does — and a dedicated thread does not save it, because the fulfilment has
+/// to route back through the stalled mailbox. This is the hazard T-5 records
+/// as the reason placement alone is not enough.
+#[test]
+fn a_declared_waitfor_closes_a_wait_cycle() {
+    let errs = errors(
+        "\
+actor effect TimerApi {
+    send fn after(ms: Int, out: Reply<Int>) => !out
+}
+
+actor effect ClockApi {
+    send fn now(out: Reply<Int>) => !out
+}
+
+handler Timing(clock: Addr<ClockApi>) of TimerApi {
+    mailbox { capacity: 1 }
+
+    send fn after(ms: Int, out: Reply<Int>) {
+        clock.now(replyto! fired(out))
+    }
+    send fn fired(out: Reply<Int>, at: Int) {
+        out.send(at)
+    }
+}
+
+handler Clocking() [TimerApi, waitfor] of ClockApi {
+    mailbox { capacity: 1 }
+
+    send fn now(out: Reply<Int>) {
+        let at = waitfor fired: Reply<Int> {
+            after(0, fired)
+        }
+        out.send(at)
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("wait for each other")
+            && m.contains("declares `[waitfor]`")
+            && m.contains("TimerApi")
+            && m.contains("ClockApi")),
+        "the block cycle must be an error naming the declaration: {errs:?}"
     );
 }
 

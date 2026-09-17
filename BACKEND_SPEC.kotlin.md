@@ -990,15 +990,31 @@ where Rust had to build the fusion to get the same programs running
     word (`SalvoSched.send(addr, …)`, `SalvoCtx.addr`), as the Rust mirror does; the Salvo type arguments have
     no rendering, since the runtime is untyped (`Any?`) and the message classes
     carry the payload types.
-  * **The forms**: `spawn H(args) capacity N on P` →
-    `SalvoSched.spawn(P, N, __Proc_H(H(args)))`, with the child's carrier as a
-    trailing constructor argument when the handler has dependencies;
+  * **The forms**: `spawn H(args) on P` →
+    `run { val __h = H(args); SalvoSched.spawn(P, __h.__mailboxCapacity,
+    __Actor_H(__h)) }`, the bound read off the instance because it is the
+    *handler's* [actor-mailbox], with the child's carrier as a trailing
+    constructor argument when the handler has dependencies;
     `addr.member(args)` →
     `SalvoSched.send(addr, __Msg_E.Member(args))`; `waitfor out: Reply<T> { … }`
     → a `run { }` expression that mints a waiter with a destructuring `val
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
-    → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `watch(a, out)` →
+    → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `thread()` →
+    `SalvoSched.thread()`; `watch(a, out)` →
     `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`.
+  * **[main-pool] An omitted `on` clause is `SalvoSched.currentPool()`** — a
+    `ThreadLocal` read, so the placement a spawn inherits costs nothing and
+    needs no signature. Main's thread answers pool 0, the pool it is the single
+    worker of; a worker thread answers its own; and an activation answers the
+    pool its actor runs on.
+  * **[waitfor-pump] `awaitReply` serves while it waits.** The wait is a loop,
+    not a bare `Condition.await()`: it runs deliverable work for *this
+    thread's* pool — everything except activations of the actor doing the
+    waiting — and only awaits when there is none, releasing the scheduler lock
+    around each pumped activation exactly as a worker does. That is what runs
+    main-pool work at all, since no daemon thread serves pool 0.
+    `SalvoSched.thread()` is `pool(1)`: `Dedicated` is erased like every
+    qualifier [qual-erasure], and what it buys is static.
   * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo class, so the watch site
     passes a `(String) -> Any?` alongside the token and the scheduler calls it
