@@ -1,11 +1,16 @@
 # Free concurrency — free functions in the actor world (working document)
 
-Status: **OPEN**, with recorded user directions (2026-09-17, this session's
-conversation): the kernel-first constraint (§0.2), the two-case decomposition
-(§0.3–4, FC-1/FC-2's shape), and pool selection defaulting to the current pool
-(§0.5, FC-3). The load-bearing open question is **FC-4 — whether `main` runs
-on a pool** — asked by the user at this document's creation; nothing is
-implemented.
+Status: **DECIDED** (user decisions 2026-09-17 — FC-1…FC-6 confirmed in one
+sitting, walked in implementation order; the list is in COMPLETED.md's log
+and the plan is ROADMAP.md's **"The second sequence"**). FC-4 = (a): `main`
+is the single worker of its own pool, with actors on the main pool allowed;
+FC-1/FC-2 as stated (send/plain overloading refused; bare names resolve
+lexical-member-first, ambiguity refused); FC-3 with the refinement that the
+`on` clause **consumes** a `Dedicated Pool` (thread reuse impossible by
+linearity); FC-5 the pool fault sink at pool creation; FC-6 the conservative
+tracing. FC-7 stays deferred until a host caller exists. The sections below
+keep the argument trails; this document is **deleted when the second
+sequence's steps 1–2 land** (the FILE_SYSTEM.md life cycle).
 
 Written 2026-09-17, the day after phase 5 closed (all five phases of "the
 sequence" complete; the phase-5 working documents retired into COMPLETED.md's
@@ -18,15 +23,15 @@ participate in continuation-shaped code at all. The document lays out the
 design in DESIGN_DOC.md's shape — options, trade-offs, recommendations — and
 the calls are the user's (AGENTS.md's first invariant).
 
-**Propagation owed.** Only this file is written. Still owed to a write
-session: a ROADMAP.md item pointing here (adjacent to "The sugar pass — after
-phase 5", whose carried watch item this design answers); COMPLETED.md log
-entries when the FC directions are confirmed as decisions; and a staleness
-sweep of **TIME.md**, which cites the now-deleted CONCURRENCY.md /
-SUPERVISION.md and whose T-2 option 3 ("Clock backed by the timer process")
-is overtaken by [actor-effect-kind]'s "a plain effect is never actor-backed".
-This document is **deleted** once its outcomes live in the log and the specs
-— the OBLIGATIONS.md / FILE_SYSTEM.md / CONCURRENCY.md charter.
+**Propagated 2026-09-17** (same day, once the parallel agent finished):
+ROADMAP.md's **"The second sequence"** holds the implementation plan and the
+sugar-pass section names this
+document as the carried watch item's candidate general answer; COMPLETED.md's
+log records the session's user directions and the same-day confirmations; TIME.md received its staleness
+sweep (it now cites the `[actor-*]` rules and current syntax, and its T-2
+option 3 is respelled against [actor-effect-kind]). This document is
+**deleted** once its outcomes live in the log and the specs — the
+OBLIGATIONS.md / FILE_SYSTEM.md / CONCURRENCY.md charter.
 
 Sources: LANGUAGE_SPEC.md's actor chapter — [actor-kind], [actor-effect-kind]
 (the kind divide and its refusal list), [actor-sendable], [actor-replyto]
@@ -40,8 +45,11 @@ sync/async unification and the kept "refusal list of a kind" diagnosis; the
 ROADMAP.md "The sugar pass — after phase 5" (EU-6/EU-7b's folded content —
 **context, not constraint**, per §0.2 — and its carried watch item: helpers
 that need continuations in data-dependent number cannot be written outside a
-handler body); the spawn-line respelling **DECISION** (the `Placement`
-surface FC-3/FC-5 ride on); and the user's stated intent (below).
+handler body); the spawn line as decided and built 2026-09-16 —
+`spawn H(args) use deps on POOL`, the mailbox declared on the handler
+([actor-mailbox], [actor-spawn-expr]), with **placement** the recorded home
+for future spawn-site knobs (the surface FC-3's `on` and FC-5's fault sink
+ride on); and the user's stated intent (below).
 
 ## 0. The stated intent
 
@@ -127,8 +135,11 @@ has no current pool — which is FC-4, this document's load-bearing question.
   fact worth recording because it is free: [actor-replyto]'s trailing-token
   convention is the same one EU-6's `-> T` would generate, so nothing here
   pre-empts or blocks that pass in either direction.
-- **The spawn-line respelling is the one open phase-5 DECISION** (`capacity`
-  folding into a `Placement` on the `on` expression). FC-3's `on` clause and
+- **The spawn line is decided and built** (2026-09-16): the mailbox moved to
+  the handler (`mailbox { capacity: n }` [actor-mailbox]) and a spawn reads
+  `spawn H(args) use deps on POOL` [actor-spawn-expr] — **no phase-5 rows
+  remain open**. ROADMAP records *placement* as where future spawn-site
+  knobs would go (`on pool(2).throughput(50)`-style); FC-3's `on` clause and
   FC-5's pool fault sink belong to that same surface and should be decided
   in sight of it.
 
@@ -222,7 +233,7 @@ identity beyond the token that targets it.
   a schedule boundary is the exact deferred problem. Deferred with it, not
   decided here.
 
-**Recommendation (user direction, to confirm):** (a), with (c) explicitly
+**Decided (user, 2026-09-17): (a)**, with (c) explicitly
 deferred and (b) recorded as rejected.
 
 ## FC-2. The mint — `replyto` targeting free `send fn`s
@@ -269,9 +280,8 @@ fn fetch_user(id: Int, out: Reply<User>) [Db] {     // ordinary fn: full feature
   kernel ships targets-only and the spelling is a separate, deferrable
   decision.
 
-**Recommendation (user direction, to confirm):** as stated; the one genuinely
-open sub-question is bare-name resolution order, where the recommendation is
-lexical-member-first with ambiguity refused.
+**Decided (user, 2026-09-17):** as stated, including the sub-question:
+bare names resolve lexical-member-first, ambiguity refused.
 
 ## FC-3. Pool selection — inherit by default, `on` to override
 
@@ -282,11 +292,12 @@ recorded so the argument is auditable:
   either threads pool values through every signature on the path (the
   context parameter this design's Q&A had already rejected) or reads the
   ambient pool through a `current_pool()` accessor — *the same ambient read
-  the default performs, with ceremony and new vocabulary*. The capacity
-  precedent ("explicit and required at spawn — no default") does not
-  transfer: capacity has no principled default, placement does —
-  **run where the work that created you runs**, which is also what keeps a
-  process's continuations on the pool its author budgeted (the same
+  the default performs, with ceremony and new vocabulary*. Nor is there a
+  no-default precedent to borrow: the one candidate (`capacity`, once
+  required at spawn) moved to the handler declaration on 2026-09-16
+  [actor-mailbox] — and placement, unlike capacity, *has* a principled
+  default: **run where the work that created you runs**, which is also what
+  keeps an actor's continuations on the pool its author budgeted (the same
   locality argument that rejects a dedicated task pool).
 - **The rule**: `on POOL` is optional at the mint (and at direct invocation,
   if that ships); omitted, the continuation runs on **the pool current at
@@ -297,12 +308,20 @@ recorded so the argument is auditable:
 - **Implementation**: the worker thread knows its pool (its own handle in
   the scheduler library); zero per-call cost, no signature change, nothing
   in the type system.
+- **One typed exception (2026-09-17, with T-5's upgrade)**: a mint whose
+  *target* carries `[waitfor]` needs dedicated placement — explicit
+  `on thread()`, or inherited from a minting context that itself carries
+  `[waitfor]` (whose ambient pool is thereby provably a `Dedicated Pool`).
+  The proof travels in the effect lists, so this stays a binding-site type
+  check, not an ambient one.
 - Rejected placements, for the record: **callee's pool** (ill-defined — the
   fulfiller is unknown at mint and can differ per token; and it lets clients
   spend a shared service's budget) and **a dedicated task pool** (breaks
   CPU/IO budgeting; a global noisy neighbour).
 
-**Recommendation (user direction, to confirm):** as stated. Swift and Kotlin
+**Decided (user, 2026-09-17):** as stated — with the T-5 refinement that a
+`Dedicated Pool` is **consumed** by the `on` clause, so a dedicated thread
+has exactly one occupant by linearity. Swift and Kotlin
 (§2) both converged on the same default.
 
 ## FC-4. Does `main` run on a pool? — the load-bearing open DECISION
@@ -331,6 +350,21 @@ mint executes. What then?
   programs (attractive for constrained targets); the caveat is the same
   starvation note. *Cost:* `waitfor`'s implementation becomes a pump loop
   instead of a condvar wait — small, runtime-only, both backends.
+  * ***Unified with T-5 (2026-09-17):*** TIME.md's revised T-5 makes
+    `[waitfor]` a capability effect gated by placement (`thread()` answering
+    a `Dedicated Pool` qualifier), and states **one wait semantics
+    everywhere** (user requirement: no blocking/pumping fork): *a `waitfor`
+    serves its own pool's detached tasks while it waits, and never serves
+    activations*. (a)'s "driving main" is that rule applied to a pool whose
+    work is all tasks, not a special case; a dedicated actor's wait pumps
+    its own tasks (which dissolves a default-path trap — FC-3's inherit
+    places a task on the waiter's own thread, a guaranteed self-deadlock
+    under pure blocking) while its mailbox stays stalled, preserving
+    serialization; blocking is the degenerate empty-queue case. Nested
+    pumping (a pumped task that itself waits) is recursion on the scheduler
+    loop — the nested-`runBlocking` precedent — with stack depth the
+    budget. `main`'s pool types as `Dedicated`, and `main` declares
+    `[waitfor]` in its effect list like anything else.
 - **(b) `main` stays pool-less.** Lexically-in-`main` ambient mints are
   compile errors naming `on` (the checker knows `main`'s body). But a mint
   *inside a free function* cannot be checked per-caller without whole-program
@@ -346,7 +380,14 @@ mint executes. What then?
   hidden placement — work runs somewhere no line of the program names.
   Rejected on Locality.
 
-**Recommendation (the user's call):** (a). It is the smallest mechanism that
+**Decided (user, 2026-09-17): (a)** — and the sub-decision with it: actors
+**may** be spawned onto the main pool. The main pool is plain-`Pool`-typed
+for that purpose (only `thread()` mints a `Dedicated Pool`, and the `on`
+clause consumes it), so no `[waitfor]` grant can flow to a main-pool actor —
+nothing but `main` itself may ever block `main`'s thread. One implementation
+detail deliberately left open: how a spawn site *names* the main pool
+(recommended: FC-3's inheritance extended to `spawn` — `on` omitted means
+the current pool — which needs no vocabulary). It is the smallest mechanism that
 makes "called from `main`" and "called from an actor" indistinguishable to a
 free function — the uniformity this whole design is for — and it upgrades
 `waitfor` from a special-cased block into the same bridge every mainstream
@@ -364,7 +405,7 @@ a pool has no lifecycle and emits a recurring **stream** — so the pool's
 fault handler should be an **addr**, not a watch token:
 
 ```
-let sink = spawn FaultLogger() capacity 64 on pool(1)
+let sink = spawn FaultLogger() on pool(1)     // mailbox on the handler
 let p    = pool(4, faults: sink)      // every uncaught fault on p → a message
 ```
 
@@ -413,8 +454,10 @@ Recorded from the conversation because the route defines what was undefined,
 not because it blocks the kernel: **pure functions** stay plainly callable
 from the host (ordinary Rust fns / Kotlin functions). **Effectful functions**
 need generated shims — a sync bridge (enqueue, block the calling thread;
-legal only on non-pool threads, runtime-checked; this is `waitfor`'s shape
-exported) and an async bridge (the host's native future, completed by a
+this is `waitfor`'s shape exported, and under T-5's effect design it simply
+*carries `[waitfor]`* — a host thread is a dedicated thread, so it
+type-checks like everything else instead of being runtime-checked) and an
+async bridge (the host's native future, completed by a
 token) — plus **handler wiring at the export**, for which the spawn-site
 `use` clause is the existing spelling. Defer the whole section until a host
 caller exists; nothing in FC-1…FC-6 forecloses any of it.
@@ -430,11 +473,11 @@ fn fetch_user(id: Int, out: Reply<User>) [Db] {      // FC-2: ordinary fn mints
     db.query(id, replyto parse_row(out))             // FC-3: inherits this pool
 }
 
-actor effect Db { send fn query(id: Int, reply: Reply<Row>) }
+actor effect Db { send fn query(id: Int, reply: Reply<Row>) => !reply }
 
 fn main() [use, spawn] {
     let p  = pool(2)
-    let db = spawn PgDb() capacity 64 on p
+    let db = spawn PgDb() on p                        // mailbox on the handler
     use db                                            // [actor-use-addr]
 
     let user = waitfor out: Reply<User> {
@@ -449,21 +492,20 @@ fn main() [use, spawn] {
 its creator ran unless an `on` says otherwise; every obligation in flight is
 a linear token the checker already tracks.
 
-## Decisions pending
+## Decided (user, 2026-09-17)
 
-| Label | Question | Status / recommendation |
-|---|---|---|
-| **FC-1** | The free `send fn` kind and its refusal list | User direction (2026-09-17), to confirm; lambdas-as-targets deferred with [fate-lambda]; refuse send/plain overloading |
-| **FC-2** | `replyto` targeting free `send fn`s; the `Task` token arm | User direction, to confirm; open sub-question: bare-name resolution order (recommend lexical-member-first, ambiguity refused) |
-| **FC-3** | Pool selection | User direction: optional `on`, default = mint-site pool; edge case owned by FC-4 |
-| **FC-4** | **Does `main` run on a pool?** | **OPEN — the load-bearing call.** Recommend (a): main as its own single-thread pool, `waitfor` drives it; sub-decision: actors on the main pool (recommend allow) |
-| **FC-5** | Fault attribution for tasks | Recommend the pool fault sink (addr at pool creation), on the spawn-line `Placement` surface; minter-attribution recorded as the refinement |
-| **FC-6** | Statics: task edges and the parked-obligation gap | Recommend conservative whole-program tracing; the gap recorded, netted by linearity + the idle report |
-| **FC-7** | Host→Salvo bridging | Deferred until a customer exists; shims + export wiring sketched |
+| Label | Decision |
+|---|---|
+| **FC-1** | The free `send fn` kind, refusal list at the declaration; send/plain overloading refused; lambdas-as-targets deferred with [fate-lambda] |
+| **FC-2** | `replyto` targets any send-kind function; mint legal in any function; the `Task` token arm; bare names resolve lexical-member-first, ambiguity refused |
+| **FC-3** | `on` optional, default = mint-site pool; a `Dedicated Pool` is **consumed** by `on` (thread reuse impossible by linearity); dedicated placement required for `[waitfor]` targets |
+| **FC-4** | **(a)** — `main` is the single worker of its own pool, `waitfor` drives it under the uniform T-5 semantics (serve own tasks, never activations); actors on the main pool **allowed** (plain-`Pool`-typed there — no `[waitfor]` grant flows); main-pool naming at spawn sites left as an implementation detail (recommended: `on` omitted = current pool) |
+| **FC-5** | The pool fault sink: `pool(n, faults: sink)`; no sink = the named runtime report; minter-attribution recorded as the refinement if the sink proves too coarse for recovery |
+| **FC-6** | Conservative whole-program tracing of task bodies for the deadlock graph; the parked-obligation gap recorded, netted by linearity + the idle report |
+| **FC-7** | **Deferred** until a host caller exists; shims + export wiring sketched |
 
-Load-bearing order: **FC-4 first** — it decides FC-3's edge case, the
-failure story of every ambient mint, and `waitfor`'s semantics; then
-**FC-1 + FC-2 together** (the kind and the mint are one surface); FC-3 is
-decided modulo FC-4; FC-5/FC-6 land with implementation; FC-7 waits for a
-customer. Suggested rule labels when this lands: `[free-send-fn]`,
+Implementation order: **ROADMAP.md, "The second sequence"** — step 1 is the
+`waitfor` package (FC-4 jointly with TIME.md's T-5(c)), step 2 is the task
+kernel (FC-1 + FC-2 + FC-3, with FC-5/FC-6 riding). Suggested rule labels
+when this lands: `[free-send-fn]`,
 `[task-mint]`, `[task-pool-inherit]`, `[main-pool]`, `[pool-fault-sink]`.

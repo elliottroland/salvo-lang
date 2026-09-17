@@ -12130,7 +12130,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 .map(|_| from),
                         };
                         if let Some(from) = into_proj_arm {
-                            let inner = Self::constructor_operand(v);
+                            // [proj-anywhere] Only a *union* return goes
+                            // through a tag constructor whose operand is the
+                            // borrowed value (`emitted(x)`); the arm test
+                            // above is what established that. A plain
+                            // `proj[from: p] T` return is checked as
+                            // written — unwrapping any one-argument call
+                            // here mistook `list.get(0)` for a constructor
+                            // and asked the *index* for its provenance.
+                            let inner = if self.own_proj_arms.is_empty() {
+                                v
+                            } else {
+                                Self::constructor_operand(v)
+                            };
                             self.check_derived_return_value(inner, &from);
                         } else {
                             // Returning a value moves it: a fate-linked

@@ -122,6 +122,126 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Time and free concurrency: every open call decided (user decisions
+2026-09-17).** The two working documents' full decision surfaces — TIME.md
+T-1…T-5 and FREE_CONCURRENCY.md FC-1…FC-6 — were confirmed in one sitting,
+walked in implementation order; ROADMAP.md's "The second sequence" holds the
+six-step plan. The calls, with the refinements the user added at the moment
+of deciding:
+
+1. **FC-4(a) + T-5(c)**: `main` is the single worker of its own pool;
+   `[waitfor]` is a capability effect (effect declaration members may carry
+   it); `thread()` answers a `Dedicated Pool`; the uniform wait rule stands
+   (serve own tasks, never activations). **Refinement: the `on` clause
+   *consumes* a `Dedicated Pool`** — reusing a thread is impossible by
+   linearity, so "dedicated" is enforced by the move, not by convention.
+   Actors on the main pool: allowed (plain-`Pool`-typed there, so no
+   `[waitfor]` grant can flow to them).
+2. **FC-1/FC-2/FC-3/FC-5/FC-6**: the free `send fn` kind (send/plain
+   overloading refused); mint-anywhere with the `Task` token arm (bare
+   names lexical-member-first, ambiguity refused); pool inheritance with
+   optional `on`; the **pool fault sink at pool creation**
+   (`pool(n, faults: sink)`); conservative task-body tracing for the
+   deadlock graph.
+3. **T-3(a)**: `on_idle` in the token form.
+4. **T-4(a)**: multi-effect handlers, spawn yielding one addr per effect —
+   shipped as the tuple form, with **intersection types added to ROADMAP
+   for future consideration**. **Refinement: same-named members across the
+   implemented effects are legal** — overloading distinguishes them, or one
+   handler method implements both; rejected only where overloading cannot
+   distinguish (same parameters, different return type).
+5. **T-1(b)**: the intrinsic Timer over a runtime deadline heap.
+   **Refinement: the time types come first** — `Instant`, `Duration` and
+   kin get designed before the payloads (a new DECISION row), so `Fired`
+   carries an `Instant`, not a raw number. The rest as recommended: sync
+   `Clock`, monotonic, wall-clock out of scope, cancellation deferred.
+6. **T-2**: time-as-data as the std coupling stance; the unified
+   `TestClock [Timer, waitfor]` as the principled endpoint; scheduler-owned
+   virtual time recorded as the un-built upgrade path.
+
+Both documents flipped to **DECIDED** and now carry the delete-when-built
+charter; the remaining open surface is exactly two rows in ROADMAP's table
+(the time types, due at step 5; intersection types, unscheduled).
+
+**Two design working documents opened — time, and free concurrency (user
+directions 2026-09-16/17).** A read-only session running beside the phase-5
+close worked two option spaces in DESIGN_DOC.md's shape; both documents are
+**open** (rows in ROADMAP.md's decisions table), and what is recorded here is
+the directions the user gave in session and the options explored and rejected
+on the way — the part worth keeping even if the open calls change.
+
+- **TIME.md** (2026-09-16): the language has no way to sleep or read time,
+  discovered by working the timeout pattern (racing a reply against a
+  deadline — the recorded `Reply | TimedOut` fallback's prerequisite).
+  Leanings recorded, to confirm: an **intrinsic Timer as an `actor effect`**
+  backed by a scheduler-library deadline heap (one waiting condvar thread on
+  Rust, `ScheduledThreadPoolExecutor` on the JVM — no thread-per-timer, no
+  busy sleep), chosen over time-gated replies in the scheduler kernel
+  because the effect surface makes a **pure-Salvo fake** possible (the
+  `MemFs` move applied to time); a synchronous `Clock` effect split from it
+  by nature; **`on_idle`** — the runtime's existing quiescence detection
+  exposed as a `watch`-shaped one-shot token, which deletes the classic
+  virtual-clock advance race; and **handlers of multiple effects** (one
+  state, several typed faces; spawn yields one addr per effect — no
+  intersection types), which deletes the test-control forwarding
+  boilerplate. Also on the table: lifting `waitfor`'s main-only rule as a
+  declared handler dependency (`[Timer, waitfor]`) — it works (the token
+  wakes the real thread out-of-band of any mailbox) and costs a held pool
+  thread plus a new deadlock-edge kind. Swept 2026-09-17 against the landed
+  phase-5 state (labels, `actor effect`, handler-declared mailbox; its
+  unified-clock option respelled since **a plain effect is never
+  actor-backed** [actor-effect-kind]).
+- **FREE_CONCURRENCY.md** (2026-09-17): in a concurrent program the logic
+  concentrates in actors because only handler bodies can mint; logic that
+  needs no actor *state* should not need an actor. Directions recorded, to
+  confirm: **kernel first** — the sugar tower's folded plans are tentative
+  and must not shape it; the kernel is the **free `send fn`** (the send kind
+  extended to free functions, actor-member refusal list at the declaration,
+  results by `Reply` parameter, invocation is a schedule) plus **`replyto`
+  targeting any send-kind function** — which makes the mint legal in any
+  function, adds a `Task` arm to the token (a one-shot closure and a pool;
+  no mailbox, no gate, no capacity reservation, no deadlock edge), and needs
+  **no state machines, no context parameter, no seams**: a parking free
+  function does not exist, waiting is still mint-and-return. **Pool
+  selection is optional, defaulting to the mint site's pool** (user, after
+  one full reversal worth keeping: "required-`on`-always" was rejected
+  because explicit placement either threads a context parameter through
+  every signature or reads the ambient pool with ceremony — the same read
+  the default performs; Swift and Kotlin both converged on
+  inherit-by-default). The load-bearing open call is **FC-4: does `main`
+  run on a pool** — recommended yes, as the single worker of its own pool
+  that `waitfor` *drives* (the `runBlocking`/`block_on`/JS-event-loop
+  shape), because the pool-less alternative makes an ambient mint's
+  correctness depend on caller identity. Also recorded: **fault attribution
+  for tasks via a pool fault sink** (an addr at pool creation — faults are
+  a recurring stream, so watch's one-shot token is the wrong shape; grew
+  out of the user's watch-on-pools question), and the framing guard that
+  the whole route extends the send kind rather than re-running the
+  **rejected round-1 full unification** — "everything async" literally
+  would collide with the kept refusal-list diagnosis, and the design is
+  worded against [actor-effect-kind] so nobody re-litigates it.
+
+Later the same day (user direction, 2026-09-17): **T-5 upgraded from a
+handler carve-out to a capability effect gated by placement** — `[waitfor]`
+declarable by any function on `[spawn]`'s precedent, with the compiler
+validating dedicated-thread placement through a **`Dedicated Pool`**
+provenance qualifier (`thread()` answers one; all grants are binding-site
+type checks, so the old runtime pool-wedging report demotes to
+belt-and-braces and the main-only rule is deleted rather than amended —
+`main` declares `[waitfor]` like anything else). With it, a **uniform wait
+semantics** requirement: blocking vs pumping must not fork the meaning, and
+the resolution is one rule — *a `waitfor` serves its own pool's detached
+tasks while it waits, and never serves activations* — under which FC-4's
+"driving main" is the general rule applied to a pool with no mailbox,
+blocking is the degenerate empty-queue case, and the trap where FC-3's
+inherit places a task on the waiter's own thread (a guaranteed self-deadlock
+under pure blocking) dissolves. Recorded in TIME.md T-5(c) and
+FREE_CONCURRENCY.md FC-3/FC-4/FC-7.
+
+Both documents carry the delete-when-decided charter; ROADMAP.md's decisions
+table, the sugar-pass watch item, and the Actors section's timeout-fallback
+note point at them.
+
 **The mailbox moves to the handler; the spawn line loses a clause (user
 decision 2026-09-16).** The last open phase-5 question, and it went the opposite
 way to the frozen design: `capacity N` is gone from the spawn site, and a handler

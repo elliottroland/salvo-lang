@@ -204,6 +204,63 @@ was **removed** the same day rather than carried through four phases as a design
 constraint — see "Laziness, after concurrency" below for the direction to take
 when it is picked up.
 
+## The second sequence — time and free concurrency (user decisions 2026-09-17)
+
+TIME.md's T-1…T-5 and FREE_CONCURRENCY.md's FC-1…FC-6 were **all decided
+2026-09-17** (the log entry has the full list; the working documents hold the
+argument trails and carry the delete-when-built charter). What remains is
+implementation, in this order — each step independently shippable, so the
+sequence can pause anywhere and leave the tree consistent:
+
+1. **The `waitfor` package** (FC-4 + T-5(c)): `main` becomes the single
+   worker of its own pool; the uniform wait rule (*a `waitfor` serves its
+   own pool's detached tasks, never activations* — blocking is the
+   empty-queue degenerate case); `[waitfor]` as a capability effect (effect
+   declaration members may carry it); `thread()` answering a
+   **`Dedicated Pool`** that the `on` clause **consumes** — reusing a thread
+   is impossible by linearity. Actors may be spawned onto the main pool
+   (plain-`Pool`-typed there, so no `[waitfor]` grant flows — an actor may
+   never block `main`'s thread); how a spawn site names the main pool is an
+   implementation detail (recommended: FC-3's inheritance extended to
+   `spawn` — `on` omitted means the current pool). Runtime shape first
+   (main pool, pump loop, `thread()`), static enforcement second (effect
+   propagation, the qualifier, the grant checks, the new deadlock-edge
+   kind).
+2. **The task kernel** (FC-1 + FC-2 + FC-3, with FC-5/FC-6 riding): free
+   `send fn` (refusal list at the declaration; `send`/plain overloading
+   refused), `replyto` targeting any send-kind function (mint legal in any
+   function; bare names resolve lexical-member-first, ambiguity refused;
+   the `Task` arm on the token), pool inheritance (`on` optional, mint-site
+   pool the default, dedicated placement required for `[waitfor]` targets),
+   the **pool fault sink** (`pool(n, faults: sink)`; no sink = the named
+   runtime report), and conservative whole-program tracing of task bodies
+   for [actor-deadlock-cycle].
+3. **`on_idle`** (T-3, token form): the runtime's existing quiescence
+   detection exposed as a `watch`-shaped one-shot — cheap, and the test
+   instrument step 5 wants ready.
+4. **Multi-effect handlers** (T-4(a)): spawn yields one addr per
+   implemented effect; same-named members across the effects are legal when
+   overloading distinguishes them or one method implements both — rejected
+   only where overloading cannot distinguish (same parameters, different
+   return type). Intersection types recorded above as the unscheduled
+   future alternative.
+5. **`core.time`** (T-1(b) + T-2's surface): **the time types first** —
+   `Instant`, `Duration` (the embedded DECISION above) — then the intrinsic
+   `DefaultTimer` (the first intrinsic handler for an actor effect — the
+   flagged intrinsics-meet-scheduler case), `Fired` carrying an `Instant`,
+   the sync `Clock` effect (`now() -> Instant`, monotonic; wall-clock out
+   of scope), `DefaultClock`, and the pure-Salvo `ManualTime` fake (clean
+   two-face form, thanks to step 4).
+6. **The coupling stance** (T-2): time-as-data as the std posture; the
+   unified `TestClock [Timer, waitfor]` becomes writable (steps 1 + 5);
+   scheduler-owned virtual time stays the recorded, un-built upgrade path.
+
+Parked with named triggers: FC-7 (host bridging — until a host caller
+exists); FC-5's minter-attribution refinement (if the sink proves too coarse
+for recovery); deadlock stratification and the `Reply | TimedOut` timeout
+form (observed false positives; writable after step 5); lambdas as mint
+targets (with [fate-lambda], the sugar pass).
+
 ## Decisions waiting on the user
 
 Every item here needs a language-design call before it can be built, and the
@@ -218,6 +275,8 @@ links to the section that states the options.
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
+| **The time types** — `Instant`, `Duration`, their arithmetic and representation (the user's call 2026-09-17: timer payloads work with these, not raw numbers) | step 5 of the second sequence | "The second sequence", TIME.md T-1 |
+| **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | TIME.md T-4(c) |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
 decided and built 2026-09-16 — the mailbox moved to the handler
@@ -1304,6 +1363,10 @@ compiler today, so its own output is the work list.
      dependencies stand in for what its members reach. Stratification (a tier
      qualifier on an addr) and the fallbacks (a timeout form, a per-edge
      reentrant opt-in) stay unbuilt until the false positives are *observed*.
+     The timeout form's prerequisite — a timer, which the language does not
+     have — is designed in **TIME.md** (working doc, 2026-09-16); the
+     hand-written timeout shape (two bare `replyto` mints racing into a
+     pending map, loser finds `None`) needs only its T-1 to become writable.
 7. ✅ **Linearity in collections — done 2026-09-16.** L8's answer, built: a
    container is linear exactly when its element type is, so
    `waiting: Mut List<Reply<Str>>` in handler state works — `add` parks a
@@ -1428,7 +1491,16 @@ above it becomes a later item with its own decision surface. What is already
 - **Watch item, carried**: a helper that must create self-targeted or gated
   continuations in *data-dependent number* still cannot be written outside a
   handler body. If that bites, the recorded shape to revisit is EU-7(a)'s
-  narrow running-in entry.
+  narrow running-in entry — and a **general alternative now has a working
+  document**: FREE_CONCURRENCY.md (2026-09-17) proposes free `send fn`s as
+  `replyto` targets (mints legal in any function, a `Task` arm on the token,
+  pool inherited from the mint site), framed explicitly against
+  [actor-effect-kind] so it extends the send kind rather than re-running the
+  rejected full unification. Its FC-1…FC-6 and TIME.md's T-1…T-5 were
+  **decided 2026-09-17** — see "The second sequence" above for the
+  implementation order; `waitfor` is now (by decision) a placement-gated
+  capability effect with uniform pump-tasks semantics, which is the concrete
+  form of EU-2's block reading ("from synchronous code it must block").
 
 
 ## Laziness, after concurrency (user decision 2026-09-10)
@@ -1819,3 +1891,36 @@ blocking, and several are "revisit only if a customer appears".
   would diverge (signed on the JVM, unsigned on Rust) today. Generic
   (`Ty::Var`) operands stay lenient like `Unknown`, a documented leftover
   matching the equality slice.
+
+- **Where dot-notation is normalized** [fn-dot] — revisit whether the
+  receiver-as-argument-0 rewrite could happen *earlier* in the pipeline than
+  it does. Not prioritized (user, 2026-09-17); recorded because a defect
+  came out of it. Today the rewrite happens twice over, and never in the
+  AST: `check_call` builds `all_args` with the base at index 0 before
+  handing it to `resolve_named_call`, and each emitter redoes the same
+  normalization from its own symbol tables (with an internal-error branch
+  for the case where it disagrees with the checker
+  [backend-never-wrong]). So everything downstream of *resolution* sees a
+  normalized argument list, but anything that inspects the *written*
+  expression must re-derive the shift by hand — `links_for_value` does, in
+  two places; `constructor_operand` did not, and counted written arguments
+  instead. That is what made `return list.get(0)` fail its
+  `proj[from: list]` return check: the one-argument unwrap that a `proj`-arm
+  union return needs [proj-anywhere] took the *index* for the borrowed value
+  (fixed 2026-09-17 by scoping the unwrap to union returns; the same unwrap
+  had been silently accepting a one-argument call that borrows nothing).
+  - It cannot move into `salvo-syntax`: the name must resolve to a declared
+    fn or effect member (whole-program scope, and the crate parses one
+    module at a time), and an `Addr<E>` receiver is *not* argument 0
+    [actor-use-addr] — `p.total(out)` and `list.get(0)` are the same shape
+    and differ only by the receiver's type. The same
+    receiver-at-index-0 form also appears as `Expr::Scoped`
+    (`xs.add@core.list(y)`) and `Expr::EffectScoped` (`s.close@Fs()`)
+    [fn-overload-at] [effect-at].
+  - Two shapes worth weighing when it is picked up: (a) the cheap one —
+    record the normalized argument list per call span in a side table
+    beside `derived_calls` / `lending_calls` / `fn_value_calls`, and have
+    downstream shape tests and both emitters read *that* instead of the
+    written arguments; (b) a real normalization pass after types are known,
+    which removes the shape from the AST for everyone but is a much larger
+    change. Either kills the bug class; only (b) removes the duplication.

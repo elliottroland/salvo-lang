@@ -1319,3 +1319,45 @@ fn main<T>(a: List<T>, b: List<T>) -> None {{
         "either branch is a valid source: {errs:?}"
     );
 }
+
+/// [readonly-return] [proj-anywhere] A derived return checks the *returned
+/// expression*, not the first argument of a one-argument call: dot-notation
+/// (`list.pick(index)`) leaves exactly one written argument, and the
+/// constructor-operand unwrap that a `proj`-arm union return needs must not
+/// apply to a plain `proj[from: p] T` return — it used to, so the checker
+/// asked the *index* where it came from and rejected the call, while
+/// accepting a one-argument call that borrows nothing.
+#[test]
+fn derived_return_checks_the_call_not_its_only_argument() {
+    let src = format!(
+        "{QUALIFIED_LISTS}
+fn pick<T>(list: List<T>, index: Int) -> proj[from: list] List<T> {{
+    return list
+}}
+fn owned<T>(list: List<T>) -> List<T> {{
+    return copy(list)
+}}
+fn forward<T>(list: List<T>, index: Int) -> proj[from: list] List<T> {{
+    return list.pick(index)
+}}
+fn leak<T>(list: List<T>) -> proj[from: list] List<T> {{
+    return owned(list)
+}}
+"
+    );
+    let (_, checked) = check_src(&src);
+    let errs: Vec<&str> = checked.errors.iter().map(|e| e.message.as_str()).collect();
+    let derived: Vec<&&str> = errs
+        .iter()
+        .filter(|e| e.contains("so every returned value must be derived from"))
+        .collect();
+    // One error, and it is `leak`'s: `forward` returns the borrow `pick`
+    // handed back, however the call is spelled.
+    assert_eq!(derived.len(), 1, "{errs:?}");
+    let span_ok = checked
+        .errors
+        .iter()
+        .filter(|d| d.message.contains("so every returned value must be derived from"))
+        .all(|d| src[d.span.start as usize..d.span.end as usize].starts_with("owned("));
+    assert!(span_ok, "the error must point at the returned call itself");
+}
