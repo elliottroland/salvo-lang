@@ -90,6 +90,15 @@ Conventions:
   * Backends render the adopted type explicitly (`1i64`/`1L`, `3f64`/
     `3.0`, `0.5f32`/`0.5f`), since neither target adopts everywhere Salvo
     does (Kotlin refuses a bare `1` for a `Long` *parameter*).
+  * **A call argument adopts from the candidates, as a fallback** (fixed
+    2026-09-18, when `millis(500)` was refused as `millis(Int)` — the rule
+    named that case from the start and only annotated `let`s and struct
+    fields honoured it). Adoption must never re-rank an overload set
+    [fn-overload-rank], so a candidate whose parameter *is* the literal's own
+    type (`Int` for an integer literal) blocks it, and the candidates must
+    name exactly one numeric type between them for it to apply. Non-numeric
+    and generic parameters neither block nor supply a target, so `f(9)` over
+    `f(Long)`/`f(Str)` adopts `Long`.
 * [type-str] Strings are immutable, with `${...}` interpolation in
   literals.
   * The lexer captures each `${...}` fragment as raw source + offset; the
@@ -3236,6 +3245,112 @@ LANGUAGE.md remains the source of truth for everything that does.
   merge/join, the gate's member-set generalization, and the generalized mint —
   is later passes, each with its own decision surface.
 
+## Time (std, module `time`)
+
+Built 2026-09-18 (step 5 of the second sequence), on the user's decisions of
+the same day. **Not part of `core`**: the surface is imported, and one
+`import time` [mod-import-module] brings all of it.
+
+* [time-types] **Three types, one representation**: `Duration` (a span),
+  `Instant` (a point on the wall clock, nanoseconds since the Unix epoch) and
+  `Tick` (a point on the monotonic clock, from an arbitrary origin). Each is a
+  plain std struct with a single `nanos: Long` field, `canbe hashed, ordered`.
+  * **One field, deliberately.** Struct equality is structural
+    [col-equality] and fields are public, so a `{secs, nanos}` pair would make
+    non-canonical values constructible — `{secs: 1, nanos: 0}` and `{secs: 0,
+    nanos: 1000000000}` are one span and would compare unequal. With
+    nanoseconds in a `Long` every value is canonical by construction.
+  * **Two point types, not one.** The wall clock jumps (NTP steps and slews
+    it; a suspend advances it while the monotonic clock stops), so a deadline
+    measured against it would move under the program; the monotonic clock
+    never jumps but has no epoch. Keeping them apart makes the mistake a type
+    error — `between` takes two of one timeline, and comparing an `Instant`
+    with a `Tick` is refused where it is written [col-equality]. A single type
+    with `Monotonic`/`Wall` provenance qualifiers was considered and rejected:
+    `==` ignores qualifiers, so a cross-timeline comparison would compile and
+    answer `true`.
+  * **Signed** durations, which is what makes `between` total: arguments the
+    other way answer a negative span rather than trapping or clamping.
+  * **Ranges**, stated rather than hidden: a `Duration` spans ±292 years and
+    an `Instant` covers 1678–2262 — the right window for machine events.
+    Historical dates and month arithmetic belong to the later calendar layer
+    (`DateTime` as a *view* of an `Instant` in a zone, with a `Period`-shaped
+    span), which is additive over this.
+  * **The surface is named functions**, since operators are numeric-only
+    [op-arith]: `nanos`/`micros`/`millis`/`seconds`/`minutes`/`hours` build a
+    span, `to_nanos`/`to_micros`/`to_millis`/`to_seconds` read one back
+    (truncating), `plus`/`minus`/`times`/`abs` compute, `to_str` renders
+    (integer and the largest unit that divides exactly, seconds at the top:
+    `1500ms`, `120s`, `37ns`). Points: `epoch_nano`/`epoch_milli`/
+    `epoch_second` in, `to_epoch_*` out, `plus`/`minus` with a span, and
+    **`between(start, end)`** overloaded for both timelines — named for how it
+    reads at the call site, the argument order being the direction of the
+    answer.
+* [time-ticker] **`effect Ticker { fn tick() -> Tick }`** is the monotonic
+  clock, and reading it is a *capability*: a function whose answer depends on
+  when it was called has a dependency, and Salvo's dependencies live in
+  signatures. `DefaultTicker` is the machine's, `elapsed(since)` is
+  `between(since, tick())`.
+* [time-clock] **`effect Clock`** is the wall clock: `now() -> Instant`, plus
+  the bridge between timelines — `to_instant(at: Tick)` and
+  `to_tick(at: Instant)`, named so dot-notation reads (`t.to_instant()`).
+  * The conversions are **members rather than free functions** because they
+    are an *estimate*: nothing exposes the monotonic origin, so relating the
+    two timelines means reading both clocks at nearly the same moment and
+    keeping the difference — which then drifts (slew, steps, suspend). A
+    handler owns that correlation, which is what makes the conversion
+    available at all, and exact in a test.
+  * `DefaultClock` takes the correlation **once, at construction**, so the
+    conversion is a fixed affine map and therefore order-preserving: earlier
+    ticks convert to earlier instants. Re-reading per call would track
+    adjustments better and could answer out of order, which is the worse
+    surprise. `now()` reads live.
+  * Both defaults are **ordinary Salvo** over two intrinsics —
+    `monotonic_nanos()` and `epoch_nanos()` — so the arithmetic is the same on
+    both backends and nothing about the drift model lives in a backend
+    ([rs-time], [kt-time]).
+* [time-timer] **`actor effect Timer { send fn after(wait: Duration, done:
+  Reply<Fired>) => !wait, !done }`**, with `struct Fired { at: Tick }`.
+  * An **actor** effect because run-to-completion leaves nothing else
+    [actor-kind]: a handler cannot block mid-body, so "wait two seconds" can
+    only mean parking a continuation. `after` therefore takes the
+    continuation and answers nothing, and the caller mints it with `replyto`
+    or `waitfor`.
+  * The payload carries a **`Tick`**, not an `Instant`: a deadline that moved
+    when the wall clock was adjusted would not be a deadline.
+  * **No cancellation** in this cut: a timer nobody wants fires into a
+    continuation that finds its work done — one no-op activation, the shape of
+    a lost race.
+  * `DefaultTimer` is an **ordinary Salvo handler** (`mailbox { capacity: 64
+    }`) over one `intrinsic fn fire_after(wait, done)`, which dissolved the
+    flagged "first intrinsic handler for an actor effect" case: no new emitter
+    capability was needed. Its mailbox bounds *registrations*, not deadlines.
+  * The runtime keeps **one deadline structure and one thread** for the whole
+    program, started by the first registration ([rs-time], [kt-time]) — no
+    thread per timer, no polling. A pending deadline counts as work on its
+    way, so it holds off both the quiescence hook [actor-on-idle] and the
+    deadlock report: a program waiting for a fire is waiting for time to pass.
+* [time-manual] **`handler ManualTime() of Timer, TimerCtl`** is the
+  pure-Salvo fake — `MemFs`'s answer applied to time [effect-handler-multi].
+  Virtual time starts at zero and moves only through
+  `TimerCtl.advance(by)`, firing every deadline it passes **in deadline
+  order**, with virtual `now` standing *at* each deadline as it fires.
+  * The two faces are the point: a spawn answers an addr per face, so the code
+    under test holds the `Timer` and cannot reach `advance` — least authority
+    out of the types.
+  * Its state is a `Mut List<Long>` of deadlines **beside** a `Mut
+    List<Reply<Fired>>` of tokens, index-aligned, because a list holding
+    obligations cannot be *read* positionally — only `remove_at` reaches one
+    [linear-container]. Keeping the deadlines in a plain list is what lets the
+    handler ask which is earliest.
+  * `advance` races the `after` registrations of the code under test, which is
+    what `on_idle` is for: settle, then advance ([actor-on-idle], and the
+    worked test in both backends' `time-manual` case).
+  * One name is exposed that a module system would hide: `fire_after`, the
+    default timer's plumbing. Calling it needs a `Reply<Fired>` in hand, so it
+    cannot manufacture time from nothing, but Salvo has no module-private
+    declarations — recorded in ROADMAP.
+
 ## Deductions
 
 * [deduce-syntax] The **deduction clause** — `=> entry, entry, …` after the
@@ -4197,6 +4312,13 @@ LANGUAGE.md remains the source of truth for everything that does.
       check *is* the union narrow [linear-union-arm]. `get`/`first` stay
       closed — they answer a borrow, and an alias would let one obligation be
       discharged twice.
+      * The **binding takes the obligation out**: `remove_at(pending, i) is
+        Reply<Fired> token` moves the payload rather than copying it, recorded
+        by the checker at the binding and honoured by the emitters
+        [rs-linear-move]. Before 2026-09-18 the Rust backend read a narrowed
+        binding as `.as_ref().unwrap().clone()`, which duplicates an
+        obligation for a `Clone` handle and does not compile at all for a
+        reply token — found while writing [time-manual]'s deadline queue.
     * **the terminal**: `drain(list, each)` / `drain(map, each)` consumes the
       container and hands every element to a consuming callback
       (`=>[each] !x`). A container that is neither drained nor moved onward is
@@ -4318,6 +4440,34 @@ LANGUAGE.md remains the source of truth for everything that does.
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
+* [mod-import-module] `import time` imports a whole **module** — every name
+  in it, and in every module under it (`time.clock`, `time.timer`), by the
+  same prefix match the name form uses (user decision 2026-09-18, with
+  `core.time` moved out to module `time`: a std surface that is not
+  implicitly visible needs one line to reach, not one line per name).
+  * **The reading is decided by the path**, not by new syntax: every
+    segment lowercase *and* at least one module matching means the module
+    form, since a type is uppercase [name-casing] and a fn import still
+    has a module prefix in front of it. A single-segment path can only be
+    a module, so an unknown one says so and lists the importable modules
+    rather than reporting the `module.item` shape.
+  * **A bulk import never fights anything.** It enters at its own ladder
+    rung — above implicit `core.*`, below a named import and below this
+    module's own declarations [fn-overload-scope] — and loses *silently*
+    both ways, because a convenience import must not break a file that
+    declares its own `Span`.
+  * **Functions need no diagnostic**: two modules' overloads of one name
+    coexist on the ladder and `f@time(x)` names either [fn-overload-at]
+    (user decision 2026-09-18). Only where two *bulk* imports carry one
+    **type** name is there nothing to disambiguate with, so the first in
+    module order wins and the second **warns**, naming the named-import
+    remedy.
+  * **No alias**: `import time as t` is an error. An alias renames one
+    imported name, and there are no module-qualified type references for a
+    module alias to qualify.
+  * `import core` is redundant — reported as a warning rather than adding
+    every core name at a second rung, which would put each core overload
+    into the set twice (the shape [qual-refn-match] is sensitive to).
 * [obligation-spelling] **Obligations are lowercase keywords** (user
   decision 2026-09-12): `proj`, `once`, `linear` — reserved words, written
   in qualifier position (`proj NonEmpty List<T>`, `once (A) -> B`,

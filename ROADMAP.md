@@ -59,8 +59,9 @@ and hold queues of obligations — on both backends with identical output, with 
 worked example in `examples/actors/`. What is in progress is **"The second
 sequence"** below: steps 1 and 2 — the `waitfor` package and the task kernel —
 landed 2026-09-17 and steps 3 and 4 — `on_idle` and multi-effect handlers — on
-2026-09-18, so **step 5, `core.time`, is next** (and its first item, the time
-types, is a **DECISION** waiting on the user). Beside it: the open defects
+2026-09-18, and **step 5, `core.time` — now module `time` — landed 2026-09-18** with
+the time types decided the same day, so **step 6, the coupling stance, is
+next**. Beside it: the open defects
 below, the decisions waiting on the user, and the themed sections.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
@@ -213,7 +214,8 @@ when it is picked up.
 TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
 2026-09-17** (the log entry has the full list). **Steps 1–4 are built**, so
 FREE_CONCURRENCY.md has **retired into COMPLETED.md's log and the specs** as its
-charter said; TIME.md still holds the argument trail for steps 5–6. What remains
+charter said; TIME.md still holds the argument trail for step 6 (its T-1 and
+T-3…T-5 outcomes are built and recorded in COMPLETED.md's log). What remains
 is implementation, in this order — each step independently shippable, so the
 sequence can pause anywhere and leave the tree consistent:
 
@@ -250,15 +252,19 @@ sequence can pause anywhere and leave the tree consistent:
    face) is now a Salvo diagnostic rather than the target compiler's. The record
    is COMPLETED.md's log; the rule is [effect-handler-multi]. Leftovers under
    "Multi-effect handlers — leftovers" below. **Step 5 is next.**
-5. **`core.time`** (T-1(b) + T-2's surface): **the time types first** —
-   `Instant`, `Duration` (the embedded DECISION above) — then the intrinsic
-   `DefaultTimer` (the first intrinsic handler for an actor effect — the
-   flagged intrinsics-meet-scheduler case), `Fired` carrying an `Instant`,
-   the sync `Clock` effect (`now() -> Instant`, monotonic; wall-clock out
-   of scope), `DefaultClock`, and the pure-Salvo `ManualTime` fake, whose clean
-   two-face form step 4 has now made writable (`of Timer, TimerCtl` — the shape
-   the multi-effect step was scheduled for).
-   **Its first item, the time types, is a DECISION waiting on the user.**
+5. ✅ **`core.time`** — **built 2026-09-18**, all of T-1(b) + T-2's surface,
+   with the embedded DECISION settled the same day: `Instant` (wall clock,
+   epoch nanos), `Tick` (monotonic) and `Duration` as single-field `Long`
+   structs; `Clock` (`now`, `to_instant`, `to_tick`) and `Ticker` (`tick`) with
+   pure-Salvo defaults over two intrinsics; `actor effect Timer` +
+   `struct Fired { at: Tick }` + `DefaultTimer` over one intrinsic and a
+   single-thread deadline registry in each runtime; and `ManualTime of Timer,
+   TimerCtl` as the pure-Salvo fake. The module is **not in `core`** (user
+   decision), which brought **whole-module imports** (`import time`) with it.
+   The record is COMPLETED.md's log; the rules are [time-types],
+   [time-ticker], [time-clock], [time-timer], [time-manual],
+   [mod-import-module], [rs-time], [kt-time]. Leftovers under
+   "`core.time` — leftovers" below. **Step 6 is next.**
 6. **The coupling stance** (T-2): time-as-data as the std posture; the
    unified `TestClock [Timer, waitfor]` becomes writable (steps 1 + 5);
    scheduler-owned virtual time stays the recorded, un-built upgrade path.
@@ -299,12 +305,15 @@ Found while building step 1; none blocks step 2.
   `actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch` — so
   the new chapter currently assumes vocabulary the document has not introduced.
   `on_idle` joined that chapter as it landed (2026-09-18), which is the pattern
-  to keep: the *surface* prose is still owed, and is cheaper written once
-  `core.time` has settled too.
+  to keep. `core.time` has now settled (step 5), so the two owed pieces are one
+  job: the actor *surface* prose, and a short **time** section beside it
+  (`Instant`/`Tick`/`Duration`, `Clock`/`Ticker`, `Timer`, and `ManualTime` as
+  the testing posture) — LANGUAGE_SPEC.md carries all of it as rules today.
 - **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
-  takes ~2m5s against AGENTS.md's ~55–70s (measured 2026-09-18), of which ~121s
-  is the single `kotlinc_compiles_and_runs_every_case` driver (113 cases in
-  batched invocations). Nothing new is wrong — the driver's *cached/skipped* cost is
+  takes ~1m55s–2m5s against AGENTS.md's ~55–70s (measured 2026-09-18, 1138
+  tests), effectively the wall time of the single
+  `kotlinc_compiles_and_runs_every_case` driver — ~110s for 116 cases in
+  batched invocations, which the rest of the suite runs underneath. Nothing new is wrong — the driver's *cached/skipped* cost is
   the open defect above — but the budget line in AGENTS.md and COMPLETED.md
   is now optimistic for a cold run.
 
@@ -395,8 +404,9 @@ Found while building step 3; none blocks step 4.
 
 Parked with named triggers: FC-5's minter-attribution refinement (if the sink
 proves too coarse for recovery); deadlock stratification and the
-`Reply | TimedOut` timeout form (observed false positives; writable after
-step 5); lambdas as mint targets (with [fate-lambda], the sugar pass).
+`Reply | TimedOut` timeout form (observed false positives; **writable now** that
+step 5 has landed — `Timer` is its missing prerequisite); lambdas as mint
+targets (with [fate-lambda], the sugar pass).
 
 ### Multi-effect handlers — leftovers (2026-09-18)
 
@@ -432,6 +442,53 @@ Found while building step 4; none blocks step 5.
   continuation types with the same variants — slightly more generated code, and
   the price of a mint being lexical.
 
+### `core.time` — leftovers (2026-09-18)
+
+Found while building step 5; none blocks step 6.
+
+- **`Long == Int` is refused, so std writes `0L`.** [op-promote] widens mixed
+  widths for arithmetic *and ordering*, but equality demands the same base type
+  [op-equality], and [lit-adopt] deliberately does not apply to operator
+  operands — so `d.nanos % 1000 == 0` is an error while
+  `d.nanos % 1000L == 0L` is fine, and `let a: Long = 5` followed by `a == 5`
+  is an error too. `std/time.sv` carries `L` suffixes because of it. The fix is
+  a one-line rule change (let equality promote like ordering does) and it is a
+  **DECISION**, since it widens what `==` accepts.
+- **A runtime file name silently clobbers an emitted std module of the same
+  name.** `runtime/time.rs` and std's module `time` both write `time.rs`; one
+  overwrites the other and the program fails several steps later (duplicate
+  `pub mod`, missing symbols). Worked around by naming the runtime files
+  `hosttime.{rs,kt}`, not fixed: the emitters already have a collision check
+  for **companion** files [backend-companion], and extending it to the runtime
+  files (or namespacing them under a `salvo_rt/` directory) closes the hole for
+  good. Both backends have it.
+- **`fire_after` is public where a module system would hide it.** It is
+  `DefaultTimer`'s plumbing, and calling it needs a `Reply<Fired>` in hand, so
+  it cannot manufacture time from nothing — but `import time` brings it into
+  scope, and Salvo has no module-private declarations. The general question
+  (does the language want a visibility modifier, or is std's convention
+  enough?) is unscheduled and would be a **DECISION**.
+- **No `time` example.** The surface is covered by three compile-and-run cases
+  per backend, but `examples/` has nothing showing a timeout, a measured
+  interval, or a test with virtual time — which is the shape a reader would
+  copy. Worth one once step 6 settles the coupling stance, since the example
+  should teach *that* posture.
+- **`to_str(Duration)` stops at seconds** (`120s`, not `2m`) and there is no
+  `to_str` for `Instant` or `Tick` at all: a wall-clock text form is a date,
+  which is the calendar layer's, and a monotonic reading has no meaningful
+  rendering beyond its number. A program prints `to_epoch_milli(i)` today.
+- **Cancellation is not in the timer surface** (recorded by decision, T-1): a
+  timer nobody wants fires into a continuation that finds its work done. A
+  cancel handle is the addition if that no-op activation ever measures.
+- **The wall-clock layer is designed but unbuilt**, and its shape is fixed by
+  what landed: `DateTime` as the calendar *view* of an `Instant` in a zone,
+  `Period` for calendar spans, `to_datetime`/`to_instant` bridges (the second
+  partial, since a local time can be nonexistent or ambiguous), and a
+  `WallClock` effect whose member must **not** be named `now` — two effects in
+  scope declaring one name need a selector [effect-at], and neither takes
+  arguments to distinguish. Timers stay monotonic; a wall-scheduled fire is an
+  additive `Timer` member that needs re-arming after a clock adjustment.
+
 ### Patterns — what is left (2026-09-18)
 
 The two silent tuple holes and the loop-destructuring cut were all closed the day
@@ -461,7 +518,6 @@ links to the section that states the options.
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
-| **The time types** — `Instant`, `Duration`, their arithmetic and representation (the user's call 2026-09-17: timer payloads work with these, not raw numbers) | step 5 of the second sequence | "The second sequence", TIME.md T-1 |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | TIME.md T-4(c) |
 | **Shareable handlers** — SH-1…SH-8: mixed handlers (state confined to send members + sync façades), synchronized monitor members, occupancy inference in the deadlock graph, and whether `[waitfor]` stays a propagating declared effect or demotes to an optional checked annotation | after the second sequence (SH-8, the idle-report defect, first — it is a bug today) | SHAREABLE_HANDLERS.md |
 
@@ -531,7 +587,7 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
   and the reason a warm `cargo test` is ~30s against AGENTS.md's ~5s
-  budget). It grows with the registry: ~24s at 113 cases, measured
+  budget). It grows with the registry: ~24s at 116 cases, measured
   2026-09-18. Repro:
 
   ```bash

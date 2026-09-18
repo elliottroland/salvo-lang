@@ -7,6 +7,8 @@ pub mod seq;
 pub mod collections;
 #[path = "scheduler.rs"]
 pub mod scheduler;
+#[path = "hosttime.rs"]
+pub mod hosttime;
 #[path = "core/actor.rs"]
 pub mod core_actor;
 #[path = "core/array.rs"]
@@ -84,7 +86,7 @@ pub enum __Msg_Counter {
 
 pub struct Counting {
     sum: i32,
-    __mailbox_capacity: i32,
+    pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Counting>,
 }
@@ -188,7 +190,7 @@ pub enum __Msg_Ledger {
 }
 
 pub struct Bookkeeping {
-    __mailbox_capacity: i32,
+    pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Bookkeeping>,
 }
@@ -327,7 +329,7 @@ pub enum __Msg_Desk {
 pub struct Desking {
     room: i32,
     waiting: Vec<crate::scheduler::SalvoReply>,
-    __mailbox_capacity: i32,
+    pub __mailbox_capacity: i32,
     __addr: Option<usize>,
     __parked: std::collections::HashMap<u64, __Cont_Desking>,
 }
@@ -443,7 +445,7 @@ pub enum __Msg_Fragile {
 }
 
 pub struct Breaking {
-    __mailbox_capacity: i32,
+    pub __mailbox_capacity: i32,
     __addr: Option<usize>,
 }
 

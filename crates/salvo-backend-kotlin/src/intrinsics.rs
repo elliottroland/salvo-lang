@@ -98,6 +98,21 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
+        // time -----------------------------------------------------------
+        // [time-ticker] [time-clock] [kt-time] The two clock readings, each a
+        // `Long` of nanoseconds — the whole of the host's contribution to the
+        // time surface, matching `time.rs` number for number.
+        ("monotonic_nanos", None) => "salvo.SalvoTime.monoNanos()".to_string(),
+        ("epoch_nanos", None) => "salvo.SalvoTime.epochNanos()".to_string(),
+        // [time-timer] [kt-time] Registering a deadline, mirroring the Rust
+        // side: the scheduler takes the token plus a builder for the `Fired`
+        // payload [actor-watch], and the delay crosses as the `Duration`'s
+        // single `Long` field.
+        ("fire_after", Some("Duration")) => format!(
+            "salvo.SalvoSched.after(({}).nanos, {}) {{ __at -> Fired(Tick(__at)) }}",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

@@ -20,7 +20,8 @@ use std::process::Command;
 /// Every static runtime module, with the emitter accessor that ships it.
 /// A new one belongs here the moment it exists — the list is what makes
 /// this test complete rather than a sample.
-const RUNTIME_MODULES: &[&str] = &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs"];
+const RUNTIME_MODULES: &[&str] =
+    &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs", "hosttime.rs"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -40,6 +41,17 @@ fn compile_runtime_module(file: &str) {
         return;
     }
     let source = runtime_source(file);
+    // [time-timer] `scheduler.rs` reads the monotonic clock for its deadline
+    // thread, so it compiles against `crate::hosttime` — mounted here exactly
+    // as the emitter mounts it (the two always travel together, since a
+    // `Fired` has to sit on the timeline `tick()` reports). Every other module
+    // is standalone, and `hosttime.rs` is checked on its own in this same list.
+    let source = if file == "scheduler.rs" {
+        let hosttime = runtime_source("hosttime.rs");
+        format!("pub mod hosttime {{\n{hosttime}\n}}\n{source}")
+    } else {
+        source
+    };
     let parts: Vec<&[u8]> = vec![
         b"rust-runtime-module",
         rustc.version.as_bytes(),
@@ -163,9 +175,15 @@ fn run_scheduler_program(
         return;
     }
     let module = runtime_source("scheduler.rs");
+    // [time-timer] The scheduler's deadline thread reads the monotonic clock,
+    // so `hosttime.rs` is mounted beside it exactly as the emitter mounts it —
+    // as `crate::hosttime`, which is the path the scheduler names.
+    let hosttime = runtime_source("hosttime.rs");
     // `dead_code` is allowed because a driver exercises one slice of the
     // runtime's surface; the module itself is warning-checked above.
-    let source = format!("#![allow(dead_code)]\n{module}\n{driver}");
+    let source = format!(
+        "#![allow(dead_code)]\npub mod hosttime {{\n{hosttime}\n}}\n{module}\n{driver}"
+    );
     let parts: Vec<&[u8]> = vec![
         b"rust-scheduler-behaviour",
         rustc.version.as_bytes(),

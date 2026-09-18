@@ -149,6 +149,25 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
+        // time -----------------------------------------------------------
+        // [time-ticker] [time-clock] [rs-time] The two clock readings, each a
+        // plain `i64` of nanoseconds — the whole of what the host contributes
+        // to the time surface. Everything else (`Duration`, `between`, the
+        // correlation `DefaultClock` keeps) is ordinary Salvo over these.
+        ("monotonic_nanos", None) => "crate::hosttime::salvo_mono_nanos()".to_string(),
+        ("epoch_nanos", None) => "crate::hosttime::salvo_epoch_nanos()".to_string(),
+        // [time-timer] [rs-time] Registering a deadline hands the scheduler
+        // the token *and* a builder for the `Fired` it will carry — the
+        // `watch`/`on_idle` shape [actor-watch], for the same reason: the
+        // runtime holds a number and cannot construct a Salvo struct. The
+        // delay arrives as a `Duration`, whose single field *is* the
+        // nanoseconds, so the seam is one `i64`.
+        ("fire_after", Some("Duration")) => format!(
+            "crate::scheduler::salvo_after(({}).nanos, {}, |__at| Box::new(Fired {{ \
+             at: Tick {{ nanos: __at }} }}))",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a

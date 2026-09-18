@@ -1,6 +1,15 @@
 # Time — Timer, Clock, and deterministic tests (working document)
 
-Status: **DECIDED** (user decisions 2026-09-17, all five sections in one
+Status: **DECIDED, and T-1/T-3/T-4/T-5 are BUILT** (steps 1–5 of ROADMAP's
+"second sequence" landed 2026-09-17/18; the time types were decided
+2026-09-18 — `Instant` wall-clock, `Tick` monotonic, `Duration` shared, all
+single-field — and the as-built rules are [time-types], [time-ticker],
+[time-clock], [time-timer], [time-manual]). Only **T-2's coupling stance**
+(step 6) is still ahead, which is what this document is being kept for; the
+worked setups below still say `Int` millis in places, and the built surface
+is the one in LANGUAGE_SPEC.md.
+
+Original status: **DECIDED** (user decisions 2026-09-17, all five sections in one
 sitting — the confirmation list is in COMPLETED.md's log, and the
 implementation order is ROADMAP.md's **"The second sequence"**): T-1(b) the
 intrinsic Timer (with the **time types** — `Instant`, `Duration` — designed

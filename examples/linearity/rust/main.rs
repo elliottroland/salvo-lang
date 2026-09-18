@@ -115,7 +115,7 @@ pub fn a_queue_of_tickets(console: &mut dyn Console) {
         if !(__is1.is_some()) {
             break;
         }
-        let mut next = __is1.as_ref().unwrap().clone();
+        let mut next = __is1.unwrap();
         redeem(console, next);
     }
     queue.into_iter().for_each(|mut __a0| scrap(__a0));

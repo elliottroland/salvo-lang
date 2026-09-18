@@ -15,7 +15,8 @@ use std::process::Command;
 /// (`bytes.kt` was added by the filesystem work without joining this list;
 /// it is here now, which is what makes this test complete rather than a
 /// sample.)
-const RUNTIME_MODULES: &[&str] = &["throw.kt", "compare.kt", "bytes.kt", "scheduler.kt"];
+const RUNTIME_MODULES: &[&str] =
+    &["throw.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hosttime.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -52,8 +53,19 @@ fn compile_runtime_module(file: &str) {
     let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rt-{file}"));
     let src = dir.join(file);
     std::fs::write(&src, &source).expect("failed to write the runtime module");
+    // [time-timer] `scheduler.kt`'s deadline thread reads the monotonic clock,
+    // so `hosttime.kt` is compiled beside it exactly as the emitter emits the
+    // two together. Every other module stands alone, and `hosttime.kt` is
+    // checked on its own through this same list.
+    let mut sources = vec![src.clone()];
+    if file == "scheduler.kt" {
+        let hosttime = dir.join("hosttime.kt");
+        std::fs::write(&hosttime, runtime_source("hosttime.kt"))
+            .expect("failed to write the time runtime");
+        sources.push(hosttime);
+    }
     let out = Command::new("kotlinc")
-        .arg(&src)
+        .args(&sources)
         .arg("-d")
         .arg(dir.join("classes"))
         .output()
@@ -588,10 +600,13 @@ fun main() {
         return;
     }
     let module = runtime_source("scheduler.kt");
+    // [time-timer] Compiled beside the scheduler, as the emitter ships them.
+    let hosttime = runtime_source("hosttime.kt");
     let mut parts: Vec<Vec<u8>> = vec![
         b"kotlin-scheduler-behaviour".to_vec(),
         kotlinc.version.as_bytes().to_vec(),
         module.as_bytes().to_vec(),
+        hosttime.as_bytes().to_vec(),
     ];
     for case in cases {
         parts.push(case.tag.as_bytes().to_vec());
@@ -609,7 +624,9 @@ fun main() {
     let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), "sched-kt");
     let module_path = dir.join("scheduler.kt");
     std::fs::write(&module_path, &module).expect("failed to write the scheduler module");
-    let mut sources = vec![module_path];
+    let hosttime_path = dir.join("hosttime.kt");
+    std::fs::write(&hosttime_path, &hosttime).expect("failed to write the time runtime");
+    let mut sources = vec![module_path, hosttime_path];
     for case in cases {
         // Its own package and directory, since every driver declares
         // `main`. `internal` members stay visible: one `kotlinc` invocation

@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1123 tests, complete: the toolchain tests are
+cargo test                  # 1138 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,139 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Time: `Instant`, `Tick`, `Duration`, the two clocks, the timer, and `ManualTime`
+(user decisions + built 2026-09-18 — step 5 of the second sequence).** The
+step's embedded DECISION was settled in one conversation and the whole step
+built on it, on both backends with identical output. What the user decided,
+in the order it was asked:
+
+- **Three types, not two, and the names go where a reader expects them**:
+  `Instant` is the **wall-clock** point (epoch nanos, `Clock`'s answer), `Tick`
+  is the **monotonic** point (`Ticker`'s answer), `Duration` is the shared span.
+  The first sketch had `Instant` monotonic on Rust's precedent; the user
+  redirected it — "the clock terminology aligns more with wall clock for me, so
+  I find it weird that `Clock` wouldn't return the epoch time" — and named the
+  monotonic pair `Tick`/`Ticker` from the alternatives offered (`SteadyTime`/
+  `SteadyClock` after C++, `MonoTime`/`MonoClock`, `Chrono`/`Chronometer`,
+  `Mark`/`Marker`). `DateTime` is reserved for the **calendar** type, a *view*
+  of an `Instant`, which is where historical dates and month arithmetic go.
+- **One `nanos: Long` field each**, plain std structs, `canbe hashed, ordered`.
+  The argument that decided it against Java's `{secs, nanos}` pair is
+  Salvo-specific: struct equality is structural and fields are public, so a
+  two-field form makes non-canonical values constructible and `{secs: 1,
+  nanos: 0}` compares unequal to the same span written the other way.
+- **Two point types rather than one with `Monotonic`/`Wall` provenance
+  qualifiers.** The qualifier form was the Salvo-idiomatic candidate and it
+  fails on a rule: `==` ignores qualifiers [col-equality], so comparing a wall
+  stamp with a monotonic reading would compile and answer `true`. Two structs
+  make it the "different struct types" error instead.
+- **Named-function arithmetic** (`plus`/`minus`/`times`/`abs`, `between(start,
+  end)` — the user's rename of `since`, because the argument order then *is*
+  the direction of the answer), signed durations, `epoch_milli`-style
+  constructors, and `Clock` members named **`to_instant`/`to_tick`** so
+  dot-notation reads (`t.to_instant()`). Operator overloading was offered as
+  the alternative and left for its own decision.
+- **The `Tick` → `Instant` conversion is a `Clock` member, not a free
+  function**, out of a question the user asked directly: is the monotonic
+  origin always knowable? No — nothing exposes it, the only way to relate the
+  timelines is to read both clocks and keep the difference, and that difference
+  drifts (NTP slew and steps, and a suspend moves one clock and not the other).
+  So a handler owns the correlation; `DefaultClock` takes it **once at
+  construction**, which makes the conversion a fixed affine map and therefore
+  order-preserving.
+- **The module left `core`** (user decision): "I'm not sure the time module
+  should be in core… clocks, instants, and durations all seem like they should
+  be imported", with the filesystem to follow later. That turned out to need a
+  language addition — see the next entry — because imports were per-name.
+
+What building it took, beyond the surface: `Ticker`/`Clock`'s defaults are
+**ordinary Salvo** over two intrinsics (`monotonic_nanos`, `epoch_nanos`), so
+the drift model is readable where it is implemented and no backend decides
+anything; `DefaultTimer` is an **ordinary Salvo handler over one intrinsic fn**
+(`fire_after`), which dissolved the flagged "first intrinsic handler for an
+actor effect" case — no new emitter capability was needed at all; and each
+runtime grew a deadline registry plus **one** thread
+(`salvo_after` + `serve_timers`, parked in `wait_timeout` / `awaitNanos`), with
+`idle()` now counting a pending deadline as work on its way, so a program
+waiting for a fire is neither reported quiescent nor deadlocked. `ManualTime of
+Timer, TimerCtl` is pure Salvo and was the first real customer of step 4's
+multi-effect handlers: the code under test gets the `Timer` addr and cannot
+reach `advance`.
+
+Three defects and one design wart fell out of building it, all fixed here:
+
+- **[lit-adopt] did not hold for call arguments.** `millis(500)` was refused as
+  `millis(Int)` although the rule names "a `Long` call argument" explicitly —
+  only annotated `let`s and struct fields adopted. Fixed by reading the
+  adoptable type off the *candidate pool* (`adoptable_numeric_param`), as a
+  **fallback** that cannot re-rank an overload set: an exact-typed candidate
+  blocks it, and the candidates must name exactly one numeric type.
+- **A runtime file name and an emitted std module name share one output
+  namespace**, and the collision is silent: `runtime/time.rs` and std's module
+  `time` both wrote `time.rs`, one clobbering the other, producing a duplicate
+  `mod time;` and a pile of missing symbols. Worked around by naming the
+  runtime files `hosttime.{rs,kt}`; the root cause is recorded in ROADMAP.
+- **A `pub` that was missing**: Rust emitted a private `__mailbox_capacity`, so
+  spawning *std's* `DefaultTimer` from user code was a raw rustc E0616. Every
+  handler with a mailbox had been in the same module as its spawn until now.
+- **A narrowed binding of a linear payload was copied, not moved.**
+  `remove_at(pending, i) is Reply<Fired> token` emitted
+  `.as_ref().unwrap().clone()` — which duplicates an obligation for a `Clone`
+  handle and does not compile at all for a reply token. The checker now records
+  the *binding's* span in `linear_moves` (its use-site path never sees a
+  binding) and the Rust emitter moves; the same fix removed a silent obligation
+  copy from `examples/linearity`'s checked-in output.
+
+Two smaller calls made in the build: `to_str(Duration)` stops at **seconds**
+(`120s`, not `2m`), because minutes and hours invite a composite rendering that
+belongs with the calendar layer; and `zero()` was dropped from the surface,
+since `nanos(0)` says it and a bulk-importable module should not spend such a
+generic name. Adding `times` to std *did* shift one Kotlin test's expected
+symbol (`times__2`), which is worth knowing: overload mangling is
+program-wide, so a std name collides with a user fn's emitted name whether or
+not the module is imported.
+
+Tests: three compile-and-run cases per backend over the *same* program text
+(`time-surface`, `time-timer`, `time-manual`) plus a lowering assertion each;
+`hosttime` joined both backends' runtime-module lists, and both scheduler
+harnesses mount it beside the scheduler. Rules: [time-types], [time-ticker],
+[time-clock], [time-timer], [time-manual], [rs-time], [kt-time]. Tests:
+**1138 (+15)**.
+
+**Whole-module imports: `import time` (user decision 2026-09-18).** Moving the
+time surface out of `core` exposed the fact that `import` was **per name** —
+`import time.Duration`, `import time.millis`, a dozen lines for one module — so
+the user chose the addition that makes a non-implicit std surface cheap to
+reach: `import time` brings every name in the module, and in every module under
+it, by the same prefix match the name form already used.
+
+- **No new syntax and no star**: the reading is decided by the path. Every
+  segment lowercase *and* at least one module matching means the module form,
+  which cannot capture a name import (a type is uppercase [name-casing], and a
+  fn import still has a module prefix in front of it). A single-segment path
+  can only be a module, so `import tyme` now says "unknown module" and lists
+  the importable ones instead of reporting the `module.item` shape.
+- **A bulk import never fights anything** (the user's call: "I don't think we
+  need to complain with name collisions because we have the tools to
+  disambiguate the function calls using the `@` syntax"). It enters at its own
+  ladder rung — above implicit `core.*`, below a named import and below the
+  file's own module — and loses *silently* in both directions, so a file that
+  declares its own `Duration` keeps it. Functions need nothing more: the
+  overload ladder ranks them and `between@time(a, b)` names either.
+- **The one loud case is a type name carried by two bulk imports**, because a
+  type reference has no `@` form to disambiguate with: the first module in
+  order wins and the second **warns**, naming `import other.Name as …` as the
+  remedy. A warning rather than an error, in the spirit of the decision.
+- **`import time as t` is refused** (an alias renames one imported *name*, and
+  there are no module-qualified type references for a module alias to qualify)
+  and **`import core` is reported redundant** — the latter not merely tidiness:
+  adding core's names at a second rung would put every core overload in the set
+  twice, which is the shape the refinement matcher counts [qual-refn-match].
+- Precedent found while doing it: `std/random.sv` has been a non-core std
+  module all along, so the placement the user wanted needed no new machinery
+  beyond the import form. Rule: [mod-import-module]; ten tests in
+  `crates/salvo-core/tests/module_import_tests.rs`.
 
 **Loop destructuring (built 2026-09-18, user request).** `for (k, v) in pairs`
 and `for {name, score} in rows` work now, on both backends, so a loop binding is
@@ -11914,7 +12047,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1123)
+## Test inventory (all green: 1138)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13011,6 +13144,36 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A runtime file name is a reserved word in the output namespace.** The
+  emitters write shipped runtime files (`scheduler.rs`, `collections.rs`,
+  `compare.kt`, …) into the same directory as the emitted std modules, and
+  nothing checks for a collision: a std module named `time` and a runtime file
+  named `time.rs` both write `time.rs`, the second silently clobbering the
+  first (2026-09-18, while building the time surface). The symptom is a
+  duplicate `pub mod X;` plus a pile of missing symbols, several steps away
+  from the cause. Runtime files are therefore named for the *host* thing they
+  wrap (`hosttime.{rs,kt}`); the general fix — the companion-file collision
+  check extended to runtime files — is in ROADMAP.
+- **Overload mangling is program-wide, so a std name renames user symbols.**
+  Adding `times` to `std/time.sv` changed an unrelated program's emitted
+  `times` to `times__2` — even though the module was never imported, because
+  mangling keys on the name across the whole program. Harmless for behaviour
+  and loud in the tests, but it is a reason to keep short generic names out of
+  std, and a reason a golden-output test can fail for a change that did not
+  touch it.
+- **A `pub` on generated fields is not cosmetic once std spawns.** Every
+  handler with a `mailbox` block had lived in the same module as its spawn
+  site until `DefaultTimer` shipped in std, and the private
+  `__mailbox_capacity` it read became a raw rustc E0616. When something moves
+  from a test program into std, its *cross-module* emission is a new path.
+- **A linear payload out of an optional must be *moved* at the binding.** The
+  Rust narrowed-read path clones (`x.as_ref().unwrap().clone()`), which for a
+  linear element duplicates an obligation — invisible while the element happens
+  to be `Clone` (`examples/linearity` had been emitting a silent copy) and a
+  hard rustc error the moment it is a reply token. Linearity bugs of this shape
+  do not announce themselves in the checker; they show up as compile errors in
+  the *other* backend's output, or not at all.
 
 - **Two decided rules can read as contradictory; reconcile them explicitly
   rather than picking one** (2026-09-17, the `waitfor` package). T-5 said a

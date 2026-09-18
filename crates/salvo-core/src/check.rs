@@ -4235,6 +4235,50 @@ impl<'p, 'r> Checker<'p, 'r> {
         crate::types::most_specific(&ranks).map(|i| at_top[i])
     }
 
+    /// [lit-adopt] The numeric type an unsuffixed literal argument may adopt
+    /// at position `i` of a call, read off the candidate pool.
+    ///
+    /// Deliberately conservative, because adoption must not silently re-rank
+    /// an overload set [fn-overload-rank]:
+    ///
+    /// * a candidate whose parameter there is exactly the literal's own type
+    ///   (`Int` for an integer literal, `Double` for a float one) blocks
+    ///   adoption — that candidate already matches, and it should keep
+    ///   winning;
+    /// * otherwise the candidates must name exactly *one* numeric type
+    ///   between them, which is then the adopted one. Two different numeric
+    ///   parameters at one position leave the literal alone rather than
+    ///   guessing which overload was meant.
+    ///
+    /// Non-numeric and generic patterns are ignored: they neither block
+    /// adoption nor supply a target, so `twice(9)` over
+    /// `twice(Long)`/`twice(Str)` adopts `Long`.
+    fn adoptable_numeric_param(
+        pool: &[LeadCandidate],
+        i: usize,
+        float_lit: bool,
+    ) -> Option<Ty> {
+        let own = if float_lit { "Double" } else { "Int" };
+        let mut found: Option<&str> = None;
+        for candidate in pool {
+            let Some(pattern) = candidate.rank.patterns.get(i) else {
+                continue;
+            };
+            let Some(name) = numeric_expectation(pattern) else {
+                continue;
+            };
+            if name == own {
+                return None;
+            }
+            match found {
+                None => found = Some(name),
+                Some(seen) if seen == name => {}
+                Some(_) => return None,
+            }
+        }
+        found.map(Ty::named)
+    }
+
     /// [implicit-infer] Extends a call's progressive substitution with what
     /// its callee's **implicit parameters** determine (user design 2026-09-06,
     /// built with S-Seq).
@@ -7118,43 +7162,45 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let sym = op_symbol(op);
-        // [op-order] Ordering on numerics allows the same widening
-        // arithmetic does — `Int < Long` compares at `Long`, the narrower
-        // side recording a promotion [op-promote] — and refuses the
-        // int↔float mix the same way. This runs *before* the same-base
-        // check, which mixed widths would otherwise trip.
-        if !equality {
-            match (op_numeric(lb), op_numeric(rb)) {
-                (Some((lf, lr)), Some((rf, rr))) => {
-                    if lf != rf {
-                        self.error(
-                            span,
-                            format!(
-                                "`{sym}` cannot mix `{l}` and `{r}`: integer and \
-                                 floating-point operands need an explicit conversion \
-                                 (`to_double`, `to_long`, …)"
-                            ),
-                        );
-                        return;
-                    }
-                    match lr.cmp(&rr) {
-                        std::cmp::Ordering::Less => self.record_promotion(lhs.span(), rb),
-                        std::cmp::Ordering::Greater => self.record_promotion(rhs.span(), lb),
-                        std::cmp::Ordering::Equal => {}
-                    }
-                    return;
-                }
-                (None, None) => {}
-                _ => {
+        // [op-promote] Numeric operands widen within their class for **every**
+        // comparison, equality included (user decision 2026-09-18): `Int <
+        // Long` compares at `Long` with the narrower side recording a
+        // promotion, and so does `Int == Long`. Equality used to be excluded,
+        // which made `n == 0` an error for a `Long` `n` while `n < 0` was fine
+        // — an inconsistency with no reading behind it, since a widening
+        // comparison is exact in both directions. The int↔float mix stays
+        // refused the same way. This runs *before* the same-base check, which
+        // mixed widths would otherwise trip.
+        match (op_numeric(lb), op_numeric(rb)) {
+            (Some((lf, lr)), Some((rf, rr))) => {
+                if lf != rf {
                     self.error(
                         span,
                         format!(
-                            "cannot compare `{l}` with `{r}`: the operands of a \
-                             comparison must be the same type"
+                            "`{sym}` cannot mix `{l}` and `{r}`: integer and \
+                             floating-point operands need an explicit conversion \
+                             (`to_double`, `to_long`, …)"
                         ),
                     );
                     return;
                 }
+                match lr.cmp(&rr) {
+                    std::cmp::Ordering::Less => self.record_promotion(lhs.span(), rb),
+                    std::cmp::Ordering::Greater => self.record_promotion(rhs.span(), lb),
+                    std::cmp::Ordering::Equal => {}
+                }
+                return;
+            }
+            (None, None) => {}
+            _ => {
+                self.error(
+                    span,
+                    format!(
+                        "cannot compare `{l}` with `{r}`: the operands of a \
+                         comparison must be the same type"
+                    ),
+                );
+                return;
             }
         }
         // Same base type on both sides — qualifiers ignored, since equality
@@ -15844,6 +15890,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 matched.clone()
             };
             self.out.expr_ty.insert(self.key(b.span), bty.clone());
+            // [linear-container] A binding whose payload is **linear** takes
+            // the obligation *out* of the subject: `remove_at(pending, i) is
+            // Reply<Fired> token` is the take-by-move surface's own idiom.
+            // Recorded so the emitters move rather than copy — Rust's
+            // narrowed-read path clones through a borrow, which duplicates an
+            // obligation and does not even compile for a reply token (a
+            // `SalvoReply` is not `Clone`), and this is the *binding* site, so
+            // `note_linear_move`'s use-site path never sees it.
+            if self.ty_own_linear(&bty) {
+                self.out.linear_moves.insert(self.key(b.span));
+            }
             // The binding aliases the subject: they share fate
             // [fate-link].
             let links = self.links_for_value(subject, b.span);
@@ -17659,6 +17716,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                         && self.scope.fns.contains_key(id.name.as_str()) =>
                 {
                     self.check_expr(a, exp.as_ref())
+                }
+                // [lit-adopt] A numeric literal adopts the numeric type its
+                // *parameter* expects — the rule's own `f(1)` into a `Long`
+                // parameter, which until 2026-09-18 only worked for annotated
+                // `let`s and struct fields, so `millis(500)` was refused with
+                // "no matching overload for `millis(Int)`" and every call in
+                // std's new time surface would have needed `500L`.
+                //
+                // Read off the *candidates* rather than the lead, so adoption
+                // stays a fallback and never re-ranks an overload set: an
+                // exact `Int` (or `Double`) candidate at this position blocks
+                // it, and the adopted type must be the only numeric one the
+                // candidates name there. Generic patterns are not numeric, so
+                // they neither block nor supply a target.
+                Expr::Int { .. } | Expr::Float { .. } => {
+                    let want = Self::adoptable_numeric_param(
+                        &pool,
+                        i,
+                        matches!(a, Expr::Float { .. }),
+                    );
+                    self.check_expr(a, want.as_ref())
                 }
                 _ => self.check_expr(a, None),
             };

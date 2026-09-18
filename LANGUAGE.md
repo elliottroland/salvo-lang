@@ -2273,6 +2273,14 @@ import list.ext.add as ext_add // Import the list extensions add function from l
 import core.Str // Not strictly necessary -- all of core is imported by default
 ```
 
+A module can also be imported *whole*, which brings every name in it — and in every module beneath it — into scope with one line:
+
+```
+import time // Instant, Tick, Duration, Clock, Ticker, Timer, millis, between, ...
+```
+
+This is how a std surface that is not implicitly visible stays cheap to use: `time` is one import rather than a dozen. A whole-module import is deliberately the weakest way for a name to arrive. Your own module's declarations win over it, and so does a named import, both silently — so a file that declares its own `Duration` keeps it, and `import other.Duration` beside `import time` picks the other one. Functions do not compete at all: overloads from a bulk import simply sit lower on the scope ladder, and `between@time(a, b)` names the module explicitly. The one case that cannot be resolved by hand at the use site is two whole-module imports carrying the same *type* name, since a type reference has no module selector; there the first module wins and the compiler warns, naming the import that would settle it. A module import takes no `as` — there is nothing to qualify a renamed module with — and `import core` is redundant, since core is always visible.
+
 Only the modules which are used in the code are transpiled to the relevant backend equivalent (modules in Rust, packages in Kotlin).
 
 Every name written in a type position must resolve to a declaration in scope — base types (structs, `type` declarations and aliases, `intrinsic type`s, effects) and qualifiers alike. A name that resolves to nothing is an error naming the name, wherever it is written: a signature, a struct field, a `let` annotation, an `of` type, a `canbe` or `with` clause, or an `is` / `when` check. The diagnostic lists the modules that would bring the name into scope, if any.

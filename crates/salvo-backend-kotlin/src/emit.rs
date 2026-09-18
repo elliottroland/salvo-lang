@@ -120,6 +120,8 @@ pub fn emit_program_reporting(
     let mut needs_bytes = false;
     // [kt-actor] And for the scheduler, when a program spawns.
     let mut needs_scheduler = false;
+    // [time-types] And for the two clock readings, when a program reads time.
+    let mut needs_time = false;
     // [kt-effect-fusion] The fusion switch is program-wide: a fn's
     // signature cannot depend on which of its callers happens to hold a
     // fusion, so either every effect site fuses or none does. Same gate as
@@ -158,6 +160,7 @@ pub fn emit_program_reporting(
         needs_compare |= emitter.needs_compare;
         needs_bytes |= emitter.needs_bytes;
         needs_scheduler |= emitter.needs_scheduler;
+        needs_time |= emitter.needs_time;
         has_ifaces.extend(emitter.has_ifaces);
         platform_hosts.extend(emitter.platform_hosts);
         let mut rel_path = std::path::PathBuf::new();
@@ -209,6 +212,10 @@ pub fn emit_program_reporting(
             content,
         });
     }
+    // [time-timer] The scheduler's deadline thread reads the monotonic clock,
+    // so the time runtime travels with it: a `Fired` must sit on the same
+    // timeline `tick()` reports, which is what one shared reading buys.
+    let needs_time = needs_time || needs_scheduler;
     if needs_throw {
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("throw.kt"),
@@ -231,6 +238,12 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("scheduler.kt"),
             content: generate_scheduler_file(),
+        });
+    }
+    if needs_time {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("hosttime.kt"),
+            content: generate_time_file(),
         });
     }
     // [backend-companion] Backend-native companion files are copied
@@ -424,6 +437,13 @@ fn generate_compare_file() -> String {
 /// Source in `runtime/scheduler.kt`.
 fn generate_scheduler_file() -> String {
     include_str!("../runtime/scheduler.kt").to_string()
+}
+
+/// [time-types] [kt-time] The two clock readings `time`'s effects are built
+/// on, mirroring the Rust backend's `time.rs` number for number. Emitted only
+/// when a program reads time. Source in `runtime/hosttime.kt`.
+fn generate_time_file() -> String {
+    include_str!("../runtime/hosttime.kt").to_string()
 }
 
 /// [actor-use-addr] The forwarding stub of a protocol: `__Stub_Counter`.
@@ -888,6 +908,9 @@ struct Emitter<'p> {
     /// [kt-actor] This file spawns, sends to an addr, or bridges with
     /// `waitfor`, so the scheduler file is part of the program.
     needs_scheduler: bool,
+    /// [time-types] Whether this module reads a clock, so the time runtime is
+    /// part of the program.
+    needs_time: bool,
     /// [is-bind-once] Hoisted `is` subjects: the span of a subject that is not
     /// a place, mapped to the `val` holding its single evaluation. The test and
     /// the binding both read it through `emit_place_storage`; they used to
@@ -999,6 +1022,7 @@ impl<'p> Emitter<'p> {
             needs_compare: false,
             needs_bytes: false,
             needs_scheduler: false,
+            needs_time: false,
             is_temps: HashMap::new(),
             is_temp_id: 0,
             gen_slots: HashSet::new(),
@@ -6381,6 +6405,20 @@ impl<'p> Emitter<'p> {
                     | "binary_search"
             ) {
                 self.needs_compare = true;
+            }
+            // [time-types] [kt-time] The two clock readings live in their own
+            // runtime object, so a program that reads a clock gets it and one
+            // that never asks the time carries nothing.
+            if matches!(
+                f.name.name.as_str(),
+                "monotonic_nanos" | "epoch_nanos" | "fire_after"
+            ) {
+                self.needs_time = true;
+            }
+            // [time-timer] A deadline is the scheduler's, and its reading comes
+            // from the time runtime — so registering one needs both files.
+            if f.name.name == "fire_after" {
+                self.needs_scheduler = true;
             }
             if let Some(code) =
                 crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &type_args)

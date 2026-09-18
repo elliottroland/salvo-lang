@@ -1363,11 +1363,55 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   existing accessor path, where a linear payload is a `Clone` handle today
   (phase 4's tokens) and a non-`Clone` one is a loud rustc error rather than
   wrong code.
+  * **The `is`-binding site too**, since 2026-09-18: `remove_at(pending, i) is
+    Reply<Fired> token` binds by moving out of the `Option`. The checker
+    records the *binding's* span in `linear_moves` (its use-site path never
+    sees a binding), and the emitter takes the moving branch before the
+    ordinary narrowed read. Found by [time-manual]'s deadline queue, which was
+    a raw E0507 before it — and the same fix removed a silent obligation copy
+    from `examples/linearity`'s generated code.
   * The two intrinsic terminals are `into_iter().for_each(f)` /
     `into_values().into_iter().for_each(f)` rather than a `for` loop, for one
     boring reason worth recording: an immediately-applied closure literal
     (`(|r| …)(x)`) leaves rustc with nothing to infer the parameter type from
     (E0282), while a `for_each` argument is typed by the `FnMut` bound.
+* [rs-time] [time-types] **The clock readings are a runtime module of their
+  own**, `runtime/hosttime.rs` [rs-runtime-source], holding
+  `salvo_mono_nanos()` and `salvo_epoch_nanos()` — the whole of the host's
+  contribution to std's time surface, since `Duration`, `Instant` and `Tick`
+  are ordinary structs over one `i64` each and everything else about them is
+  Salvo.
+  * **The monotonic origin is process-wide**, a `OnceLock<Instant>` initialised
+    by the first reading. It has to be somewhere: Rust's `Instant` is opaque
+    and cannot be turned into a number, and an origin *per call site* would put
+    two timelines in one program and make `between` answer nonsense.
+  * `salvo_epoch_nanos()` answers a **negative** number before 1970 rather than
+    saturating, matching the Kotlin side number for number.
+  * **The file is named `hosttime.rs`, not `time.rs`** — deliberately, and the
+    reason is a trap worth knowing: a runtime file and an emitted *std module*
+    share one output namespace, so a module named `time` and a runtime file
+    named `time.rs` write the same path, and the second silently clobbered the
+    first (a duplicate `pub mod time;` and a pile of missing-symbol errors).
+    The general hole is recorded in ROADMAP.
+  * **It travels with the scheduler**: `needs_time` is implied by
+    `needs_scheduler`, because the deadline thread reads the monotonic clock
+    and a `Fired` has to sit on the timeline `tick()` reports. Both runtime
+    tests mount it beside `scheduler.rs` for the same reason.
+* [rs-time] [time-timer] **Deadlines live in the scheduler**: `salvo_after`
+  registers `(deadline, token, builder)` and **one** thread — started by the
+  first registration, never one per timer — parks in `Condvar::wait_timeout`
+  until the earliest deadline, delivering every due token and re-sleeping. The
+  registration hands the token to the scheduler (`untrack`, as `watch` and
+  `on_idle` do), and a pending deadline makes `idle()` false, which is what
+  keeps a program waiting for a fire from being reported as a deadlock.
+  * The `Fired` builder is the site's, on `ExitOf`/`IdleOf`'s precedent: the
+    runtime holds an `i64` and cannot construct a Salvo struct, so
+    `fire_after`'s lowering closes over
+    `|__at| Box::new(Fired { at: Tick { nanos: __at } })`.
+* [rs-mailbox] A handler's `__mailbox_capacity` field is **`pub`** (since
+  2026-09-18): the spawn site need not be in the same module, and std's own
+  `DefaultTimer` is spawned from user code — a private field made that a raw
+  rustc E0616 [backend-never-wrong].
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
   [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a

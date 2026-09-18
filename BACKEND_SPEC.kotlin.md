@@ -946,6 +946,32 @@ where Rust had to build the fusion to get the same programs running
   * `replace(map, k, v)` is `put`, which already answers the previous value on
     the JVM — the two Salvo functions differ only in what the language lets you
     do with the answer [linear-container].
+* [kt-time] [time-types] **The clock readings are a runtime module of their
+  own**, `runtime/hosttime.kt` [kt-runtime-source]: `SalvoTime.monoNanos()` is
+  `System.nanoTime()` — documented as "some fixed but arbitrary origin", which
+  is exactly what the language claims about a `Tick` — and
+  `SalvoTime.epochNanos()` reads `java.time.Instant.now()` as
+  `epochSecond * 1_000_000_000 + nano`, so the wall reading keeps its
+  sub-millisecond precision instead of being `currentTimeMillis()` scaled up.
+  * Unlike the Rust side it needs **no process-wide base**, because the JVM's
+    reading is already a number on one timeline. The *origin* therefore differs
+    between the backends — as the language says it may — while every `between`
+    answers the same span, which is what the shared `time-surface` case
+    asserts.
+  * **Named `hosttime.kt`, not `time.kt`**, so it cannot collide with the
+    emitted std module `time`; the general hole (runtime file names versus
+    module names sharing one output namespace) is recorded in ROADMAP.
+  * **It travels with the scheduler** (`needs_time` implied by
+    `needs_scheduler`), since the deadline thread reads the monotonic clock.
+* [kt-time] [time-timer] **Deadlines live in the scheduler**, mirroring the
+  Rust backend rather than reaching for `ScheduledThreadPoolExecutor`:
+  `SalvoSched.after` registers `(deadline, token, builder)` and one **daemon**
+  thread parks in `Condition.awaitNanos` until the earliest deadline. A daemon,
+  because pending timers die with the program [actor-waitfor] and must not hold
+  the JVM open. A pending deadline makes `idle()` false, exactly as on Rust, so
+  the two backends agree on when a program is quiescent and when it is stuck.
+  * The `Fired` builder is the site's (`{ __at -> Fired(Tick(__at)) }`), on the
+    `Exit`/`Idle` precedent.
 * [kt-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.kt`
   [kt-runtime-source] — emitted only into a program that spawns, in package

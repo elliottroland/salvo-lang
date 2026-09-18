@@ -10178,3 +10178,181 @@ fn every_example_runs_to_its_expected_output() {
         run_rust_files(&files, &format!("example-{example}"), &expected);
     }
 }
+
+// ===================== time [time-types] [time-timer] =====================
+
+/// [time-types] [time-clock] [time-ticker] [mod-import-module] The time surface
+/// end to end: one `import time` for the module, spans built and read back,
+/// both timelines' `between`, the epoch bridge, and the two clock effects.
+const TIME_SURFACE: &str = r#"
+import time
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    use DefaultTicker()
+    use DefaultClock()
+    let d = millis(1500)
+    println("span=${d}")
+    println("sum=${plus(d, seconds(1))}")
+    println("scaled=${times(d, 2)}")
+    println("abs=${abs(minus(seconds(1), seconds(3)))}")
+    println("millis=${to_millis(d)}")
+    println("units=${micros(250)} ${nanos(37)} ${minutes(2)} ${hours(1)}")
+    let t0 = tick()
+    let t1 = plus(t0, micros(250))
+    println("ticks=${between(t0, t1)} ${between(t1, t0)}")
+    let i = epoch_milli(1700000000000)
+    println("epoch=${to_epoch_milli(i)} ${to_epoch_second(i)}")
+    println("shifted=${to_epoch_milli(plus(i, seconds(2)))}")
+    println("wall=${to_epoch_nano(now()) > 0L}")
+    println("mono to wall=${to_epoch_nano(to_instant(t0)) > 0L}")
+    println("round trip=${to_epoch_nano(to_instant(to_tick(i))) == to_epoch_nano(i)}")
+    println("ordered=${t1 > t0} ${d == millis(1500)}")
+}
+"#;
+
+const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nmillis=1500\n\
+                                   units=250us 37ns 120s 3600s\nticks=250us -250us\n\
+                                   epoch=1700000000000 1700000000\nshifted=1700000002000\n\
+                                   wall=true\nmono to wall=true\nround trip=true\n\
+                                   ordered=true true\n";
+
+/// [time-timer] A real deadline: `DefaultTimer` spawned like any actor, a
+/// `waitfor` bridging the fire into `main`, and the fire's `at` proving the
+/// deadline was honoured. Asserted as *inequalities*, since a real clock cannot
+/// promise an exact number.
+const TIME_TIMER: &str = r#"
+import time
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    use DefaultTicker()
+    let timers = spawn DefaultTimer() on pool(1)
+    let started = tick()
+    let first = waitfor fired: Reply<Fired> {
+        timers.after(millis(50), fired)
+    }
+    let waited = between(started, first.at)
+    println("waited enough: ${to_millis(waited) >= 50}")
+    let second = waitfor again: Reply<Fired> {
+        timers.after(millis(10), again)
+    }
+    println("in order: ${second.at > first.at}")
+}
+"#;
+
+const TIME_TIMER_OUTPUT: &str = "waited enough: true\nin order: true\n";
+
+/// [time-manual] [effect-handler-multi] The pure-Salvo fake: `ManualTime` wears
+/// `Timer` and `TimerCtl`, the code under test holds only the `Timer` addr, and
+/// the test sequences itself with `on_idle` before advancing virtual time — so
+/// a two-second deadline is observed in microseconds, deterministically.
+const TIME_MANUAL: &str = r#"
+import time
+
+actor effect Sleeper {
+    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done
+    send fn woke(done: Reply<Str>, f: Fired) => !done, !f
+}
+
+handler Napping() [Timer] of Sleeper {
+    mailbox { capacity: 8 }
+
+    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done {
+        after(wait, replyto woke(done))
+    }
+
+    send fn woke(done: Reply<Str>, f: Fired) => !done, !f {
+        send(done, "woke at ${to_millis(between(Tick {nanos: 0L}, f.at))}ms")
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let p = pool(1)
+    let (timer, ctl) = spawn ManualTime() on p
+    let sleeper = spawn Napping() use timer on p
+    let answer = waitfor result: Reply<Str> {
+        sleeper.nap(seconds(2), result)
+        waitfor settled: Reply<Idle> {
+            on_idle(p, settled)
+        }
+        ctl.advance(seconds(2))
+    }
+    println(answer)
+    // Virtual time *accumulates*: the second nap measures from where the first
+    // advance left `now`, so a one-second deadline answers at three seconds.
+    let second = waitfor later: Reply<Str> {
+        sleeper.nap(seconds(1), later)
+        waitfor drained: Reply<Idle> {
+            on_idle(p, drained)
+        }
+        ctl.advance(seconds(1))
+    }
+    println(second)
+}
+"#;
+
+const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
+
+/// [time-types] [mod-import-module] The surface compiles and runs, and both
+/// backends print the same text.
+#[test]
+fn rustc_compiles_and_runs_the_time_surface() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TIME_SURFACE)]);
+    run_rust_files(&files, "time-surface", TIME_SURFACE_OUTPUT);
+}
+
+/// [time-timer] A real deadline fires, and the fires are ordered.
+#[test]
+fn rustc_compiles_and_runs_a_real_timer() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TIME_TIMER)]);
+    run_rust_files(&files, "time-timer", TIME_TIMER_OUTPUT);
+}
+
+/// [time-manual] Virtual time, in pure Salvo, through a two-face handler.
+#[test]
+fn rustc_compiles_and_runs_manual_time() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TIME_MANUAL)]);
+    run_rust_files(&files, "time-manual", TIME_MANUAL_OUTPUT);
+}
+
+/// [time-timer] [rs-time] What a deadline registration lowers to: the scheduler
+/// call plus the `Fired` builder the site closes over — `watch`/`on_idle`'s
+/// shape, since the runtime holds a number and cannot construct a Salvo struct.
+#[test]
+fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
+    let files = generate(&[("main.sv", TIME_TIMER)]);
+    let time = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "time.rs")
+        .expect("time.rs");
+    assert!(
+        time.content.contains("crate::scheduler::salvo_after(")
+            && time
+                .content
+                .contains("|__at| Box::new(Fired { at: Tick { nanos: __at } })"),
+        "expected the deadline lowering in:\n{}",
+        time.content
+    );
+    // [time-types] [rs-time] And the clock readings come from the time runtime,
+    // which travels with the scheduler.
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "hosttime.rs"),
+        "expected hosttime.rs to be emitted"
+    );
+}

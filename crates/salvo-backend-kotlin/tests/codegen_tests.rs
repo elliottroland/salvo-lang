@@ -2057,6 +2057,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_waitfor_package,
     kotlinc_compiles_and_runs_the_task_kernel,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
+    kotlinc_compiles_and_runs_the_time_surface,
+    kotlinc_compiles_and_runs_a_real_timer,
+    kotlinc_compiles_and_runs_manual_time,
     kotlinc_compiles_and_runs_is_bindings_over_calls,
     // the checked-in examples, one case each
     kotlin_example_actors,
@@ -6551,7 +6554,11 @@ fn implicit_parameters_lower_to_trailing_fn_parameters() {
     for expected in [
         "fun<T> total(xs: List<T>, add: (T, T) -> T, zero: () -> T): T {",
         "total(listOf<Int>(1, 2, 3), ::add, ::zero)",
-        "total(listOf<Int>(2, 3, 4), ::times, ::one)",
+        // `times__2`, not `times`: std's `time` module declares a `times` of
+        // its own ([time-types], `times(Duration, Long)`), and overload
+        // mangling is program-wide — so a user fn sharing the name takes a
+        // suffix whether or not the module is imported [kt-fn-mangling].
+        "total(listOf<Int>(2, 3, 4), ::times__2, ::one)",
     ] {
         assert!(main.contains(expected), "expected `{expected}` in:\n{main}");
     }
@@ -10456,4 +10463,166 @@ fn every_example_has_a_kotlin_case() {
              KOTLIN_CASES"
         );
     }
+}
+
+// ===================== time [time-types] [time-timer] =====================
+//
+// The same three programs the Rust backend runs, printing the same text: the
+// time surface, a real deadline, and virtual time through `ManualTime`
+// [backend-parity].
+
+const TIME_SURFACE: &str = r#"
+import time
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    use DefaultTicker()
+    use DefaultClock()
+    let d = millis(1500)
+    println("span=${d}")
+    println("sum=${plus(d, seconds(1))}")
+    println("scaled=${times(d, 2)}")
+    println("abs=${abs(minus(seconds(1), seconds(3)))}")
+    println("millis=${to_millis(d)}")
+    println("units=${micros(250)} ${nanos(37)} ${minutes(2)} ${hours(1)}")
+    let t0 = tick()
+    let t1 = plus(t0, micros(250))
+    println("ticks=${between(t0, t1)} ${between(t1, t0)}")
+    let i = epoch_milli(1700000000000)
+    println("epoch=${to_epoch_milli(i)} ${to_epoch_second(i)}")
+    println("shifted=${to_epoch_milli(plus(i, seconds(2)))}")
+    println("wall=${to_epoch_nano(now()) > 0L}")
+    println("mono to wall=${to_epoch_nano(to_instant(t0)) > 0L}")
+    println("round trip=${to_epoch_nano(to_instant(to_tick(i))) == to_epoch_nano(i)}")
+    println("ordered=${t1 > t0} ${d == millis(1500)}")
+}
+"#;
+
+const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nmillis=1500\n\
+                                   units=250us 37ns 120s 3600s\nticks=250us -250us\n\
+                                   epoch=1700000000000 1700000000\nshifted=1700000002000\n\
+                                   wall=true\nmono to wall=true\nround trip=true\n\
+                                   ordered=true true\n";
+
+const TIME_TIMER: &str = r#"
+import time
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    use DefaultTicker()
+    let timers = spawn DefaultTimer() on pool(1)
+    let started = tick()
+    let first = waitfor fired: Reply<Fired> {
+        timers.after(millis(50), fired)
+    }
+    let waited = between(started, first.at)
+    println("waited enough: ${to_millis(waited) >= 50}")
+    let second = waitfor again: Reply<Fired> {
+        timers.after(millis(10), again)
+    }
+    println("in order: ${second.at > first.at}")
+}
+"#;
+
+const TIME_TIMER_OUTPUT: &str = "waited enough: true\nin order: true\n";
+
+const TIME_MANUAL: &str = r#"
+import time
+
+actor effect Sleeper {
+    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done
+    send fn woke(done: Reply<Str>, f: Fired) => !done, !f
+}
+
+handler Napping() [Timer] of Sleeper {
+    mailbox { capacity: 8 }
+
+    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done {
+        after(wait, replyto woke(done))
+    }
+
+    send fn woke(done: Reply<Str>, f: Fired) => !done, !f {
+        send(done, "woke at ${to_millis(between(Tick {nanos: 0L}, f.at))}ms")
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let p = pool(1)
+    let (timer, ctl) = spawn ManualTime() on p
+    let sleeper = spawn Napping() use timer on p
+    let answer = waitfor result: Reply<Str> {
+        sleeper.nap(seconds(2), result)
+        waitfor settled: Reply<Idle> {
+            on_idle(p, settled)
+        }
+        ctl.advance(seconds(2))
+    }
+    println(answer)
+    // Virtual time *accumulates*: the second nap measures from where the first
+    // advance left `now`, so a one-second deadline answers at three seconds.
+    let second = waitfor later: Reply<Str> {
+        sleeper.nap(seconds(1), later)
+        waitfor drained: Reply<Idle> {
+            on_idle(p, drained)
+        }
+        ctl.advance(seconds(1))
+    }
+    println(second)
+}
+"#;
+
+const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
+
+/// [time-types] [time-clock] [time-ticker] [mod-import-module] The whole
+/// surface, reached with one `import time`.
+fn kotlinc_compiles_and_runs_the_time_surface() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TIME_SURFACE)]),
+        "time-surface",
+        TIME_SURFACE_OUTPUT,
+    )
+}
+
+/// [time-timer] A real deadline fires, and fires stay ordered.
+fn kotlinc_compiles_and_runs_a_real_timer() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TIME_TIMER)]),
+        "time-timer",
+        TIME_TIMER_OUTPUT,
+    )
+}
+
+/// [time-manual] [effect-handler-multi] Virtual time in pure Salvo, through a
+/// two-face handler.
+fn kotlinc_compiles_and_runs_manual_time() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TIME_MANUAL)]),
+        "time-manual",
+        TIME_MANUAL_OUTPUT,
+    )
+}
+
+/// [time-timer] [kt-time] What a deadline registration lowers to, mirroring the
+/// Rust backend: the scheduler call plus the `Fired` builder the site closes
+/// over — and the time runtime, which travels with the scheduler.
+#[test]
+fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
+    let files = generate_files(&[("main.sv", TIME_TIMER)]);
+    let time = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "time.kt")
+        .expect("time.kt");
+    assert!(
+        time.content.contains("salvo.SalvoSched.after(")
+            && time.content.contains("{ __at -> Fired(Tick(__at)) }"),
+        "expected the deadline lowering in:\n{}",
+        time.content
+    );
+    assert!(
+        files
+            .iter()
+            .any(|f| f.rel_path.to_string_lossy() == "hosttime.kt"),
+        "expected hosttime.kt to be emitted"
+    );
 }

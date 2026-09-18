@@ -192,6 +192,14 @@ fn main() [use] {
   the pool's sink (`pool(n, sink)`), or is named on stderr. The scheduler is a library in each
   backend's runtime — no runtime baked into your code, and identical behaviour
   on both.
+- **Time**: `Duration` for a span, `Instant` for a wall-clock point and `Tick`
+  for a monotonic one — kept apart so a deadline cannot be measured against a
+  clock that NTP can step. Reading either clock is a capability (`Clock`,
+  `Ticker`), sleeping is an `actor effect` (`Timer.after(wait, done)`) whose
+  fire arrives as an ordinary message, and `ManualTime` is a pure-Salvo fake
+  wearing two faces — so a test that would wait two seconds advances virtual
+  time instead and always prints the same thing. Imported rather than implicit:
+  `import time` brings the whole module.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
   `Nothing`, so intermediate frames stay silent. The delimiter is

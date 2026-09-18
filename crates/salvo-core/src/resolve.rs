@@ -55,6 +55,10 @@ pub struct FnEntry<'p> {
 pub enum Rung {
     /// Implicitly visible `core.*`.
     Core,
+    /// Swept in by a whole-module `import time` [mod-import-module]: less
+    /// specific than naming the item, because nothing in the import
+    /// mentions this declaration.
+    ModuleImport,
     /// Named by an `import` in this file.
     Import,
     /// Declared by this file's own module.
@@ -66,6 +70,7 @@ impl Rung {
     pub fn describe(self) -> &'static str {
         match self {
             Rung::Core => "the standard library",
+            Rung::ModuleImport => "a whole-module import in this file",
             Rung::Import => "an import in this file",
             Rung::Own => "this module",
         }
@@ -319,10 +324,14 @@ impl NameKind {
 
 /// Visibility precedence of a scope entry [mod-collision]: own-module
 /// declarations override implicit `core.*` visibility, and explicit
-/// imports override `core.*`; everything else is a collision.
+/// imports override `core.*`; everything else is a collision. A
+/// whole-module import [mod-import-module] sits between the two: it
+/// overrides `core.*` and is overridden, silently, by anything more
+/// specific.
 #[derive(Clone, Copy, PartialEq)]
 enum Level {
     Core,
+    ModuleImport,
     Own,
     Import,
 }
@@ -333,6 +342,7 @@ impl Level {
     fn rung(self) -> Rung {
         match self {
             Level::Core => Rung::Core,
+            Level::ModuleImport => Rung::ModuleImport,
             Level::Own => Rung::Own,
             Level::Import => Rung::Import,
         }
@@ -576,7 +586,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         // Explicit imports.
         for item in &ast.items {
             let Item::Import(import) = item else { continue };
-            resolve_import(&mut scope, &by_module, import, file_idx, &mut ctx);
+            resolve_import(&mut scope, &by_module, import, file_idx, &file.module, &mut ctx);
         }
         // [name-dot] Dot-name rules, checked against everything visible
         // here (own module, core, imports).
@@ -651,6 +661,37 @@ impl<'e, 'p> AddCtx<'e, 'p> {
                 // order... core order is the collection order here, but
                 // the global check already made this an error).
                 false
+            }
+            // [mod-import-module] A whole-module import never *fights*
+            // anything: it loses to an own declaration and to a named
+            // import in silence (user decision 2026-09-18 — a bulk import
+            // is a convenience, so a name it happens to carry must not
+            // break a file that declares its own), and where two bulk
+            // imports carry one type name the first wins with a warning.
+            // Functions need neither: the ladder ranks them and `@module`
+            // picks [fn-overload-scope].
+            Some((Level::ModuleImport, existing_module)) if level == Level::ModuleImport => {
+                let existing_module = *existing_module;
+                let span = import_span.unwrap_or_default();
+                self.errors.push(FileDiagnostic::warning(
+                    self.file_idx,
+                    span,
+                    format!(
+                        "{} `{name}` is carried by two whole-module imports \
+                         (`{existing_module}` and `{module}`); `{existing_module}`'s wins \
+                         — import the other by name (`import {module}.{name} as …`) to \
+                         pick it [mod-import-module]",
+                        kind.describe(),
+                    ),
+                ));
+                false
+            }
+            Some(_) if level == Level::ModuleImport => false,
+            Some((Level::ModuleImport, _)) => {
+                // A named import or an own declaration overrides a bulk
+                // one, silently and deliberately.
+                self.provenance.insert(key, (level, module));
+                true
             }
             Some((existing_level, existing_module)) => {
                 let existing_module = *existing_module;
@@ -948,8 +989,112 @@ fn resolve_import<'p>(
     by_module: &HashMap<&'p ModulePath, ModuleItems<'p>>,
     import: &'p ImportDecl,
     file_idx: usize,
+    own_module: &ModulePath,
     ctx: &mut AddCtx<'_, 'p>,
 ) {
+    // [mod-import-module] `import time` — a whole *module*, every name in
+    // it (user decision 2026-09-18). Tried first, and only when every
+    // segment is lowercase, so it can never capture a name import: module
+    // path segments are lowercase [name-casing] while a type is uppercase,
+    // and a *fn* import is distinguished by its module prefix still
+    // matching a module. Prefix semantics match the name form's — `import
+    // time` sweeps `time` and every `time.*` module, the way `import
+    // core.Str` finds `core.string`.
+    let all_lower = import
+        .path
+        .iter()
+        .all(|seg| !seg.name.starts_with(|c: char| c.is_uppercase()));
+    if all_lower {
+        let prefix: Vec<&str> = import.path.iter().map(|i| i.name.as_str()).collect();
+        let mut modules: Vec<&&ModulePath> = by_module
+            .keys()
+            .filter(|path| {
+                path.0.len() >= prefix.len() && path.0.iter().zip(&prefix).all(|(a, b)| a == b)
+            })
+            .collect();
+        if !modules.is_empty() {
+            // Deterministic order: the first module to carry a name wins it
+            // [mod-import-module].
+            modules.sort_by_key(|m| m.to_string());
+            if let Some(alias) = &import.alias {
+                ctx.errors.push(FileDiagnostic::error(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "a whole-module import has no alias: `as {}` renames one \
+                         imported *name*, and Salvo has no module-qualified type \
+                         references to rename a module for. Import the names you \
+                         want to alias individually [mod-import-module]",
+                        alias.name
+                    ),
+                ));
+                return;
+            }
+            let mut added = false;
+            for module in modules {
+                // Already visible at another level: `core.*` is implicit
+                // everywhere and the file's own module adds itself. Adding
+                // them again would put every fn in the overload set twice —
+                // the same declaration at two rungs, which the refinement
+                // matcher counts [qual-refn-match].
+                let is_core = module.0.first().is_some_and(|p| p == "core");
+                if is_core || **module == *own_module {
+                    continue;
+                }
+                let items = &by_module[*module];
+                add_items(
+                    scope,
+                    items,
+                    module,
+                    None,
+                    Level::ModuleImport,
+                    Some(import.span),
+                    ctx,
+                );
+                added = true;
+            }
+            if !added {
+                ctx.errors.push(FileDiagnostic::warning(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "redundant import: everything in `{}` is already visible here \
+                         (`core.*` is implicit, and a module sees itself) \
+                         [mod-visibility]",
+                        prefix.join(".")
+                    ),
+                ));
+            }
+            return;
+        }
+        // [mod-import-module] A single-segment path can only ever have been
+        // a module: there is no `module.item` split to fall back to, so say
+        // what is wrong rather than reporting the shape.
+        if import.path.len() == 1 {
+            let mut known: Vec<String> = by_module
+                .keys()
+                .filter(|m| m.0.first().is_none_or(|p| p != "core"))
+                .map(|m| m.to_string())
+                .collect();
+            known.sort();
+            known.dedup();
+            ctx.errors.push(FileDiagnostic::error(
+                file_idx,
+                import.span,
+                format!(
+                    "unknown module `{}`: `import <module>` imports every name in a \
+                     module [mod-import-module]{}",
+                    prefix.join("."),
+                    if known.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" (importable modules: {})", known.join(", "))
+                    }
+                ),
+            ));
+            return;
+        }
+    }
     if import.path.len() < 2 {
         ctx.errors.push(FileDiagnostic::error(
             file_idx,

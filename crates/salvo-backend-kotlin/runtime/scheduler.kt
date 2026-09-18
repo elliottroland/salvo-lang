@@ -132,6 +132,22 @@ object SalvoSched {
      * registration is a one-shot.
      */
     private val idleHooks = mutableListOf<Triple<Int, SalvoReply, (Int, Int) -> Any?>>()
+
+    /**
+     * [time-timer] Registered deadlines, each a monotonic reading with the
+     * token to fulfil when it passes and the builder for the `Fired` payload.
+     * Unordered, exactly as on the Rust side: a program registers few
+     * deadlines at a time, so one scan per wake beats keeping a heap ordered
+     * under the scheduler's own lock.
+     */
+    private val timers = mutableListOf<Triple<Long, SalvoReply, (Long) -> Any?>>()
+
+    /**
+     * [time-timer] Whether the deadline thread is running. Started by the
+     * first [after], so a program that never sets a timer has no timer thread
+     * — and one that does has exactly one, never a thread per timer.
+     */
+    private var timerThread = false
     private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
 
     /** Creates a pool of [n] daemon worker threads and answers its id. */
@@ -314,6 +330,74 @@ object SalvoSched {
         }
     }
 
+    /**
+     * [time-timer] Registers a deadline: [done] is sent the `Fired` [fired]
+     * builds once at least [delay] nanoseconds have passed, carrying the
+     * monotonic reading it fired at.
+     *
+     * One thread serves every deadline, started on the first registration and
+     * parked in a timed wait until the earliest one comes due — the same shape
+     * as the Rust backend's, and for the same reason: no thread per timer, no
+     * polling. A registration wakes it, since the new deadline may be earlier
+     * than the one it is sleeping on.
+     *
+     * A delay of zero or less fires at the next look rather than immediately:
+     * the answer is always a *later* activation, never a call inside `after`.
+     */
+    fun after(
+        delay: Long,
+        done: SalvoReply,
+        fired: (Long) -> Any?,
+    ) {
+        lock.withLock {
+            // The token is the scheduler's obligation now, exactly as with a
+            // watch or an idle hook [actor-on-idle].
+            untrack(done)
+            val deadline = SalvoTime.monoNanos() + if (delay < 0L) 0L else delay
+            timers.add(Triple(deadline, done, fired))
+            if (!timerThread) {
+                timerThread = true
+                val t = Thread { serveTimers() }
+                t.isDaemon = true
+                t.start()
+            }
+            cv.signalAll()
+        }
+    }
+
+    /**
+     * [time-timer] The deadline thread: delivers every timer whose deadline
+     * has passed, then sleeps until the earliest one left (or until something
+     * changes). It never exits — the program ends when main returns
+     * [actor-waitfor], and pending timers die with it (the thread is a daemon,
+     * so it does not hold the JVM open).
+     */
+    private fun serveTimers() {
+        lock.lock()
+        try {
+            while (true) {
+                val now = SalvoTime.monoNanos()
+                val due = timers.filter { it.first <= now }
+                if (due.isNotEmpty()) {
+                    timers.removeAll(due)
+                    for ((deadline, done, fired) in due) {
+                        deliverReply(done, fired(deadline))
+                    }
+                    cv.signalAll()
+                    continue
+                }
+                val earliest = timers.minOfOrNull { it.first }
+                if (earliest == null) {
+                    cv.await()
+                } else {
+                    cv.awaitNanos(earliest - now)
+                }
+            }
+        } finally {
+            lock.unlock()
+        }
+    }
+
     /** A waiter: the `waitfor` bridge. Answers (token, waiter id). */
     fun waiter(): Pair<SalvoReply, Int> =
         lock.withLock {
@@ -412,9 +496,19 @@ object SalvoSched {
         return if (at < 0) null else at
     }
 
-    /** True when nothing can ever run again without outside input. */
+    /**
+     * True when nothing can ever run again without outside input.
+     *
+     * [time-timer] A pending deadline counts as work on its way: the timer
+     * thread will deliver it, so a program waiting for a fire is neither
+     * quiescent ([actor-on-idle]) nor deadlocked — it is waiting for time to
+     * pass, which is the one thing that happens without anybody running.
+     */
     private fun idle(): Boolean =
-        active == 0 && actors.all { deliverable(it) == null } && pools.all { it.tasks.isEmpty() }
+        active == 0 &&
+            actors.all { deliverable(it) == null } &&
+            pools.all { it.tasks.isEmpty() } &&
+            timers.isEmpty()
 
     /**
      * [actor-on-idle] Marks one token as no longer outstanding, against
