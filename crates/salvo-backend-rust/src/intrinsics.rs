@@ -108,6 +108,17 @@ pub fn fn_call(
         ("send", Some("Reply")) => format!("({}).send(Box::new({}))", a(0), a(1)),
         // [actor-spawn-expr] A pool is a scheduler index; `pool(n)` starts its
         // worker threads.
+        // [pool-fault-sink] The two-argument overload: the sink's addr plus the
+        // builder that turns the host's reason into the language's `Fault`
+        // message — the runtime cannot construct one, exactly as with `Exit`
+        // [actor-watch]. Dispatched on **arity**, since both overloads take an
+        // `Int` first and the table's key is the receiver type.
+        ("pool", Some("Int")) if args.len() == 2 => format!(
+            "crate::scheduler::salvo_pool_with_sink((({}) as usize), Some(((({}) as usize), \
+             |__reason| Box::new(__Msg_Faults::Faulted(Fault {{ reason: __reason }})))))",
+            a(0),
+            a(1)
+        ),
         ("pool", Some("Int")) => format!("crate::scheduler::salvo_pool((({}) as usize))", a(0)),
         // [waitfor-dedicated] `thread()` is a pool of one, and the only
         // placement the language types `Dedicated` — the qualifier is erased,

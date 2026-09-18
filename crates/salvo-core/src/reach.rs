@@ -291,9 +291,23 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         Expr::SelfScoped { .. } => {}
         // [actor-replyto] The member name is resolved against the enclosing
         // handler, not the module, so only the captures name things here.
-        Expr::ReplyTo { captures, .. } => {
+        Expr::ReplyTo {
+            member,
+            captures,
+            pool,
+            ..
+        } => {
+            // [task-mint] The target may be a **free `send fn`** in another
+            // module, and the emitted continuation names it — so the mint is a
+            // use of that name. Conservative in the way this whole pass is: a
+            // *member* mint names nothing importable, and a module pulled in
+            // for a name the file does not otherwise use costs one glob.
+            used.insert(member.name.as_str());
             for capture in captures {
                 expr_names(capture, used);
+            }
+            if let Some(pool) = pool {
+                expr_names(pool, used);
             }
         }
         // [actor-waitfor] Its block is ordinary code, and the token's

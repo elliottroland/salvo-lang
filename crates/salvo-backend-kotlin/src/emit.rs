@@ -4821,8 +4821,9 @@ impl<'p> Emitter<'p> {
                 member,
                 captures,
                 gated,
+                pool,
                 span,
-            } => self.emit_replyto(member, captures, *gated, *span),
+            } => self.emit_replyto(member, captures, *gated, pool.as_deref(), *span),
         }
     }
 
@@ -4845,9 +4846,22 @@ impl<'p> Emitter<'p> {
         member: &Ident,
         captures: &[Expr],
         gated: bool,
+        pool: Option<&Expr>,
         span: Span,
     ) -> String {
         self.needs_scheduler = true;
+        // [task-mint] [kt-task] A mint whose target is a free `send fn` needs
+        // no continuation class, no slot and no parked table: the lambda *is*
+        // the continuation, and the runtime schedules it on the pool the mint
+        // chose.
+        if let Some(key) = self
+            .checked
+            .replyto_tasks
+            .get(&(self.file_idx, span))
+            .copied()
+        {
+            return self.emit_task_mint(member, key, captures, pool);
+        }
         let Some(target) = self
             .checked
             .replyto_members
@@ -4873,6 +4887,58 @@ impl<'p> Emitter<'p> {
         format!(
             "run {{ val (__r, __s) = salvo.SalvoSched.{mint}(__addr!!);              __parked[__s] = {cont}.{variant}({}); __r }}",
             caps.join(", ")
+        )
+    }
+
+    /// [task-mint] [kt-task] `replyto k(caps) on P` where `k` is a free
+    /// `send fn`: `run { val __c0 = …; SalvoSched.mintTask(P) { __v ->
+    /// k(__c0, __v as Payload) } }`.
+    ///
+    /// The captures are bound to `val`s *outside* the lambda, which is what
+    /// makes them the values as they were at the mint rather than at the
+    /// answer. The payload is cast to the target's trailing parameter type, the
+    /// same way the `waitfor` bridge casts what a waiter was sent.
+    fn emit_task_mint(
+        &mut self,
+        member: &Ident,
+        key: salvo_core::FnKey,
+        captures: &[Expr],
+        pool: Option<&Expr>,
+    ) -> String {
+        let Some(target) = self.fn_by_key(key) else {
+            self.error(format!(
+                "internal: no declaration for the task target `{}`",
+                member.name
+            ));
+            return "TODO()".to_string();
+        };
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        let Some(last) = params.last() else {
+            self.error(format!(
+                "internal: task target `{}` has no answer parameter",
+                member.name
+            ));
+            return "TODO()".to_string();
+        };
+        let payload = self.emit_type(&last.ty);
+        let name = self.kotlin_fn_name(target);
+        let mut lets = String::new();
+        let mut args: Vec<String> = Vec::new();
+        for (i, c) in captures.iter().enumerate() {
+            let code = self.emit_expr(c);
+            lets.push_str(&format!("val __c{i} = {code}; "));
+            args.push(format!("__c{i}"));
+        }
+        args.push(format!("__v as {payload}"));
+        // [task-pool-inherit] An omitted `on` clause is the pool current where
+        // the mint runs.
+        let pool_code = match pool {
+            Some(p) => self.emit_expr(p),
+            None => "salvo.SalvoSched.currentPool()".to_string(),
+        };
+        format!(
+            "run {{ {lets}salvo.SalvoSched.mintTask({pool_code}) {{ __v -> {name}({}) }} }}",
+            args.join(", ")
         )
     }
 

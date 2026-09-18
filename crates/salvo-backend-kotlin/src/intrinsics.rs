@@ -58,6 +58,17 @@ pub fn fn_call(
         ("send", Some("Reply")) => format!("{}.send({})", a(0), a(1)),
         // [actor-spawn-expr] A pool is a scheduler id; `pool(n)` starts its
         // daemon worker threads.
+        // [pool-fault-sink] The two-argument overload: the sink's addr plus the
+        // builder that turns the host's reason into the language's `Fault`
+        // message — the runtime cannot construct one, exactly as with `Exit`
+        // [actor-watch]. Dispatched on **arity**, since both overloads take an
+        // `Int` first and the table's key is the receiver type.
+        ("pool", Some("Int")) if args.len() == 2 => format!(
+            "salvo.SalvoSched.poolWithSink({}, {}, {{ __reason -> \
+             __Msg_Faults.Faulted(Fault(__reason)) }})",
+            a(0),
+            a(1)
+        ),
         ("pool", Some("Int")) => format!("salvo.SalvoSched.pool({})", a(0)),
         // [waitfor-dedicated] `thread()` is a pool of one, and the only
         // placement the language types `Dedicated` — the qualifier is erased,

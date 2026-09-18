@@ -15,6 +15,7 @@
 //   5. death, and watching for it
 //   6. the same handler bound synchronously, which is not an actor at all
 //   7. `main`'s own pool: an actor with no `on`, running on main's thread
+//   8. a free `send fn`: work that is scheduled, with no actor of its own
 //
 // The sibling example `effects/` shows the synchronous half of this surface;
 // nothing here changes how effects are declared or called.
@@ -153,6 +154,29 @@ handler Breaking() of Fragile {
 // no addr — and `Counter`'s callers cannot tell the difference. Asynchrony is
 // a property of the **binding**, not of the handler. See the end of `main`.
 
+// ===== 8. a free `send fn` =====
+//
+// Not every unit of concurrent work needs an actor. A **free `send fn`** runs
+// by being *scheduled*: it answers nothing, every parameter it is given is
+// consumed, and its trailing parameter is the answer a `replyto` aimed at it
+// will carry. It has no mailbox, no state and no addr — the closure the backend
+// builds *is* the continuation.
+//
+// So an ordinary function can wire future work and return, which is what makes
+// a plain function a full citizen here: `report_line` below is synchronous,
+// keeps every feature, and never parks.
+send fn formatted(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+    out.send("${label} totalled ${total}")
+}
+
+// `replyto formatted(label, out)` mints a token aimed at the task, carrying the
+// label and the caller's own token as captures. No `on` clause, so the task
+// runs on the pool current here — which in `main` is main's own [main-pool].
+fn report_line(counter: Addr<Counter>, label: Str, out: Reply<Str>) [] -> None
+    => !counter, !label, !out {
+    counter.total(replyto formatted(label, out))
+}
+
 fn main() [use, spawn, waitfor] {
     use StdOutConsole()
 
@@ -229,6 +253,14 @@ fn main() [use, spawn, waitfor] {
         mine.total(out)
     }
     println("7. the main pool's own actor totalled ${local}")
+
+    // 8 — a task. `report_line` is an ordinary function called from `main`; the
+    // continuation it mints runs as scheduled work rather than as anyone's
+    // activation, and answers the token `main` is waiting on.
+    let line8 = waitfor out: Reply<Str> {
+        report_line(mine, "the counter", out)
+    }
+    println("8. ${line8}")
 
     println("done")
 }

@@ -30,6 +30,11 @@ intrinsic type Pool
 intrinsic fn pool(size: Int) [spawn] -> Pool => size
 provenance qualifier Dedicated of Pool
 intrinsic fn thread() [spawn] -> Dedicated Pool
+struct Fault { reason: Str }
+actor effect Faults {
+    send fn faulted(fault: Fault) => !fault
+}
+intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
 struct Exit { reason: Str }
 intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 ";
@@ -1542,6 +1547,368 @@ fn make() -> Pool {
         errs.iter()
             .any(|m| m.contains("`pool` requires the `spawn` capability")),
         "calling a `[spawn]` fn without the capability must be refused: {errs:?}"
+    );
+}
+
+// ===== [free-send-fn] [task-mint] The task kernel =====
+
+/// [free-send-fn] A **free `send fn`** is the send kind extended to a function
+/// (user decision 2026-09-17, FC-1(a)): it runs by being scheduled, answers
+/// nothing, and the refusal list is checked at the declaration — the same list
+/// an `actor effect`'s members carry, because the reason is the same.
+#[test]
+fn a_free_send_fn_carries_the_kinds_refusal_list() {
+    let ok = errors(
+        "\
+send fn finish(label: Str, out: Reply<Int>, total: Int) => !label, !out, !total {
+    out.send(total)
+}
+",
+    );
+    assert!(ok.is_empty(), "the ordinary shape must check clean: {ok:?}");
+
+    let returns = errors(
+        "\
+send fn finish(out: Reply<Int>, total: Int) -> Int => !out, !total {
+    out.send(total)
+    return 1
+}
+",
+    );
+    assert!(
+        returns
+            .iter()
+            .any(|m| m.contains("cannot declare a return type")),
+        "a send fn answers nothing: {returns:?}"
+    );
+
+    let keeps = errors(
+        "\
+send fn finish(label: Str, out: Reply<Int>, total: Int) => label, !out, !total {
+    out.send(total)
+}
+",
+    );
+    assert!(
+        keeps.iter().any(|m| m.contains("cannot keep `label`")),
+        "a scheduled body outlives the frame that minted it: {keeps:?}"
+    );
+
+    let mutable = errors(
+        "\
+send fn finish(xs: Mut List<Int>, out: Reply<Int>, total: Int) => !xs, !out, !total {
+    out.send(total)
+}
+",
+    );
+    assert!(
+        mutable
+            .iter()
+            .any(|m| m.contains("cannot take a `Mut` parameter")),
+        "mutating across the boundary would share: {mutable:?}"
+    );
+
+    let effects = errors(
+        "\
+send fn finish(out: Reply<Int>, total: Int) [Log] => !out, !total {
+    out.send(total)
+}
+",
+    );
+    assert!(
+        effects.iter().any(|m| m.contains("cannot declare `Log`")
+            && m.contains("no scope to supply a handler from")),
+        "the first-pass cut, with its remedy named: {effects:?}"
+    );
+
+    let generic = errors(
+        "\
+send fn finish<T>(out: Reply<T>, value: T) => !out, !value {
+    out.send(value)
+}
+",
+    );
+    assert!(
+        generic.iter().any(|m| m.contains("cannot be generic")),
+        "a mint carries no type arguments: {generic:?}"
+    );
+}
+
+/// [free-send-fn] It runs by being **scheduled**, so it is neither callable nor
+/// a value: a call would run it in this frame on this thread, which is the
+/// callback anti-pattern the kind exists to refuse.
+#[test]
+fn a_free_send_fn_is_neither_called_nor_passed() {
+    const SRC: &str = "\
+send fn finish(out: Reply<Int>, total: Int) => !out, !total {
+    out.send(total)
+}
+";
+    let called = errors(&format!(
+        "{SRC}
+fn go(out: Reply<Int>) [] -> None => !out {{
+    finish(out, 1)
+}}
+"
+    ));
+    assert!(
+        called.iter().any(|m| m.contains("runs by being scheduled rather than called")
+            && m.contains("replyto finish")),
+        "a call must be refused, naming the mint: {called:?}"
+    );
+
+    let valued = errors(&format!(
+        "{SRC}
+fn go() [] -> None {{
+    let f = finish
+    discard(f)
+}}
+"
+    ));
+    assert!(
+        valued.iter().any(|m| m.contains("is not a value")),
+        "a send fn cannot be passed by name: {valued:?}"
+    );
+}
+
+/// [task-mint] The mint that makes a free function a citizen of the concurrent
+/// world (FC-2): `replyto` may target a free `send fn`, and the mint is then
+/// legal in **any** function — the answer needs no mailbox, because the
+/// continuation is a detached task.
+#[test]
+fn a_mint_may_target_a_free_send_fn_from_any_function() {
+    let errs = errors(
+        "\
+send fn finish(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+    out.send(\"${label}=${total}\")
+}
+
+fn fetch(out: Reply<Str>) [Counter] -> None => !out {
+    total(replyto finish(\"count\", out))
+}
+",
+    );
+    assert!(
+        errs.is_empty(),
+        "an ordinary fn may mint toward a free send fn: {errs:?}"
+    );
+
+    let capture_count = errors(
+        "\
+send fn finish(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+    out.send(\"${label}=${total}\")
+}
+
+fn fetch(out: Reply<Str>) [Counter] -> None => !out {
+    total(replyto finish(out))
+}
+",
+    );
+    assert!(
+        capture_count
+            .iter()
+            .any(|m| m.contains("wants 2 capture(s), found 1")),
+        "the trailing parameter is the answer, the rest are captures: {capture_count:?}"
+    );
+}
+
+/// [task-mint] A **gate** is a mailbox policy, and a task has no mailbox: there
+/// is nothing to hold back while the answer is outstanding.
+#[test]
+fn a_gated_mint_cannot_target_a_task() {
+    let errs = errors(
+        "\
+send fn finish(out: Reply<Int>, total: Int) => !out, !total {
+    out.send(total)
+}
+
+fn fetch(out: Reply<Int>) [Counter] -> None => !out {
+    total(replyto! finish(out))
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("a task has no mailbox to gate")),
+        "expected the gate refusal: {errs:?}"
+    );
+}
+
+/// [task-pool-inherit] Placement: `on POOL` is optional at a mint and defaults
+/// to the pool current where the mint runs (FC-3 — whoever creates work pays
+/// for it). A **member** mint takes no `on` clause at all: the answer arrives
+/// on the actor's own mailbox.
+#[test]
+fn a_task_mint_takes_an_optional_placement() {
+    let inherited = errors(
+        "\
+send fn finish(out: Reply<Int>, total: Int) => !out, !total {
+    out.send(total)
+}
+
+fn fetch(out: Reply<Int>) [Counter] -> None => !out {
+    total(replyto finish(out))
+}
+",
+    );
+    assert!(inherited.is_empty(), "`on` is optional: {inherited:?}");
+
+    let placed = errors(
+        "\
+send fn finish(out: Reply<Int>, total: Int) => !out, !total {
+    out.send(total)
+}
+
+fn fetch(out: Reply<Int>) [Counter, spawn] -> None => !out {
+    total(replyto finish(out) on pool(2))
+}
+",
+    );
+    assert!(placed.is_empty(), "an explicit pool is legal: {placed:?}");
+
+    let on_member = errors(
+        "\
+handler Fetching() [Counter] of Log {
+    mailbox { capacity: 2 }
+
+    send fn note(what: Str) {
+        total(replyto arrived(what) on pool(1))
+    }
+    send fn arrived(what: Str, sum: Int) {
+        discard(what)
+        discard(sum)
+    }
+}
+",
+    );
+    assert!(
+        on_member
+            .iter()
+            .any(|m| m.contains("takes no `on` clause")),
+        "a member mint has no placement to choose: {on_member:?}"
+    );
+}
+
+/// [waitfor-dedicated] The typed exception to inheritance: a task that may
+/// occupy its thread needs one of its own — an explicit `on thread()`, or a
+/// minting frame that itself declares `[waitfor]`, which proves its pool is
+/// dedicated.
+#[test]
+fn a_waiting_task_needs_a_dedicated_placement() {
+    const SRC: &str = "\
+send fn slow(out: Reply<Int>, total: Int) [waitfor] => !out, !total {
+    out.send(total)
+}
+";
+    let inherited = errors(&format!(
+        "{SRC}
+fn fetch(out: Reply<Int>) [Counter] -> None => !out {{
+    total(replyto slow(out))
+}}
+"
+    ));
+    assert!(
+        inherited.iter().any(|m| m.contains("declares `[waitfor]`")
+            && m.contains("on thread()")),
+        "a shared pool is refused for a waiting task: {inherited:?}"
+    );
+
+    let placed = errors(&format!(
+        "{SRC}
+fn fetch(out: Reply<Int>) [Counter, spawn] -> None => !out {{
+    total(replyto slow(out) on thread())
+}}
+"
+    ));
+    assert!(placed.is_empty(), "`on thread()` is the remedy: {placed:?}");
+
+    let proven = errors(&format!(
+        "{SRC}
+fn fetch(out: Reply<Int>) [Counter, waitfor] -> None => !out {{
+    total(replyto slow(out))
+}}
+"
+    ));
+    assert!(
+        proven.is_empty(),
+        "a frame that may wait proves its own pool: {proven:?}"
+    );
+}
+
+/// [task-mint] FC-6's conservative tracing: a task's sends are attributed to
+/// every actor whose mints reach it, so an actor that hands its work to a task
+/// which sends back closes the same cycle it would have closed directly.
+/// Without the tracing this program looks acyclic and the cycle ships.
+#[test]
+fn a_task_body_contributes_the_deadlock_graphs_edges() {
+    const SRC: &str = "\
+actor effect Peer {
+    send fn ping(back: Addr<Counter>) => !back
+}
+
+actor effect Ask {
+    send fn ask(out: Reply<Int>) => !out
+}
+
+send fn answer(peer: Addr<Peer>, back: Addr<Counter>, n: Int) => !peer, !back, !n {
+    peer.ping(back)
+    discard(n)
+}
+
+handler Peering(counter: Addr<Counter>) of Peer {
+    mailbox { capacity: 1 }
+
+    send fn ping(back: Addr<Counter>) {
+        counter.bump(1)
+        discard(back)
+    }
+}
+";
+    let traced = warnings(&format!(
+        "{SRC}
+handler Working(peer: Addr<Peer>, back: Addr<Counter>) [Ask] of Counter {{
+    mailbox {{ capacity: 1 }}
+
+    send fn bump(n: Int) {{
+        discard(n)
+    }}
+    send fn total(out: Reply<Int>) {{
+        ask(replyto answer(peer, back))
+        out.send(0)
+    }}
+}}
+"
+    ));
+    assert!(
+        traced.iter().any(|m| m.contains("send to each other in a cycle")
+            && m.contains("Counter")
+            && m.contains("Peer")),
+        "the cycle through the task body must be reported: {traced:?}"
+    );
+
+    // The same program without the mint has no cycle: the task's sends are
+    // attributed to the actors that mint it, and nothing else.
+    let untraced = warnings(&format!(
+        "{SRC}
+handler Working(peer: Addr<Peer>, back: Addr<Counter>) [Ask] of Counter {{
+    mailbox {{ capacity: 1 }}
+
+    send fn bump(n: Int) {{
+        discard(n)
+    }}
+    send fn total(out: Reply<Int>) {{
+        discard(peer)
+        discard(back)
+        out.send(0)
+    }}
+}}
+"
+    ));
+    assert!(
+        !untraced
+            .iter()
+            .any(|m| m.contains("send to each other in a cycle")),
+        "no mint, no attribution: {untraced:?}"
     );
 }
 

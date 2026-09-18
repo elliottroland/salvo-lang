@@ -83,6 +83,34 @@ intrinsic fn pool(size: Int) [spawn] -> Pool => size
 // of the type system instead of a convention.
 provenance qualifier Dedicated of Pool
 
+// [pool-fault-sink] Why a task or an unwatched actor died, delivered to a
+// pool's fault sink.
+//
+// The sibling of [Exit], and separate from it for the reason the two shapes
+// differ: a death notification is a one-shot answer about an *identity*, while
+// a pool emits a recurring stream about work that had none. [reason] is the
+// host's account of the fault, exactly as `Exit`'s is — print it, do not branch
+// on it.
+struct Fault { reason: Str }
+
+// [pool-fault-sink] The protocol a pool's fault sink serves. Ordinary Salvo:
+// spawn a handler of it and hand the addr to [pool], and every uncaught fault
+// on that pool arrives as a message.
+//
+// The net *under* supervision rather than a replacement for it: `watch` is
+// per-actor and one-shot [actor-watch], and a scheduled task has no addr to
+// watch — so a fault that nobody was watching would otherwise vanish. With no
+// sink, the runtime reports it by name instead.
+actor effect Faults {
+    send fn faulted(fault: Fault) => !fault
+}
+
+// [pool-fault-sink] A pool of [size] threads whose uncaught faults go to
+// [sink] (user decision 2026-09-17, FC-5(a)). The overload exists so the plain
+// `pool(n)` stays the simple thing it was: a sink is a choice, and where it is
+// absent the runtime's named report is the default.
+intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
+
 // [waitfor-dedicated] One fresh thread, owned by whatever is placed on it.
 // This is the placement a `[waitfor]`-carrying handler needs: a wait may
 // occupy its thread until the answer arrives, so it must not be a thread

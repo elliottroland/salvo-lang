@@ -416,6 +416,19 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_fn_flavored(false, FnFlavor::Iter).map(Item::Fn)
             }
+            // [free-send-fn] `send fn parse_row(out: Reply<User>, row: Row)` —
+            // the send kind extended to a *free* function (user decision
+            // 2026-09-17, FC-1(a)): a unit of work that runs by being
+            // scheduled rather than called, and what a `replyto` may target
+            // outside a handler. Contextual for the same reasons as the member
+            // form: `send` is an ordinary name, and `r.send(v)` is how a reply
+            // token is discharged.
+            TokenKind::Ident(name)
+                if name == "send" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
+            {
+                self.bump();
+                self.parse_fn_flavored(false, FnFlavor::Send).map(Item::Fn)
+            }
             TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
             // [linear-group] [obligation-spelling] `linear struct X { … }`:
             // the exactly-once obligation as a declaration modifier.
@@ -3461,7 +3474,7 @@ impl<'s> Parser<'s> {
         }
         let mut end = handler.span();
         let mut pool = None;
-        if self.at_word("on") {
+        if self.at_word("on") && self.same_line() {
             self.bump();
             let expr = self.parse_expr()?;
             end = expr.span();
@@ -3481,6 +3494,11 @@ impl<'s> Parser<'s> {
     /// continuation targeting member `k` of the enclosing handler, yielding
     /// its linear `Reply<T>`. `replyto! k(captures)` is the gated mint: the
     /// actor serves nothing else until the answer arrives.
+    ///
+    /// [task-pool-inherit] A trailing `on POOL` names where the continuation
+    /// runs, and is optional: omitted, it runs on the pool current at the
+    /// mint. Same line as the mint, so a following statement that happens to
+    /// call a function named `on` cannot be swallowed.
     fn parse_replyto(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `replyto`
         let gated = self.eat(&TokenKind::Bang).is_some();
@@ -3502,10 +3520,20 @@ impl<'s> Parser<'s> {
                 first.span,
             );
         }
+        // [task-pool-inherit] The optional placement clause.
+        let mut end = end;
+        let mut pool = None;
+        if self.at_word("on") && self.same_line() {
+            self.bump();
+            let expr = self.parse_expr()?;
+            end = expr.span();
+            pool = Some(Box::new(expr));
+        }
         Some(Expr::ReplyTo {
             member,
             captures,
             gated,
+            pool,
             span: start.to(end),
         })
     }

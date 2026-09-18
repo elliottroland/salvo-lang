@@ -99,6 +99,20 @@ wait needs a thread it can occupy without stalling anyone, `thread()` answers a
 `Dedicated Pool`, which the `on` clause **consumes**: one thread, one occupant,
 by linearity rather than by convention.
 
+**8 — a free `send fn`.** Not every unit of concurrent work needs an actor.
+`formatted` is a **free `send fn`**: it runs by being *scheduled* rather than
+called, answers nothing, and consumes everything it is given — the same refusal
+list an actor effect's members carry, for the same reason. It has no mailbox, no
+state and no addr, so a mint aimed at it reserves no capacity and can close no
+cycle; the closure the backend builds *is* the continuation.
+
+What that buys is the line above it: `report_line` is an ordinary synchronous
+function with every feature intact, and it *wires future work and returns*. It
+never parks and never blocks, and it reads the same whether it is called from
+`main`, from an actor, or from another task. The `on` clause is optional at a
+mint, so the task runs on the pool current where the mint was written — which in
+`main` is main's own pool, hence during the `waitfor`.
+
 ## What the generated code looks like
 
 Worth opening `rust/main.rs` and `kotlin/main.kt` side by side:
@@ -119,8 +133,14 @@ Worth opening `rust/main.rs` and `kotlin/main.kt` side by side:
   only into a program that spawns. It is a library, not a runtime baked into
   the emitted code: bounded arrival-order queues, run-to-completion
   activations, reply capacity reserved at park time, a per-activation catch that
-  turns a fault into a death, the idle-with-parked-gates report, and the pump
-  that makes a wait serve its own pool (section 7).
+  turns a fault into a death, the idle-with-parked-gates report, the pump that
+  makes a wait serve its own pool (section 7), and the per-pool task queue a
+  mint schedules onto (section 8).
+- **No continuation type for section 8's mint.** A member mint needs the
+  `__Cont_E` enum and the `__parked` table; a task mint needs neither — the
+  emitted code is one `salvo_mint_task(pool, Box::new(move |__v| formatted(…)))`
+  / `mintTask(pool) { __v -> formatted(…) }`, whose captures are bound to locals
+  outside the closure so they are the values as they were at the mint.
 
 The Rust program also prints a panic message on **stderr** when section 5's
 actor faults — Rust's default hook does that before the scheduler's catch sees

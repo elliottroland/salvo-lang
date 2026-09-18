@@ -366,6 +366,108 @@ fun main() {
             expect_success: false,
             stderr_contains: "salvo: deadlock: the main pool's actor 0 has a full mailbox",
         },
+        // [task-mint] [task-pool-inherit] A **task**: a reply token whose
+        // fulfilment schedules a detached closure on a pool instead of
+        // delivering to an actor's mailbox. Two of them — one on an ordinary
+        // pool, one on the main pool, where it runs on main's own thread while
+        // main waits [waitfor-pump].
+        SchedulerCase {
+            tag: "task",
+            driver: r#"
+/** Answers any reply token it is sent with 21. */
+class Echo : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is SalvoReply) {
+            msg.send(21L)
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(2)
+    val echo = SalvoSched.spawn(pool, 4, Echo())
+
+    // The task doubles the answer and hands it to main. It has no mailbox, no
+    // identity and no capacity reserved: the closure *is* the continuation.
+    val (waiter, wid) = SalvoSched.waiter()
+    val task =
+        SalvoSched.mintTask(pool) { value ->
+            waiter.send((value as Long) * 2)
+        }
+    SalvoSched.send(echo, task)
+    println("doubled: ${SalvoSched.awaitReply(wid)}")
+
+    // The same on the main pool: nothing serves it but main's own wait.
+    val (mainWaiter, mainWid) = SalvoSched.waiter()
+    val onMain =
+        SalvoSched.mintTask(SalvoSched.MAIN_POOL) { value ->
+            mainWaiter.send("ran on pool ${SalvoSched.currentPool()}, n=$value")
+        }
+    val echoed = SalvoSched.spawn(pool, 4, Echo())
+    SalvoSched.send(echoed, onMain)
+    println(SalvoSched.awaitReply(mainWid))
+}
+"#,
+            expected_stdout: "doubled: 42\nran on pool 0, n=21\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // [pool-fault-sink] A task that faults has no addr to `watch`, so the
+        // fault goes to the **pool's sink**: an ordinary actor, sent an
+        // ordinary message the *pool creation site* built (the runtime cannot
+        // construct a Salvo value). Without a sink it is the named report on
+        // stderr instead.
+        SchedulerCase {
+            tag: "task-fault-sink",
+            driver: r#"
+/** Holds main's token, then forwards the first fault it is told about. */
+class Sink : SalvoActor {
+    var done: SalvoReply? = null
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        if (msg is SalvoReply) {
+            done = msg
+            return
+        }
+        if (msg is String) {
+            done?.send("sink got $msg")
+            done = null
+        }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val sinkPool = SalvoSched.pool(1)
+    val sink = SalvoSched.spawn(sinkPool, 4, Sink())
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.send(sink, token)
+
+    // The faulting task runs on a pool whose faults go to the sink.
+    val work = SalvoSched.poolWithSink(1, sink, { reason -> "fault($reason)" })
+    val task = SalvoSched.mintTask(work) { throw RuntimeException("boom") }
+    task.send(0L)
+    println(SalvoSched.awaitReply(wid))
+
+    // A pool with no sink names the fault on stderr instead, and the program
+    // carries on: a task's death is not the program's.
+    val quiet = SalvoSched.pool(1)
+    val unheard = SalvoSched.mintTask(quiet) { throw RuntimeException("unheard") }
+    unheard.send(0L)
+    val (last, lastWid) = SalvoSched.waiter()
+    val doneTask = SalvoSched.mintTask(quiet) { last.send(1L) }
+    doneTask.send(0L)
+    SalvoSched.awaitReply(lastWid)
+    println("done")
+}
+"#,
+            expected_stdout: "sink got fault(boom)\ndone\n",
+            expect_success: true,
+            stderr_contains: "salvo: an uncaught fault on pool",
+        },
         // The idle-with-parked-gates report: `main` waits for a reply
         // nothing can ever send, and the scheduler says so and exits
         // non-zero instead of hanging [actor-watch].

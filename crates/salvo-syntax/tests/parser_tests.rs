@@ -1786,7 +1786,7 @@ fn collect_replyto(
     body: Option<&salvo_syntax::ast::Block>,
     out: &mut Vec<(String, bool, usize)>,
 ) {
-    use salvo_syntax::ast::{Expr, Stmt};
+    use salvo_syntax::ast::{Expr, Item, Stmt};
     let Some(body) = body else { return };
     fn walk(expr: &Expr, out: &mut Vec<(String, bool, usize)>) {
         match expr {
@@ -1809,6 +1809,73 @@ fn collect_replyto(
             walk(e, out);
         }
     }
+}
+
+/// [free-send-fn] [task-pool-inherit] The task kernel's two bits of grammar: a
+/// top-level `send fn`, and a mint's optional `on POOL` clause. Both words stay
+/// **contextual** — `send` is a function and a method name, `on` an ordinary
+/// identifier — which is what the last assertion checks.
+#[test]
+fn a_free_send_fn_and_a_placed_mint_parse() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+
+    let src = "\
+send fn finish(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
+    out.send(\"${label}=${total}\")
+}
+
+fn fetch(out: Reply<Str>) [Counter] -> None => !out {
+    total(replyto finish(\"count\", out) on pool(2))
+}
+
+fn plain(out: Reply<Str>) [Counter] -> None => !out {
+    total(replyto finish(\"count\", out))
+}
+
+fn on(n: Int) -> Int {
+    let send = n
+    return send
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "the kernel's grammar parses: {errors:?}");
+
+    let fns: Vec<(&str, bool)> = module
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Fn(f) => Some((f.name.name.as_str(), f.is_send)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        fns,
+        vec![("finish", true), ("fetch", false), ("plain", false), ("on", false)],
+        "a top-level `send fn` carries the kind on the declaration"
+    );
+
+    // The mint's placement: written in `fetch`, omitted in `plain`.
+    let mut pools: Vec<bool> = Vec::new();
+    for item in &module.items {
+        let Item::Fn(f) = item else { continue };
+        let Some(body) = &f.body else { continue };
+        for stmt in &body.stmts {
+            let Stmt::Expr(Expr::Call { args, .. }) = stmt else {
+                continue;
+            };
+            for a in args {
+                if let Expr::ReplyTo { pool, .. } = a {
+                    pools.push(pool.is_some());
+                }
+            }
+        }
+    }
+    assert_eq!(
+        pools,
+        vec![true, false],
+        "`on POOL` is optional at a mint: {pools:?}"
+    );
 }
 
 /// [actor-spawn-expr] [actor-mailbox] [main-pool] The clause words are

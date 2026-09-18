@@ -495,6 +495,14 @@ impl crate::scheduler::SalvoActor for __Actor_Breaking {
     }
 }
 
+pub fn formatted(label: String, out: crate::scheduler::SalvoReply, total: i32) {
+    (out).send(Box::new(format!("{} totalled {}", label, total)));
+}
+
+pub fn report_line(counter: usize, label: String, out: crate::scheduler::SalvoReply) {
+    crate::scheduler::salvo_send(counter, Box::new(crate::__Msg_Counter::Total(({ let __c0 = label; let __c1 = out; crate::scheduler::salvo_mint_task(crate::scheduler::salvo_current_pool(), Box::new(move |__v| formatted(__c0, __c1, *__v.downcast::<i32>().expect("the awaited answer")))) }))));
+}
+
 pub fn main() {
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
     let mut workers = crate::scheduler::salvo_pool(((2) as usize));
@@ -555,6 +563,12 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<i32>().expect("the awaited answer")
     };
     println(&mut __fx2, &(format!("7. the main pool's own actor totalled {}", local)));
+    let mut line8 = {
+        let (mut out, __wid) = crate::scheduler::salvo_waiter();
+        report_line(mine, "the counter".to_string(), out);
+        *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
+    };
+    println(&mut __fx2, &(format!("8. {}", line8)));
     println(&mut __fx2, &("done".to_string()));
 }
 

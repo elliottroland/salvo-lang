@@ -393,6 +393,11 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
+    /// [task-mint] The free `send fn` each *task* mint targets, keyed by the
+    /// `replyto` span: a [`FnKey`] rather than a name, because a task target is
+    /// resolved through the scope ladder and the emitters need the declaration
+    /// the checker picked, not a name to re-resolve.
+    pub replyto_tasks: HashMap<Key, FnKey>,
     /// [actor-use-addr] The effect each `use addr` statement binds, keyed by
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
@@ -437,6 +442,17 @@ pub struct Checked {
     /// the declaration instead, and a `k@self(…)` is not here at all — a
     /// self-send waits for no other actor.
     pub actor_sends: Vec<(String, String, Key)>,
+    /// [task-mint] The same for a **free `send fn`**'s body: `(the send fn's
+    /// name, the target effect, the site)`. A task belongs to no handler, so
+    /// its sends are attributed to whoever *mints* it — which is what
+    /// `task_mints` records.
+    pub task_sends: Vec<(String, String, Key)>,
+    /// [task-mint] Who mints which task: `(the minter, the target `send fn`)`,
+    /// where the minter is the enclosing handler's name or — for a task that
+    /// mints another task — the enclosing free `send fn`'s. Whole-program and
+    /// conservative, exactly as coarse as the type-level graph already is
+    /// (FC-6: a real cycle class would otherwise go unreported).
+    pub task_mints: Vec<(String, String)>,
     /// The concrete effect instance an effect-member call dispatches
     /// through (keyed by the call span), after generic disambiguation.
     pub effect_calls: HashMap<Key, Ty>,
@@ -887,6 +903,7 @@ fn check_once<'p>(
             own_handler: None,
             handler_spawns: false,
             handler_waits: false,
+            own_task: None,
             can_use: false,
             can_spawn: false,
             can_wait: false,
@@ -1257,6 +1274,9 @@ struct Checker<'p, 'r> {
     /// checked declared `spawn` among its dependencies. Its members inherit
     /// the capability, exactly as they inherit its effects.
     handler_spawns: bool,
+    /// [task-mint] The **free `send fn`** whose body is being checked, if any:
+    /// what its sends and its own mints are attributed to.
+    own_task: Option<String>,
     /// [waitfor-effect] Whether the handler being checked declared `waitfor`
     /// among its dependencies. Its members inherit the capability, and its
     /// *spawn site* pays for it: the placement must be a `Dedicated Pool`.
@@ -1569,7 +1589,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                             consumed.then(|| base.clone())
                         })
                         .collect();
+                    // [free-send-fn] The send kind's refusal list, at the
+                    // declaration where the author is deciding.
+                    self.check_free_send_fn(f);
+                    // [task-mint] What this body's sends are attributed to in
+                    // the deadlock graph.
+                    self.own_task = f.is_send.then(|| f.name.name.clone());
                     self.check_fn(f, &[], &[]);
+                    self.own_task = None;
                     self.own_fn = None;
                     self.own_discharges.clear();
                     self.own_written.clear();
@@ -2371,6 +2398,124 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+    }
+
+    /// [free-send-fn] A **free `send fn`** — the send kind extended to a
+    /// function (user decision 2026-09-17, FC-1(a)). It runs by being
+    /// *scheduled*, never called: a `replyto` targets it [task-mint], its
+    /// answer arrives as its trailing parameter, and it answers nothing.
+    ///
+    /// Every rule here is inherited rather than invented — it is
+    /// [actor-effect-kind]'s refusal list, applied to a declaration that has
+    /// no effect to belong to: no return type, no kept parameter (the payload
+    /// crosses a thread boundary, so it is always consumed), no `Mut`
+    /// parameter, no `proj` return, and every parameter sendable
+    /// [actor-sendable]. The diagnostics name the law, because the remedy is a
+    /// design decision.
+    ///
+    /// **First-pass cut**: no effects but `[waitfor]`. A task body runs
+    /// detached from the scope that minted it, so there is nothing there to
+    /// supply a handler — capturing the minting scope's handlers would send
+    /// values the sender still owns, which [actor-sendable] exists to refuse.
+    /// An `Addr` capture is the way to reach an actor, and it needs no effect
+    /// declaration [actor-use-addr]. Lifting this for *actor-backed* effects
+    /// (whose provider is an addr stub, and so sendable) is the recorded
+    /// growth point.
+    fn check_free_send_fn(&mut self, f: &'p FnDecl) {
+        if !f.is_send {
+            return;
+        }
+        self.check_send_member(f);
+        // A generic target would need its type arguments at the mint, which
+        // carries only captures; and a generic parameter tells [actor-sendable]
+        // nothing, so the refusal list could not be checked here either. The
+        // first pass refuses it rather than checking it at every mint.
+        if let Some(g) = f.generics.first() {
+            self.error(
+                f.name.span,
+                format!(
+                    "`send fn {}` cannot be generic: a mint carries captures and no type \
+                     arguments, so `{}` would have nothing to be chosen by",
+                    f.name.name, g.name
+                ),
+            );
+        }
+        let inner = self.enter_generics(&f.generics);
+        for d in f.deductions.iter().flatten() {
+            if matches!(d.kind, ast::DeductionKind::Moved) {
+                continue;
+            }
+            let Some(name) = d.param_name() else { continue };
+            self.error(
+                d.span,
+                format!(
+                    "`send fn {}` cannot keep `{}`: a scheduled body outlives the frame that \
+                     minted it, so what it is given is always consumed — write `=> !{}`, or \
+                     make `{}` an ordinary `fn`",
+                    f.name.name, name.name, name.name, f.name.name
+                ),
+            );
+        }
+        for p in f.params.iter().filter(|p| !p.implicit) {
+            if let ast::Type::Named { qualifiers, .. } = &p.ty {
+                if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`send fn {}` cannot take a `Mut` parameter: mutating a value \
+                             from a scheduled body would share what the minting frame still \
+                             owns",
+                            f.name.name
+                        ),
+                    );
+                }
+            }
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    p.ty.span(),
+                    format!(
+                        "`send fn {}` cannot take `{ty}`: {why}, and everything a scheduled \
+                         body is given crosses a thread boundary",
+                        f.name.name
+                    ),
+                );
+            }
+        }
+        if let Some(rt) = &f.return_type {
+            if let Some(span) = first_proj_span(rt) {
+                self.error(
+                    span,
+                    format!(
+                        "`send fn {}` cannot return a `proj` view: it would borrow a value \
+                         the minting frame owns",
+                        f.name.name
+                    ),
+                );
+            }
+        }
+        // The first-pass cut: `[waitfor]` is a capability the placement check
+        // validates [waitfor-dedicated]; anything else names an instance that
+        // would have to be supplied, and a task has no scope to supply it from.
+        for eff in f.effects.iter().flatten() {
+            let span = match eff {
+                EffectRef::WaitFor(_) => continue,
+                EffectRef::Use(sp) | EffectRef::Spawn(sp) => *sp,
+                EffectRef::Effect(r) => r.span,
+            };
+            self.error(
+                span,
+                format!(
+                    "`send fn {}` cannot declare `{eff}`: a scheduled body runs detached from \
+                     the frame that minted it, so there is no scope to supply a handler from. \
+                     Take an `{ADDR_TYPE}` as a capture and send to it — reaching an actor \
+                     needs no effect declaration — or do the effectful work in the function \
+                     that mints",
+                    f.name.name
+                ),
+            );
+        }
+        self.generics = inner;
     }
 
     fn check_send_member(&mut self, f: &'p FnDecl) {
@@ -3203,6 +3348,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Ty {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
         if entries.is_empty() {
+            return Ty::Unknown;
+        }
+        // [free-send-fn] A send-kind function is not a value: it runs by being
+        // scheduled, and a fn value runs by being called — there is no
+        // position a `send fn` could fill. (A mint is not a value use: it
+        // names the target, and the name never becomes a `Ty::Fn`.)
+        if entries.iter().all(|e| e.decl.is_send) {
+            self.error(
+                name_span,
+                format!(
+                    "`{name}` is a `send fn`, so it is not a value: it runs by being \
+                     scheduled, and a function value runs by being called. Mint a \
+                     continuation for it instead — `replyto {name}(…)`"
+                ),
+            );
             return Ty::Unknown;
         }
         // `@module` first, exactly as in a call.
@@ -8777,6 +8937,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out
                 .actor_sends
                 .push((h.name.name.clone(), name.clone(), self.key(span)));
+        } else if let (Some(task), Ty::Named { name, .. }) =
+            (self.own_task.clone(), instance.strip_quals())
+        {
+            // [task-mint] A send from a *task* body: the graph attributes it to
+            // every actor whose mints reach this task (FC-6's conservative
+            // tracing), so it is recorded against the `send fn` here.
+            self.out
+                .task_sends
+                .push((task, name.clone(), self.key(span)));
         }
         // [actor-send-fn] A send answers nothing.
         Ty::none()
@@ -9013,14 +9182,221 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// captures written here followed by one more: the answer, which is what
     /// the token carries. So `send fn arrived(id: Int, notices: List<Notice>)`
     /// minted as `replyto arrived(7)` yields a `Reply<List<Notice>>`.
+    /// [task-mint] The **free `send fn`** a bare name in a mint resolves to,
+    /// or `None` when there is none. Resolution is the language's ordinary
+    /// scope ladder [fn-overload-scope]: the most specific rung that has a
+    /// send-kind candidate wins, so a module's own `parse_row` takes precedence
+    /// over an imported one without either being an error. A tie *within* one
+    /// rung is refused rather than guessed — a mint has no argument types to
+    /// discriminate an overload set by, since its captures are a prefix of the
+    /// target's parameters.
+    fn free_send_target(&mut self, member: &Ident, form: &str) -> Option<&'p FnDecl> {
+        let entries = self.scope.fns.get(member.name.as_str())?;
+        let best = entries
+            .iter()
+            .filter(|e| e.decl.is_send)
+            .map(|e| e.rung)
+            .max()?;
+        let sends: Vec<&'p FnDecl> = entries
+            .iter()
+            .filter(|e| e.decl.is_send && e.rung == best)
+            .map(|e| e.decl)
+            .collect();
+        if sends.len() > 1 {
+            self.error(
+                member.span,
+                format!(
+                    "`{form}` cannot tell which `send fn {}` it means: {} of them are visible \
+                     from {}, and a mint carries only the captures — not enough to choose an \
+                     overload. Rename one, or bring in only the one this scope means",
+                    member.name,
+                    sends.len(),
+                    best.describe()
+                ),
+            );
+            return None;
+        }
+        sends.first().copied()
+    }
+
+    /// [task-mint] [task-pool-inherit] `replyto k(captures) on POOL` where `k`
+    /// is a free `send fn`: the mint that makes a plain function a citizen of
+    /// the concurrent world (user decision 2026-09-17, FC-2 + FC-3).
+    ///
+    /// What differs from a member mint, and why each difference is a
+    /// simplification rather than a special case: there is **no mailbox**, so
+    /// no capacity is reserved and no deadlock edge is contributed
+    /// [actor-deadlock-cycle]; there is **no enclosing handler**, so the mint
+    /// is legal in any function; and there **is** a placement, because the
+    /// continuation has to run somewhere — the pool current at the mint unless
+    /// an `on` clause says otherwise, since whoever creates work pays for it.
+    fn check_task_mint(
+        &mut self,
+        member: &Ident,
+        target: &'p FnDecl,
+        captures: &'p [Expr],
+        gated: bool,
+        pool: Option<&'p Expr>,
+        span: Span,
+    ) -> Ty {
+        // A gate is a mailbox policy, and a task has no mailbox: there is
+        // nothing to hold back while the answer is outstanding.
+        if gated {
+            self.error(
+                span,
+                format!(
+                    "`replyto!` gates the minting actor's mailbox until the answer arrives, \
+                     and `{}` is a free `send fn` — a task has no mailbox to gate. Use a bare \
+                     `replyto`",
+                    member.name
+                ),
+            );
+        }
+        // [waitfor-dedicated] The typed exception to inheritance: a target that
+        // may occupy its thread needs one of its own. Explicit `on thread()`,
+        // or inherited from a minting frame that itself carries `[waitfor]` —
+        // whose ambient pool is thereby provably dedicated.
+        let target_waits = target
+            .effects
+            .iter()
+            .flatten()
+            .any(|e| matches!(e, EffectRef::WaitFor(_)));
+        let mut dedicated = false;
+        if let Some(p) = pool {
+            let pool_ty = self.check_expr(p, Some(&Ty::named(POOL_TYPE)));
+            if !pool_ty.is_unknown() && !is_subtype(pool_ty.strip_quals(), &Ty::named(POOL_TYPE)) {
+                self.error(
+                    p.span(),
+                    format!(
+                        "a continuation runs on a `{POOL_TYPE}`, found `{pool_ty}`: `on \
+                         pool(2)` builds one, `on thread()` a dedicated one"
+                    ),
+                );
+            }
+            if pool_ty.quals().iter().any(|q| q.name == DEDICATED_QUALIFIER) {
+                dedicated = true;
+                self.fate_move(p, "run on", "this mint", p.span());
+            }
+        }
+        if target_waits && !dedicated && !self.can_wait {
+            self.error(
+                span,
+                format!(
+                    "`{}` declares `[waitfor]`, so it may occupy the thread it runs on and \
+                     needs one of its own: write `on thread()`. Inheriting this frame's pool \
+                     is allowed only where the frame itself declares `[waitfor]`, which \
+                     proves its pool is a `{DEDICATED_QUALIFIER} {POOL_TYPE}`",
+                    member.name
+                ),
+            );
+        }
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        if params.len() != captures.len() + 1 {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} parameter(s): the last is the answer the token carries and \
+                     the {} before it are the captures, so `replyto` here wants {} \
+                     capture(s), found {}",
+                    member.name,
+                    params.len(),
+                    params.len().saturating_sub(1),
+                    params.len().saturating_sub(1),
+                    captures.len()
+                ),
+            );
+            return Ty::Unknown;
+        }
+        let saved = self.enter_generics(&target.generics);
+        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        self.generics = saved;
+        for (i, c) in captures.iter().enumerate() {
+            let want = &param_tys[i];
+            let got = self.check_expr(c, Some(want));
+            if !got.is_unknown() && !is_subtype(&got, want) {
+                self.error(c.span(), format!("expected `{want}`, found `{got}`"));
+            }
+            // [actor-sendable] A capture crosses to another thread at the
+            // crossing site, exactly as a spawn argument does.
+            if !got.is_unknown() {
+                if let Some(why) = self.unsendable_reason(&got) {
+                    self.error(
+                        c.span(),
+                        format!(
+                            "a capture of `{}` cannot be `{got}`: {why}, and a task's \
+                             captures cross a thread boundary",
+                            member.name
+                        ),
+                    );
+                }
+            }
+            // Stored in the continuation, so a bare name moves
+            // [deduce-consume].
+            self.fate_move(c, "capture", "a `replyto`", c.span());
+        }
+        // [task-mint] Who minted it, for FC-6's tracing: a handler, or another
+        // task (a task minting a task chains the attribution).
+        if let Some(minter) = self
+            .own_handler
+            .map(|h| h.name.name.clone())
+            .or_else(|| self.own_task.clone())
+        {
+            self.out.task_mints.push((minter, member.name.clone()));
+        }
+        if let Some(key) = self.scope.fns.get(member.name.as_str()).and_then(|es| {
+            es.iter()
+                .find(|e| std::ptr::eq(e.decl, target))
+                .map(|e| e.key)
+        }) {
+            self.out.replyto_tasks.insert(self.key(span), key);
+            // [lsp-definition] The mint names a function, so it is a reference
+            // to it like any call.
+            self.out.fn_refs.insert(self.key(member.span), key);
+        }
+        let answer = param_tys.last().cloned().unwrap_or(Ty::Unknown);
+        Ty::Named {
+            name: REPLY_TYPE.to_string(),
+            args: vec![answer],
+        }
+    }
+
     fn check_replyto(
         &mut self,
         member: &Ident,
         captures: &'p [Expr],
         gated: bool,
+        pool: Option<&'p Expr>,
         span: Span,
     ) -> Ty {
         let form = if gated { "replyto!" } else { "replyto" };
+        // [task-mint] A **free `send fn`** is a legal target, and the mint is
+        // then legal in any function — the answer needs no mailbox, because
+        // the continuation is a detached task rather than an activation (user
+        // decision 2026-09-17, FC-2). Resolved *after* the enclosing handler's
+        // members, which keeps the existing rule exactly as it was.
+        let member_of_own = self
+            .own_handler
+            .is_some_and(|h| h.fns.iter().any(|f| f.name.name == member.name));
+        if !member_of_own {
+            if let Some(target) = self.free_send_target(member, form) {
+                return self.check_task_mint(member, target, captures, gated, pool, span);
+            }
+        }
+        if let Some(p) = pool {
+            self.check_expr(p, Some(&Ty::named(POOL_TYPE)));
+            self.error(
+                p.span(),
+                format!(
+                    "`{form}` targeting a member of this handler takes no `on` clause: the \
+                     answer arrives on the actor's own mailbox, which is where the \
+                     continuation belongs. A placement is written where the *actor* is \
+                     spawned, or on a mint whose target is a free `send fn`"
+                ),
+            );
+        }
         let Some(h) = self.own_handler else {
             for c in captures {
                 self.check_expr(c, None);
@@ -13519,8 +13895,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 member,
                 captures,
                 gated,
+                pool,
                 span,
-            } => self.check_replyto(member, captures, *gated, *span),
+            } => self.check_replyto(member, captures, *gated, pool.as_deref(), *span),
             // [actor-waitfor] `main`'s bridge: its value is what was sent to
             // the token it mints.
             Expr::WaitFor {
@@ -17856,6 +18233,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 format!(
                     "`{name}` requires the `spawn` capability, so this function must \
                      declare it too (`[spawn]` in its effect list)"
+                ),
+            );
+        }
+        // [free-send-fn] A send-kind function is *scheduled*, never called: a
+        // call would run it here, on this thread, inside this frame — which is
+        // the callback anti-pattern the kind exists to refuse.
+        if decl.is_send {
+            self.error(
+                span,
+                format!(
+                    "`{name}` is a `send fn`, so it runs by being scheduled rather than \
+                     called: mint a continuation for it with `replyto {name}(…)` and let \
+                     whoever answers the token run it"
                 ),
             );
         }

@@ -495,6 +495,128 @@ fn main() {
     );
 }
 
+/// [task-mint] [task-pool-inherit] A **task**: a reply token whose fulfilment
+/// schedules a detached closure on a pool instead of delivering to an actor's
+/// mailbox. Two of them here — one on an ordinary pool, one on the main pool,
+/// where it runs on `main`'s own thread while `main` waits [waitfor-pump].
+#[test]
+fn scheduler_schedules_a_task_when_its_token_is_answered() {
+    run_scheduler_program(
+        "task",
+        r#"
+/// Answers any reply token it is sent with 21.
+struct Echo;
+
+impl SalvoActor for Echo {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        if let Ok(reply) = msg.downcast::<SalvoReply>() {
+            reply.send(Box::new(21i64));
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(2);
+    let echo = salvo_spawn(pool, 4, Box::new(Echo));
+
+    // The task doubles the answer and hands it to `main`. It has no mailbox,
+    // no identity and no capacity reserved: the closure *is* the continuation.
+    let (waiter, wid) = salvo_waiter();
+    let task = salvo_mint_task(
+        pool,
+        Box::new(move |value| {
+            let n = *value.downcast::<i64>().expect("the answer");
+            waiter.send(Box::new(n * 2));
+        }),
+    );
+    salvo_send(echo, Box::new(task));
+    println!("doubled: {}", salvo_wait(wid).downcast_ref::<i64>().unwrap());
+
+    // The same on the main pool: nothing serves it but `main`'s own wait.
+    let (main_waiter, main_wid) = salvo_waiter();
+    let on_main = salvo_mint_task(
+        SALVO_MAIN_POOL,
+        Box::new(move |value| {
+            let n = *value.downcast::<i64>().expect("the answer");
+            main_waiter.send(Box::new(format!("ran on pool {}, n={n}", salvo_current_pool())));
+        }),
+    );
+    let echoed = salvo_spawn(pool, 4, Box::new(Echo));
+    salvo_send(echoed, Box::new(on_main));
+    println!("{}", salvo_wait(main_wid).downcast_ref::<String>().unwrap());
+}
+"#,
+        "doubled: 42
+ran on pool 0, n=21
+",
+        true,
+        "",
+    );
+}
+
+/// [pool-fault-sink] A task that faults has no addr to `watch`, so the fault
+/// goes to the **pool's sink**: an ordinary actor, sent an ordinary message
+/// the *pool creation site* built (the runtime cannot construct a Salvo
+/// value). Without a sink it is the named report on stderr instead.
+#[test]
+fn scheduler_reports_a_faulted_task_to_the_pools_sink() {
+    run_scheduler_program(
+        "task-fault-sink",
+        r#"
+/// Holds `main`'s token, then forwards the first fault it is told about.
+struct Sink {
+    done: Option<SalvoReply>,
+}
+
+impl SalvoActor for Sink {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        match msg.downcast::<SalvoReply>() {
+            Ok(reply) => self.done = Some(*reply),
+            Err(other) => {
+                if let Ok(text) = other.downcast::<String>() {
+                    if let Some(done) = self.done.take() {
+                        done.send(Box::new(format!("sink got {text}")));
+                    }
+                }
+            }
+        }
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let sink_pool = salvo_pool(1);
+    let sink = salvo_spawn(sink_pool, 4, Box::new(Sink { done: None }));
+    let (token, wid) = salvo_waiter();
+    salvo_send(sink, Box::new(token));
+
+    // The faulting task runs on a pool whose faults go to the sink.
+    let work = salvo_pool_with_sink(1, Some((sink, |reason| Box::new(format!("fault({reason})")))));
+    let task = salvo_mint_task(work, Box::new(|_value| panic!("boom")));
+    task.send(Box::new(0i64));
+    println!("{}", salvo_wait(wid).downcast_ref::<String>().unwrap());
+
+    // A pool with no sink names the fault on stderr instead, and the program
+    // carries on: a task's death is not the program's.
+    let quiet = salvo_pool(1);
+    let unheard = salvo_mint_task(quiet, Box::new(|_value| panic!("unheard")));
+    unheard.send(Box::new(0i64));
+    let (last, last_wid) = salvo_waiter();
+    let done = salvo_mint_task(quiet, Box::new(move |_value| last.send(Box::new(1i64))));
+    done.send(Box::new(0i64));
+    let _ = salvo_wait(last_wid);
+    println!("done");
+}
+"#,
+        "sink got fault(boom)
+done
+",
+        true,
+        "salvo: an uncaught fault on pool",
+    );
+}
+
 /// The idle-with-parked-gates report: `main` waits for a reply nothing can
 /// ever send, and the scheduler says so and exits non-zero instead of
 /// hanging [actor-watch].

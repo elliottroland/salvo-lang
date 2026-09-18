@@ -7952,8 +7952,9 @@ impl<'p> Emitter<'p> {
                 member,
                 captures,
                 gated,
+                pool,
                 span,
-            } => self.emit_replyto(member, captures, *gated, *span),
+            } => self.emit_replyto(member, captures, *gated, pool.as_deref(), *span),
         }
     }
 
@@ -7977,9 +7978,17 @@ impl<'p> Emitter<'p> {
         member: &Ident,
         captures: &[Expr],
         gated: bool,
+        pool: Option<&Expr>,
         span: Span,
     ) -> String {
         self.needs_scheduler = true;
+        // [task-mint] [rs-task] A mint whose target is a free `send fn` needs
+        // no continuation enum, no slot and no parked table: the closure *is*
+        // the continuation, and the runtime schedules it on the pool the mint
+        // chose. That is the whole of the task kernel's emission.
+        if let Some(key) = self.checked.replyto_tasks.get(&(self.file_idx, span)).copied() {
+            return self.emit_task_mint(member, key, captures, pool);
+        }
         let Some(target) = self
             .checked
             .replyto_members
@@ -8017,6 +8026,62 @@ impl<'p> Emitter<'p> {
             "{{ let (__r, __s) = crate::scheduler::{mint}(self.__addr\
              .expect(\"a parking handler runs as an actor\")); \
              self.__parked.insert(__s, {built}); __r }}"
+        )
+    }
+
+    /// [task-mint] [rs-task] `replyto k(caps) on P` where `k` is a free
+    /// `send fn`: `salvo_mint_task(P, Box::new(move |__v| k(caps…, payload)))`.
+    ///
+    /// The captures are bound to `let`s *outside* the closure, which is what
+    /// makes them the values as they were at the mint rather than at the
+    /// answer — they are stored in the continuation [deduce-consume], and the
+    /// closure is `move` so it owns them. The payload is downcast to the
+    /// target's trailing parameter type, the same way the `waitfor` bridge
+    /// downcasts what a waiter was sent.
+    fn emit_task_mint(
+        &mut self,
+        member: &Ident,
+        key: salvo_core::FnKey,
+        captures: &[Expr],
+        pool: Option<&Expr>,
+    ) -> String {
+        let Some(target) = self.fn_by_key(key) else {
+            self.error(format!(
+                "internal: no declaration for the task target `{}`",
+                member.name
+            ));
+            return "todo!()".to_string();
+        };
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        let Some(last) = params.last() else {
+            self.error(format!(
+                "internal: task target `{}` has no answer parameter",
+                member.name
+            ));
+            return "todo!()".to_string();
+        };
+        let payload = self.emit_type(&last.ty);
+        let name = self.rust_fn_name(target);
+        let mut lets = String::new();
+        let mut args: Vec<String> = Vec::new();
+        for (i, c) in captures.iter().enumerate() {
+            let code = self.emit_owned(c);
+            lets.push_str(&format!("let __c{i} = {code}; "));
+            args.push(format!("__c{i}"));
+        }
+        args.push(format!(
+            "*__v.downcast::<{payload}>().expect(\"the awaited answer\")"
+        ));
+        // [task-pool-inherit] An omitted `on` clause is the pool current where
+        // the mint runs.
+        let pool_code = match pool {
+            Some(p) => self.emit_owned(p),
+            None => "crate::scheduler::salvo_current_pool()".to_string(),
+        };
+        format!(
+            "({{ {lets}crate::scheduler::salvo_mint_task({pool_code}, \
+             Box::new(move |__v| {name}({}))) }})",
+            args.join(", ")
         )
     }
 

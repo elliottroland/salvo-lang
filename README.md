@@ -170,7 +170,11 @@ fn main() [use] {
   the serialization *is* the mutual exclusion. An answer travels back through a
   **linear** one-shot `Reply<T>`: minted with `replyto`, which parks a
   continuation on one of your own members so no thread waits anywhere, and
-  discharged exactly once because the compiler says so. Where a frame does mean
+  discharged exactly once because the compiler says so — and a **free
+  `send fn`** is the same continuation without an actor behind it: work that
+  runs by being scheduled, so an ordinary synchronous function can wire future
+  work with `replyto` and return, on the pool it is running on unless an `on`
+  clause says otherwise. Where a frame does mean
   to wait, `waitfor` is the bridge and `[waitfor]` the capability it takes —
   validated by *placement*, since `thread()` answers a `Dedicated Pool` that
   the `on` clause consumes, so a thread that may be occupied has exactly one
@@ -179,7 +183,9 @@ fn main() [use] {
   other through ordinary effect lists (`use addr` binds one to a scope, so
   callers never learn their capability is an actor), hold queues of obligations
   in state, `watch` each other die, and a topology whose actors could wait for
-  one another is reported *before* it runs. The scheduler is a library in each
+  one another is reported *before* it runs — tasks included, since a task's
+  sends count against whoever minted it. A fault nobody was watching reaches
+  the pool's sink (`pool(n, sink)`), or is named on stderr. The scheduler is a library in each
   backend's runtime — no runtime baked into your code, and identical behaviour
   on both.
 - **Non-resumption**: a function that may leave early declares

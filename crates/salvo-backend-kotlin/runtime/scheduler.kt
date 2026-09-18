@@ -78,6 +78,18 @@ private class SalvoWaiterState {
 private class SalvoHere(val pool: Int, val actor: Int?)
 
 /**
+ * [task-mint] What a pool owns besides its worker threads: a queue of
+ * detached tasks, and the sink an uncaught fault on it is reported to
+ * [pool-fault-sink] (`null` is the named runtime report).
+ */
+private class SalvoPoolState {
+    /** Tasks whose answer has arrived, in the order it arrived. */
+    val tasks = ArrayDeque<Pair<(Any?) -> Unit, Any?>>()
+    var sinkAddr: Int? = null
+    var sinkBuild: ((String) -> Any?)? = null
+}
+
+/**
  * The scheduler: one shared lock (its own monitor) over all state, pool
  * worker threads, and the waiter bridge for `main`.
  */
@@ -92,14 +104,34 @@ object SalvoSched {
     private val cv = lock.newCondition()
     private val actors = mutableListOf<SalvoActorState>()
     private val waiters = mutableListOf<SalvoWaiterState>()
-    private var pools = 1
+    // [main-pool] Pool 0 exists from the start and belongs to main.
+    private val pools = mutableListOf(SalvoPoolState())
     private var nextSlot = 0L
     private var active = 0
     private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
 
     /** Creates a pool of [n] daemon worker threads and answers its id. */
-    fun pool(n: Int): Int {
-        val id = lock.withLock { pools++ }
+    fun pool(n: Int): Int = poolWithSink(n, null, null)
+
+    /**
+     * [pool-fault-sink] The same, with an actor to report uncaught faults to:
+     * the addr and the builder that turns the host's reason into the
+     * language's `Fault` value (the runtime cannot construct one, exactly as
+     * with `Exit` [actor-watch]).
+     */
+    fun poolWithSink(
+        n: Int,
+        sinkAddr: Int?,
+        sinkBuild: ((String) -> Any?)?,
+    ): Int {
+        val id =
+            lock.withLock {
+                val state = SalvoPoolState()
+                state.sinkAddr = sinkAddr
+                state.sinkBuild = sinkBuild
+                pools.add(state)
+                pools.size - 1
+            }
         repeat(n) {
             Thread { worker(id) }.apply {
                 isDaemon = true
@@ -108,6 +140,20 @@ object SalvoSched {
         }
         return id
     }
+
+    /**
+     * [task-mint] Mints a token whose fulfilment **schedules** [body] on
+     * [pool]. No capacity is reserved and no queue can be full: a task has no
+     * mailbox, which is why a task mint contributes no deadlock edge.
+     */
+    fun mintTask(
+        pool: Int,
+        body: (Any?) -> Unit,
+    ): SalvoReply =
+        lock.withLock {
+            nextSlot += 1
+            SalvoReply(SalvoTargetTask(pool, body), nextSlot)
+        }
 
     /**
      * [main-pool] The pool the calling thread works for — what a spawn or a
@@ -245,6 +291,13 @@ object SalvoSched {
                     waiters[wid].filled = false
                     return waiters[wid].value
                 }
+                // [waitfor-pump] Detached tasks are what the rule names
+                // first, and they are served whoever is waiting; activations
+                // are served except the waiter's own.
+                if (pools[spot.pool].tasks.isNotEmpty()) {
+                    runTask(spot.pool)
+                    continue
+                }
                 val job = pick(spot.pool, spot.actor)
                 if (job != null) {
                     runJob(job.first, job.second)
@@ -280,6 +333,11 @@ object SalvoSched {
                 }
                 actors[target.addr].queue.addLast(SalvoEntry.Reply(reply.slot, value))
             }
+            // [task-mint] The answer schedules the task. Nothing to check: a
+            // task has no mailbox to fill and no death to be a no-op for.
+            is SalvoTargetTask -> {
+                pools[target.pool].tasks.addLast(Pair(target.body, value))
+            }
         }
     }
 
@@ -294,7 +352,8 @@ object SalvoSched {
     }
 
     /** True when nothing can ever run again without outside input. */
-    private fun idle(): Boolean = active == 0 && actors.all { deliverable(it) == null }
+    private fun idle(): Boolean =
+        active == 0 && actors.all { deliverable(it) == null } && pools.all { it.tasks.isEmpty() }
 
     /**
      * [waitfor-pump] The next job a thread working for [pool] may run:
@@ -387,8 +446,69 @@ object SalvoSched {
             for ((w, exit) in watchers) {
                 deliverReply(w, exit(reason))
             }
+            // [pool-fault-sink] The net under supervision: a death nobody was
+            // watching still reaches the pool's sink, or the named report.
+            if (watchers.isEmpty()) {
+                reportFault(p.pool, reason)
+            }
         }
         cv.signalAll()
+    }
+
+    /**
+     * [task-mint] Runs one detached task to completion, with the same lock
+     * discipline and fault boundary as an activation: the lock is released for
+     * the body, and a fault is caught here. A task has no identity, so there
+     * is nothing to mark dead and nobody to notify — the fault goes to the
+     * pool's sink [pool-fault-sink], or to the named report when it has none.
+     */
+    private fun runTask(pool: Int) {
+        val job = pools[pool].tasks.removeFirstOrNull() ?: return
+        active += 1
+        lock.unlock()
+
+        // A task belongs to no actor, so a nested wait inside it may serve
+        // every activation on the pool [waitfor-pump].
+        val spot = here.get()
+        here.set(SalvoHere(pool, null))
+        var fault: String? = null
+        try {
+            job.first(job.second)
+        } catch (t: Throwable) {
+            fault = t.message ?: t.javaClass.simpleName
+        } finally {
+            here.set(spot)
+            lock.lock()
+        }
+        active -= 1
+        val reason = fault
+        if (reason != null) {
+            reportFault(pool, reason)
+        }
+        cv.signalAll()
+    }
+
+    /**
+     * [pool-fault-sink] Where an uncaught fault on a pool goes: a message to
+     * the pool's sink actor if it has one, else a named report on stderr. A
+     * fault that cannot be delivered (a dead sink) falls back to the report,
+     * since the alternative is losing it silently.
+     */
+    private fun reportFault(
+        pool: Int,
+        reason: String,
+    ) {
+        val addr = pools[pool].sinkAddr
+        val build = pools[pool].sinkBuild
+        if (addr != null && build != null && !actors[addr].dead) {
+            // Enqueued past the bound deliberately: a fault report must not
+            // block the faulting thread, and dropping it would lose the one
+            // thing the sink exists for.
+            actors[addr].queue.addLast(SalvoEntry.User(build(reason)))
+            actors[addr].userLen += 1
+            return
+        }
+        System.err.println("salvo: an uncaught fault on pool $pool: $reason")
     }
 
     private fun worker(pool: Int) {
@@ -396,6 +516,14 @@ object SalvoSched {
         lock.lock()
         try {
             while (true) {
+                // [task-mint] A queued task before an activation: one rule,
+                // the same on both backends, so a program's interleaving does
+                // not depend on its target. Each queue is served in arrival
+                // order.
+                if (pools[pool].tasks.isNotEmpty()) {
+                    runTask(pool)
+                    continue
+                }
                 val job = pick(pool, null)
                 if (job == null) {
                     cv.await()
@@ -414,6 +542,9 @@ internal sealed class SalvoTarget
 internal class SalvoTargetProc(val addr: Int) : SalvoTarget()
 
 internal class SalvoTargetWaiter(val wid: Int) : SalvoTarget()
+
+/** [task-mint] A detached one-shot: the pool it runs on, and the closure. */
+internal class SalvoTargetTask(val pool: Int, val body: (Any?) -> Unit) : SalvoTarget()
 
 /**
  * A one-shot reply capability. `send` delivers exactly once — the

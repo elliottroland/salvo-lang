@@ -33,7 +33,8 @@ effect is never actor-backed ([actor-effect-kind]) — which overtakes this
 document's T-2 option 3 as originally worded (revised below). ROADMAP.md's
 **"The second sequence"** now holds the implementation plan for this
 document's decided outcomes. A sibling working document,
-**FREE_CONCURRENCY.md** (2026-09-17), proposes free `send fn`s and
+**free concurrency** (2026-09-17; its document retired into COMPLETED.md's
+log when steps 1–2 landed) proposed free `send fn`s and
 main-as-a-pool; its FC-4 reframes T-5 (noted there). Delete-when-decided
 charter unchanged: this document goes when its outcomes live in the log and
 the specs.
@@ -89,7 +90,7 @@ Point 1 meets the recorded timeout fallback (`await_within` →
 carried IO-actor question, since **closed** by [actor-effect-kind]; the
 surviving mechanisms are T-5 and the sugar pass (see T-2). Point 4 collides
 with [actor-waitfor] ("legal only in `main`") — that collision is T-5, now
-also reframed by FREE_CONCURRENCY.md's FC-4. Point 6 collides with the
+also reframed by FC-4 (built). Point 6 collides with the
 one-effect-per-handler shape — that collision is T-4.
 
 ## 1. Fixed points — already decided, inherited here
@@ -434,7 +435,7 @@ second requirement recorded with it: **uniform semantics** — whether a wait
 around as an effect identically under either execution strategy. The
 motivating customer is unchanged: `TestClock of Clock [Timer, waitfor]`,
 whose `now()` waits for `after(0, …)`'s `Fired` and returns `.at`.
-(*Cross-reference:* FREE_CONCURRENCY.md FC-4 — its "driving main" and this
+(*Cross-reference:* FC-4 — its "driving main" and this
 section's semantics are one rule; decide together.)
 
 ### The design
@@ -461,7 +462,7 @@ section's semantics are one rule; decide together.)
   * `use H(...)` inside an actor: a `[waitfor]`-carrying handler makes the
     binding actor carry it, which flows to *its* spawn site.
   * A mint targeting a `[waitfor]`-carrying free `send fn`
-    (FREE_CONCURRENCY.md): requires dedicated placement — explicit
+    [task-mint]: requires dedicated placement — explicit
     `on thread()`, or inherited from a context that itself carries
     `[waitfor]`, whose ambient pool is thereby provably dedicated. The proof
     travels in the effect lists; no ambient-type problem.
@@ -475,7 +476,7 @@ section's semantics are one rule; decide together.)
   not remove: a wait whose fulfilment routes back through the waiter's own
   mailbox is a self-deadlock, now a visible `[waitfor]`-edge cycle. The
   runtime pool-exhaustion report demotes to belt-and-braces. FFI sync
-  bridges (FREE_CONCURRENCY.md FC-7) stop being a special case: a host
+  bridges (FC-7, parked in ROADMAP) stop being a special case: a host
   thread is a dedicated thread, so the blocking shim carries `[waitfor]`
   and type-checks like everything else.
 

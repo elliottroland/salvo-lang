@@ -57,9 +57,9 @@ phases are complete** (phase 5 landed 2026-09-16): actors spawn, send, park
 continuations, bridge into `main`, depend on one another, watch each other die
 and hold queues of obligations — on both backends with identical output, with a
 worked example in `examples/actors/`. What is in progress is **"The second
-sequence"** below: step 1, the `waitfor` package, landed 2026-09-17, and step 2,
-the task kernel, is next. Beside it: the open defects below, the decisions
-waiting on the user, and the themed sections.
+sequence"** below: steps 1 and 2 — the `waitfor` package and the task kernel —
+landed 2026-09-17, and step 3, `on_idle`, is next. Beside it: the open defects
+below, the decisions waiting on the user, and the themed sections.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -208,10 +208,11 @@ when it is picked up.
 
 ## The second sequence — time and free concurrency (user decisions 2026-09-17)
 
-TIME.md's T-1…T-5 and FREE_CONCURRENCY.md's FC-1…FC-6 were **all decided
-2026-09-17** (the log entry has the full list; the working documents hold the
-argument trails and carry the delete-when-built charter). What remains is
-implementation, in this order — each step independently shippable, so the
+TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
+2026-09-17** (the log entry has the full list). **Steps 1 and 2 are built**, so
+FREE_CONCURRENCY.md has **retired into COMPLETED.md's log and the specs** as its
+charter said; TIME.md still holds the argument trail for steps 3–6. What remains
+is implementation, in this order — each step independently shippable, so the
 sequence can pause anywhere and leave the tree consistent:
 
 1. ✅ **The `waitfor` package** — **built 2026-09-17**, the whole of FC-4(a) +
@@ -221,16 +222,17 @@ sequence can pause anywhere and leave the tree consistent:
    `on` clause, and the deadlock graph's signature-level third edge. The
    record is COMPLETED.md's log; the rules are [main-pool], [waitfor-pump],
    [waitfor-effect], [waitfor-dedicated]. What it left behind is listed under
-   "The `waitfor` package — leftovers" below. **Step 2 is next.**
-2. **The task kernel** (FC-1 + FC-2 + FC-3, with FC-5/FC-6 riding): free
-   `send fn` (refusal list at the declaration; `send`/plain overloading
-   refused), `replyto` targeting any send-kind function (mint legal in any
-   function; bare names resolve lexical-member-first, ambiguity refused;
-   the `Task` arm on the token), pool inheritance (`on` optional, mint-site
-   pool the default, dedicated placement required for `[waitfor]` targets),
-   the **pool fault sink** (`pool(n, faults: sink)`; no sink = the named
-   runtime report), and conservative whole-program tracing of task bodies
-   for [actor-deadlock-cycle].
+   "The `waitfor` package — leftovers" below.
+2. ✅ **The task kernel** — **built 2026-09-17**, all of FC-1 + FC-2 + FC-3 with
+   FC-5 and FC-6 riding: the free `send fn` and its refusal list, `replyto`
+   targeting one from any function (the `Task` arm on the token, resolved
+   lexical-member-first), the optional `on` clause defaulting to the mint-site
+   pool, the pool fault sink (`pool(n, sink)` — positional, not the sketch's
+   `faults:`, since a name before a colon at a call site is the
+   implicit-override syntax), and whole-program tracing of task bodies for
+   [actor-deadlock-cycle]. Rules: [free-send-fn], [task-mint],
+   [task-pool-inherit], [pool-fault-sink], [rs-task], [kt-task]. Leftovers
+   under "The task kernel — leftovers" below. **Step 3 is next.**
 3. **`on_idle`** (T-3, token form): the runtime's existing quiescence
    detection exposed as a `watch`-shaped one-shot — cheap, and the test
    instrument step 5 wants ready.
@@ -278,12 +280,15 @@ Found while building step 1; none blocks step 2.
   should behave exactly like a wait written in that scope (the member runs
   inline). The tested paths are `main`, a plain fn, and a *spawned* handler on
   a dedicated thread.
-- **The actor surface is still absent from LANGUAGE.md.** Phase 5 and this
-  step put every actor rule in LANGUAGE_SPEC.md, and LANGUAGE.md mentions
-  actors only in the linearity chapter's "the actor owes until it ends"
-  bullet. The narrative chapter is owed — the source-of-truth document should
-  not lag a shipped surface — and it is cheaper written once the second
-  sequence's surface settles (tasks, `on_idle`, `core.time`).
+- **The actor surface is only partly in LANGUAGE.md.** Phase 5 and steps 1–2
+  put every actor rule in LANGUAGE_SPEC.md; LANGUAGE.md has the linearity
+  chapter's "the actor owes until it ends" bullet and, since 2026-09-17, a
+  **"Where work runs"** chapter (user request) covering pools, placement, the
+  serving rule, every case of *when* a task runs, what a wait serves, and the
+  task-body effect cut. What is still owed there is the surface itself —
+  `actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch` — so
+  the new chapter currently assumes vocabulary the document has not introduced.
+  Cheaper written once the second sequence settles (`on_idle`, `core.time`).
 - **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
   takes ~1m50s against AGENTS.md's ~55–70s, of which ~105s is the single
   `kotlinc_compiles_and_runs_every_case` driver (100 cases in batched
@@ -291,11 +296,59 @@ Found while building step 1; none blocks step 2.
   the open defect above — but the budget line in AGENTS.md and COMPLETED.md
   is now optimistic for a cold run.
 
-Parked with named triggers: FC-7 (host bridging — until a host caller
-exists); FC-5's minter-attribution refinement (if the sink proves too coarse
-for recovery); deadlock stratification and the `Reply | TimedOut` timeout
-form (observed false positives; writable after step 5); lambdas as mint
-targets (with [fate-lambda], the sugar pass).
+### The task kernel — leftovers (2026-09-17)
+
+Found while building step 2; none blocks step 3.
+
+- **A task body may declare no effects but `[waitfor]`** [free-send-fn], and
+  the recorded lift is *actor-backed* ones: an effect whose provider at the
+  mint site is an addr stub is sendable (a stub holds a `usize`/`Int`), so the
+  mint could capture it into the closure and the body could call the effect's
+  members unqualified. What blocks it today is that the checker does not record
+  *how* each effect in scope was bound at a mint site, and capturing a locally
+  constructed handler would send a value the minting scope still owns. Until
+  then the diagnostic names the remedy that works: take an `Addr` capture and
+  send to it.
+- **A free `send fn` may not be generic**, for a reason that does not go away
+  on its own: a mint carries captures and no type arguments. The shape that
+  would fix it is inferring the instantiation from the capture types plus the
+  token's expected payload — worth building only if a generic task body is
+  actually wanted.
+- **Direct invocation is unspelled.** `parse_row(out, row) on p` as a
+  fire-and-forget statement is *derivable* (a mint plus an immediate
+  self-discharge), so the kernel shipped targets-only and the spelling stays a
+  separate decision. Note that a bare call is now the "runs by being scheduled
+  rather than called" **error**, so whatever the form is, it has to say more
+  than a call does.
+- **A main-pool task whose answer arrives after `main`'s last wait never runs**,
+  silently — verified 2026-09-17 on both backends. It is not a new rule (work on
+  the main pool runs only during a wait [waitfor-pump], and everything dies when
+  `main` returns [actor-waitfor]), but it is the shape "wire it and forget it"
+  produces, and what is lost is the task's captures — reply tokens whose
+  obligations linearity guaranteed statically. Candidate diagnostic, deliberately
+  not built yet because it needs a decision about scope: a report at `main`'s
+  return naming work still queued on the main pool. The same argument applies to
+  an actor message queued there, so the choice is either both or neither.
+- **The parked-obligation gap in the deadlock graph** (FC-6, recorded rather
+  than closed): an actor gated on a token that a *task* must discharge has a
+  wait-for edge pointing at no effect node, because the holder is a closure.
+  Under it: linearity refuses dropping the token, and the runtime's idle report
+  names the gated waiter if the task's chain dies.
+- **FC-7, host bridging, stays deferred** until a host caller exists — recorded
+  here because its working document is gone: **pure** functions are plainly
+  callable from the host (ordinary Rust fns / Kotlin functions); **effectful**
+  ones need generated shims — a *sync* bridge (enqueue, block the calling
+  thread: `waitfor`'s shape exported, and under [waitfor-effect] it simply
+  *carries* `[waitfor]`, since a host thread is a dedicated thread, so it type
+  checks like everything else instead of being runtime-checked) and an *async*
+  bridge (the host's native future, completed by a token) — plus **handler
+  wiring at the export**, for which the spawn-site `use` clause is the existing
+  spelling. Nothing in the kernel forecloses any of it.
+
+Parked with named triggers: FC-5's minter-attribution refinement (if the sink
+proves too coarse for recovery); deadlock stratification and the
+`Reply | TimedOut` timeout form (observed false positives; writable after
+step 5); lambdas as mint targets (with [fate-lambda], the sugar pass).
 
 ## Decisions waiting on the user
 
@@ -313,6 +366,7 @@ links to the section that states the options.
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **The time types** — `Instant`, `Duration`, their arithmetic and representation (the user's call 2026-09-17: timer payloads work with these, not raw numbers) | step 5 of the second sequence | "The second sequence", TIME.md T-1 |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | TIME.md T-4(c) |
+| **Shareable handlers** — SH-1…SH-8: mixed handlers (state confined to send members + sync façades), synchronized monitor members, occupancy inference in the deadlock graph, and whether `[waitfor]` stays a propagating declared effect or demotes to an optional checked annotation | after the second sequence (SH-8, the idle-report defect, first — it is a bug today) | SHAREABLE_HANDLERS.md |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
 decided and built 2026-09-16 — the mailbox moved to the handler
@@ -334,7 +388,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Five open.** (Closed in the sessions before this one, with repros and
+**Six open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -349,6 +403,33 @@ Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
 std fn — one loud half inside std's own emission and one *silently wrong
 output* half through `@module` — and consuming a handler's stored values,
 which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
+
+- **The idle-with-parked-gates report never fires when the waiter is an
+  occupied actor** (reproduced 2026-09-17, while working SHAREABLE_HANDLERS.md;
+  introduced with step 1, which made actor waits legal — the report was
+  designed when only `main` could wait). Repro, as a scheduler driver against
+  `runtime/scheduler.rs`:
+
+  ```rust
+  // an actor's activation waits on a token nothing can fulfil:
+  fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {
+      let (_token, wid) = salvo_waiter();   // token dropped: unfulfillable
+      let _ = salvo_wait(wid);
+  }
+  // main: spawn it on pool(1), send to it, then wait on a second
+  // unfulfillable token. Expected: the named deadlock report, exit non-zero.
+  // Actual: a silent hang, on both backends.
+  ```
+
+  Root cause: `idle()` requires `active == 0`, and an activation parked in a
+  nested `salvo_wait` still counts in `active` — so no waiter ever sees the
+  scheduler as idle while any actor is occupied. Fix: count activations
+  parked in a wait out of `active` (or track `parked_in_wait` separately and
+  make `idle()` read `active == parked`), and extend the report to name the
+  occupied actor and the member it is parked in. SHAREABLE_HANDLERS.md's SH-8
+  marks this the prerequisite of that whole design: with hidden waits, the
+  occupied-waiter deadlock becomes the common failure shape and the runtime
+  net must fire for it. Worth fixing regardless — the hole exists today.
 
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
@@ -1527,16 +1608,15 @@ above it becomes a later item with its own decision surface. What is already
 - **Watch item, carried**: a helper that must create self-targeted or gated
   continuations in *data-dependent number* still cannot be written outside a
   handler body. If that bites, the recorded shape to revisit is EU-7(a)'s
-  narrow running-in entry — and a **general alternative now has a working
-  document**: FREE_CONCURRENCY.md (2026-09-17) proposes free `send fn`s as
-  `replyto` targets (mints legal in any function, a `Task` arm on the token,
-  pool inherited from the mint site), framed explicitly against
-  [actor-effect-kind] so it extends the send kind rather than re-running the
-  rejected full unification. Its FC-1…FC-6 and TIME.md's T-1…T-5 were
-  **decided 2026-09-17** — see "The second sequence" above for the
-  implementation order; `waitfor` is now (by decision) a placement-gated
-  capability effect with uniform pump-tasks semantics, which is the concrete
-  form of EU-2's block reading ("from synchronous code it must block").
+  narrow running-in entry — but the **general alternative is now built**: a
+  free `send fn` is a `replyto` target [free-send-fn] [task-mint], the mint is
+  legal in any function, and the token carries a `Task` arm, which extends the
+  send kind rather than re-running the rejected full unification. `waitfor` is
+  a placement-gated capability effect with uniform pump semantics
+  [waitfor-effect] [waitfor-pump] — the concrete form of EU-2's block reading
+  ("from synchronous code it must block"). What the watch item still names is
+  *self-targeted or gated* continuations, which a task cannot supply: it has no
+  mailbox to gate and no members to target.
 
 
 ## Laziness, after concurrency (user decision 2026-09-10)

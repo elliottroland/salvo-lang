@@ -1481,6 +1481,29 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     (nothing else serves pool 0), and the pumped activation runs nested on the
     waiter's stack. `salvo_thread()` is `salvo_pool(1)`: `Dedicated` is erased
     like every qualifier [qual-erasure], and what it buys is static.
+  * **[rs-task] A task mint is a scheduled closure, and nothing else.**
+    `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
+    `{ let __c0 = …; salvo_mint_task(P, Box::new(move |__v| k(__c0, …,
+    *__v.downcast::<Payload>().expect(…)))) }`, with `salvo_current_pool()` for
+    an omitted `on` [task-pool-inherit]. No continuation enum, no slot, no
+    `__parked` entry: the closure *is* the continuation, which is why a task
+    needs no dispatcher. The captures are bound to `let`s **outside** the
+    closure so they are the values as they were at the mint, and the closure is
+    `move` so it owns them.
+    * The `Box<dyn FnOnce(SalvoMsg) + Send>` this produces is *not* the
+      [rs-fn-field] problem: that is a shared, many-shot `Rc<dyn Fn…>` field,
+      while this is one-shot, moved once, and `Send`-checked — which is the
+      representational fact that made lambdas-as-targets separable from
+      [fate-lambda] and let this ship without it.
+    * A free `send fn` itself needs no special emission: it is an ordinary
+      `pub fn` whose parameters are all moved and which returns `()`.
+  * **[pool-fault-sink] `pool(n, sink)`** → `salvo_pool_with_sink(n as usize,
+    Some((sink as usize, |__reason| Box::new(__Msg_Faults::Faulted(Fault {
+    reason: __reason })))))`. The builder is the same trick as `watch`'s: the
+    runtime holds a `String` and cannot construct a Salvo value, so the *pool
+    creation site* hands over the constructor. Dispatched on **arity**, since
+    both `pool` overloads take an `Int` first and the intrinsic table's key is
+    the receiver type.
   * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo struct, so the watch site
     passes a `fn(String) -> SalvoMsg` alongside the token and the scheduler

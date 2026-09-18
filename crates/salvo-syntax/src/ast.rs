@@ -1015,6 +1015,13 @@ pub enum Expr {
         captures: Vec<Expr>,
         /// Written `replyto!`: the gated mint.
         gated: bool,
+        /// [task-pool-inherit] `on POOL` — where the continuation runs, for a
+        /// mint that targets a free `send fn` [free-send-fn]. Optional: omitted
+        /// means the pool current at the mint site, so whoever creates work
+        /// pays for it. A mint at a *member* target ignores it — the answer
+        /// arrives on the actor's own mailbox — so writing one there is an
+        /// error.
+        pool: Option<Box<Expr>>,
         span: Span,
     },
     /// [actor-waitfor] `waitfor out: Reply<Int> { counter.total(out) }` —

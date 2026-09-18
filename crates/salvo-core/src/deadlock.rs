@@ -38,6 +38,21 @@
 //! and the fallbacks are the recorded answers if the false positives become a
 //! nuisance, deliberately not built until they are observed.
 //!
+//! **Task bodies are traced whole-program** [task-mint] (user decision
+//! 2026-09-17, FC-6): a free `send fn` belongs to no actor, so its sends are
+//! attributed to every actor whose mints reach it — following task-to-task
+//! mints transitively. The alternative, tasks contributing nothing,
+//! under-reports a real cycle class: an actor that hands its work to a task
+//! which sends back is the same cycle written in two pieces. A *mint* itself
+//! contributes no edge, and needs none: a task has no mailbox, so nothing can
+//! fill and nothing can gate.
+//!
+//! The honest gap, recorded rather than papered over: an obligation parked in
+//! a task is a wait-for edge pointing at no effect node, because the token's
+//! holder is a closure rather than an actor. What is under it is linearity —
+//! the token cannot be dropped [linear-obligation] — and the runtime's idle
+//! report, which names the gated waiter when a task's chain dies.
+//!
 //! **Interception is exempt**, which the design documents did not anticipate:
 //! a handler of `E` that declares `[E]` — a policy wrapper around the actor
 //! already serving `E`, the phase's showcase pattern — is an `E → E` edge by
@@ -187,6 +202,17 @@ fn build(
                     targets.push((target.clone(), *file, *span));
                 }
             }
+            // [task-mint] And the sends of every task this handler's mints
+            // reach, transitively — FC-6's conservative tracing. The site
+            // blamed is the send inside the task body, which is the line that
+            // closes the cycle.
+            for task in tasks_reached(out, &h.name.name) {
+                for (owner, target, (file, span)) in &out.task_sends {
+                    if *owner == task && is_actor(target) {
+                        targets.push((target.clone(), *file, *span));
+                    }
+                }
+            }
             for (target, file, span) in targets {
                 let (kind, file, span) = match (gate, blocks) {
                     // A gate anywhere in the handler makes its sends waits:
@@ -215,6 +241,32 @@ fn build(
         }
     }
     graph
+}
+
+/// [task-mint] The free `send fn`s a minter's work reaches: what it mints
+/// directly, plus what those tasks mint in turn. A fixpoint over
+/// `task_mints`, so a chain of continuations is one traced unit — and
+/// terminating, because the set only grows and is bounded by the program's
+/// send fns.
+fn tasks_reached(out: &Checked, minter: &str) -> BTreeSet<String> {
+    let mut reached: BTreeSet<String> = BTreeSet::new();
+    let mut queue: Vec<String> = out
+        .task_mints
+        .iter()
+        .filter(|(who, _)| who == minter)
+        .map(|(_, task)| task.clone())
+        .collect();
+    while let Some(task) = queue.pop() {
+        if !reached.insert(task.clone()) {
+            continue;
+        }
+        for (who, next) in &out.task_mints {
+            if *who == task {
+                queue.push(next.clone());
+            }
+        }
+    }
+    reached
 }
 
 /// Every elementary cycle worth reporting: one per strongly connected

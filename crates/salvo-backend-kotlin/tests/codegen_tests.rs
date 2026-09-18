@@ -2053,6 +2053,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
     kotlinc_compiles_and_runs_the_waitfor_package,
+    kotlinc_compiles_and_runs_the_task_kernel,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
     kotlinc_compiles_and_runs_is_bindings_over_calls,
     // the checked-in examples, one case each
@@ -9504,6 +9505,92 @@ fn kotlinc_compiles_and_runs_the_waitfor_package() -> KotlinCase {
         "waitfor-package",
         WAITFOR_PACKAGE_OUTPUT,
     )
+}
+
+
+/// [free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
+/// program: a free `send fn` that runs by being scheduled, an ordinary
+/// function that mints a continuation for it and returns (no park, no block),
+/// and the placement — inherited at one mint, written at the other. The
+/// Kotlin backend asserts the same output.
+const TASK_KERNEL: &str = r#"
+actor effect Db {
+    send fn query(id: Int, reply: Reply<Int>) => !reply
+}
+
+handler Rows() of Db {
+    mailbox { capacity: 4 }
+
+    send fn query(id: Int, reply: Reply<Int>) {
+        reply.send(id * 10)
+    }
+}
+
+// The free send fn: no return type, every parameter consumed, and it runs on a
+// pool rather than in anyone's frame. Its trailing parameter is the answer.
+send fn finish(label: Str, out: Reply<Str>, row: Int) => !label, !out, !row {
+    out.send("${label}=${row}")
+}
+
+// An ordinary function — full features, synchronous — that wires future work
+// and returns. It never parks and never blocks, and it is called identically
+// from `main` and from anywhere else.
+fn fetch(id: Int, out: Reply<Str>) [Db] -> None => !out {
+    query(id, replyto finish("row", out))
+}
+
+fn fetch_on(id: Int, out: Reply<Str>, p: Pool) [Db] -> None => !out, p {
+    query(id, replyto finish("placed", out) on p)
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+    let workers = pool(2)
+    let db = spawn Rows() on workers
+    use db
+
+    // The continuation inherits `main`'s pool, so it runs on main's own thread
+    // while main waits [waitfor-pump].
+    println(waitfor a: Reply<Str> { fetch(7, a) })
+    // And here it runs on the worker pool instead.
+    println(waitfor b: Reply<Str> { fetch_on(4, b, workers) })
+}
+"#;
+
+const TASK_KERNEL_OUTPUT: &str = "row=70
+placed=40
+";
+
+fn kotlinc_compiles_and_runs_the_task_kernel() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TASK_KERNEL)]),
+        "task-kernel",
+        TASK_KERNEL_OUTPUT,
+    )
+}
+
+/// [kt-task] The lowering, mirroring the Rust backend: the lambda is the
+/// continuation, and no `__Cont_` class is generated for a task mint.
+#[test]
+fn a_task_mint_lowers_to_a_scheduled_lambda() {
+    let files = generate_files(&[("main.sv", TASK_KERNEL)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains("salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool())"),
+        "an omitted `on` clause must inherit the current pool:\n{text}"
+    );
+    assert!(
+        text.contains("{ __v -> finish("),
+        "the continuation must be a lambda:\n{text}"
+    );
+    assert!(
+        !text.contains("__parked["),
+        "a task mint parks nothing: the lambda is the continuation:\n{text}"
+    );
 }
 
 fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {

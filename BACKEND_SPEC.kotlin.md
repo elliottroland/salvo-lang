@@ -1015,6 +1015,19 @@ where Rust had to build the fusion to get the same programs running
     main-pool work at all, since no daemon thread serves pool 0.
     `SalvoSched.thread()` is `pool(1)`: `Dedicated` is erased like every
     qualifier [qual-erasure], and what it buys is static.
+  * **[kt-task] A task mint is a scheduled lambda, and nothing else.**
+    `replyto k(caps) on P` where `k` is a free `send fn` [free-send-fn] →
+    `run { val __c0 = …; SalvoSched.mintTask(P) { __v -> k(__c0, …, __v as
+    Payload) } }`, with `SalvoSched.currentPool()` for an omitted `on`
+    [task-pool-inherit]. No continuation class, no slot, no `__parked` entry:
+    the lambda *is* the continuation. The captures are bound to `val`s
+    **outside** the lambda so they are the values as they were at the mint.
+    A free `send fn` itself is an ordinary top-level function returning `Unit`.
+  * **[pool-fault-sink] `pool(n, sink)`** → `SalvoSched.poolWithSink(n, sink,
+    { __reason -> __Msg_Faults.Faulted(Fault(__reason)) })`. The builder is the
+    same trick as `watch`'s: the runtime holds a `String` and cannot construct
+    a Salvo class, so the *pool creation site* hands over the constructor.
+    Dispatched on **arity**, since both `pool` overloads take an `Int` first.
   * **A `watch` carries its own `Exit` constructor** [actor-watch]. The runtime
     holds a reason `String` and cannot build a Salvo class, so the watch site
     passes a `(String) -> Any?` alongside the token and the scheduler calls it

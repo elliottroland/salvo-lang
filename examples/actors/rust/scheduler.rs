@@ -53,11 +53,20 @@ pub struct SalvoReply {
     slot: u64,
 }
 
-#[derive(Clone, Copy)]
 enum Target {
     Proc(usize),
     Waiter(usize),
+    /// [task-mint] A **detached one-shot**: no mailbox, no identity, no
+    /// capacity to reserve — the continuation *is* the closure, and the pool
+    /// is where it will run. Chosen at the mint [task-pool-inherit], because
+    /// whoever creates work pays for it.
+    Task(usize, TaskBody),
 }
+
+/// [task-mint] A task body: a one-shot closure taking the answer. `FnOnce`
+/// and `Send`, which is what the sendability check proves statically
+/// [actor-sendable].
+pub type TaskBody = Box<dyn FnOnce(SalvoMsg) + Send>;
 
 enum Entry {
     User(SalvoMsg),
@@ -94,10 +103,22 @@ struct WaiterState {
     value: Option<SalvoMsg>,
 }
 
+/// [task-mint] What a pool owns besides its worker threads: a queue of
+/// detached tasks, and the sink an uncaught fault on it is reported to
+/// [pool-fault-sink].
+struct PoolState {
+    /// Tasks whose answer has arrived, in the order it arrived.
+    tasks: VecDeque<(TaskBody, SalvoMsg)>,
+    /// [pool-fault-sink] Where a fault on this pool goes: an actor's addr and
+    /// the builder that turns the host's reason into the language's `Fault`.
+    /// `None` is the named runtime report.
+    sink: Option<(usize, ExitOf)>,
+}
+
 struct Sched {
     actors: Vec<ActorState>,
     waiters: Vec<WaiterState>,
-    pools: usize,
+    pools: Vec<PoolState>,
     next_slot: u64,
     /// Activations currently running, across all pools.
     active: usize,
@@ -112,7 +133,10 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 waiters: Vec::new(),
                 // [main-pool] Pool 0 exists from the start and belongs to
                 // `main`; the first `salvo_pool` therefore answers 1.
-                pools: 1,
+                pools: vec![PoolState {
+                    tasks: VecDeque::new(),
+                    sink: None,
+                }],
                 next_slot: 0,
                 active: 0,
             }),
@@ -170,7 +194,9 @@ fn deliverable(p: &ActorState) -> Option<usize> {
 /// True when nothing can ever run again without outside input: no
 /// activation is running and no actor has a deliverable entry.
 fn idle(s: &Sched) -> bool {
-    s.active == 0 && s.actors.iter().all(|p| deliverable(p).is_none())
+    s.active == 0
+        && s.actors.iter().all(|p| deliverable(p).is_none())
+        && s.pools.iter().all(|p| p.tasks.is_empty())
 }
 
 /// [waitfor-pump] The next job a thread working for `pool` may run:
@@ -214,16 +240,41 @@ fn report_deadlock(s: &Sched, waiter: Option<usize>) -> ! {
 
 /// Creates a pool of `n` worker threads and answers its id.
 pub fn salvo_pool(n: usize) -> usize {
+    salvo_pool_with_sink(n, None)
+}
+
+/// [pool-fault-sink] The same, with an actor to report uncaught faults to:
+/// the addr and the builder that turns the host's reason into the language's
+/// `Fault` value (the runtime cannot construct one, exactly as with `Exit`
+/// [actor-watch]).
+pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
     let (lock, _cv) = state();
     let pool = {
         let mut s = lock.lock().unwrap();
-        s.pools += 1;
-        s.pools - 1
+        s.pools.push(PoolState {
+            tasks: VecDeque::new(),
+            sink,
+        });
+        s.pools.len() - 1
     };
     for _ in 0..n {
         std::thread::spawn(move || worker(pool));
     }
     pool
+}
+
+/// [task-mint] Mints a token whose fulfilment **schedules** `body` on `pool`.
+/// No capacity is reserved and no queue can be full: a task has no mailbox,
+/// which is why a task mint contributes no deadlock edge.
+pub fn salvo_mint_task(pool: usize, body: TaskBody) -> SalvoReply {
+    let (lock, _cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.next_slot += 1;
+    let slot = s.next_slot;
+    SalvoReply {
+        target: Target::Task(pool, body),
+        slot,
+    }
 }
 
 /// Spawns an actor on a pool. The queue bound is explicit and required.
@@ -371,6 +422,13 @@ pub fn salvo_wait(wid: usize) -> SalvoMsg {
         if let Some(v) = s.waiters[wid].value.take() {
             return v;
         }
+        // [waitfor-pump] Detached tasks are what the rule names first, and
+        // they are served whoever is waiting; activations are served except
+        // the waiter's own.
+        if !s.pools[pool].tasks.is_empty() {
+            s = run_task(lock, cv, s, pool);
+            continue;
+        }
         if let Some((addr, at)) = pick(&s, pool, own) {
             s = run_job(lock, cv, s, addr, at);
             continue;
@@ -395,6 +453,11 @@ fn deliver_reply(s: &mut Sched, reply: SalvoReply, value: SalvoMsg) {
                 return;
             }
             s.actors[addr].queue.push_back(Entry::Reply(reply.slot, value));
+        }
+        // [task-mint] The answer schedules the task. Nothing to check: a task
+        // has no mailbox to fill and no death to be a no-op for.
+        Target::Task(pool, body) => {
+            s.pools[pool].tasks.push_back((body, value));
         }
     }
 }
@@ -471,9 +534,15 @@ fn run_job<'g>(
             s.actors[addr].user_len = 0;
             s.actors[addr].gate = None;
             let watchers = std::mem::take(&mut s.actors[addr].watchers);
+            let unwatched = watchers.is_empty();
             for (w, exit) in watchers {
                 let value = exit(reason.clone());
                 deliver_reply(&mut s, w, value);
+            }
+            // [pool-fault-sink] The net under supervision: a death nobody was
+            // watching still reaches the pool's sink, or the named report.
+            if unwatched {
+                report_fault(&mut s, pool, reason);
             }
         }
     }
@@ -488,9 +557,72 @@ fn worker(pool: usize) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     loop {
+        // [task-mint] A queued task before an activation: one rule, the same
+        // on both backends, so a program's interleaving does not depend on
+        // its target. Each queue is still served in arrival order.
+        if !s.pools[pool].tasks.is_empty() {
+            s = run_task(lock, cv, s, pool);
+            continue;
+        }
         match pick(&s, pool, None) {
             Some((addr, at)) => s = run_job(lock, cv, s, addr, at),
             None => s = cv.wait(s).unwrap(),
         }
     }
+}
+
+/// [task-mint] Runs one detached task to completion, with the same lock
+/// discipline and fault boundary as an activation: the lock is released for
+/// the body, and a fault is caught here. A task has no identity, so there is
+/// nothing to mark dead and nobody to notify — the fault goes to the pool's
+/// sink [pool-fault-sink], or to the named report when it has none.
+fn run_task<'g>(
+    lock: &'g Mutex<Sched>,
+    cv: &Condvar,
+    mut s: MutexGuard<'g, Sched>,
+    pool: usize,
+) -> MutexGuard<'g, Sched> {
+    let Some((body, value)) = s.pools[pool].tasks.pop_front() else {
+        return s;
+    };
+    s.active += 1;
+    drop(s);
+
+    // A task belongs to no actor, so a nested wait inside it may serve every
+    // activation on the pool [waitfor-pump].
+    let saved = HERE.with(|h| h.replace((pool, None)));
+    let outcome = catch_unwind(AssertUnwindSafe(move || body(value)));
+    HERE.with(|h| h.set(saved));
+
+    s = lock.lock().unwrap();
+    s.active -= 1;
+    if let Err(panic) = outcome {
+        let reason = panic
+            .downcast_ref::<&str>()
+            .map(|m| (*m).to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "fault".to_string());
+        report_fault(&mut s, pool, reason);
+    }
+    cv.notify_all();
+    s
+}
+
+/// [pool-fault-sink] Where an uncaught fault on a pool goes: a message to the
+/// pool's sink actor if it has one, else a named report on stderr. A fault
+/// that cannot be delivered (a dead sink) falls back to the report, since the
+/// alternative is losing it silently.
+fn report_fault(s: &mut Sched, pool: usize, reason: String) {
+    if let Some((addr, build)) = s.pools[pool].sink {
+        if !s.actors[addr].dead {
+            let msg = build(reason);
+            // Enqueued past the bound deliberately: a fault report must not
+            // block the faulting thread, and dropping it would lose the one
+            // thing the sink exists for.
+            s.actors[addr].queue.push_back(Entry::User(msg));
+            s.actors[addr].user_len += 1;
+            return;
+        }
+    }
+    eprintln!("salvo: an uncaught fault on pool {pool}: {reason}");
 }

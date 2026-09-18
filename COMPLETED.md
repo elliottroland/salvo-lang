@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1081 tests, complete: the toolchain tests are
+cargo test                  # 1094 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,106 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A design working document opened — shareable handlers (user directions
+2026-09-17, evening).** SHAREABLE_HANDLERS.md, in DESIGN_DOC.md's shape, out of
+a conversation that began at "how do I implement `Random` when its state must
+live behind a thread boundary" and worked through four designs. The directions
+the user gave in session, recorded here as the part worth keeping even if the
+open calls change: **state confinement** — a handler's state accessible only
+from `send fn` members, with sync members beside them running on the caller's
+thread and waiting on the servant's answers (the active-object pattern, and a
+deliberate reopening of [actor-effect-kind]'s mixed-kind refusal, whose stated
+reason the confinement removes); **hidden occupancy accepted** — "the general
+rule of a function call is that it will occupy the thread until it returns",
+so neither a plain effect's member nor its callers should declare `[waitfor]`
+for a confined-state implementation to exist (the motivating case:
+`CyclicRandom of Random`); and **deadlock detection wanted**. Findings along
+the way, each verified in session where the machinery exists today: the user's
+soundness argument ("handlers would need to be each other's dependencies")
+does not hold because **request topology is not dependency topology** — addrs
+travel as values, and the upcall deadlock (a servant validating answers with a
+peer that itself uses the façade) hangs on an acyclic dependency graph, walked
+thread-by-thread in the document's §3.1; a **task's wait serving activations**
+(it belongs to no actor) was verified three frames deep on one thread and
+becomes a load-bearing invariant under the design; unrestricted synchronized
+members re-import every lock pathology plus a JVM-reentrant/Rust-non-reentrant
+**parity trap**, which produced the restricted-monitor design (state + pure
+computation, no effects, no waits — deadlock-free by construction); the façade
+value is **`Addr<E>` generalized**, not its replacement, and `use H() on POOL`
+is sugar, not a substitute for `spawn`; and `[waitfor]`'s mandatory
+propagation + placement gate were found to price the wrong hazard once waits
+pump, with demote-to-optional-checked recommended (SH-5(b)). One defect fell
+out and was reproduced: **the idle report never fires when the waiter is an
+occupied actor** (`active` counts a parked activation, so `idle()` never
+holds) — a silent hang today, ROADMAP's open defects, and the design's stated
+prerequisite (SH-8).
+
+**The second sequence, step 2: the task kernel (built 2026-09-17, FC-1 + FC-2 +
+FC-3, with FC-5 and FC-6 riding).** The step that makes a plain function a full
+citizen of the concurrent world: the **send kind extends to free functions**, a
+`replyto` may target one from *any* frame, and the token it mints carries a
+detached closure instead of a mailbox address. Four new rule labels —
+**[free-send-fn]**, **[task-mint]**, **[task-pool-inherit]**,
+**[pool-fault-sink]** — plus **[rs-task]** / **[kt-task]**.
+
+- **The kernel is smaller than the member mint it sits beside**, and that is the
+  finding: a task has no mailbox, so there is no capacity to reserve, no gate to
+  hold, no slot table, no `resume`, no continuation enum and no deadlock edge at
+  the mint. The whole emission is
+  `salvo_mint_task(pool, Box::new(move |__v| target(caps…, payload)))` /
+  `mintTask(pool) { __v -> target(caps…, __v as Payload) }`, with the captures
+  bound to locals *outside* the closure so they are the values as they were at
+  the mint. The runtime side is one queue per pool and one work-item kind.
+- **The refusal list was inherited, not invented.** A free `send fn` carries
+  [actor-effect-kind]'s list — no return type, no kept parameter, no `Mut`
+  parameter, no `proj` return, every parameter sendable — because the reason is
+  the same: a scheduled body outlives the frame that gave it its arguments. Two
+  additions of its own, both errors naming the mint: a send fn is **not
+  callable** (a call would run it in the caller's frame, the callback
+  anti-pattern the kind exists to refuse) and **not a value**.
+- **Two first-pass cuts, both diagnostics.** A task body may declare **no
+  effects but `[waitfor]`**: it runs detached, so there is no scope to supply a
+  handler from, and capturing the minting scope's handlers would send values
+  that scope still owns — the remedy the diagnostic names is an `Addr` capture,
+  which needs no effect declaration. And **no generics**: a mint carries
+  captures and no type arguments. Both are in ROADMAP with the shape that would
+  lift them.
+- **Placement is inherited unless written** [task-pool-inherit]: `on POOL` is
+  optional at a mint and defaults to the pool current *at the mint*, because
+  whoever creates work pays for it. A **member** mint takes no `on` clause at
+  all (the answer arrives on the actor's own mailbox), which is an error worth
+  its own sentence. The typed exception rode in from step 1: a `[waitfor]`
+  target needs `on thread()`, or a minting frame that itself declares
+  `[waitfor]` — the proof travels in the effect lists.
+- **FC-5, the pool fault sink**, is std's own `actor effect Faults { send fn
+  faulted(fault: Fault) }` plus a `pool(size, sink)` overload; the *pool
+  creation site* hands the runtime a builder, exactly as a `watch` hands over an
+  `Exit` builder. It catches a faulted **task** (which has no addr to watch) and
+  a faulted **actor nobody watched**; with no sink the runtime names the fault
+  on stderr and the program carries on. **The spelling deviates from the
+  sketch**: `pool(4, faults: sink)` is not available, because a name before a
+  colon at a call site is the implicit-override syntax [implicit-override] — so
+  the surface is an ordinary positional overload, `pool(4, sink)`.
+- **FC-6, the tracing**, needed two new tables (`task_sends`, `task_mints`) and
+  a fixpoint: a task's sends are attributed to every actor whose mints reach it,
+  following task-to-task mints. Without it the cycle "actor hands work to a task
+  that sends back" is invisible — the same cycle written in two pieces — and the
+  test asserts exactly that pair: traced with the mint, silent without it.
+- **Verified end to end on both backends with identical output**: two new
+  scheduler behaviour scenarios per backend (a task scheduled by a fulfilled
+  token, including one on the main pool that runs during `main`'s wait; a
+  faulted task reaching its pool's sink, and a sinkless pool naming the fault on
+  stderr while the program continues), a new compile-and-run case that is FC's
+  own worked shape (`fetch` wires work and returns; the continuation runs
+  inherited and placed), lowering assertions per backend, eight new checker
+  tests, one parser test, and **`examples/actors/` section 8** with its
+  checked-in Rust and Kotlin regenerated. Tests: **1094 (+13)**.
+- **FREE_CONCURRENCY.md is deleted**, as its charter said it would be once steps
+  1–2 landed: FC-1…FC-6 are in the specs and in these two log entries, FC-7's
+  sketch moved to ROADMAP (its trigger is a host caller), and every reference to
+  the file — in ROADMAP, LANGUAGE_SPEC and TIME.md — was repointed rather than
+  left dangling.
 
 **The second sequence, step 1: the `waitfor` package (built 2026-09-17,
 FC-4(a) + T-5(c)).** The first step of the second sequence, and the whole of
@@ -11589,7 +11689,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1081)
+## Test inventory (all green: 1094)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11597,7 +11697,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 607 - 19 unit tests (file classification, including the
+- `salvo-core`: 614 - 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -12188,7 +12288,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 89 (three parser tests for the scope selector and
+- `salvo-syntax`: 90 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -12257,7 +12357,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 105 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 106 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -12454,7 +12554,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 192 - including twelve [rs-actor] tests (the first
+- `salvo-backend-rust`: 196 - including twelve [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12471,8 +12571,11 @@ cache, with per-test timings.
   [actor-watch]; the **`waitfor` package** compiled and run — a handler that
   declares `[waitfor]` and blocks on a timer actor's answer from its own
   `thread()`, plus an actor on `main`'s pool served by `main`'s wait
-  [waitfor-effect] [waitfor-dedicated] [main-pool]; and the generic-handler cut
-  reported as a codegen error) - and the
+  [waitfor-effect] [waitfor-dedicated] [main-pool]; the **task kernel** compiled
+  and run — a free `send fn` scheduled by a fulfilled token, inherited and
+  written placements, with the closure-not-a-continuation-enum lowering asserted
+  [free-send-fn] [task-mint] [rs-task]; and the generic-handler cut reported as a
+  codegen error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
   *output* - golden snapshots of the same five demos

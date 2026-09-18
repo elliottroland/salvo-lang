@@ -263,6 +263,14 @@ class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
     }
 }
 
+fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
+    out.send("$label totalled $total")
+}
+
+fun report_line(counter: Int, label: String, out: salvo.SalvoReply) {
+    salvo.SalvoSched.send(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool()) { __v -> formatted(__c0, __c1, __v as Int) } }))
+}
+
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
@@ -323,6 +331,12 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx2, "7. the main pool's own actor totalled $local")
+    val line8 = run {
+        val (out, __wid) = salvo.SalvoSched.waiter()
+        report_line(mine, "the counter", out)
+        salvo.SalvoSched.awaitReply(__wid) as String
+    }
+    println(__fx2, "8. $line8")
     println(__fx2, "done")
 }
 

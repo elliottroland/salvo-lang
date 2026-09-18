@@ -2455,7 +2455,9 @@ LANGUAGE.md remains the source of truth for everything that does.
     sent closures and pipeline functions become real; until then the answer is
     a diagnostic naming the field.
 * [actor-send-fn] An **asynchronous member** is declared `send fn`, in an
-  effect and in the handlers implementing it. Sending it *enqueues* an
+  effect and in the handlers implementing it — and, since 2026-09-17, on a
+  **free function** too [free-send-fn], where the kind means the same thing
+  without an effect to belong to. Sending it *enqueues* an
   invocation, so it **answers nothing**: a written return type is an error
   naming the shape that does carry an answer — an `out: Reply<T>` parameter
   minted with `replyto` [actor-replyto]. In the first pass every member of a
@@ -2641,7 +2643,8 @@ LANGUAGE.md remains the source of truth for everything that does.
     whose fulfilment routes back through the waiter's own stalled mailbox —
     that is the edge kind [actor-deadlock-cycle] gains.
 * [main-pool] **`main` is the single worker of its own pool** (user decision
-  2026-09-17, FREE_CONCURRENCY.md's FC-4(a)). The pool exists from the start
+  2026-09-17, FC-4(a); the argument trail is in COMPLETED.md's log). The pool
+  exists from the start
   and is never given a thread of its own: `main`'s thread is its worker.
   * So **an ambient placement exists on every thread the language owns**, and
     a spawn or (from the task kernel on) a mint with no `on` clause has
@@ -2669,7 +2672,14 @@ LANGUAGE.md remains the source of truth for everything that does.
     is what runs main-pool work at all, since nothing else serves it.
   * **For an actor on a dedicated thread**, its mailbox stays stalled while it
     waits, so serialization is preserved and the behaviour is observably
-    identical to blocking for *messages*. And since a dedicated pool has
+    identical to blocking for *messages*. Its own **tasks still progress**,
+    which is what dissolves the default path's trap: [task-pool-inherit] places
+    a task on the waiter's own thread, and waiting for that task's answer would
+    be a guaranteed self-deadlock under pure blocking.
+  * **A task belongs to no actor**, so a wait *inside a task body* excludes
+    nothing and may serve every activation on the pool. It cannot re-enter an
+    actor mid-activation regardless: an actor running an activation has no
+    deliverable entry. And since a dedicated pool has
     exactly one occupant [waitfor-dedicated], "except its own" and "never
     activations" coincide there.
   * **Costs, stated**: pumped work runs nested on the waiter's stack
@@ -2679,6 +2689,140 @@ LANGUAGE.md remains the source of truth for everything that does.
   * The rule is stated in terms of *work* because the task kernel is what
     fills a pool with things that are not activations; until it lands, what a
     wait can serve is main-pool actors.
+* [free-send-fn] **`send fn` on a free function** — the send kind extended
+  beyond an effect's members (user decision 2026-09-17,
+  FC-1(a)). It is a unit of work that runs by being
+  **scheduled**, never called:
+
+  ```
+  send fn parse_row(out: Reply<User>, row: Row) => !out, !row {
+      out.send(user_from(row))
+  }
+  ```
+
+  * **Why it exists**: in a concurrent program the logic concentrated in
+    actors because only a handler member could be a continuation target, so a
+    free function was a limited citizen. Extending the *kind* rather than
+    making everything asynchronous is the resolution — ordinary functions keep
+    the whole synchronous feature set, and the boundary stays where
+    [actor-effect-kind] put it.
+  * **The refusal list is the actor member's, inherited rather than
+    invented**: no return type (it answers nothing — a reply travels as a
+    `Reply<T>` parameter), no **kept** parameter (a scheduled body outlives
+    the frame that minted it, so what it is given is always consumed: the
+    clause says `=> !p`), no **`Mut`** parameter, no `proj` return, and every
+    parameter **sendable** [actor-sendable]. Checked at the declaration, where
+    the author is deciding.
+  * **Not a value and not callable**: a call would run it in the caller's
+    frame on the caller's thread, which is the callback anti-pattern the kind
+    refuses, and there is no position a fn *value* of this kind could fill.
+    Both are errors naming the mint.
+  * **No mailbox, no addr, no identity** — so no gate (a gate is a mailbox
+    policy), no capacity to reserve, and no death to watch: what a task's
+    fault reaches instead is the pool's sink [pool-fault-sink].
+  * `send` stays **contextual** at item level for the reasons it is contextual
+    in a member list: `send` is an ordinary name and `r.send(v)` is how a token
+    is discharged.
+  * **First-pass cuts**, each a diagnostic: **no effects but `[waitfor]`** — a
+    scheduled body runs detached from the frame that minted it, so there is no
+    scope to supply a handler from, and capturing the minting scope's handlers
+    would send values that scope still owns; the remedy the diagnostic names is
+    an `Addr` capture, which needs no effect declaration [actor-use-addr].
+    Lifting it for *actor-backed* effects (whose provider is an addr stub, and
+    so sendable) is the recorded growth point. And **no generics**: a mint
+    carries captures and no type arguments, so there would be nothing to choose
+    an instantiation by.
+* [task-mint] **`replyto` targets any send-kind function** (user decision
+  2026-09-17, FC-2), which is what makes the mint legal in **any** function:
+
+  ```
+  fn fetch_user(id: Int, out: Reply<User>) [Db] -> None => !out {
+      db.query(id, replyto parse_row(out))     // wires work, then returns
+  }
+  ```
+
+  * **Resolution is lexical-member-first**: the enclosing handler's members are
+    tried first (the existing rule, unchanged), then free `send fn`s by the
+    ordinary scope ladder [fn-overload-scope]. A tie *within* one rung is
+    refused rather than guessed — a mint carries only captures, which is not
+    enough to choose an overload by.
+  * **Targeting a plain `fn` stays an error**: a normal function runs by being
+    called, and a fulfilled token must never run arbitrary synchronous code on
+    the fulfiller's thread inside its activation budget.
+  * The **trailing-token convention is unchanged**: the target's last
+    parameter is what the token carries, the ones before it are the captures,
+    and a capture is *stored*, so a bare name moves [deduce-consume] and is
+    checked sendable at the crossing site [actor-sendable].
+  * **`replyto!` cannot target a task**: the gate holds back the minting
+    actor's mailbox, and a task has none.
+  * **No deadlock edge at the mint** [actor-deadlock-cycle]: no mailbox to
+    fill, no gate to cycle. A strict simplification relative to a member mint,
+    whose capacity is reserved in a bounded queue.
+  * **What the graph does see** is the task's *body* (FC-6): its sends are
+    traced whole-program and attributed to every actor whose mints reach it,
+    following task-to-task mints — conservative, and the same coarseness the
+    type-level graph already accepts. The recorded gap: an obligation parked
+    *in* a task is a wait-for edge pointing at no effect node, netted by
+    linearity [linear-obligation] and the runtime's idle report.
+  * **Direct invocation** (`parse_row(out, row) on p` as a statement) is
+    *derivable* — a mint plus an immediate self-discharge — so the kernel ships
+    targets-only and the spelling stays a separate decision.
+* [task-pool-inherit] **A task's placement is inherited unless written**
+  (user decision 2026-09-17, FC-3): `on POOL` is optional at a mint, and
+  omitted means the pool **current at the mint site**, resolved there and
+  captured into the token. The fulfiller's pool is irrelevant — *whoever
+  creates work pays for it*, which is also what keeps an actor's continuations
+  on the pool its author budgeted.
+  * The rejected alternatives, recorded: **required-`on`-always** (either
+    threads a pool through every signature or reads the ambient pool through
+    an accessor — the same ambient read with ceremony), the **callee's pool**
+    (ill-defined, and it lets clients spend a shared service's budget), and a
+    **dedicated task pool** (a global noisy neighbour that breaks CPU/IO
+    budgeting). Swift's `Task { }` and Kotlin's coroutine builders both
+    converged on inherit-by-default.
+  * A **member** mint takes no `on` clause at all: the answer arrives on the
+    actor's own mailbox, so there is no placement to choose. Writing one is an
+    error saying where a placement belongs.
+  * **A task inherits its pool's serving rules, and the main pool's are
+    unusual** [main-pool] [waitfor-pump]: work placed there runs only while
+    `main` waits. So a mint from `main` (or from anything `main` calls) whose
+    answer arrives after `main`'s last `waitfor` **never runs**, and dies with
+    `main`'s return — the same fate as an actor message still queued there, and
+    the paired rule [actor-waitfor] already states it. It is worth knowing
+    anyway, because "wire it and forget it" is the shape that hits it: from
+    `main`, a task is only *reached* by a subsequent wait. On any other pool a
+    worker picks it up as soon as it is queued, and a **task before an
+    activation** is the order both backends take.
+  * **The typed exception** [waitfor-dedicated]: a target that declares
+    `[waitfor]` needs dedicated placement — explicit `on thread()`, or
+    inherited from a frame that itself declares `[waitfor]`, whose ambient pool
+    is thereby provably a `Dedicated Pool`. The proof travels in the effect
+    lists, so this stays a binding-site check rather than an ambient one.
+* [pool-fault-sink] **A pool may name an actor to report its faults to**
+  (user decision 2026-09-17, FC-5(a)): `pool(n, sink)` where `sink` is an
+  `Addr<Faults>`, and every uncaught fault on that pool arrives as an ordinary
+  message.
+  * **Why an addr and not a `watch`**: the two shapes differ. A death watch is
+    a one-shot linear token for the death of an *identity*; a pool has no
+    lifecycle and emits a recurring *stream*. So the sink is an ordinary actor
+    of an ordinary protocol — `actor effect Faults { send fn faulted(fault:
+    Fault) }` in `core.actor` — and needs no new mechanism at all.
+  * **What reaches it**: a faulted **task**, which has no addr to watch, and a
+    faulted **actor nobody was watching**. Per-addr `watch` is untouched — the
+    sink is the net *beneath* supervision, not its replacement, which is the
+    arrangement OTP also has.
+  * **No sink is the named runtime report** on stderr, the sibling of the
+    idle-with-parked-gates report. A program does not die of a task's fault.
+  * The report is enqueued **past the sink's bound** deliberately: a fault
+    report must not block the faulting thread, and dropping it would lose the
+    one thing the sink exists for.
+  * **Minter attribution** (structured concurrency's answer — every task chain
+    bottoms out at an owning activation) is the recorded refinement if the
+    per-pool sink proves too coarse for *recovery* rather than diagnosis.
+  * The spelling is **positional**, `pool(n, sink)`: the design sketch wrote
+    `pool(4, faults: sink)`, but a name before a colon at a call site is the
+    implicit-override syntax [implicit-override], not a named argument — so an
+    ordinary overload of `pool` is what the surface actually needs.
 * [actor-use-addr] `use addr` binds an effect in the current scope to a
   generated forwarding stub over an `Addr` — first-pass surface, not sugar, and
   no new syntax: the `use` statement already takes an expression, and whether
@@ -2789,8 +2933,10 @@ LANGUAGE.md remains the source of truth for everything that does.
     * It does not touch Example 6's binding swap, which swaps a *dependency*
       between a construction and an `Addr` in a spawn clause, never a `use`.
   * **The target is resolved lexically**, against the enclosing handler's
-    members. Naming a member of another `actor effect` in scope is a *remote
-    mint* — the generalized form (decided; ROADMAP.md's sugar pass) — and
+    members — and then, since 2026-09-17, against free `send fn`s
+    [task-mint], which is the one case where the mint needs no enclosing
+    handler at all. Naming a member of another `actor effect` in scope is a
+    *remote mint* — the generalized form (decided; ROADMAP.md's sugar pass) — and
     is refused for now with the workaround that needs nothing new: a token is
     an ordinary linear value, so the handler that owns `k` mints it and passes
     it. The generalization is a later slice because it makes the mint itself
