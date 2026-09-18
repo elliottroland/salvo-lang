@@ -6,7 +6,8 @@ landed, out of a conversation that began at "how do I implement `Random` when
 its state must live behind a thread boundary" and worked through four designs,
 two of which survive below. The document follows DESIGN_DOC.md's shape —
 options, trade-offs, recommendations — and carries the delete-when-built
-charter of TIME.md / FREE_CONCURRENCY.md: when its outcomes are decided and
+charter its two predecessors had (TIME.md and FREE_CONCURRENCY.md, both now
+retired into COMPLETED.md's log): when its outcomes are decided and
 built, the decisions go to COMPLETED.md's log, the rules to the specs, and
 this file is deleted.
 
@@ -514,7 +515,7 @@ parking a `Reply` is what rung 2 refuses. The recurring shapes:
 
 | pattern | why rung 2 cannot | the future event |
 |---|---|---|
-| **`TestClock of Clock`** (TIME.md's customer) | `ManualTime.after` *stores* the token in `scheduled`; `advance()` drains the due ones — deferral is its semantics | virtual time reaching the deadline |
+| **a timer-backed clock** ([time-coupling]'s customer) | `ManualTime.after` *stores* a future deadline's token in `pending`; `advance()` drains the due ones — deferral is its semantics. (A deadline that is *already* due fires inside `after` as of 2026-09-18, so the zero-length reading a test clock uses is a rung-2 shape; anything with a real wait is not.) | virtual time reaching the deadline |
 | **multiplexed connection** (`fn query(sql) -> Rows`) | the token parks in a `pending` map keyed by request id; a *different* activation (`frame_arrived`) answers | the response frame on the wire |
 | **blocking acquire** (`fn acquire() -> Conn`), rate limiter, semaphore | when nothing is free the caller's token joins a waiter queue, drained by `release` | another caller releasing |
 | **request coalescing** (`fn get(k) -> V`) | in-flight fetch → the token joins the crowd in `Mut Map<K, Mut List<Reply<V>>>`, all drained when the one fetch lands | the shared fetch completing |
@@ -1030,8 +1031,8 @@ Sequencing, if decided: SH-8 immediately (it is a defect regardless); the
 rest after the second sequence's steps 3–6, since T-4 (multi-effect
 handlers) and `core.time`'s `TestClock` interact with SH-1/SH-5 — a
 TestClock under SH-5(b) needs no `[waitfor]` declaration and no dedicated
-thread, which simplifies TIME.md's Test B and should be decided in sight of
-it. SH-10's spelling should be decided together with SH-6 and after T-4's
+thread, which would simplify the unified test clock [time-coupling] built at
+step 6 — and should be decided in sight of it. SH-10's spelling should be decided together with SH-6 and after T-4's
 surface exists, since the multi-effect `of` list is what the handler-level
 kind word must sit beside, and `TestClock` is the first rung-4 handler that
 would carry the opt-in.

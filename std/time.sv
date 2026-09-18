@@ -424,6 +424,23 @@ actor effect TimerCtl {
 // like any other, so it races the `after` registrations of the code under test.
 // Sequence the test with a quiescence hook — "everything I sent has settled" —
 // and then advance.
+//
+// [time-coupling] Where the code under test *reads* a clock as well as setting
+// deadlines, the two must agree, and the way to make them agree is a handler of
+// your own whose reading is a deadline of zero on this very timer:
+//
+//     handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+//         fn tick() -> Tick {
+//             let fired = waitfor answer: Reply<Fired> {
+//                 timer.after(nanos(0), answer)
+//             }
+//             return fired.at
+//         }
+//     }
+//
+// std does not ship it: it is six lines, and which effect a test fakes —
+// [Ticker], [Clock] or both — is the test's business. Prefer passing time as
+// data over reading it at all; see `examples/time/`.
 handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 64 }
 
@@ -443,8 +460,17 @@ handler ManualTime() of Timer, TimerCtl {
     pending: Mut List<Reply<Fired>> = mut_list_of()
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
-        add(deadlines, now + wait.nanos)
-        add(pending, done)
+        // [time-coupling] A deadline that is *already* due fires here rather
+        // than waiting for an [advance], which is what the real timer does —
+        // "as soon as the scheduler looks" — and is what makes
+        // `after(nanos(0), done)` a reading of virtual time rather than a park
+        // that never ends. A test clock is written on exactly that.
+        if wait.nanos <= 0 {
+            send(done, Fired {at: Tick {nanos: now}})
+        } else {
+            add(deadlines, now + wait.nanos)
+            add(pending, done)
+        }
     }
 
     send fn advance(by: Duration) => !by {

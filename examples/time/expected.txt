@@ -1,0 +1,9 @@
+budget 1500ms, doubled 3s, in millis 1500
+stamp 1700000000s, a minute later 1700000060s
+wall clock is set: true
+overdue after one more read: false
+overdue after three: false false true
+in time, 500ms to spare
+late by 500ms
+session: late by 1s
+napped 2s

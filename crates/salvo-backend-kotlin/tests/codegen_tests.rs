@@ -2060,6 +2060,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_time_surface,
     kotlinc_compiles_and_runs_a_real_timer,
     kotlinc_compiles_and_runs_manual_time,
+    kotlinc_compiles_and_runs_the_coupling_postures,
     kotlinc_compiles_and_runs_is_bindings_over_calls,
     // the checked-in examples, one case each
     kotlin_example_actors,
@@ -2070,6 +2071,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlin_example_linearity,
     kotlin_example_qualifiers,
     kotlin_example_throw_and_release,
+    kotlin_example_time,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -10446,6 +10448,10 @@ fn kotlin_example_throw_and_release() -> KotlinCase {
     example_case("throw-and-release")
 }
 
+fn kotlin_example_time() -> KotlinCase {
+    example_case("time")
+}
+
 /// Every example has a case above — checked here rather than
 /// trusted, since the registry is written by hand.
 #[test]
@@ -10574,6 +10580,84 @@ fn main() [use, spawn, waitfor] -> None {
 
 const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
 
+/// [time-coupling] The three test postures of the coupling stance, in the same
+/// program the Rust backend runs: time as data (no clock at all), a scripted
+/// `Ticker`, and the unified test clock — a `Ticker` whose reading is a zero
+/// deadline on the very timer the test advances [backend-parity].
+const TIME_COUPLING: &str = r#"
+import time
+
+// Time as data: no effect, so nothing to fake.
+fn verdict(started: Tick, at: Tick, budget: Duration) [] -> Str {
+    if between(started, at) > budget {
+        return "late"
+    }
+    return "in time"
+}
+
+// A scripted clock: readings from the constructor, half a second apart.
+handler SteppingTicker(step: Duration) of Ticker {
+    at: Long = 0
+
+    fn tick() -> Tick {
+        at = at + step.nanos
+        return Tick {nanos: at}
+    }
+}
+
+// The unified test clock: a reading is a deadline of zero, so the answer is the
+// timer's own virtual now. The timer arrives as a value, not a dependency — a
+// handler with dependencies of its own cannot be built in a spawn `use` clause.
+handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+    fn tick() -> Tick {
+        let fired = waitfor answer: Reply<Fired> {
+            timer.after(nanos(0), answer)
+        }
+        return fired.at
+    }
+}
+
+actor effect Sleeper {
+    send fn nap(wait: Duration, out: Reply<Str>) => !wait, !out
+    send fn woke(started: Tick, out: Reply<Str>, f: Fired) => !started, !out, !f
+}
+
+handler Napping() [Timer, Ticker] of Sleeper {
+    mailbox { capacity: 8 }
+
+    send fn nap(wait: Duration, out: Reply<Str>) {
+        after(wait, replyto woke(tick(), out))
+    }
+
+    send fn woke(started: Tick, out: Reply<Str>, f: Fired) {
+        send(out, "napped ${elapsed(started)}, fired at ${to_millis(between(Tick {nanos: 0}, f.at))}ms")
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    println("data: ${verdict(Tick {nanos: 0}, Tick {nanos: 1000000000}, millis(1500))}")
+    use SteppingTicker(millis(500))
+    let started = tick()
+    println("scripted: ${to_millis(elapsed(started))} ${to_millis(elapsed(started))}")
+
+    let p = pool(1)
+    let (timer, ctl) = spawn ManualTime() on p
+    let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
+    let napped = waitfor answer: Reply<Str> {
+        sleeper.nap(seconds(2), answer)
+        waitfor settled: Reply<Idle> {
+            on_idle(p, settled)
+        }
+        ctl.advance(seconds(2))
+    }
+    println("unified: ${napped}")
+}
+"#;
+
+const TIME_COUPLING_OUTPUT: &str = "data: in time\nscripted: 500 1000\n\
+                                    unified: napped 2s, fired at 2000ms\n";
+
 /// [time-types] [time-clock] [time-ticker] [mod-import-module] The whole
 /// surface, reached with one `import time`.
 fn kotlinc_compiles_and_runs_the_time_surface() -> KotlinCase {
@@ -10600,6 +10684,17 @@ fn kotlinc_compiles_and_runs_manual_time() -> KotlinCase {
         generate_files(&[("main.sv", TIME_MANUAL)]),
         "time-manual",
         TIME_MANUAL_OUTPUT,
+    )
+}
+
+/// [time-coupling] The three postures, and the unified test clock in
+/// particular: one clock behind both the deadline and the reading, so the
+/// measurement is exact — and the same text as the Rust backend prints.
+fn kotlinc_compiles_and_runs_the_coupling_postures() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TIME_COUPLING)]),
+        "time-coupling",
+        TIME_COUPLING_OUTPUT,
     )
 }
 

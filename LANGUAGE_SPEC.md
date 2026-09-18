@@ -2691,7 +2691,8 @@ LANGUAGE.md remains the source of truth for everything that does.
     on a shutdown token. There is no run-to-quiescence semantics.
 * [waitfor-effect] **`[waitfor]` is a capability effect**: the right to occupy
   the thread you are running on until an answer arrives (user decision
-  2026-09-17, TIME.md's T-5(c)). Lowercase and compiler-owned like `use` and
+  2026-09-17, T-5(c) — the argument trail is in COMPLETED.md's log). Lowercase
+  and compiler-owned like `use` and
   `spawn`, contextual for the same reason, and it names no effect type — so
   there is nothing to thread and nothing to resolve. What validates holding it
   is not *who* you are but *where you run* [waitfor-dedicated].
@@ -3354,6 +3355,11 @@ the same day. **Not part of `core`**: the surface is imported, and one
     obligations cannot be *read* positionally — only `remove_at` reaches one
     [linear-container]. Keeping the deadlines in a plain list is what lets the
     handler ask which is earliest.
+  * A deadline that is **already due fires at registration**, inside `after`,
+    rather than waiting for the next `advance` — which is what the real timer
+    does ("as soon as the scheduler looks") and what makes `after(nanos(0),
+    done)` a *reading* of virtual time rather than a park that never ends. Added
+    2026-09-18 with [time-coupling], whose unified test clock hangs without it.
   * `advance` races the `after` registrations of the code under test, which is
     what `on_idle` is for: settle, then advance ([actor-on-idle], and the
     worked test in both backends' `time-manual` case).
@@ -3361,6 +3367,63 @@ the same day. **Not part of `core`**: the surface is imported, and one
     default timer's plumbing. Calling it needs a `Reply<Fired>` in hand, so it
     cannot manufacture time from nothing, but Salvo has no module-private
     declarations — recorded in ROADMAP.
+* [time-coupling] **Time is data.** Where a value can be *passed*, std's posture
+  is to pass it rather than to read it: a `Fired` carries the `at` it came due
+  at, and a function that takes its times as parameters declares no effect,
+  needs no handler and is tested by being called. Decided 2026-09-17 (T-2
+  option 1) and made good 2026-09-18; the worked arc is `examples/time/`.
+  * The argument is not just testability. A function that reads an ambient clock
+    mid-body has an answer that depends on when the scheduler ran it — inside an
+    actor, a race with its own mailbox — so passing the time in *removes* the
+    dependency instead of mocking it. What the stance costs is stated too: code
+    that wants ambient `now()` in the middle of a computation must be
+    restructured to be handed it.
+  * Three test postures follow, in the order to reach for them, and the language
+    supports all three today:
+    1. **Time as data** — no effect at all. Nothing to bind.
+    2. **Scripted readings** — a `Ticker`/`Clock` handler of your own whose
+       answers come from its constructor or its state. For code that reads a
+       clock but shares no time with anything else in the test; it does *not*
+       agree with a `Timer`'s virtual time, and is not meant to.
+    3. **`ManualTime`** [time-manual] — virtual time for the deadlines
+       themselves, sequenced with `on_idle` before each advance.
+    4. **`ManualTime` plus a unified test clock** — for a measurement that must
+       agree with a deadline.
+  * The **unified test clock** is the principled endpoint, and it is written in
+    Salvo rather than provided: a `Ticker` (or `Clock`) handler whose reading is
+    a zero-length deadline on the timer the test advances, so one virtual clock
+    is behind both.
+
+    ```
+    handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+        fn tick() -> Tick {
+            let fired = waitfor answer: Reply<Fired> { timer.after(nanos(0), answer) }
+            return fired.at
+        }
+    }
+    ```
+
+    Two rules already in force shape it, and neither is negotiable here. The
+    timer arrives as an **`Addr<Timer>` constructor parameter**, not as a
+    handler dependency, because a handler that itself depends on an effect
+    cannot be *constructed* in a spawn's `use` clause — there is no scope on the
+    child to resolve that dependency from, so an addr is what crosses
+    [actor-spawn-expr]. And the wait
+    makes the handler carry `[waitfor]`, which propagates to whatever binds it,
+    so the compiler requires that actor to run on a `Dedicated Pool`
+    [waitfor-dedicated] — `on thread()`, consumed by the clause. A wait can
+    therefore occupy only its own thread. std ships no such handler: it is six
+    lines, and which effect it fakes (`Ticker`, `Clock`, or both) is the test's
+    business.
+  * **Scheduler-owned virtual time is the recorded, un-built upgrade path**
+    (T-2 option 4; kotlinx-coroutines' `TestCoroutineScheduler` and Tokio's
+    `pause()` are the precedents). A pool would own a clock that the *production*
+    `DefaultTicker`/`DefaultClock`/`DefaultTimer` read, so a test would rebind
+    nothing and clock/timer agreement would be automatic. It is not built
+    because it moves time into both runtimes and forfeits the pure-Salvo fake;
+    what it uniquely buys is now only that agreement, since [actor-on-idle]
+    already supplies the sequencing. Revisit if the dedicated thread the unified
+    clock costs, or the advance ergonomics, start to bite.
 
 ## Deductions
 

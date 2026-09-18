@@ -17,6 +17,12 @@ constructors, refinements and deductions), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
 designated `close`, and pull iteration reduced to a `next` that `for` drives.
+Effect handlers also bind *asynchronously* — an actor is one, with a mailbox, a
+linear one-shot reply, `waitfor` as the bridge and a scheduler that is a library
+in each backend's runtime rather than a runtime in your code — and on that sit a
+filesystem (`Fs`, with linear stream tokens and an in-memory double) and time
+(`Duration`/`Instant`/`Tick`, `Clock`/`Ticker`, a `Timer` whose fires are
+messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
@@ -47,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1142 tests, complete: the toolchain tests are
+cargo test                  # 1143 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +127,93 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The coupling stance, and TIME.md retires — the second sequence is finished
+(built 2026-09-18, on the user's T-2 decision of 2026-09-17).** Step 6, the
+last of the second sequence: how a `Clock`/`Ticker` reading and a `Timer`
+deadline agree in a test. The call had been made a day earlier and the step is
+what makes it real — a rule [time-coupling], a case per backend, a worked
+example, and a chapter in LANGUAGE.md.
+
+**What the stance is, and the alternatives it was chosen over** (T-2's argument
+trail, preserved here because TIME.md is now deleted):
+
+- **(1) Time as data — chosen as the std posture.** A `Fired` carries the `at`
+  it came due at; a request is stamped where it enters the system and the stamp
+  travels in the message. Most code that "needs the time" then needs no clock
+  effect at all, so `ManualTime` alone determinizes it. It is an architectural
+  stance rather than a mechanism, and its cost is stated: code wanting ambient
+  `now()` mid-computation must be restructured to be handed it. What decided it
+  is not only zero machinery — a function that reads an ambient clock has an
+  answer that depends on when the scheduler ran it, which inside an actor is a
+  race with its own mailbox, so passing the time in *removes* the dependency
+  instead of mocking it. Erlang's `send_after` (a fire is an ordinary message
+  carrying its time) is the precedent.
+- **(2) Scripted per-actor readings — kept, for local measurement.** A handler
+  of your own whose answers come from its constructor. Works with no timer, no
+  actors and no virtual time; it deliberately does *not* agree with a `Timer`'s
+  virtual time, which is fine as long as one test does not cross both.
+- **(3) One owner — a clock the timer itself backs.** The principled endpoint,
+  and now demonstrably writable. Its first wording ("the IO-actor pattern") had
+  already been closed off by [actor-effect-kind] — a plain effect is never
+  actor-backed — leaving two mechanisms: T-5(c)'s `[waitfor]` effect, which
+  landed with step 1 and is what this step used, or the sugar pass's call member
+  later.
+- **(4) Scheduler-owned virtual time — held as the recorded, un-built upgrade
+  path.** kotlinx-coroutines' `TestCoroutineScheduler` and Tokio's `pause()`
+  both put virtual time in the runtime, which solves coupling *and* the advance
+  race while rebinding nothing. Not taken: it moves time into both runtimes and
+  forfeits the pure-Salvo fake. Worth restating that step 3 narrowed it —
+  with `on_idle` shipped, what (4) uniquely buys is clock unification alone,
+  which (3) also delivers.
+
+**What building it took.** One std change, and it was load-bearing:
+**`ManualTime.after` now fires an already-due deadline at registration** rather
+than storing it until the next `advance`. Without it the unified clock hangs,
+which was verified before the fix on both backends — `after(nanos(0), done)`
+parked forever, and because the waiter was an occupied actor even the idle
+report could not fire (the open defect from 2026-09-17). It is a parity fix
+rather than a new rule: the real timer fires "as soon as the scheduler looks",
+`Timer.after`'s own doc comment already said so, and a fake that defers what the
+real one fires immediately is a fake that lies. Everything else was writing:
+the [time-coupling] rule, a `time-coupling` compile-and-run case per backend
+(identical output), `examples/time/` — the example the step-5 leftovers said was
+owed, and it teaches the posture rather than the API — and a **"## Time"
+chapter in LANGUAGE.md**, which closes half of the prose the step-1 leftovers
+recorded as owed (the actor *surface* prose is still owed).
+
+**TIME.md's own sketch was wrong in two ways, which is the finding worth
+keeping.** `TestClock of Clock [Timer, waitfor]` does not compile, and neither
+correction is cosmetic:
+
+- **The dependency list goes before `of`**, not after: `handler TestTicker(…)
+  [waitfor] of Ticker`. A parse error, caught immediately.
+- **A handler that depends on an effect cannot be *constructed* in a spawn's
+  `use` clause** — there is no scope on the child to resolve that dependency
+  from [actor-spawn-expr] — so the timer arrives as an **`Addr<Timer>`
+  constructor parameter** instead. That is the deeper correction: the shape that
+  works threads the timer as a *value*, which is also why it needs no
+  dependency list beyond `[waitfor]`. And because the wait propagates,
+  the actor that binds it needs `on thread()` [waitfor-dedicated] — the
+  dedicated thread per waiting actor is the price, and the reason the unified
+  clock is the posture of last resort rather than the default.
+
+The step also closed the one path the step-1 leftovers listed as untested:
+**`waitfor` inside a `use`-bound handler's member**, which is exactly what
+`TestTicker.tick()` is. It behaves as predicted — the member runs inline, so the
+wait is the binding scope's — and is now covered on both backends.
+
+Tests: **1143 (+1)** — one Rust compile-and-run test, one Kotlin case in the
+existing driver, and the new example, which both backends' example guards pick
+up (the Rust side by directory scan, the Kotlin side needing its registry entry,
+as the guard insists).
+
+**With step 6, the second sequence is complete** — the `waitfor` package, the
+task kernel, `on_idle`, multi-effect handlers, `core.time` and the coupling
+stance, all six built 2026-09-17/18. **TIME.md is deleted** per its charter, its
+outcomes living in [time-types], [time-ticker], [time-clock], [time-timer],
+[time-manual], [time-coupling], [waitfor-effect], [waitfor-dedicated],
+[actor-on-idle], [effect-handler-multi] and this log.
 
 **Equality promotes, and six tooling fixes (user decisions + requests
 2026-09-18).** A short pass over things the previous entry's work had exposed,
@@ -12103,7 +12196,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1142)
+## Test inventory (all green: 1143)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12111,7 +12204,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 629 - 12 multi-effect-handler tests
+- `salvo-core`: 639 - 12 multi-effect-handler tests
   (`tests/multi_effect_tests.rs` [effect-handler-multi]: the two-faced actor and
   the addr per face, an addr of one face refusing the other's member, one face
   still answering a bare addr while several answer a tuple, conformance naming an
@@ -12541,7 +12634,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 87 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 91 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -12778,13 +12871,13 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 110 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 111 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
   package prefix `k_<tag>.salvo…`), runs them in parallel, and stamps each
   case separately — so the count fell from 151 with no coverage change
-  (2026-09-12; 99 cases as of the examples — **every example in `examples/` is a case**, so the `expected.txt` each one asserts is the same file the Rust backend asserts — and the obligation queue — a process parking reply
+  (2026-09-12; 121 cases as of the coupling stance — **every example in `examples/` is a case**, so the `expected.txt` each one asserts is the same file the Rust backend asserts; among them the four time cases, the whole surface under one `import time`, a real deadline, virtual time through `ManualTime`'s two faces, and the three coupling postures with the unified test clock (`data: in time` / `scripted: 500 1000` / `unified: napped 2s, fired at 2000ms`) [time-types] [time-timer] [time-manual] [time-coupling] — and the obligation queue — a process parking reply
   tokens in `Mut List<Reply<Str>>` state, answering one with `remove_first` and
   draining the rest on shutdown (`second closed: end of day` / `first served
   ada`) [linear-container] [linear-state] — and the death watch: a process that faults, a
@@ -12980,7 +13073,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 205 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 210 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -13201,6 +13294,28 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A fake must fire whatever the real thing fires immediately.** `ManualTime`
+  stored *every* deadline until the next `advance`, including one already due —
+  so `after(nanos(0), done)`, which is how a clock reading is written on a
+  timer, parked forever where the real timer answers at once (2026-09-18, found
+  building [time-coupling]). The symptom was the worst kind: a silent hang, made
+  worse by the waiter being an occupied actor, which is precisely the case the
+  runtime's idle report cannot see. When writing a double, the question to ask
+  of every member is not "does it behave plausibly" but "does it behave
+  *identically* at the edges" — zero, negative, already-past.
+- **A handler with dependencies cannot be constructed in a spawn's `use`
+  clause**, so a dependency of a *dependency* is threaded as a value: take an
+  `Addr<E>` constructor parameter instead of declaring `[E]`. There is no scope
+  on the child to resolve a nested dependency from, which is the reason and also
+  the hint — the addr *is* the resolved dependency. This is what the unified test
+  clock had to do, and a design sketch that declared `[Timer, waitfor]` did not
+  compile; the shape that works is `TestTicker(timer: Addr<Timer>) [waitfor]`.
+- **A design document's code sketch is not evidence.** Two of the three lines in
+  TIME.md's `TestClock` sketch were wrong — the dependency list on the wrong side
+  of `of`, and a dependency that cannot be constructed where the sketch
+  constructed it — and both were found in the first minute of typing it in. The
+  cheap habit that catches it: before recording a shape in a working document,
+  run it through `salvo analyze`, even against a feature that is not built yet.
 - **A runtime file name is a reserved word in the output namespace.** The
   emitters write shipped runtime files (`scheduler.rs`, `collections.rs`,
   `compare.kt`, …) into the same directory as the emitted std modules, and

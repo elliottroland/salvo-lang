@@ -33,10 +33,12 @@ the decision log, the plan, and the hard-won operational knowledge.
   this file. The two documents were one until 2026-09-09, so an "above" or
   "below" in moved text may mean the other document.
 - **"The sequence" is finished** (user decision 2026-09-09, all five phases
-  complete 2026-09-16). It is kept as the record of the order the work was done
-  in, and the themed sections below stay tagged with the phase they belonged to.
-  With no phase in progress, the work is: the **open defects**, then the
-  **decisions waiting on the user**, then whatever those decisions schedule.
+  complete 2026-09-16), and so is **"The second sequence"** (all six steps
+  complete 2026-09-18). Both are kept as the record of the order the work was
+  done in, and the themed sections below stay tagged with the phase they
+  belonged to. With no sequence in progress, the work is: the **open defects**,
+  then the **decisions waiting on the user**, then whatever those decisions
+  schedule.
 - **Before starting anything**: read COMPLETED.md's "Gotchas / lessons learned"
   for traps in the area you are touching, and its decision log for whether the
   question was already answered.
@@ -56,13 +58,13 @@ and each themed section is tagged with the phase it belongs to. **All five
 phases are complete** (phase 5 landed 2026-09-16): actors spawn, send, park
 continuations, bridge into `main`, depend on one another, watch each other die
 and hold queues of obligations — on both backends with identical output, with a
-worked example in `examples/actors/`. What is in progress is **"The second
-sequence"** below: steps 1 and 2 — the `waitfor` package and the task kernel —
-landed 2026-09-17 and steps 3 and 4 — `on_idle` and multi-effect handlers — on
-2026-09-18, and **step 5, `core.time` — now module `time` — landed 2026-09-18** with
-the time types decided the same day, so **step 6, the coupling stance, is
-next**. Beside it: the open defects
-below, the decisions waiting on the user, and the themed sections.
+worked example in `examples/actors/`. **"The second sequence" is finished too**
+(steps 1–6, 2026-09-17/18): the `waitfor` package, the task kernel, `on_idle`,
+multi-effect handlers, `core.time` — now module `time` — and the coupling stance,
+each recorded below with what it left behind. **With no sequence in progress,
+the work is: the open defects below, then the decisions waiting on the user,
+then whatever those decisions schedule** — SHAREABLE_HANDLERS.md being the
+largest of them, and its SH-8 the idle-report defect that is a bug today.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -209,15 +211,15 @@ was **removed** the same day rather than carried through four phases as a design
 constraint — see "Laziness, after concurrency" below for the direction to take
 when it is picked up.
 
-## The second sequence — time and free concurrency (user decisions 2026-09-17)
+## The second sequence — time and free concurrency (user decisions 2026-09-17) — ✅ finished 2026-09-18
 
 TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
-2026-09-17** (the log entry has the full list). **Steps 1–4 are built**, so
-FREE_CONCURRENCY.md has **retired into COMPLETED.md's log and the specs** as its
-charter said; TIME.md still holds the argument trail for step 6 (its T-1 and
-T-3…T-5 outcomes are built and recorded in COMPLETED.md's log). What remains
-is implementation, in this order — each step independently shippable, so the
-sequence can pause anywhere and leave the tree consistent:
+2026-09-17** (the log entry has the full list), and **all six steps are built**,
+so both working documents have **retired into COMPLETED.md's log and the specs**
+as their charters said. The sequence is kept as the record of the order the work
+was done in, and each step's leftovers follow it. What is left overall is the
+**open defects** below, the **decisions waiting on the user**, and the themed
+sections.
 
 1. ✅ **The `waitfor` package** — **built 2026-09-17**, the whole of FC-4(a) +
    T-5(c): the main pool, the pump, `thread()`'s `Dedicated Pool` consumed by
@@ -264,10 +266,19 @@ sequence can pause anywhere and leave the tree consistent:
    The record is COMPLETED.md's log; the rules are [time-types],
    [time-ticker], [time-clock], [time-timer], [time-manual],
    [mod-import-module], [rs-time], [kt-time]. Leftovers under
-   "`core.time` — leftovers" below. **Step 6 is next.**
-6. **The coupling stance** (T-2): time-as-data as the std posture; the
-   unified `TestClock [Timer, waitfor]` becomes writable (steps 1 + 5);
-   scheduler-owned virtual time stays the recorded, un-built upgrade path.
+   "`core.time` — leftovers" below.
+6. ✅ **The coupling stance** — **built 2026-09-18**, all of T-2: time-as-data as
+   the std posture, stated as a rule with the three test postures under it and
+   the scheduler-owned upgrade path recorded un-built; the unified test clock
+   (a `Ticker` whose reading is a zero deadline on the timer the test advances)
+   demonstrated on both backends with identical output; `examples/time/` as the
+   worked example, which teaches the posture rather than the API; and a
+   **"## Time" chapter in LANGUAGE.md**. One std change was needed and it was
+   load-bearing: `ManualTime` now fires an **already-due deadline at
+   registration**, as the real timer does — without it a reading parks forever.
+   The record is COMPLETED.md's log (which also carries T-2's argument trail,
+   since TIME.md is now deleted); the rule is [time-coupling]. Leftovers under
+   "The coupling stance — leftovers" below.
 
 ### The `waitfor` package — leftovers (2026-09-17)
 
@@ -291,11 +302,13 @@ Found while building step 1; none blocks step 2.
   `spawn` is missing). Not reproduced as a program yet; the fix is the same
   five lines, and `handler_dep_effects`'s `EffectRef::Spawn(_) => continue`
   is where it belongs.
-- **`waitfor` inside a `use`-bound handler's member is legal and untested.**
-  The capability flows outward to the binding scope, so it type-checks and
-  should behave exactly like a wait written in that scope (the member runs
-  inline). The tested paths are `main`, a plain fn, and a *spawned* handler on
-  a dedicated thread.
+- ✅ **`waitfor` inside a `use`-bound handler's member is covered now**
+  (2026-09-18, by step 6): the unified test clock [time-coupling] *is* that
+  shape — a `Ticker` handler whose member waits — and it behaves as predicted,
+  the member running inline so the wait belongs to the binding scope. Two
+  compile-and-run cases and `examples/time/` exercise it on both backends. The
+  previously tested paths were `main`, a plain fn, and a *spawned* handler on a
+  dedicated thread.
 - **The actor surface is only partly in LANGUAGE.md.** Phase 5 and steps 1–2
   put every actor rule in LANGUAGE_SPEC.md; LANGUAGE.md has the linearity
   chapter's "the actor owes until it ends" bullet and, since 2026-09-17, a
@@ -305,17 +318,18 @@ Found while building step 1; none blocks step 2.
   `actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch` — so
   the new chapter currently assumes vocabulary the document has not introduced.
   `on_idle` joined that chapter as it landed (2026-09-18), which is the pattern
-  to keep. `core.time` has now settled (step 5), so the two owed pieces are one
-  job: the actor *surface* prose, and a short **time** section beside it
-  (`Instant`/`Tick`/`Duration`, `Clock`/`Ticker`, `Timer`, and `ManualTime` as
-  the testing posture) — LANGUAGE_SPEC.md carries all of it as rules today.
+  to keep, and **the time half of the debt is paid**: step 6 added a
+  **"## Time"** chapter after "Where work runs" (the types, the two clock
+  effects, `Timer` as an actor effect, and the testing posture
+  [time-coupling]). What is still owed is the **actor surface** prose itself —
+  and it is now owed twice over, since both new chapters assume the vocabulary.
 - **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
-  takes ~1m55s–2m5s against AGENTS.md's ~55–70s (measured 2026-09-18, 1138
-  tests), effectively the wall time of the single
-  `kotlinc_compiles_and_runs_every_case` driver — ~110s for 116 cases in
+  takes ~2m against AGENTS.md's ~55–70s (measured 2026-09-18, 1143 tests),
+  effectively the wall time of the single
+  `kotlinc_compiles_and_runs_every_case` driver — ~119s for 121 cases in
   batched invocations, which the rest of the suite runs underneath. Nothing new is wrong — the driver's *cached/skipped* cost is
   the open defect above — but the budget line in AGENTS.md and COMPLETED.md
-  is now optimistic for a cold run.
+  is now optimistic for a cold run, and each new case adds about a second.
 
 ### The task kernel — leftovers (2026-09-17)
 
@@ -460,11 +474,10 @@ Found while building step 5; none blocks step 6.
   scope, and Salvo has no module-private declarations. The general question
   (does the language want a visibility modifier, or is std's convention
   enough?) is unscheduled and would be a **DECISION**.
-- **No `time` example.** The surface is covered by three compile-and-run cases
-  per backend, but `examples/` has nothing showing a timeout, a measured
-  interval, or a test with virtual time — which is the shape a reader would
-  copy. Worth one once step 6 settles the coupling stance, since the example
-  should teach *that* posture.
+- ✅ **`examples/time/` exists** (added 2026-09-18 with step 6, which is what it
+  was waiting for): six sections from spans and the two timelines to virtual
+  time and the unified test clock, teaching the coupling posture rather than the
+  API.
 - **`to_str(Duration)` stops at seconds** (`120s`, not `2m`) and there is no
   `to_str` for `Instant` or `Tick` at all: a wall-clock text form is a date,
   which is the calendar layer's, and a monotonic reading has no meaningful
@@ -480,6 +493,43 @@ Found while building step 5; none blocks step 6.
   scope declaring one name need a selector [effect-at], and neither takes
   arguments to distinguish. Timers stay monotonic; a wall-scheduled fire is an
   additive `Timer` member that needs re-arming after a clock adjustment.
+
+### The coupling stance — leftovers (2026-09-18)
+
+Found while building step 6, the last of the second sequence. None blocks
+anything scheduled.
+
+- **The unified test clock fakes `Ticker`; the `Clock` face is untested.** A
+  wall-clock version is writable the same way — a `TestClock(timer, base:
+  Instant)` whose `now()` is `base` plus the virtual tick, with `to_instant` /
+  `to_tick` the affine map that correlation implies — and it is *more* work than
+  the `Ticker` form because `Clock` has three members where `Ticker` has one.
+  Nobody has needed it: code that measures uses ticks, which is the point of the
+  two timelines. Write it when a test needs a deterministic wall clock *and*
+  deadlines in the same program.
+- **A handler that waits on a *positive* deadline hangs a `ManualTime` test, with
+  no diagnostic** — and this is the practical face of the open
+  idle-with-parked-gates defect below. A synchronous `sleep`-shaped helper
+  (`fn nap(d: Duration) [Timer, waitfor]`) parks its actor's activation; main is
+  typically inside `waitfor … on_idle`, which cannot fire while an actor is
+  occupied; so nothing advances virtual time and nothing reports why. Reading the
+  clock is *not* affected any more (a zero deadline fires at registration
+  [time-coupling]), which is what made step 6 work at all, but the general shape
+  is live. Fixing the defect — counting activations parked in a wait out of
+  `active` — makes it a named deadlock report instead of a hang.
+- **Every clock reading through the unified form is a round trip**: a message to
+  the timer, a park, and a wake, per `tick()`. Fine for a fake, and the reason
+  the recorded order of postures puts it last, but a test that reads the clock
+  inside a loop pays per iteration. The alternatives are already recorded —
+  scheduler-owned virtual time (which makes a reading a local read again) or
+  SHAREABLE_HANDLERS.md's SH-5(b), which would remove the `[waitfor]`
+  declaration *and* the dedicated thread.
+- **The dedicated thread is the stance's real cost, and it is per waiting
+  actor.** `[waitfor]` propagates to whoever binds the clock, so every actor
+  under test that reads the time needs `on thread()`. Two actors reading one
+  virtual clock is two OS threads. That is the trigger the T-2 upgrade path was
+  recorded against: if this starts to bite, scheduler-owned virtual time is the
+  answer that removes it rather than trading it.
 
 ### Patterns — what is left (2026-09-18)
 
@@ -510,7 +560,7 @@ links to the section that states the options.
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
-| **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | TIME.md T-4(c) |
+| **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
 | **Shareable handlers** — SH-1…SH-8: mixed handlers (state confined to send members + sync façades), synchronized monitor members, occupancy inference in the deadlock graph, and whether `[waitfor]` stays a propagating declared effect or demotes to an optional checked annotation | after the second sequence (SH-8, the idle-report defect, first — it is a bug today) | SHAREABLE_HANDLERS.md |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
@@ -579,7 +629,7 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
   and the reason a warm `cargo test` is ~30s against AGENTS.md's ~5s
-  budget). It grows with the registry: ~24s at 116 cases, measured
+  budget). It grows with the registry: ~25s at 121 cases, measured
   2026-09-18. Repro:
 
   ```bash
@@ -1650,7 +1700,7 @@ compiler today, so its own output is the work list.
      qualifier on an addr) and the fallbacks (a timeout form, a per-edge
      reentrant opt-in) stay unbuilt until the false positives are *observed*.
      The timeout form's prerequisite — a timer, which the language does not
-     have — is designed in **TIME.md** (working doc, 2026-09-16); the
+     have — landed with step 5 of the second sequence ([time-timer]); the
      hand-written timeout shape (two bare `replyto` mints racing into a
      pending map, loser finds `None`) needs only its T-1 to become writable.
 7. ✅ **Linearity in collections — done 2026-09-16.** L8's answer, built: a

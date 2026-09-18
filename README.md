@@ -198,7 +198,11 @@ fn main() [use] {
   `Ticker`), sleeping is an `actor effect` (`Timer.after(wait, done)`) whose
   fire arrives as an ordinary message, and `ManualTime` is a pure-Salvo fake
   wearing two faces — so a test that would wait two seconds advances virtual
-  time instead and always prints the same thing. Imported rather than implicit:
+  time instead and always prints the same thing. The posture the module is built
+  around is to **pass time rather than read it**: a fire carries the tick it came
+  due at, and a function handed its times declares no effect and needs no fake at
+  all. Where a reading must agree with a deadline, a six-line test clock over the
+  timer makes them one virtual clock. Imported rather than implicit:
   `import time` brings the whole module.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
