@@ -324,7 +324,7 @@ Found while building step 1; none blocks step 2.
   [time-coupling]). What is still owed is the **actor surface** prose itself —
   and it is now owed twice over, since both new chapters assume the vocabulary.
 - **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
-  takes ~2m against AGENTS.md's ~55–70s (measured 2026-09-18, 1143 tests),
+  takes ~2m against AGENTS.md's ~55–70s (measured 2026-09-18, 1154 tests),
   effectively the wall time of the single
   `kotlinc_compiles_and_runs_every_case` driver — ~119s for 121 cases in
   batched invocations, which the rest of the suite runs underneath. Nothing new is wrong — the driver's *cached/skipped* cost is
@@ -468,12 +468,13 @@ Found while building step 5; none blocks step 6.
   for **companion** files [backend-companion], and extending it to the runtime
   files (or namespacing them under a `salvo_rt/` directory) closes the hole for
   good. Both backends have it.
-- **`fire_after` is public where a module system would hide it.** It is
-  `DefaultTimer`'s plumbing, and calling it needs a `Reply<Fired>` in hand, so
-  it cannot manufacture time from nothing — but `import time` brings it into
-  scope, and Salvo has no module-private declarations. The general question
-  (does the language want a visibility modifier, or is std's convention
-  enough?) is unscheduled and would be a **DECISION**.
+- ✅ **`fire_after` is private now** (closed 2026-09-18 by [mod-export], which it
+  prompted): declarations are module-private by default and `export` is the way
+  out, so std's plumbing — `fire_after`, `earliest_due`, the `mem_*` helpers,
+  `fs_resolve`, `MemRead`/`MemWrite` — is genuinely unreachable rather than
+  merely undocumented. The general question the leftover raised (does the
+  language want a visibility modifier?) was answered yes, by the user, the same
+  day. See COMPLETED.md's log; leftovers under "Module visibility — leftovers".
 - ✅ **`examples/time/` exists** (added 2026-09-18 with step 6, which is what it
   was waiting for): six sections from spans and the two timelines to virtual
   time and the unified test clock, teaching the coupling posture rather than the
@@ -530,6 +531,47 @@ anything scheduled.
   virtual clock is two OS threads. That is the trigger the T-2 upgrade path was
   recorded against: if this starts to bite, scheduler-owned virtual time is the
   answer that removes it rather than trading it.
+
+### Module visibility — leftovers (2026-09-18)
+
+Found while building [mod-export] (private by default, `export` to let a
+declaration out — the user's call the same day, prompted by `fire_after`). None
+blocks anything.
+
+- **Emission still marks everything public**, by decision: the rule is a checker
+  rule, and both backends emit what they emitted before (Rust `pub`, Kotlin
+  top-level). Narrowing generated visibility would buy dead-code warnings the
+  suite already tolerates, and cross-module emission is a fragile seam (the
+  `__mailbox_capacity` E0616 gotcha). The refinement, if it is ever wanted: emit
+  a non-exported declaration without `pub` and `internal` respectively, which
+  also needs the *reachability* pass to agree or the target compiler will
+  complain about items it can no longer see.
+- **Reachability is still name-based, and now has a cheap precision win
+  available** [mod-used-only]: a module pulled in because it declares a *private*
+  name matching a used one cannot possibly be the declaration in question, so
+  the export filter could prune it. That would shave some of the recorded
+  "hello-world links `core.set`" cost without the larger fix (resolving through
+  the checker's call targets).
+- **A private type in an exported signature is an opaque type, deliberately**,
+  and nothing checks that the author meant it. If it turns out to be a mistake
+  more often than a tool, the check is a type-walk over exported signatures
+  (unions, tuples, generics, fn types) and a diagnostic at the declaration —
+  Rust's `private_interfaces` lint, essentially.
+- **No re-export**, so a module cannot pass a dependency's name through to its
+  own consumers: a facade module has to declare wrappers. Nobody has wanted one
+  yet; the spelling would be `export import a.B`, which is currently a targeted
+  parse error.
+- **No example shows `export`.** Every program in `examples/` is a single file,
+  so none of them needs the modifier and a reader of the examples never meets
+  it — LANGUAGE.md's modules chapter and the tests are the only places it
+  appears. A two-file example (a library module plus a `main.sv` that imports
+  it) would fix that and would be the first multi-module example in the tree.
+- **Member- and field-level visibility is unasked**, and one consequence is
+  worth writing down: an exported struct exports its fields, so a std type
+  cannot have a private field. [time-types] rests on fields being public
+  (structural equality plus public fields is what makes a single-field
+  `Duration` canonical), so this is a considered omission rather than an
+  oversight.
 
 ### Patterns — what is left (2026-09-18)
 

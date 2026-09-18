@@ -15,8 +15,8 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
 const STD_PRELUDE: &str =
-    "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic fn copy<T>(value: T) [] -> T => value\n";
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic fn copy<T>(value: T) [] -> T => value\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

@@ -16,8 +16,8 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic type Nothing\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic type Nothing\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

@@ -83,8 +83,8 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     sources.add(
         "std/core/rawclock.sv",
         SourceSet::classify(Path::new("core/rawclock.sv")).unwrap(),
-        "effect RawClock {\n    fn raw_now() [] -> Int\n}\n\n\
-         platform handler HostRawClock of RawClock\n"
+        "export effect RawClock {\n    fn raw_now() [] -> Int\n}\n\n\
+         export platform handler HostRawClock of RawClock\n"
             .to_string(),
         true,
     );
@@ -328,10 +328,10 @@ fn unions_emit_sealed_wrappers() {
 #[test]
 fn when_must_be_exhaustive() {
     let src = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
+export qualifier Ok<T> of T
+export qualifier Err<T> of T
 
-fn f(x: Ok Int | Err Str) -> Int {
+export fn f(x: Ok Int | Err Str) -> Int {
     let v = when x {
         is Ok {
             1
@@ -353,7 +353,7 @@ fn f(x: Ok Int | Err Str) -> Int {
 // [when-union-subject]
 #[test]
 fn when_requires_union_subject() {
-    let src = "fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
+    let src = "export fn f(x: Int) -> None {\n    when x {\n        is Int {\n            x\n        }\n    }\n}\n";
     let program = build_program(&[("bad.sv", src)]);
     let errors = salvo_backend_kotlin::emit_program(&program)
         .err()
@@ -368,14 +368,14 @@ fn when_requires_union_subject() {
 #[test]
 fn union_wrap_requires_matching_arm() {
     let src = r#"
-qualifier Ok<T> of T
-qualifier Err<T> of T
+export qualifier Ok<T> of T
+export qualifier Err<T> of T
 
-fn err<T>(value: T) -> T as Err {
+export fn err<T>(value: T) -> T as Err {
     return value
 }
 
-fn f() -> Ok Int | Err Str {
+export fn f() -> Ok Int | Err Str {
     return err(true)
 }
 "#;
@@ -1279,14 +1279,14 @@ fn duplicate_qualifier_is_rejected() {
 #[test]
 fn incompatible_qualifiers_are_rejected() {
     let src = r#"
-struct Person {
+export struct Person {
     name: Str
 }
 
-qualifier Old of Person
-qualifier Surname of Person
+export qualifier Old of Person
+export qualifier Surname of Person
 
-fn f(p: Old Surname Person) -> None {
+export fn f(p: Old Surname Person) -> None {
 }
 "#;
     let errors = expect_errors(src);
@@ -1300,13 +1300,13 @@ fn f(p: Old Surname Person) -> None {
 #[test]
 fn qualifier_of_type_is_enforced() {
     let src = r#"
-qualifier Positive of Int {
+export qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
 }
 
-fn f(x: Positive Str) -> None {
+export fn f(x: Positive Str) -> None {
 }
 "#;
     let errors = expect_errors(src);
@@ -1320,7 +1320,7 @@ fn f(x: Positive Str) -> None {
 #[test]
 fn constructor_must_live_with_its_qualifier() {
     let program = build_program(&[
-        ("quals.sv", "qualifier Fancy of Int\n"),
+        ("quals.sv", "export qualifier Fancy of Int\n"),
         (
             "other.sv",
             "import quals.Fancy\n\nfn make() -> Int as Fancy {\n    return 1\n}\n",
@@ -1344,25 +1344,25 @@ fn constructor_must_live_with_its_qualifier() {
 #[test]
 fn predicate_qualifiers_may_have_constructors() {
     let src = r#"
-qualifier Positive of Int {
+export qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
 }
 
-fn make() -> Int as Positive {
+export fn make() -> Int as Positive {
     return 1
 }
 
-fn describe(x: Positive Int) -> Str {
+export fn describe(x: Positive Int) -> Str {
     return "positive"
 }
 
-fn describe(x: Int) -> Str {
+export fn describe(x: Int) -> Str {
     return "unknown"
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     println(describe(make()))
 }
@@ -1392,7 +1392,7 @@ fn main() [use] -> None {
 // [qual-ctor-simple]
 #[test]
 fn constructor_return_type_must_be_simple() {
-    let src = "qualifier Fancy of Int\n\nfn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
+    let src = "export qualifier Fancy of Int\n\nexport fn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
     let errors = expect_errors(src);
     assert!(
         errors
@@ -1405,7 +1405,7 @@ fn constructor_return_type_must_be_simple() {
 // [qual-constructive]
 #[test]
 fn constructive_qualifier_cannot_be_is_tested() {
-    let src = "qualifier Fancy of Int\n\nfn f(x: Int) -> None {\n    if x is Fancy {\n    }\n}\n";
+    let src = "export qualifier Fancy of Int\n\nexport fn f(x: Int) -> None {\n    if x is Fancy {\n    }\n}\n";
     let errors = expect_errors(src);
     assert!(
         errors.iter().any(|e| e.contains("constructive qualifier")),
@@ -1417,7 +1417,7 @@ fn constructive_qualifier_cannot_be_is_tested() {
 #[test]
 fn qualifies_signature_is_validated() {
     let src = r#"
-qualifier Weird of Int {
+export qualifier Weird of Int {
     fn qualifies(int: Int) -> Str {
         return "nope"
     }
@@ -1437,7 +1437,7 @@ qualifier Weird of Int {
 fn constructive_values_only_come_from_constructors() {
     // Plain values never satisfy a constructive qualifier: the assignment
     // is a type error, so the only way in is the constructor fn.
-    let src = "qualifier Fancy of Int\n\nfn f() -> None {\n    let x: Fancy Int = 1\n}\n";
+    let src = "export qualifier Fancy of Int\n\nexport fn f() -> None {\n    let x: Fancy Int = 1\n}\n";
     let errors = expect_errors(src);
     assert!(
         errors
@@ -1452,11 +1452,11 @@ fn constructive_values_only_come_from_constructors() {
 #[test]
 fn mut_types_map_onto_mutable_list() {
     let src = r#"
-fn fill(target: Mut List<Int>, n: Int) -> None => target: Mut {
+export fn fill(target: Mut List<Int>, n: Int) -> None => target: Mut {
     add(target, n)
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let items: Mut List<Int> = mut_list_of(1)
     fill(items, 2)
@@ -1668,11 +1668,11 @@ fn unknown_effect_is_rejected() {
 #[test]
 fn ambiguous_generic_effect_call_is_rejected() {
     let src = r#"
-effect Random<T> {
+export effect Random<T> {
     fn next_random() -> T
 }
 
-fn f() [Random<Int>, Random<Double>] -> None {
+export fn f() [Random<Int>, Random<Double>] -> None {
     let x = next_random()
 }
 "#;
@@ -1690,17 +1690,17 @@ fn f() [Random<Int>, Random<Double>] -> None {
 #[test]
 fn two_registered_instances_are_still_ambiguous() {
     let src = r#"
-effect Random<T> {
+export effect Random<T> {
     fn next_random() -> T
 }
 
-handler Fixed<T>(value: T) of Random<T> {
+export handler Fixed<T>(value: T) of Random<T> {
     fn next_random() -> T {
         return value
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use Fixed(1)
     use Fixed("a")
     let x = next_random()
@@ -1752,11 +1752,11 @@ fn effect_member_call_requires_handler_in_scope() {
 #[test]
 fn handler_member_effects_are_rejected() {
     let src = r#"
-effect Ping {
+export effect Ping {
     fn ping()
 }
 
-handler LoudPing of Ping {
+export handler LoudPing of Ping {
     fn ping() [Console] {
         println("ping")
     }
@@ -1835,11 +1835,11 @@ fn kotlin_case_with_entry(
 fn kotlinc_compiles_and_runs_list_claims() -> KotlinCase {
     let src = r#"
 // A position that demands distinctness needs no duplicate check of its own.
-fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
+export fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
     return size(xs)
 }
 
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
 
     // NonEmpty by construction: `first` answers with an element, not `Int?`.
@@ -1936,12 +1936,12 @@ fn main() [use] {
 /// produces the same answers rather than dropping the leading elements.
 fn kotlinc_compiles_and_runs_mixed_spread() -> KotlinCase {
     let src = r#"
-fn join_all(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
+export fn join_all(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
     let out = mut_str(...parts)
     println("${sep} ${out}")
 }
 
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
     let rest = array_of(2, 3)
     let all = list_of(1, ...rest)
@@ -1994,7 +1994,7 @@ fn main() [use] {
 /// ordinary `Array<T>` on this backend, and the call site builds it.
 fn kotlinc_compiles_and_runs_user_variadics() -> KotlinCase {
     let src = r#"
-fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
+export fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
     let seen = mut_list_of(0)
     for n in iter(ns) {
         add(seen, copy(n))
@@ -2003,12 +2003,12 @@ fn count_ints(label: Str, ...ns: Int[]) [Console] -> Int => label, ns {
     return size(seen)
 }
 
-fn join_strs(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
+export fn join_strs(sep: Str, ...parts: Str[]) [Console] -> None => sep, parts {
     let joined = mut_str(...parts)
     println("${sep} ${joined}")
 }
 
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
 
     // A variadic of a *primitive* element type: plain, spread, mixed, empty.
@@ -2567,12 +2567,12 @@ fn main() [use] -> None {
 }
 "#;
     let geometry = r#"
-fn area(w: Int, h: Int) -> Int {
+export fn area(w: Int, h: Int) -> Int {
     return w * h
 }
 "#;
     let unused = r#"
-fn never_called() -> Int {
+export fn never_called() -> Int {
     return 42
 }
 "#;
@@ -2656,7 +2656,7 @@ fn main() [use] -> None {
     println("area: ${rect_area(3, 4)}")
 }
 "#;
-    let geometry = "fn area(w: Int, h: Int) -> Int {\n    return w * h\n}\n";
+    let geometry = "export fn area(w: Int, h: Int) -> Int {\n    return w * h\n}\n";
     let program = build_program(&[("main.sv", main), ("geometry.sv", geometry)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
@@ -2687,17 +2687,17 @@ fn main() [use] -> None {
 "#;
 
 const MANGLED_ALIAS_LIB: &str = r#"
-qualifier Loud of Str
+export qualifier Loud of Str
 
-fn loud(s: Str) -> Str as Loud {
+export fn loud(s: Str) -> Str as Loud {
     return s
 }
 
-fn shout(s: Str) -> Str {
+export fn shout(s: Str) -> Str {
     return s
 }
 
-fn shout(s: Loud Str) -> Str {
+export fn shout(s: Loud Str) -> Str {
     return "${s}!"
 }
 "#;
@@ -2744,11 +2744,11 @@ fn kotlinc_compiles_and_runs_mangled_alias() -> KotlinCase {
 #[test]
 fn effect_params_avoid_user_names() {
     let src = r#"
-fn shadowed(console: Str) [Console] -> None => !console {
+export fn shadowed(console: Str) [Console] -> None => !console {
     println("param: ${console}")
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     shadowed("value")
 }
@@ -2777,12 +2777,12 @@ fn main() [use] -> None {
 #[test]
 fn struct_destructure_temps_are_unique() {
     let src = r#"
-struct Point {
+export struct Point {
     x: Int,
     y: Int
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let {x} = Point {x: 1, y: 2}
     let {y} = Point {x: 3, y: 4}
@@ -2909,7 +2909,7 @@ fn numeric_literal_suffixes_emit_kotlin_suffixes() {
 #[test]
 fn union_arm_arguments_wrap_at_call_sites() {
     let src = r#"
-fn describe(v: Ok Str | Err Str) -> Str {
+export fn describe(v: Ok Str | Err Str) -> Str {
     when v {
         is Ok {
             return "ok"
@@ -2920,7 +2920,7 @@ fn describe(v: Ok Str | Err Str) -> Str {
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     println(describe(ok("x")))
     println(describe(err("y")))
@@ -3475,17 +3475,17 @@ fn kotlinc_compiles_and_runs_field_is() -> KotlinCase {
 #[test]
 fn when_field_subject_is_rejected() {
     let src = r#"
-qualifier Ok<T> of T
+export qualifier Ok<T> of T
 
-fn ok<T>(value: T) -> T as Ok {
+export fn ok<T>(value: T) -> T as Ok {
     return value
 }
 
-struct Holder {
+export struct Holder {
     result: Ok Int | Str
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let h = Holder {result: ok(1)}
     when h.result {
@@ -3716,7 +3716,7 @@ fn kotlinc_compiles_and_runs_tuple_index() -> KotlinCase {
 #[test]
 fn list_constructors_carry_their_element_type() {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let xs: Mut List<Int> = mut_list_of()
     let ys = list_of<Str>()
@@ -3741,7 +3741,7 @@ fn main() [use] -> None {
 
 fn kotlinc_compiles_and_runs_list_element_types() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
@@ -3768,7 +3768,7 @@ fn main() [use] -> None {
 /// step — a divergence here is a defect, not a test bug.
 fn kotlinc_compiles_and_runs_collections() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
 
     let s: Mut Set<Str> = mut_set_of("b", "a", "c")
@@ -3834,7 +3834,7 @@ fn main() [use] -> None {
 /// elements and a map's keys [backend-parity].
 fn kotlinc_compiles_and_runs_collection_iteration() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let s = set_of("b", "a", "c")
     for e in iter(s) {
@@ -3888,16 +3888,16 @@ fn main() [use] -> None {
 /// `rustc_compiles_and_runs_collection_literals` [backend-parity].
 fn kotlinc_compiles_and_runs_collection_literals() -> KotlinCase {
     let src = r#"
-struct Point {
+export struct Point {
     x: Int,
     y: Int
 }
 
-fn takes_set(s: Set<Int>) -> Int => s {
+export fn takes_set(s: Set<Int>) -> Int => s {
     return size(s)
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let xs = [1, 2, 3]
     println("list: ${to_str(xs)}")
@@ -3939,21 +3939,21 @@ fn main() [use] -> None {
 /// class's own `equals` would have reported as `true`.
 fn kotlinc_compiles_and_runs_equality_and_ordering() -> KotlinCase {
     let src = r#"
-struct Point canbe hashed, ordered {
+export struct Point canbe hashed, ordered {
     x: Int,
     y: Int
 }
 
-struct Version canbe hashed, ordered {
+export struct Version canbe hashed, ordered {
     parts: List<Int>,
     label: (Str, Int)
 }
 
-struct Measure {
+export struct Measure {
     value: Double
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let p = Point { x: 1, y: 2 }
     let q = Point { x: 1, y: 3 }
@@ -4008,7 +4008,7 @@ fn main() [use] -> None {
 /// need rendering care (`1L`, `3.0`).
 fn kotlinc_compiles_and_runs_operators() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let x: Long = 1
     let n = 5
@@ -4051,16 +4051,16 @@ fn main() [use] -> None {
 /// availability and by the `@Effect` selector.
 fn kotlinc_compiles_and_runs_effect_selectors() -> KotlinCase {
     let src = r#"
-effect Store {
+export effect Store {
     fn open(path: Str) -> Int => path
     fn close(handle: Int) -> Str
 }
 
-effect Net {
+export effect Net {
     fn close(handle: Int) -> Str
 }
 
-handler MemStore of Store {
+export handler MemStore of Store {
     fn open(path: Str) -> Int => path {
         return 7
     }
@@ -4069,17 +4069,17 @@ handler MemStore of Store {
     }
 }
 
-handler MemNet of Net {
+export handler MemNet of Net {
     fn close(handle: Int) -> Str {
         return "net closed ${handle}"
     }
 }
 
-fn shut(h: Int) [Store] -> Str {
+export fn shut(h: Int) [Store] -> Str {
     return close(h)
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     use MemStore()
     use MemNet()
@@ -4105,7 +4105,7 @@ fn main() [use] -> None {
 /// `rustc_compiles_and_runs_sorted_collections` [backend-parity].
 fn kotlinc_compiles_and_runs_sorted_collections() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let s: Mut SortedSet<Str> = mut_sorted_set_of("pear", "apple", "fig")
     println("set: ${to_str(s)}")
@@ -4176,7 +4176,7 @@ fn main() [use] -> None {
 /// with the Rust backend's `rustc_compiles_and_runs_codepoint_string_order`.
 fn kotlinc_compiles_and_runs_codepoint_string_order() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let bmp = "Ａ"
     let s = sorted_set_of("😀", "Ａ")
@@ -4201,7 +4201,7 @@ fn main() [use] -> None {
 /// lambda literal has no expected type for kotlinc to infer from.
 fn kotlinc_compiles_and_runs_generated_constructors() -> KotlinCase {
     let src = r#"
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole()
     let a = array_by(3, i -> i * 2)
     println("array_by ${a[0]} ${a[1]} ${a[2]}")
@@ -5041,17 +5041,17 @@ fn kotlinc_compiles_and_runs_member_generics() -> KotlinCase {
 #[test]
 fn effect_member_generics_bind_per_call() {
     let src = r#"
-effect Stash {
+export effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-handler FirstStash of Stash {
+export handler FirstStash of Stash {
     fn pick<T>(a: T, b: T) -> T {
         return a
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     use FirstStash
     let bad: Str = pick(1, 2)
@@ -6991,7 +6991,7 @@ fn kotlinc_compiles_and_runs_strings() -> KotlinCase {
 /// `[Ljava.lang.String;@…` [backend-never-wrong].
 fn a_spread_into_a_variadic_intrinsic_spreads() -> KotlinCase {
     let src = r#"
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
     let parts = array_of("a", "b")
     let sb = mut_str(...parts)

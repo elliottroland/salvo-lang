@@ -20,45 +20,45 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-intrinsic type Map<K, V canbe linear> canbe Mut
+export intrinsic type Map<K, V canbe linear> canbe Mut
 
 // Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
 // variadic tail is owned and needs no entry in the clause [deduce-syntax].
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>
+export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>
 
 // Mutable constructor
-intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
+export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
 
 // [col-by] Builds a map from [size] generated entries: `map_by(3, i -> (i, i
 // * i))` maps each index to its square. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>
+export intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>
     => size, init
 
 // Mutable variant
-intrinsic fn mut_map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Mut Map<K, V>
+export intrinsic fn mut_map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Mut Map<K, V>
     => size, init
 
 // [col-convert] A map from a list of pairs — the first element of each pair
 // is the key, the second the value. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs
+export intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs
 
 // [col-convert] A map from a list of *anything*, with [entry] saying what
 // key and value each element becomes. The two forms are the same function
 // spelled for the two sources people actually have: a list of pairs, or a
 // list plus a rule.
-intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>
+export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>
     => items, entry
 
 // Possibly gets the value stored under [key]. The value is **borrowed** —
 // a view into the map, like [get] on a list — so reading a map copies
 // nothing and a caller that wants to keep the value says `copy`
 // [copy-opt-in]. The key is only read, so it is kept.
-intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)? => map, key
+export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present
@@ -68,14 +68,14 @@ intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)? => map
 // replaced — which is why it is closed to linear values: storing one under an
 // occupied key would discard an obligation in silence. [replace] is the form
 // that hands the displaced value back, and the diagnostic names it.
-intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
+export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
     => map: Mut, !key, !value
 
 // [linear-container] Stores [value] under [key] and answers what was there,
 // or `None` for a fresh key: [put] with the displaced value handed back
 // instead of dropped, which is the only shape a map of obligations can have a
 // write in.
-intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
+export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
     => map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back, or `None` when
@@ -86,30 +86,30 @@ intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) []
 // [linear-container] This is take-by-move, so it is how an obligation leaves
 // a map: the `V?` shape makes the absence check the union narrow
 // [linear-union-arm], and nothing is aliased or dropped on the way.
-intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
+export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
 
 // Whether the map holds an entry under [key].
-intrinsic fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
+export intrinsic fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
 
 // Returns the number of entries in the map
-intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
+export intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 
 // [linear-container] The **terminal**, as a list's [drain] is: consumes the
 // map and hands every value to [each], in insertion order. The keys go with
 // the map — they were never obligations — so what the callback sees is the
 // values, one at a time, each moved in.
-intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
+export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
     =>[each] !x => !map, each
 
 // The text form of a map, for string interpolation [interp-to-str]:
 // `{a: 1, b: 2}` in insertion order — the map *literal* that would build it
 // [col-to-str].
-intrinsic fn to_str<K, V>(map: Map<K, V>) [] -> Str => map
+export intrinsic fn to_str<K, V>(map: Map<K, V>) [] -> Str => map
 
 
 // [col-insertion-order] The keys, in insertion order — which is also what
 // makes a map iterable, below.
-intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
+export intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 
 // [iter-pass] A fresh pass over the map's **keys**, in insertion order.
 //
@@ -135,14 +135,14 @@ intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 // [copy-opt-in], where an entries pass would copy every value in the map.
 // (An `entries`/`values` surface therefore waits on a way to copy a generic
 // value, or on passes that borrow — recorded in ROADMAP.md.)
-fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyYield<K> => map {
+export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyYield<K> => map {
     return Mut MapKeyYield<K> { items: keys(map), at: 0 }
 }
 
 // [iter-protocol] The pass a map is walked by: a snapshot of its keys plus a
 // position in it, owned by the pass — the same shape `SetYield` has, and for
 // the same reason (a hash map has no index to walk).
-struct MapKeyYield<K> : Yield<self, K> canbe Mut {
+export struct MapKeyYield<K> : Yield<self, K> canbe Mut {
     // The keys, in insertion order, owned by this pass.
     items: List<K>,
     // The index of the next key to emit.
@@ -150,7 +150,7 @@ struct MapKeyYield<K> : Yield<self, K> canbe Mut {
 }
 
 // Advances the pass, reporting the key at its position or the end of the map.
-fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
+export fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
     let key = snapshot_at(p.items, p.at)
     if key is None {
         return finished()

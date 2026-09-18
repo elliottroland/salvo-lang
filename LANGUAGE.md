@@ -2273,6 +2273,26 @@ import list.ext.add as ext_add // Import the list extensions add function from l
 import core.Str // Not strictly necessary -- all of core is imported by default
 ```
 
+A declaration is only importable if its own module lets it out. **Declarations are module-private by default, and `export` is how one becomes visible elsewhere:**
+
+```
+export fn label(n: Int) -> Str {   // callers in other modules may use this
+    return "${n}"
+}
+
+fn digits(n: Int) -> Int {         // this module's business, and nobody else's
+    return 1
+}
+```
+
+The modifier comes first, before `intrinsic`, `linear`, `actor`, `platform`, `provenance`, `iter` and `send`, so a declaration reads *who can see it, what kind it is, what it is called*. It is an ordinary word rather than a reserved one, so a variable may still be called `export`; only the start of a declaration makes it a modifier.
+
+It applies to the whole declaration and not its parts: an exported struct exports its fields, an exported effect its members, an exported handler its state. There is no field- or member-level visibility. What that leaves is one useful consequence worth knowing deliberately — a type you do not export may still appear in a signature you do, and callers can then hold values of it without being able to write its name. That is an opaque type, and it is the only way Salvo has to say it.
+
+Privacy is per *module*, which is per file. Splitting a file in two is therefore a visibility decision: what the halves share has to be exported. The standard library is written this way, which is what it is for — `fire_after` and `earliest_due` in `time`, the `mem_*` helpers in the in-memory filesystem, are reachable from their own file and nowhere else.
+
+The diagnostics are meant to send you to the right file. Using a private name says it is declared in module `m` and not exported, and names the fix; it is not offered as an import, since importing it could not work. An `import` of a private name is refused at the import line rather than silently importing nothing. And a name that is in scope but of the wrong *kind* — a qualifier where a type belongs — keeps its own diagnostic, because that is not a visibility problem.
+
 A module can also be imported *whole*, which brings every name in it — and in every module beneath it — into scope with one line:
 
 ```

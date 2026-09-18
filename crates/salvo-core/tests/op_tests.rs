@@ -13,17 +13,17 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
-    "intrinsic type Int\n",
-    "intrinsic type Long\n",
-    "intrinsic type Float\n",
-    "intrinsic type Double\n",
-    "intrinsic type Byte\n",
-    "intrinsic type Bool\n",
-    "intrinsic type Str canbe Mut\n",
-    "intrinsic fn to_long(value: Int) [] -> Long => value\n",
-    "intrinsic fn to_double(value: Int) [] -> Double => value\n",
-    "intrinsic fn to_byte(value: Int) [] -> Byte => value\n",
-    "intrinsic fn to_int(value: Byte) [] -> Int => value\n",
+    "export intrinsic type Int\n",
+    "export intrinsic type Long\n",
+    "export intrinsic type Float\n",
+    "export intrinsic type Double\n",
+    "export intrinsic type Byte\n",
+    "export intrinsic type Bool\n",
+    "export intrinsic type Str canbe Mut\n",
+    "export intrinsic fn to_long(value: Int) [] -> Long => value\n",
+    "export intrinsic fn to_double(value: Int) [] -> Double => value\n",
+    "export intrinsic fn to_byte(value: Int) [] -> Byte => value\n",
+    "export intrinsic fn to_int(value: Byte) [] -> Int => value\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {

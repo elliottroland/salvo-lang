@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Coercion, FileDiagnostic, Program, Sour
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`). Module `core.prelude`:
 /// `core.*` is implicitly imported, so the test source sees these names.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Str canbe Mut\nintrinsic type List<T> canbe Mut\nintrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts\nintrinsic fn size(str: Str) [] -> Int => str\nintrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Str canbe Mut\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn mut_str(...parts: Str[]) [] -> Mut Str => parts\nexport intrinsic fn size(str: Str) [] -> Int => str\nexport intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text\n";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {
     let mut sources = SourceSet::default();

@@ -10,7 +10,7 @@ use salvo_core::{check_program, resolve, Checked, Program, SourceSet, Symbols};
 /// (module `core.prelude`, implicitly imported) rather than pasted into the
 /// sources under test. Added *after* the user files so their file indices —
 /// which these tests assert on — stay stable.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n";
 
 /// Parses + resolves + checks a multi-file program. Each entry is
 /// `(file_name, source)`; a std prelude supplies the base types.
@@ -74,7 +74,7 @@ fn checker_errors_carry_file_and_span() {
 // right file; resolution errors flow into `Checked::errors` structured.
 #[test]
 fn errors_index_the_declaring_file() {
-    let ok = "fn fine() -> Int {\n    return 1\n}\n";
+    let ok = "export fn fine() -> Int {\n    return 1\n}\n";
     let bad = "import nope.thing\n";
     let (program, checked) = check_files(&[("a.sv", ok), ("b.sv", bad)]);
     assert_eq!(checked.errors.len(), 1, "errors: {:?}", checked.errors);
@@ -121,8 +121,8 @@ fn resolve_errors(files: &[(&str, &str)]) -> Vec<String> {
 #[test]
 fn conflicting_imports_are_an_error() {
     let errors = resolve_errors(&[
-        ("a.sv", "struct Person {\n    name: Str\n}\n"),
-        ("b.sv", "struct Person {\n    age: Int\n}\n"),
+        ("a.sv", "export struct Person {\n    name: Str\n}\n"),
+        ("b.sv", "export struct Person {\n    age: Int\n}\n"),
         (
             "main.sv",
             "import a.Person\nimport b.Person\n\nfn main() -> None {\n}\n",
@@ -138,7 +138,7 @@ fn conflicting_imports_are_an_error() {
 #[test]
 fn import_shadowing_own_declaration_is_an_error() {
     let errors = resolve_errors(&[
-        ("a.sv", "struct Person {\n    name: Str\n}\n"),
+        ("a.sv", "export struct Person {\n    name: Str\n}\n"),
         (
             "main.sv",
             "import a.Person\n\nstruct Person {\n    age: Int\n}\n\nfn main() -> None {\n}\n",
@@ -156,8 +156,8 @@ fn import_shadowing_own_declaration_is_an_error() {
 #[test]
 fn aliased_import_avoids_the_collision() {
     let errors = resolve_errors(&[
-        ("a.sv", "struct Person {\n    name: Str\n}\n"),
-        ("b.sv", "struct Person {\n    age: Int\n}\n"),
+        ("a.sv", "export struct Person {\n    name: Str\n}\n"),
+        ("b.sv", "export struct Person {\n    age: Int\n}\n"),
         (
             "main.sv",
             "import a.Person\nimport b.Person as AgedPerson\n\nfn main() -> None {\n}\n",
@@ -186,7 +186,7 @@ fn duplicate_declaration_in_module_is_an_error() {
 #[test]
 fn same_name_fns_do_not_collide() {
     let errors = resolve_errors(&[
-        ("a.sv", "fn describe(x: Int) -> Str {\n    return \"int\"\n}\n"),
+        ("a.sv", "export fn describe(x: Int) -> Str {\n    return \"int\"\n}\n"),
         (
             "main.sv",
             "import a.describe\n\nfn describe(x: Str) -> Str {\n    return \"str\"\n}\n",

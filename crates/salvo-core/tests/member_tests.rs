@@ -19,19 +19,19 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
 const STD_PRELUDE: &str = concat!(
-    "intrinsic type Int\n",
-    "intrinsic type Str\n",
-    "intrinsic type Bool\n",
-    "intrinsic type Opaque\n",
+    "export intrinsic type Int\n",
+    "export intrinsic type Str\n",
+    "export intrinsic type Bool\n",
+    "export intrinsic type Opaque\n",
     // [col-literal] Arrays lost their literal syntax, so a test that wants
     // one builds it with the constructor.
-    "intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
+    "export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]\n",
     // [actor-spawn-expr] Std's process handle, whose type argument is an
     // *effect* — the one sanctioned exception to [effect-not-data], and the
     // checker keys on this declaration to grant it.
-    "intrinsic type Addr<E>\n",
-    "struct Mailbox { capacity: Int }\n",
-    "intrinsic type List<T> canbe Mut\n",
+    "export intrinsic type Addr<E>\n",
+    "export struct Mailbox { capacity: Int }\n",
+    "export intrinsic type List<T> canbe Mut\n",
 );
 
 fn check_errors(src: &str) -> Vec<FileDiagnostic> {
@@ -112,7 +112,7 @@ fn unresolved_call_is_an_error() {
 /// suggestions, like every other unresolved name.
 #[test]
 fn unresolved_call_suggests_imports() {
-    let lib = "fn helper() -> Int {\n    return 1\n}\n";
+    let lib = "export fn helper() -> Int {\n    return 1\n}\n";
     let main = "fn f() -> Int {\n    return helper()\n}\n";
     let mut sources = SourceSet::default();
     for (name, src) in [("lib.sv", lib), ("main.sv", main)] {

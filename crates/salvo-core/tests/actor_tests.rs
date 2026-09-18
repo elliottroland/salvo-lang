@@ -16,27 +16,27 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// `intrinsic` is std-only [intrinsic-std-only], so it is loaded as a std
 /// file rather than pasted into the source under test.
 const STD_PRELUDE: &str = "\
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
-intrinsic type List<T> canbe Mut
-intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-intrinsic type Addr<E>
-struct Mailbox { capacity: Int }
-linear intrinsic type Reply<T>
-intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
-intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
-intrinsic type Pool
-intrinsic fn pool(size: Int) [spawn] -> Pool => size
-provenance qualifier Dedicated of Pool
-intrinsic fn thread() [spawn] -> Dedicated Pool
-struct Fault { reason: Str }
-actor effect Faults {
+export intrinsic type Int
+export intrinsic type Str
+export intrinsic type Bool
+export intrinsic type List<T> canbe Mut
+export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
+export intrinsic type Addr<E>
+export struct Mailbox { capacity: Int }
+export linear intrinsic type Reply<T>
+export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
+export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
+export intrinsic type Pool
+export intrinsic fn pool(size: Int) [spawn] -> Pool => size
+export provenance qualifier Dedicated of Pool
+export intrinsic fn thread() [spawn] -> Dedicated Pool
+export struct Fault { reason: Str }
+export actor effect Faults {
     send fn faulted(fault: Fault) => !fault
 }
-intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
-struct Exit { reason: Str }
-intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
+export intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
+export struct Exit { reason: Str }
+export intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 ";
 
 /// The effects and handlers the cases share: a `Counter` protocol with a

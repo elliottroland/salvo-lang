@@ -23,7 +23,7 @@ struct MemRead { path: Str, at: Int, failed: Bool }
 // Closing (or flushing) publishes the buffer.
 struct MemWrite { path: Str, buffer: Bytes }
 
-handler MemFs of Fs {
+export handler MemFs of Fs {
     files: Mut Map<Str, Bytes> = mut_map_of()
     reads: Mut Map<Long, MemRead> = mut_map_of()
     writes: Mut Map<Long, MemWrite> = mut_map_of()

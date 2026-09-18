@@ -7,6 +7,7 @@ Module {
         Struct(
             StructDecl {
                 docs: [],
+                exported: false,
                 name: Ident {
                     name: "Countdown",
                     span: 7..16,
@@ -47,6 +48,7 @@ Module {
                 docs: [
                     "The pass over `Countdown`, generated from its `iter fn next` [iter-fn].",
                 ],
+                exported: false,
                 name: Ident {
                     name: "__Pass_Countdown",
                     span: 41..42,
@@ -132,6 +134,7 @@ Module {
                 docs: [
                     "A fresh pass over [c] [iter-pass], generated from its `iter fn next` [iter-fn].",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -279,6 +282,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],

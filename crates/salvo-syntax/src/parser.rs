@@ -50,6 +50,14 @@ struct Snapshot {
 /// everywhere else, and it is only special immediately after `@`.
 pub const SELF_SELECTOR: &str = "self";
 
+/// [mod-export] The contextual modifier that makes a declaration visible to
+/// other modules: `export fn size(...)`. Declarations are module-private by
+/// default (user decision 2026-09-18), and this is the only way out. Contextual
+/// like the rest — a variable may still be called `export`; only the start of a
+/// top-level declaration makes it a modifier, where a bare identifier would be
+/// a parse error anyway.
+pub const EXPORT_MODIFIER: &str = "export";
+
 /// [actor-effect-kind] The contextual modifier that makes an effect an actor
 /// protocol: `actor effect E { … }`. Contextual, not reserved — and the only
 /// place the word appears in the language, since the phase decided against
@@ -351,7 +359,91 @@ impl<'s> Parser<'s> {
         }
     }
 
+    /// [mod-export] A declaration, with the optional `export` modifier in
+    /// front of it.
+    ///
+    /// **Contextual**, like `iter`, `send` and `actor`: `export` stays an
+    /// ordinary identifier everywhere else, and there is nothing to
+    /// disambiguate here because a bare identifier at item level is a parse
+    /// error anyway. It comes first, before `intrinsic` / `linear` / `actor` /
+    /// `platform` / `provenance`, so a declaration reads
+    /// "who can see it, what kind it is, what it is called".
     fn parse_item(&mut self) -> Option<Item> {
+        let export_span = match self.kind() {
+            TokenKind::Ident(name) if name == EXPORT_MODIFIER => {
+                let span = self.peek().span;
+                self.bump();
+                Some(span)
+            }
+            _ => None,
+        };
+        let item = self.parse_declaration()?;
+        let Some(span) = export_span else {
+            return Some(item);
+        };
+        // Only declarations carry visibility. The three items that are not
+        // declarations each get their own reason, since "expected item" would
+        // hide what is actually wrong.
+        match item {
+            Item::Type(mut d) => {
+                d.exported = true;
+                Some(Item::Type(d))
+            }
+            Item::Struct(mut d) => {
+                d.exported = true;
+                Some(Item::Struct(d))
+            }
+            Item::Qualifier(mut d) => {
+                d.exported = true;
+                Some(Item::Qualifier(d))
+            }
+            Item::Effect(mut d) => {
+                d.exported = true;
+                Some(Item::Effect(d))
+            }
+            Item::Handler(mut d) => {
+                d.exported = true;
+                Some(Item::Handler(d))
+            }
+            Item::Params(mut d) => {
+                d.exported = true;
+                Some(Item::Params(d))
+            }
+            Item::Fn(mut d) => {
+                d.exported = true;
+                Some(Item::Fn(d))
+            }
+            Item::Import(_) => {
+                self.error(
+                    "`export` cannot precede an `import`: a module states what *it* \
+                     declares, and there is no re-export — import the original name \
+                     where you need it [mod-export]",
+                    span,
+                );
+                Some(item)
+            }
+            Item::Refn(_) => {
+                self.error(
+                    "`export` cannot precede a `refn`: a refinement travels with the \
+                     qualifier whose claim it is about, so it is visible wherever that \
+                     qualifier is [mod-export]",
+                    span,
+                );
+                Some(item)
+            }
+            Item::Rename(_) => {
+                self.error(
+                    "`export` cannot precede a `rename`: a rename is a name for this \
+                     file's own use, not a declaration — export the function it names \
+                     instead [mod-export]",
+                    span,
+                );
+                Some(item)
+            }
+        }
+    }
+
+    fn parse_declaration(&mut self) -> Option<Item> {
         match self.kind() {
             TokenKind::KwImport => self.parse_import().map(Item::Import),
             // [intrinsic-fn] [intrinsic-std-only] `intrinsic` marks a
@@ -645,6 +737,8 @@ impl<'s> Parser<'s> {
             .or_else(|| auto_qualifiers.last().map(|q| q.span))
             .unwrap_or(name.span);
         Some(TypeDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             intrinsic,
             linear,
@@ -748,6 +842,8 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(StructDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             name,
             generics,
@@ -828,6 +924,8 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::RBrace)?.span;
         }
         Some(QualifierDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             intrinsic,
             subject,
@@ -1095,6 +1193,8 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(EffectDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             platform,
             is_actor,
@@ -1121,6 +1221,8 @@ impl<'s> Parser<'s> {
         }
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(ParamsDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             name,
             generics,
@@ -1216,6 +1318,8 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::RBrace)?.span;
         }
         Some(HandlerDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             intrinsic,
             platform,
@@ -1326,6 +1430,8 @@ impl<'s> Parser<'s> {
             .or_else(|| return_type.as_ref().map(|t| t.span()))
             .unwrap_or(name.span);
         Some(FnDecl {
+            // [mod-export] Set by `parse_item`, which reads the modifier.
+            exported: false,
             docs,
             intrinsic,
             is_iter,
@@ -1547,6 +1653,45 @@ impl<'s> Parser<'s> {
         Some(own)
     }
 
+    /// Whether the cursor sits on a **contextual modifier that starts the next
+    /// declaration** — `export fn`, `iter fn`, `send fn`, `actor effect`.
+    ///
+    /// These four words are ordinary identifiers [mod-export]
+    /// [actor-effect-kind], which makes them indistinguishable from a
+    /// qualifier name to any parser loop that runs "while the next token is an
+    /// identifier". A trailing qualifier list is exactly such a loop, and a
+    /// declaration whose last thing is one — `=> data: Mut` on a bodiless
+    /// `intrinsic fn` — has nothing after it to stop at, so the *following*
+    /// declaration's modifier got absorbed as a qualifier. Recognizing the
+    /// pair by shape, with one token of lookahead, is how the item parser
+    /// itself recognizes them.
+    fn at_contextual_decl_modifier(&self) -> bool {
+        let TokenKind::Ident(name) = &self.kind() else {
+            return false;
+        };
+        let name: &str = name;
+        let next = &self.peek_at(1).kind;
+        match name {
+            EXPORT_MODIFIER => matches!(
+                next,
+                TokenKind::KwFn
+                    | TokenKind::KwStruct
+                    | TokenKind::KwQualifier
+                    | TokenKind::KwEffect
+                    | TokenKind::KwHandler
+                    | TokenKind::KwType
+                    | TokenKind::KwIntrinsic
+                    | TokenKind::KwPlatform
+                    | TokenKind::KwProvenance
+                    | TokenKind::KwLinear
+                    | TokenKind::KwParams
+            ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER),
+            "iter" | "send" => matches!(next, TokenKind::KwFn),
+            ACTOR_MODIFIER => matches!(next, TokenKind::KwEffect),
+            _ => false,
+        }
+    }
+
     /// One entry [deduce-syntax]: `!elem`, `elem`, `elem: Qual…`,
     /// `elem: None`, `elem: Nothing`, `elem: -Qual…`, `elem: +Qual…`,
     /// `x.f: proj[from: a]`, `.f: proj[from: a]`, or a bare `proj[from: a]`.
@@ -1629,7 +1774,7 @@ impl<'s> Parser<'s> {
                     } else {
                         false
                     };
-                    if !self.at_ident() {
+                    if !self.at_ident() || self.at_contextual_decl_modifier() {
                         break;
                     }
                     let Some(r) = self.parse_type_ref() else { break };

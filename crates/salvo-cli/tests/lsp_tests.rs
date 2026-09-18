@@ -463,7 +463,7 @@ fn goto_definition_resolves_names() {
     // A second file provides a struct the main document imports.
     std::fs::write(
         root.join("shapes.sv"),
-        "struct Point {\n    x: Int,\n    y: Int\n}\n",
+        "export struct Point {\n    x: Int,\n    y: Int\n}\n",
     )
     .unwrap();
 
@@ -539,7 +539,8 @@ fn goto_definition_resolves_names() {
     // A struct name jumps into the *other* file.
     let loc = definition(&mut lsp, 11, &uri, 18, 12);
     assert_eq!(loc["uri"].as_str(), Some(shapes_uri.as_str()), "loc: {loc}");
-    assert_eq!(loc["range"]["start"], json!({"line": 0, "character": 7}));
+    // `export struct Point` [mod-export]: the name sits 7 columns further in.
+    assert_eq!(loc["range"]["start"], json!({"line": 0, "character": 14}));
 
     // An effect member call jumps to the member's declaration in the
     // `effect` block (members have no `FnKey`).
@@ -1210,7 +1211,7 @@ fn hover_shows_linearity_and_the_rest_of_an_overload_set() {
     std::fs::create_dir_all(&root).unwrap();
     // Line numbers matter below; keep this source in sync with them.
     let source = "\
-linear struct Ticket {
+export linear struct Ticket {
     id: Int
 }
 
@@ -1266,15 +1267,18 @@ fn main() [use] -> None {
 
     // [lsp-hover-linear] The struct's own declaration, and a use of it: the
     // obligation leads the signature exactly as it does in source.
-    let value = hover(&mut lsp, 40, &uri, 0, 15);
+    // [mod-export] The hover deliberately does **not** show `export` (user
+    // decision 2026-09-18): it already says which module the declaration comes
+    // from [lsp-fn-origin], which is what a reader wants from it.
+    let value = hover(&mut lsp, 40, &uri, 0, 22);
     assert!(
-        value.contains("linear struct Ticket"),
-        "expected the linear modifier on the declaration: {value}"
+        value.contains("linear struct Ticket") && !value.contains("export"),
+        "expected the linear modifier and no `export`: {value}"
     );
     let value = hover(&mut lsp, 41, &uri, 31, 13);
     assert!(
-        value.contains("linear struct Ticket"),
-        "expected the linear modifier at a use: {value}"
+        value.contains("linear struct Ticket") && !value.contains("export"),
+        "expected the linear modifier at a use, and no `export`: {value}"
     );
 
     // [lsp-hover-linear] A generic that may be handed an obligation says so.

@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1143 tests, complete: the toolchain tests are
+cargo test                  # 1154 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,90 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Modules get visibility: private by default, `export` to let a declaration out
+(user decision 2026-09-18).** Prompted by a `core.time` leftover — `fire_after`
+is `DefaultTimer`'s plumbing and `import time` brought it into scope, because
+Salvo had no module-private declarations. The user's call: **module members are
+private by default and must be explicitly `export`ed**, with `export` a word in
+front of the declaration (`export linear struct`, `export actor effect`, …).
+
+**Measured before building, because it set the price.** Of std's 396 top-level
+declarations, **347 are used outside their own file** — std is a library, so a
+high export ratio is the expected shape, but it is worth knowing the modifier
+lands on 88% of them. The *directory*-grained alternative (siblings in one
+directory see each other) was measured too and saves only **9** declarations,
+because `core.*` is implicitly visible to all user code and so must export its
+surface either way. That settled the grain: file-private, which is what
+"module-private" already means [mod-file]. It also fits a grain the language
+had — `[qual-ctor-same-file]` and `linear struct`'s same-file discharge model
+were both file-scoped rules before this.
+
+Six sub-decisions were put to the user with recommendations and all six taken:
+file grain; the rule applies to implicit `core.*` too (or the motivating case
+does not hide); **contextual** keyword, not reserved (a variable may still be
+called `export`); top-level declarations only, so an exported struct exports its
+fields and an exported effect its members; a private type in an exported
+signature is **allowed** and is the only *opaque type* Salvo can express; and
+**emission unchanged** — the rule is a checker rule, both backends emit exactly
+what they did before.
+
+What it took: `exported: bool` on the seven declaration structs, a contextual
+modifier in `parse_item` that stamps the flag (and refuses `import` / `refn` /
+`rename`, each with its own reason), one filter in `add_items` — the single
+funnel every name enters a scope through, so the rule is `level == Level::Own ||
+exported` in one place — a whole-program `private_in` index beside
+`declared_in`, and the diagnostics. Then the sweep: **294 `export`s in std**
+(fewer than the 347 predicted, because the prediction counted `platform effect`
+*members*, which carry no visibility of their own), ~390 in the test suites' std
+stubs, and the rest by hand.
+
+**The diagnostics were treated as the feature, not the trimming.** A private
+name says "declared in module `time` but not exported", names the fix, and is
+*not* offered as an import suggestion, which could not work; an `import` of a
+private name is refused **at the import** rather than importing nothing and
+failing at every use; and a name in scope under another *kind* — a qualifier
+where a type belongs — keeps its own diagnostic, which was a defect in the first
+cut (the note fired on any name some module happened to declare privately, and
+`ModuleScope::declares_name` now gates it).
+
+Three things fell out of building it, all fixed here:
+
+- **A latent parser defect the modifier exposed.** A declaration whose last
+  thing is a deduction *qualifier list* — `intrinsic fn clear(data: Mut Bytes)
+  [] -> None => data: Mut`, with no body to terminate it — had its list ended by
+  "the next token is not an identifier". `export` is an identifier, so the next
+  declaration's modifier was swallowed as a qualifier. It was latent for `iter`,
+  `send` and `actor` for exactly as long as those have existed; all four are now
+  recognized by shape (`at_contextual_decl_modifier`), with a regression test
+  covering each.
+- **The generated pass of an `iter fn` inherits its visibility.** A `for` over
+  the pass needs the *type* in scope, so exporting the function while hiding its
+  pass would have made the iterator undrivable from another module — a silent
+  version of the recorded "a pass's type must be visible" leftover.
+- **A hover does *not* show `export`**, which was built and then removed the
+  same day at the user's direction: a hover already names the module a
+  declaration comes from [lsp-fn-origin], so the modifier said the same thing
+  twice. What the editor does instead is colour the word as a keyword, through
+  the TextMate grammar — the only thing that highlights anything, the language
+  server having no semantic tokens. Its lookahead names every word that can
+  start a declaration, so `export intrinsic fn` and `export actor effect`
+  colour too, and a test now asserts both that and the scope.
+
+The sweep's shape is worth recording for the next one: the test suites' inline
+std stubs could not be rewritten by a regex over declaration keywords, because
+**indentation inside a Rust string literal is Salvo's own** — an indented `fn`
+is an effect *member*, and two attempts that keyed on indentation put `export`
+on members. What works is tracking Salvo **brace depth** through the literal and
+exporting at depth 0 only.
+
+Tests: **1154 (+11)** — seven core tests for the rule (the cross-module pair,
+the two diagnostics, the import refusal, the wrong-kind non-report, every
+declaration kind, and the `iter fn` pass) and four parser tests (the flag, the
+word staying ordinary, the deduction-terminator regression over all four
+modifiers, and the three refusals). Rules: [mod-export], an amended
+[mod-visibility]. Leftovers under ROADMAP's "Module
+visibility — leftovers".
 
 **The coupling stance, and TIME.md retires — the second sequence is finished
 (built 2026-09-18, on the user's T-2 decision of 2026-09-17).** Step 6, the
@@ -12196,7 +12280,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1143)
+## Test inventory (all green: 1154)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12204,7 +12288,13 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 639 - 12 multi-effect-handler tests
+- `salvo-core`: 646 - 7 module-visibility tests
+  (`tests/export_tests.rs` [mod-export]: an exported declaration crossing while
+  a private one does not — its own module reaching both — the private-name
+  diagnostic naming the module and the fix, that name *not* being offered as an
+  import, an import of a private name refused at the import, a wrong-kind name
+  in scope not reported as private, every declaration kind taking the modifier,
+  and an `iter fn`'s generated pass inheriting its visibility) + 12 multi-effect-handler tests
   (`tests/multi_effect_tests.rs` [effect-handler-multi]: the two-faced actor and
   the addr per face, an addr of one face refusing the other's member, one face
   still answering a bare addr while several answer a tuple, conformance naming an
@@ -12802,7 +12892,10 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 91 (three parser tests for the scope selector and
+- `salvo-syntax`: 95 (four [mod-export] parser tests — the flag set only on
+  the declaration it precedes, `export` staying an ordinary name for a variable
+  or field, the deduction-terminator regression over all four contextual
+  modifiers, and the three non-declaration refusals; three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -13293,6 +13386,24 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Indentation inside a Rust string literal holding Salvo is *Salvo's*.** When
+  sweeping the test suites' inline std stubs for `export` (2026-09-18), two
+  attempts keyed on indentation — "a continuation line resumes at column 0 of
+  the string, so an indented declaration is still top-level" — and both put
+  `export` in front of effect and `params` **members**, because the four spaces
+  before a member are inside the literal too. There is no textual way to tell
+  the two apart. What works is tracking Salvo **brace depth** through the
+  literal and acting at depth 0 only. Any future bulk rewrite of those stubs
+  wants the same shape.
+- **A contextual keyword can be eaten by a trailing list.** `export` is an
+  identifier, and a declaration that ends in a deduction qualifier list with no
+  body (`intrinsic fn f(x: Mut T) [] -> None => x: Mut`) had that list
+  terminated by "the next token is not an identifier" — so the *next*
+  declaration's modifier became a qualifier. The same hole had been open for
+  `iter`, `send` and `actor` since each was introduced, and nothing had happened
+  to stand next to one. When adding a contextual word, grep for the loops that
+  end on "not an identifier" as well as the parse sites.
 
 - **A fake must fire whatever the real thing fires immediately.** `ManualTime`
   stored *every* deadline until the next `advance`, including one already due —

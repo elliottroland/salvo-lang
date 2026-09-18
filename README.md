@@ -241,6 +241,13 @@ fn main() [use] {
   Those two are the whole interop surface: std's own primitives are
   `intrinsic`, lowered by code inside each backend, and `intrinsic` is the
   compiler's to declare.
+- **Modules**: a file is a module, and its declarations are **private to it
+  unless they say `export`** — so a module's public surface is exactly what it
+  writes down, and the standard library's own plumbing is unreachable rather
+  than merely undocumented. A name arrives by being in your own file, by being
+  exported from `core`, or by an `import` — of one name (`import time.Duration`)
+  or of a whole module (`import time`). Using a private name says so and names
+  the fix, rather than claiming the name does not exist.
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are

@@ -24,8 +24,8 @@ use salvo_syntax::diag::Severity;
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as *std* files (only std may write `intrinsic`), one per `core`
 /// module so the tests can name them with `@`.
-const STD_LIST: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Char\nintrinsic type Any\nintrinsic type List<T> canbe Mut\nintrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nintrinsic fn size<T>(list: List<T>) [] -> Int => list\n";
-const STD_STRING: &str = "intrinsic fn size(str: Str) [] -> Int => str\n";
+const STD_LIST: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Char\nexport intrinsic type Any\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn of_list<T>(...elems: T[]) [] -> Mut List<T>\nexport intrinsic fn size<T>(list: List<T>) [] -> Int => list\n";
+const STD_STRING: &str = "export intrinsic fn size(str: Str) [] -> Int => str\n";
 
 /// Checks a program of user files (`main.sv` first) against the std prelude.
 fn checked_files(files: &[(&str, &str)]) -> salvo_core::Checked {
@@ -282,7 +282,7 @@ fn this_module_beats_core() {
 /// An **import** beats `core` too, and this module beats the import.
 #[test]
 fn the_ladder_runs_core_import_module() {
-    let lib = "fn describe(v: Int) [] -> Bool { return true }\n";
+    let lib = "export fn describe(v: Int) [] -> Bool { return true }\n";
     let main_import = "import lib.describe\n\n";
     // core has none of these, so the import wins on its own.
     let src = format!(

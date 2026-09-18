@@ -111,6 +111,11 @@
           "match": "\\b(as|of|with|canbe|is|use|proj|once|linear)\\b"
         },
         {
+          "comment": "the export modifier — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\bexport(?=\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send)\\b)"
+        },
+        {
           "comment": "the actor-effect modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
           "match": "\\bactor(?=\\s+effect\\b)"

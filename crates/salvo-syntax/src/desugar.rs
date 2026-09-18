@@ -453,6 +453,11 @@ fn expand(
             "The pass over `{}`, generated from its `iter fn next` [iter-fn].",
             base.name.name
         )],
+        // [mod-export] The pass type is exported exactly when its `iter fn`
+        // is: a `for` over the pass needs the *type* in scope, so hiding it
+        // while exporting the function would make the iterator undrivable
+        // from another module.
+        exported: f.exported,
         name: pass_name.clone(),
         generic_canbe: Vec::new(),
         generics: f.generics.clone(),
@@ -548,6 +553,8 @@ fn expand(
              `iter fn next` [iter-fn].",
             subject.name.name
         )],
+        // [mod-export] Both halves inherit the `iter fn`'s own visibility.
+        exported: f.exported,
         intrinsic: false,
         is_iter: false,
         is_send: false,
@@ -613,6 +620,8 @@ fn expand(
     });
     let next_fn = FnDecl {
         docs: f.docs.clone(),
+        // [mod-export] Both halves inherit the `iter fn`'s own visibility.
+        exported: f.exported,
         intrinsic: false,
         is_iter: false,
         is_send: false,

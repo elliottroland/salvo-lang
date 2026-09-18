@@ -24,7 +24,7 @@
 // An addr is freely copyable and never linear: sending to an actor that has
 // died is a silent no-op, so holding a stale one is safe, and the monitor
 // surface (`watch`) is how a death is *observed* rather than tripped over.
-intrinsic type Addr<E>
+export intrinsic type Addr<E>
 
 // [actor-replyto] A one-shot answer channel, minted by `replyto k(captures)`
 // and consumed by sending to it. **Linear**, which is the guarantee the whole
@@ -35,7 +35,7 @@ intrinsic type Addr<E>
 // A `Reply<T>` is an addr with a single send member, so `send(r, v)` — or
 // `r.send(v)` — is the ordinary operation it looks like. [T] is what the
 // awaiting continuation receives.
-linear intrinsic type Reply<T>
+export linear intrinsic type Reply<T>
 
 // [actor-replyto] Answer a request: delivers [value] to the continuation
 // [reply] was minted for, and discharges the token by consuming it. Enqueue,
@@ -45,7 +45,7 @@ linear intrinsic type Reply<T>
 //
 // Sending to an actor that has already died is a silent no-op, as every
 // send is.
-intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
+export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
 // [actor-mailbox] An actor's mailbox, declared by its handler:
 // `mailbox { capacity: 16 }` (user decision 2026-09-16). The block is this
@@ -57,7 +57,7 @@ intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 // blocks; replies do not count against it, since their room is reserved when the
 // request is made. There is no default: a bound the compiler chose would be a
 // performance cliff nobody wrote.
-struct Mailbox { capacity: Int }
+export struct Mailbox { capacity: Int }
 
 // [actor-spawn-expr] Where actors run: a pool of threads, named by a
 // spawn's `on POOL` clause. A pool is an ordinary value, so one can be built
@@ -68,12 +68,12 @@ struct Mailbox { capacity: Int }
 // worker: a spawn that writes no `on` clause runs on the pool current where
 // it was written, which in `main` is that one. Work placed there runs while
 // `main` waits in a `waitfor` and dies when `main` returns.
-intrinsic type Pool
+export intrinsic type Pool
 
 // [actor-spawn-expr] A pool of [size] threads. An ordinary function, not
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes
 // creating one a capability the caller must hold.
-intrinsic fn pool(size: Int) [spawn] -> Pool => size
+export intrinsic fn pool(size: Int) [spawn] -> Pool => size
 
 // [waitfor-dedicated] A pool of exactly one thread, and the placement that
 // grants the right to *block* it. It is a claim about where the handle came
@@ -81,7 +81,7 @@ intrinsic fn pool(size: Int) [spawn] -> Pool => size
 // qualifier: only [thread] mints one, and the `on` clause **consumes** it —
 // which is what makes "a dedicated thread has exactly one occupant" a fact
 // of the type system instead of a convention.
-provenance qualifier Dedicated of Pool
+export provenance qualifier Dedicated of Pool
 
 // [pool-fault-sink] Why a task or an unwatched actor died, delivered to a
 // pool's fault sink.
@@ -91,7 +91,7 @@ provenance qualifier Dedicated of Pool
 // a pool emits a recurring stream about work that had none. [reason] is the
 // host's account of the fault, exactly as `Exit`'s is — print it, do not branch
 // on it.
-struct Fault { reason: Str }
+export struct Fault { reason: Str }
 
 // [pool-fault-sink] The protocol a pool's fault sink serves. Ordinary Salvo:
 // spawn a handler of it and hand the addr to [pool], and every uncaught fault
@@ -101,7 +101,7 @@ struct Fault { reason: Str }
 // per-actor and one-shot [actor-watch], and a scheduled task has no addr to
 // watch — so a fault that nobody was watching would otherwise vanish. With no
 // sink, the runtime reports it by name instead.
-actor effect Faults {
+export actor effect Faults {
     send fn faulted(fault: Fault) => !fault
 }
 
@@ -109,14 +109,14 @@ actor effect Faults {
 // [sink] (user decision 2026-09-17, FC-5(a)). The overload exists so the plain
 // `pool(n)` stays the simple thing it was: a sink is a choice, and where it is
 // absent the runtime's named report is the default.
-intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
+export intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
 
 // [waitfor-dedicated] One fresh thread, owned by whatever is placed on it.
 // This is the placement a `[waitfor]`-carrying handler needs: a wait may
 // occupy its thread until the answer arrives, so it must not be a thread
 // anything else was counting on. Spending the value is spending the thread —
 // `on thread()` consumes it, and there is no second spawn onto the same one.
-intrinsic fn thread() [spawn] -> Dedicated Pool
+export intrinsic fn thread() [spawn] -> Dedicated Pool
 
 // [actor-watch] Why an actor died, delivered to whoever was watching it.
 //
@@ -125,7 +125,7 @@ intrinsic fn thread() [spawn] -> Dedicated Pool
 // a panic message on the Rust backend, an exception's on the Kotlin one — so
 // it is the one thing on this surface whose *text* is the target's rather
 // than the language's. Print it in a diagnostic, do not branch on it.
-struct Exit { reason: Str }
+export struct Exit { reason: Str }
 
 // [actor-watch] Watch [target] for death: when it dies, the scheduler sends
 // an [Exit] to [on_exit]. The whole monitor surface — one function, one
@@ -141,7 +141,7 @@ struct Exit { reason: Str }
 //
 // [target] is kept, since an addr is freely copyable: watching does not spend
 // the handle, and the same actor may be watched by many.
-intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
+export intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
 
 // [actor-on-idle] What quiescence looked like, delivered to whoever asked to
 // hear about it.
@@ -156,7 +156,7 @@ intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => 
 // A registration the scheduler is holding — a [watch], or an [on_idle] of its
 // own — is not counted: the scheduler will answer it when the event happens,
 // so it is not an obligation the program has forgotten.
-struct Idle {
+export struct Idle {
     parked_gates: Int,
     parked_tokens: Int
 }
@@ -183,4 +183,4 @@ struct Idle {
 //
 // [p] is kept: a pool is an ordinary value, and asking about one does not
 // spend it.
-intrinsic fn on_idle(p: Pool, notify: Reply<Idle>) [spawn] -> None => p, !notify
+export intrinsic fn on_idle(p: Pool, notify: Reply<Idle>) [spawn] -> None => p, !notify

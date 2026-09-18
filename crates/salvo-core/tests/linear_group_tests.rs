@@ -12,22 +12,22 @@ use std::path::Path;
 
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic type List<T canbe linear> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
-     intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
-     intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
-     intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
-     intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut\n\
-     intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None\
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic type List<T canbe linear> canbe Mut\n\
+     export intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n\
+     export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>\n\
+     export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+     export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list\n\
+     export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut\n\
+     export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None\
      =>[each] !x => !list, each\n\
      \
-     qualifier Emitted<T> of T\n\
-     struct Finished {}\n\
-     fn emitted<T canbe linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
-     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+     export qualifier Emitted<T> of T\n\
+     export struct Finished {}\n\
+     export fn emitted<T canbe linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -861,11 +861,11 @@ fn a_generic_fn_value_still_refuses_a_linear_instantiation() {
 /// handler's implementation of that member is a discharge context, which is
 /// where `discard` terminates the obligation.
 const TOKEN_EFFECT: &str = "\
-linear struct Token {
+export linear struct Token {
     handle: Int
 }
 
-effect Sink {
+export effect Sink {
     fn close(t: Token) -> Str => !t
     fn peek(t: Token) -> Int => t
 }
@@ -921,8 +921,8 @@ fn a_keeping_member_body_may_not_discard() {
 #[test]
 fn a_member_in_another_file_than_the_type_is_no_discharger() {
     let errs = errors_in_files(
-        "linear struct Token {\n    handle: Int\n}\n\n\
-         fn close(t: Token) -> None => !t {\n    discard(t)\n}\n",
+        "export linear struct Token {\n    handle: Int\n}\n\n\
+         export fn close(t: Token) -> None => !t {\n    discard(t)\n}\n",
         "import main.Token\n\n\
          effect Sink {\n    fn take(t: Token) -> None => !t\n}\n\n\
          handler Direct of Sink {\n    \
@@ -1042,7 +1042,7 @@ fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
 #[test]
 fn a_linear_intrinsic_type_needs_a_discharger_in_its_own_file() {
     let errs = errors_with_std_module(
-        "linear intrinsic type Token<T>\n",
+        "export linear intrinsic type Token<T>\n",
         "fn probe() -> Int {\n    return 1\n}\n",
     );
     assert!(
@@ -1058,9 +1058,9 @@ fn a_linear_intrinsic_type_needs_a_discharger_in_its_own_file() {
 #[test]
 fn a_linear_intrinsic_type_owes_and_its_intrinsic_discharges() {
     const TOKEN: &str = "\
-linear intrinsic type Token<T>
-intrinsic fn deliver<T>(token: Token<T>, value: T) [] -> None => !token, !value
-intrinsic fn mint_token() [] -> Token<Int>
+export linear intrinsic type Token<T>
+export intrinsic fn deliver<T>(token: Token<T>, value: T) [] -> None => !token, !value
+export intrinsic fn mint_token() [] -> Token<Int>
 ";
     let clean = errors_with_std_module(
         TOKEN,
@@ -1097,7 +1097,7 @@ fn answer() -> Int {
 /// second name for a type that already decided whether it owes.
 #[test]
 fn an_alias_cannot_be_declared_linear() {
-    let source = "linear intrinsic type Handle<T> = Int\n";
+    let source = "export linear intrinsic type Handle<T> = Int\n";
     let (_module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         diagnostics

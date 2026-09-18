@@ -42,7 +42,7 @@
 // **Signed**, which is what makes `between` total: arguments in the wrong
 // order answer a negative span rather than trapping or clamping at zero.
 // A `Long` of nanoseconds spans ±292 years.
-struct Duration canbe hashed, ordered {
+export struct Duration canbe hashed, ordered {
     nanos: Long
 }
 
@@ -52,7 +52,7 @@ struct Duration canbe hashed, ordered {
 // It is what a program records, logs and compares against a deadline it was
 // *given*; it is the wrong thing to measure an interval with, because the
 // clock under it can be adjusted between two readings. Measure with [Tick].
-struct Instant canbe hashed, ordered {
+export struct Instant canbe hashed, ordered {
     nanos: Long
 }
 
@@ -65,80 +65,80 @@ struct Instant canbe hashed, ordered {
 // and [Fired] payloads are expressed in ticks. To learn the wall time a tick
 // happened at, ask a [Clock] with [to_instant] — an estimate, for the reasons
 // documented there.
-struct Tick canbe hashed, ordered {
+export struct Tick canbe hashed, ordered {
     nanos: Long
 }
 
 // ---------------------------------------------------------------- spans ----
 
 // A span of [n] nanoseconds.
-fn nanos(n: Long) [] -> Duration {
+export fn nanos(n: Long) [] -> Duration {
     return Duration {nanos: n}
 }
 
 // A span of [n] microseconds.
-fn micros(n: Long) [] -> Duration {
+export fn micros(n: Long) [] -> Duration {
     return Duration {nanos: n * 1000L}
 }
 
 // A span of [n] milliseconds.
-fn millis(n: Long) [] -> Duration {
+export fn millis(n: Long) [] -> Duration {
     return Duration {nanos: n * 1000000L}
 }
 
 // A span of [n] seconds.
-fn seconds(n: Long) [] -> Duration {
+export fn seconds(n: Long) [] -> Duration {
     return Duration {nanos: n * 1000000000L}
 }
 
 // A span of [n] minutes.
-fn minutes(n: Long) [] -> Duration {
+export fn minutes(n: Long) [] -> Duration {
     return Duration {nanos: n * 60000000000L}
 }
 
 // A span of [n] hours.
-fn hours(n: Long) [] -> Duration {
+export fn hours(n: Long) [] -> Duration {
     return Duration {nanos: n * 3600000000000L}
 }
 
 // [d] in whole nanoseconds, which is exact: nanoseconds are the
 // representation.
-fn to_nanos(d: Duration) [] -> Long {
+export fn to_nanos(d: Duration) [] -> Long {
     return d.nanos
 }
 
 // [d] in whole microseconds, truncated toward zero.
-fn to_micros(d: Duration) [] -> Long {
+export fn to_micros(d: Duration) [] -> Long {
     return d.nanos / 1000L
 }
 
 // [d] in whole milliseconds, truncated toward zero.
-fn to_millis(d: Duration) [] -> Long {
+export fn to_millis(d: Duration) [] -> Long {
     return d.nanos / 1000000L
 }
 
 // [d] in whole seconds, truncated toward zero.
-fn to_seconds(d: Duration) [] -> Long {
+export fn to_seconds(d: Duration) [] -> Long {
     return d.nanos / 1000000000L
 }
 
 // The sum of two spans.
-fn plus(d1: Duration, d2: Duration) [] -> Duration {
+export fn plus(d1: Duration, d2: Duration) [] -> Duration {
     return Duration {nanos: d1.nanos + d2.nanos}
 }
 
 // [d2] taken off [d1], which may be negative.
-fn minus(d1: Duration, d2: Duration) [] -> Duration {
+export fn minus(d1: Duration, d2: Duration) [] -> Duration {
     return Duration {nanos: d1.nanos - d2.nanos}
 }
 
 // [d] repeated [n] times.
-fn times(d: Duration, n: Long) [] -> Duration {
+export fn times(d: Duration, n: Long) [] -> Duration {
     return Duration {nanos: d.nanos * n}
 }
 
 // [d] with its sign removed.
-fn abs(d: Duration) [] -> Duration {
+export fn abs(d: Duration) [] -> Duration {
     if d.nanos < 0 {
         return Duration {nanos: 0L - d.nanos}
     }
@@ -154,7 +154,7 @@ fn abs(d: Duration) [] -> Duration {
 // Minutes and hours invite a *composite* reading (`1h30m`), which is a
 // formatting decision this function is the wrong size for — and which belongs
 // with the calendar layer, where the units have calendars behind them.
-fn to_str(d: Duration) [] -> Str {
+export fn to_str(d: Duration) [] -> Str {
     if d.nanos < 0 {
         let positive = Duration {nanos: 0L - d.nanos}
         return "-${to_str(positive)}"
@@ -177,68 +177,68 @@ fn to_str(d: Duration) [] -> Str {
 // --------------------------------------------------------------- points ----
 
 // The wall-clock point [n] nanoseconds after the Unix epoch.
-fn epoch_nano(n: Long) [] -> Instant {
+export fn epoch_nano(n: Long) [] -> Instant {
     return Instant {nanos: n}
 }
 
 // The wall-clock point [n] milliseconds after the Unix epoch — the epoch
 // number most systems hand out, so this is the usual way in from the outside
 // world.
-fn epoch_milli(n: Long) [] -> Instant {
+export fn epoch_milli(n: Long) [] -> Instant {
     return Instant {nanos: n * 1000000L}
 }
 
 // The wall-clock point [n] seconds after the Unix epoch.
-fn epoch_second(n: Long) [] -> Instant {
+export fn epoch_second(n: Long) [] -> Instant {
     return Instant {nanos: n * 1000000000L}
 }
 
 // [at] as nanoseconds since the Unix epoch.
-fn to_epoch_nano(at: Instant) [] -> Long {
+export fn to_epoch_nano(at: Instant) [] -> Long {
     return at.nanos
 }
 
 // [at] as whole milliseconds since the Unix epoch, truncated toward zero —
 // the number to hand to a system that speaks epoch millis.
-fn to_epoch_milli(at: Instant) [] -> Long {
+export fn to_epoch_milli(at: Instant) [] -> Long {
     return at.nanos / 1000000L
 }
 
 // [at] as whole seconds since the Unix epoch, truncated toward zero.
-fn to_epoch_second(at: Instant) [] -> Long {
+export fn to_epoch_second(at: Instant) [] -> Long {
     return at.nanos / 1000000000L
 }
 
 // The span from [start] to [end] — negative when [end] is the earlier of the
 // two, since a [Duration] is signed. Named for how it reads at the call site:
 // the argument order *is* the direction of the answer.
-fn between(start: Instant, end: Instant) [] -> Duration {
+export fn between(start: Instant, end: Instant) [] -> Duration {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
 // The span from [start] to [end] on the monotonic clock — the honest way to
 // measure an interval, because no clock adjustment can distort it.
-fn between(start: Tick, end: Tick) [] -> Duration {
+export fn between(start: Tick, end: Tick) [] -> Duration {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
 // [d] after [at].
-fn plus(at: Instant, d: Duration) [] -> Instant {
+export fn plus(at: Instant, d: Duration) [] -> Instant {
     return Instant {nanos: at.nanos + d.nanos}
 }
 
 // [d] before [at].
-fn minus(at: Instant, d: Duration) [] -> Instant {
+export fn minus(at: Instant, d: Duration) [] -> Instant {
     return Instant {nanos: at.nanos - d.nanos}
 }
 
 // [d] after [at].
-fn plus(at: Tick, d: Duration) [] -> Tick {
+export fn plus(at: Tick, d: Duration) [] -> Tick {
     return Tick {nanos: at.nanos + d.nanos}
 }
 
 // [d] before [at].
-fn minus(at: Tick, d: Duration) [] -> Tick {
+export fn minus(at: Tick, d: Duration) [] -> Tick {
     return Tick {nanos: at.nanos - d.nanos}
 }
 
@@ -251,7 +251,7 @@ fn minus(at: Tick, d: Duration) [] -> Tick {
 // This is the effect to bind for measuring — a latency, a timeout, an
 // interval — and the one a test replaces to make those measurements
 // deterministic.
-effect Ticker {
+export effect Ticker {
     // The monotonic clock's reading now. Two readings subtract into the time
     // that passed between them ([between]); one on its own means nothing.
     fn tick() -> Tick
@@ -262,7 +262,7 @@ effect Ticker {
 //
 // Reading it is a capability for the same reason [Ticker] is, and replacing it
 // is how a test decides what "now" means.
-effect Clock {
+export effect Clock {
     // The wall clock's reading now.
     fn now() -> Instant
 
@@ -292,12 +292,12 @@ effect Clock {
 
 // [time-ticker] How long ago [since] was — `between(since, tick())`, which is
 // the shape almost every measurement takes.
-fn elapsed(since: Tick) [Ticker] -> Duration {
+export fn elapsed(since: Tick) [Ticker] -> Duration {
     return between(since, tick())
 }
 
 // [time-ticker] The machine's monotonic clock.
-handler DefaultTicker() of Ticker {
+export handler DefaultTicker() of Ticker {
     fn tick() -> Tick {
         return Tick {nanos: monotonic_nanos()}
     }
@@ -311,7 +311,7 @@ handler DefaultTicker() of Ticker {
 // the arithmetic is the same on both backends, so there is nothing for a
 // backend to decide, and the drift model above is readable where it is
 // implemented.
-handler DefaultClock() of Clock {
+export handler DefaultClock() of Clock {
     base_tick: Long = monotonic_nanos()
     base_epoch: Long = epoch_nanos()
 
@@ -331,11 +331,11 @@ handler DefaultClock() of Clock {
 // [time-clock] The monotonic clock's reading, in nanoseconds from an
 // arbitrary origin. The plumbing under [DefaultTicker] and [DefaultClock] —
 // bind [Ticker] instead, so the dependency is visible in your signature.
-intrinsic fn monotonic_nanos() [] -> Long
+export intrinsic fn monotonic_nanos() [] -> Long
 
 // [time-clock] The wall clock's reading, in nanoseconds since the Unix epoch.
 // The plumbing under [DefaultClock]; bind [Clock] instead.
-intrinsic fn epoch_nanos() [] -> Long
+export intrinsic fn epoch_nanos() [] -> Long
 
 // ---------------------------------------------------------------- timer ----
 
@@ -346,7 +346,7 @@ intrinsic fn epoch_nanos() [] -> Long
 // adjusted would not be a deadline. It is the time the timer *fired*, not the
 // time the continuation runs: the answer is queued like every other, so a busy
 // actor reads a slightly older `at` than its own [tick] would say.
-struct Fired {
+export struct Fired {
     at: Tick
 }
 
@@ -363,7 +363,7 @@ struct Fired {
 // continuation that finds its work already done — one no-op activation, the
 // same shape as losing a race. A cancel handle can be added if that ever
 // measures.
-actor effect Timer {
+export actor effect Timer {
     // Consume [done] once at least [wait] has passed. A `wait` of zero or less
     // fires as soon as the scheduler looks, which is still a later activation
     // and never a call inside `after`.
@@ -377,7 +377,7 @@ actor effect Timer {
 // mailbox bounds *registrations*, not deadlines: `after` hands the deadline to
 // the runtime and returns, so the queue only ever holds requests that have not
 // been registered yet.
-handler DefaultTimer() of Timer {
+export handler DefaultTimer() of Timer {
     mailbox { capacity: 64 }
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
@@ -405,7 +405,7 @@ intrinsic fn fire_after(wait: Duration, done: Reply<Fired>) [] -> None => wait, 
 // an addr per face, so the code under test is handed the [Timer] and cannot
 // reach `advance`, while the test keeps the control addr — least authority
 // falling out of the types rather than out of discipline.
-actor effect TimerCtl {
+export actor effect TimerCtl {
     // Move virtual time forward by [by], firing every deadline it passes, in
     // deadline order.
     send fn advance(by: Duration) => !by
@@ -441,7 +441,7 @@ actor effect TimerCtl {
 // std does not ship it: it is six lines, and which effect a test fakes —
 // [Ticker], [Clock] or both — is the test's business. Prefer passing time as
 // data over reading it at all; see `examples/time/`.
-handler ManualTime() of Timer, TimerCtl {
+export handler ManualTime() of Timer, TimerCtl {
     mailbox { capacity: 64 }
 
     // Virtual monotonic nanoseconds. A real [Tick]'s origin is arbitrary, so

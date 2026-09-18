@@ -20,22 +20,22 @@ use salvo_core::{check_program, resolve, FileDiagnostic, Program, SourceSet, Sym
 /// [intrinsic-std-only] The declarations these sources rely on, loaded as a
 /// *std* file (only std may write `intrinsic`).
 const STD_PRELUDE: &str = concat!(
-    "intrinsic type Int\n",
-    "intrinsic type Long\n",
-    "intrinsic type Bool\n",
-    "intrinsic type Char\n",
-    "intrinsic type Double\n",
-    "intrinsic type Str canbe Mut\n",
-    "intrinsic type List<T> canbe Mut\n",
-    "intrinsic type Set<T> canbe Mut\n",
-    "intrinsic type Map<K, V> canbe Mut\n",
-    "intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
-    "intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>\n",
-    "intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
-    "intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem\n",
-    "intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
-    "intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
-    "intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None\n    => map: Mut, !key, !value\n",
+    "export intrinsic type Int\n",
+    "export intrinsic type Long\n",
+    "export intrinsic type Bool\n",
+    "export intrinsic type Char\n",
+    "export intrinsic type Double\n",
+    "export intrinsic type Str canbe Mut\n",
+    "export intrinsic type List<T> canbe Mut\n",
+    "export intrinsic type Set<T> canbe Mut\n",
+    "export intrinsic type Map<K, V> canbe Mut\n",
+    "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
+    "export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>\n",
+    "export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
+    "export intrinsic fn add<T>(set: Mut Set<T>, elem: T) [] -> Bool => set: Mut, !elem\n",
+    "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+    "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
+    "export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None\n    => map: Mut, !key, !value\n",
 );
 
 fn checked(src: &str) -> salvo_core::Checked {
@@ -260,18 +260,18 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 /// The prelude above plus what the literals need: `list_of` for the bracket
 /// form, and a struct to keep the bare-struct-literal reading honest.
 const LIT_PRELUDE: &str = concat!(
-    "intrinsic type Int\n",
-    "intrinsic type Long\n",
-    "intrinsic type Bool\n",
-    "intrinsic type Char\n",
-    "intrinsic type Double\n",
-    "intrinsic type Str canbe Mut\n",
-    "intrinsic type List<T> canbe Mut\n",
-    "intrinsic type Set<T> canbe Mut\n",
-    "intrinsic type Map<K, V> canbe Mut\n",
-    "intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
-    "intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
-    "intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
+    "export intrinsic type Int\n",
+    "export intrinsic type Long\n",
+    "export intrinsic type Bool\n",
+    "export intrinsic type Char\n",
+    "export intrinsic type Double\n",
+    "export intrinsic type Str canbe Mut\n",
+    "export intrinsic type List<T> canbe Mut\n",
+    "export intrinsic type Set<T> canbe Mut\n",
+    "export intrinsic type Map<K, V> canbe Mut\n",
+    "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
+    "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+    "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
 );
 
 fn lit_checked(src: &str) -> salvo_core::Checked {
@@ -584,20 +584,20 @@ fn canbe_rejects_an_unknown_optin() {
 /// The literal prelude plus the sorted types, so the key rules can be
 /// compared side by side.
 const SORTED_PRELUDE: &str = concat!(
-    "intrinsic type Int\n",
-    "intrinsic type Long\n",
-    "intrinsic type Bool\n",
-    "intrinsic type Char\n",
-    "intrinsic type Double\n",
-    "intrinsic type Str canbe Mut\n",
-    "intrinsic type List<T> canbe Mut\n",
-    "intrinsic type Set<T> canbe Mut\n",
-    "intrinsic type Map<K, V> canbe Mut\n",
-    "intrinsic type SortedSet<T> canbe Mut\n",
-    "intrinsic type SortedMap<K, V> canbe Mut\n",
-    "intrinsic fn size<T>(set: SortedSet<T>) [] -> Int => set\n",
-    "intrinsic fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map\n",
-    "intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+    "export intrinsic type Int\n",
+    "export intrinsic type Long\n",
+    "export intrinsic type Bool\n",
+    "export intrinsic type Char\n",
+    "export intrinsic type Double\n",
+    "export intrinsic type Str canbe Mut\n",
+    "export intrinsic type List<T> canbe Mut\n",
+    "export intrinsic type Set<T> canbe Mut\n",
+    "export intrinsic type Map<K, V> canbe Mut\n",
+    "export intrinsic type SortedSet<T> canbe Mut\n",
+    "export intrinsic type SortedMap<K, V> canbe Mut\n",
+    "export intrinsic fn size<T>(set: SortedSet<T>) [] -> Int => set\n",
+    "export intrinsic fn size<K, V>(map: SortedMap<K, V>) [] -> Int => map\n",
+    "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
 );
 
 fn sorted_messages(src: &str) -> Vec<String> {
@@ -703,20 +703,20 @@ fn a_float_is_not_a_sorted_key() {
 #[test]
 fn the_generated_constructors_and_converters_type_correctly() {
     let prelude = concat!(
-        "intrinsic type Int\n",
-        "intrinsic type Str canbe Mut\n",
-        "intrinsic type List<T> canbe Mut\n",
-        "intrinsic type Set<T> canbe Mut\n",
-        "intrinsic type Map<K, V> canbe Mut\n",
-        "intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
-        "intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
-        "intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
-        "intrinsic fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init\n",
-        "intrinsic fn set_by<T>(size: Int, init: (Int) -> T) [] -> Set<T> => size, init\n",
-        "intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>\n    => size, init\n",
-        "intrinsic fn to_set<T>(list: List<T>) [] -> Set<T> => list\n",
-        "intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs\n",
-        "intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>\n    => items, entry\n",
+        "export intrinsic type Int\n",
+        "export intrinsic type Str canbe Mut\n",
+        "export intrinsic type List<T> canbe Mut\n",
+        "export intrinsic type Set<T> canbe Mut\n",
+        "export intrinsic type Map<K, V> canbe Mut\n",
+        "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
+        "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
+        "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
+        "export intrinsic fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init\n",
+        "export intrinsic fn set_by<T>(size: Int, init: (Int) -> T) [] -> Set<T> => size, init\n",
+        "export intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>\n    => size, init\n",
+        "export intrinsic fn to_set<T>(list: List<T>) [] -> Set<T> => list\n",
+        "export intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs\n",
+        "export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>\n    => items, entry\n",
     );
     let mut sources = SourceSet::default();
     sources.add(

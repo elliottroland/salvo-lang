@@ -17,13 +17,13 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     qualifier Emitted<T> of T\n\
-     struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
-     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     export qualifier Emitted<T> of T\n\
+     export struct Finished {}\n\
+     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

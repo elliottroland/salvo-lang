@@ -26,36 +26,36 @@
 
 // What went wrong, without the obligation: droppable, storable, and what
 // `detach` hands back for aggregation.
-type FsErrorKind = NotFound | PermissionDenied | AlreadyExists | NotADirectory
+export type FsErrorKind = NotFound | PermissionDenied | AlreadyExists | NotADirectory
                  | PathEscapes | InvalidUtf8 | StaleHandle | IoError
 
 // Nothing exists at the path.
-struct NotFound { path: Str }
+export struct NotFound { path: Str }
 // The path exists and the operation was not permitted.
-struct PermissionDenied { path: Str }
+export struct PermissionDenied { path: Str }
 // The path exists where the operation needed it not to.
-struct AlreadyExists { path: Str }
+export struct AlreadyExists { path: Str }
 // A path component that had to be a directory was not one.
-struct NotADirectory { path: Str }
+export struct NotADirectory { path: Str }
 // A restricted handler refused the path: it resolves outside its root.
-struct PathEscapes { path: Str }
+export struct PathEscapes { path: Str }
 // The bytes read are not valid UTF-8. Decoding is strict on both backends.
-struct InvalidUtf8 { path: Str }
+export struct InvalidUtf8 { path: Str }
 // The token was minted by a handler that is no longer the one in scope, so
 // nothing here knows what it refers to.
-struct StaleHandle { path: Str }
+export struct StaleHandle { path: Str }
 // Anything the host reported that the kinds above do not name.
-struct IoError { path: Str, message: Str }
+export struct IoError { path: Str, message: Str }
 
 // An error that must be acknowledged: `ignore` it, `detach` its kind, or
 // narrow the result that carries it to its `Ok` arm — which is what
 // "it was fine" costs. A `linear struct`, so dropping it in silence is not
 // one of the options [linear-group].
-linear struct FsError { kind: FsErrorKind }
+export linear struct FsError { kind: FsErrorKind }
 
 // Acknowledges the error and does nothing about it. The discharger that
 // makes "I know, and I do not care" one call long.
-fn ignore(e: FsError) [] -> None {
+export fn ignore(e: FsError) [] -> None {
     discard(e)
 }
 
@@ -63,14 +63,14 @@ fn ignore(e: FsError) [] -> None {
 // be stored, collected or returned — a linear value may not live in a
 // composite [linear-composite], so this is the way into a
 // `List<FsErrorKind>`.
-fn detach(e: FsError) [] -> FsErrorKind => !e {
+export fn detach(e: FsError) [] -> FsErrorKind => !e {
     let kind = copy(e.kind)
     discard(e)
     return kind
 }
 
 // The text of a failure kind [interp-to-str].
-fn to_str(kind: FsErrorKind) [] -> Str => kind {
+export fn to_str(kind: FsErrorKind) [] -> Str => kind {
     when kind {
         is NotFound { return "no such file or directory: ${kind.path}" }
         is PermissionDenied { return "permission denied: ${kind.path}" }
@@ -85,24 +85,24 @@ fn to_str(kind: FsErrorKind) [] -> Str => kind {
 
 // The text of an error, without acknowledging it: reading is not
 // discharging, so the obligation survives interpolation [interp-to-str].
-fn to_str(e: FsError) [] -> Str => e {
+export fn to_str(e: FsError) [] -> Str => e {
     return to_str(e.kind)
 }
 
 // ===== the effect programs use =====
 
 // What a file's metadata says. Enough for the operations v1 has.
-struct FileInfo { size: Long, is_dir: Bool }
+export struct FileInfo { size: Long, is_dir: Bool }
 
 // A stream open for reading. An opaque token: the handler behind it owns the
 // position, the buffer and the resource, so the only thing here is which
 // stream this is. Linear, so a stream that is never closed is a compile
 // error rather than a leak [linear-group]; `close` is the discharger, and it
 // is an effect member, so a double discharges it too.
-linear struct InStream { handle: Long }
+export linear struct InStream { handle: Long }
 
 // A stream open for writing. Its `close` flushes.
-linear struct OutStream { handle: Long }
+export linear struct OutStream { handle: Long }
 
 // The filesystem. Path operations and stream operations are members of one
 // effect, so application code declares `[Fs]` and nothing else — and a
@@ -110,7 +110,7 @@ linear struct OutStream { handle: Long }
 //
 // Every failure is a returned `Err FsError`, never a `[Throw]`: an effect
 // member may declare no effects of its own.
-effect Fs {
+export effect Fs {
     // Opens a file for reading, from the beginning.
     fn open_read(path: Str) -> Ok InStream | Err FsError => path
     // Opens a file for reading, positioned at a byte offset. Targeted reads
@@ -192,20 +192,20 @@ effect Fs {
 // A pass over a stream's lines: `for line in p` drives it. It holds the
 // stream, so it carries the obligation too — bind it, loop over it, and
 // discharge it when you are done [linear-group].
-linear struct Lines : Yield<self, Str> canbe Mut {
+export linear struct Lines : Yield<self, Str> canbe Mut {
     s: InStream
 }
 
 // Reads `s` as a sequence of lines. The stream's obligation moves into the
 // pass, which is why closing the pass is closing the stream.
-fn lines(s: InStream) [] -> Mut Lines => !s {
+export fn lines(s: InStream) [] -> Mut Lines => !s {
     return Mut Lines { s: s }
 }
 
 // The pass's step: a line, or the end of the sequence. Declares `[Fs]`,
 // since reading is an effect — so `for`, `map`, `filter` and `reduce`
 // inherit it at the call site.
-fn next(p: Mut Lines) [Fs] -> Emitted Str | Finished => p: Mut {
+export fn next(p: Mut Lines) [Fs] -> Emitted Str | Finished => p: Mut {
     let line = read_line(p.s)
     when line {
         is Str { return emitted(line) }
@@ -216,12 +216,12 @@ fn next(p: Mut Lines) [Fs] -> Emitted Str | Finished => p: Mut {
 // Closes the stream the pass reads, reporting what reading recorded. Named
 // `close` like every other discharger: a member and a fn of one name are one
 // overload set, and the argument type picks [effect-available].
-fn close(p: Lines) [Fs] -> Ok None | Err FsError => !p {
+export fn close(p: Lines) [Fs] -> Ok None | Err FsError => !p {
     return close(p.s)
 }
 
 // Opens a file as a sequence of its lines.
-fn open_lines(path: Str) [Fs] -> Ok Mut Lines | Err FsError => path {
+export fn open_lines(path: Str) [Fs] -> Ok Mut Lines | Err FsError => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -234,7 +234,7 @@ fn open_lines(path: Str) [Fs] -> Ok Mut Lines | Err FsError => path {
 // A pass over a stream's chunks: `for chunk in c` drives it, and each step is
 // up to [size] bytes. Like [Lines] it holds the stream, so it carries the
 // obligation too [linear-group].
-linear struct Chunks : Yield<self, Bytes> canbe Mut {
+export linear struct Chunks : Yield<self, Bytes> canbe Mut {
     s: InStream,
     // How many bytes a step asks for.
     size: Int
@@ -243,7 +243,7 @@ linear struct Chunks : Yield<self, Bytes> canbe Mut {
 // Reads `s` as a sequence of chunks of up to [size] bytes each. The stream's
 // obligation moves into the pass, which is why closing the pass closes the
 // stream.
-fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
+export fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
     return Mut Chunks { s: s, size: size }
 }
 
@@ -251,7 +251,7 @@ fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
 // handed back its own buffer would have the next step overwrite what the
 // caller is still holding. The allocation-free shape is `read_to` into a
 // buffer of your own — which is what [copy_stream] does [fs-read-to].
-fn next(p: Mut Chunks) [Fs] -> Emitted Bytes | Finished => p: Mut {
+export fn next(p: Mut Chunks) [Fs] -> Emitted Bytes | Finished => p: Mut {
     let got = read_bytes(p.s, p.size)
     if got is Err {
         // The handler recorded the failure, and `close` reports it — so
@@ -267,12 +267,12 @@ fn next(p: Mut Chunks) [Fs] -> Emitted Bytes | Finished => p: Mut {
 }
 
 // Closes the stream the pass reads, reporting what reading recorded.
-fn close(p: Chunks) [Fs] -> Ok None | Err FsError => !p {
+export fn close(p: Chunks) [Fs] -> Ok None | Err FsError => !p {
     return close(p.s)
 }
 
 // Opens a file as a sequence of chunks of up to [size] bytes.
-fn open_chunks(path: Str, size: Int) [Fs] -> Ok Mut Chunks | Err FsError => path {
+export fn open_chunks(path: Str, size: Int) [Fs] -> Ok Mut Chunks | Err FsError => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -283,7 +283,7 @@ fn open_chunks(path: Str, size: Int) [Fs] -> Ok Mut Chunks | Err FsError => path
 // ===== the one-shots =====
 
 // A whole file as text: the 90% case, and no token reaches the caller.
-fn read_to_str(path: Str) [Fs] -> Ok Str | Err FsError => path {
+export fn read_to_str(path: Str) [Fs] -> Ok Str | Err FsError => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -307,7 +307,7 @@ fn read_to_str(path: Str) [Fs] -> Ok Str | Err FsError => path {
 }
 
 // A whole file as its lines, eagerly.
-fn read_lines(path: Str) [Fs] -> Ok List<Str> | Err FsError => path {
+export fn read_lines(path: Str) [Fs] -> Ok List<Str> | Err FsError => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -327,7 +327,7 @@ fn read_lines(path: Str) [Fs] -> Ok List<Str> | Err FsError => path {
 
 // Writes text to a file, creating it or replacing what is there, and answers
 // how many bytes it took.
-fn write_str(path: Str, content: Str) [Fs] -> Ok Long | Err FsError => path, content {
+export fn write_str(path: Str, content: Str) [Fs] -> Ok Long | Err FsError => path, content {
     let opened = open_write(path)
     if opened is Err {
         return opened
@@ -342,7 +342,7 @@ fn write_str(path: Str, content: Str) [Fs] -> Ok Long | Err FsError => path, con
 }
 
 // The whole of a file as bytes: `read_to_str` for data that is not text.
-fn read_to_bytes(path: Str) [Fs] -> Ok Bytes | Err FsError => path {
+export fn read_to_bytes(path: Str) [Fs] -> Ok Bytes | Err FsError => path {
     let opened = open_read(path)
     if opened is Err {
         return opened
@@ -367,7 +367,7 @@ fn read_to_bytes(path: Str) [Fs] -> Ok Bytes | Err FsError => path {
 
 // Writes bytes to a file, creating it or replacing what is there, and answers
 // how many it took.
-fn write_bytes_to(path: Str, data: Bytes) [Fs] -> Ok Long | Err FsError => path, data {
+export fn write_bytes_to(path: Str, data: Bytes) [Fs] -> Ok Long | Err FsError => path, data {
     let opened = open_write(path)
     if opened is Err {
         return opened
@@ -392,7 +392,7 @@ fn fs_chunk_size() [] -> Int {
 // Appends everything left in [s] to [buf], answering how many bytes moved.
 // One buffer for the whole read: this is `read_to` in a loop, which is the
 // point of `read_to` existing [fs-read-to].
-fn fill_from(s: InStream, buf: Mut Bytes) [Fs] -> Ok Long | Err FsError => s, buf: Mut {
+export fn fill_from(s: InStream, buf: Mut Bytes) [Fs] -> Ok Long | Err FsError => s, buf: Mut {
     let total: Long = 0
     let reading = true
     while reading {
@@ -411,7 +411,7 @@ fn fill_from(s: InStream, buf: Mut Bytes) [Fs] -> Ok Long | Err FsError => s, bu
 
 // Copies everything left in [s] into [w], answering how many bytes moved.
 // Neither token is consumed: whoever opened them closes them.
-fn copy_stream(s: InStream, w: OutStream) [Fs] -> Ok Long | Err FsError => s, w {
+export fn copy_stream(s: InStream, w: OutStream) [Fs] -> Ok Long | Err FsError => s, w {
     let buf = mut_bytes()
     let total: Long = 0
     let copying = true
@@ -434,7 +434,7 @@ fn copy_stream(s: InStream, w: OutStream) [Fs] -> Ok Long | Err FsError => s, w 
 // Copies the file at [from] onto [to], creating it or replacing what is there,
 // and answers how many bytes moved. The one-shot: no token, no buffer and no
 // stream reaches the caller.
-fn copy_file(from: Str, to: Str) [Fs] -> Ok Long | Err FsError => from, to {
+export fn copy_file(from: Str, to: Str) [Fs] -> Ok Long | Err FsError => from, to {
     let opened = open_read(from)
     if opened is Err {
         return opened

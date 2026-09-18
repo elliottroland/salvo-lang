@@ -7,6 +7,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -190,6 +191,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -405,6 +407,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -655,6 +658,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -910,6 +914,7 @@ Module {
                     "boolean branch heads and a mandatory `else`, which is what makes it",
                     "exhaustive (and keeps `None` out of its value, unlike an `if` chain).",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1067,6 +1072,7 @@ Module {
                     "[when-condition] The heads are ordinary boolean expressions, so `is`",
                     "narrows its branch and the `else` sees the arm removed.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1270,6 +1276,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1451,6 +1458,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1626,6 +1634,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1814,6 +1823,7 @@ Module {
                     "removed from the language (2026-09-10) because linearity is what makes the",
                     "obligation checked, and repeating the release is the honest cost.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],

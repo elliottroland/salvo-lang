@@ -346,7 +346,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
         fs::create_dir_all(&bin).unwrap();
         fs::write(
             dir.join("telemetry.sv"),
-            "platform effect Telemetry {\n    \
+            "export platform effect Telemetry {\n    \
              fn record(name: Str, value: Int) [] -> None => name, value\n}\n",
         )
         .unwrap();

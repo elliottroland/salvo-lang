@@ -26,10 +26,10 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = "\
-intrinsic type Int canbe Mut
-intrinsic type Str
-intrinsic type Bool
-intrinsic fn copy<T>(value: T) [] -> T => value
+export intrinsic type Int canbe Mut
+export intrinsic type Str
+export intrinsic type Bool
+export intrinsic fn copy<T>(value: T) [] -> T => value
 ";
 
 /// A subject with a side effect, and a place to compare against.

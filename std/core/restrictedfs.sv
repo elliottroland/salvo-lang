@@ -67,7 +67,7 @@ fn fs_escaped(path: Str) [] -> FsError => path {
     return FsError { kind: PathEscapes { path: copy(path) } }
 }
 
-handler RestrictedFs(root: Str) [Fs] of Fs {
+export handler RestrictedFs(root: Str) [Fs] of Fs {
     fn open_read(path: Str) -> Ok InStream | Err FsError => path {
         let real = fs_resolve(root, path)
         if real is None {

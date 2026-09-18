@@ -16,22 +16,22 @@
 // `Int`, tagged — and so a sequence of optionals still has a distinguishable
 // end: `Emitted None | Finished` has two arms where `None | None` would
 // have one. Erased in generated code [qual-erasure].
-qualifier Emitted<T> of T
+export qualifier Emitted<T> of T
 
 // The end arm. A fieldless struct rather than a qualifier because there is
 // nothing for it to qualify: it carries no element, and reusing `None` would
 // say "absent" where the claim is "the sequence ended".
-struct Finished {}
+export struct Finished {}
 
 // [qual-ctor-fn] Tags a value as the element arm. The value is moved into the
 // result, so nothing is kept ([] deductions); linear values may be tagged,
 // since the obligation travels with them [linear-generics].
-fn emitted<T canbe linear>(value: T) [] -> T as Emitted {
+export fn emitted<T canbe linear>(value: T) [] -> T as Emitted {
     return value
 }
 
 // The end of a sequence.
-fn finished() [] -> Finished {
+export fn finished() [] -> Finished {
     return Finished {}
 }
 
@@ -57,6 +57,6 @@ fn finished() [] -> Finished {
 // declares `: Yield<self, T>` and owns them. A reading combinator's
 // `?Yield<It, T>` accepts either. A group emits nothing on any backend
 // [implicit-group].
-params Yield<It, T> {
+export params Yield<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }

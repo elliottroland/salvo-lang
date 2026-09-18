@@ -7,6 +7,7 @@ Module {
         Effect(
             EffectDecl {
                 docs: [],
+                exported: false,
                 platform: false,
                 is_actor: false,
                 name: Ident {
@@ -22,6 +23,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -62,6 +64,7 @@ Module {
         Effect(
             EffectDecl {
                 docs: [],
+                exported: false,
                 platform: false,
                 is_actor: false,
                 name: Ident {
@@ -72,6 +75,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -148,6 +152,7 @@ Module {
         Handler(
             HandlerDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 platform: false,
                 name: Ident {
@@ -247,6 +252,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -360,6 +366,7 @@ Module {
         Handler(
             HandlerDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 platform: false,
                 name: Ident {
@@ -388,6 +395,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -455,6 +463,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -567,6 +576,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -815,6 +825,7 @@ Module {
                     "[throw] A fn that may leave early declares the effect and keeps its own",
                     "return type; `throw` returns `Nothing`, so nothing after it runs.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1000,6 +1011,7 @@ Module {
                     "[try] The delimiter is an intrinsic expression whose value is an ordinary",
                     "union: `Ok Int | Thrown Str`.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],

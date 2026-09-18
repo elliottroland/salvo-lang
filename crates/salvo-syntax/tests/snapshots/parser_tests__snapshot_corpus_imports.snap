@@ -84,6 +84,7 @@ Module {
                     "deduction; each backend lowers calls to it directly from a table keyed by",
                     "name.",
                 ],
+                exported: false,
                 intrinsic: true,
                 is_iter: false,
                 iter_state: [],
@@ -164,6 +165,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -257,6 +259,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],

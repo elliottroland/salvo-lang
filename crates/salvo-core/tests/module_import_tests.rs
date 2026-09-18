@@ -40,8 +40,8 @@ fn resolve_diags(files: &[(&str, &str)]) -> Vec<String> {
 }
 
 /// The base types the checker needs, as a std file [intrinsic-std-only].
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-                           intrinsic type Long\nintrinsic type Any\nintrinsic type Nothing\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+                           export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Nothing\n";
 
 /// Parses + resolves + checks, returning every diagnostic (both severities).
 fn check_diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
@@ -87,9 +87,9 @@ fn errors(diags: &[FileDiagnostic]) -> Vec<String> {
 // effect and a free fn, none of them named in the import.
 #[test]
 fn a_module_import_brings_every_name() {
-    let lib = "struct Span {\n    nanos: Long\n}\n\n\
-               effect Ticking {\n    fn tick() -> Long\n}\n\n\
-               fn millis(n: Long) [] -> Span {\n    return Span {nanos: n}\n}\n";
+    let lib = "export struct Span {\n    nanos: Long\n}\n\n\
+               export effect Ticking {\n    fn tick() -> Long\n}\n\n\
+               export fn millis(n: Long) [] -> Span {\n    return Span {nanos: n}\n}\n";
     let main = "import time\n\n\
                 fn use_it() [Ticking] -> Span {\n    \
                 let now = tick()\n    return millis(now)\n}\n";
@@ -108,8 +108,8 @@ fn a_module_import_brings_every_name() {
 fn a_module_import_covers_submodules() {
     // Each file names only its own module's declarations [mod-visibility] —
     // the point under test is that *main* sees both modules from one import.
-    let types = "struct Span {\n    nanos: Int\n}\n";
-    let clock = "fn seconds(n: Int) [] -> Int {\n    return n * 1000\n}\n";
+    let types = "export struct Span {\n    nanos: Int\n}\n";
+    let clock = "export fn seconds(n: Int) [] -> Int {\n    return n * 1000\n}\n";
     let main = "import time\n\nfn f() [] -> Span {\n    return Span {nanos: seconds(2)}\n}\n";
     let diags = check_diags(&[
         ("time/types.sv", types),
@@ -127,7 +127,7 @@ fn a_module_import_covers_submodules() {
 // a convenience import must not break a file that declares its own `Span`.
 #[test]
 fn an_own_declaration_beats_a_module_import_silently() {
-    let lib = "struct Span {\n    nanos: Long\n}\n";
+    let lib = "export struct Span {\n    nanos: Long\n}\n";
     let main = "import time\n\nstruct Span {\n    label: Str\n}\n\n\
                 fn f() [] -> Span {\n    return Span {label: \"mine\"}\n}\n";
     let diags = check_diags(&[("time.sv", lib), ("main.sv", main)]);
@@ -143,8 +143,8 @@ fn an_own_declaration_beats_a_module_import_silently() {
 // name.
 #[test]
 fn a_named_import_beats_a_module_import_silently() {
-    let a = "struct Span {\n    nanos: Long\n}\n";
-    let b = "struct Span {\n    label: Str\n}\n";
+    let a = "export struct Span {\n    nanos: Long\n}\n";
+    let b = "export struct Span {\n    label: Str\n}\n";
     let main = "import time\nimport other.Span\n\n\
                 fn f() [] -> Span {\n    return Span {label: \"b\"}\n}\n";
     let diags = check_diags(&[("time.sv", a), ("other.sv", b), ("main.sv", main)]);
@@ -160,8 +160,8 @@ fn a_named_import_beats_a_module_import_silently() {
 // disambiguate with — the remedy the message names is a named import.
 #[test]
 fn two_module_imports_of_one_type_name_warn() {
-    let a = "struct Span {\n    nanos: Long\n}\n";
-    let b = "struct Span {\n    label: Str\n}\n";
+    let a = "export struct Span {\n    nanos: Long\n}\n";
+    let b = "export struct Span {\n    label: Str\n}\n";
     let main = "import time\nimport other\n\nfn f() [] -> Long {\n    return 1\n}\n";
     let diags = resolve_diags(&[("time.sv", a), ("other.sv", b), ("main.sv", main)]);
     assert_eq!(diags.len(), 1, "expected exactly one diagnostic: {diags:?}");
@@ -180,7 +180,7 @@ fn two_module_imports_of_one_type_name_warn() {
 // names either one.
 #[test]
 fn functions_from_a_module_import_rank_below_the_own_module() {
-    let lib = "fn label(n: Int) [] -> Str {\n    return \"lib\"\n}\n";
+    let lib = "export fn label(n: Int) [] -> Str {\n    return \"lib\"\n}\n";
     let main = "import time\n\n\
                 fn label(n: Int) [] -> Str {\n    return \"mine\"\n}\n\n\
                 fn pick() [] -> Str {\n    return label(1)\n}\n\n\
@@ -197,7 +197,7 @@ fn functions_from_a_module_import_rank_below_the_own_module() {
 // qualify a renamed module with.
 #[test]
 fn a_module_import_rejects_an_alias() {
-    let lib = "struct Span {\n    nanos: Long\n}\n";
+    let lib = "export struct Span {\n    nanos: Long\n}\n";
     let main = "import time as t\n\nfn f() [] -> Long {\n    return 1\n}\n";
     let diags = resolve_diags(&[("time.sv", lib), ("main.sv", main)]);
     assert_eq!(diags.len(), 1, "expected one diagnostic: {diags:?}");
@@ -213,7 +213,7 @@ fn a_module_import_rejects_an_alias() {
 // would double every core overload).
 #[test]
 fn importing_core_is_reported_as_redundant() {
-    let core = "struct Span {\n    nanos: Long\n}\n";
+    let core = "export struct Span {\n    nanos: Long\n}\n";
     let main = "import core\n\nfn f() [] -> Long {\n    return 1\n}\n";
     let diags = resolve_diags(&[("core/span.sv", core), ("main.sv", main)]);
     assert_eq!(diags.len(), 1, "expected one diagnostic: {diags:?}");
@@ -229,7 +229,7 @@ fn importing_core_is_reported_as_redundant() {
 // error, which described a form the writer did not intend.
 #[test]
 fn an_unknown_module_import_names_the_candidates() {
-    let lib = "struct Span {\n    nanos: Long\n}\n";
+    let lib = "export struct Span {\n    nanos: Long\n}\n";
     let main = "import tyme\n\nfn f() [] -> Long {\n    return 1\n}\n";
     let diags = resolve_diags(&[("time.sv", lib), ("main.sv", main)]);
     assert_eq!(diags.len(), 1, "expected one diagnostic: {diags:?}");
@@ -244,8 +244,8 @@ fn an_unknown_module_import_names_the_candidates() {
 // as a *reading*: `import time.Span` is one name, not the module.
 #[test]
 fn the_name_form_is_unaffected() {
-    let lib = "struct Span {\n    nanos: Long\n}\n\n\
-               struct Other {\n    v: Long\n}\n";
+    let lib = "export struct Span {\n    nanos: Long\n}\n\n\
+               export struct Other {\n    v: Long\n}\n";
     let main = "import time.Span\n\nfn f() [] -> Span {\n    return Span {nanos: 1}\n}\n";
     let diags = check_diags(&[("time.sv", lib), ("main.sv", main)]);
     assert!(

@@ -15,19 +15,19 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [intrinsic-std-only] The intrinsic declarations the sources need, loaded as
 /// a std file since only std may write `intrinsic`.
 const STD_PRELUDE: &str = "\
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
-intrinsic type List<T> canbe Mut
-intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-intrinsic type Addr<E>
-struct Mailbox { capacity: Int }
-linear intrinsic type Reply<T>
-intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
-intrinsic type Pool
-intrinsic fn pool(size: Int) [spawn] -> Pool => size
-provenance qualifier Dedicated of Pool
-intrinsic fn thread() [spawn] -> Dedicated Pool
+export intrinsic type Int
+export intrinsic type Str
+export intrinsic type Bool
+export intrinsic type List<T> canbe Mut
+export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
+export intrinsic type Addr<E>
+export struct Mailbox { capacity: Int }
+export linear intrinsic type Reply<T>
+export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
+export intrinsic type Pool
+export intrinsic fn pool(size: Int) [spawn] -> Pool => size
+export provenance qualifier Dedicated of Pool
+export intrinsic fn thread() [spawn] -> Dedicated Pool
 ";
 
 /// The two-faced pair T-4 is named for: a public protocol and an admin one,

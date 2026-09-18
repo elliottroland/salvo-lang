@@ -13,7 +13,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on.
-const STD_PRELUDE: &str = "intrinsic type Str\nintrinsic type Int\nintrinsic type Bool\n";
+const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
 
 /// Parses + resolves + checks the given files (the first is `main.sv`) and
 /// returns every diagnostic message, warnings included — a suppressed
@@ -70,15 +70,15 @@ fn errors(src: &str) -> Vec<String> {
 /// necessarily drops every claim it does not name [deduce-syntax] — the
 /// situation refinements exist for.
 const PRELUDE: &str = r#"
-struct Store<T> canbe Mut {
+export struct Store<T> canbe Mut {
     value: T
 }
 
-fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
+export fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
     s.value = value
 }
 
-fn needs_nonempty<T>(s: NonEmpty Store<T>) -> Int => s {
+export fn needs_nonempty<T>(s: NonEmpty Store<T>) -> Int => s {
     return 1
 }
 
@@ -86,7 +86,7 @@ fn needs_nonempty<T>(s: NonEmpty Store<T>) -> Int => s {
 
 /// `NonEmpty` with the refinement that makes `push` establish it.
 const NONEMPTY: &str = r#"
-qualifier NonEmpty<T> of Store<T> {
+export qualifier NonEmpty<T> of Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -239,7 +239,7 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
     // Importing the qualifier: the refinement applies.
     let with_import = "import quals.NonEmpty\nimport quals.Store\n\
                        import quals.push\nimport quals.needs_nonempty\n\
-                       fn g(s: Mut Store<Int>) -> None {\n    \
+                       export fn g(s: Mut Store<Int>) -> None {\n    \
                        push(s, 1)\n    \
                        let _n = needs_nonempty(s)\n}\n";
     assert!(
@@ -254,7 +254,7 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
     // without the import reports the unresolved qualifier rather than
     // silently benefiting from it.
     let without = "import quals.Store\nimport quals.push\n\
-                   fn g(s: Mut Store<Int>) -> None {\n    \
+                   export fn g(s: Mut Store<Int>) -> None {\n    \
                    push(s, 1)\n    \
                    let t: NonEmpty Store<Int> = s\n}\n";
     let diags = diagnostics(&[("quals.sv", &quals), ("user.sv", without)]);
@@ -275,7 +275,7 @@ fn a_top_level_refinement_does_not_leave_its_module() {
          refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n"
     );
     // The same module, second file: module scope, so it applies.
-    let same_module = "fn g(s: Mut Store<Int>) -> None {\n    \
+    let same_module = "export fn g(s: Mut Store<Int>) -> None {\n    \
                        push(s, 1)\n    \
                        let _n = needs_nonempty(s)\n}\n";
     assert!(
@@ -289,7 +289,7 @@ fn a_top_level_refinement_does_not_leave_its_module() {
     // behind, so the call fails.
     let other = "import lib.NonEmpty\nimport lib.Store\n\
                  import lib.push\nimport lib.needs_nonempty\n\
-                 fn g(s: Mut Store<Int>) -> None {\n    \
+                 export fn g(s: Mut Store<Int>) -> None {\n    \
                  push(s, 1)\n    \
                  let _n = needs_nonempty(s)\n}\n";
     let diags = diagnostics(&[("lib.sv", &lib), ("other/user.sv", other)]);
@@ -487,7 +487,7 @@ fn a_written_list_may_promise_a_refined_qualifier() {
                 fn qualifies(s: Store<T>) -> Bool {\n        return true\n    }\n}\n";
     let without = format!(
         "{PRELUDE}{bare}\n\
-         fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => s: Mut NonEmpty, !v {{\n    \
+         export fn refill<T>(s: Mut NonEmpty Store<T>, v: T) -> None => s: Mut NonEmpty, !v {{\n    \
          push(s, v)\n}}\n"
     );
     assert!(

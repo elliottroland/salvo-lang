@@ -29,22 +29,22 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str =
-    "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic type List<T> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
-     intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
-     intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
-     intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
-     intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
-     qualifier Emitted<T> of T\n\
-     struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
-     fn finished() [] -> Finished {\n    return Finished {}\n}\n\
-     params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
-     effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
-     handler StdOutConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
-     fn println(message: Str) [Console] -> None => !message {}\n";
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic type List<T> canbe Mut\n\
+     export intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+     export intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
+     export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+     export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
+     export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
+     export qualifier Emitted<T> of T\n\
+     export struct Finished {}\n\
+     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
+     export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
+     export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
+     export handler StdOutConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
+     export fn println(message: Str) [Console] -> None => !message {}\n";
 
 /// Every diagnostic — parse, resolve and check — because an `iter fn`'s own
 /// rules are reported by the desugaring, which runs inside the parser.

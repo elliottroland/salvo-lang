@@ -197,7 +197,7 @@ fn import_suggestions_cover_user_modules_and_bad_imports() {
     let dir = src_dir("import_suggest_user");
     fs::write(
         dir.join("audit.sv"),
-        "effect Audit {\n    fn audit(message: Str)\n}\n",
+        "export effect Audit {\n    fn audit(message: Str)\n}\n",
     )
     .unwrap();
     fs::write(

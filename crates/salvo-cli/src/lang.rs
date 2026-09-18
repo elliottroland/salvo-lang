@@ -47,6 +47,14 @@ const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 /// deliberately *not* in `KEYWORDS`, so `keywords_are_fully_categorized`
 /// neither expects nor forbids them.
 const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
+    // `export fn f(…)`, `export intrinsic type T`: the visibility modifier,
+    // first of all the modifiers, so the lookahead is every word that can
+    // start a declaration (including the other contextual ones).
+    (
+        "\\\\bexport(?=\\\\s+(fn|struct|effect|handler|qualifier|type|params|intrinsic|linear|platform|provenance|actor|iter|send)\\\\b)",
+        "keyword.declaration.salvo",
+        "the export modifier",
+    ),
     // `actor effect E`, `send fn m(…)`, `iter fn walk(…)`: a modifier before
     // the declaration keyword it modifies.
     (
@@ -447,11 +455,39 @@ mod tests {
             salvo_syntax::parser::SELF_SELECTOR,
             salvo_syntax::parser::ACTOR_MODIFIER,
             salvo_syntax::parser::MAILBOX_SLOT,
+            salvo_syntax::parser::EXPORT_MODIFIER,
         ] {
             assert!(
                 CONTEXTUAL_PATTERNS.iter().any(|(regex, _, _)| regex.contains(word)),
                 "the parser treats `{word}` as contextual, so the grammar must \
                  highlight it in its shape"
+            );
+        }
+        // [mod-export] `export` must colour as a *keyword*, in the same scope
+        // as the declaration words it precedes — the whole point of the entry,
+        // since the LSP has no semantic tokens and this grammar is the only
+        // thing that highlights anything. Its lookahead has to name every word
+        // that can start a declaration, or an `export intrinsic fn` (or
+        // `export actor effect`, or `export iter fn`) would go uncoloured.
+        let (regex, scope, _) = CONTEXTUAL_PATTERNS
+            .iter()
+            .find(|(regex, _, _)| regex.contains(salvo_syntax::parser::EXPORT_MODIFIER))
+            .expect("an `export` pattern");
+        assert_eq!(
+            *scope, "keyword.declaration.salvo",
+            "`export` must share the declaration keywords' scope"
+        );
+        // Every word that can begin a *top-level* declaration, which is the set
+        // `export` may precede — `let`, `import`, `refn`, `rename` and `state`
+        // are in `DECLARATION_KEYWORDS` but are not among them ([mod-export]
+        // refuses the middle three outright, and the other two are not items).
+        for word in [
+            "fn", "struct", "effect", "handler", "qualifier", "type", "params", "intrinsic",
+            "linear", "platform", "provenance", "actor", "iter", "send",
+        ] {
+            assert!(
+                regex.contains(word),
+                "`export {word} …` would not highlight: the lookahead omits `{word}`"
             );
         }
         // The asynchronous expression forms, which have no constant of their

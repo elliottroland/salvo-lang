@@ -24,29 +24,29 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = "\
-intrinsic type Int
-intrinsic type Str
-intrinsic type Bool
-intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-intrinsic type List<T canbe linear> canbe Mut
-intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
-intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
-intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
-intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
-intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
-intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
+export intrinsic type Int
+export intrinsic type Str
+export intrinsic type Bool
+export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
+export intrinsic type List<T canbe linear> canbe Mut
+export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
+export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
+export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
+export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
+export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
+export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
     =>[each] !x => !list, each
-intrinsic type Map<K, V canbe linear> canbe Mut
-intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
-intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
+export intrinsic type Map<K, V canbe linear> canbe Mut
+export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
+export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
     => map: Mut, !key, !value
-intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
+export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
     => map: Mut, !key, !value
-intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
-intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
+export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
+export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
     =>[each] !x => !map, each
-intrinsic type Set<T> canbe Mut
-intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>
+export intrinsic type Set<T> canbe Mut
+export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>
 ";
 
 /// A linear token with a discharger, and a plain struct for the negative

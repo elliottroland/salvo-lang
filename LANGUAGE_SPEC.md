@@ -4508,8 +4508,64 @@ the same day. **Not part of `core`**: the surface is imported, and one
   file or a directory subtree; blank lines and `#` comments ignored.
   The root itself is exempt from the hidden/cache rules.
 * [mod-visibility] Code sees: everything declared in its own module (all
-  its `.sv` files), everything in `core.*` (implicit), and whatever it
-  imports.
+  its `.sv` files), and everything **exported** [mod-export] by `core.*`
+  (implicit) or by whatever it imports.
+* [mod-export] **Declarations are module-private by default; `export` lets one
+  out** (user decision 2026-09-18). A declaration without it can be used only
+  inside the file that declares it [mod-file]; with it, it is part of the
+  module's public surface and nothing else is.
+  * The modifier comes **first**, before `intrinsic` / `linear` / `actor` /
+    `platform` / `provenance` / `iter` / `send`, so a declaration reads
+    "who can see it, what kind it is, what it is called": `export fn size(…)`,
+    `export linear struct Ticket { … }`, `export actor effect Timer { … }`,
+    `export intrinsic fn epoch_nanos()`.
+  * **Contextual, not reserved**, like `iter`, `send` and `actor`: a variable,
+    parameter or field may still be called `export`. There is nothing to
+    disambiguate at item level, where a bare identifier is a parse error
+    anyway.
+  * **Declarations only.** `export` before an `import` is refused (there is no
+    re-export: a module states what *it* declares), before a `refn` (a
+    refinement travels with the qualifier whose claim it is about
+    [qual-refn-scope]) and before a `rename` (a name for the writing file's own
+    use [fn-rename]).
+  * **It applies to the whole declaration, not its parts.** An exported struct
+    exports its fields, an exported effect its members, an exported handler its
+    state. There is no member- or field-level visibility, and the fields being
+    public is load-bearing elsewhere ([time-types] rests on it). A type nobody
+    exported is simply unreachable.
+  * **An `iter fn`'s generated pass type inherits its visibility** [iter-fn]: a
+    `for` over the pass needs the *type* in scope, so exporting the function
+    while hiding its pass would make the iterator undrivable from another
+    module.
+  * **A private type may appear in an exported signature**, and that is an
+    *opaque type* rather than an error: the value flows, and only its name is
+    unavailable. Nothing is unsound — there is no separate compilation — and
+    Salvo has no other spelling for opacity. Revisit if it proves to be a
+    mistake more often than a tool.
+  * **Diagnostics name the reason, not just the absence.** A use of a private
+    name says "declared in module `m` but not exported", names the fix, and is
+    *not* offered as an import suggestion [diag-import-suggest], which could
+    not work. An `import` of a private name is refused **at the import**, where
+    the reader is looking. And a name that is in scope under another *kind* —
+    a qualifier written where a type belongs — keeps its own diagnostic: it is
+    not an export problem.
+  * **Emission is unchanged**: the rule is enforced in the checker, and both
+    backends emit exactly what they emitted before (Rust `pub`, Kotlin
+    top-level). Narrowing generated visibility would buy only dead-code
+    warnings that are already tolerated, and cross-module emission is a known
+    fragile seam (see COMPLETED.md's `__mailbox_capacity` gotcha). Recorded as
+    a later refinement.
+  * **A hover does not show it** (user decision 2026-09-18): the hover already
+    names the module a declaration comes from [lsp-fn-origin] — "the standard
+    library", "another file of the program", "this file" — which is what a
+    reader wants from it, so the modifier would say the same thing twice. The
+    editor colours the word itself as a keyword instead, through the TextMate
+    grammar, which is the only thing that highlights anything (the language
+    server has no semantic tokens).
+  * std obeys the rule like anything else, which is what it was built for: its
+    internal helpers (`fire_after`, `earliest_due`, `mem_*`, `fs_resolve`,
+    `MemRead`/`MemWrite`) are now genuinely unreachable instead of merely
+    undocumented.
 * [mod-import] `import path.Name` / `import path.Name as Alias`; aliasing
   resolves ambiguity. Unresolved/ambiguous imports are errors.
   * Import prefixes match module paths exactly or as a leading path

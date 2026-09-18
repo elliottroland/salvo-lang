@@ -1519,8 +1519,24 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// An unresolved-name error carrying import suggestions: modules
     /// elsewhere in the program that declare `name`
     /// [diag-import-suggest].
+    ///
+    /// [mod-export] And, where the name exists but is private, the reason —
+    /// appended to the message rather than offered as a help line, because it
+    /// is not something the *calling* file can fix by adding an import. This is
+    /// the one funnel every unresolved-name diagnostic goes through, which is
+    /// why the note is attached here and not at each site.
     fn error_unresolved(&mut self, span: Span, msg: impl Into<String>, name: &str) {
         let imports = self.resolution.import_candidates(name);
+        let mut msg: String = msg.into();
+        // The note is about a name that is *nowhere* usable here. A name that is
+        // in scope under another kind — a qualifier written where a type belongs
+        // — has a different problem, and telling it about exports would send the
+        // reader to the wrong file.
+        if imports.is_empty() && !self.scope.declares_name(name) {
+            if let Some(note) = self.resolution.export_note(name) {
+                msg.push_str(&note);
+            }
+        }
         self.out
             .errors
             .push(FileDiagnostic::error(self.file_idx, span, msg).with_imports(imports));

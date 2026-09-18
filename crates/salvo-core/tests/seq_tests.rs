@@ -26,33 +26,33 @@ use salvo_core::{check_program, resolve, FileDiagnostic, FnKey, Program, SourceS
 /// `List` fast paths. Loaded as *std* files, since only std may write
 /// `intrinsic`.
 const STD_PRELUDE: &str = "\
-intrinsic type Int\n\
-intrinsic type Bool\n\
-intrinsic type Char\n\
-intrinsic type Str\n\
-intrinsic type List<T> canbe Mut\n\
-intrinsic fn copy<T>(value: T) [] -> T => value\n\
-intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
-intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
-intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
-intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
-intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
-intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index\n\
-qualifier Emitted<T> of T\n\
-struct Finished {}\n\
-fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
-fn finished() [] -> Finished { return Finished {} }\n\
-params Yield<It, T> {\n\
+export intrinsic type Int\n\
+export intrinsic type Bool\n\
+export intrinsic type Char\n\
+export intrinsic type Str\n\
+export intrinsic type List<T> canbe Mut\n\
+export intrinsic fn copy<T>(value: T) [] -> T => value\n\
+export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+export intrinsic fn list_of<T>(...elems: T[]) [] -> List<T>\n\
+export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
+export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
+export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
+export intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index\n\
+export qualifier Emitted<T> of T\n\
+export struct Finished {}\n\
+export fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
+export fn finished() [] -> Finished { return Finished {} }\n\
+export params Yield<It, T> {\n\
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n\
 }\n\
-struct ListYield<T> : Yield<self, T> canbe Mut {\n\
+export struct ListYield<T> : Yield<self, T> canbe Mut {\n\
     items: List<T>,\n\
     at: Int\n\
 }\n\
-fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => !list {\n\
+export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => !list {\n\
     return Mut ListYield<T> { items: list, at: 0 }\n\
 }\n\
-fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
+export fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
     let elem = get(p.items, p.at)\n\
     if elem is None {\n\
         return finished()\n\
@@ -60,14 +60,14 @@ fn next<T>(p: Mut ListYield<T>) [] -> Emitted T | Finished => p: Mut {\n\
     p.at = p.at + 1\n\
     return emitted(elem)\n\
 }\n\
-struct StrYield : Yield<self, Char> canbe Mut {\n\
+export struct StrYield : Yield<self, Char> canbe Mut {\n\
     text: Str,\n\
     at: Int\n\
 }\n\
-fn iter(str: Str) [] -> Mut StrYield => !str {\n\
+export fn iter(str: Str) [] -> Mut StrYield => !str {\n\
     return Mut StrYield { text: str, at: 0 }\n\
 }\n\
-fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
+export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
     let chr = char_at(p.text, p.at)\n\
     if chr is None {\n\
         return finished()\n\
@@ -75,7 +75,7 @@ fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {\n\
     p.at = p.at + 1\n\
     return emitted(chr)\n\
 }\n\
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
+export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {\n\
     let out = mut_list_of<U>()\n\
     let going = true\n\
     while going {\n\
@@ -91,7 +91,7 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it
     }\n\
     return out\n\
 }\n\
-fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f, !init {\n\
+export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f, !init {\n\
     let acc = init\n\
     let going = true\n\
     while going {\n\
@@ -107,7 +107,7 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A 
     }\n\
     return acc\n\
 }\n\
-intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f\n\
+export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f\n\
 ";
 
 fn checked(src: &str) -> (Program, salvo_core::Checked) {

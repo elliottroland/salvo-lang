@@ -16,14 +16,14 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [intrinsic-std-only] The intrinsic declarations these sources rely on,
 /// loaded as a *std* file since only std may write `intrinsic`.
 const STD_PRELUDE: &str =
-    "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\n\
-     intrinsic type List<T> canbe Mut\n\
-     intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
-     qualifier Emitted<T> of T\n\
-     struct Finished {}\n\
-     fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
-     fn finished() [] -> Finished {\n    return Finished {}\n}\n";
+    "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
+     export intrinsic type List<T> canbe Mut\n\
+     export intrinsic fn copy<T>(value: T) [] -> T => value\n\
+     export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
+     export qualifier Emitted<T> of T\n\
+     export struct Finished {}\n\
+     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn finished() [] -> Finished {\n    return Finished {}\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();

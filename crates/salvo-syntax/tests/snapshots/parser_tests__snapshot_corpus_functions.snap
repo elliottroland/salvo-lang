@@ -7,6 +7,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -215,6 +216,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -427,6 +429,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -702,6 +705,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -785,6 +789,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1018,6 +1023,7 @@ Module {
                     "or, when it needs no name, an `iter fn` whose pass struct the compiler",
                     "writes [iter-fn].",
                 ],
+                exported: false,
                 name: Ident {
                     name: "Range",
                     span: 936..941,
@@ -1077,6 +1083,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1219,6 +1226,7 @@ Module {
                 docs: [
                     "The pass over `Range`, generated from its `iter fn next` [iter-fn].",
                 ],
+                exported: false,
                 name: Ident {
                     name: "__Pass_Range",
                     span: 1068..1069,
@@ -1325,6 +1333,7 @@ Module {
                 docs: [
                     "A fresh pass over [range] [iter-pass], generated from its `iter fn next` [iter-fn].",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1494,6 +1503,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1784,6 +1794,7 @@ Module {
                 docs: [
                     "The written-out form, for a pass a program has to name.",
                 ],
+                exported: false,
                 name: Ident {
                     name: "Countdown",
                     span: 1351..1360,
@@ -1867,6 +1878,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1991,6 +2003,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2271,6 +2284,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2472,6 +2486,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2633,6 +2648,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2715,6 +2731,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2918,6 +2935,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -3120,6 +3138,7 @@ Module {
                     "[fn-effects] A fn type may declare the effects a call of the value",
                     "performs; the function taking it inherits them.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -3299,6 +3318,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -3482,6 +3502,7 @@ Module {
                 docs: [
                     "[implicit-group] A named bundle of implicit parameters, spread with `?`.",
                 ],
+                exported: false,
                 name: Ident {
                     name: "Field",
                     span: 2772..2777,
@@ -3495,6 +3516,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -3573,6 +3595,7 @@ Module {
                     },
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -3618,6 +3641,7 @@ Module {
                     "own, with no binder — they are called unqualified here and overridden by",
                     "their own names at the call.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -3828,6 +3852,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -4008,6 +4033,7 @@ Module {
                     "[implicit-override] The caller supplies one implicit by name; the rest",
                     "still resolve.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],

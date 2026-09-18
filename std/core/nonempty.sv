@@ -17,7 +17,7 @@
 // The claim over an unordered set. `add` cannot promise it — a mutating
 // function may not hand back a qualifier it has never heard of — so the
 // qualifier says it on `add`'s behalf [qual-refn].
-qualifier NonEmpty<T> of Set<T> {
+export qualifier NonEmpty<T> of Set<T> {
     fn qualifies(set: Set<T>) [] -> Bool {
         return size(set) > 0
     }
@@ -26,7 +26,7 @@ qualifier NonEmpty<T> of Set<T> {
 }
 
 // …and over a map, where `put` is the operation that establishes it.
-qualifier NonEmpty<K, V> of Map<K, V> {
+export qualifier NonEmpty<K, V> of Map<K, V> {
     fn qualifies(map: Map<K, V>) [] -> Bool {
         return size(map) > 0
     }
@@ -34,7 +34,7 @@ qualifier NonEmpty<K, V> of Map<K, V> {
     refn put(map: Mut Map<K, V>, key: K, value: V) => map: +NonEmpty
 }
 
-qualifier NonEmpty<T> of SortedSet<T> {
+export qualifier NonEmpty<T> of SortedSet<T> {
     fn qualifies(set: SortedSet<T>) [] -> Bool {
         return size(set) > 0
     }
@@ -42,7 +42,7 @@ qualifier NonEmpty<T> of SortedSet<T> {
     refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
 }
 
-qualifier NonEmpty<K, V> of SortedMap<K, V> {
+export qualifier NonEmpty<K, V> of SortedMap<K, V> {
     fn qualifies(map: SortedMap<K, V>) [] -> Bool {
         return size(map) > 0
     }
@@ -54,18 +54,18 @@ qualifier NonEmpty<K, V> of SortedMap<K, V> {
 // either-end operations of an ordered tree answer with an element instead of
 // an optional. Ranked above the plain ones because they demand more of their
 // argument [fn-overload-rank].
-fn min<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
+export fn min<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
     return min@core.sorted(set)!
 }
 
-fn max<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
+export fn max<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
     return max@core.sorted(set)!
 }
 
-fn first_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
+export fn first_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
     return first_key@core.sorted(map)!
 }
 
-fn last_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
+export fn last_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
     return last_key@core.sorted(map)!
 }

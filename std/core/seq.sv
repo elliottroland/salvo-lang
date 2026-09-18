@@ -23,7 +23,7 @@
 // back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
+export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it: Mut, f {
     let out = mut_list_of<U>()
     for x in it {
         add(out, f(x))
@@ -37,7 +37,7 @@ fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U> => it
 // written lend [proj-infer]: a generic body cannot show the analysis that an
 // element of an opaque pass is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj[from: it], keep {
+export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj[from: it], keep {
     let out = mut_list_of<proj T>()
     for x in it {
         if keep(x) {
@@ -49,7 +49,7 @@ fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<pr
 
 // Folds [it] into a single value, starting from [init] and combining with
 // [f] — the accumulator first, the element second.
-fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f {
+export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A => it: Mut, f {
     let acc = init
     for x in it {
         acc = f(acc, x)
@@ -61,9 +61,9 @@ fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [] -> A 
 // `map(xs, f)` still reads well on the type people map most: a backend lowers
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
-intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
-intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> => list, proj[from: list], keep
-intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
+export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
+export intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> => list, proj[from: list], keep
+export intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
 
 // ===== mapping into a collection you provide [seq-into] =====
 
@@ -74,7 +74,7 @@ intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => lis
 // [add] is an implicit parameter, so [dest] is not a `List`: it is anything
 // with an `add` the call site can find — the same "a function, not a trait"
 // move `?Yield` makes for the subject [implicit-group].
-fn map_to<D, It, T, U>(
+export fn map_to<D, It, T, U>(
     dest: Mut D,
     it: Mut It,
     f: (T) -> U,
@@ -91,7 +91,7 @@ fn map_to<D, It, T, U>(
 // [dest] owns what it is given, so each kept element is **copied** in — the
 // `_to` name is the opt-in [copy-opt-in], and [copy] arrives as an implicit
 // so the copy is the element type's own [copy-implicit].
-fn filter_to<D, It, T>(
+export fn filter_to<D, It, T>(
     dest: Mut D,
     it: Mut It,
     keep: (T) -> Bool,
@@ -114,5 +114,5 @@ fn filter_to<D, It, T>(
 // `canbe linear`: a linear argument is refused by the instantiation ban
 // [linear-generics], which is exactly the protection — `drop` never
 // discharges an obligation.
-fn drop<T>(value: T) [] -> None => !value {
+export fn drop<T>(value: T) [] -> None => !value {
 }

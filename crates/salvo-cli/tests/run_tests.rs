@@ -339,7 +339,7 @@ fn src_and_main_together_allow_a_nested_entry_point() {
     fs::create_dir_all(&bin).unwrap();
     fs::write(
         dir.join("helper.sv"),
-        "fn label(n: Int) -> Str {\n    return when {\n        \
+        "export fn label(n: Int) -> Str {\n    return when {\n        \
          n < 0 { \"neg\" }\n        else { \"nonneg\" }\n    }\n}\n",
     )
     .unwrap();

@@ -13,16 +13,17 @@ Module {
                     "generated code [qual-erasure]: the union wrapper carries the arm, the",
                     "qualifier only decides which one.",
                 ],
+                exported: true,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Ok",
-                    span: 805..807,
+                    span: 812..814,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 808..809,
+                        span: 815..816,
                     },
                 ],
                 of: Named {
@@ -30,11 +31,11 @@ Module {
                     base: TypeRef {
                         name: Ident {
                             name: "T",
-                            span: 814..815,
+                            span: 821..822,
                         },
                         args: [],
                         from: [],
-                        span: 814..815,
+                        span: 821..822,
                     },
                 },
                 with: [],
@@ -42,22 +43,23 @@ Module {
                 fns: [],
                 refns: [],
                 has_body: false,
-                span: 795..815,
+                span: 802..822,
             },
         ),
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: true,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
                     name: "Err",
-                    span: 826..829,
+                    span: 840..843,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 830..831,
+                        span: 844..845,
                     },
                 ],
                 of: Named {
@@ -65,11 +67,11 @@ Module {
                     base: TypeRef {
                         name: Ident {
                             name: "T",
-                            span: 836..837,
+                            span: 850..851,
                         },
                         args: [],
                         from: [],
-                        span: 836..837,
+                        span: 850..851,
                     },
                 },
                 with: [],
@@ -77,7 +79,7 @@ Module {
                 fns: [],
                 refns: [],
                 has_body: false,
-                span: 816..837,
+                span: 830..851,
             },
         ),
         Fn(
@@ -88,34 +90,35 @@ Module {
                     "linear values may be tagged, since the obligation travels with them",
                     "[linear-generics].",
                 ],
+                exported: true,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
                 is_send: false,
                 name: Ident {
                     name: "ok",
-                    span: 1079..1081,
+                    span: 1100..1102,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 1082..1083,
+                        span: 1103..1104,
                     },
                 ],
                 generic_canbe: [
                     (
                         Ident {
                             name: "T",
-                            span: 1082..1083,
+                            span: 1103..1104,
                         },
                         TypeRef {
                             name: Ident {
                                 name: "linear",
-                                span: 1090..1096,
+                                span: 1111..1117,
                             },
                             args: [],
                             from: [],
-                            span: 1090..1096,
+                            span: 1111..1117,
                         },
                     ),
                 ],
@@ -124,23 +127,23 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 1098..1103,
+                            span: 1119..1124,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 1105..1106,
+                                    span: 1126..1127,
                                 },
                                 args: [],
                                 from: [],
-                                span: 1105..1106,
+                                span: 1126..1127,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 1098..1106,
+                        span: 1119..1127,
                     },
                 ],
                 implicit_groups: [],
@@ -154,11 +157,11 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 1114..1115,
+                                span: 1135..1136,
                             },
                             args: [],
                             from: [],
-                            span: 1114..1115,
+                            span: 1135..1136,
                         },
                     },
                 ),
@@ -166,11 +169,11 @@ Module {
                     TypeRef {
                         name: Ident {
                             name: "Ok",
-                            span: 1119..1121,
+                            span: 1140..1142,
                         },
                         args: [],
                         from: [],
-                        span: 1119..1121,
+                        span: 1140..1142,
                     },
                 ),
                 body: Some(
@@ -181,17 +184,17 @@ Module {
                                     Ident(
                                         Ident {
                                             name: "value",
-                                            span: 1135..1140,
+                                            span: 1156..1161,
                                         },
                                     ),
                                 ),
-                                span: 1128..1140,
+                                span: 1149..1161,
                             },
                         ],
-                        span: 1122..1142,
+                        span: 1143..1163,
                     },
                 ),
-                span: 1076..1142,
+                span: 1097..1163,
             },
         ),
         Fn(
@@ -199,34 +202,35 @@ Module {
                 docs: [
                     "[qual-ctor-fn] Tags a value as the failure arm of a result union.",
                 ],
+                exported: true,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
                 is_send: false,
                 name: Ident {
                     name: "err",
-                    span: 1216..1219,
+                    span: 1244..1247,
                 },
                 generics: [
                     Ident {
                         name: "T",
-                        span: 1220..1221,
+                        span: 1248..1249,
                     },
                 ],
                 generic_canbe: [
                     (
                         Ident {
                             name: "T",
-                            span: 1220..1221,
+                            span: 1248..1249,
                         },
                         TypeRef {
                             name: Ident {
                                 name: "linear",
-                                span: 1228..1234,
+                                span: 1256..1262,
                             },
                             args: [],
                             from: [],
-                            span: 1228..1234,
+                            span: 1256..1262,
                         },
                     ),
                 ],
@@ -235,23 +239,23 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 1236..1241,
+                            span: 1264..1269,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 1243..1244,
+                                    span: 1271..1272,
                                 },
                                 args: [],
                                 from: [],
-                                span: 1243..1244,
+                                span: 1271..1272,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 1236..1244,
+                        span: 1264..1272,
                     },
                 ],
                 implicit_groups: [],
@@ -265,11 +269,11 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "T",
-                                span: 1252..1253,
+                                span: 1280..1281,
                             },
                             args: [],
                             from: [],
-                            span: 1252..1253,
+                            span: 1280..1281,
                         },
                     },
                 ),
@@ -277,11 +281,11 @@ Module {
                     TypeRef {
                         name: Ident {
                             name: "Err",
-                            span: 1257..1260,
+                            span: 1285..1288,
                         },
                         args: [],
                         from: [],
-                        span: 1257..1260,
+                        span: 1285..1288,
                     },
                 ),
                 body: Some(
@@ -292,17 +296,17 @@ Module {
                                     Ident(
                                         Ident {
                                             name: "value",
-                                            span: 1274..1279,
+                                            span: 1302..1307,
                                         },
                                     ),
                                 ),
-                                span: 1267..1279,
+                                span: 1295..1307,
                             },
                         ],
-                        span: 1261..1281,
+                        span: 1289..1309,
                     },
                 ),
-                span: 1213..1281,
+                span: 1241..1309,
             },
         ),
     ],

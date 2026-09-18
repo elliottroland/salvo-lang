@@ -153,6 +153,26 @@ impl<'p> ModuleScope<'p> {
     pub fn is_qualifier(&self, name: &str) -> bool {
         self.qualifiers.contains_key(name)
     }
+
+    /// [mod-export] Whether *anything* in this scope goes by `name` — a fn, a
+    /// type, an effect and its members, a handler, a qualifier, a group.
+    ///
+    /// Used to decide whether an unresolved-name diagnostic has a visibility
+    /// story to tell. A name that is here but of the wrong *kind* — a qualifier
+    /// written where a type belongs — must not be told it is unexported, even
+    /// when some other module happens to declare it privately.
+    pub fn declares_name(&self, name: &str) -> bool {
+        self.fns.contains_key(name)
+            || self.structs.contains_key(name)
+            || self.effects.contains_key(name)
+            || self.effect_members.contains_key(name)
+            || self.handlers.contains_key(name)
+            || self.qualifiers.contains_key(name)
+            || self.param_groups.contains_key(name)
+            || self.type_aliases.contains_key(name)
+            || self.opaque_types.contains_key(name)
+    }
+
 }
 
 pub struct Resolution<'p> {
@@ -164,11 +184,38 @@ pub struct Resolution<'p> {
     /// the effect brings its members). Drives import suggestions on
     /// unresolved-name diagnostics [diag-import-suggest].
     pub declared_in: HashMap<&'p str, Vec<(&'p ModulePath, &'p str)>>,
+    /// [mod-export] The same index for declarations that are *not* exported:
+    /// name -> the modules that declare it privately. Nothing resolves through
+    /// it. It exists so an unresolved name can be told it exists and is
+    /// private, instead of being told it does not exist and offered an import
+    /// that could not work.
+    pub private_in: HashMap<&'p str, Vec<&'p ModulePath>>,
     /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
 
 impl Resolution<'_> {
+    /// [mod-export] What to add to an unresolved-name diagnostic when the name
+    /// does exist elsewhere in the program, unexported. `None` when the name is
+    /// genuinely nowhere, which leaves that diagnostic exactly as it was.
+    pub fn export_note(&self, name: &str) -> Option<String> {
+        let modules = self.private_in.get(name)?;
+        let mut names: Vec<String> = modules.iter().map(|m| m.to_string()).collect();
+        names.sort();
+        names.dedup();
+        let first = names.first()?;
+        Some(match names.len() {
+            1 => format!(
+                ": it is declared in module `{first}` but not exported — write `export` \
+                 in front of that declaration to let it out of its own file [mod-export]"
+            ),
+            n => format!(
+                ": it is declared privately in {n} modules (`{first}` among them) — \
+                 write `export` in front of the declaration you mean [mod-export]"
+            ),
+        })
+    }
+
     /// Import paths (`module.Item`) that would bring `name` into scope,
     /// sorted and deduplicated [diag-import-suggest]. Non-`core` modules
     /// only: `core.*` is implicitly visible, so an unknown name is never
@@ -215,6 +262,38 @@ struct ModuleItems<'p> {
 impl<'p> ModuleItems<'p> {
     fn has_name(&self, name: &str) -> bool {
         self.name_ref(name).is_some()
+    }
+
+    /// [mod-export] Whether this module declares `name` **and** lets it out.
+    /// An import names a declaration in someone else's module, so this — not
+    /// `has_name` — is what an import may resolve to. Effect *members* count
+    /// as their effect's: importing an effect brings its members, and a member
+    /// has no visibility of its own.
+    fn exports_name(&self, name: &str) -> bool {
+        let hit = |n: &str, exported: bool| n == name && exported;
+        self.fns.iter().any(|(_, f)| hit(&f.name.name, f.exported))
+            || self.structs.iter().any(|(_, s)| hit(&s.name.name, s.exported))
+            || self.effects.iter().any(|(_, e)| {
+                hit(&e.name.name, e.exported)
+                    || (e.exported && e.fns.iter().any(|f| f.name.name == name))
+            })
+            || self
+                .param_groups
+                .iter()
+                .any(|(_, g)| hit(&g.name.name, g.exported))
+            || self.handlers.iter().any(|(_, h)| hit(&h.name.name, h.exported))
+            || self
+                .qualifiers
+                .iter()
+                .any(|(_, q)| hit(&q.name.name, q.exported))
+            || self
+                .type_aliases
+                .iter()
+                .any(|(_, t)| hit(&t.name.name, t.exported))
+            || self
+                .opaque_types
+                .iter()
+                .any(|(_, t)| hit(&t.name.name, t.exported))
     }
 
     /// The declaration's own `&'p str` for `name`, so a synthesized
@@ -414,34 +493,44 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // Whole-program declaration index for import suggestions
     // [diag-import-suggest]. Effect members map to their owning effect:
     // importing the effect is what brings the member into scope.
+    //
+    // [mod-export] Only *exported* declarations go in: suggesting
+    // `import time.fire_after` for a private name would be a help line that
+    // cannot work. The private ones go in `private_in` instead, which is what
+    // turns "no such name" into "not exported".
     let mut declared_in: HashMap<&str, Vec<(&ModulePath, &str)>> = HashMap::new();
+    let mut private_in: HashMap<&str, Vec<&ModulePath>> = HashMap::new();
     for (module, items) in &by_module {
-        let mut record = |name, item| {
-            declared_in.entry(name).or_default().push((*module, item));
+        let mut record = |name, item, exported: bool| {
+            if exported {
+                declared_in.entry(name).or_default().push((*module, item));
+            } else {
+                private_in.entry(name).or_default().push(*module);
+            }
         };
         for (_, f) in &items.fns {
-            record(&f.name.name, &f.name.name);
+            record(&f.name.name, &f.name.name, f.exported);
         }
         for (_, s) in &items.structs {
-            record(&s.name.name, &s.name.name);
+            record(&s.name.name, &s.name.name, s.exported);
         }
         for (_, e) in &items.effects {
-            record(&e.name.name, &e.name.name);
+            record(&e.name.name, &e.name.name, e.exported);
             for f in &e.fns {
-                record(&f.name.name, &e.name.name);
+                record(&f.name.name, &e.name.name, e.exported);
             }
         }
         for (_, h) in &items.handlers {
-            record(&h.name.name, &h.name.name);
+            record(&h.name.name, &h.name.name, h.exported);
         }
         for (_, q) in &items.qualifiers {
-            record(&q.name.name, &q.name.name);
+            record(&q.name.name, &q.name.name, q.exported);
         }
         for (_, t) in &items.type_aliases {
-            record(&t.name.name, &t.name.name);
+            record(&t.name.name, &t.name.name, t.exported);
         }
         for (_, t) in &items.opaque_types {
-            record(&t.name.name, &t.name.name);
+            record(&t.name.name, &t.name.name, t.exported);
         }
     }
 
@@ -597,6 +686,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     Resolution {
         scopes,
         declared_in,
+        private_in,
         errors,
     }
 }
@@ -850,8 +940,18 @@ fn add_items<'p>(
     let def_site = |name: &'p str, file: usize, span: Span, scope: &mut ModuleScope<'p>| {
         scope.def_sites.insert(name, DefSite { file, span });
     };
+    // [mod-export] A declaration leaves its own module only if it says
+    // `export`. `Level::Own` *is* the declaring module, which sees all of its
+    // own names; every other level filters. A name that fails the filter is
+    // remembered under `hidden`, so an unresolved use can be told it exists
+    // and is private rather than being told it does not exist — the difference
+    // between a rule and a mystery.
+    let visible = |exported: bool| level == Level::Own || exported;
     for (key, f) in &items.fns {
         if want(&f.name.name) {
+            if !visible(f.exported) {
+                continue;
+            }
             let name = visible_as(&f.name.name);
             scope
                 .fns
@@ -868,6 +968,9 @@ fn add_items<'p>(
     }
     for (file, s) in &items.structs {
         if want(&s.name.name) {
+            if !visible(s.exported) {
+                continue;
+            }
             let name = visible_as(&s.name.name);
             if ctx.admit(NameKind::Struct, name, module, level, import_span) {
                 scope.structs.insert(name, s);
@@ -879,6 +982,9 @@ fn add_items<'p>(
     }
     for (file, e) in &items.effects {
         if want(&e.name.name) {
+            if !visible(e.exported) {
+                continue;
+            }
             let name = visible_as(&e.name.name);
             if ctx.admit(NameKind::Effect, name, module, level, import_span) {
                 scope.effects.insert(name, e);
@@ -912,6 +1018,9 @@ fn add_items<'p>(
     // the group.
     for (file, g) in &items.param_groups {
         if want(&g.name.name) {
+            if !visible(g.exported) {
+                continue;
+            }
             let name = visible_as(&g.name.name);
             if ctx.admit(NameKind::ParamGroup, name, module, level, import_span) {
                 scope.param_groups.insert(name, g);
@@ -922,6 +1031,9 @@ fn add_items<'p>(
     }
     for (file, h) in &items.handlers {
         if want(&h.name.name) {
+            if !visible(h.exported) {
+                continue;
+            }
             let name = visible_as(&h.name.name);
             if ctx.admit(NameKind::Handler, name, module, level, import_span) {
                 scope.handlers.insert(name, h);
@@ -932,6 +1044,9 @@ fn add_items<'p>(
     }
     for (file, q) in &items.qualifiers {
         if want(&q.name.name) {
+            if !visible(q.exported) {
+                continue;
+            }
             let name = visible_as(&q.name.name);
             let subject = crate::refine::of_base(&q.of, &q.generics);
             if ctx.admit_subject(
@@ -963,6 +1078,9 @@ fn add_items<'p>(
     }
     for (file, t) in &items.type_aliases {
         if want(&t.name.name) {
+            if !visible(t.exported) {
+                continue;
+            }
             let name = visible_as(&t.name.name);
             if ctx.admit(NameKind::TypeAlias, name, module, level, import_span) {
                 scope.type_aliases.insert(name, t);
@@ -973,6 +1091,9 @@ fn add_items<'p>(
     }
     for (file, t) in &items.opaque_types {
         if want(&t.name.name) {
+            if !visible(t.exported) {
+                continue;
+            }
             let name = visible_as(&t.name.name);
             if ctx.admit(NameKind::OpaqueType, name, module, level, import_span) {
                 scope.opaque_types.insert(name, t);
@@ -1160,13 +1281,41 @@ fn resolve_import<'p>(
             matches.push(by_module.get_key_value(path).unwrap().0);
         }
     }
+    // [mod-export] An import may only name a declaration its module *exports*.
+    // Matching on "declares it" first and filtering here is deliberate: it lets
+    // the diagnostic say the name exists and is private, where filtering during
+    // the match would have produced "no module declares it" — true of no module
+    // and helpful to nobody.
+    let exported: Vec<&&'p ModulePath> = matches
+        .iter()
+        .copied()
+        .filter(|m| by_module[*m].exports_name(item_name))
+        .collect();
+    if exported.is_empty() && !matches.is_empty() {
+        let mut names: Vec<String> = matches.iter().map(|m| m.to_string()).collect();
+        names.sort();
+        names.dedup();
+        ctx.errors.push(FileDiagnostic::error(
+            file_idx,
+            import.span,
+            format!(
+                "module `{}` declares `{item_name}` but does not export it, so it \
+                 cannot be imported: write `export` in front of that declaration \
+                 [mod-export]",
+                names.join("`, `")
+            ),
+        ));
+        return;
+    }
+    let matches = exported;
     match matches.len() {
         0 => {
             // Suggest modules that do declare the item, wherever they
-            // live [diag-import-suggest].
+            // live [diag-import-suggest]. Private declarations are not
+            // suggested: importing one is the error just above.
             let mut suggestions: Vec<String> = by_module
                 .iter()
-                .filter(|(_, items)| items.has_name(item_name))
+                .filter(|(_, items)| items.exports_name(item_name))
                 .map(|(path, _)| format!("{path}.{item_name}"))
                 .collect();
             suggestions.sort();

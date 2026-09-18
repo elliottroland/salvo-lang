@@ -7,6 +7,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -47,6 +48,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -87,6 +89,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -122,6 +125,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -157,6 +161,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -221,6 +226,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -281,6 +287,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -336,6 +343,7 @@ Module {
         Type(
             TypeDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 linear: false,
                 name: Ident {
@@ -411,6 +419,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -435,6 +444,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -525,6 +535,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -559,6 +570,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -649,6 +661,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -695,6 +708,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],
@@ -798,6 +812,7 @@ Module {
         Qualifier(
             QualifierDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -831,6 +846,7 @@ Module {
                     "Constructor function: `-> Int as RandomPositive` marks it; return points",
                     "return plain Int values which gain the qualifier by construction.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -991,6 +1007,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1429,6 +1446,7 @@ Module {
                     "[qual-widen] `^` is the dual of `is`: a successful check reads the subject",
                     "with the qualifier *removed*, which is what opens a qualified union.",
                 ],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -1789,6 +1807,7 @@ Module {
         Fn(
             FnDecl {
                 docs: [],
+                exported: false,
                 intrinsic: false,
                 is_iter: false,
                 iter_state: [],
@@ -2001,6 +2020,7 @@ Module {
                     "promising `NonEmpty` back — but appending can never empty a list, and the",
                     "qualifier that owns the claim may say so.",
                 ],
+                exported: false,
                 intrinsic: false,
                 subject: State,
                 name: Ident {
@@ -2043,6 +2063,7 @@ Module {
                 fns: [
                     FnDecl {
                         docs: [],
+                        exported: false,
                         intrinsic: false,
                         is_iter: false,
                         iter_state: [],

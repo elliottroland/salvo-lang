@@ -81,7 +81,7 @@ fn messages(src: &str) -> Vec<String> {
 /// `intrinsic` is the compiler's modifier and only std may write it, so this
 /// is loaded as a *std* file (module `core.prelude`, implicitly imported)
 /// rather than pasted into the source under test.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type Str\nintrinsic type Bool\nintrinsic type Store<T> canbe Mut\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Store<T> canbe Mut\n";
 
 // [name-dot] A dot-name resolves as one dotted name, and the namespace
 // struct in the same file satisfies the rule.
@@ -97,8 +97,8 @@ fn dot_names_resolve() {
 #[test]
 fn namespace_must_be_a_struct_in_the_same_file() {
     let errors = resolve_errors(&[
-        ("other.sv", "struct Environment {\n    v: Str\n}\n"),
-        ("main.sv", "struct Environment.Id {\n    value: Str\n}\n"),
+        ("other.sv", "export struct Environment {\n    v: Str\n}\n"),
+        ("main.sv", "export struct Environment.Id {\n    value: Str\n}\n"),
     ]);
     assert!(
         errors
@@ -140,7 +140,7 @@ fn concatenated_name_collision_is_an_error() {
 #[test]
 fn concatenated_collision_covers_imports() {
     let errors = resolve_errors(&[
-        ("other.sv", "struct EnvironmentId {\n    value: Str\n}\n"),
+        ("other.sv", "export struct EnvironmentId {\n    value: Str\n}\n"),
         (
             "main.sv",
             "import other.EnvironmentId\n\nstruct Environment {\n    v: Str\n}\n\n\
@@ -157,8 +157,8 @@ fn concatenated_collision_covers_imports() {
 // members; importing a member directly works too.
 #[test]
 fn importing_a_namespace_brings_its_members() {
-    let types = "struct Environment {\n    id: Environment.Id\n}\n\n\
-                 struct Environment.Id {\n    value: Str\n}\n";
+    let types = "export struct Environment {\n    id: Environment.Id\n}\n\n\
+                 export struct Environment.Id {\n    value: Str\n}\n";
     let user = "import types.Environment\n\n\
                 fn read(id: Environment.Id) -> Str {\n    return id.value\n}\n";
     assert!(resolve_errors(&[("types.sv", types), ("main.sv", user)]).is_empty());
@@ -172,7 +172,7 @@ fn importing_a_namespace_brings_its_members() {
 // file or directory name is an error naming the file.
 #[test]
 fn uppercase_module_path_is_an_error() {
-    let errors = resolve_errors(&[("Utils.sv", "fn helper() -> Str {\n    return \"x\"\n}\n")]);
+    let errors = resolve_errors(&[("Utils.sv", "export fn helper() -> Str {\n    return \"x\"\n}\n")]);
     assert!(
         errors
             .iter()
@@ -318,7 +318,7 @@ fn a_name_in_the_wrong_namespace_says_so() {
 // diagnostic.
 #[test]
 fn unknown_type_names_suggest_imports() {
-    let lib = "struct Widget {\n    v: Str\n}\n";
+    let lib = "export struct Widget {\n    v: Str\n}\n";
     let main = "fn f(w: Widget) -> Str {\n    return w.v\n}\n";
     let errors = check_errors(&[("lib.sv", lib), ("main.sv", main)]);
     let diag = errors

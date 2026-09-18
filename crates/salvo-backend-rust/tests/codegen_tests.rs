@@ -196,19 +196,19 @@ fn golden_demo_rust() {
 #[test]
 fn deductions_drive_parameter_modes() {
     let src = r#"
-fn read(list: List<Int>) -> Int => list {
+export fn read(list: List<Int>) -> Int => list {
     return list.size()
 }
 
-fn fill(list: Mut List<Int>, n: Int) -> None => list: Mut {
+export fn fill(list: Mut List<Int>, n: Int) -> None => list: Mut {
     add(list, n)
 }
 
-fn consume(list: List<Int>) -> Int => !list {
+export fn consume(list: List<Int>) -> Int => !list {
     return list.size()
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     let items: Mut List<Int> = mut_list_of(1, 2)
     fill(items, 3)
@@ -758,12 +758,12 @@ fn main() [use] -> None {
 }
 "#;
     let geometry = r#"
-fn area(w: Int, h: Int) -> Int {
+export fn area(w: Int, h: Int) -> Int {
     return w * h
 }
 "#;
     let unused = r#"
-fn never_called() -> Int {
+export fn never_called() -> Int {
     return 42
 }
 "#;
@@ -823,17 +823,17 @@ fn rustc_compiles_and_runs_multi_module() {
 #[test]
 fn generic_effect_members_are_rejected() {
     let src = r#"
-effect Weird {
+export effect Weird {
     fn pick<T>(value: T) -> T => !value
 }
 
-handler PassThrough of Weird {
+export handler PassThrough of Weird {
     fn pick<T>(value: T) -> T {
         return value
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use PassThrough
 }
 "#;
@@ -878,25 +878,25 @@ fn numeric_literal_suffixes_emit_rust_types() {
 #[test]
 fn predicate_qualifier_constructors_emit_plain_fns() {
     let src = r#"
-qualifier Positive of Int {
+export qualifier Positive of Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
 }
 
-fn make() -> Int as Positive {
+export fn make() -> Int as Positive {
     return 1
 }
 
-fn describe(x: Positive Int) -> Str {
+export fn describe(x: Positive Int) -> Str {
     return "positive"
 }
 
-fn describe(x: Int) -> Str {
+export fn describe(x: Int) -> Str {
     return "unknown"
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     println(describe(make()))
 }
@@ -2081,27 +2081,27 @@ fn rustc_compiles_and_runs_interception() {
 #[test]
 fn identical_fusions_are_one_struct() {
     let src = r#"
-effect Logger {
+export effect Logger {
     fn log(m: Str) -> None => m
 }
 
-handler PlainLogger [Console] of Logger {
+export handler PlainLogger [Console] of Logger {
     fn log(m: Str) -> None => m {
         println("log: ${m}")
     }
 }
 
-fn first() [Console, use] -> None {
+export fn first() [Console, use] -> None {
     use PlainLogger()
     log("first")
 }
 
-fn second() [Console, use] -> None {
+export fn second() [Console, use] -> None {
     use PlainLogger()
     log("second")
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     first()
     second()
@@ -2283,17 +2283,17 @@ fn rustc_compiles_and_runs_fusion() {
 #[test]
 fn generic_dependent_handler_is_a_codegen_error() {
     const SRC: &str = r#"
-effect Sink<T> {
+export effect Sink<T> {
     fn accept(value: T) -> None => value
 }
 
-handler Relay<T> [Console] of Sink<T> {
+export handler Relay<T> [Console] of Sink<T> {
     fn accept(value: T) -> None => value {
         println("relayed")
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     use Relay<Int>()
     accept(1)
@@ -2402,18 +2402,18 @@ fn rustc_compiles_and_runs_fusion_chain() {
 // different modules: the generated `__Impl_H` trait travels with the
 // handler and arrives through the module's glob import [rs-imports].
 const FUSION_LOGGING_MODULE: &str = r#"
-effect Logger {
+export effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+export handler ConsoleLogger [Console] of Logger {
     tag: Str = "M"
     fn log(message: Str) -> None => message {
         println("${tag}: ${message}")
     }
 }
 
-fn work() [Logger] -> None {
+export fn work() [Logger] -> None {
     log("from work")
 }
 "#;
@@ -2546,28 +2546,28 @@ fn rustc_compiles_and_runs_fusion_mixed() {
 #[test]
 fn rustc_compiles_and_runs_effect_using_fn_value() {
     const SRC: &str = r#"
-effect Logger {
+export effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+export handler ConsoleLogger [Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn run_it(f: (s: Str) [Logger] -> Str) [Console] -> None =>[f] s {
+export fn run_it(f: (s: Str) [Logger] -> Str) [Console] -> None =>[f] s {
     println(f("x"))
 }
 
-fn demo() [Console, Logger] -> None {
+export fn demo() [Console, Logger] -> None {
     run_it(s -> {
         log("in lambda ${s}")
         return "done ${s}"
     })
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     use ConsoleLogger()
     demo()
@@ -2928,17 +2928,17 @@ fn rustc_compiles_and_runs_nested_coercion() {
 #[test]
 fn effect_member_generics_are_rejected_loudly() {
     let src = r#"
-effect Stash {
+export effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-handler FirstStash of Stash {
+export handler FirstStash of Stash {
     fn pick<T>(a: T, b: T) -> T {
         return a
     }
 }
 
-fn main() [use] -> None {
+export fn main() [use] -> None {
     use StdOutConsole
     use FirstStash
     println("${pick(7, 2)}")
@@ -5678,7 +5678,7 @@ fn mut_str_is_a_plain_string() {
         support.content
     );
     // The support file is only generated when something needs it.
-    let plain = generate(&[("main.sv", "fn main() {\n}\n")]);
+    let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
     assert!(
         !plain
             .iter()
@@ -5700,7 +5700,7 @@ fn rustc_compiles_and_runs_strings() {
 #[test]
 fn a_spread_into_a_variadic_intrinsic_is_the_collection() {
     let src = r#"
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
     let parts = array_of("a", "b")
     let sb = mut_str(...parts)
@@ -5894,7 +5894,7 @@ fn sequence_functions_lower_to_helpers() {
             .any(|f| f.rel_path.to_string_lossy() == "seq.rs"),
         "seq.rs should be emitted"
     );
-    let plain = generate(&[("main.sv", "fn main() {\n}\n")]);
+    let plain = generate(&[("main.sv", "export fn main() {\n}\n")]);
     assert!(
         !plain
             .iter()
@@ -7452,7 +7452,7 @@ fn rustc_compiles_and_runs_list_claims() {
 #[test]
 fn a_mixed_variadic_tail_is_assembled_once() {
     let src = r#"
-fn main() [use] {
+export fn main() [use] {
     use StdOutConsole()
     let rest = array_of(2, 3)
     let all = list_of(1, ...rest)

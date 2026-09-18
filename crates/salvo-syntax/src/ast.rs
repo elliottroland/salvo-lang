@@ -123,6 +123,11 @@ pub struct ParamsDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Member signatures: bodiless, like an effect's [effect-decl].
@@ -145,6 +150,11 @@ pub struct TypeDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
     /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
@@ -185,6 +195,11 @@ pub struct StructDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins, `<T canbe linear>` [linear-generics]:
@@ -247,6 +262,11 @@ pub struct QualifierDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
     /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
@@ -281,6 +301,11 @@ pub struct EffectDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     /// True for `platform effect` [platform-effect]: the members are
     /// implemented by the *host* in the target language, so the compiler
     /// generates the interface and the instance arrives from outside the
@@ -317,6 +342,11 @@ pub struct HandlerDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
     /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag
@@ -379,6 +409,11 @@ pub struct FnDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
+    /// [mod-export] `export`: visible to other modules. Declarations are
+    /// module-private by default (user decision 2026-09-18), so this is the
+    /// whole of a module's public surface — a name without it can be used
+    /// only inside the file that declares it [mod-file].
+    pub exported: bool,
     /// `intrinsic`: declared by the standard library and implemented inside
     /// the compiler — every backend must lower every one of them
     /// [backend-intrinsic] [intrinsic-fn] [intrinsic-std-only]. A flag

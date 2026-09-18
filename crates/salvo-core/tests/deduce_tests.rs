@@ -10,7 +10,7 @@ use salvo_syntax::ast::Item;
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "intrinsic type Int\nintrinsic type List<T> canbe Mut\nintrinsic fn copy<T>(value: T) [] -> T => value\nintrinsic type Store<T> canbe Mut\nintrinsic fn fresh() [] -> List<Int>\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\n";
 
 /// Parses + resolves + checks a single-file program (no std).
 fn check_src(src: &str) -> (Program, Checked) {
@@ -913,8 +913,8 @@ fn disjoint_errors(body: &str) -> Vec<String> {
         "std/core/prelude.sv",
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
-            "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
+            "{STD_PRELUDE}export intrinsic type Str\n\
+             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );
@@ -1180,8 +1180,8 @@ fn a_kept_parameter_still_refuses_a_projection_move() {
         "std/core/prelude.sv",
         SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
         format!(
-            "{STD_PRELUDE}intrinsic type Str\n\
-             intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
+            "{STD_PRELUDE}export intrinsic type Str\n\
+             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n"
         ),
         true,
     );

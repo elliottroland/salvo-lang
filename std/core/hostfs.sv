@@ -19,7 +19,7 @@
 // `raw_read_line` reports the end of the stream and `raw_close_read`
 // reports why. Write errors behave the same way, surfacing at
 // `raw_flush`/`raw_close_write`.
-effect RawFs {
+export effect RawFs {
     // Opens a file for reading, from the beginning.
     fn raw_open_read(path: Str) -> Ok Long | Err FsErrorKind => path
     // Opens a file for reading, positioned at a byte offset.
@@ -75,9 +75,9 @@ effect RawFs {
 
 // The one implementation of `RawFs`: a host class per backend, shipped with
 // std [platform-handler].
-platform handler HostRawFs of RawFs
+export platform handler HostRawFs of RawFs
 
-handler DefaultFs [RawFs] of Fs {
+export handler DefaultFs [RawFs] of Fs {
     fn open_read(path: Str) -> Ok InStream | Err FsError => path {
         let r = raw_open_read(path)
         when r {
