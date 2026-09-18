@@ -5079,15 +5079,29 @@ the same day. **Not part of `core`**: the surface is imported, and one
     asserts the partition covers the table exactly, so adding a keyword
     without categorizing it fails `cargo test`.
   * **Keywords by position** are highlighted by *shape*, not by name (user
-    request 2026-09-18): `actor`, `send` and `iter` are ordinary identifiers
-    to the lexer — the asynchronous words are deliberately unreserved — so the
-    grammar matches them only before the word that makes them keywords
-    (`actor effect`, `send fn`, `iter fn`), and `hashed`/`ordered` only inside
-    a `canbe` clause. A variable named `ordered` therefore stays plain, which
-    highlighting them unconditionally would not have managed. The `canbe`
-    patterns come *first* in the keyword list, since TextMate takes the first
-    pattern that matches at a position and the plain alternation would
-    otherwise consume `canbe` and leave `hashed` unmatched.
+    requests 2026-09-18). Every contextual word the parser recognises has an
+    entry in `CONTEXTUAL_PATTERNS`, each shape mirroring the parser's own
+    `at_word(w) && peek_at(1)…` test:
+    * modifiers before the declaration they modify — `actor effect`,
+      `send fn`, `iter fn`, and `mailbox {`;
+    * the asynchronous expression forms — `spawn H(…)` (a name follows),
+      `waitfor out:` (a name and a colon follow), `replyto k(…)` and
+      `replyto! k(…)`;
+    * the lowercase capability effects inside an effect list
+      (`[use, spawn, waitfor]`), matched by the comma or bracket on each side —
+      `use` needs no entry, being a real keyword;
+    * the placement clause `on POOL`, the projection source in
+      `proj[from: list]`, the `hashed`/`ordered` claims of a `canbe` clause,
+      and `self` immediately after `@` (`k@self(…)`), which renders as a
+      language variable rather than a keyword.
+    A variable named `on`, a field named `from` and a local named `ordered`
+    all stay plain, which a name list could not have managed. `watch`,
+    `on_idle`, `pool` and `thread` get no entry at all: they are ordinary std
+    *functions*, and highlighting them as syntax would misdescribe them.
+    The `canbe` patterns come *first* in the keyword list, since TextMate
+    takes the first pattern that matches at a position and the plain
+    alternation would otherwise consume `canbe` and leave `hashed` unmatched.
+    A test asserts the table covers every contextual word the parser names.
   * **`[symbol]` doc references highlight inside comments** [doc-symbol-ref]
     (user request 2026-09-18): the comment rule is a `begin`/`end` pair with
     one inner pattern, so a reference — and a `[rule-label]` in the compiler's

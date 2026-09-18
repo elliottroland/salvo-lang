@@ -138,15 +138,24 @@ each small and each user-directed:
   [lit-numeric] had always claimed separators; the lexer only accepted them in
   the integer part, so a reader-friendly fraction was an "invalid numeric
   literal".
-- **`actor`, `send`, `iter`, `hashed` and `ordered` highlight**, by *shape*
-  rather than by name: they are unreserved identifiers (a variable may be called
-  `send`), so the grammar matches them before the word that makes them keywords
-  — `actor effect`, `send fn`, `iter fn` — and matches `hashed`/`ordered` only
-  inside a `canbe` clause. The `canbe` patterns had to be ordered *before* the
-  plain keyword alternation: TextMate takes the first pattern that matches at a
-  position, so the generic rule would have consumed `canbe` and left `hashed`
-  bare. A variable named `ordered` stays plain, which is what the shape buys
-  over a name list.
+- **Every contextual word highlights, by *shape* rather than by name.** They
+  are unreserved identifiers (a variable may be called `send`), so each pattern
+  mirrors the parser's own recognition test: the modifiers (`actor effect`,
+  `send fn`, `iter fn`, `mailbox {`), the asynchronous expression forms
+  (`spawn H(…)`, `waitfor out:`, `replyto`/`replyto!`), the capability effects
+  inside an effect list (`[use, spawn, waitfor]`, matched by the comma or
+  bracket around them), the placement clause `on POOL`, `proj[from: list]`'s
+  source, `canbe`'s `hashed`/`ordered`, and `self` after `@`. A variable named
+  `on`, a field named `from` and a local named `ordered` all stay plain — the
+  reason to match shapes instead of keeping a word list. `watch`, `on_idle`,
+  `pool` and `thread` were deliberately left out: they are ordinary std
+  functions, and colouring them as syntax would misdescribe them. Two things
+  the build taught: the `canbe` patterns must precede the plain keyword
+  alternation (TextMate takes the first pattern matching at a position, so the
+  generic rule would consume `canbe` and leave `hashed` bare), and the
+  effect-list and `from` shapes need a *fixed-length* lookbehind, which is all
+  Oniguruma offers. A test asserts the table covers every contextual word the
+  parser names as a constant.
 - **`[symbol]` doc references highlight inside comments**, which needed the
   comment rule to become a `begin`/`end` pair with an inner pattern.
 - **A hover shows `linear`** — on a `linear struct`, on a

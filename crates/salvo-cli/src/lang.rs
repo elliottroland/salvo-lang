@@ -36,24 +36,91 @@ const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 
 /// [cli-lang] Words that are **keywords by position** rather than reserved
 /// words: they are ordinary identifiers to the lexer (a variable may be called
-/// `send`, and `the_asynchronous_words_are_not_reserved` asserts it), so they
-/// are highlighted only where the grammar can see the shape that makes them
-/// keywords — `actor effect`, `send fn`, `iter fn`, and the `canbe` clause's
-/// `hashed`/`ordered`. Highlighting them unconditionally would colour a
-/// variable named `ordered`; matching the shape costs a lookahead instead
-/// (user request 2026-09-18).
+/// `send`, and `the_asynchronous_words_are_not_reserved` asserts it), so each is
+/// highlighted only where the *shape* around it is the one the parser
+/// recognises. Highlighting them unconditionally would colour a variable named
+/// `ordered` or a field named `on` (user requests 2026-09-18).
 ///
-/// They are deliberately *not* in `KEYWORDS`, so
-/// `keywords_are_fully_categorized` neither expects nor forbids them.
-const MODIFIER_LOOKAHEAD: &[(&str, &str)] = &[
-    ("actor", "effect"),
-    ("send", "fn"),
-    ("iter", "fn"),
+/// Each entry is `(regex, scope, why)`, with the regex written as it lands in
+/// the JSON — the shapes mirror `parser.rs`'s own tests
+/// (`at_word(w) && peek_at(1)…`), which is what keeps the two in step. They are
+/// deliberately *not* in `KEYWORDS`, so `keywords_are_fully_categorized`
+/// neither expects nor forbids them.
+const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
+    // `actor effect E`, `send fn m(…)`, `iter fn walk(…)`: a modifier before
+    // the declaration keyword it modifies.
+    (
+        "\\\\bactor(?=\\\\s+effect\\\\b)",
+        "keyword.declaration.salvo",
+        "the actor-effect modifier",
+    ),
+    (
+        "\\\\bsend(?=\\\\s+fn\\\\b)",
+        "keyword.declaration.salvo",
+        "the send-member modifier",
+    ),
+    (
+        "\\\\biter(?=\\\\s+fn\\\\b)",
+        "keyword.declaration.salvo",
+        "the iterator-fn modifier",
+    ),
+    // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
+    (
+        "\\\\bmailbox(?=\\\\s*\\\\{)",
+        "keyword.declaration.salvo",
+        "the mailbox slot of a handler",
+    ),
+    // `spawn H(…)`: a name follows, which is what the parser tests for.
+    (
+        "\\\\bspawn(?=\\\\s+[A-Za-z_])",
+        "keyword.control.salvo",
+        "the spawn expression",
+    ),
+    // `waitfor out: Reply<T> { … }`: a name and a colon follow — no call of a
+    // function named `waitfor` can look like that.
+    (
+        "\\\\bwaitfor(?=\\\\s+[A-Za-z_][A-Za-z0-9_]*\\\\s*:)",
+        "keyword.control.salvo",
+        "the waitfor bridge",
+    ),
+    // `replyto k(…)` and `replyto! k(…)`.
+    (
+        "\\\\breplyto!?(?=\\\\s+[A-Za-z_])",
+        "keyword.control.salvo",
+        "a reply-token mint",
+    ),
+    // `[use, spawn, waitfor]`: the lowercase capability effects, which sit in
+    // an effect list beside uppercase effect names. A comma or a bracket on
+    // each side is the shape, and `use` needs no entry — it is a real keyword.
+    (
+        "(?<=[\\\\[,])\\\\s*(spawn|waitfor)\\\\b(?=\\\\s*[,\\\\]])",
+        "keyword.other.salvo",
+        "a capability effect in an effect list",
+    ),
+    // `on POOL`, the placement clause of a spawn or a mint. A name follows;
+    // a *use* of a variable called `on` is followed by an operator, a comma,
+    // a brace or a bracket instead.
+    (
+        "\\\\bon(?=\\\\s+[A-Za-z_])",
+        "keyword.other.salvo",
+        "the placement clause",
+    ),
+    // `proj[from: list]`: the borrow source of a projection. The `[` is what
+    // keeps a *field* named `from` plain.
+    (
+        "(?<=\\\\[)from(?=\\\\s*:)",
+        "keyword.other.salvo",
+        "the projection source",
+    ),
+    // `k@self(…)`: the selector naming the enclosing handler, and special only
+    // immediately after `@`.
+    (
+        "(?<=@)self\\\\b",
+        "variable.language.salvo",
+        "the enclosing-handler selector",
+    ),
 ];
 
-/// [col-hashed-ordered] The claims a `canbe` clause can carry that are not
-/// keywords elsewhere. `Mut` and `linear` need no entry: `linear` is a real
-/// keyword and `Mut` highlights as a type.
 const CANBE_WORDS: &[&str] = &["hashed", "ordered"];
 
 fn alternation(words: &[&str]) -> String {
@@ -70,13 +137,18 @@ pub fn tm_grammar() -> String {
     let declaration = alternation(DECLARATION_KEYWORDS);
     let other = alternation(OTHER_KEYWORDS);
     let boolean = alternation(BOOLEAN_KEYWORDS);
-    // [cli-lang] `\bword(?=\s+next\b)`, one alternative per contextual
-    // modifier: the lookahead is what keeps a variable named `send` plain.
-    let modifiers = MODIFIER_LOOKAHEAD
+    // [cli-lang] One JSON pattern per contextual shape, in table order.
+    let contextual = CONTEXTUAL_PATTERNS
         .iter()
-        .map(|(word, next)| format!("\\\\b{word}(?=\\\\s+{next}\\\\b)"))
+        .map(|(regex, scope, why)| {
+            format!(
+                "        {{\n          \"comment\": \"{why} — a keyword by position, \
+                 not a reserved word\",\n          \"name\": \"{scope}\",\n          \
+                 \"match\": \"{regex}\"\n        }},"
+            )
+        })
         .collect::<Vec<_>>()
-        .join("|");
+        .join("\n");
     let canbe_words = alternation(CANBE_WORDS);
     format!(
         r##"{{
@@ -191,11 +263,7 @@ pub fn tm_grammar() -> String {
           "name": "keyword.other.salvo",
           "match": "\\b({other})\\b"
         }},
-        {{
-          "comment": "keywords by position, not reserved words",
-          "name": "keyword.declaration.salvo",
-          "match": "{modifiers}"
-        }},
+{contextual}
         {{
           "name": "constant.language.boolean.salvo",
           "match": "\\b({boolean})\\b"
@@ -352,20 +420,46 @@ mod tests {
     // [cli-lang] The generated grammar is valid JSON and contains every
     // keyword.
     // [cli-lang] Words that are keywords *by position* are highlighted where
-    // the shape says so and nowhere else (user request 2026-09-18). Asserted on
-    // the generated patterns rather than by eye, since the false-positive case
-    // — a variable named `ordered` — is exactly what a hand check misses.
+    // the shape says so and nowhere else (user requests 2026-09-18). Asserted
+    // on the generated patterns rather than by eye, since the false-positive
+    // case — a variable named `on`, a field named `from` — is exactly what a
+    // hand check misses.
     #[test]
     fn contextual_keywords_are_matched_only_in_their_shape() {
         let grammar = tm_grammar();
-        for shape in [
-            "\\\\bactor(?=\\\\s+effect\\\\b)",
-            "\\\\bsend(?=\\\\s+fn\\\\b)",
-            "\\\\biter(?=\\\\s+fn\\\\b)",
+        for (regex, scope, _) in CONTEXTUAL_PATTERNS {
+            // The table is rendered verbatim, so a pattern that is in the table
+            // is in the grammar with its scope.
+            assert!(
+                grammar.contains(regex),
+                "expected the contextual pattern `{regex}` in the grammar"
+            );
+            assert!(
+                grammar.contains(scope),
+                "expected the scope `{scope}` in the grammar"
+            );
+        }
+        // Every contextual word the parser names as a constant is covered: the
+        // parser and the grammar are the two halves of "this word is special
+        // here", and a word special in one and plain in the other is the bug
+        // this asserts against.
+        for word in [
+            salvo_syntax::parser::SELF_SELECTOR,
+            salvo_syntax::parser::ACTOR_MODIFIER,
+            salvo_syntax::parser::MAILBOX_SLOT,
         ] {
             assert!(
-                grammar.contains(shape),
-                "expected the contextual pattern `{shape}` in the grammar"
+                CONTEXTUAL_PATTERNS.iter().any(|(regex, _, _)| regex.contains(word)),
+                "the parser treats `{word}` as contextual, so the grammar must \
+                 highlight it in its shape"
+            );
+        }
+        // The asynchronous expression forms, which have no constant of their
+        // own (they are recognised inline by `at_word`).
+        for word in ["spawn", "waitfor", "replyto", "send", "iter", "on", "from"] {
+            assert!(
+                CONTEXTUAL_PATTERNS.iter().any(|(regex, _, _)| regex.contains(word)),
+                "expected a contextual pattern for `{word}`"
             );
         }
         // The `canbe` clause's claims, both the first and the continuations.

@@ -111,9 +111,59 @@
           "match": "\\b(as|of|with|canbe|is|use|proj|once|linear)\\b"
         },
         {
-          "comment": "keywords by position, not reserved words",
+          "comment": "the actor-effect modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bactor(?=\\s+effect\\b)|\\bsend(?=\\s+fn\\b)|\\biter(?=\\s+fn\\b)"
+          "match": "\\bactor(?=\\s+effect\\b)"
+        },
+        {
+          "comment": "the send-member modifier — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\bsend(?=\\s+fn\\b)"
+        },
+        {
+          "comment": "the iterator-fn modifier — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\biter(?=\\s+fn\\b)"
+        },
+        {
+          "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",
+          "name": "keyword.declaration.salvo",
+          "match": "\\bmailbox(?=\\s*\\{)"
+        },
+        {
+          "comment": "the spawn expression — a keyword by position, not a reserved word",
+          "name": "keyword.control.salvo",
+          "match": "\\bspawn(?=\\s+[A-Za-z_])"
+        },
+        {
+          "comment": "the waitfor bridge — a keyword by position, not a reserved word",
+          "name": "keyword.control.salvo",
+          "match": "\\bwaitfor(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
+        },
+        {
+          "comment": "a reply-token mint — a keyword by position, not a reserved word",
+          "name": "keyword.control.salvo",
+          "match": "\\breplyto!?(?=\\s+[A-Za-z_])"
+        },
+        {
+          "comment": "a capability effect in an effect list — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "(?<=[\\[,])\\s*(spawn|waitfor)\\b(?=\\s*[,\\]])"
+        },
+        {
+          "comment": "the placement clause — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\bon(?=\\s+[A-Za-z_])"
+        },
+        {
+          "comment": "the projection source — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "(?<=\\[)from(?=\\s*:)"
+        },
+        {
+          "comment": "the enclosing-handler selector — a keyword by position, not a reserved word",
+          "name": "variable.language.salvo",
+          "match": "(?<=@)self\\b"
         },
         {
           "name": "constant.language.boolean.salvo",
