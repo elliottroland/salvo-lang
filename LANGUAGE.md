@@ -91,7 +91,13 @@ Salvo supports algebraic data types in the form of tuples (for AND) and unions (
 let (a, b, c) = ("String", -1, true)
 ```
 
-A pattern has to match what it destructures: the value must be a tuple, and a tuple of exactly that many elements. `let (a, b) = 7` and `let (a, b) = (1, 2, 3)` are both errors that say which. A **loop** binding is a plain name rather than a pattern — write `for p in pairs` and read `p.0` inside the body.
+A pattern has to match what it destructures: the value must be a tuple, and a tuple of exactly that many elements. `let (a, b) = 7` and `let (a, b) = (1, 2, 3)` are both errors that say which. A loop binding is a pattern too, checked against the element type:
+
+```
+for (name, score) in iter(rows) {
+    println("${name}: ${score}")
+}
+```
 
 A single element can also be read by its position, written like a field with
 the index in place of the name:

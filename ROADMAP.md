@@ -432,22 +432,20 @@ Found while building step 4; none blocks step 5.
   continuation types with the same variants — slightly more generated code, and
   the price of a mint being lexical.
 
-### Tuple patterns — the leftover (2026-09-18)
+### Patterns — what is left (2026-09-18)
 
-The two silent tuple holes were closed the day they were found (COMPLETED.md's
-log). What the fix *deliberately* leaves is one cut, with a diagnostic:
+The two silent tuple holes and the loop-destructuring cut were all closed the day
+they were found (COMPLETED.md's log: the pattern-arity error, the generated
+Kotlin tuple classes, and `for (k, v) in pairs` on both backends). What remains:
 
-- **A loop element cannot be destructured**: `for (k, v) in pairs` is refused
-  naming the remedy (`for p in pairs` and `p.0` in the body). Neither backend's
-  loop lowering handles a pattern, and both used to emit target code that would
-  not build — Kotlin cast the pass's payload to `Any?` (before the renderer was
-  fixed) and `component1()` did not exist; Rust matched the emitted union arm and
-  moved out of a shared reference (`E0507`) even for an owned element. The lift
-  is two emitter changes: Kotlin needs the element bound to a `val` of its known
-  type before destructuring, and Rust needs the sub-patterns to bind by
-  reference (`ref k`) when the element is a projection — or the element bound to
-  a temporary and read field-wise, which is what the remedy does by hand today.
-  Worth building when a program wants it; nothing in the language forecloses it.
+- **Nested patterns are refused**, in a loop as in a `let`
+  (`let ((a, b), c) = …` → "nested destructuring patterns are not supported
+  yet"). Both backends' destructuring is one level deep — a name per part, read
+  off the value or the element temporary — so nesting means recursing that
+  emission with a temporary per level. Nobody has wanted it yet.
+- **Struct patterns bind by field name only**: there is no `..` rest, no
+  nested field pattern, and no binding of a *projection* (`{address.city}`).
+  The `let` surface has always been this, and the loop inherited it.
 
 ## Decisions waiting on the user
 
@@ -487,7 +485,7 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Six open.** (Closed in the sessions before this one, with repros and
+**Seven open.** (Closed in the sessions before this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -562,6 +560,29 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   key's virtue is that it cannot go stale, and a source-plus-version key
   trades that for speed. The Rust backend's per-test runner does not have the
   problem (its cases build one at a time, inside their own gate).
+
+- **Iterating a *temporary* container emits Rust that does not compile**
+  (found 2026-09-18 while building loop destructuring; pre-existing, and
+  unrelated to patterns — a plain name reproduces it). Repro:
+
+  ```
+  fn main() [use] -> None {
+      use StdOutConsole
+      for x in iter(list_of(1, 2)) {     // rustc: E0716, temporary dropped
+          println("${x}")
+      }
+  }
+  ```
+
+  The emitted line is `let mut __loop1_pass = iter__3(&(vec![1, 2]));` — the
+  pass borrows a temporary that dies at the end of that statement. Kotlin is
+  fine (the list is a reference). Root cause: the pass-loop header emits the
+  subject inline where an owned local is needed, so the fix is to hoist the
+  temporary into a `let` before the header (`let __loop1_subject = vec![…];`)
+  whenever the subject is not a place — which is what rustc's own suggestion
+  says. Note that check.rs's [proj-anywhere] comment claims driving a temporary
+  "is fine: the temporary lives for the whole loop statement on both backends",
+  which is exactly what is wrong.
 
 - **A whole-valued `Double`/`Float` interpolates differently per backend**
   (found 2026-09-14 while testing the operator slice; pre-existing). Repro:

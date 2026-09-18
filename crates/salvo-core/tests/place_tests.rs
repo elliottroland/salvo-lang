@@ -471,16 +471,17 @@ fn a_tuple_pattern_must_match_the_arity() {
     );
 }
 
-/// [let-destructure] A **loop** binding is a name in the first pass: neither
-/// backend's loop lowering destructures an element, and both used to emit
-/// target code that would not build. Refused in the checker, since it is
-/// unsupported on both.
+/// [let-destructure] A **loop** element may be destructured, and the same rule
+/// applies to it: the element has to be a tuple of that arity. `p.tags` is an
+/// array of `Str?`, so a pair pattern reports rather than binding `Unknown`s
+/// (which is what it did until 2026-09-18).
 #[test]
-fn a_loop_element_may_not_be_destructured() {
+fn a_loop_pattern_is_checked_against_the_element() {
     let errs = check("    for (a, b) in p.tags {\n        read(p)\n    }\n    return p.name\n");
     assert!(
         errs.iter()
-            .any(|e| e.contains("destructuring a loop element is not supported yet")),
-        "expected the loop-destructuring refusal: {errs:?}"
+            .any(|e| e.contains("destructures a tuple of 2") && e.contains("is not a tuple")),
+        "expected the element-type mismatch: {errs:?}"
     );
 }
+

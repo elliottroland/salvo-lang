@@ -13116,6 +13116,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         match pattern {
             Pattern::Ident(id) => vec![(id.clone(), ty, links, for_origin)],
             Pattern::Tuple { elems, span } => {
+                // A pattern is not an expression, but it *has* a type — the
+                // subject's — and both tooling (hover) and the emitters read it
+                // by span: a destructuring loop binds the element to a
+                // temporary whose declared type this is.
+                self.out
+                    .expr_ty
+                    .entry(self.key(*span))
+                    .or_insert_with(|| ty.clone());
                 // [let-destructure] The subject has to *be* a tuple of this
                 // arity. Until 2026-09-18 a mismatch bound `Unknown`s and said
                 // nothing, so `let (a, b) = 7` compiled and the emitters
@@ -13152,7 +13160,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .flat_map(|(p, t)| self.pattern_bindings(p, t, links.clone(), for_origin))
                     .collect()
             }
-            Pattern::Struct { fields, .. } => fields
+            Pattern::Struct { fields, span } => {
+                self.out
+                    .expr_ty
+                    .entry(self.key(*span))
+                    .or_insert_with(|| ty.clone());
+                fields
                 .iter()
                 .map(|f| {
                     // [let-destructure] Destructuring reads the declared
@@ -13165,7 +13178,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // source: it shares the source's fate [fate-link].
                     (f.binding.clone(), fty, links.clone(), for_origin)
                 })
-                .collect(),
+                .collect()
+            }
         }
     }
 
@@ -14391,31 +14405,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
-                // [let-destructure] A loop binding is a *name* in the first
-                // pass: neither backend's loop lowering destructures an element
-                // (Kotlin casts the pass's payload to the element type and
-                // Rust matches the emitted union arm, and a pattern in either
-                // place emitted target code that would not build). Refused here
-                // rather than per backend, since it is unsupported on both —
-                // and bound as `Unknown`s so the body still checks against one
-                // diagnostic. Kotlin's own "struct destructuring in `for`"
-                // refusal is the precedent; the lift is recorded in ROADMAP.md.
-                let bindings = if matches!(pattern, Pattern::Ident(_)) {
-                    self.pattern_bindings(pattern, elem, links, Some(iterable.span()))
-                } else {
-                    let at = match pattern {
-                        Pattern::Tuple { span, .. } | Pattern::Struct { span, .. } => *span,
-                        Pattern::Ident(id) => id.span,
-                    };
-                    self.error(
-                        at,
-                        "destructuring a loop element is not supported yet: bind the \
-                         element itself (`for p in ...`) and read its parts inside the \
-                         body (`p.0`, `p.name`)"
-                            .to_string(),
-                    );
-                    self.pattern_bindings(pattern, Ty::Unknown, links, Some(iterable.span()))
-                };
+                // [let-destructure] A loop element may be destructured: the
+                // header binds it to a temporary and the body opens with the
+                // pattern's own bindings, read off that temporary.
+                let bindings = self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
                 self.loop_stack.push(LoopCtx {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()

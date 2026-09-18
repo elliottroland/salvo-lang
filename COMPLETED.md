@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1120 tests, complete: the toolchain tests are
+cargo test                  # 1123 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,49 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Loop destructuring (built 2026-09-18, user request).** `for (k, v) in pairs`
+and `for {name, score} in rows` work now, on both backends, so a loop binding is
+a **pattern** exactly as a `let`'s is — and checked the same way, against the
+element type. The refusal recorded that morning lasted a few hours, which is the
+right lifetime for a cut whose cost was two emitter changes.
+
+- **One lowering, both backends, both pattern kinds**: the header binds the
+  element to an `__elemN` temporary and the body *opens* with the pattern's
+  bindings, read off it. A native pattern in the header would have had to differ
+  per backend and per loop shape — Kotlin cannot destructure a pass's cast
+  payload or a struct at all (a Salvo struct is a plain class, no `componentN`),
+  and Rust's `mut k` in a pattern opts out of match ergonomics, so it moves out
+  of a shared reference — and the temporary made all four cases one.
+- **Rust binds the parts by reference** (`let k = &__elem.0;`, registered as a
+  `BindKind::Ref`), which is the detail that makes one shape serve an owned
+  element *and* a borrowed one: `&` of a field reaches through either, reads
+  borrow, and a use that needs an owned value clones exactly as it does for a
+  `&T` parameter. The exception is a name the body **assigns to**: a reference
+  cannot be reassigned, and the assignment means the *binding* rather than the
+  element, so it takes an owned copy (`let mut a = __elem.0.clone();`). Kotlin's
+  equivalent is `var` instead of `val` — the same rule its `let` already had.
+- **The Kotlin pass header needed the element's type**, which it read from the
+  checker by span — and a *pattern* had none recorded. So `pattern_bindings` now
+  records the subject's type at the pattern's own span, on the precedent of
+  `declare_var` doing it for a binding name ("a declared name is not an
+  expression, but tooling hovers it like one"): the emitters read it, and hover
+  over `(k, v)` answers as a side effect.
+- **One bug of my own, caught by the output**: the Kotlin statement path asked
+  for a loop variable even when the pass header had already bound one, so a
+  destructuring loop minted *two* temporaries and the prologue read the wrong
+  one. Now only a native `for` asks — mirroring the Rust path, which always did.
+- **A pre-existing defect fell out** and is recorded in ROADMAP rather than
+  fixed here: `for x in iter(list_of(1, 2))` — iterating a *temporary*
+  container — emits Rust that fails to compile (`E0716`, the temporary dropped
+  while the pass borrows it). One line to reproduce, and the checker comment that
+  claims the temporary "lives for the whole loop statement on both backends" is
+  wrong about Rust.
+- **Verified on both backends with identical output**: a compile-and-run case per
+  backend covering a tuple pattern, a struct pattern with a renamed field, an
+  assigned-to binding, a nested pair of loops and a value-position loop, with
+  each backend's lowering pinned; plus the checker test that a loop pattern is
+  checked against the element type. Tests: **1123 (+3)**.
 
 **Two tuple holes closed (built 2026-09-18, user request).** Both were
 *silent*, and both are now the thing they should have been: a diagnostic, and a
@@ -11871,7 +11914,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1120)
+## Test inventory (all green: 1123)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12546,7 +12589,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 109 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 110 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -12748,7 +12791,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 203 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 205 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —

@@ -1074,6 +1074,10 @@ struct Emitter<'p> {
     mutated: HashSet<String>,
     generics: HashSet<String>,
     loop_results: Vec<Option<String>>,
+    /// [let-destructure] Pending destructuring prologues, innermost last: a
+    /// loop header whose pattern destructures pushes the statements its body
+    /// must open with, and the body emission pops them.
+    loop_destructures: Vec<String>,
     /// Whether each loop result local's join type is optional (assigns
     /// skip the `Some(...)`) [rs-loop-value].
     loop_optional: HashMap<String, bool>,
@@ -1320,6 +1324,7 @@ impl<'p> Emitter<'p> {
             mutated: HashSet::new(),
             generics: HashSet::new(),
             loop_results: Vec::new(),
+            loop_destructures: Vec::new(),
             loop_optional: HashMap::new(),
             loop_id: 0,
             destructure_id: 0,
@@ -1542,7 +1547,7 @@ impl<'p> Emitter<'p> {
             return String::new();
         }
         let place = format!("{}_pass", self.fresh_loop_var());
-        let var = self.for_pattern_var(pattern, false);
+        let var = self.for_pattern_var(pattern, false, indent + 1);
         // The `Emitted` arm of the result, by the identity the *checker*
         // computed [union-arm-identity].
         self.union_sizes.insert(driver.arms);
@@ -6790,7 +6795,7 @@ impl<'p> Emitter<'p> {
                         None
                     };
                     let by_ref = borrow_iter.is_some() && !iter_subject;
-                    let var = self.for_pattern_var(pattern, by_ref);
+                    let var = self.for_pattern_var(pattern, by_ref, indent + 1);
                     let iter = match borrow_iter {
                         Some(code) => code,
                         None => self.emit_bound_value(iterable, iterable.span()),
@@ -6810,6 +6815,9 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true;\n"));
                 }
+                // [let-destructure] A destructuring pattern's bindings open the
+                // body, read off the element the header bound.
+                out.push_str(&self.take_loop_destructure());
                 self.loop_results.push(None);
                 self.loop_splice_floors.push(self.exit_splices.len());
                 out.push_str(&self.emit_block_stmts(body, indent + 1, ctx));
@@ -9261,7 +9269,17 @@ impl<'p> Emitter<'p> {
     }
 
     /// The `for <pat> in ...` binding for a Salvo loop pattern.
-    fn for_pattern_var(&mut self, pattern: &Pattern, by_ref: bool) -> String {
+    ///
+    /// [let-destructure] A **destructuring** pattern binds the element to a
+    /// temporary here and leaves the pattern's own bindings to
+    /// [`Self::take_loop_destructure`], which the body opens with. Two reasons
+    /// for the detour rather than a native Rust pattern: the element may arrive
+    /// *borrowed* (a pass hands out projections, `for x in &v` iterates
+    /// references), and `mut k` in a pattern opts out of match ergonomics — so
+    /// the same pattern that works for an owned element cannot move out of a
+    /// shared reference (`E0507`, which is exactly what it used to emit); and
+    /// one shape then serves tuples and structs alike.
+    fn for_pattern_var(&mut self, pattern: &Pattern, by_ref: bool, body_indent: usize) -> String {
         match pattern {
             Pattern::Ident(id) => {
                 // [rs-borrow-locals] A by-reference loop binds `&T`.
@@ -9272,24 +9290,69 @@ impl<'p> Emitter<'p> {
                 self.bindings.insert(id.name.clone(), BindKind::Owned);
                 format!("mut {}", rs_ident(&id.name))
             }
-            Pattern::Tuple { elems, .. } => {
-                let names: Vec<String> = elems
-                    .iter()
-                    .map(|p| match p {
-                        Pattern::Ident(id) => {
-                            self.bindings.insert(id.name.clone(), BindKind::Owned);
-                            format!("mut {}", rs_ident(&id.name))
-                        }
-                        _ => "_".to_string(),
-                    })
-                    .collect();
-                format!("({})", names.join(", "))
-            }
-            Pattern::Struct { .. } => {
-                self.error("struct destructuring in `for` is not supported yet");
-                "_".to_string()
+            Pattern::Tuple { .. } | Pattern::Struct { .. } => {
+                let temp = self.unique_name("__elem".to_string());
+                self.bindings.insert(temp.clone(), BindKind::Owned);
+                let prologue = self.loop_destructure(pattern, &temp, body_indent);
+                self.loop_destructures.push(prologue);
+                format!("mut {temp}")
             }
         }
+    }
+
+    /// [let-destructure] The statements a destructuring loop body opens with:
+    /// one binding per name, read off the element temporary.
+    ///
+    /// Each name is bound **by reference** (`let k = &__elem.0;`, registered as
+    /// a [`BindKind::Ref`]), which is what makes one lowering serve an owned
+    /// element and a borrowed one: `&` of a field reaches through either, reads
+    /// borrow, and a use that needs an owned value clones exactly as it does
+    /// for a `&T` parameter. The alternative — binding by value — moves out of
+    /// the element, which a borrowed one refuses.
+    ///
+    /// A name the body **assigns to** is the exception: a reference cannot be
+    /// reassigned, and the assignment is to the *binding* rather than to the
+    /// element (a loop binding is a local, and Salvo's collections are not
+    /// written through one), so it takes an owned copy.
+    fn loop_destructure(&mut self, pattern: &Pattern, temp: &str, indent: usize) -> String {
+        let pad = "    ".repeat(indent);
+        let mut out = String::new();
+        let bind = |me: &mut Self, name: &str, part: String| {
+            if me.mutated.contains(name) {
+                me.bindings.insert(name.to_string(), BindKind::Owned);
+                format!("{pad}let mut {} = {temp}.{part}.clone();\n", rs_ident(name))
+            } else {
+                me.bindings.insert(name.to_string(), BindKind::Ref);
+                format!("{pad}let {} = &{temp}.{part};\n", rs_ident(name))
+            }
+        };
+        match pattern {
+            Pattern::Ident(_) => {}
+            Pattern::Tuple { elems, .. } => {
+                for (i, p) in elems.iter().enumerate() {
+                    match p {
+                        Pattern::Ident(id) => {
+                            let line = bind(self, &id.name, i.to_string());
+                            out.push_str(&line);
+                        }
+                        _ => self.error("nested destructuring patterns are not supported yet"),
+                    }
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for f in fields {
+                    let line = bind(self, &f.binding.name, rs_ident(&f.field.name));
+                    out.push_str(&line);
+                }
+            }
+        }
+        out
+    }
+
+    /// [let-destructure] The pending destructuring prologue for the loop whose
+    /// header was just emitted, if its pattern needs one.
+    fn take_loop_destructure(&mut self) -> String {
+        self.loop_destructures.pop().unwrap_or_default()
     }
 
     /// [iter-for-native] The subject of a *native* `for`, as Rust iterates it.
@@ -9397,7 +9460,7 @@ impl<'p> Emitter<'p> {
                 let header = self.emit_pass_loop_header(driver, pattern.unwrap(), cond_or_iter, 0);
                 out.push_str(&header);
             } else {
-                let var = self.for_pattern_var(pattern.unwrap(), false);
+                let var = self.for_pattern_var(pattern.unwrap(), false, 0);
                 let iter = self.emit_expr(cond_or_iter);
                 let iter = self.native_for_subject(cond_or_iter, iter);
                 out.push_str(&format!("for {var} in {iter} {{\n"));
@@ -9424,6 +9487,11 @@ impl<'p> Emitter<'p> {
         }
         if !is_for {
             out.push_str(&self.emit_is_bindings(cond_or_iter, 0));
+        }
+        // [let-destructure] As in statement position: the pattern's bindings
+        // open the body.
+        if is_for {
+            out.push_str(&self.take_loop_destructure());
         }
         self.loop_results.push(Some(result.clone()));
         self.loop_splice_floors.push(self.exit_splices.len());

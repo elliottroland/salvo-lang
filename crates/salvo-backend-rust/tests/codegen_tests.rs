@@ -2725,6 +2725,83 @@ fn rustc_compiles_and_runs_effect_selectors() {
 }
 
 
+
+// ===== destructuring a loop element [let-destructure] =====
+
+/// [let-destructure] A `for` binds a **pattern**, not just a name: the header
+/// binds the element to a temporary and the body opens with the pattern's
+/// bindings. Expected output is verbatim the Kotlin backend's.
+const LOOP_DESTRUCTURE: &str = r#"
+struct Row { name: Str, score: Int }
+
+fn main() [use] -> None {
+    use StdOutConsole
+    // [let-destructure] A loop element destructures like a `let`: a tuple by
+    // position, a struct by field (renamed where the pattern says so).
+    let pairs: List<(Str, Int)> = [("a", 1), ("b", 2)]
+    for (k, v) in iter(pairs) {
+        println("${k}=${v}")
+    }
+    let rows: List<Row> = [Row { name: "x", score: 7 }, Row { name: "y", score: 8 }]
+    for {name: who, score} in iter(rows) {
+        println("${who} ${score}")
+    }
+    // A binding the body assigns to is the local's own, not the element's.
+    let nums: List<(Int, Int)> = [(1, 2), (3, 4)]
+    for (a, b) in iter(nums) {
+        a = a + b
+        println("${a}")
+    }
+    // In value position, and nested — two loops, two element temporaries.
+    let sum = for (x, y) in iter(pairs) {
+        size(x) + y
+    } else {
+        0
+    }
+    println("sum ${sum}")
+}
+"#;
+
+const LOOP_DESTRUCTURE_OUTPUT: &str = "a=1\nb=2\nx 7\ny 8\n3\n7\nsum 3\n";
+
+#[test]
+fn rustc_compiles_and_runs_loop_destructuring() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LOOP_DESTRUCTURE)]);
+    run_rust_files(&files, "loop-destructure", LOOP_DESTRUCTURE_OUTPUT);
+}
+
+/// [let-destructure] [rs-borrow-locals] What it lowers to: the element in a
+/// temporary, then one binding per name — **by reference**, which is what makes
+/// one shape serve an owned element and a borrowed one (a pattern with `mut`
+/// bindings cannot move out of a pass's projection, `E0507`). A name the body
+/// assigns to takes an owned copy instead, since a reference cannot be
+/// reassigned.
+#[test]
+fn loop_destructuring_binds_the_parts_of_a_temporary() {
+    let files = generate(&[("main.sv", LOOP_DESTRUCTURE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    assert!(
+        text.contains("let k = &__elem.0;") && text.contains("let v = &__elem.1;"),
+        "expected the tuple parts bound by reference:\n{text}"
+    );
+    assert!(
+        text.contains("let who = &__elem2.name;") && text.contains("let score = &__elem2.score;"),
+        "expected the struct fields bound by reference, renamed:\n{text}"
+    );
+    assert!(
+        text.contains("let mut a = __elem3.0.clone();"),
+        "expected an assigned-to binding to own its copy:\n{text}"
+    );
+}
+
 // ===== tuples past three [type-tuple] =====
 
 /// [type-tuple] Rust tuples are native at any arity, so the interesting half

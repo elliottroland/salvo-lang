@@ -565,6 +565,17 @@ the blanket rule:
   optional the local *is* the join type and tails assign it directly
   (their `WrapOption`/wrap coercions are already recorded by the
   checker).
+* [let-destructure] A **loop pattern** lowers through an `__elemN` temporary:
+  the header binds the element, the body opens with one binding per name, read
+  off it — `let k = &__elem.0;` / `let who = &__elem.name;`, registered as
+  reference bindings [rs-borrow-locals]. By reference because that is the one
+  shape that serves an owned element *and* a borrowed one (a pass hands out
+  projections): reads borrow, and an owned use clones exactly as it does for a
+  `&T` parameter. A native Rust pattern in the header cannot — `mut k` opts out
+  of match ergonomics, so it moves out of a shared reference (`E0507`). A name
+  the body **assigns to** takes an owned copy (`let mut a = __elem.0.clone();`),
+  since a reference cannot be reassigned and the element is not what the
+  assignment means.
 * [if-else-none] `if` is an expression in both languages; a missing `else`
   on a value-position `if` emits `else { None }` (the branch values carry
   `WrapOption` coercions). Statement-position branches emit their tails as

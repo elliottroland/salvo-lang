@@ -2095,6 +2095,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_place_operand,
     kotlinc_compiles_and_runs_tuple_index,
     kotlinc_compiles_and_runs_tuples_past_three,
+    kotlinc_compiles_and_runs_loop_destructuring,
     kotlinc_compiles_and_runs_list_element_types,
     kotlinc_compiles_and_runs_collections,
     kotlinc_compiles_and_runs_collection_iteration,
@@ -4744,6 +4745,85 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
     )
 }
 
+
+
+// ===== destructuring a loop element [let-destructure] =====
+
+/// [let-destructure] A `for` binds a **pattern**, not just a name. Source and
+/// expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_loop_destructuring`.
+const LOOP_DESTRUCTURE: &str = r#"
+struct Row { name: Str, score: Int }
+
+fn main() [use] -> None {
+    use StdOutConsole
+    // [let-destructure] A loop element destructures like a `let`: a tuple by
+    // position, a struct by field (renamed where the pattern says so).
+    let pairs: List<(Str, Int)> = [("a", 1), ("b", 2)]
+    for (k, v) in iter(pairs) {
+        println("${k}=${v}")
+    }
+    let rows: List<Row> = [Row { name: "x", score: 7 }, Row { name: "y", score: 8 }]
+    for {name: who, score} in iter(rows) {
+        println("${who} ${score}")
+    }
+    // A binding the body assigns to is the local's own, not the element's.
+    let nums: List<(Int, Int)> = [(1, 2), (3, 4)]
+    for (a, b) in iter(nums) {
+        a = a + b
+        println("${a}")
+    }
+    // In value position, and nested — two loops, two element temporaries.
+    let sum = for (x, y) in iter(pairs) {
+        size(x) + y
+    } else {
+        0
+    }
+    println("sum ${sum}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_loop_destructuring() -> KotlinCase {
+    let program = build_program(&[("main.sv", LOOP_DESTRUCTURE)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "loop-destructure", "a=1\nb=2\nx 7\ny 8\n3\n7\nsum 3\n")
+}
+
+/// [let-destructure] What it lowers to: the element in a temporary — cast to its
+/// own type, which is what a pass-driven header needs — then one `val` per name,
+/// a tuple's by component and a struct's by field. Kotlin *could* destructure a
+/// `Pair` in the header, but not the pass's payload and not a struct, so one
+/// shape serves every loop and matches the Rust backend's.
+#[test]
+fn loop_destructuring_binds_the_parts_of_a_temporary_kotlin() {
+    let program = build_program(&[("main.sv", LOOP_DESTRUCTURE)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    let text = &main.content;
+    assert!(
+        text.contains("as Pair<String, Int>"),
+        "the element temporary must be cast to its own type:\n{text}"
+    );
+    assert!(
+        text.contains("val k = __elem.first") && text.contains("val v = __elem.second"),
+        "expected the tuple parts by component name:\n{text}"
+    );
+    assert!(
+        text.contains("val who = __elem2.name") && text.contains("val score = __elem2.score"),
+        "expected the struct fields by name, renamed:\n{text}"
+    );
+    assert!(
+        text.contains("var a = __elem3.first"),
+        "expected an assigned-to binding to be a `var`:\n{text}"
+    );
+}
 
 // ===== tuples past three [kt-tuple-class] =====
 

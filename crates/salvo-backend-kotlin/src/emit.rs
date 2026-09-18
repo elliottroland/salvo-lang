@@ -926,6 +926,10 @@ struct Emitter<'p> {
     loop_results: Vec<Option<String>>,
     /// Counter for unique `__loopN` lowering locals.
     loop_id: usize,
+    /// [let-destructure] Pending destructuring prologues, innermost last: a
+    /// loop header whose pattern destructures pushes the statements its body
+    /// must open with, and the body emission pops them.
+    loop_destructures: Vec<String>,
     /// Counter for unique `__destructuredN` temps [let-destructure].
     destructure_id: usize,
     /// Names already bound in the current function (parameters, locals,
@@ -1009,6 +1013,7 @@ impl<'p> Emitter<'p> {
             unchecked_cast: false,
             loop_results: Vec::new(),
             loop_id: 0,
+            loop_destructures: Vec::new(),
             destructure_id: 0,
             taken_names: HashSet::new(),
             handler_deps: Vec::new(),
@@ -1163,7 +1168,7 @@ impl<'p> Emitter<'p> {
             },
             None => self.emit_expr(iterable),
         };
-        let var = self.for_pattern_var(pattern);
+        let var = self.for_pattern_var(pattern, indent + 1);
         self.union_sizes.insert(driver.arms);
         let (arm, read) = match arm_args {
             Some(args) => (
@@ -3955,10 +3960,14 @@ impl<'p> Emitter<'p> {
                             self.emit_pass_loop_header(driver, pattern, iterable, indent)
                         })
                 };
-                let var = if claiming.is_some() {
+                // The pass and claiming headers bind the element themselves
+                // (and a destructuring pattern's prologue rides with them), so
+                // only a *native* `for` needs a loop variable here — asking for
+                // one twice would mint two temporaries for one loop.
+                let var = if claiming.is_some() || pass.is_some() {
                     String::new()
                 } else {
-                    self.for_pattern_var(pattern)
+                    self.for_pattern_var(pattern, indent + 1)
                 };
                 let iter = if pass.is_none() && claiming.is_none() {
                     let code = self.emit_expr(iterable);
@@ -3978,6 +3987,9 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true\n"));
                 }
+                // [let-destructure] A destructuring pattern's bindings open the
+                // body, read off the element the header bound.
+                out.push_str(&self.take_loop_destructure());
                 self.loop_results.push(None);
                 out.push_str(&self.emit_block_stmts(body, indent + 1));
                 self.loop_results.pop();
@@ -5519,24 +5531,78 @@ impl<'p> Emitter<'p> {
     }
 
     /// The Kotlin `for (<var> in ...)` binding for a Salvo loop pattern.
-    fn for_pattern_var(&mut self, pattern: &Pattern) -> String {
+    ///
+    /// [let-destructure] A **destructuring** pattern binds the element to a
+    /// temporary here and leaves its own bindings to
+    /// [`Self::take_loop_destructure`], which the body opens with. Kotlin could
+    /// destructure a `Pair` in the header — `for ((k, v) in pairs)` — but not
+    /// the *pass-driven* header, whose element arrives as a cast payload rather
+    /// than as a loop variable, and not a struct at all (a Salvo struct is a
+    /// plain class, with no `componentN`). One shape therefore serves every
+    /// loop and both pattern kinds, and it is the Rust backend's shape too.
+    fn for_pattern_var(&mut self, pattern: &Pattern, body_indent: usize) -> String {
         match pattern {
             Pattern::Ident(id) => kt_ident(&id.name),
-            Pattern::Tuple { elems, .. } => {
-                let names: Vec<String> = elems
-                    .iter()
-                    .map(|p| match p {
-                        Pattern::Ident(id) => kt_ident(&id.name),
-                        _ => "_".to_string(),
-                    })
-                    .collect();
-                format!("({})", names.join(", "))
-            }
-            Pattern::Struct { .. } => {
-                self.error("struct destructuring in `for` is not supported yet");
-                "_".to_string()
+            Pattern::Tuple { .. } | Pattern::Struct { .. } => {
+                let temp = self.unique_name("__elem".to_string());
+                let prologue = self.loop_destructure(pattern, &temp, body_indent);
+                self.loop_destructures.push(prologue);
+                temp
             }
         }
+    }
+
+    /// [let-destructure] The statements a destructuring loop body opens with:
+    /// one `val` per name, read off the element temporary — a tuple's by
+    /// component name [kt-tuple-component], a struct's by field.
+    fn loop_destructure(&mut self, pattern: &Pattern, temp: &str, indent: usize) -> String {
+        let pad = "    ".repeat(indent);
+        let mut out = String::new();
+        match pattern {
+            Pattern::Ident(_) => {}
+            Pattern::Tuple { elems, .. } => {
+                for (i, p) in elems.iter().enumerate() {
+                    match p {
+                        Pattern::Ident(id) => {
+                            // A name the body assigns to is a `var`, exactly as
+                            // a `let` binding is.
+                            let kw = if self.mutated.contains(&id.name) {
+                                "var"
+                            } else {
+                                "val"
+                            };
+                            out.push_str(&format!(
+                                "{pad}{kw} {} = {temp}.{}\n",
+                                kt_ident(&id.name),
+                                Self::tuple_component(i)
+                            ));
+                        }
+                        _ => self.error("nested destructuring patterns are not supported yet"),
+                    }
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for f in fields {
+                    let kw = if self.mutated.contains(&f.binding.name) {
+                        "var"
+                    } else {
+                        "val"
+                    };
+                    out.push_str(&format!(
+                        "{pad}{kw} {} = {temp}.{}\n",
+                        kt_ident(&f.binding.name),
+                        kt_ident(&f.field.name)
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// [let-destructure] The pending destructuring prologue for the loop whose
+    /// header was just emitted, if its pattern needs one.
+    fn take_loop_destructure(&mut self) -> String {
+        self.loop_destructures.pop().unwrap_or_default()
     }
 
     /// Lowers a value-position loop [while-value] [kt-loop-value] to a
@@ -5649,7 +5715,7 @@ impl<'p> Emitter<'p> {
                 match &pass {
                     Some(header) => out.push_str(header),
                     None => {
-                        let var = self.for_pattern_var(pattern);
+                        let var = self.for_pattern_var(pattern, 0);
                         let code = self.emit_expr(iterable);
                         let iter = self.native_for_subject(iterable, code);
                         out.push_str(&format!("for ({var} in {iter}) {{\n"));
@@ -5658,6 +5724,8 @@ impl<'p> Emitter<'p> {
                 if else_block.is_some() {
                     out.push_str(&format!("{ran} = true\n"));
                 }
+                // [let-destructure] As in statement position.
+                out.push_str(&self.take_loop_destructure());
                 self.loop_results.push(Some(result.clone()));
                 out.push_str(&self.emit_loop_body_value(body, &result));
                 self.loop_results.pop();

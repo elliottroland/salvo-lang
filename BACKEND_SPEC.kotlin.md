@@ -237,6 +237,14 @@ Conventions:
   struct fields emit `var`.
 * [let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
+  * **A loop pattern** lowers through an `__elemN` temporary instead — the
+    header binds the element, the body opens with one `val` per name (a
+    tuple's by component name [kt-tuple-component], a struct's by field), and
+    a name the body assigns to is a `var`. Kotlin *could* destructure a `Pair`
+    in a `for` header, but not the **pass-driven** header, whose element is a
+    cast payload rather than a loop variable, and not a struct at all (a Salvo
+    struct is a plain class, with no `componentN`) — so one shape serves every
+    loop, and it is the Rust backend's shape too.
 * [is-binding] `is T name` bindings emit `val name = subj as T` at the top
   of the matched branch (relies on subject purity); `while x is T name`
   re-declares the binding per iteration at the top of the loop body.

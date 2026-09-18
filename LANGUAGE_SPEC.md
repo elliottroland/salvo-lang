@@ -474,13 +474,21 @@ Conventions:
     `Unknown`s *silently* and the emitters wrote target code that could not
     build, so a Salvo mistake was reported, at best, by rustc or kotlinc. An
     `Unknown` subject stays lenient ([type-unknown-lenient]).
-  * **A loop binding is a name**, not a pattern, in the first pass:
-    `for (k, v) in pairs` is an error naming the remedy (bind the element and
-    read `p.0`), because neither backend's loop lowering destructures an
-    element — Kotlin casts the pass's payload to the element type and Rust
-    matches the emitted union arm, and a pattern in either place emitted code
-    the target compiler rejected. Refused in the checker rather than per
-    backend, since it is unsupported on both; the lift is in ROADMAP.md.
+  * **A loop element destructures too** (2026-09-18): `for (k, v) in pairs` and
+    `for {name, score} in rows` bind exactly what the same pattern binds in a
+    `let`, and are checked the same way — the element type is the subject.
+    * **One lowering, both backends**: the loop header binds the element to a
+      temporary and the body opens with the pattern's bindings, read off it.
+      A native pattern in the header would have had to differ per backend and
+      per loop shape — Kotlin cannot destructure a pass's cast payload or a
+      struct at all, and Rust's `mut` bindings in a pattern cannot move out of
+      a projection ([rs-borrow-locals]) — so one shape serves every loop and
+      both pattern kinds.
+    * A binding the body **assigns to** is the local's own: the element is not
+      written through it (a loop binding is a `let`, and a collection is not
+      mutated by rebinding one), so it takes an owned copy where the others
+      borrow.
+    * **Nested patterns are still refused**, in a loop as in a `let`.
 * [flow-place] Flow facts are keyed by *place*, not by variable name: a
   place is a local root plus a projection path (`h`, `h.field`, `h.a.b`,
   `h.pair.0`). Narrowing applies to every step that names one location
