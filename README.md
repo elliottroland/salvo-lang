@@ -154,7 +154,11 @@ fn main() [use] {
   from the enclosing scope, so callers never mention it. That effect may be
   **the one the handler implements**, which is interception: the
   dependency binds strictly outward, so a policy handler wraps the one
-  already registered, and a later `use` shadows an earlier one. A function
+  already registered, and a later `use` shadows an earlier one. One handler may
+  implement **several effects** (`of Timer, TimerCtl`): one state, one face per
+  effect, which is how a public protocol and an administrative one share an
+  implementation — and a `spawn` of one hands back an addr per face, so who holds
+  which face decides what they may do. A function
   *value* that performs an effect declares it in its type
   (`(s: Str) [Logger] -> Str`), and the effect is supplied by whoever calls
   the value — so a higher-order function inherits its callback's effects

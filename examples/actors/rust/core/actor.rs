@@ -39,10 +39,6 @@ pub enum __Msg_Faults {
     Faulted(Fault),
 }
 
-pub enum __Cont_Faults {
-    Faulted,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Exit {
     pub reason: String,

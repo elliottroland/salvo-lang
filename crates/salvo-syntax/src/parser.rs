@@ -1161,11 +1161,16 @@ impl<'s> Parser<'s> {
             None
         };
         self.expect(&TokenKind::KwOf)?;
-        let of = self.parse_type()?;
+        // [effect-handler-multi] One effect or several, comma-separated: the
+        // handler wears one face per effect over one piece of state.
+        let mut of = vec![self.parse_type()?];
+        while self.eat(&TokenKind::Comma).is_some() {
+            of.push(self.parse_type()?);
+        }
         let mut state = Vec::new();
         let mut fns = Vec::new();
         let mut mailbox = None;
-        let mut end = of.span();
+        let mut end = of.last().map(|t| t.span()).unwrap_or(start);
         if self.at(&TokenKind::LBrace) && self.same_line() {
             self.bump();
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {

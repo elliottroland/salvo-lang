@@ -14,6 +14,16 @@ package salvo
 //
 // Lists and tuples compare **lexicographically**, element by element; a
 // shorter list that is a prefix of a longer one compares less.
+
+// [kt-tuple-class] What a *generated* tuple — the arities past `Pair` and
+// `Triple`, which Kotlin has no type for — exposes so this helper can order it
+// without knowing its arity. A type test is the only way in (there is no
+// supertype Kotlin already knows), so the tuple classes implement this and
+// hand over their elements in order.
+interface SalvoTuple {
+    val __parts: List<Any?>
+}
+
 @Suppress("UNCHECKED_CAST")
 fun __salvoCompare(a: Any?, b: Any?): Int {
     // Strings compare by **code point**, not by UTF-16 code unit.
@@ -52,6 +62,12 @@ fun __salvoCompare(a: Any?, b: Any?): Int {
         if (c1 != 0) return c1
         val c2 = __salvoCompare(a.second, b.second)
         return if (c2 != 0) c2 else __salvoCompare(a.third, b.third)
+    }
+    // [kt-tuple-class] A generated tuple orders by its elements, which is the
+    // list rule applied to `__parts` — same arity on both sides, so the
+    // length tie-break never fires.
+    if (a is SalvoTuple && b is SalvoTuple) {
+        return __salvoCompare(a.__parts, b.__parts)
     }
     // Everything else Salvo admits as orderable is `Comparable` on the JVM:
     // `Int`, `Long`, `Str`, `Char`, `Bool`, and a `canbe ordered` struct,

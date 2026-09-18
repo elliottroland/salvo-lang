@@ -82,16 +82,11 @@ pub enum __Msg_Counter {
     Total(crate::scheduler::SalvoReply),
 }
 
-pub enum __Cont_Counter {
-    Bump,
-    Total,
-}
-
 pub struct Counting {
     sum: i32,
     __mailbox_capacity: i32,
     __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, crate::__Cont_Counter>,
+    __parked: std::collections::HashMap<u64, __Cont_Counting>,
 }
 
 impl Counting {
@@ -114,6 +109,11 @@ impl Counter for Counting {
     fn total(&mut self, out: crate::scheduler::SalvoReply) {
         (out).send(Box::new(self.sum));
     }
+}
+
+pub enum __Cont_Counting {
+    Bump,
+    Total,
 }
 
 pub struct __Actor_Counting {
@@ -148,8 +148,8 @@ impl crate::scheduler::SalvoActor for __Actor_Counting {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            crate::__Cont_Counter::Bump => self.__dispatch(crate::__Msg_Counter::Bump(*value.downcast::<i32>().expect("the awaited answer"))),
-            crate::__Cont_Counter::Total => self.__dispatch(crate::__Msg_Counter::Total(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Counting::Bump => self.__dispatch(crate::__Msg_Counter::Bump(*value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Counting::Total => self.__dispatch(crate::__Msg_Counter::Total(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 }
@@ -187,15 +187,10 @@ pub enum __Msg_Ledger {
     Reported(String, crate::scheduler::SalvoReply, i32),
 }
 
-pub enum __Cont_Ledger {
-    Report(String),
-    Reported(String, crate::scheduler::SalvoReply),
-}
-
 pub struct Bookkeeping {
     __mailbox_capacity: i32,
     __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, crate::__Cont_Ledger>,
+    __parked: std::collections::HashMap<u64, __Cont_Bookkeeping>,
 }
 
 impl Bookkeeping {
@@ -228,12 +223,17 @@ pub trait __Impl_Bookkeeping {
 impl __Impl_Bookkeeping for Bookkeeping {
 
     fn report<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply) {
-        __Has_Counter::__get_Counter(&mut *__fx).total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, crate::__Cont_Ledger::Reported(label, out)); __r });
+        __Has_Counter::__get_Counter(&mut *__fx).total({ let (__r, __s) = crate::scheduler::salvo_mint(self.__addr.expect("a parking handler runs as an actor")); self.__parked.insert(__s, __Cont_Bookkeeping::Reported(label, out)); __r });
     }
 
     fn reported<__Fx: __Has_Counter>(&mut self, __fx: &mut __Fx, label: String, out: crate::scheduler::SalvoReply, total: i32) {
         (out).send(Box::new(format!("{}={}", label, total)));
     }
+}
+
+pub enum __Cont_Bookkeeping {
+    Report(String),
+    Reported(String, crate::scheduler::SalvoReply),
 }
 
 pub struct __Prov_Bookkeeping<__D0> {
@@ -280,8 +280,8 @@ impl<__D0: Counter + Send + 'static> crate::scheduler::SalvoActor for __Actor_Bo
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            crate::__Cont_Ledger::Report(label) => self.__dispatch(crate::__Msg_Ledger::Report(label, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            crate::__Cont_Ledger::Reported(label, out) => self.__dispatch(crate::__Msg_Ledger::Reported(label, out, *value.downcast::<i32>().expect("the awaited answer"))),
+            __Cont_Bookkeeping::Report(label) => self.__dispatch(crate::__Msg_Ledger::Report(label, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Bookkeeping::Reported(label, out) => self.__dispatch(crate::__Msg_Ledger::Reported(label, out, *value.downcast::<i32>().expect("the awaited answer"))),
         }
     }
 }
@@ -324,18 +324,12 @@ pub enum __Msg_Desk {
     CloseUp(String),
 }
 
-pub enum __Cont_Desk {
-    Ticket,
-    Serve,
-    CloseUp,
-}
-
 pub struct Desking {
     room: i32,
     waiting: Vec<crate::scheduler::SalvoReply>,
     __mailbox_capacity: i32,
     __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, crate::__Cont_Desk>,
+    __parked: std::collections::HashMap<u64, __Cont_Desking>,
 }
 
 impl Desking {
@@ -374,6 +368,12 @@ impl Desk for Desking {
     }
 }
 
+pub enum __Cont_Desking {
+    Ticket,
+    Serve,
+    CloseUp,
+}
+
 pub struct __Actor_Desking {
     handler: Desking,
 }
@@ -407,9 +407,9 @@ impl crate::scheduler::SalvoActor for __Actor_Desking {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            crate::__Cont_Desk::Ticket => self.__dispatch(crate::__Msg_Desk::Ticket(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
-            crate::__Cont_Desk::Serve => self.__dispatch(crate::__Msg_Desk::Serve(*value.downcast::<String>().expect("the awaited answer"))),
-            crate::__Cont_Desk::CloseUp => self.__dispatch(crate::__Msg_Desk::CloseUp(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Desking::Ticket => self.__dispatch(crate::__Msg_Desk::Ticket(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Desking::Serve => self.__dispatch(crate::__Msg_Desk::Serve(*value.downcast::<String>().expect("the awaited answer"))),
+            __Cont_Desking::CloseUp => self.__dispatch(crate::__Msg_Desk::CloseUp(*value.downcast::<String>().expect("the awaited answer"))),
         }
     }
 }

@@ -104,18 +104,20 @@ Module {
                 generics: [],
                 params: [],
                 effects: None,
-                of: Named {
-                    qualifiers: [],
-                    base: TypeRef {
-                        name: Ident {
-                            name: "Console",
+                of: [
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Console",
+                                span: 157..164,
+                            },
+                            args: [],
+                            from: [],
                             span: 157..164,
                         },
-                        args: [],
-                        from: [],
-                        span: 157..164,
                     },
-                },
+                ],
                 mailbox: None,
                 state: [],
                 fns: [],

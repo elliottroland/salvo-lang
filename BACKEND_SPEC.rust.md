@@ -1387,7 +1387,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
       activation's `SalvoCtx` before the member runs, and `None` when the
       instance was bound with `use` instead. That absence is the **self-send's
       discriminator** [actor-self-send].
-    * `__parked: HashMap<u64, __Cont_E>` — slot → continuation, emitted when
+    * `__parked: HashMap<u64, __Cont_H>` — slot → continuation, emitted when
       the protocol has any member that could be a target.
 
     They sit on the *handler* rather than on `__Proc_H` because the **mint**
@@ -1396,8 +1396,29 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     decision 2026-09-15, D5-b). The alternative — a table in the runtime —
     would have changed `SalvoProcess::resume`'s decided signature, and the two
     runtimes are the most exactly-mirrored code in the phase.
-  * **The protocol's continuation enum**, `__Cont_E`, beside `__Msg_E` and
-    named after the effect for the same reason: one variant per send member
+  * **[effect-handler-multi] A handler of several effects is one actor with one
+    dispatcher per protocol.** One `impl E for H` per face (a member that
+    implements a same-named member of two faces appears in both impls — Rust
+    cannot share a method between two traits, and the signatures are identical
+    wherever that is legal, so the body is emitted twice rather than
+    forwarded); one `__dispatch_<Effect>` per face, where a single-face handler
+    keeps the bare `__dispatch` it always emitted; and a `handle` that asks each
+    protocol in turn — `msg.downcast::<__Msg_E>()` hands the box back on a miss,
+    which is what makes the chain possible. `spawn` answers `(__a, __a)`: one
+    scheduler index, one mailbox, one tuple element per face, so least authority
+    costs nothing at run time.
+    * **The fusion is switched on by a multi-face handler too**
+      (`program_needs_fusion`), for the reason the fusion exists: a fn declaring
+      `[A, B]` takes one `&mut` per effect, and when both are one handler's
+      faces those are two mutable borrows of one local — `E0499`. A fused value
+      carrying a Has-accessor per face borrows once. A multi-face `use` emits
+      one `__Has_E` impl per face onto the one owned instance, and registers one
+      effect entry per face against the same variable.
+  * **The continuation enum**, `__Cont_H`, emitted beside the **handler** whose
+    members it names — the handler, not the effect, because a mint is lexical
+    ([effect-handler-multi]: with several faces a handler's members come from
+    several protocols, and `replyto` targets the *handler's*). Its variants are
+    named after the effect member each one resumes: one variant per send member
     with at least one parameter, carrying that member's parameters **minus the
     trailing one**. The last parameter is the answer itself [actor-replyto],
     which arrives with the reply rather than being stored — so the variant tells
@@ -1531,7 +1552,7 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     in `worker` before it parks, which is what fires a hook registered by an
     actor while nobody is waiting.
   * **`replyto k(caps)`** → a block that mints, parks and answers the token:
-    `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_E::K(caps)); __r }`.
+    `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_H::K(caps)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the
     runtime's business, not the emitter's. The `expect` cannot fire: a parking
     handler may only be spawned ([actor-replyto], checked), so its members run

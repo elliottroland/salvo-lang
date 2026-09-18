@@ -113,7 +113,9 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                 }
             }
             Item::Handler(h) => {
-                type_names(&h.of, &mut used);
+                for of in &h.of {
+                    type_names(of, &mut used);
+                }
                 for p in &h.params {
                     type_names(&p.ty, &mut used);
                 }

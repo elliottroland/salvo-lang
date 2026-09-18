@@ -187,31 +187,33 @@ Module {
                     },
                 ],
                 effects: None,
-                of: Named {
-                    qualifiers: [],
-                    base: TypeRef {
-                        name: Ident {
-                            name: "Random",
-                            span: 156..162,
-                        },
-                        args: [
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "T",
+                of: [
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Random",
+                                span: 156..162,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
+                                            span: 163..164,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 163..164,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 163..164,
                                 },
-                            },
-                        ],
-                        from: [],
-                        span: 156..165,
+                            ],
+                            from: [],
+                            span: 156..165,
+                        },
                     },
-                },
+                ],
                 mailbox: None,
                 state: [
                     FieldDecl {
@@ -367,18 +369,20 @@ Module {
                 generics: [],
                 params: [],
                 effects: None,
-                of: Named {
-                    qualifiers: [],
-                    base: TypeRef {
-                        name: Ident {
-                            name: "Console",
+                of: [
+                    Named {
+                        qualifiers: [],
+                        base: TypeRef {
+                            name: Ident {
+                                name: "Console",
+                                span: 307..314,
+                            },
+                            args: [],
+                            from: [],
                             span: 307..314,
                         },
-                        args: [],
-                        from: [],
-                        span: 307..314,
                     },
-                },
+                ],
                 mailbox: None,
                 state: [],
                 fns: [

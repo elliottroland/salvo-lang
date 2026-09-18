@@ -58,8 +58,9 @@ continuations, bridge into `main`, depend on one another, watch each other die
 and hold queues of obligations — on both backends with identical output, with a
 worked example in `examples/actors/`. What is in progress is **"The second
 sequence"** below: steps 1 and 2 — the `waitfor` package and the task kernel —
-landed 2026-09-17 and step 3, `on_idle`, on 2026-09-18, so **step 4,
-multi-effect handlers, is next**. Beside it: the open defects
+landed 2026-09-17 and steps 3 and 4 — `on_idle` and multi-effect handlers — on
+2026-09-18, so **step 5, `core.time`, is next** (and its first item, the time
+types, is a **DECISION** waiting on the user). Beside it: the open defects
 below, the decisions waiting on the user, and the themed sections.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
@@ -210,9 +211,9 @@ when it is picked up.
 ## The second sequence — time and free concurrency (user decisions 2026-09-17)
 
 TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
-2026-09-17** (the log entry has the full list). **Steps 1–3 are built**, so
+2026-09-17** (the log entry has the full list). **Steps 1–4 are built**, so
 FREE_CONCURRENCY.md has **retired into COMPLETED.md's log and the specs** as its
-charter said; TIME.md still holds the argument trail for steps 4–6. What remains
+charter said; TIME.md still holds the argument trail for steps 5–6. What remains
 is implementation, in this order — each step independently shippable, so the
 sequence can pause anywhere and leave the tree consistent:
 
@@ -233,27 +234,31 @@ sequence can pause anywhere and leave the tree consistent:
    implicit-override syntax), and whole-program tracing of task bodies for
    [actor-deadlock-cycle]. Rules: [free-send-fn], [task-mint],
    [task-pool-inherit], [pool-fault-sink], [rs-task], [kt-task]. Leftovers
-   under "The task kernel — leftovers" below. **Step 3 is next.**
+   under "The task kernel — leftovers" below.
 3. ✅ **`on_idle`** — **built 2026-09-18**, all of T-3(a): the runtime's
    quiescence detection exposed as a `watch`-shaped linear one-shot
    (`on_idle(p, notify)` answering `Idle { parked_gates, parked_tokens }`),
    with the undischarged-token accounting the payload needed and firing at
    both places a thread runs dry. The record is COMPLETED.md's log; the rule
    is [actor-on-idle]. Leftovers under "`on_idle` — leftovers" below.
-   **Step 4 is next.**
-4. **Multi-effect handlers** (T-4(a)): spawn yields one addr per
-   implemented effect; same-named members across the effects are legal when
-   overloading distinguishes them or one method implements both — rejected
-   only where overloading cannot distinguish (same parameters, different
-   return type). Intersection types recorded above as the unscheduled
-   future alternative.
+4. ✅ **Multi-effect handlers** — **built 2026-09-18**, all of T-4(a):
+   `handler H() of E1, E2`, a `spawn` answering one addr per face (a tuple for
+   several, the bare `Addr<E>` for one), a `use` binding every face, and the
+   same-named-member rule as decided — identical signatures mean one method
+   implements both, different parameters mean two members, and same parameters
+   with a different return type is refused. Conformance (every member of every
+   face) is now a Salvo diagnostic rather than the target compiler's. The record
+   is COMPLETED.md's log; the rule is [effect-handler-multi]. Leftovers under
+   "Multi-effect handlers — leftovers" below. **Step 5 is next.**
 5. **`core.time`** (T-1(b) + T-2's surface): **the time types first** —
    `Instant`, `Duration` (the embedded DECISION above) — then the intrinsic
    `DefaultTimer` (the first intrinsic handler for an actor effect — the
    flagged intrinsics-meet-scheduler case), `Fired` carrying an `Instant`,
    the sync `Clock` effect (`now() -> Instant`, monotonic; wall-clock out
-   of scope), `DefaultClock`, and the pure-Salvo `ManualTime` fake (clean
-   two-face form, thanks to step 4).
+   of scope), `DefaultClock`, and the pure-Salvo `ManualTime` fake, whose clean
+   two-face form step 4 has now made writable (`of Timer, TimerCtl` — the shape
+   the multi-effect step was scheduled for).
+   **Its first item, the time types, is a DECISION waiting on the user.**
 6. **The coupling stance** (T-2): time-as-data as the std posture; the
    unified `TestClock [Timer, waitfor]` becomes writable (steps 1 + 5);
    scheduler-owned virtual time stays the recorded, un-built upgrade path.
@@ -392,6 +397,57 @@ Parked with named triggers: FC-5's minter-attribution refinement (if the sink
 proves too coarse for recovery); deadlock stratification and the
 `Reply | TimedOut` timeout form (observed false positives; writable after
 step 5); lambdas as mint targets (with [fate-lambda], the sugar pass).
+
+### Multi-effect handlers — leftovers (2026-09-18)
+
+Found while building step 4; none blocks step 5.
+
+- **A same-named member across two faces still needs `@Effect` at the *call*
+  site**, even where the parameters distinguish it: [effect-at] fires when two
+  effects *in scope* declare the name, keying on the name rather than on the
+  parameters, so `ping(7)` is refused with "more than one is in scope" and
+  `ping@A(7)` is the fix. Not wrong, but it makes the "overloading distinguishes
+  them" half of the rule less useful than it reads: the handler may implement
+  both, while callers still disambiguate by hand. The fix is to let [effect-at]'s
+  ambiguity check consider the argument types before demanding a selector —
+  worth doing when a real program hits it.
+- ✅ **`let (a, b) = 7` is an error now** (fixed 2026-09-18, same day, at the
+  user's request): a tuple pattern needs a tuple of its arity behind it
+  [let-destructure], so destructuring a *one*-face spawn is refused too. See
+  COMPLETED.md's log.
+- **A dependent multi-face handler is untested.** `handler H [Dep] of A, B` is
+  accepted and both emitters have the shape for it (the Rust side emits a
+  forwarding impl per face over `__Impl_H`, the Kotlin side one carrier), but the
+  cases that run are independent multi-face handlers plus a *dependent
+  single*-face one. Worth a case when something needs it; the pieces are all
+  exercised separately.
+- ✅ **A handler of more than three faces works on both backends now** (fixed
+  2026-09-18, at the user's request): the spawn's addr tuple past three is a
+  generated `SalvoTupleN` on Kotlin rather than a codegen error
+  [kt-tuple-class].
+- **The `__Cont_E` → `__Cont_H` rename touched every actor's generated code**,
+  which is worth knowing before the next emitter change in that area: the
+  continuation type is now the *handler's*, emitted beside it, while the message
+  enum stays the effect's. Two handlers of one protocol therefore get two
+  continuation types with the same variants — slightly more generated code, and
+  the price of a mint being lexical.
+
+### Tuple patterns — the leftover (2026-09-18)
+
+The two silent tuple holes were closed the day they were found (COMPLETED.md's
+log). What the fix *deliberately* leaves is one cut, with a diagnostic:
+
+- **A loop element cannot be destructured**: `for (k, v) in pairs` is refused
+  naming the remedy (`for p in pairs` and `p.0` in the body). Neither backend's
+  loop lowering handles a pattern, and both used to emit target code that would
+  not build — Kotlin cast the pass's payload to `Any?` (before the renderer was
+  fixed) and `component1()` did not exist; Rust matched the emitted union arm and
+  moved out of a shared reference (`E0507`) even for an owned element. The lift
+  is two emitter changes: Kotlin needs the element bound to a `val` of its known
+  type before destructuring, and Rust needs the sub-patterns to bind by
+  reference (`ref k`) when the element is a projection — or the element bound to
+  a temporary and read field-wise, which is what the remedy does by hand today.
+  Worth building when a program wants it; nothing in the language forecloses it.
 
 ## Decisions waiting on the user
 

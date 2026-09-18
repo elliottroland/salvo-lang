@@ -130,12 +130,27 @@ Conventions:
   `$name` form when the interpolated expression is a bare identifier.
 * [type-nullable] `T?` maps to Kotlin nullability: `is None` → `== null`,
   `x!` → `!!`.
-* [type-tuple] Tuples of size 2/3 map to `Pair`/`Triple`; larger tuples
-  are a codegen error ([backend-never-wrong]).
+* [type-tuple] [kt-tuple-class] Tuples of size 2/3 map to `Pair`/`Triple` —
+  Kotlin's own, so a tuple keeps interoperating with the standard library — and
+  every larger arity maps to a **generated data class**, `SalvoTupleN`,
+  declared once per program in `tuples.kt` beside the union wrappers
+  (2026-09-18; they used to be a codegen error).
+  * A `data class` is what makes it a tuple rather than an object: structural
+    `equals`/`hashCode` (so it is a `Set` element or a `Map` key on a `Pair`'s
+    terms) and `componentN` (so `let (a, b, c, d) = t` destructures).
+  * Its properties are `first`, `second`, `third` and then `v3`, `v4`, … —
+    keeping `Pair`/`Triple`'s three names is what lets **one** index rule serve
+    every arity [kt-tuple-component].
+  * Ordering goes through `__salvoCompare`, which reaches it by type test
+    through the `SalvoTuple` marker interface (`compare.kt`) and compares
+    `__parts` lexicographically — there is no supertype Kotlin already knows,
+    so naming the program's tuple *arities* would not have been enough.
+    Emitting a generated tuple therefore emits `compare.kt` too.
 * [kt-tuple-component] A tuple index ([expr-tuple-index]) emits the
   matching component name: `.0`/`.1`/`.2` → `.first`/`.second`/`.third`.
-  A higher index has no Kotlin spelling and is a codegen error (it is
-  unreachable in practice — the tuple *type* is rejected first).
+  A higher index is a generated tuple's `v3`, `v4`, … [kt-tuple-class]: since
+  `Pair` and `Triple` have no `.3`, the index alone decides the spelling and no
+  arity has to be looked up.
   * A narrowed tuple element always asserts
     ([kt-narrow-field-assert]): `Pair`/`Triple` components are `val`s, but
     kotlinc only smart-casts properties declared in the module being
@@ -943,7 +958,7 @@ where Rust had to build the fusion to get the same programs running
       the activation's `SalvoCtx`, and `null` when the instance was bound with
       `use`. That absence is the **self-send's discriminator**
       [actor-self-send].
-    * `internal val __parked: MutableMap<Long, __Cont_E>` — slot →
+    * `internal val __parked: MutableMap<Long, __Cont_H>` — slot →
       continuation, emitted when the protocol has any member that could be a
       target.
 
@@ -954,8 +969,26 @@ where Rust had to build the fusion to get the same programs running
     rather than on `__Proc_H` for the same reason as on the Rust side: the mint
     happens in a member body, which cannot see the actor class (user decision
     2026-09-15, D5-b).
-  * **The protocol's continuation class**, `sealed class __Cont_E`, beside
-    `__Msg_E`: one subclass per send member with at least one parameter,
+  * **[effect-handler-multi] A handler of several effects is one class with one
+    dispatcher per protocol.** The class header lists every face
+    (`class ManualTime : Timer, TimerCtl`) and a member that implements a
+    same-named member of two faces needs **one** override — Kotlin lets a single
+    method satisfy both interfaces, which is why this side needs no forwarding
+    where Rust emits the body twice. `handle` is a `when (msg)` over the message
+    classes, dispatching to `__dispatch<Effect>` (a single-face handler keeps the
+    bare `__dispatch`), and `spawn` answers `Pair(__a, __a)` / `Triple(…)` — one
+    scheduler id under each protocol's type. More than three faces is the
+    generated `SalvoTupleN` [kt-tuple-class], like any other tuple that arity.
+    * A multi-face `use` binds one instance under every face: the fused class
+      gets a property per face, all initialized from **one** construction
+      hoisted into a `val` (pushing the constructor call per face would build
+      one handler per face, each with its own state), and the non-fused form
+      drops the type annotation, since the val's own class satisfies every
+      interface.
+  * **The continuation class**, `sealed class __Cont_H`, emitted beside the
+    **handler** whose members it names — the handler, not the effect, because a
+    mint is lexical ([effect-handler-multi]): one subclass per send member with
+    at least one parameter,
     carrying that member's parameters **minus the trailing one** — the answer
     arrives with the reply rather than being stored, and the subclass is what
     tells `resume` which member to call and what to cast the answer to.
@@ -1052,7 +1085,7 @@ where Rust had to build the fusion to get the same programs running
     `worker` before it awaits, which is what fires a hook registered by an actor
     while nobody is waiting.
   * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
-    __parked[__s] = __Cont_E.K(caps); __r }`, with `mintGated` for `replyto!`.
+    __parked[__s] = __Cont_H.K(caps); __r }`, with `mintGated` for `replyto!`.
     `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —
     changed with this slice, mirroring the Rust runtime and `waiter()`, because
     generated code keys `__parked` by the slot.
@@ -1077,7 +1110,6 @@ Reported as codegen errors, never silent wrong code:
 
 * multi-spread struct literals;
 * early `return` inside expression-position lambdas;
-* tuples beyond `Pair`/`Triple`;
 * struct literal without an inferable type;
 * `copy` of a type with nested mutability or an unknown/generic type
   [kt-copy].

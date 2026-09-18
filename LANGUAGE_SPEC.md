@@ -159,8 +159,11 @@ Conventions:
     need substituting).
 * [type-tuple] `(A, B, C)` is a tuple type; tuples can be destructured in
   `let` and indexed by position ([expr-tuple-index]).
-  * Backends may support only small sizes; unsupported sizes are codegen
-    errors ([backend-never-wrong]).
+  * **Any arity** (2026-09-18). Rust's tuples are native; Kotlin has `Pair`
+    and `Triple` and nothing past them, so the backend **generates** a tuple
+    class per arity a program names [kt-tuple-class] — the same answer it
+    already gives for union wrappers, rather than the codegen error the size
+    used to be.
 * [expr-tuple-index] `t.0` reads a tuple element by *constant* position,
   zero-based; chains nest left to right (`t.1.0` is element 0 of element 1).
   * Only tuples have elements, and the position must exist — both are
@@ -465,6 +468,19 @@ Conventions:
   * Struct destructuring binds the *declared* field types, deliberately
     ignoring predicate-qualifier field overrides (see
     [qual-field-override], which applies to direct accesses only).
+  * **A tuple pattern needs a tuple of that arity behind it** (2026-09-18):
+    anything else is an error naming what it found — `let (a, b) = 7` and
+    `let (a, b) = (1, 2, 3)` both report. Until then a mismatch bound
+    `Unknown`s *silently* and the emitters wrote target code that could not
+    build, so a Salvo mistake was reported, at best, by rustc or kotlinc. An
+    `Unknown` subject stays lenient ([type-unknown-lenient]).
+  * **A loop binding is a name**, not a pattern, in the first pass:
+    `for (k, v) in pairs` is an error naming the remedy (bind the element and
+    read `p.0`), because neither backend's loop lowering destructures an
+    element — Kotlin casts the pass's payload to the element type and Rust
+    matches the emitted union arm, and a pattern in either place emitted code
+    the target compiler rejected. Refused in the checker rather than per
+    backend, since it is unsupported on both; the lift is in ROADMAP.md.
 * [flow-place] Flow facts are keyed by *place*, not by variable name: a
   place is a local root plus a projection path (`h`, `h.field`, `h.a.b`,
   `h.pair.0`). Narrowing applies to every step that names one location
@@ -1933,8 +1949,9 @@ Conventions:
     names no effect type, so there is nothing to thread and the reason above
     does not reach it — and "this member may occupy your thread" is a fact
     about the *interface*, which is exactly what a member declaration is for.
-* [effect-handler] `handler H<G>(ctor params) [effects] of E<G> { state fns }`
-  implements every member of its effect; state fields have initializers
+* [effect-handler] `handler H<G>(ctor params) [effects] of E<G>, … { state fns }`
+  implements every member of every effect it names [effect-handler-multi];
+  state fields have initializers
   and persist for the handler's lifetime.
   * A state field's initializer is **checked against its declared type**,
     like a struct field's default: it runs at construction with no locals
@@ -1942,6 +1959,60 @@ Conventions:
     `held: Mut List<Int> = "no"` was accepted and the emitters never saw
     the expression's types, which the backends' intrinsic lowerings rely
     on [backend-intrinsic].)
+* [effect-handler-multi] **A handler may implement several effects**, one face
+  per effect: `handler ManualTime() of Timer, TimerCtl` (T-4(a), user decision
+  2026-09-17; built 2026-09-18). One handler, one piece of state, one mailbox
+  when it is an actor's — and one *typed face* per protocol.
+  * **What it replaces**: the forwarding split. Two protocols over one state
+    used to need a state-owning handler plus a second handler forwarding into
+    it — the same runtime shape, written twice. The pattern generalizes past
+    the test-control case it was found in: a **public face and an admin face**
+    (health, draining, stats) is the everyday form.
+  * **A `spawn` answers one addr per face**, in declaration order: a bare
+    `Addr<E>` for one face (unchanged), a **tuple** for several —
+    `let (timer, ctl) = spawn ManualTime() on pool(1)`. Least authority falls
+    out of the types with no new type machinery: production code holding
+    `timer` cannot name `advance`, because `Addr<Timer>` is typed by `Timer`.
+    Intersection-typed addrs (`Addr<Timer & TimerCtl>`) were the alternative
+    and are recorded in ROADMAP.md as an unscheduled future consideration —
+    the tuple gets the value without importing intersection types.
+  * **A `use` binds every face**, so the synchronous form of the pattern is
+    one registration and two effect lists that reach it; per-effect shadowing
+    is unchanged ([use-no-dup]), since each face is registered on its own.
+  * **Conformance is checked here, face by face**: every member of every face
+    needs an implementation, named as
+    ``handler `H` does not implement `E.m(T)` `` — the diagnostic the target
+    compilers' missing-trait-method errors used to stand in for.
+  * **Same-named members across faces** are legal in exactly two shapes:
+    *overloading distinguishes them* (different written parameter types, so
+    they are two members here and the handler implements both), or *one method
+    implements both* (identical signatures — same return type, same deduction
+    clause, since those are the two halves of the contract a caller relies on).
+    Refused where overloading cannot see the difference: same parameters,
+    different return type or different deductions. A caller still names the
+    face with `m@E(…)` where two effects in scope declare the name, which is
+    [effect-at] unchanged — it keys on the name, not on the parameters.
+  * **The faces are all of one kind.** An `actor effect` beside a plain one is
+    refused: a handler is bound one way or the other (`spawn` or `use`), and a
+    handler whose plain members run on the caller's thread while its send
+    members run on the actor's is the mixed handler SHAREABLE_HANDLERS.md is
+    still designing.
+  * **Each face is named once** — a repeated face would make a `spawn` answer
+    the same addr twice and say nothing new.
+  * **A bodyless handler wears one face**: an `intrinsic handler`'s members are
+    the backend's and a `platform handler`'s are the host's, and each writes
+    one implementation of one generated interface.
+  * **The deadlock graph keeps its effect-keyed nodes** [actor-deadlock-cycle]:
+    every face of a handler contributes the handler's edges, so two nodes that
+    happen to be one actor is the same conservative approximation the
+    type-level graph already makes.
+  * **A multi-face handler may not be *constructed* in a spawn's `use`
+    clause**: the child owns what a clause builds, and one instance cannot be
+    two of the child's dependencies. Two addrs of the same actor are the shape
+    that works, and they are two clause items.
+  * **One mailbox serves every face** [actor-mailbox], so arrival order across
+    faces is arrival order — the same rule that already holds across a single
+    protocol's members.
 * [effect-state-store] Assigning a value into a handler **state** field is a
   *store*: the field outlives every member call, so the handler takes
   ownership, exactly as a struct literal does ([deduce-consume]). Ordinary

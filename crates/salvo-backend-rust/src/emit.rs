@@ -533,7 +533,10 @@ pub fn platform_skeletons(
         // to choose. The trait it implements is the ordinary effect's, which
         // may live in another module (std's, typically).
         for h in &handlers {
-            let effect_path = type_base_name(&h.of)
+            // [platform-handler] [effect-handler-multi] One face: the host
+            // writes one class implementing one generated interface, and the
+            // checker refuses a second.
+            let effect_path = type_base_name(&h.of[0])
                 .and_then(|name| all_effect_module.get(name))
                 .and_then(|m| path_to(m));
             match effect_path {
@@ -919,7 +922,13 @@ fn module_produces_code(module: &Module) -> bool {
 /// same one.
 fn program_needs_fusion(symbols: &Symbols<'_>, reachable: &HashSet<&ModulePath>) -> bool {
     symbols.handlers.iter().any(|(name, h)| {
-        h.effects.iter().flatten().count() > 0
+        // [effect-handler-multi] A handler of several effects needs the fusion
+        // for the same reason a dependent one does, and it is the reason the
+        // fusion exists: a fn declaring `[A, B]` takes one `&mut` per effect,
+        // and when both are *this* handler's faces those are two mutable
+        // borrows of one local, which rustc refuses (E0499). One fused value
+        // carrying both accessors is the shape that borrows once.
+        (h.effects.iter().flatten().count() > 0 || h.of.len() > 1)
             && symbols
                 .handler_modules
                 .get(name)
@@ -2018,13 +2027,13 @@ impl<'p> Emitter<'p> {
             }
         }
         out.push_str("}\n");
-        out.push_str(&self.emit_cont_enum(e, &sends));
         out
     }
 
-    /// [rs-actor] [actor-replyto] `__Cont_E`: the **parked continuation**,
-    /// beside the message enum and named after the effect for the same reason
-    /// — the members are the protocol's.
+    /// [rs-actor] [actor-replyto] `__Cont_H`: the **parked continuation**,
+    /// emitted beside the *handler* whose members it names
+    /// [effect-handler-multi] — a mint is lexical, so the members are the
+    /// handler's, and with several faces they come from several protocols.
     ///
     /// A `replyto k(captures)` stores one of these in the minting actor's
     /// `__parked` table under the slot the runtime handed back; when the
@@ -2036,17 +2045,14 @@ impl<'p> Emitter<'p> {
     ///
     /// A member with no parameters can never be a target (there is no answer
     /// for the token to carry), so it gets no variant.
-    fn emit_cont_enum(&mut self, e: &EffectDecl, sends: &[(usize, &FnDecl)]) -> String {
-        let targets: Vec<(usize, &FnDecl)> = sends
-            .iter()
-            .copied()
-            .filter(|(_, f)| f.params.iter().any(|p| !p.implicit))
-            .collect();
+    fn emit_cont_enum(&mut self, h: &HandlerDecl) -> String {
+        let targets = self.cont_targets(h);
         if targets.is_empty() {
             return String::new();
         }
-        let mut out = format!("\npub enum {} {{\n", cont_enum_name(&e.name.name));
-        for (i, f) in &targets {
+        let mut out = format!("\npub enum {} {{\n", cont_enum_name(&h.name.name));
+        for (e, i) in &targets {
+            let Some(f) = e.fns.get(*i) else { continue };
             let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let captures: Vec<String> = fixed[..fixed.len() - 1]
                 .iter()
@@ -2102,8 +2108,8 @@ impl<'p> Emitter<'p> {
     /// constructs exactly this — `HostX::new(args)` — so neither the name nor
     /// the constructor is the host's to choose.
     fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str) -> String {
-        let of = self.emit_type(&h.of);
-        let Some(effect) = type_base_name(&h.of)
+        let of = self.emit_type(&h.of[0]);
+        let Some(effect) = type_base_name(&h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -2337,7 +2343,6 @@ impl<'p> Emitter<'p> {
         let saved = self.enter_generics(&h.generics);
         let generics = self.emit_generic_params(&h.generics);
         let generic_args = self.emit_generic_args_plain(&h.generics);
-        let of = self.emit_type(&h.of);
         let name = rs_ident(&h.name.name);
         // Every constructor parameter is data now: dependencies moved to the
         // handler's effect list [effect-handler-deps].
@@ -2483,17 +2488,35 @@ impl<'p> Emitter<'p> {
         out.push_str("        }\n    }\n}\n");
 
         if deps.is_empty() {
-            // Trait impl with the member bodies.
-            out.push_str(&format!(
-                "\nimpl{generics} {of} for {name}{generic_args} {{\n"
-            ));
-            for f in &h.fns {
-                out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+            // [effect-handler-multi] One trait impl per face, each carrying the
+            // members that face declares. A member that implements a same-named
+            // member of two faces appears in both impls — Rust cannot share one
+            // method between two traits, and the signatures are identical
+            // wherever that is legal, so the body is emitted twice rather than
+            // forwarded.
+            for (face, effect) in h.of.iter().zip(self.handler_faces(h)) {
+                let of = self.emit_type(face);
+                out.push_str(&format!(
+                    "\nimpl{generics} {of} for {name}{generic_args} {{\n"
+                ));
+                for f in &h.fns {
+                    if !self
+                        .member_faces(h, f)
+                        .iter()
+                        .any(|(e, _)| std::ptr::eq(*e, effect))
+                    {
+                        continue;
+                    }
+                    out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+                }
+                out.push_str("}\n");
             }
-            out.push_str("}\n");
         } else {
             out.push_str(&self.emit_dependent_members(h, &deps));
         }
+        // [actor-replyto] The parked-continuation enum, beside the handler
+        // whose members it names.
+        out.push_str(&self.emit_cont_enum(h));
         // [rs-actor] The body a `spawn` boxes, for a handler that can be
         // one: the message dispatch onto its members.
         out.push_str(&self.emit_actor_body(h, &deps));
@@ -2520,29 +2543,56 @@ impl<'p> Emitter<'p> {
         h: &HandlerDecl,
         deps: &[(String, Vec<String>)],
     ) -> String {
-        let effect_name = match &h.of {
-            Type::Named { base, .. } => base.name.name.clone(),
-            _ => return String::new(),
-        };
-        let Some(effect) = self.symbols.effects.get(effect_name.as_str()).copied() else {
+        // [effect-handler-multi] One protocol per face, each with its own
+        // message enum and its own dispatcher; one mailbox and one state serve
+        // all of them.
+        let faces: Vec<&'p EffectDecl> = self
+            .handler_faces(h)
+            .into_iter()
+            .filter(|e| e.is_actor)
+            .collect();
+        if faces.len() != h.of.len() || faces.is_empty() || !h.generics.is_empty() {
             return String::new();
-        };
-        let sends: Vec<(usize, &FnDecl)> = effect
-            .fns
+        }
+        let sends: Vec<(&'p EffectDecl, Vec<(usize, &'p FnDecl)>)> = faces
             .iter()
-            .enumerate()
-            .filter(|(_, f)| f.is_send)
+            .map(|e| {
+                let list: Vec<(usize, &'p FnDecl)> = e
+                    .fns
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, f)| f.is_send)
+                    .collect();
+                (*e, list)
+            })
             .collect();
         // [actor-effect-kind] Only an actor protocol gets an actor body.
-        if !effect.is_actor || sends.is_empty() || !h.generics.is_empty() {
+        if sends.iter().all(|(_, list)| list.is_empty()) {
             return String::new();
         }
         self.needs_scheduler = true;
         let name = rs_ident(&h.name.name);
         let proc_name = actor_struct_name(&h.name.name);
-        let msg = msg_enum_name(&effect_name);
-        let msg_path = self.effect_path(&effect_name, &msg);
-        let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
+        // Per face: its message enum path, its trait path, and the name of the
+        // dispatcher that runs its members. One face keeps the bare
+        // `__dispatch`, which is what a single-protocol actor has always
+        // emitted.
+        let single = faces.len() == 1;
+        let dispatchers: Vec<(String, String, String)> = faces
+            .iter()
+            .map(|e| {
+                let effect_name = e.name.name.clone();
+                let msg = msg_enum_name(&effect_name);
+                let msg_path = self.effect_path(&effect_name, &msg);
+                let trait_path = self.effect_path(&effect_name, &rs_ident(&effect_name));
+                let dispatch = if single {
+                    "__dispatch".to_string()
+                } else {
+                    format!("__dispatch_{}", sanitize_ident(&effect_name))
+                };
+                (msg_path, trait_path, dispatch)
+            })
+            .collect();
         // The provider: emitted only for a dependent handler, and generic in
         // its dependency instances so a construction and a forwarding stub
         // both fit without a `Box` (the fusion's own reason for preferring a
@@ -2616,59 +2666,62 @@ impl<'p> Emitter<'p> {
         out.push_str(&format!(
             "\nimpl{proc_dispatch_generics} {proc_name}{proc_generics} {{\n"
         ));
-        // [rs-actor] Member invocation lives in **one** place: `handle`
-        // downcasts a message into it, `resume` rebuilds one from a parked
-        // continuation plus the answer that just arrived. Factoring it out is
-        // what keeps a dependent handler's `__Deps_H` view built once
+        // [rs-actor] Member invocation lives in **one** place per protocol:
+        // `handle` downcasts a message into it, `resume` rebuilds one from a
+        // parked continuation plus the answer that just arrived. Factoring it
+        // out is what keeps a dependent handler's `__Deps_H` view built once
         // [rs-effect-fusion].
-        out.push_str(&format!(
-            "    fn __dispatch(&mut self, msg: {msg_path}) {{\n"
-        ));
-        if !deps.is_empty() {
-            // [rs-effect-fusion] The adapter: a Sized Has-implementing view
-            // over the one provider field, exactly as a forwarding impl builds
-            // one over `__outer`. Disjoint from `&mut self.handler`, which is
-            // why both borrows can be live in the same call.
+        for ((effect, list), (msg_path, trait_path, dispatch)) in sends.iter().zip(&dispatchers) {
             out.push_str(&format!(
-                "        let mut __deps = __Deps_{name}{{ __p: &mut self.prov }};\n"
+                "    fn {dispatch}(&mut self, msg: {msg_path}) {{\n"
             ));
-        }
-        out.push_str("        match msg {\n");
-        for (i, f) in &sends {
-            let member = salvo_core::effect_member_name(effect, *i);
-            let variant = msg_variant_name(&member);
-            let params: Vec<String> = f
-                .params
-                .iter()
-                .filter(|p| !p.implicit)
-                .map(|p| rs_ident(&p.name.name))
-                .collect();
-            let bind = if params.is_empty() {
-                String::new()
-            } else {
-                format!("({})", params.join(", "))
-            };
-            // A dependent handler's members live in the generated
-            // `__Impl_H` trait, not in `impl Effect for H`, and take the
-            // fused value as their first argument after `self`.
-            let mut call_args: Vec<String> = vec!["&mut self.handler".to_string()];
             if !deps.is_empty() {
-                call_args.push("&mut __deps".to_string());
+                // [rs-effect-fusion] The adapter: a Sized Has-implementing view
+                // over the one provider field, exactly as a forwarding impl
+                // builds one over `__outer`. Disjoint from `&mut self.handler`,
+                // which is why both borrows can be live in the same call.
+                out.push_str(&format!(
+                    "        let mut __deps = __Deps_{name}{{ __p: &mut self.prov }};\n"
+                ));
             }
-            call_args.extend(params);
-            let path = if deps.is_empty() {
-                trait_path.clone()
-            } else {
-                format!("__Impl_{name}")
-            };
-            out.push_str(&format!(
-                "            {msg_path}::{variant}{bind} => \
-                 {path}::{}({}),\n",
-                rs_ident(&member),
-                call_args.join(", ")
-            ));
+            out.push_str("        match msg {\n");
+            for (i, f) in list {
+                let member = salvo_core::effect_member_name(effect, *i);
+                let variant = msg_variant_name(&member);
+                let params: Vec<String> = f
+                    .params
+                    .iter()
+                    .filter(|p| !p.implicit)
+                    .map(|p| rs_ident(&p.name.name))
+                    .collect();
+                let bind = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!("({})", params.join(", "))
+                };
+                // A dependent handler's members live in the generated
+                // `__Impl_H` trait, not in `impl Effect for H`, and take the
+                // fused value as their first argument after `self`.
+                let mut call_args: Vec<String> = vec!["&mut self.handler".to_string()];
+                if !deps.is_empty() {
+                    call_args.push("&mut __deps".to_string());
+                }
+                call_args.extend(params);
+                let path = if deps.is_empty() {
+                    trait_path.clone()
+                } else {
+                    format!("__Impl_{name}")
+                };
+                out.push_str(&format!(
+                    "            {msg_path}::{variant}{bind} => \
+                     {path}::{}({}),\n",
+                    rs_ident(&member),
+                    call_args.join(", ")
+                ));
+            }
+            out.push_str("        }\n    }\n");
         }
-        out.push_str("        }\n    }\n}\n");
+        out.push_str("}\n");
         // [rs-actor] [actor-self-send] Every activation writes the
         // actor's own address into the handler before running a member, so
         // `k@self(…)` and `replyto` can read it. Written per activation
@@ -2680,10 +2733,32 @@ impl<'p> Emitter<'p> {
             "\nimpl{proc_impl_generics} crate::scheduler::SalvoActor for \
              {proc_name}{proc_generics} {{\n    \
              fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {{\n        \
-             self.handler.__addr = Some(_ctx.addr);\n        \
-             let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n        \
-             self.__dispatch(msg);\n    }}\n"
+             self.handler.__addr = Some(_ctx.addr);\n"
         ));
+        if single {
+            let (msg_path, _, dispatch) = &dispatchers[0];
+            out.push_str(&format!(
+                "        let msg = *msg.downcast::<{msg_path}>().expect(\"message of this protocol\");\n        \
+                 self.{dispatch}(msg);\n    }}\n"
+            ));
+        } else {
+            // [effect-handler-multi] One mailbox carries every face's messages,
+            // so the delivery asks each protocol in turn. `downcast` hands the
+            // box back on a miss, which is what makes the chain possible at
+            // all; falling off the end is a runtime that sent this actor a
+            // message of no protocol it serves, which cannot happen.
+            for (msg_path, _, dispatch) in &dispatchers {
+                out.push_str(&format!(
+                    "        let msg = match msg.downcast::<{msg_path}>() {{\n            \
+                     Ok(__m) => return self.{dispatch}(*__m),\n            \
+                     Err(__m) => __m,\n        }};\n"
+                ));
+            }
+            out.push_str(
+                "        let _ = msg;\n        \
+                 unreachable!(\"a message of one of this actor's protocols\")\n    }\n",
+            );
+        }
         // [actor-replyto] The other half of the table: look the slot up, and
         // the variant says which member to resume and therefore what the
         // answer downcasts to — its *trailing* parameter's type.
@@ -2702,35 +2777,41 @@ impl<'p> Emitter<'p> {
                      return; // a reply whose continuation is gone: nothing to run\n        \
                      }};\n        match __cont {{\n"
                 ));
-                for (i, f) in &sends {
-                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
-                    if fixed.is_empty() {
-                        continue;
+                for ((effect, list), (msg_path, _, dispatch)) in sends.iter().zip(&dispatchers) {
+                    for (i, f) in list {
+                        let fixed: Vec<&Param> =
+                            f.params.iter().filter(|p| !p.implicit).collect();
+                        if fixed.is_empty() {
+                            continue;
+                        }
+                        let member = salvo_core::effect_member_name(effect, *i);
+                        let variant = msg_variant_name(&member);
+                        let caps: Vec<String> = fixed[..fixed.len() - 1]
+                            .iter()
+                            .map(|p| rs_ident(&p.name.name))
+                            .collect();
+                        let bind = if caps.is_empty() {
+                            String::new()
+                        } else {
+                            format!("({})", caps.join(", "))
+                        };
+                        let answer_ty = {
+                            let last = fixed[fixed.len() - 1];
+                            self.param_type(&last.ty, last.variadic, ParamMode::Owned)
+                        };
+                        let mut args: Vec<String> = caps.clone();
+                        args.push(format!(
+                            "*value.downcast::<{answer_ty}>().expect(\"the awaited answer\")"
+                        ));
+                        // [effect-handler-multi] The variant names a member of
+                        // one face, so the message it rebuilds and the
+                        // dispatcher it hands it to are that face's.
+                        out.push_str(&format!(
+                            "            {cont_path}::{variant}{bind} => \
+                             self.{dispatch}({msg_path}::{variant}({})),\n",
+                            args.join(", ")
+                        ));
                     }
-                    let member = salvo_core::effect_member_name(effect, *i);
-                    let variant = msg_variant_name(&member);
-                    let caps: Vec<String> = fixed[..fixed.len() - 1]
-                        .iter()
-                        .map(|p| rs_ident(&p.name.name))
-                        .collect();
-                    let bind = if caps.is_empty() {
-                        String::new()
-                    } else {
-                        format!("({})", caps.join(", "))
-                    };
-                    let answer_ty = {
-                        let last = fixed[fixed.len() - 1];
-                        self.param_type(&last.ty, last.variadic, ParamMode::Owned)
-                    };
-                    let mut args: Vec<String> = caps.clone();
-                    args.push(format!(
-                        "*value.downcast::<{answer_ty}>().expect(\"the awaited answer\")"
-                    ));
-                    out.push_str(&format!(
-                        "            {cont_path}::{variant}{bind} => \
-                         self.__dispatch({msg_path}::{variant}({})),\n",
-                        args.join(", ")
-                    ));
                 }
                 out.push_str("        }\n    }\n");
             }
@@ -2744,38 +2825,52 @@ impl<'p> Emitter<'p> {
     /// body: a plain effect is never actor-backed, so its handler carries
     /// nothing extra.
     fn handler_is_actor(&self, h: &HandlerDecl) -> bool {
-        match &h.of {
+        // [effect-handler-multi] Every face of a handler is of one kind, so any
+        // of them answers.
+        h.of.iter().any(|of| match of {
             Type::Named { base, .. } => self
                 .symbols
                 .effects
                 .get(base.name.name.as_str())
                 .is_some_and(|e| e.is_actor),
             _ => false,
-        }
+        })
     }
 
-    /// [actor-replyto] The `__Cont_E` type of `h`'s protocol, as a path usable
-    /// from `h`'s own module — `None` when the protocol has no member that
-    /// could be a continuation target (every send member is parameterless, so
-    /// no answer could be carried), in which case no `__parked` table is
-    /// emitted either.
+    /// [actor-replyto] [effect-handler-multi] The `__Cont_H` type of the
+    /// handler `h` — named after the **handler**, not the effect, because a
+    /// mint is lexical: `replyto k(…)` targets a member of the handler it is
+    /// written in, and with several faces those members come from several
+    /// protocols. `None` when no member could be a target (every send member is
+    /// parameterless, so no answer could be carried), in which case no
+    /// `__parked` table is emitted either.
     fn handler_cont_type(&mut self, h: &HandlerDecl) -> Option<String> {
-        let Type::Named { base, .. } = &h.of else {
-            return None;
-        };
-        let name = base.name.name.clone();
-        let effect = self.symbols.effects.get(name.as_str()).copied()?;
-        if !effect.is_actor {
+        if !self.handler_is_actor(h) {
             return None;
         }
-        let any_target = effect
-            .fns
-            .iter()
-            .any(|f| f.is_send && f.params.iter().any(|p| !p.implicit));
-        if !any_target {
+        if self.cont_targets(h).is_empty() {
             return None;
         }
-        Some(self.effect_path(&name, &cont_enum_name(&name)))
+        Some(cont_enum_name(&h.name.name))
+    }
+
+    /// [actor-replyto] The handler's members a continuation could target: a
+    /// `send fn` with at least one parameter (the trailing one is the answer),
+    /// paired with the face that declares it — which is what says *which*
+    /// message enum `resume` rebuilds.
+    fn cont_targets(&mut self, h: &HandlerDecl) -> Vec<(&'p EffectDecl, usize)> {
+        let mut targets: Vec<(&'p EffectDecl, usize)> = Vec::new();
+        for f in &h.fns {
+            if !f.is_send || !f.params.iter().any(|p| !p.implicit) {
+                continue;
+            }
+            if let Some(found) = self.member_faces(h, f).into_iter().next() {
+                if found.0.is_actor {
+                    targets.push(found);
+                }
+            }
+        }
+        targets
     }
 
     /// [rs-effect-fusion] The member bodies of a *dependent* handler. They
@@ -3018,8 +3113,10 @@ impl<'p> Emitter<'p> {
     /// handler declaration is bodyless), and the bodies from
     /// [`crate::intrinsics::handler_member`].
     fn emit_intrinsic_handler(&mut self, h: &HandlerDecl) -> String {
-        let of = self.emit_type(&h.of);
-        let Some(effect) = type_base_name(&h.of)
+        // [effect-handler-multi] One face, like a platform handler's: the
+        // members are the backend's, and the checker refuses a second.
+        let of = self.emit_type(&h.of[0]);
+        let Some(effect) = type_base_name(&h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
             .copied()
         else {
@@ -3096,13 +3193,30 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [effect-handler-multi] The effects a handler implements, as declarations
+    /// and in declaration order. A face whose name is not a declared effect is
+    /// dropped here and reported where it is used.
+    fn handler_faces(&mut self, h: &HandlerDecl) -> Vec<&'p EffectDecl> {
+        h.of
+            .iter()
+            .filter_map(|of| type_base_name(of))
+            .filter_map(|n| self.symbols.effects.get(n).copied())
+            .collect()
+    }
+
+    /// [effect-handler-multi] The faces that declare the member `f` implements,
+    /// each with the member's index in that face. Several when one method
+    /// implements a same-named member of two effects — legal only when the
+    /// signatures are the ones overloading cannot tell apart, which is to say
+    /// identical, so any of them describes it.
+    fn member_faces(&mut self, h: &HandlerDecl, f: &FnDecl) -> Vec<(&'p EffectDecl, usize)> {
+        salvo_core::handler_member_faces(&self.handler_faces(h), f)
+    }
+
     /// [effect-member-overload] The effect member a handler's member
     /// implements, matched by name and written parameter types.
     fn effect_member_of(&mut self, h: &HandlerDecl, f: &FnDecl) -> Option<&'p FnDecl> {
-        let effect = type_base_name(&h.of)
-            .and_then(|n| self.symbols.effects.get(n))
-            .copied()?;
-        let idx = salvo_core::effect_member_index(effect, f)?;
+        let (effect, idx) = self.member_faces(h, f).into_iter().next()?;
         effect.fns.get(idx)
     }
 
@@ -3111,10 +3225,7 @@ impl<'p> Emitter<'p> {
     /// parameter types (`salvo_core::effect_member_index`), which is what
     /// tells two overloads apart.
     fn handler_member_name(&mut self, h: &HandlerDecl, f: &FnDecl) -> String {
-        let effect = type_base_name(&h.of)
-            .and_then(|n| self.symbols.effects.get(n))
-            .copied();
-        match effect.and_then(|e| salvo_core::effect_member_index(e, f).map(|i| (e, i))) {
+        match self.member_faces(h, f).into_iter().next() {
             Some((e, i)) => self.member_name(e, i),
             None => rs_ident(&f.name.name),
         }
@@ -5819,6 +5930,18 @@ impl<'p> Emitter<'p> {
         };
         let spawn_call =
             format!("crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}))");
+        // [effect-handler-multi] One addr per implemented effect. There is one
+        // actor, one mailbox and one scheduler index; the tuple hands the same
+        // index out under each protocol's type, which is where "least authority
+        // falls out of the types" is paid for — nothing at run time.
+        if decl.of.len() > 1 {
+            let faces: Vec<String> = (0..decl.of.len()).map(|_| "__a".to_string()).collect();
+            return format!(
+                "({{ let __h = {held}; let __cap = __h.__mailbox_capacity; \
+                 let __a = {spawn_call}; ({}) }})",
+                faces.join(", ")
+            );
+        }
         format!("({{ let __h = {held}; let __cap = __h.__mailbox_capacity; {spawn_call} }})")
     }
 
@@ -6020,14 +6143,26 @@ impl<'p> Emitter<'p> {
             self.error(format!("unknown handler `{handler_name}` in `use`"));
             return String::new();
         };
-        let (checked_ty, effect_ty) = match self.checked.use_effects.get(&(self.file_idx, span)) {
-            Some(ty) if ty_is_concrete(ty) => {
-                let ty = ty.clone();
-                let rendered = self.rust_ty(&ty);
-                (Some(ty), rendered)
-            }
-            _ => (None, self.emit_type(&decl.of)),
-        };
+        // [effect-handler-multi] One entry per implemented effect, in
+        // declaration order: a `use` binds every face the handler wears.
+        let faces: Vec<(Option<Ty>, String)> =
+            match self.checked.use_effects.get(&(self.file_idx, span)) {
+                Some(tys) if tys.iter().all(ty_is_concrete) => {
+                    let tys = tys.clone();
+                    tys.into_iter()
+                        .map(|ty| {
+                            let rendered = self.rust_ty(&ty);
+                            (Some(ty), rendered)
+                        })
+                        .collect()
+                }
+                _ => decl
+                    .of
+                    .clone()
+                    .iter()
+                    .map(|of| (None, self.emit_type(of)))
+                    .collect(),
+            };
         // Ctor args are owned (a `use` argument is a move [deduce-infer]).
         let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         // [copy-implicit] The constructor's implicit parameters follow, as
@@ -6054,18 +6189,19 @@ impl<'p> Emitter<'p> {
                 &handler_name,
                 &turbofish,
                 arg_code,
-                checked_ty,
-                effect_ty,
+                faces,
                 indent,
             );
         }
-        let var = self.unique_name(effect_param_name(&effect_ty));
-        self.effect_env.push(EffectEntry {
-            ty: checked_ty,
-            key: effect_ty,
-            var: var.clone(),
-            is_local: true,
-        });
+        let var = self.unique_name(effect_param_name(&faces[0].1));
+        for (checked_ty, effect_ty) in faces {
+            self.effect_env.push(EffectEntry {
+                ty: checked_ty,
+                key: effect_ty,
+                var: var.clone(),
+                is_local: true,
+            });
+        }
         self.bindings.insert(var.clone(), BindKind::Owned);
         format!(
             "{pad}let mut {var} = {}{turbofish}::new({});\n",
@@ -6128,8 +6264,7 @@ impl<'p> Emitter<'p> {
             "",
             arg_code,
             Some(instance),
-            checked_ty,
-            effect_ty,
+            vec![(checked_ty, effect_ty)],
             indent,
         )
     }
@@ -6144,8 +6279,9 @@ impl<'p> Emitter<'p> {
         // constructor call.
         turbofish: &str,
         arg_code: Vec<String>,
-        checked_ty: Option<Ty>,
-        effect_ty: String,
+        // [effect-handler-multi] One entry per implemented effect: the checker's
+        // instance where it is concrete, and the rendered trait type.
+        faces: Vec<(Option<Ty>, String)>,
         indent: usize,
     ) -> String {
         self.emit_fusion_inner(
@@ -6154,8 +6290,7 @@ impl<'p> Emitter<'p> {
             turbofish,
             arg_code,
             None,
-            checked_ty,
-            effect_ty,
+            faces,
             indent,
         )
     }
@@ -6171,8 +6306,7 @@ impl<'p> Emitter<'p> {
         turbofish: &str,
         arg_code: Vec<String>,
         instance: Option<String>,
-        checked_ty: Option<Ty>,
-        effect_ty: String,
+        faces: Vec<(Option<Ty>, String)>,
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
@@ -6200,19 +6334,28 @@ impl<'p> Emitter<'p> {
                 "internal: handler `{handler_name}` has dependencies but no \
                  effect is in scope at its `use`"
             ));
-            self.register_failed_fusion(checked_ty, effect_ty);
+            self.register_failed_fusion(faces);
             return String::new();
         }
-        // The effect this handler adds, preferring the checker's instance.
-        let new_effect = match &checked_ty {
-            Some(Ty::Named { name, args }) => {
-                let name = name.clone();
-                let args = args.clone();
-                let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
-                (name, rendered)
-            }
-            _ => match decl.map(|d| self.named_type_parts(&d.of)).unwrap_or(None) {
-                Some(parts) => parts,
+        // [effect-handler-multi] The effects this handler adds — one per face,
+        // preferring the checker's instance. Every one of them gets its own
+        // accessor on the fusion, so a caller reaches whichever face its effect
+        // list names.
+        let mut new_effects: Vec<(String, Vec<String>)> = Vec::new();
+        for (i, (checked_ty, _)) in faces.iter().enumerate() {
+            let parts = match checked_ty {
+                Some(Ty::Named { name, args }) => {
+                    let name = name.clone();
+                    let args = args.clone();
+                    let rendered: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+                    Some((name, rendered))
+                }
+                _ => decl
+                    .and_then(|d| d.of.get(i).cloned())
+                    .and_then(|of| self.named_type_parts(&of)),
+            };
+            match parts {
+                Some(parts) => new_effects.push(parts),
                 None => {
                     self.error(format!(
                         "handler `{handler_name}` implements a type the rust \
@@ -6220,15 +6363,17 @@ impl<'p> Emitter<'p> {
                     ));
                     return String::new();
                 }
-            },
-        };
+            }
+        }
         // A fusion names its effects in impl headers, so every one of them
         // must be a *concrete* instance. An unresolved type argument (a
         // generic handler whose arguments the checker could not infer, or an
         // effect list generic in the enclosing fn) is reported rather than
         // emitted as an undeclared `T` [backend-never-wrong].
         let mut named: Vec<String> = covered.iter().map(|e| e.key.clone()).collect();
-        named.push(trait_type(&new_effect.0, &new_effect.1));
+        for (base, args) in &new_effects {
+            named.push(trait_type(base, args));
+        }
         let unresolved: Option<String> = decl.and_then(|decl| {
             decl.generics
                 .iter()
@@ -6242,7 +6387,7 @@ impl<'p> Emitter<'p> {
                  generic (`{g}`) — the rust backend needs a concrete effect \
                  instance here"
             ));
-            self.register_failed_fusion(checked_ty, effect_ty);
+            self.register_failed_fusion(faces);
             return String::new();
         }
         // The `__outer` field type: the single inherited effect's Has
@@ -6287,7 +6432,7 @@ impl<'p> Emitter<'p> {
         let mut inherited: Vec<(String, Vec<String>)> = covered
             .iter()
             .map(|e| self.entry_effect_parts(e))
-            .filter(|(base, args)| !(*base == new_effect.0 && *args == new_effect.1))
+            .filter(|parts| !new_effects.contains(parts))
             .collect();
         // Canonical order, so two orderings of one inherited set are one
         // struct after deduplication.
@@ -6314,41 +6459,52 @@ impl<'p> Emitter<'p> {
             None => String::new(),
         };
         if deps.is_empty() {
-            let bound = trait_type(&new_effect.0, &new_effect.1);
+            // [effect-handler-multi] The handler must satisfy every face it
+            // implements, so the bound names all of them and each gets its own
+            // accessor onto the one owned instance.
+            let bound = new_effects
+                .iter()
+                .map(|(base, args)| trait_type(base, args))
+                .collect::<Vec<String>>()
+                .join(" + ");
             let bounded_generics = match &outer_ty {
                 Some(_) => format!("<'a, __H: {bound}>"),
                 None => format!("<__H: {bound}>"),
             };
-            item.push_str(&emit_has_impl(
-                &bounded_generics,
-                &self_ty,
-                &new_effect.0,
-                &new_effect.1,
-                "&mut self.__h",
-            ));
+            for (base, args) in &new_effects {
+                item.push_str(&emit_has_impl(
+                    &bounded_generics,
+                    &self_ty,
+                    base,
+                    args,
+                    "&mut self.__h",
+                ));
+            }
         } else {
             let trait_name = format!("__Impl_{handler_ident}");
             let bounded_generics = match &outer_ty {
                 Some(_) => format!("<'a, __H: {trait_name}>"),
                 None => format!("<__H: {trait_name}>"),
             };
-            item.push_str(&self.emit_forward_impl(
-                &bounded_generics,
-                &self_ty,
-                &new_effect.0,
-                &new_effect.1,
-                &Forward::Dependent {
-                    trait_name,
-                    deps: deps.len(),
-                },
-            ));
-            item.push_str(&emit_has_impl(
-                &bounded_generics,
-                &self_ty,
-                &new_effect.0,
-                &new_effect.1,
-                "self",
-            ));
+            for (base, args) in &new_effects {
+                item.push_str(&self.emit_forward_impl(
+                    &bounded_generics,
+                    &self_ty,
+                    base,
+                    args,
+                    &Forward::Dependent {
+                        trait_name: trait_name.clone(),
+                        deps: deps.len(),
+                    },
+                ));
+                item.push_str(&emit_has_impl(
+                    &bounded_generics,
+                    &self_ty,
+                    base,
+                    args,
+                    "self",
+                ));
+            }
         }
         // Deduplicate: an identical fusion (same inherited accessors, same
         // new effect, same handler kind) is one struct, named after the fn
@@ -6395,12 +6551,14 @@ impl<'p> Emitter<'p> {
             entry.var = var.clone();
             entry.is_local = true;
         }
-        self.effect_env.push(EffectEntry {
-            ty: checked_ty,
-            key: effect_ty,
-            var: var.clone(),
-            is_local: true,
-        });
+        for (checked_ty, effect_ty) in faces {
+            self.effect_env.push(EffectEntry {
+                ty: checked_ty,
+                key: effect_ty,
+                var: var.clone(),
+                is_local: true,
+            });
+        }
         self.bindings.insert(var, BindKind::Owned);
         out
     }
@@ -6408,13 +6566,15 @@ impl<'p> Emitter<'p> {
     /// After a reported fusion failure, still register the effect so the
     /// rest of the scope reports its *own* problems rather than a cascade of
     /// "no handler for effect" [type-unknown-lenient].
-    fn register_failed_fusion(&mut self, checked_ty: Option<Ty>, effect_ty: String) {
-        self.effect_env.push(EffectEntry {
-            ty: checked_ty,
-            key: effect_ty,
-            var: "__fx_unemittable".to_string(),
-            is_local: true,
-        });
+    fn register_failed_fusion(&mut self, faces: Vec<(Option<Ty>, String)>) {
+        for (checked_ty, effect_ty) in faces {
+            self.effect_env.push(EffectEntry {
+                ty: checked_ty,
+                key: effect_ty,
+                var: "__fx_unemittable".to_string(),
+                is_local: true,
+            });
+        }
     }
 
     /// [rs-effect-fusion] The provider trait for a set of effects — the
@@ -8110,9 +8270,16 @@ impl<'p> Emitter<'p> {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "todo!()".to_string();
         };
-        let Some(effect_name) = self.named_type_parts(&decl.of).map(|(base, _)| base) else {
+        // [effect-handler-multi] The message enum is the *face's*, so the
+        // protocol is the one whose members include this one.
+        let Some(effect_name) = self
+            .handler_faces(decl)
+            .into_iter()
+            .find(|e| e.fns.iter().any(|f| f.name.name == member))
+            .map(|e| e.name.name.clone())
+        else {
             self.error(format!(
-                "internal: handler `{handler}` implements a type with no name"
+                "internal: handler `{handler}` has no face declaring `{member}`"
             ));
             return "todo!()".to_string();
         };

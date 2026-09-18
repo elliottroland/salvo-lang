@@ -319,7 +319,7 @@ duration-measuring tests or advance ergonomics bite. Note T-3 removes (4)'s
 *sequencing* advantage, narrowing what (4) uniquely buys to clock
 unification.
 
-## T-3. The quiescence hook — `on_idle`
+## T-3. The quiescence hook — `on_idle` — ✅ built 2026-09-18
 
 §0 point 5 (**user leaning: support**). The runtime's idle detection already
 exists (the phase-5 report); this exposes it through [actor-watch]'s shape:
@@ -370,7 +370,7 @@ flight).
 
 **Decided (user, 2026-09-17): (a)**, the token form.
 
-## T-4. Handlers of multiple effects
+## T-4. Handlers of multiple effects — ✅ built 2026-09-18
 
 §0 point 6 (**user leaning: support**). Today's shape forces the forwarding
 split: `ManualTimerCore of TimerCtl` owning state plus `ManualTimer of Timer

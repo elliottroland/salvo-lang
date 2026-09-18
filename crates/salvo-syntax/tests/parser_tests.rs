@@ -1989,6 +1989,49 @@ handler Odd() of E {
     );
 }
 
+/// [effect-handler-multi] `of E1, E2, …`: one handler, one face per effect. The
+/// list is the whole of the syntax the step adds, and one face keeps parsing
+/// exactly as it did.
+#[test]
+fn a_handler_may_declare_several_effects() {
+    use salvo_syntax::ast::Item;
+
+    let source = "\
+actor effect Timer {
+    send fn after(millis: Int) => !millis
+}
+
+actor effect TimerCtl {
+    send fn advance(millis: Int) => !millis
+}
+
+handler ManualTime() of Timer, TimerCtl {
+    mailbox { capacity: 8 }
+    send fn after(millis: Int) {}
+    send fn advance(millis: Int) {}
+}
+
+handler Ticking() of Timer {
+    mailbox { capacity: 1 }
+    send fn after(millis: Int) {}
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    let handlers: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Handler(h) => Some(h),
+            _ => None,
+        })
+        .collect();
+    let faces: Vec<String> = handlers[0].of.iter().map(|of| of.to_string()).collect();
+    assert_eq!(faces, vec!["Timer", "TimerCtl"], "both faces, in order");
+    assert_eq!(handlers[1].of.len(), 1, "one face stays one face");
+}
+
 /// None of the three new words is reserved: each is recognised only in the
 /// shape its form takes (`spawn` before a *name*, `replyto` before a member
 /// name, `waitfor` before `name:`), so ordinary code that uses them as

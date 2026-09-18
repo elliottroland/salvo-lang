@@ -24,10 +24,6 @@ sealed class __Msg_Faults {
     class Faulted(val fault: Fault) : __Msg_Faults()
 }
 
-sealed class __Cont_Faults {
-    class Faulted() : __Cont_Faults()
-}
-
 data class Exit(
     val reason: String,
 )

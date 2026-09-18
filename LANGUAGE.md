@@ -91,6 +91,8 @@ Salvo supports algebraic data types in the form of tuples (for AND) and unions (
 let (a, b, c) = ("String", -1, true)
 ```
 
+A pattern has to match what it destructures: the value must be a tuple, and a tuple of exactly that many elements. `let (a, b) = 7` and `let (a, b) = (1, 2, 3)` are both errors that say which. A **loop** binding is a plain name rather than a pattern — write `for p in pairs` and read `p.0` inside the body.
+
 A single element can also be read by its position, written like a field with
 the index in place of the name:
 
@@ -1564,6 +1566,37 @@ Interception is what makes a *policy* handler writable in Salvo: a restricting f
 Both of these rest on shadowing, which is worth stating on its own: a `use` for an effect instance already in scope is not an error — it takes over for the rest of the block, and the handler it shadowed answers again when that block ends. Shadowing needs no dependency (registering a second, unrelated `Greeter` simply replaces the first), and the innermost registration always wins, exactly as a shadowing local variable does.
 
 One thing a handler cannot do yet: call **its own** effect's other members. `Twice.greet` cannot call `greet` on itself — a handler does not dispatch to itself, and declaring the effect as a dependency means the handler *outside*, not this one. Move the shared logic into a function both members call; the diagnostic says as much.
+
+### One handler, several effects
+
+A handler may implement more than one effect, and the effects are simply listed: `handler H() of Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.
+
+```
+effect Tally { fn bump(n: Int) -> None => !n }
+effect Stats { fn total() -> Int }
+
+handler Counting() of Tally, Stats {
+    sum: Int = 0
+
+    fn bump(n: Int) { sum = sum + n }
+    fn total() -> Int { return sum }
+}
+
+fn main() [use] {
+    use Counting()          // registers *both* effects
+    bump(2)
+    println("${total()}")
+}
+```
+
+One `use` binds every face, so a function declaring `[Tally]` and one declaring `[Stats]` both reach this instance. For an actor the same declaration is what makes least authority ordinary: `spawn` answers **one addr per face**, in declaration order, so who holds which face decides what they may do.
+
+```
+let (timer, ctl) = spawn ManualTime() on pool(1)
+//   ^Addr<Timer>  ^Addr<TimerCtl> — code holding `timer` cannot name `advance`
+```
+
+A single face answers a bare `Addr<E>` as it always did; several answer a tuple. The rules the list brings with it are the ones you would guess: every member of every effect must be implemented, each effect may be named once, and the effects must be of one kind — all `actor effect`s or none, because a handler is bound one way or the other. Where two of the effects declare the same member *name*, one handler method may implement both when their signatures are identical, or two methods may implement them when the parameters differ (ordinary overloading); what is refused is the case overloading cannot see — same parameters, a different return type — since no single method could answer for both. Callers still pick the face with `@` where two effects in scope declare the name, exactly as below.
 
 ### Two effects, one member name
 

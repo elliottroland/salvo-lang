@@ -97,3 +97,51 @@ pub fn effect_member_index(effect: &EffectDecl, member: &FnDecl) -> Option<usize
 pub fn effect_members_named<'e>(effect: &'e EffectDecl, name: &str) -> Vec<&'e FnDecl> {
     effect.fns.iter().filter(|f| f.name.name == name).collect()
 }
+
+/// [effect-handler-multi] Which member of which **face** a handler's member
+/// implements: one entry per face it satisfies, in the handler's declaration
+/// order of faces.
+///
+/// Why this is not just [`effect_member_index`] per face: that function is
+/// deliberately lenient — a face declaring exactly one member of the name
+/// matches by name alone, so a type spelled through an alias still lands on it
+/// — and across faces that leniency makes `A.ping(Int)` and `B.ping(Str)`
+/// both claim a handler's `ping(n: Int)`. So a member matching several faces
+/// keeps those whose **written parameter types** agree exactly, which is what
+/// overloading distinguishes them by; if none agree, all of them are kept, so
+/// the mismatch surfaces as a diagnostic rather than being silently dropped.
+///
+/// Several entries therefore means one method implements a same-named member of
+/// several faces, which is legal only when the signatures are identical — the
+/// checker's rule, and the reason both emitters may treat any of them as *the*
+/// one that names the member.
+pub fn handler_member_faces<'a>(
+    faces: &[&'a EffectDecl],
+    member: &FnDecl,
+) -> Vec<(&'a EffectDecl, usize)> {
+    let matched: Vec<(&'a EffectDecl, usize)> = faces
+        .iter()
+        .filter_map(|e| effect_member_index(e, member).map(|i| (*e, i)))
+        .collect();
+    if matched.len() < 2 {
+        return matched;
+    }
+    let sig = |f: &FnDecl| -> Vec<String> {
+        f.params
+            .iter()
+            .filter(|p| !p.implicit)
+            .map(|p| p.ty.to_string())
+            .collect()
+    };
+    let mine = sig(member);
+    let exact: Vec<(&'a EffectDecl, usize)> = matched
+        .iter()
+        .copied()
+        .filter(|(e, i)| e.fns.get(*i).map(sig).as_ref() == Some(&mine))
+        .collect();
+    if exact.is_empty() {
+        matched
+    } else {
+        exact
+    }
+}

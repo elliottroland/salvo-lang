@@ -31,16 +31,11 @@ sealed class __Msg_Counter {
     class Total(val out: salvo.SalvoReply) : __Msg_Counter()
 }
 
-sealed class __Cont_Counter {
-    class Bump() : __Cont_Counter()
-    class Total() : __Cont_Counter()
-}
-
 class Counting : Counter {
     private var sum: Int = 0
     internal val __mailboxCapacity: Int = 8
     internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Counter> = mutableMapOf()
+    internal val __parked: MutableMap<Long, __Cont_Counting> = mutableMapOf()
 
     override fun bump(n: Int) {
         sum = sum + n
@@ -49,6 +44,11 @@ class Counting : Counter {
     override fun total(out: salvo.SalvoReply) {
         out.send(sum)
     }
+}
+
+sealed class __Cont_Counting {
+    class Bump() : __Cont_Counting()
+    class Total() : __Cont_Counting()
 }
 
 class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
@@ -69,8 +69,8 @@ class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Counter.Bump -> handler.bump(value as Int)
-            is __Cont_Counter.Total -> handler.total(value as salvo.SalvoReply)
+            is __Cont_Counting.Bump -> handler.bump(value as Int)
+            is __Cont_Counting.Total -> handler.total(value as salvo.SalvoReply)
         }
     }
 }
@@ -94,23 +94,23 @@ sealed class __Msg_Ledger {
     class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
 }
 
-sealed class __Cont_Ledger {
-    class Report(val label: String) : __Cont_Ledger()
-    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Ledger()
-}
-
 class Bookkeeping<__Fx>(private val __fx: __Fx) : Ledger where __Fx : __Has_Counter {
     internal val __mailboxCapacity: Int = 4
     internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Ledger> = mutableMapOf()
+    internal val __parked: MutableMap<Long, __Cont_Bookkeeping> = mutableMapOf()
 
     override fun report(label: String, out: salvo.SalvoReply) {
-        __fx.__fx_Counter.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Ledger.Reported(label, out); __r })
+        __fx.__fx_Counter.total(run { val (__r, __s) = salvo.SalvoSched.mint(__addr!!);              __parked[__s] = __Cont_Bookkeeping.Reported(label, out); __r })
     }
 
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
         out.send("$label=$total")
     }
+}
+
+sealed class __Cont_Bookkeeping {
+    class Report(val label: String) : __Cont_Bookkeeping()
+    class Reported(val label: String, val out: salvo.SalvoReply) : __Cont_Bookkeeping()
 }
 
 class __Actor_Bookkeeping<__Fx>(private val handler: Bookkeeping<__Fx>) : salvo.SalvoActor where __Fx : __Has_Counter {
@@ -131,8 +131,8 @@ class __Actor_Bookkeeping<__Fx>(private val handler: Bookkeeping<__Fx>) : salvo.
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Ledger.Report -> handler.report(c.label, value as salvo.SalvoReply)
-            is __Cont_Ledger.Reported -> handler.reported(c.label, c.out, value as Int)
+            is __Cont_Bookkeeping.Report -> handler.report(c.label, value as salvo.SalvoReply)
+            is __Cont_Bookkeeping.Reported -> handler.reported(c.label, c.out, value as Int)
         }
     }
 }
@@ -161,17 +161,11 @@ sealed class __Msg_Desk {
     class CloseUp(val reason: String) : __Msg_Desk()
 }
 
-sealed class __Cont_Desk {
-    class Ticket() : __Cont_Desk()
-    class Serve() : __Cont_Desk()
-    class CloseUp() : __Cont_Desk()
-}
-
 class Desking(private val room: Int) : Desk {
     private var waiting: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
     internal val __mailboxCapacity: Int = room
     internal var __addr: Int? = null
-    internal val __parked: MutableMap<Long, __Cont_Desk> = mutableMapOf()
+    internal val __parked: MutableMap<Long, __Cont_Desking> = mutableMapOf()
 
     override fun ticket(out: salvo.SalvoReply) {
         waiting.add(out)
@@ -195,6 +189,12 @@ class Desking(private val room: Int) : Desk {
     }
 }
 
+sealed class __Cont_Desking {
+    class Ticket() : __Cont_Desking()
+    class Serve() : __Cont_Desking()
+    class CloseUp() : __Cont_Desking()
+}
+
 class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
@@ -214,9 +214,9 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
         // A reply whose continuation is gone: nothing to run.
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont_Desk.Ticket -> handler.ticket(value as salvo.SalvoReply)
-            is __Cont_Desk.Serve -> handler.serve(value as String)
-            is __Cont_Desk.CloseUp -> handler.close_up(value as String)
+            is __Cont_Desking.Ticket -> handler.ticket(value as salvo.SalvoReply)
+            is __Cont_Desking.Serve -> handler.serve(value as String)
+            is __Cont_Desking.CloseUp -> handler.close_up(value as String)
         }
     }
 }

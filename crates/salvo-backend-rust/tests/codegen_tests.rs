@@ -2724,6 +2724,43 @@ fn rustc_compiles_and_runs_effect_selectors() {
     run_rust_files(&files, "effect-at", EFFECT_AT_STDOUT);
 }
 
+
+// ===== tuples past three [type-tuple] =====
+
+/// [type-tuple] Rust tuples are native at any arity, so the interesting half
+/// of this case is the *parity*: the expected output is verbatim the Kotlin
+/// backend's, where the same program needs a generated tuple class
+/// [kt-tuple-class].
+const BIG_TUPLE_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole
+    // [type-tuple] Past three elements Kotlin has no tuple type of its own,
+    // so the backend generates one; Rust's are native at any arity.
+    let q: (Int, Str, Bool, Int, Str) = (1, "two", true, 4, "five")
+    println("${q.0} ${q.1} ${q.2} ${q.3} ${q.4}")
+    let (a, b, c, d, e) = q
+    println("${a} ${b} ${c} ${d} ${e}")
+    // Ordered *and* hashed, so the generated class has to compare and hash
+    // structurally like a `Pair` does.
+    let keys: SortedSet<(Int, Int, Int, Int)> = sorted_set_of((2, 0, 0, 0), (1, 9, 9, 9))
+    for k in iter(keys) {
+        println("${k.0}${k.1}${k.2}${k.3}")
+    }
+}
+"#;
+
+const BIG_TUPLE_OUTPUT: &str = "1 two true 4 five\n1 two true 4 five\n1999\n2000\n";
+
+#[test]
+fn rustc_compiles_and_runs_tuples_past_three() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", BIG_TUPLE_DEMO)]);
+    run_rust_files(&files, "big-tuple", BIG_TUPLE_OUTPUT);
+}
+
 // ===== union coercion inside arrays/tuples/lambda returns =====
 // [type-union] Elements of array/tuple literals and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
@@ -9251,6 +9288,142 @@ fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
     );
 }
 
+/// [effect-handler-multi] Handlers of several effects, end to end: T-4(a)'s own
+/// shape — one actor with a public `Timer` face and a `TimerCtl` admin face over
+/// one mailbox and one piece of state, whose `spawn` answers one addr per face —
+/// beside the synchronous version of the same pattern, where one `use` binds
+/// both faces.
+///
+/// Expected output is verbatim the Kotlin backend's.
+const MULTI_FACE: &str = r#"
+// [effect-handler-multi] One actor, one mailbox, one owner of the state, two
+// typed faces: the public protocol and the test-control one. Least authority
+// falls out of the types — a holder of `timer` cannot name `advance`.
+actor effect Timer {
+    send fn after(millis: Int, out: Reply<Str>) => !out
+}
+
+actor effect TimerCtl {
+    send fn advance(millis: Int) => !millis
+    send fn pending(out: Reply<Int>) => !out
+}
+
+handler ManualTime() of Timer, TimerCtl {
+    mailbox { capacity: 8 }
+
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+    now: Int = 0
+
+    send fn after(millis: Int, out: Reply<Str>) {
+        add(waiting, out)
+    }
+
+    send fn advance(millis: Int) {
+        now = now + millis
+        let at = now
+        drain(waiting, r -> send(r, "fired at ${at}"))
+        waiting = mut_list_of()
+    }
+
+    send fn pending(out: Reply<Int>) {
+        out.send(size(waiting))
+    }
+}
+
+// The synchronous half of the same shape: a public face and an admin face over
+// one piece of state, bound by one `use`.
+effect Tally {
+    fn bump(n: Int) -> None => !n
+}
+
+effect Stats {
+    fn total() -> Int
+}
+
+handler Counting() of Tally, Stats {
+    sum: Int = 0
+
+    fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    fn total() -> Int {
+        return sum
+    }
+}
+
+fn count() [Tally, Stats] -> Int {
+    bump(2)
+    bump(3)
+    return total()
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+    let (timer, ctl) = spawn ManualTime() on pool(1)
+    let idle = waitfor c: Reply<Int> { ctl.pending(c) }
+    println("pending ${idle}")
+    let fired = waitfor f: Reply<Str> {
+        timer.after(10, f)
+        ctl.advance(10)
+    }
+    println(fired)
+    let left = waitfor c: Reply<Int> { ctl.pending(c) }
+    println("pending ${left}")
+    use Counting()
+    println("total ${count()}")
+}
+"#;
+
+const MULTI_FACE_OUTPUT: &str = "pending 0\nfired at 10\npending 0\ntotal 5\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_handler_of_several_effects() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MULTI_FACE)]);
+    run_rust_files(&files, "multi-face", MULTI_FACE_OUTPUT);
+}
+
+/// [effect-handler-multi] [rs-actor] What the two faces lower to: one trait impl
+/// per face over one struct, one dispatcher per protocol, a `handle` that asks
+/// each protocol in turn (one mailbox carries both), and a spawn whose value is
+/// a tuple of the same scheduler index — the addrs differ only in their Salvo
+/// type.
+#[test]
+fn several_faces_lower_to_one_actor_with_a_dispatcher_each() {
+    let files = generate(&[("main.sv", MULTI_FACE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    assert!(
+        text.contains("impl Timer for ManualTime {") && text.contains("impl TimerCtl for ManualTime {"),
+        "one trait impl per face is missing:\n{text}"
+    );
+    assert!(
+        text.contains("fn __dispatch_Timer(&mut self, msg: crate::__Msg_Timer)")
+            && text.contains("fn __dispatch_TimerCtl(&mut self, msg: crate::__Msg_TimerCtl)"),
+        "one dispatcher per protocol is missing:\n{text}"
+    );
+    assert!(
+        text.contains("match msg.downcast::<crate::__Msg_Timer>()")
+            && text.contains("match msg.downcast::<crate::__Msg_TimerCtl>()"),
+        "the delivery must ask each protocol in turn:\n{text}"
+    );
+    assert!(
+        text.contains("let __a = crate::scheduler::salvo_spawn(") && text.contains("(__a, __a)"),
+        "the spawn must answer one addr per face:\n{text}"
+    );
+    assert!(
+        text.contains("impl Tally for Counting {") && text.contains("impl Stats for Counting {"),
+        "the synchronous handler's faces are missing:\n{text}"
+    );
+}
+
 /// [actor-on-idle] The quiescence hook, end to end: the program hears about
 /// the scheduler running dry, twice — once with the pool settled and nothing
 /// outstanding, once with an actor gated on an answer another actor has parked
@@ -9358,13 +9531,13 @@ fn a_parked_continuation_lowers_to_a_slot_table() {
         .expect("main.rs");
     let text = &main.content;
     assert!(
-        text.contains("pub enum __Cont_Notices {")
+        text.contains("pub enum __Cont_Fetching {")
             && text.contains("Arrived(crate::scheduler::SalvoReply),"),
         "the continuation enum is missing, or its captures are wrong:\n{text}"
     );
     assert!(
         text.contains("__addr: Option<usize>,")
-            && text.contains("__parked: std::collections::HashMap<u64, crate::__Cont_Notices>,"),
+            && text.contains("__parked: std::collections::HashMap<u64, __Cont_Fetching>,"),
         "the handler's generated fields are missing:\n{text}"
     );
     assert!(

@@ -2053,6 +2053,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
     kotlinc_compiles_and_runs_a_quiescence_hook,
+    kotlinc_compiles_and_runs_a_handler_of_several_effects,
     kotlinc_compiles_and_runs_the_waitfor_package,
     kotlinc_compiles_and_runs_the_task_kernel,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
@@ -2093,6 +2094,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_place_narrowing,
     kotlinc_compiles_and_runs_place_operand,
     kotlinc_compiles_and_runs_tuple_index,
+    kotlinc_compiles_and_runs_tuples_past_three,
     kotlinc_compiles_and_runs_list_element_types,
     kotlinc_compiles_and_runs_collections,
     kotlinc_compiles_and_runs_collection_iteration,
@@ -4740,6 +4742,88 @@ fn kotlinc_compiles_and_runs_handler_deps_mixed() -> KotlinCase {
         "L[3] in lambda a\n  tallied 1\nL[3] done a\n  tallied 1\nL[3] one #1\n\
          \x20 tallied 1\nL[3] loop 1 #2\n  tallied 1\nL[3] loop 1 #3\n  tallied 1\n",
     )
+}
+
+
+// ===== tuples past three [kt-tuple-class] =====
+
+/// [kt-tuple-class] [type-tuple] Kotlin has `Pair` and `Triple` and nothing
+/// past them, so a bigger tuple is a **generated data class** — which is what
+/// makes indexing, destructuring, hashing and ordering work on the same terms
+/// as a `Pair`'s. Source and expected stdout are **verbatim** the Rust
+/// backend's `rustc_compiles_and_runs_tuples_past_three`.
+const BIG_TUPLE_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole
+    // [type-tuple] Past three elements Kotlin has no tuple type of its own,
+    // so the backend generates one; Rust's are native at any arity.
+    let q: (Int, Str, Bool, Int, Str) = (1, "two", true, 4, "five")
+    println("${q.0} ${q.1} ${q.2} ${q.3} ${q.4}")
+    let (a, b, c, d, e) = q
+    println("${a} ${b} ${c} ${d} ${e}")
+    // Ordered *and* hashed, so the generated class has to compare and hash
+    // structurally like a `Pair` does.
+    let keys: SortedSet<(Int, Int, Int, Int)> = sorted_set_of((2, 0, 0, 0), (1, 9, 9, 9))
+    for k in iter(keys) {
+        println("${k.0}${k.1}${k.2}${k.3}")
+    }
+}
+"#;
+
+fn kotlinc_compiles_and_runs_tuples_past_three() -> KotlinCase {
+    let program = build_program(&[("main.sv", BIG_TUPLE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "big-tuple", "1 two true 4 five\n1 two true 4 five\n1999\n2000\n")
+}
+
+/// [kt-tuple-class] What a tuple past three lowers to: a `SalvoTupleN` literal,
+/// the `v3`/`v4` component names past `Pair`'s three [kt-tuple-component], and
+/// a generated `tuples.kt` whose class is a `data class` (structural equality
+/// and `componentN`, so a `Set` element and a destructuring both work)
+/// implementing `SalvoTuple` (which is how `__salvoCompare` orders it).
+#[test]
+fn tuples_past_three_emit_a_generated_class() {
+    let program = build_program(&[("main.sv", BIG_TUPLE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.kt"))
+        .unwrap();
+    assert!(
+        main.content.contains("SalvoTuple5(1, \"two\", true, 4, \"five\")"),
+        "expected a generated tuple literal in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("${q.third} ${q.v3} ${q.v4}"),
+        "expected the component names past `Pair`'s three in:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("SalvoTuple5<Int, String, Boolean, Int, String>"),
+        "expected the generated type in the annotation in:\n{}",
+        main.content
+    );
+    let tuples = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("tuples.kt"))
+        .expect("tuples.kt is emitted for a program that names a big tuple");
+    assert!(
+        tuples.content.contains("data class SalvoTuple5<")
+            && tuples.content.contains(") : SalvoTuple {")
+            && tuples.content.contains("val v3: T4"),
+        "the generated tuple class is wrong:\n{}",
+        tuples.content
+    );
+    assert!(
+        tuples.content.contains("data class SalvoTuple4<"),
+        "the 4-tuple the sorted set needs is missing:\n{}",
+        tuples.content
+    );
 }
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
@@ -9602,6 +9686,136 @@ fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {
     )
 }
 
+/// [effect-handler-multi] Handlers of several effects, end to end. Source and
+/// expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_a_handler_of_several_effects`: one actor with a
+/// public `Timer` face and a `TimerCtl` admin face over one mailbox, whose
+/// `spawn` answers one addr per face, beside the synchronous pair one `use`
+/// binds.
+const MULTI_FACE: &str = r#"
+// [effect-handler-multi] One actor, one mailbox, one owner of the state, two
+// typed faces: the public protocol and the test-control one. Least authority
+// falls out of the types — a holder of `timer` cannot name `advance`.
+actor effect Timer {
+    send fn after(millis: Int, out: Reply<Str>) => !out
+}
+
+actor effect TimerCtl {
+    send fn advance(millis: Int) => !millis
+    send fn pending(out: Reply<Int>) => !out
+}
+
+handler ManualTime() of Timer, TimerCtl {
+    mailbox { capacity: 8 }
+
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+    now: Int = 0
+
+    send fn after(millis: Int, out: Reply<Str>) {
+        add(waiting, out)
+    }
+
+    send fn advance(millis: Int) {
+        now = now + millis
+        let at = now
+        drain(waiting, r -> send(r, "fired at ${at}"))
+        waiting = mut_list_of()
+    }
+
+    send fn pending(out: Reply<Int>) {
+        out.send(size(waiting))
+    }
+}
+
+// The synchronous half of the same shape: a public face and an admin face over
+// one piece of state, bound by one `use`.
+effect Tally {
+    fn bump(n: Int) -> None => !n
+}
+
+effect Stats {
+    fn total() -> Int
+}
+
+handler Counting() of Tally, Stats {
+    sum: Int = 0
+
+    fn bump(n: Int) {
+        sum = sum + n
+    }
+
+    fn total() -> Int {
+        return sum
+    }
+}
+
+fn count() [Tally, Stats] -> Int {
+    bump(2)
+    bump(3)
+    return total()
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+    let (timer, ctl) = spawn ManualTime() on pool(1)
+    let idle = waitfor c: Reply<Int> { ctl.pending(c) }
+    println("pending ${idle}")
+    let fired = waitfor f: Reply<Str> {
+        timer.after(10, f)
+        ctl.advance(10)
+    }
+    println(fired)
+    let left = waitfor c: Reply<Int> { ctl.pending(c) }
+    println("pending ${left}")
+    use Counting()
+    println("total ${count()}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_handler_of_several_effects() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", MULTI_FACE)]),
+        "multi-face",
+        "pending 0\nfired at 10\npending 0\ntotal 5\n",
+    )
+}
+
+/// [effect-handler-multi] [kt-actor] What the two faces lower to, mirroring the
+/// Rust backend: one class implementing both interfaces, one dispatcher per
+/// protocol, a `handle` that asks which protocol the message belongs to, and a
+/// spawn whose value is a `Pair` of the same scheduler id.
+#[test]
+fn several_faces_lower_to_one_actor_with_a_dispatcher_each_kotlin() {
+    let files = generate_files(&[("main.sv", MULTI_FACE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains("class ManualTime : Timer, TimerCtl {"),
+        "the class must implement both interfaces:\n{text}"
+    );
+    assert!(
+        text.contains("private fun __dispatchTimer(m: __Msg_Timer)")
+            && text.contains("private fun __dispatchTimerCtl(m: __Msg_TimerCtl)"),
+        "one dispatcher per protocol is missing:\n{text}"
+    );
+    assert!(
+        text.contains("is __Msg_Timer -> __dispatchTimer(msg)")
+            && text.contains("is __Msg_TimerCtl -> __dispatchTimerCtl(msg)"),
+        "the delivery must ask which protocol the message is:\n{text}"
+    );
+    assert!(
+        text.contains("val __a = salvo.SalvoSched.spawn(") && text.contains("Pair(__a, __a)"),
+        "the spawn must answer one addr per face:\n{text}"
+    );
+    assert!(
+        text.contains("class Counting : Tally, Stats {"),
+        "the synchronous handler's faces are missing:\n{text}"
+    );
+}
+
 /// [actor-on-idle] The quiescence hook, end to end. Source and expected stdout
 /// are **verbatim** the Rust backend's `rustc_compiles_and_runs_a_quiescence_hook`:
 /// the program hears about the scheduler running dry twice, once settled and
@@ -9718,14 +9932,14 @@ fn a_parked_continuation_lowers_to_a_slot_table_kotlin() {
         .expect("main.kt");
     let text = &main.content;
     assert!(
-        text.contains("sealed class __Cont_Notices {")
-            && text.contains("class Arrived(val out: salvo.SalvoReply) : __Cont_Notices()"),
+        text.contains("sealed class __Cont_Fetching {")
+            && text.contains("class Arrived(val out: salvo.SalvoReply) : __Cont_Fetching()"),
         "the continuation class is missing, or its captures are wrong:\n{text}"
     );
     assert!(
         text.contains("internal var __addr: Int? = null")
             && text.contains(
-                "internal val __parked: MutableMap<Long, __Cont_Notices> = mutableMapOf()"
+                "internal val __parked: MutableMap<Long, __Cont_Fetching> = mutableMapOf()"
             ),
         "the handler's generated fields are missing:\n{text}"
     );

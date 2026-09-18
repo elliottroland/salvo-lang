@@ -345,7 +345,13 @@ pub struct HandlerDecl {
     /// unnamed — the members reach them by calling their members, exactly as
     /// any other code does. `None` when the list is absent, as on a fn.
     pub effects: Option<Vec<EffectRef>>,
-    pub of: Type,
+    /// [effect-handler-multi] The effects this handler *implements*, in
+    /// declaration order: `handler ManualTime() of Timer, TimerCtl`. Always at
+    /// least one, and one is the common case — several is how a handler wears
+    /// more than one face over the same state (T-4(a), user decision
+    /// 2026-09-17), which a `spawn` answers one addr per and a `use` binds all
+    /// of.
+    pub of: Vec<Type>,
     /// [actor-mailbox] `mailbox { capacity: 16 }` — the **actor settings slot**
     /// (user decision 2026-09-16). A handler of an `actor effect` states its
     /// mailbox here rather than at every spawn: the author who knows the

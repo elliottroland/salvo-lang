@@ -356,7 +356,9 @@ pub struct Checked {
     /// by the statement span), with handler generics inferred from the
     /// constructor arguments (e.g. `Random<Int>` for
     /// `use CyclicRandom([1,2,3])`).
-    pub use_effects: HashMap<Key, Ty>,
+    /// [effect-handler-multi] Several entries when the handler wears several
+    /// faces: a `use` binds every effect it implements, in declaration order.
+    pub use_effects: HashMap<Key, Vec<Ty>>,
     /// Effect instances resolved for a `use`d handler's *dependencies*
     /// [effect-handler-deps], in the handler's declaration order (keyed by
     /// the `use` statement span). Only present when the handler declares
@@ -371,7 +373,10 @@ pub struct Checked {
     /// serves, keyed by the spawn's span — which is also the type of its
     /// value, an `Addr<E>`. The emitters' entry point for building an actor
     /// class.
-    pub spawn_effects: HashMap<Key, Ty>,
+    /// [effect-handler-multi] Several entries when the handler wears several
+    /// faces, in declaration order — which is also the order of the addrs the
+    /// spawn's tuple answers.
+    pub spawn_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-spawn-expr] The effect instances a spawn's `use` clause
     /// supplies for the child's dependencies, in the handler's declaration
     /// order (keyed by the spawn's span). Absent when the handler declares
@@ -899,7 +904,7 @@ fn check_once<'p>(
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             handler_deps: Vec::new(),
-            handler_of: None,
+            handler_ofs: Vec::new(),
             own_handler: None,
             handler_spawns: false,
             handler_waits: false,
@@ -1264,7 +1269,11 @@ struct Checker<'p, 'r> {
     /// told what is actually wrong: self-dispatch is not a feature yet, and
     /// neither remedy the general "no handler" diagnostic names is available
     /// inside a member.
-    handler_of: Option<Ty>,
+    /// [effect-handler-multi] The effects the handler being checked
+    /// implements, in declaration order — empty outside a handler. Several is
+    /// the multi-face case, and every rule that used to read "the effect this
+    /// handler implements" now reads "any of them".
+    handler_ofs: Vec<Ty>,
     /// [actor-replyto] The handler whose members are being checked, so a
     /// `replyto k(...)` can find `k`: a continuation targets a member of the
     /// *enclosing* handler, which is what makes the form legal only inside
@@ -1656,42 +1665,122 @@ impl<'p, 'r> Checker<'p, 'r> {
                             );
                         }
                     }
-                    let of_ty = self.lower_type(&h.of);
-                    // [throw] There is no handler for throwing: the
-                    // delimiter is `try`, and a handler would have to
-                    // *resume* the operation, which `Nothing` forbids.
-                    if matches!(
-                        of_ty.strip_quals(),
-                        Ty::Named { name, .. } if name == THROW_EFFECT
-                    ) {
+                    let of_tys: Vec<Ty> =
+                        h.of.iter().map(|t| self.lower_type(t)).collect();
+                    // [effect-handler-multi] One face per effect, and the list
+                    // is a set: naming an effect twice would make `spawn`
+                    // answer the same addr twice and say nothing new.
+                    for (i, (written, ty)) in h.of.iter().zip(&of_tys).enumerate() {
+                        if of_tys[..i].contains(ty) {
+                            self.error(
+                                written.span(),
+                                format!(
+                                    "handler `{}` already implements `{ty}`: a handler \
+                                     wears each face once",
+                                    h.name.name
+                                ),
+                            );
+                        }
+                    }
+                    // [effect-handler-multi] Every implemented effect must be
+                    // of the **same kind**. A handler with both an `actor
+                    // effect` and a plain one is the mixed handler
+                    // SHAREABLE_HANDLERS.md is still designing: its plain
+                    // members would run on the caller's thread while its send
+                    // members run on the actor's, over one piece of state, and
+                    // what protects that state is exactly the open question.
+                    let kinds: Vec<(&ast::Type, bool)> = h
+                        .of
+                        .iter()
+                        .zip(&of_tys)
+                        .filter_map(|(written, ty)| {
+                            let Ty::Named { name, .. } = ty.strip_quals() else {
+                                return None;
+                            };
+                            let effect = self.symbols.effects.get(name.as_str())?;
+                            Some((written, effect.is_actor))
+                        })
+                        .collect();
+                    if let Some((_, first)) = kinds.first().copied() {
+                        for (written, is_actor) in &kinds[1..] {
+                            if *is_actor != first {
+                                let (async_kind, sync_kind) = if *is_actor {
+                                    ("this one", "the first")
+                                } else {
+                                    ("the first", "this one")
+                                };
+                                self.error(
+                                    written.span(),
+                                    format!(
+                                        "handler `{}` implements effects of two kinds — \
+                                         {async_kind} is an `actor effect` and {sync_kind} \
+                                         is not: a handler is bound one way or the other \
+                                         (`spawn` or `use`), so its faces must agree",
+                                        h.name.name
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    // [effect-handler-multi] A **bodyless** handler wears one
+                    // face: an `intrinsic handler`'s members are the backend's
+                    // and a `platform handler`'s are the host's, and each is one
+                    // implementation of one generated interface — so a second
+                    // face has nobody to implement it.
+                    if (h.intrinsic || h.platform) && h.of.len() > 1 {
+                        let kind = if h.intrinsic {
+                            "intrinsic"
+                        } else {
+                            "platform"
+                        };
                         self.error(
-                            h.of.span(),
+                            h.of[1].span(),
                             format!(
-                                "`{THROW_EFFECT}` has no handlers: a throw is delimited by a \
-                                 `try {{ ... }}` block, not handled"
+                                "`{kind} handler {}` implements several effects: its \
+                                 members are implemented outside Salvo, where one class \
+                                 implements one generated interface — declare one \
+                                 handler per effect",
+                                h.name.name
                             ),
                         );
                     }
-                    // [platform-effect] A platform effect's implementation
-                    // is the host's, written in the target language and
-                    // handed to the Salvo entry point. A Salvo handler for
-                    // one would be a second, unreachable implementation.
-                    if let Ty::Named { name, .. } = of_ty.strip_quals() {
-                        if self
-                            .symbols
-                            .effects
-                            .get(name.as_str())
-                            .is_some_and(|e| e.platform)
-                        {
+                    // [throw] There is no handler for throwing: the
+                    // delimiter is `try`, and a handler would have to
+                    // *resume* the operation, which `Nothing` forbids.
+                    for (written, of_ty) in h.of.iter().zip(&of_tys) {
+                        if matches!(
+                            of_ty.strip_quals(),
+                            Ty::Named { name, .. } if name == THROW_EFFECT
+                        ) {
                             self.error(
-                                h.of.span(),
+                                written.span(),
                                 format!(
-                                    "`{name}` is a platform effect: the host implements \
-                                     it in the target language and supplies it to the \
-                                     entry point, so it has no Salvo handler — declare \
-                                     an ordinary `effect` if you mean to handle it here"
+                                    "`{THROW_EFFECT}` has no handlers: a throw is delimited by a \
+                                     `try {{ ... }}` block, not handled"
                                 ),
                             );
+                        }
+                        // [platform-effect] A platform effect's implementation
+                        // is the host's, written in the target language and
+                        // handed to the Salvo entry point. A Salvo handler for
+                        // one would be a second, unreachable implementation.
+                        if let Ty::Named { name, .. } = of_ty.strip_quals() {
+                            if self
+                                .symbols
+                                .effects
+                                .get(name.as_str())
+                                .is_some_and(|e| e.platform)
+                            {
+                                self.error(
+                                    written.span(),
+                                    format!(
+                                        "`{name}` is a platform effect: the host implements \
+                                         it in the target language and supplies it to the \
+                                         entry point, so it has no Salvo handler — declare \
+                                         an ordinary `effect` if you mean to handle it here"
+                                    ),
+                                );
+                            }
                         }
                     }
                     for p in &h.params {
@@ -1703,8 +1792,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // left anywhere in the language.
                         self.validate_type(&p.ty);
                     }
-                    // [effect-handler-deps] `handler H [E1, E2] of E`: the
-                    // dependencies, validated here and supplied at the `use`.
+                    // [effect-handler-multi] Conformance, face by face: every
+                    // member of every implemented effect needs an
+                    // implementation here, and a member that implements two
+                    // faces at once has to be *one* signature — which is what
+                    // "legal when overloading distinguishes them, or when one
+                    // method implements both" means when it is checked.
+                    self.check_handler_conformance(h);
                     let handler_deps = self.handler_dep_effects(h);
                     let saved_deps =
                         std::mem::replace(&mut self.handler_deps, handler_deps);
@@ -1728,12 +1822,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .any(|e| matches!(e, EffectRef::WaitFor(_)));
                     let saved_waits = std::mem::replace(&mut self.handler_waits, waits);
                     let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
-                    let saved_of =
-                        std::mem::replace(&mut self.handler_of, Some(of_ty.clone()));
+                    let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
                     // [actor-mailbox] The actor settings slot, before the
                     // state fields: it is the one part of a handler that is
                     // computed *before* any state exists.
-                    self.check_mailbox_slot(h, &of_ty);
+                    self.check_mailbox_slot(h, &of_tys);
                     for field in &h.state {
                         self.validate_type(&field.ty);
                         self.check_proj_field(&h.name.name, field);
@@ -1781,7 +1874,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.handler_spawns = saved_spawns;
                     self.handler_waits = saved_waits;
                     self.own_handler = saved_own_handler;
-                    self.handler_of = saved_of;
+                    self.handler_ofs = saved_of;
                     self.generics = saved;
                 }
                 Item::Effect(e) => {
@@ -4817,15 +4910,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The braces are a `Mailbox` struct literal with the type elided, so the
     /// field names, their types, a missing one and an unknown one are all the
     /// ordinary struct diagnostics.
-    fn check_mailbox_slot(&mut self, h: &'p ast::HandlerDecl, of: &Ty) {
-        let is_actor = match of.strip_quals() {
+    fn check_mailbox_slot(&mut self, h: &'p ast::HandlerDecl, of: &[Ty]) {
+        // [effect-handler-multi] One mailbox serves every face: the effects a
+        // handler implements are all of one kind, so *any* of them answers
+        // whether there is a queue at all.
+        let is_actor = of.iter().any(|of| match of.strip_quals() {
             Ty::Named { name, .. } => self
                 .scope
                 .effects
                 .get(name.as_str())
                 .is_some_and(|e| e.is_actor),
             _ => false,
-        };
+        });
         match (&h.mailbox, is_actor) {
             (None, true) => {
                 self.error(
@@ -5051,7 +5147,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-effect-kind] Binding an addr binds an actor's protocol.
         self.require_actor_effect(&effect, span, "use");
         self.out.use_addrs.insert(self.key(span), effect.clone());
-        self.out.use_effects.insert(self.key(span), effect.clone());
+        self.out
+            .use_effects
+            .insert(self.key(span), vec![effect.clone()]);
         self.effect_env.push(effect);
     }
 
@@ -5098,9 +5196,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// constructor arguments (inferring its generics from them and from any
     /// written type arguments), consumes what it stores, and fills the
     /// constructor's implicits. Answers the concrete effect instance it
-    /// implements and its **dependencies, already substituted** — everything
-    /// both `use` and `spawn` need before they part ways over *where* those
-    /// dependencies come from.
+    /// implements — one per declared face [effect-handler-multi], in
+    /// declaration order — and its **dependencies, already substituted**:
+    /// everything both `use` and `spawn` need before they part ways over
+    /// *where* those dependencies come from.
     fn check_handler_construction(
         &mut self,
         id: &'p Ident,
@@ -5108,7 +5207,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         written_type_args: &'p [ast::Type],
         form: &str,
         span: Span,
-    ) -> Option<(Ty, Vec<Ty>)> {
+    ) -> Option<(Vec<Ty>, Vec<Ty>)> {
         let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
             self.error_unresolved(
                 id.span,
@@ -5131,7 +5230,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|p| self.lower_type(&p.ty))
             .collect();
-        let of_ty = self.lower_type(&decl.of);
+        let of_tys: Vec<Ty> = decl.of.iter().map(|t| self.lower_type(t)).collect();
         self.generics = saved;
         // [lsp-definition] the handler name points at its declaration.
         self.record_def_ref(id.span, &id.name);
@@ -5251,7 +5350,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !ctor_implicits.is_empty() {
             self.fill_implicits(&ctor_implicits, &id.name, &subst, &generic_set, &[], span);
         }
-        let concrete = substitute_vars(&of_ty, &subst, &generic_set);
+        let concrete: Vec<Ty> = of_tys
+            .iter()
+            .map(|of| substitute_vars(of, &subst, &generic_set))
+            .collect();
         let deps: Vec<Ty> = deps
             .iter()
             .map(|d| substitute_vars(d, &subst, &generic_set))
@@ -5261,7 +5363,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The `use`-specific half: resolve the handler's dependencies from the
     /// **enclosing scope** and register the instance for the rest of it.
-    fn finish_use(&mut self, id: &'p Ident, concrete: Ty, deps: Vec<Ty>, span: Span) {
+    fn finish_use(&mut self, id: &'p Ident, concrete: Vec<Ty>, deps: Vec<Ty>, span: Span) {
         // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
         // registration for the same effect instance: the innermost wins for
         // the rest of the scope, which is what makes interception writable
@@ -5296,7 +5398,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // worth its own wording, since the remedy is not "register a
                 // different handler first" but "register the one you are
                 // wrapping".
-                None if want == concrete => self.error(
+                None if concrete.contains(&want) => self.error(
                     span,
                     format!(
                         "handler `{}` intercepts `{want}` — it depends on the effect \
@@ -5319,10 +5421,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !resolved_deps.is_empty() {
             self.out.use_deps.insert(self.key(span), resolved_deps);
         }
+        // [effect-handler-multi] Every face is registered, in declaration
+        // order: one instance, one binding per effect it implements, so a
+        // caller reaches whichever face its own effect list names.
         self.out
             .use_effects
             .insert(self.key(span), concrete.clone());
-        self.effect_env.push(concrete);
+        for effect in concrete {
+            self.effect_env.push(effect);
+        }
     }
 
     // ================= scopes, locals, narrowing =================
@@ -7746,29 +7853,178 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (`salvo_core::effect_member_index`), so an overloaded member's bodies
     /// each get their own overload's contract — `close(InStream)` discharges
     /// an `InStream`, `close(OutStream)` an `OutStream`.
+    /// [effect-handler-multi] Conformance of a handler to the effects it
+    /// implements: every member of every face has an implementation, and a
+    /// handler member that implements a member of *several* faces is one
+    /// signature rather than two.
+    ///
+    /// The first half is what the target compilers used to report for us (a
+    /// missing trait method), which put a Salvo mistake in a foreign
+    /// diagnostic; the second is T-4(a)'s refinement — same-named members
+    /// across faces are legal when overloading tells them apart (different
+    /// written parameter types, so they are two members here) or when one
+    /// method implements both (identical signatures), and refused where
+    /// overloading *cannot* tell them apart.
+    ///
+    /// An `intrinsic` or `platform` handler is bodyless by design: its members
+    /// are the backend's or the host's, so there is nothing here to match.
+    fn check_handler_conformance(&mut self, h: &'p ast::HandlerDecl) {
+        if h.intrinsic || h.platform {
+            return;
+        }
+        let faces: Vec<(&'p ast::Type, &'p ast::EffectDecl)> = h
+            .of
+            .iter()
+            .filter_map(|of| {
+                let name = match of {
+                    ast::Type::Named { base, .. } => base.name.name.as_str(),
+                    ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                        ast::Type::Named { base, .. } => base.name.name.as_str(),
+                        _ => return None,
+                    },
+                    _ => return None,
+                };
+                self.scope.effects.get(name).copied().map(|e| (of, e))
+            })
+            .collect();
+        let decls: Vec<&'p ast::EffectDecl> = faces.iter().map(|(_, e)| *e).collect();
+        // Every member of every face, implemented.
+        for (written, effect) in &faces {
+            for (idx, member) in effect.fns.iter().enumerate() {
+                let implemented = h.fns.iter().any(|f| {
+                    crate::handler_member_faces(&decls, f)
+                        .iter()
+                        .any(|(e, i)| std::ptr::eq(*e, *effect) && *i == idx)
+                });
+                if implemented {
+                    continue;
+                }
+                let params: Vec<String> = member
+                    .params
+                    .iter()
+                    .filter(|p| !p.implicit)
+                    .map(|p| p.ty.to_string())
+                    .collect();
+                self.error(
+                    written.span(),
+                    format!(
+                        "handler `{}` does not implement `{}.{}({})`: a handler covers \
+                         every member of every effect it implements",
+                        h.name.name,
+                        effect.name.name,
+                        member.name.name,
+                        params.join(", ")
+                    ),
+                );
+            }
+        }
+        // A member that implements several faces at once: one signature, or
+        // nothing to choose between them by.
+        for f in &h.fns {
+            let matched = crate::handler_member_faces(&decls, f);
+            let Some((first, first_idx)) = matched.first().copied() else {
+                continue;
+            };
+            let Some(first_member) = first.fns.get(first_idx) else {
+                continue;
+            };
+            for (other, other_idx) in matched.iter().skip(1) {
+                let Some(other_member) = other.fns.get(*other_idx) else {
+                    continue;
+                };
+                if self.same_member_signature(first, first_member, other, other_member) {
+                    continue;
+                }
+                self.error(
+                    f.name.span,
+                    format!(
+                        "`{}` implements `{}.{}` and `{}.{}`, whose signatures differ in \
+                         what overloading cannot see — the parameters are the same, so \
+                         one member cannot answer for both: give them different \
+                         parameters, or split the faces across two handlers",
+                        f.name.name,
+                        first.name.name,
+                        first_member.name.name,
+                        other.name.name,
+                        other_member.name.name
+                    ),
+                );
+            }
+        }
+    }
+
+    /// [effect-handler-multi] Whether two effect members are the *same*
+    /// signature, which is what lets one handler method implement both. Their
+    /// written parameter types already agree (that is how they were matched),
+    /// so what is left is the return type and the deduction clause — the two
+    /// halves of the contract a caller relies on. Compared as lowered types
+    /// under each effect's own generics, so an alias on one side is not a
+    /// difference.
+    fn same_member_signature(
+        &mut self,
+        a_effect: &'p ast::EffectDecl,
+        a: &'p FnDecl,
+        b_effect: &'p ast::EffectDecl,
+        b: &'p FnDecl,
+    ) -> bool {
+        let lower = |me: &mut Self, effect: &'p ast::EffectDecl, ty: &Option<ast::Type>| {
+            let saved = me.enter_generics(&effect.generics);
+            let out = ty.as_ref().map(|t| me.lower_type(t));
+            me.generics = saved;
+            out
+        };
+        let a_ret = lower(self, a_effect, &a.return_type);
+        let b_ret = lower(self, b_effect, &b.return_type);
+        if a_ret != b_ret {
+            return false;
+        }
+        // The deduction clauses, as written: a face that says a parameter is
+        // consumed and one that says it is kept are different promises, and the
+        // body can only keep one of them.
+        let entries = |f: &'p FnDecl| -> Vec<String> {
+            f.deductions
+                .iter()
+                .flatten()
+                .map(|d| format!("{d:?}"))
+                .collect()
+        };
+        entries(a) == entries(b)
+    }
+
+    /// [effect-handler-multi] The effects a handler implements, as declarations
+    /// and in declaration order. A face whose name is not a declared effect in
+    /// scope is dropped here and reported where it was written.
+    fn handler_faces(&self, h: &'p ast::HandlerDecl) -> Vec<&'p ast::EffectDecl> {
+        h.of
+            .iter()
+            .filter_map(|of| match of {
+                ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                    ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .filter_map(|name| self.scope.effects.get(name).copied())
+            .collect()
+    }
+
+    /// [effect-handler-multi] Searched across **every** implemented effect,
+    /// since a member may belong to any of the handler's faces (and a member
+    /// that implements two of them gets the first face's contract — the
+    /// signatures are identical where that is legal, so the contracts are too).
     fn member_discharge_context(
         &self,
         h: &'p ast::HandlerDecl,
         f: &FnDecl,
     ) -> HashSet<String> {
-        let effect_name = match &h.of {
-            ast::Type::Named { base, .. } => base.name.name.as_str(),
-            ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                ast::Type::Named { base, .. } => base.name.name.as_str(),
-                _ => return HashSet::new(),
-            },
-            _ => return HashSet::new(),
-        };
-        let Some(effect) = self.scope.effects.get(effect_name).copied() else {
-            return HashSet::new();
-        };
-        let Some(idx) = crate::effect_member_index(effect, f) else {
-            return HashSet::new();
-        };
-        match effect.fns.get(idx) {
-            Some(member) => self.member_discharges(effect_name, member),
-            None => HashSet::new(),
+        let faces = self.handler_faces(h);
+        for (effect, idx) in crate::handler_member_faces(&faces, f) {
+            if let Some(member) = effect.fns.get(idx) {
+                return self.member_discharges(&effect.name.name, member);
+            }
         }
+        HashSet::new()
     }
 
     /// [linear-group] The linear types a *member* consumes — the discharge
@@ -9048,7 +9304,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        let Some((effect, declared)) =
+        let Some((effects, declared)) =
             self.check_handler_construction(id, args, written_type_args, "spawn", span)
         else {
             for u in uses {
@@ -9061,7 +9317,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (built on the child) or an `Addr` (an effect another actor serves).
         // [actor-effect-kind] Only an actor protocol may be spawned. Checked
         // after the construction, so argument errors still surface.
-        self.require_actor_effect(&effect, span, "spawn");
+        // [effect-handler-multi] Every face of a spawned handler is a protocol
+        // its addr tuple hands out, so every one of them must be an actor
+        // effect. The kinds already agree by the declaration check, so this
+        // reports the same thing once per face at worst.
+        for effect in &effects {
+            self.require_actor_effect(effect, span, "spawn");
+        }
         // The clause item's own index travels with the effect it supplies:
         // the matching below drains this list, so the position in it is not
         // the position the program wrote.
@@ -9116,10 +9378,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.spawn_deps.insert(self.key(span), resolved);
             self.out.spawn_dep_items.insert(self.key(span), items);
         }
-        self.out.spawn_effects.insert(self.key(span), effect.clone());
-        Ty::Named {
-            name: ADDR_TYPE.to_string(),
-            args: vec![effect],
+        self.out.spawn_effects.insert(self.key(span), effects.clone());
+        // [effect-handler-multi] One addr per implemented effect: a single face
+        // answers the bare `Addr<E>` it always did, and several answer a tuple
+        // in declaration order — which is how least authority falls out of the
+        // types, since a holder of one face cannot name the other's members.
+        let mut addrs: Vec<Ty> = effects
+            .into_iter()
+            .map(|effect| Ty::Named {
+                name: ADDR_TYPE.to_string(),
+                args: vec![effect],
+            })
+            .collect();
+        if addrs.len() == 1 {
+            addrs.pop().unwrap_or(Ty::Unknown)
+        } else {
+            Ty::Tuple(addrs)
         }
     }
 
@@ -9143,8 +9417,29 @@ impl<'p, 'r> Checker<'p, 'r> {
             // the child's problem in turn, and a handler with any of its own
             // cannot be written in a spawn clause — there is no scope on the
             // child to resolve them from. Named where it is written.
-            let (effect, deps) =
+            let (effects, deps) =
                 self.check_handler_construction(id, args, type_args, "spawn", item.span())?;
+            let effect = effects.first().cloned().unwrap_or(Ty::Unknown);
+            // [effect-handler-multi] A multi-face handler *constructed* in a
+            // spawn clause would have to supply two of the child's
+            // dependencies from one instance, and the child owns what a clause
+            // builds — so there is nothing to share it with. Two addrs of the
+            // same actor are the shape that works, and they are two clause
+            // items.
+            if effects.len() > 1 {
+                let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+                self.error(
+                    item.span(),
+                    format!(
+                        "handler `{}` implements several effects ({}), so it cannot be \
+                         constructed in a spawn's `use` clause: the child would own it, \
+                         and one instance cannot be two of its dependencies — spawn it \
+                         separately and pass an `{ADDR_TYPE}` per face",
+                        id.name,
+                        faces.join(", ")
+                    ),
+                );
+            }
             for dep in &deps {
                 self.error(
                     item.span(),
@@ -12820,10 +13115,36 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) -> Vec<Binding> {
         match pattern {
             Pattern::Ident(id) => vec![(id.clone(), ty, links, for_origin)],
-            Pattern::Tuple { elems, .. } => {
-                let elem_tys: Vec<Ty> = match &ty {
+            Pattern::Tuple { elems, span } => {
+                // [let-destructure] The subject has to *be* a tuple of this
+                // arity. Until 2026-09-18 a mismatch bound `Unknown`s and said
+                // nothing, so `let (a, b) = 7` compiled and the emitters
+                // produced target code that could not build — a Salvo mistake
+                // reported, at best, by rustc or kotlinc.
+                //
+                // `Unknown` still passes silently [type-unknown-lenient]: one
+                // mistake, one diagnostic.
+                let elem_tys: Vec<Ty> = match ty.strip_quals() {
                     Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
-                    _ => vec![Ty::Unknown; elems.len()],
+                    Ty::Unknown | Ty::Nothing => vec![Ty::Unknown; elems.len()],
+                    other => {
+                        let what = match other {
+                            Ty::Tuple(ts) => format!(
+                                "`{ty}` is a tuple of {}, not {}",
+                                ts.len(),
+                                elems.len()
+                            ),
+                            _ => format!("`{ty}` is not a tuple"),
+                        };
+                        self.error(
+                            *span,
+                            format!(
+                                "this pattern destructures a tuple of {}, but {what}",
+                                elems.len()
+                            ),
+                        );
+                        vec![Ty::Unknown; elems.len()]
+                    }
                 };
                 elems
                     .iter()
@@ -14070,7 +14391,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 } else {
                     elem
                 };
-                let bindings = self.pattern_bindings(pattern, elem, links, Some(iterable.span()));
+                // [let-destructure] A loop binding is a *name* in the first
+                // pass: neither backend's loop lowering destructures an element
+                // (Kotlin casts the pass's payload to the element type and
+                // Rust matches the emitted union arm, and a pattern in either
+                // place emitted target code that would not build). Refused here
+                // rather than per backend, since it is unsupported on both —
+                // and bound as `Unknown`s so the body still checks against one
+                // diagnostic. Kotlin's own "struct destructuring in `for`"
+                // refusal is the precedent; the lift is recorded in ROADMAP.md.
+                let bindings = if matches!(pattern, Pattern::Ident(_)) {
+                    self.pattern_bindings(pattern, elem, links, Some(iterable.span()))
+                } else {
+                    let at = match pattern {
+                        Pattern::Tuple { span, .. } | Pattern::Struct { span, .. } => *span,
+                        Pattern::Ident(id) => id.span,
+                    };
+                    self.error(
+                        at,
+                        "destructuring a loop element is not supported yet: bind the \
+                         element itself (`for p in ...`) and read its parts inside the \
+                         body (`p.0`, `p.name`)"
+                            .to_string(),
+                    );
+                    self.pattern_bindings(pattern, Ty::Unknown, links, Some(iterable.span()))
+                };
                 self.loop_stack.push(LoopCtx {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
@@ -18632,9 +18977,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // outward to the handler registered before this one
             // [effect-intercept], not to this one. Recorded as a gap in
             // ROADMAP.md.
-            let own = self.handler_of.clone().filter(
+            let own = self.handler_ofs.iter().find(
                 |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == effect.name.name),
-            );
+            ).cloned();
             match own {
                 Some(of) => {
                     // [actor-self-send] For a **send** member the remedy now

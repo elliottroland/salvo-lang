@@ -435,3 +435,52 @@ fn facts_must_hold_on_every_path_to_survive() {
     );
     assert_eq!(errs.len(), 1, "expected the read after the join to fail: {errs:?}");
 }
+
+// ===== destructuring =====
+
+/// [let-destructure] A tuple pattern needs a tuple *of that arity* behind it.
+/// Until 2026-09-18 a mismatch bound `Unknown`s and said nothing, so
+/// `let (a, b) = 7` compiled and the emitters wrote target code that could not
+/// build — the mistake was reported, at best, by rustc or kotlinc.
+#[test]
+fn a_tuple_pattern_needs_a_tuple() {
+    let errs = check("    let (a, b) = 7\n    return p.name\n");
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("destructures a tuple of 2") && e.contains("`Int` is not a tuple")),
+        "expected the not-a-tuple error: {errs:?}"
+    );
+}
+
+/// …and the arity is part of it: two names cannot take a triple.
+#[test]
+fn a_tuple_pattern_must_match_the_arity() {
+    let errs = check("    let (a, b) = p.pair\n    let (c, d, e) = p.pair\n    return p.name\n");
+    let arity: Vec<&String> = errs
+        .iter()
+        .filter(|e| e.contains("destructures a tuple of 3"))
+        .collect();
+    assert_eq!(
+        arity.len(),
+        1,
+        "the matching pattern is legal and only the mismatch reports: {errs:?}"
+    );
+    assert!(
+        arity[0].contains("is a tuple of 2, not 3"),
+        "the error names both arities: {arity:?}"
+    );
+}
+
+/// [let-destructure] A **loop** binding is a name in the first pass: neither
+/// backend's loop lowering destructures an element, and both used to emit
+/// target code that would not build. Refused in the checker, since it is
+/// unsupported on both.
+#[test]
+fn a_loop_element_may_not_be_destructured() {
+    let errs = check("    for (a, b) in p.tags {\n        read(p)\n    }\n    return p.name\n");
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("destructuring a loop element is not supported yet")),
+        "expected the loop-destructuring refusal: {errs:?}"
+    );
+}

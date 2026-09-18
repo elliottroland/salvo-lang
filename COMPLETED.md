@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1099 tests, complete: the toolchain tests are
+cargo test                  # 1120 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,126 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Two tuple holes closed (built 2026-09-18, user request).** Both were
+*silent*, and both are now the thing they should have been: a diagnostic, and a
+generated type.
+
+- **A tuple pattern must match a tuple of its arity** [let-destructure]. Until
+  now `let (a, b) = 7` and `let (a, b) = (1, 2, 3)` bound `Unknown`s and said
+  nothing, so the mistake reached the *target* compiler — `let (a, b) = 7`
+  compiled to Kotlin that kotlinc rejected. The pattern's own span carries the
+  error, which names what it found (`` `Int` is not a tuple ``,
+  `` `(Int, Int, Int)` is a tuple of 3, not 2 ``), and an `Unknown` subject
+  stays lenient [type-unknown-lenient].
+- **A loop binding is a name, not a pattern** — refused with the remedy, because
+  neither backend's loop lowering destructures an element. Found while testing
+  the first half: `for (k, v) in iter(pairs)` type-checked and then emitted
+  Kotlin whose element cast was `as Any?` (so `component1()` did not exist) and
+  Rust that moved out of a shared reference (`E0507`) — *both* with the element
+  type known and correct, so this was not the mismatch at all but an
+  unimplemented lowering. Refused in the checker rather than twice in the
+  backends, on the precedent of Kotlin's own "struct destructuring in `for` is
+  not supported yet"; the lift is in ROADMAP.
+- **Kotlin tuples past three are a generated class now** [kt-tuple-class],
+  not a codegen error (user direction: "use our own types rather than
+  `Pair`/`Triple` when we get past them"). `tuples.kt` declares a
+  `data class SalvoTupleN` per arity the program names, exactly as `unions.kt`
+  declares a union wrapper — `data class` because that is what buys structural
+  `equals`/`hashCode` (a `Set` element, a `Map` key) and `componentN` (so a
+  four-name `let` destructures).
+  * **The property names are `first`, `second`, `third`, `v3`, `v4`, …**, which
+    is the detail that keeps the *index* rule single: `.0`/`.1`/`.2` are
+    `Pair`/`Triple`'s names either way, and an index past 2 can only be a
+    generated tuple's, so nothing has to look the arity up
+    [kt-tuple-component].
+  * **Ordering needed a marker interface.** `__salvoCompare` reaches lists,
+    `Pair`s and `Triple`s by type test, and a generated class has no supertype
+    Kotlin knows — so the classes implement `SalvoTuple` (`compare.kt`), whose
+    `__parts` the list branch then orders lexicographically. Emitting a big
+    tuple therefore emits `compare.kt` too.
+  * **A third silent hole fell out on the way**: `emit_ty` rendered a tuple past
+    three as `Any` — no error, no diagnostic, just the wrong Kotlin type. That
+    is what made the `for (k, v)` cast `as Any?` above, and it is gone with the
+    same change.
+- **Verified on both backends with identical output**: a five-tuple read by
+  index and destructured, plus a `SortedSet` of four-tuples (which exercises
+  hashing *and* the comparison path), asserted as one compile-and-run case per
+  backend with the Kotlin lowering pinned; three checker tests for the pattern
+  rules. Tests: **1120 (+5)**.
+
+**The second sequence, step 4: multi-effect handlers (built 2026-09-18,
+T-4(a)).** A handler may now implement **several effects** —
+`handler ManualTime() of Timer, TimerCtl` — one handler, one piece of state, one
+mailbox, and one *typed face* per protocol. One new rule label,
+**[effect-handler-multi]**, plus backend halves under [rs-actor] / [kt-actor].
+What it took, and what it turned up:
+
+- **`spawn` answers one addr per face**, in declaration order: a bare `Addr<E>`
+  for one face (unchanged), a tuple for several. That is where the design's
+  "least authority falls out of the types" is paid for — and it costs *nothing*
+  at run time, because there is one actor and one scheduler index: the emitted
+  code is `let __a = salvo_spawn(…); (__a, __a)` / `Pair(__a, __a)`. Intersection
+  types stayed out, as decided.
+- **`use` binds every face**, which is what makes the synchronous form of the
+  pattern — a public face and an admin face over one state — writable at all.
+  Both emitters register one effect entry per face against one instance.
+- **The Rust fusion had to be switched on for multi-face handlers**, and finding
+  out why was the most interesting hour of the build: a fn declaring `[A, B]`
+  takes one `&mut` per effect, so when both are one handler's faces those are two
+  mutable borrows of one local — rustc's `E0499`, on a program Kotlin ran fine.
+  The fusion exists for exactly that ("N reborrows of the same provider would
+  alias"), so `program_needs_fusion` now answers yes for a multi-face handler
+  too, and a multi-face `use` emits one `__Has_E` accessor per face onto the one
+  owned instance. A backend divergence closed by using machinery already there.
+- **The continuation enum moved from the effect to the handler** (`__Cont_E` →
+  `__Cont_H`, both backends): a mint is *lexical*, so its targets are the
+  handler's members — which with several faces come from several protocols. The
+  rename is the honest factoring rather than a concession; the message enum
+  `__Msg_E` stays the effect's, because a *sender* holds an addr and knows only
+  the protocol.
+- **One dispatcher per protocol, one mailbox for all of them.** `__dispatch_<E>`
+  per face (a single-face handler keeps the bare `__dispatch` it always emitted),
+  and `handle` asks each protocol in turn — `msg.downcast::<__Msg_E>()` hands the
+  box back on a miss, which is what makes the chain possible on Rust; Kotlin is a
+  `when (msg)` over the message classes. Kotlin needs **one** override where a
+  member implements a same-named member of two faces (a single method satisfies
+  both interfaces); Rust cannot share a method between two traits, so the body is
+  emitted into each face's impl.
+- **Conformance is now checked in Salvo**, face by face: every member of every
+  effect must be implemented, named as ``handler `H` does not implement
+  `E.m(T)` ``. It was never checked before — a missing member was the *target*
+  compiler's missing-trait-method error — and multi-face handlers make forgetting
+  one much likelier, so the diagnostic came with the feature.
+- **Same-named members across faces**, T-4(a)'s refinement, needed a matcher of
+  its own: `effect_member_index` is deliberately lenient (a face declaring one
+  member of a name matches by name alone, so an alias still lands on it), and
+  across faces that leniency made `A.ping(Int)` and `B.ping(Str)` both claim one
+  handler method. `handler_member_faces` in `salvo-core` narrows a multi-face
+  match to the faces whose *written parameter types* agree exactly — and is
+  shared by the checker and both emitters, so they cannot disagree about which
+  face a member implements. Identical signatures (return type *and* deduction
+  clause, the two halves of the contract) mean one method implements both; same
+  parameters with a different return type is the refusal the decision names.
+- **Three restrictions fell out, each a diagnostic**: the faces must be of one
+  **kind** (an `actor effect` beside a plain one is SHAREABLE_HANDLERS.md's
+  mixed handler, still being designed); a face may be named **once**; and a
+  **bodyless** handler (`intrinsic`/`platform`) wears one face, since one host
+  class implements one generated interface. Plus one shape-level refusal: a
+  multi-face handler may not be *constructed* in a spawn's `use` clause — the
+  child owns what a clause builds, and one instance cannot be two of its
+  dependencies (two addrs of the same actor are the shape that works).
+- **Verified on both backends with identical output**: a compile-and-run case
+  that is T-4's own program (`ManualTime of Timer, TimerCtl` — `pending 0` /
+  `fired at 10` / `pending 0`) beside the synchronous pair one `use` binds
+  (`total 5`), lowering assertions per backend (one impl per face, one dispatcher
+  per protocol, the addr tuple), twelve checker tests and one parser test.
+  Tests: **1115 (+16)**.
+- **Two findings recorded in ROADMAP**: same-named members across faces still
+  need `@Effect` at *call* sites, because [effect-at] keys on the member name
+  rather than on the parameters; and `let (a, b) = 7` — a tuple pattern against a
+  non-tuple — is silently accepted (pre-existing), which now also hides the
+  mistake of destructuring a one-face spawn.
 
 **The second sequence, step 3: `on_idle`, the quiescence hook (built
 2026-09-18, T-3(a)).** The step the ROADMAP called cheap, and it was — one new
@@ -11751,7 +11871,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1099)
+## Test inventory (all green: 1120)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -11759,7 +11879,14 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 614 - 19 unit tests (file classification, including the
+- `salvo-core`: 629 - 12 multi-effect-handler tests
+  (`tests/multi_effect_tests.rs` [effect-handler-multi]: the two-faced actor and
+  the addr per face, an addr of one face refusing the other's member, one face
+  still answering a bare addr while several answer a tuple, conformance naming an
+  unimplemented member, one method implementing a same-named member of two faces
+  and the refusal where overloading cannot distinguish them, different parameters
+  making two members, the one-kind and named-once rules, a `use` binding every
+  face, and a multi-face construction refused in a spawn clause) + 19 unit tests (file classification, including the
   `platform/` strip [platform-tree]; `types.rs` union
   normalization, subtyping, display, wrapper detection; `place.rs`
   [flow-place]: the prefix relation reflexive and downward-closed,
@@ -12350,7 +12477,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 90 (three parser tests for the scope selector and
+- `salvo-syntax`: 91 (three parser tests for the scope selector and
   `rename` [fn-overload-at] [fn-rename]: `@` on a name, a dot call and a
   value, the placement error, module- and statement-level renames, and the
   four things a rename may not repeat; two std snapshots for `core.iterable`
@@ -12419,7 +12546,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 107 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 109 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -12434,7 +12561,10 @@ cache, with per-test timings.
   answered: true` / `done`) [actor-watch] — its reason text is the one thing
   not asserted, being the host's; the quiescence hook, whose two reports are the
   assertion (`settled: gates 0, tokens 0` / `stuck: gates 1, tokens 1`) and whose
-  determinism *is* the feature [actor-on-idle]; and the parked-continuation trio: a fetcher
+  determinism *is* the feature [actor-on-idle]; **handlers of several effects**,
+  one actor with two typed faces plus the synchronous pair one `use` binds
+  (`pending 0` / `fired at 10` / `pending 0` / `total 5`)
+  [effect-handler-multi]; and the parked-continuation trio: a fetcher
   that
   parks a continuation for a database process's answer and fulfils `main`'s
   token from inside its own activation (`got row 7`), the gate whose *ordering*
@@ -12618,7 +12748,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 200 - including fourteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 203 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12641,8 +12771,11 @@ cache, with per-test timings.
   [free-send-fn] [task-mint] [rs-task]; the **quiescence hook** compiled and run —
   a settled pool answering `gates 0, tokens 0` and a gated actor answering
   `gates 1, tokens 1`, with its `Idle`-builder lowering asserted
-  [actor-on-idle]; and the generic-handler cut reported as a
-  codegen error) - and the
+  [actor-on-idle]; **handlers of several effects** compiled and run —
+  T-4's own two-faced actor beside the synchronous public/admin pair — with one
+  impl per face, one `__dispatch_<Effect>` per protocol and the addr tuple
+  asserted on the generated text [effect-handler-multi]; and the
+  generic-handler cut reported as a codegen error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong
   *output* - golden snapshots of the same five demos

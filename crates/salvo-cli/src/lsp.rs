@@ -1201,7 +1201,8 @@ fn params_signature(decl: &salvo_syntax::ast::ParamsDecl) -> String {
     sig
 }
 
-/// `handler CyclicRandom<T>(values: List<T>) of Random<T>`.
+/// `handler CyclicRandom<T>(values: List<T>) of Random<T>` — several faces
+/// comma-separated, as the declaration writes them [effect-handler-multi].
 fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     let params: Vec<String> = decl
         .params
@@ -1213,12 +1214,13 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     } else {
         format!("({})", params.join(", "))
     };
+    let faces: Vec<String> = decl.of.iter().map(|of| of.to_string()).collect();
     format!(
         "handler {}{}{} of {}",
         decl.name.name,
         generic_list(&decl.generics),
         params,
-        decl.of
+        faces.join(", ")
     )
 }
 

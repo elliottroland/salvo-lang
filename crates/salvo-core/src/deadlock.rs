@@ -162,10 +162,17 @@ fn build(
     for (file_idx, ast) in program.modules.iter().enumerate() {
         for item in &ast.items {
             let Item::Handler(h) = item else { continue };
-            let Some(served) = base_name(&h.of) else {
-                continue;
-            };
-            if !is_actor(served) {
+            // [effect-handler-multi] A handler may serve several protocols, and
+            // each is its own node: two nodes that happen to be one actor is
+            // the same conservative approximation the type-level graph already
+            // makes, so every edge below is added from every face.
+            let served: Vec<&str> = h
+                .of
+                .iter()
+                .filter_map(|of| base_name(of))
+                .filter(|name| is_actor(name))
+                .collect();
+            if served.is_empty() {
                 continue;
             }
             let gate = out
@@ -189,8 +196,8 @@ fn build(
                 let EffectRef::Effect(r) = dep else { continue };
                 let name = r.name.name.as_str();
                 // Interception: an own-effect dependency binds outward, so it
-                // closes no cycle.
-                if !is_actor(name) || name == served {
+                // closes no cycle. "Own" is any face this handler wears.
+                if !is_actor(name) || served.contains(&name) {
                     continue;
                 }
                 targets.push((name.to_string(), file_idx, r.span));
@@ -229,12 +236,14 @@ fn build(
                     file,
                     span,
                 };
-                let slot = graph.entry(served.to_string()).or_default();
-                match slot.get(&target) {
-                    // Keep the stronger edge; ties keep the first site.
-                    Some(existing) if existing.kind <= edge.kind => {}
-                    _ => {
-                        slot.insert(target, edge);
+                for from in &served {
+                    let slot = graph.entry((*from).to_string()).or_default();
+                    match slot.get(&target) {
+                        // Keep the stronger edge; ties keep the first site.
+                        Some(existing) if existing.kind <= edge.kind => {}
+                        _ => {
+                            slot.insert(target.clone(), edge.clone());
+                        }
                     }
                 }
             }
