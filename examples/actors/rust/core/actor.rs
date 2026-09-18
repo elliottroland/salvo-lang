@@ -47,3 +47,9 @@ pub enum __Cont_Faults {
 pub struct Exit {
     pub reason: String,
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Idle {
+    pub parked_gates: i32,
+    pub parked_tokens: i32,
+}

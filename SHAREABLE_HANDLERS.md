@@ -534,6 +534,332 @@ caller. Which is also why rung 3 and the graph are inseparable: an answer
 deferred to a future event is an occupancy of unknowable duration — exactly
 the edge §3.3 checks.
 
+### 3.7 Are the rungs user-facing, and why they survive the graph (asked 2026-09-18)
+
+The user's restatement widened the ladder to five rungs — the reasons a
+handler can be shareable: **(1) stateless** — shareable with no
+synchronization at all; **(2) monitor** (§4) — state, no send members;
+**(3) direct-answer / "terminal"** (§3.5) — plain + send members, the plain
+members never park; **(4) full mixed** (§3) — the graph; **(5) all send
+members** — an ordinary actor, checked by the existing graph. Two questions
+were put: (a) do users need to know the rungs, or do they only inform
+compilation and diagnostics? (b) if the deadlock analysis must exist anyway
+for rungs 4–5, what do rungs 2 and 3 buy by being separated out?
+
+**(a) What is already visible, and what must be.** Rungs 1, 2 and 5 are
+visible in the declaration's *shape*: no state / state with only plain
+members / only send members. The member kinds and the presence of fields
+carry the classification, so no new user-facing concept is needed there —
+only the refusal list attached to each shape (§3.5: each refusal names the
+next rung). The one invisible line is **3 vs 4**, because it hangs on body
+facts: does a send member park, store, forward or capture a `Reply`; does a
+sync member occupy. And that is exactly the line users must be able to see,
+because it is the boundary between *guarantee by construction* and
+*compiles only if the whole program's graph agrees*. Purely inferred, it is
+unstable under maintenance: an edit that parks one reply silently
+reclassifies the handler to rung 4 and detonates in some **consumer's**
+build as a path-shaped cycle error, far from the edit, phrased over actors
+the editor has never heard of. Declared and checked, the error is local and
+lands at the handler: "this member parks a reply; this handler is
+direct-answer."
+
+Two audiences. The handler *author* needs the whole ladder — it is the
+vocabulary for choosing a mechanism, and §3.6's table is a decision
+procedure (answer depends on a future event → rung 4; async writes + sync
+reads → rung 3; twenty instructions under a lock → rung 2). The *consumer*
+mostly does not: the effect interface stays plain (`Random` never changes),
+and interchangeability at binding sites is the point. What leaks through to
+a consumer is exactly three things: spawn-only vs `use`-bindable, cost
+(nothing vs a lock vs a round trip), and — rung 4 only — the possibility
+that binding this handler makes the graph refuse the program. That last is
+a genuine consumer-facing property, and the second reason the 3/4 line
+deserves a spelling. Conclusion: the rungs mostly inform compilation and
+diagnostics, with one load-bearing exception — the 3/4 boundary should be a
+declared, checked contract, in the same spirit as SH-5(b)'s
+optional-checked `[waitfor]`.
+
+**(b) Why rungs 2 and 3 survive the graph.** Five benefits, none of which
+the analysis substitutes for:
+
+1. **They are different machines, not different analysis strengths.** A
+   monitor is a lock: no mailbox, no round trip, sibling-call atomicity,
+   `use`-bindable. A direct-answer façade is a servant: mailbox, arrival
+   order, fire-and-forget writes, sync reads, back-pressure. Even with a
+   perfect deadlock oracle both stay: users choose a rung for cost and
+   semantics, and the deadlock properties are corollaries of the
+   restrictions, not their purpose. `CyclicRandom` as a monitor is "lock,
+   advance, unlock" with no servant anywhere; forcing it through rung 3
+   buys a round trip per `next()` for nothing.
+2. **A guarantee composes; an analysis verdict does not.** The graph is
+   conservative over types, not instances (§3.3 point 3), so a rung-4
+   handler exports *false-refusal risk*: whether it compiles depends on the
+   consuming program's topology. A rung-2/3 handler contributes no
+   occupancy edges and can never be the reason a consumer's build fails.
+   For std and any reusable handler this is the difference between "drop it
+   in" and "your program may be refused because my body *could* send
+   somewhere".
+3. **The rungs keep the graph small, which keeps it precise.** "The
+   analysis exists anyway" is true for rung 5 — but that is the existing
+   gate/send graph. What rung 4 *adds* is the inferred occupancy edges, and
+   a conservative analysis's false positives scale with how much lives
+   inside it. Every handler that stays at rung ≤ 3 is subtracted from the
+   imprecise region, so the graph's verdicts concern only the handlers that
+   genuinely need it.
+4. **Stall bounds, which deadlock-freedom does not give.** The graph rules
+   out cycles; it says nothing about durations. The ladder does: rung 2
+   stalls a caller O(one member body); rung 3 stalls one straight-line
+   activation plus queue drain (bounded, because the servant never
+   occupies); rung 4 stalls until a *future event* that may never come —
+   §3.6's defining property, and legitimate (`acquire()` on an exhausted
+   pool). A caller reasoning about latency reads the rung, not the graph.
+5. **Diagnostic locality.** Rung refusals are declaration-anchored, one
+   line, with the next rung named as the remedy. Graph errors are
+   whole-program paths anchored at a seam. Catching most mistakes with the
+   first kind, and reserving the second for programs that opted into
+   rung 4, is strictly better than routing everything through cycle
+   reports.
+
+Rungs 2 and 3 do not collapse into *each other* either: merging them loses
+one side — either every counter pays a servant round trip (no monitors), or
+every stateful handler gets lock semantics and loses async writes (no
+terminal façades). The residue also differs: monitors have none; rung 3
+keeps back-pressure.
+
+Consequence for SH-9: this sharpens its "consider defaulting" into a
+position — **rung 4 is the thing you ask for, and the price quoted is the
+graph.**
+
+### 3.8 Marking the rung — prior art and the options (asked 2026-09-18)
+
+**How other languages mark this boundary.** The field splits into three
+families:
+
+- **Declared kinds.** *Ada* is the strongest precedent for rung 2: a
+  `protected` object is a declared kind distinct from a `task`, and the
+  language forbids "potentially blocking operations" inside protected
+  actions (RM 9.5.1 — entry calls, delays, task interaction raise
+  `Program_Error`; the Ravenscar profile tightens this toward static
+  enforcement). That is §4's restriction — the kind in the declaration, the
+  refusal list as the law of the kind — shipped in 1995. *Swift* declares
+  everywhere the boundary is user-visible: `actor` is a declaration
+  keyword, `nonisolated` marks per-member the members that touch no
+  isolated state (our façade sync member, spelled), and `Sendable` is a
+  declared-but-compiler-checked conformance with an `@unchecked` escape.
+  Note Swift's deadlock answer is one Salvo cannot copy: actors are
+  *re-entrant at suspension points*, so the §3.1 shape cannot lock — at the
+  price of observing state mid-logical-operation, exactly what
+  run-to-completion [actor-kind] exists to refuse. Having kept
+  run-to-completion, Salvo needs the ladder and the graph where Swift needs
+  neither. *Pony* declares reference capabilities per type
+  (`iso`/`val`/`ref`/`box`/`tag`) and deletes the question instead: no
+  blocking anywhere, behaviours are async-only, so every handler is rung 5
+  and deadlock-free by construction — at the price of no synchronous getter
+  existing at all. The cost of collapsing the ladder to one rung, made
+  concrete.
+- **Inferred, with declared assertions retrofitted.** *Rust*'s
+  `Send`/`Sync` are auto traits — inferred from field composition, opt-out
+  declarable. The instability §3.7 predicts is Rust's documented lived
+  experience: a private field change silently drops `Send` from a public
+  type and breaks downstream crates (a known semver hazard), and the
+  ecosystem's remedy is optional checked declarations bolted on after the
+  fact (`static_assertions::assert_impl_all!`, semver-check tooling).
+  *Koka* infers effect rows and lets a signature declare them, checked
+  against the inference — the exact SH-5(b) model. Both arrive at "infer
+  the truth, let the author pin a contract"; Rust shows what happens when
+  the pin is not offered from the start.
+- **Unmarked, runtime nets.** *Erlang/OTP* distinguishes sync `call` from
+  async `cast` at each call site by convention only; a cyclic `gen_server`
+  call deadlocks at runtime and is caught by the default 5-second call
+  timeout plus supervision restart — the runtime-net-only answer, and the
+  precedent for the parked `Reply | TimedOut` last resort §3.4 records.
+  *Java*'s `synchronized` is a declared but **unrestricted** monitor —
+  every §4 pathology is writable — and the ecosystem grew opt-in checked
+  annotations anyway (JCIP/ErrorProne `@GuardedBy`; Clang's C++ thread
+  safety annotations `REQUIRES`/`EXCLUDES`), as lint rather than law.
+
+The pattern across all three: contract-grade concurrency boundaries end up
+*declared* in every mature design — either from the start (Ada, Swift) or
+retrofitted as assertions after inference's instability bites (Rust, Java).
+No surveyed language regrets a declared kind; two document the pain of its
+absence.
+
+**What must govern the spelling: multi-effect handlers (T-4).** The rung is
+a property of the **handler**, never of the effect:
+
+- One handler `of A, B` has one state, one servant, one mailbox — so one
+  rung, decided by its weakest member. The declaration must cover all
+  implemented effects at once; per-effect rungs on a shared state are
+  incoherent.
+- The effect *cannot* carry it, independently of T-4: one effect has
+  handlers on different rungs — `Clock` alone spans the ladder end to end
+  (`SystemClock` is rung 1, stateless; `TestClock` is rung 4, §3.6's first
+  row). Marking the effect would either forbid one of them or lie about the
+  other.
+- Under T-4 a handler may implement a plain effect *and* an actor effect at
+  once, so send members may be public protocol rather than private
+  servants. The classification must therefore key on what members *do*
+  (does a `Reply` escape its activation) — not on where the send members
+  came from.
+- Diagnostics must name the member **and** the effect it implements, since
+  a rung violation in a multi-effect handler is otherwise ambiguous.
+
+**The options:**
+
+- **M-1: pure inference, no spelling.** Rejected by §3.7(a): the 3/4
+  boundary becomes unstable under maintenance and its failures land in
+  consumers' builds. Rust's retrofit history is the evidence.
+- **M-2: handler-kind keywords.** `monitor CyclicRandom(seed: Int) of
+  Random { … }` for rung 2; a rung-4 opt-in word on the handler (spelling
+  open — `holding handler`? `parking handler`?). The Ada/Swift shape. One
+  word regardless of how long the `of` list is, so T-4-proof by
+  construction. Rungs 1 and 5 need no word (shape-evident); under SH-9's
+  defaulting, rung 3 is the unmarked mixed default, so the only mandatory
+  new vocabulary is rung 2's kind and rung 4's opt-in.
+- **M-3: member-kind spellings only** (SH-6's implicit-by-state-access
+  route, extended). The rung falls out of which member kinds appear plus
+  body checks. Leaves the 3/4 line invisible — the one line §3.7 says must
+  be visible. Rejected *alone*; survives as the mechanism under M-5.
+- **M-4: deduction clauses on members.** Salvo already spells "what this
+  function does to its parameters" in `=>` clauses, and actor-effect
+  members already carry sendable deductions (`=> !id, !out`). Parking is a
+  fact of the same kind — "the `Reply` escapes its activation" — so it can
+  ride the same syntax: `send fn after(d: Duration, out: Reply<Fired>) =>
+  !d, hold out` (spelling open), inferred from the body when unsaid,
+  checked when said, exactly the deductions model. Per-member, so the
+  diagnostic names the member and the effect; multi-effect-safe by
+  construction. What it lacks alone is the handler-level summary a human
+  reads first.
+- **M-5: M-2 over M-4** — the handler-level kind word as the contract a
+  reader and a consumer see; the member-level reply deduction as what the
+  checker verifies and points at when the contract is violated. Under
+  SH-9's defaulting, the mandatory vocabulary is minimal (rung 2's kind,
+  rung 4's opt-in), and a rung-4 member's `hold` deduction doubles as the
+  per-member documentation of *which* answer is deferred.
+
+**Recommendation: M-5**, with SH-9's defaulting. This also bears on SH-6:
+the locality argument weighs against implicit-by-state-access — the
+prior-art norm is a declared kind, and "least visible" is now a cost, not
+an economy.
+
+### 3.9 `hold`, precisely — and the Koka model it borrows from (asked 2026-09-18)
+
+**The semantics.** `Reply<T>` is already linear: [actor-replyto] tracks
+every reply until it is discharged exactly once, and §3.5's rule already
+enumerates the four ways one can escape an activation. `hold p` (spelling
+open with SH-10) surfaces that already-computed fact as a declarable
+contract, so it costs the checker nothing new:
+
+- **Without `hold`** — the direct-answer default — the obligation carried
+  by `p` is discharged *in-frame*: `p.send(v)` happens exactly once, on
+  every control path, before the activation ends. Anywhere on the
+  activation's stack counts (a helper the member calls may fulfil it); `p`
+  never escapes.
+- **With `hold p`** the obligation *may outlive the activation that
+  received it*, by any of the four escape routes linearity already
+  distinguishes: parked in a `replyto` continuation, stored in handler
+  state, forwarded as a message payload, captured in a task mint.
+  Linearity keeps tracking it wherever it went — exactly-once discharge
+  still holds globally; `hold` only withdraws the promise that the
+  discharge happens in *this* activation.
+
+What each party reads off it: for the **caller and the graph**, a façade
+wait on a `hold` member is a wait for a future event — occupancy of
+unknowable duration, so the edge is non-terminal and participates in
+cycles, while a non-`hold`, non-occupying member gives the terminal edge
+§3.5's guarantee rests on. For the **handler kind** (M-5's other half), an
+inferred hold inside a monitor or direct-answer handler is an error at the
+escape site; inside a rung-4 handler it is legal, and writing it documents
+*which* answers are deferred — §3.6's table becomes readable off
+signatures. For **composition**, it rides the existing deduction
+machinery: inferred from the body when unsaid, through callees (a helper
+that parks its `Reply` parameter confers `hold` on whatever its callers
+passed it), per-parameter (one member can hold one reply and discharge
+another).
+
+Two edges pinned: **forwarding counts as hold even when the forwardee
+answers promptly** — the dependency chain now extends past one activation
+of this servant, which is exactly what the terminal guarantee cannot
+contain. And token-free `k@self` or fire-and-forget sends stay non-hold
+*unless they carry the reply* — they defer work, not answers, as §3.5
+already rules.
+
+**The Koka model, concretely.** Koka puts effects in a row on the function
+type, inferred by default:
+
+```koka
+fun greet( name : string )
+  println("Hi " ++ name)
+// inferred: (name : string) -> console ()
+```
+
+Write no signature and the compiler knows the truth anyway. Write one and
+it is *checked against* the inference, as an upper bound — over-approximate
+freely, hide never:
+
+```koka
+fun greet2( name : string ) : io ()      // ok: console ⊑ io
+  println("Hi " ++ name)
+
+fun pure( name : string ) : total ()     // error: body has console,
+  println("Hi " ++ name)                 // total is the empty row
+```
+
+(Higher-order functions are effect-polymorphic — `map`'s type carries its
+callback's row — the discipline Salvo's effect lists already have for
+callbacks.)
+
+The core SH-5(b) shares with it: **inference is the source of truth; a
+written annotation is checked against it, never trusted; the analysis
+never depends on the annotation existing.** The instructive difference is
+polarity. In Koka, *hiding is impossible* (the effect is part of the
+propagating type and semantically load-bearing — a handler must be found
+for it) while *over-claiming is legal* (signatures are upper bounds).
+SH-5(b) flips both: hiding occupancy is legal (the graph infers the edge;
+post-pump-rule, occupancy is a fact, not a capability needing a grant) and
+declaring it falsely is a warning. Each polarity follows from what the
+annotation is *for* in its language.
+
+**The sub-decision this exposes (SH-10(b)): is a declared `hold` exact or
+an upper bound?** Exact (SH-5(b)-style: a `hold` the body never exercises
+warns) keeps documentation honest. Upper bound (Koka-style: a false `hold`
+is legal) lets a rung-4 handler *reserve* deferral before its body needs
+it — contract stability under evolution. An over-claim's cost is real but
+self-inflicted and coherent: a spurious `hold` adds a spurious
+non-terminal edge, so the author pays with graph precision for evolution
+room. Leaning: **upper bound for `hold`** (it is a "may", and the handler
+already paid rung 4's price by declaring the kind), keeping the warning
+polarity for `[waitfor]` — the user's call, with SH-10.
+
+**Generalization (asked 2026-09-18): is `hold` Reply-specific, or a fact
+about linear parameters?** The fact is general; the load-bearing
+consequence is (today) unique to `Reply`. A linear parameter's obligation
+has exactly three dispositions relative to a call: **discharged in-frame**
+(the stream closed, the reply fulfilled, on every path before the call's
+synchronous extent ends), **returned** (the obligation threads back to the
+caller), or **escaped** — stored, captured, forwarded. `hold` is the third
+arm, and the compiler already computes the distinction for a different
+reason: the Rust backend's ownership inference (an escaping parameter must
+be moved; an in-frame-only one is borrowable). It is binary for send
+members only because they answer nothing, so "returned" is unavailable.
+What is unique to `Reply` is being Salvo's only *waiter-backed* linear
+type — its discharge unblocks a specific parked party — which is what
+turns the disposition into a progress fact, a graph input, and the
+rung 3/4 line. For streams or `FsError` the same disposition is a
+resource-lifetime fact (a held `OutStream` is a file open indefinitely):
+worth reading off a signature, but nobody stalls on it. And even the
+`Reply` case already exceeds the handler setting: any function with a
+`Reply` parameter — helper, free `send fn`, task body — carries the
+disposition and confers it up the call chain, and the graph traces task
+bodies, so it needs `hold` everywhere a `Reply` travels; the handler
+member is merely where the fact becomes a *contract* via the kind word.
+**Leaning (SH-10(c))**: define `hold` generally — the escaped disposition
+of a linear parameter, beside consumed/returned — with load-bearing
+consequences only where a waiter exists (`Reply` now; the parked
+`Reply | TimedOut` timeout form inherits it for free; other linear types
+get checked documentation, lifetime lints a plausible future consumer).
+Costs nothing now and avoids a second word later if another waiter-backed
+type arrives.
+
 ## 4. Design B — the monitor (synchronized members, restricted)
 
 The second mechanism, surfaced when the getter round trip (§3, consequences)
@@ -694,8 +1020,9 @@ the wrong hazard.
 | SH-3 | Monitors: synchronized members restricted to state + pure computation — no effects, no waits | yes / no / unrestricted-with-analysis | **yes, restricted**; unrestricted is rejected (§4: it re-imports every pathology plus a parity trap) |
 | SH-4 | Occupancy in the graph: inferred through façades; cycles containing an occupancy edge are **errors** (no back-pressure downgrade) | as stated / declarations required | **as stated** (§3.3); §3.4 records why full deadlock *freedom* is not the goal, and stratification as the opt-in that would provide it |
 | SH-5 | `[waitfor]`: (a) keep whole / (b) demote to optional-checked, drop propagation + placement gate / (c) delete | — | **(b)** (§6) |
-| SH-9 | Direct-answer façades (§3.5) as a declared rung: the two-part restriction, its checkability, and whether the request send pumps (or reserves at mint) to close the back-pressure residue | as stated / collapse into SH-1 (all mixed handlers start restricted, graph unlocks rung 3) / omit | **as stated**, and consider *defaulting* to it: a mixed handler is direct-answer unless its body needs rung 3, so the guarantee is what you get unless you ask for the analysis |
-| SH-6 | Spelling for monitor members (`sync fn`? `locked fn`? bare `fn` + state access implies?) | — | needs a round of its own; implicit-by-state-access is the ergonomic option and the least visible |
+| SH-9 | Direct-answer façades (§3.5) as a declared rung: the two-part restriction, its checkability, and whether the request send pumps (or reserves at mint) to close the back-pressure residue | as stated / collapse into SH-1 (all mixed handlers start restricted, graph unlocks rung 3) / omit | **as stated**, and consider *defaulting* to it: a mixed handler is direct-answer unless its body needs rung 3, so the guarantee is what you get unless you ask for the analysis — sharpened by §3.7 into a position: rung 4 is the thing you *ask for*, and the price quoted is the graph |
+| SH-6 | Spelling for monitor members (`sync fn`? `locked fn`? bare `fn` + state access implies?) | — | needs a round of its own; implicit-by-state-access is the ergonomic option and the least visible — and §3.8's locality argument now weighs against implicit: the prior-art norm is a declared kind (M-2/M-5) |
+| SH-10 | Marking the rung (§3.8): per-handler, never per-effect (`Clock` spans rung 1 to rung 4); one declaration covering the whole `of` list; M-1–M-5. Sub-decisions: (b) a declared `hold` as exact vs upper bound (§3.9); (c) `hold` general over linear parameters vs Reply-specific (§3.9) | M-1 infer / M-2 handler-kind words / M-3 member kinds only / M-4 reply deductions / M-5 = M-2 over M-4 | **M-5** — handler-level kind word as the contract (rung 2's kind + rung 4's opt-in, rung 3 the unmarked mixed default per SH-9), member-level `hold` deductions as the checked mechanism the diagnostics point at; on (b), leaning upper bound; on (c), leaning general with Reply-only consequences (§3.9) |
 | SH-7 | `use H() on POOL` sugar for `spawn` + `use addr` | yes / no | **yes**, low-cost (§5) |
 | SH-8 | Prerequisite defect: the idle report's `active` hole (fact 5) | — | fix **first**, independent of every other row |
 
@@ -704,4 +1031,7 @@ rest after the second sequence's steps 3–6, since T-4 (multi-effect
 handlers) and `core.time`'s `TestClock` interact with SH-1/SH-5 — a
 TestClock under SH-5(b) needs no `[waitfor]` declaration and no dedicated
 thread, which simplifies TIME.md's Test B and should be decided in sight of
-it.
+it. SH-10's spelling should be decided together with SH-6 and after T-4's
+surface exists, since the multi-effect `of` list is what the handler-level
+kind word must sit beside, and `TestClock` is the first rung-4 handler that
+would carry the opt-in.

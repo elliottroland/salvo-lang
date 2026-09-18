@@ -494,6 +494,93 @@ fun main() {
             expect_success: false,
             stderr_contains: "salvo: deadlock: all actors idle while main waits",
         },
+        // [actor-on-idle] The quiescence hook: a registered token answered
+        // the moment nothing anywhere can run, with the counts that say
+        // whether the program is *done* or merely *stuck*. Registered twice,
+        // so both answers are in one run — settled, then an actor gated on a
+        // reply another actor has parked and will never send.
+        SchedulerCase {
+            tag: "idle-hook",
+            driver: r#"
+/** Parks every token it is given and answers none. */
+class Holder : SalvoActor {
+    val held = mutableListOf<SalvoReply>()
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        held.add(msg as SalvoReply)
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+/** Gates itself on an answer from the holder, for good. */
+class Asker(val holder: Int) : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        val (token, _slot) = SalvoSched.mintGated(ctx.addr)
+        SalvoSched.send(holder, token)
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(1)
+    val holder = SalvoSched.spawn(pool, 4, Holder())
+    val asker = SalvoSched.spawn(pool, 4, Asker(holder))
+    // Nothing has been sent, so the answer is "done".
+    val (first, w1) = SalvoSched.waiter()
+    SalvoSched.onIdle(pool, first) { g, t -> "gates $g, tokens $t" }
+    println("settled: ${SalvoSched.awaitReply(w1)}")
+    // The hook cannot fire before the message it was registered after has
+    // run: a queued entry is deliverable, so the scheduler is not idle.
+    SalvoSched.send(asker, "go")
+    val (second, w2) = SalvoSched.waiter()
+    SalvoSched.onIdle(pool, second) { g, t -> "gates $g, tokens $t" }
+    println("stuck: ${SalvoSched.awaitReply(w2)}")
+}
+"#,
+            expected_stdout: "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
+        // [actor-on-idle] The same hook registered *by an actor*, on a
+        // continuation of its own: quiescence is observed by whichever thread
+        // runs dry, so nobody has to be waiting for the answer. The pool it
+        // asks about is main's, whose one outstanding token is the one the
+        // actor is holding.
+        SchedulerCase {
+            tag: "idle-hook-actor",
+            driver: r#"
+class Watcher : SalvoActor {
+    var out: SalvoReply? = null
+
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        // main's token is kept, so the main pool is owed one answer, and the
+        // registration is a continuation on this actor.
+        out = msg as SalvoReply
+        val (token, _slot) = SalvoSched.mint(ctx.addr)
+        SalvoSched.onIdle(SalvoSched.MAIN_POOL, token) { g, t -> "gates $g, tokens $t" }
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {
+        val token = out!!
+        out = null
+        token.send(value)
+    }
+}
+
+fun main() {
+    val pool = SalvoSched.pool(1)
+    val watcher = SalvoSched.spawn(pool, 4, Watcher())
+    val (token, wid) = SalvoSched.waiter()
+    SalvoSched.send(watcher, token)
+    println("from the actor: ${SalvoSched.awaitReply(wid)}")
+}
+"#,
+            expected_stdout: "from the actor: gates 0, tokens 1\n",
+            expect_success: true,
+            stderr_contains: "",
+        },
     ];
 
     let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));

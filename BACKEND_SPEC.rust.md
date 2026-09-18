@@ -1467,7 +1467,9 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `salvo_wait` and downcasts to `T`; `send(r, v)` → `r.send(Box::new(v))`;
     `pool(n)` → `salvo_pool(n as usize)`; `thread()` → `salvo_thread()`;
     `watch(a, out)` →
-    `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`.
+    `salvo_watch(a, out, |__reason| Box::new(Exit { reason: __reason }))`;
+    `on_idle(p, i)` → `salvo_on_idle(p, i, |__gates, __tokens| Box::new(Idle {
+    parked_gates: __gates, parked_tokens: __tokens }))`.
   * **[main-pool] An omitted `on` clause is `salvo_current_pool()`** — a
     thread-local read, so the placement a spawn inherits costs nothing and
     needs no signature. `main`'s thread answers pool 0, the pool it is the
@@ -1515,6 +1517,19 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     it uses, and a `Reply<Exit>` cannot be obtained in a file where `Exit`
     means something else, so a shadowing declaration and this emission never
     meet.
+  * **[actor-on-idle] A quiescence hook carries its own `Idle` constructor**,
+    on exactly that precedent: `salvo_on_idle(pool, notify, fn(i32, i32) ->
+    SalvoMsg)`, and the counts cross the seam as numbers. What the runtime adds
+    for it is an accounting of *undischarged tokens*: `ActorState.owed` counts
+    the tokens aimed at an actor, `PoolState.owed` those aimed at a task or held
+    by a frame parked on that pool, and `SalvoReply.tracked` is what stops a
+    token being counted twice — a delivery clears it, and so does handing the
+    token to the scheduler (`salvo_watch`, `salvo_on_idle`), which is why a
+    program idling with registrations outstanding reports zero. `fire_idle` runs
+    where the scheduler runs dry: in `salvo_wait` *before* the deadlock report
+    (firing a hook is progress, so the report is what firing nothing leaves) and
+    in `worker` before it parks, which is what fires a hook registered by an
+    actor while nobody is waiting.
   * **`replyto k(caps)`** → a block that mints, parks and answers the token:
     `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_E::K(caps)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the

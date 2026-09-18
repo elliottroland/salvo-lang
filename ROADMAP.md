@@ -58,7 +58,8 @@ continuations, bridge into `main`, depend on one another, watch each other die
 and hold queues of obligations — on both backends with identical output, with a
 worked example in `examples/actors/`. What is in progress is **"The second
 sequence"** below: steps 1 and 2 — the `waitfor` package and the task kernel —
-landed 2026-09-17, and step 3, `on_idle`, is next. Beside it: the open defects
+landed 2026-09-17 and step 3, `on_idle`, on 2026-09-18, so **step 4,
+multi-effect handlers, is next**. Beside it: the open defects
 below, the decisions waiting on the user, and the themed sections.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
@@ -209,9 +210,9 @@ when it is picked up.
 ## The second sequence — time and free concurrency (user decisions 2026-09-17)
 
 TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
-2026-09-17** (the log entry has the full list). **Steps 1 and 2 are built**, so
+2026-09-17** (the log entry has the full list). **Steps 1–3 are built**, so
 FREE_CONCURRENCY.md has **retired into COMPLETED.md's log and the specs** as its
-charter said; TIME.md still holds the argument trail for steps 3–6. What remains
+charter said; TIME.md still holds the argument trail for steps 4–6. What remains
 is implementation, in this order — each step independently shippable, so the
 sequence can pause anywhere and leave the tree consistent:
 
@@ -233,9 +234,13 @@ sequence can pause anywhere and leave the tree consistent:
    [actor-deadlock-cycle]. Rules: [free-send-fn], [task-mint],
    [task-pool-inherit], [pool-fault-sink], [rs-task], [kt-task]. Leftovers
    under "The task kernel — leftovers" below. **Step 3 is next.**
-3. **`on_idle`** (T-3, token form): the runtime's existing quiescence
-   detection exposed as a `watch`-shaped one-shot — cheap, and the test
-   instrument step 5 wants ready.
+3. ✅ **`on_idle`** — **built 2026-09-18**, all of T-3(a): the runtime's
+   quiescence detection exposed as a `watch`-shaped linear one-shot
+   (`on_idle(p, notify)` answering `Idle { parked_gates, parked_tokens }`),
+   with the undischarged-token accounting the payload needed and firing at
+   both places a thread runs dry. The record is COMPLETED.md's log; the rule
+   is [actor-on-idle]. Leftovers under "`on_idle` — leftovers" below.
+   **Step 4 is next.**
 4. **Multi-effect handlers** (T-4(a)): spawn yields one addr per
    implemented effect; same-named members across the effects are legal when
    overloading distinguishes them or one method implements both — rejected
@@ -288,11 +293,13 @@ Found while building step 1; none blocks step 2.
   task-body effect cut. What is still owed there is the surface itself —
   `actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch` — so
   the new chapter currently assumes vocabulary the document has not introduced.
-  Cheaper written once the second sequence settles (`on_idle`, `core.time`).
+  `on_idle` joined that chapter as it landed (2026-09-18), which is the pattern
+  to keep: the *surface* prose is still owed, and is cheaper written once
+  `core.time` has settled too.
 - **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
-  takes ~1m50s against AGENTS.md's ~55–70s, of which ~105s is the single
-  `kotlinc_compiles_and_runs_every_case` driver (100 cases in batched
-  invocations). Nothing new is wrong — the driver's *cached/skipped* cost is
+  takes ~2m5s against AGENTS.md's ~55–70s (measured 2026-09-18), of which ~121s
+  is the single `kotlinc_compiles_and_runs_every_case` driver (113 cases in
+  batched invocations). Nothing new is wrong — the driver's *cached/skipped* cost is
   the open defect above — but the budget line in AGENTS.md and COMPLETED.md
   is now optimistic for a cold run.
 
@@ -344,6 +351,42 @@ Found while building step 2; none blocks step 3.
   bridge (the host's native future, completed by a token) — plus **handler
   wiring at the export**, for which the spawn-site `use` clause is the existing
   spelling. Nothing in the kernel forecloses any of it.
+
+### `on_idle` — leftovers (2026-09-18)
+
+Found while building step 3; none blocks step 4.
+
+- **Firing is on *global* quiescence, not the named pool's**, which is the
+  conservative reading of T-3 and a decision made in the build (the argument is
+  in COMPLETED.md's log): a pool can be idle while another pool holds work that
+  will send into it, so per-pool firing can answer "settled" to a program that
+  is not. The named pool decides the *answer* — the counts are scoped to it —
+  not the timing. The refinement, if the earlier edge is ever wanted, is a
+  per-pool predicate (each pool's running-activation count, which the scheduler
+  would have to start tracking) plus a rule for what to do about work on other
+  pools aimed at this one.
+- **A program cannot name `main`'s pool**, so `main`-pool quiescence is only
+  askable from an actor (via the runtime's constant) and not from Salvo: `pool`
+  and `thread` mint pools, and nothing answers "the pool I am running on". A
+  `current_pool()`-shaped intrinsic would close it and is a surface decision,
+  unscheduled — nothing needs it yet, because the pool a test cares about is
+  the one it created.
+- **A repeating hook is re-registration, by design** [actor-on-idle], and what
+  that costs has not been tried: the member the answer wakes has to mint and
+  register again, so a supervisor watching for repeated quiescence writes the
+  loop itself. If that turns out to be the common shape, the answer is a
+  many-shot form (an `Addr<E>` sink like [pool-fault-sink]'s), not a flag on
+  this one.
+- **An `Idle` answer cannot name *who* is parked**, only how many: the counts
+  are `Int`s, where the runtime's own report prints `actor 3`. Naming them needs
+  an identity in the payload that the language has no type for (an `Addr` is
+  typed by an effect, and the runtime holds an index), so the fix arrives with
+  whatever makes an actor's identity expressible.
+- **`parked_tokens` drops what a fault lost, deliberately.** A token whose
+  holder died stays counted forever, since the obligation is genuinely gone;
+  a program that recovers by respawning therefore sees a count that never
+  returns to zero. That is the honest reading, but it means "both zero" is a
+  *sufficient*, not necessary, sign of a clean finish after any death.
 
 Parked with named triggers: FC-5's minter-attribution refinement (if the sink
 proves too coarse for recovery); deadlock stratification and the
@@ -434,7 +477,8 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
   and the reason a warm `cargo test` is ~30s against AGENTS.md's ~5s
-  budget). Repro:
+  budget). It grows with the registry: ~24s at 113 cases, measured
+  2026-09-18. Repro:
 
   ```bash
   # identical timings, three ways — the cache and the skip both no-op:

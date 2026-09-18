@@ -139,6 +139,16 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
+        // [actor-on-idle] The quiescence hook, registered the same way and for
+        // the same reason: the runtime holds two counts and cannot construct
+        // the language's `Idle`, so the registration site closes over the
+        // constructor. `Idle` is named unqualified on `Exit`'s precedent above.
+        ("on_idle", Some("Pool")) => format!(
+            "crate::scheduler::salvo_on_idle({}, {}, |__gates, __tokens| Box::new(Idle {{ \
+             parked_gates: __gates, parked_tokens: __tokens }}))",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // `List<T>` and `Mut List<T>` are both `Vec<T>`: Rust expresses
         // mutability through the binding and the reference, not through a

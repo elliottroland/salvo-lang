@@ -3000,6 +3000,9 @@ LANGUAGE.md remains the source of truth for everything that does.
     Reply<Exit>) [spawn]` — the monitor surface [actor-watch]. The only
     `<E>` in std that stands for an *effect*, which is what makes one
     function serve every protocol.
+  * **`Idle`**, with `intrinsic fn on_idle(p: Pool, notify: Reply<Idle>)
+    [spawn]` — the quiescence hook [actor-on-idle], `watch`'s shape applied to
+    an event that belongs to no identity.
 * [actor-watch] **`watch(target, on_exit)` is the whole monitor surface**
   (user decisions 2026-09-15 S-1…S-4, spelled 2026-09-16): one function, one
   struct, and no new syntax — because a death notification *is* an answer, so
@@ -3043,6 +3046,49 @@ LANGUAGE.md remains the source of truth for everything that does.
     it, and respawns on `Exit` gives clients a stable addr and never lets them
     observe the death. Restart strategies, intensity budgets and escalation are
     handler logic; a std `Supervisor` waits for real usage to shape it.
+* [actor-on-idle] **`on_idle(p, notify)` is the quiescence hook** (T-3(a),
+  user decision 2026-09-17; built 2026-09-18). The runtime already knew when
+  nothing could run — that is what the idle-with-parked-gates report reads —
+  and this exposes the same detection through [actor-watch]'s shape: a linear
+  one-shot token, answered with an `Idle { parked_gates: Int, parked_tokens:
+  Int }`.
+  * **When it fires: when nothing anywhere can run.** No activation running, no
+    mailbox with a deliverable entry, no queue of scheduled work — the
+    scheduler's existing predicate, unchanged. Firing on the *named pool's*
+    quiescence alone is the recorded refinement and deliberately not the rule:
+    a pool can be idle while another pool holds work that will send into it, so
+    the narrow reading answers "settled" to a program that is not.
+  * **What `p` decides is the answer, not the timing**: `parked_gates` counts
+    the actors placed on `p` whose mailbox is gated on a reply that has not
+    arrived [actor-replyto], and `parked_tokens` the reply tokens aimed at work
+    on `p` — a continuation parked on an actor there, a task waiting for its
+    answer, a frame of that pool parked in a `waitfor` — that nobody has
+    discharged. Both zero is *done*; either non-zero is *idle and still owed
+    something*, which is the difference a test needs and a diagnosis wants.
+  * **A registration the scheduler holds is not an outstanding token.** A
+    `watch` and an `on_idle` both hand their token to the runtime, which will
+    answer it when the event happens — so counting them would make every
+    steady-state program look stuck.
+  * **Edge-triggered and one-shot**, for the reason the answer itself is work:
+    delivering it ends the idleness that produced it. Hearing about the next
+    one means registering again, and a program that wants a stream of them
+    re-registers from the member the answer wakes.
+  * **The obligation is the registration** [linear-obligation], as with a
+    watch: the token is minted the ordinary way — `waitfor` in `main`,
+    `replyto` in a handler — and consumed here, so a forgotten hook is the
+    ordinary leak diagnostic rather than a silently dropped request. It is
+    `[spawn]`-gated for `pool`'s reason: asking about the scheduler is part of
+    running actors.
+  * **It composes with the deadlock report rather than competing**: a pending
+    hook is *progress*, so a waiter fires it and looks again, and the report is
+    what firing nothing leaves. The one caveat is inherited, not new — a frame
+    parked in a `waitfor` counts as running, so idleness does not fire while
+    any wait is in flight; the open defect that makes an *occupied actor's*
+    wait hide the report (ROADMAP.md) is the same condition seen from the other
+    side.
+  * **Meaningful only while nothing outside injects work** — a platform handler
+    with a thread of its own can stale the answer. The same caveat the report
+    has always had, stated where a program can now read the answer.
 * [actor-deadlock-cycle] **The static deadlock baseline: a cycle check over
   the effect graph** (design decision 2026-09-14, built 2026-09-16). Nodes are
   `actor effect`s — that is what an `Addr` is typed by — and a cycle means
@@ -3097,7 +3143,8 @@ LANGUAGE.md remains the source of truth for everything that does.
   arrives *at another actor*, continue an activation with `k@self(…)`, and
   bridge with `waitfor`. Since 2026-09-16 it can also **watch an actor die**
   [actor-watch], and a topology that could deadlock is reported before it runs
-  [actor-deadlock-cycle]. All of it on **both backends, with identical output**
+  [actor-deadlock-cycle]; since 2026-09-18 it can **hear when the work runs
+  out** [actor-on-idle]. All of it on **both backends, with identical output**
   ([rs-actor], [kt-actor]). `use addr` **runs**: it binds a generated
   forwarding stub, so a function declaring `[Log]` never learns that its
   capability is an actor — and the same stub is what a spawn clause's addr

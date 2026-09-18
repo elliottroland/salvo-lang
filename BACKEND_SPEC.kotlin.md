@@ -1001,7 +1001,9 @@ where Rust had to build the fusion to get the same programs running
     (out, __wid)`, runs the block, then `awaitReply(__wid) as T`; `send(r, v)`
     → `r.send(v)`; `pool(n)` → `SalvoSched.pool(n)`; `thread()` →
     `SalvoSched.thread()`; `watch(a, out)` →
-    `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`.
+    `SalvoSched.watch(a, out, { __reason -> Exit(__reason) })`; `on_idle(p, i)`
+    → `SalvoSched.onIdle(p, i, { __gates, __tokens -> Idle(__gates, __tokens)
+    })`.
   * **[main-pool] An omitted `on` clause is `SalvoSched.currentPool()`** — a
     `ThreadLocal` read, so the placement a spawn inherits costs nothing and
     needs no signature. Main's thread answers pool 0, the pool it is the single
@@ -1036,6 +1038,19 @@ where Rust had to build the fusion to get the same programs running
     named **unqualified**, safely: the file star-imports every module whose
     names it uses, and a `Reply<Exit>` cannot be obtained in a file where
     `Exit` means something else.
+  * **[actor-on-idle] A quiescence hook carries its own `Idle` constructor**,
+    on exactly that precedent: `SalvoSched.onIdle(pool, notify, (Int, Int) ->
+    Any?)`, and the counts cross the seam as numbers. What the runtime adds for
+    it is an accounting of *undischarged tokens*: `SalvoActorState.owed` counts
+    the tokens aimed at an actor, `SalvoPoolState.owed` those aimed at a task or
+    held by a frame parked on that pool, and `SalvoReply.tracked` is what stops
+    a token being counted twice — a delivery clears it, and so does handing the
+    token to the scheduler (`watch`, `onIdle`), which is why a program idling
+    with registrations outstanding reports zero. `fireIdle` runs where the
+    scheduler runs dry: in `awaitReply` *before* the deadlock report (firing a
+    hook is progress, so the report is what firing nothing leaves) and in
+    `worker` before it awaits, which is what fires a hook registered by an actor
+    while nobody is waiting.
   * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
     __parked[__s] = __Cont_E.K(caps); __r }`, with `mintGated` for `replyto!`.
     `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —

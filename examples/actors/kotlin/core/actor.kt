@@ -31,3 +31,8 @@ sealed class __Cont_Faults {
 data class Exit(
     val reason: String,
 )
+
+data class Idle(
+    val parked_gates: Int,
+    val parked_tokens: Int,
+)

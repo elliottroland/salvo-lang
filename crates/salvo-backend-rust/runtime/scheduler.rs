@@ -8,9 +8,10 @@
 // outstanding gated continuation per actor; while gated, only the
 // awaited reply is delivered), death = a faulted activation (caught at
 // the dispatch boundary; sends and replies to the dead are silent
-// no-ops), `watch` notification as a one-shot reply, and the
-// idle-with-parked-gates report (all queues idle while `main` waits is a
-// named runtime error, not a hang).
+// no-ops), `watch` notification as a one-shot reply, the quiescence hook
+// ([actor-on-idle]: a registered token answered when nothing anywhere can
+// run), and the idle-with-parked-gates report (all queues idle while `main`
+// waits, with no hook to fire, is a named runtime error, not a hang).
 //
 // [main-pool] [waitfor-pump] `main` is the **single worker of its own
 // pool** (pool 0), which is given no OS thread: `main`'s own thread is its
@@ -51,6 +52,12 @@ pub struct SalvoCtx {
 pub struct SalvoReply {
     target: Target,
     slot: u64,
+    /// [actor-on-idle] Whether this token still counts as an obligation the
+    /// program owes. A mint counts it; a delivery, or a handover to the
+    /// scheduler itself (`salvo_watch`, `salvo_on_idle`), stops counting it —
+    /// what an `Idle` payload reports is work *user code* has not answered,
+    /// not registrations the scheduler will answer on its own.
+    tracked: bool,
 }
 
 enum Target {
@@ -91,6 +98,11 @@ struct ActorState {
     /// reason into the language's `Exit` value. The runtime cannot construct
     /// a Salvo struct, so the watch site supplies the constructor.
     watchers: Vec<(SalvoReply, ExitOf)>,
+    /// [actor-on-idle] Reply tokens aimed at this actor that nobody has
+    /// discharged — the continuations it is still owed. A token whose holder
+    /// died stays counted, which is the honest answer: the obligation is
+    /// genuinely lost.
+    owed: usize,
     /// Taken out while an activation runs.
     body: Option<Box<dyn SalvoActor>>,
 }
@@ -99,8 +111,17 @@ struct ActorState {
 /// fn pointer, so it is `Send` without a bound.
 pub type ExitOf = fn(String) -> SalvoMsg;
 
+/// [actor-on-idle] Builds the `Idle` payload from the counts, exactly as
+/// `ExitOf` builds an `Exit`: the runtime holds numbers and cannot construct a
+/// Salvo struct, so the registration site supplies the constructor.
+pub type IdleOf = fn(i32, i32) -> SalvoMsg;
+
 struct WaiterState {
     value: Option<SalvoMsg>,
+    /// [actor-on-idle] The pool of the frame that is waiting, which is what a
+    /// token targeting this waiter is owed *by* for the purposes of an `Idle`
+    /// payload.
+    pool: usize,
 }
 
 /// [task-mint] What a pool owns besides its worker threads: a queue of
@@ -113,6 +134,10 @@ struct PoolState {
     /// the builder that turns the host's reason into the language's `Fault`.
     /// `None` is the named runtime report.
     sink: Option<(usize, ExitOf)>,
+    /// [actor-on-idle] Undischarged tokens that belong to this pool without
+    /// belonging to an actor on it: a task waiting for its answer, and the
+    /// token a frame working for this pool is parked on.
+    owed: usize,
 }
 
 struct Sched {
@@ -122,6 +147,11 @@ struct Sched {
     next_slot: u64,
     /// Activations currently running, across all pools.
     active: usize,
+    /// [actor-on-idle] Registered quiescence hooks: the pool whose
+    /// obligations the answer reports, the token to fulfil, and the builder
+    /// for its payload. Taken as a whole when the scheduler settles — every
+    /// registration is a one-shot.
+    idle_hooks: Vec<(usize, SalvoReply, IdleOf)>,
 }
 
 fn state() -> &'static (Mutex<Sched>, Condvar) {
@@ -136,9 +166,11 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 pools: vec![PoolState {
                     tasks: VecDeque::new(),
                     sink: None,
+                    owed: 0,
                 }],
                 next_slot: 0,
                 active: 0,
+                idle_hooks: Vec::new(),
             }),
             Condvar::new(),
         )
@@ -199,6 +231,72 @@ fn idle(s: &Sched) -> bool {
         && s.pools.iter().all(|p| p.tasks.is_empty())
 }
 
+/// [actor-on-idle] Marks one token as no longer outstanding, against whatever
+/// it was owed by: the actor it targets, the pool a task will run on, or the
+/// pool of the frame parked on it. Saturating, so a double release cannot wrap.
+fn release(s: &mut Sched, target: &Target) {
+    let owed = match *target {
+        Target::Proc(addr) => &mut s.actors[addr].owed,
+        Target::Task(pool, _) => &mut s.pools[pool].owed,
+        Target::Waiter(wid) => {
+            let pool = s.waiters[wid].pool;
+            &mut s.pools[pool].owed
+        }
+    };
+    *owed = owed.saturating_sub(1);
+}
+
+/// [actor-on-idle] Hands a token over to the scheduler: it stops counting as
+/// an obligation the program owes, because the scheduler is now the one who
+/// will answer it. Used by `salvo_watch` and `salvo_on_idle`, which is why a
+/// steady-state program with registrations outstanding still reports zero.
+fn untrack(s: &mut Sched, mut reply: SalvoReply) -> SalvoReply {
+    if reply.tracked {
+        reply.tracked = false;
+        release(s, &reply.target);
+    }
+    reply
+}
+
+/// [actor-on-idle] What an `Idle` payload says about a pool: how many actors
+/// placed there have a gated mailbox, and how many reply tokens aimed at work
+/// there nobody has discharged. Both zero is "done"; either non-zero is "idle
+/// and still owed something".
+fn parked(s: &Sched, pool: usize) -> (i32, i32) {
+    let gates = s
+        .actors
+        .iter()
+        .filter(|p| p.pool == pool && p.gate.is_some() && !p.dead)
+        .count();
+    let tokens: usize = s
+        .actors
+        .iter()
+        .filter(|p| p.pool == pool)
+        .map(|p| p.owed)
+        .sum::<usize>()
+        + s.pools[pool].owed;
+    (gates as i32, tokens as i32)
+}
+
+/// [actor-on-idle] Fires every registered quiescence hook, if the scheduler
+/// has settled. Answers whether anything fired — which is *progress*, so a
+/// caller about to declare a deadlock has to look again first.
+///
+/// Registrations are one-shots and all of them fire together: quiescence is a
+/// property of the whole scheduler, so there is no order in which one hook
+/// could see it and another not.
+fn fire_idle(s: &mut Sched, cv: &Condvar) -> bool {
+    if s.idle_hooks.is_empty() || !idle(s) {
+        return false;
+    }
+    for (pool, notify, build) in std::mem::take(&mut s.idle_hooks) {
+        let (gates, tokens) = parked(s, pool);
+        deliver_reply(s, notify, build(gates, tokens));
+    }
+    cv.notify_all();
+    true
+}
+
 /// [waitfor-pump] The next job a thread working for `pool` may run:
 /// `exclude` is the actor whose own activation is waiting, which a wait must
 /// never serve — re-entering an actor mid-activation is precisely what
@@ -254,6 +352,7 @@ pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
         s.pools.push(PoolState {
             tasks: VecDeque::new(),
             sink,
+            owed: 0,
         });
         s.pools.len() - 1
     };
@@ -271,9 +370,11 @@ pub fn salvo_mint_task(pool: usize, body: TaskBody) -> SalvoReply {
     let mut s = lock.lock().unwrap();
     s.next_slot += 1;
     let slot = s.next_slot;
+    s.pools[pool].owed += 1;
     SalvoReply {
         target: Target::Task(pool, body),
         slot,
+        tracked: true,
     }
 }
 
@@ -291,6 +392,7 @@ pub fn salvo_spawn(pool: usize, bound: usize, body: Box<dyn SalvoActor>) -> usiz
         exit_reason: None,
         pool,
         watchers: Vec::new(),
+        owed: 0,
         body: Some(body),
     });
     s.actors.len() - 1
@@ -339,10 +441,12 @@ pub fn salvo_mint(addr: usize) -> (SalvoReply, u64) {
     let mut s = lock.lock().unwrap();
     s.next_slot += 1;
     let slot = s.next_slot;
+    s.actors[addr].owed += 1;
     (
         SalvoReply {
             target: Target::Proc(addr),
             slot,
+            tracked: true,
         },
         slot,
     )
@@ -361,10 +465,12 @@ pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
     s.next_slot += 1;
     let slot = s.next_slot;
     s.actors[addr].gate = Some(slot);
+    s.actors[addr].owed += 1;
     (
         SalvoReply {
             target: Target::Proc(addr),
             slot,
+            tracked: true,
         },
         slot,
     )
@@ -377,6 +483,7 @@ pub fn salvo_mint_gated(addr: usize) -> (SalvoReply, u64) {
 pub fn salvo_watch(addr: usize, on_exit: SalvoReply, exit: ExitOf) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
+    let on_exit = untrack(&mut s, on_exit);
     if s.actors[addr].dead {
         let reason = s.actors[addr]
             .exit_reason
@@ -389,19 +496,37 @@ pub fn salvo_watch(addr: usize, on_exit: SalvoReply, exit: ExitOf) {
     }
 }
 
+/// [actor-on-idle] Registers a quiescence hook: `notify` is sent the `Idle`
+/// `idle` builds the moment nothing anywhere can run, reporting what `pool` is
+/// still owed. One-shot, exactly as a watch is — delivering the answer is work,
+/// which ends the idleness that produced it.
+///
+/// The registration itself wakes every worker: the scheduler may *already* be
+/// settled, in which case the next thread to look fires the hook.
+pub fn salvo_on_idle(pool: usize, notify: SalvoReply, idle: IdleOf) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let notify = untrack(&mut s, notify);
+    s.idle_hooks.push((pool, notify, idle));
+    cv.notify_all();
+}
+
 /// A waiter: the `waitfor` bridge. Answers the token to hand out and the
 /// waiter's id to block on.
 pub fn salvo_waiter() -> (SalvoReply, usize) {
     let (lock, _cv) = state();
+    let pool = salvo_current_pool();
     let mut s = lock.lock().unwrap();
-    s.waiters.push(WaiterState { value: None });
+    s.waiters.push(WaiterState { value: None, pool });
     let wid = s.waiters.len() - 1;
     s.next_slot += 1;
     let slot = s.next_slot;
+    s.pools[pool].owed += 1;
     (
         SalvoReply {
             target: Target::Waiter(wid),
             slot,
+            tracked: true,
         },
         wid,
     )
@@ -433,6 +558,12 @@ pub fn salvo_wait(wid: usize) -> SalvoMsg {
             s = run_job(lock, cv, s, addr, at);
             continue;
         }
+        // [actor-on-idle] Nothing to run is exactly the event the hooks are
+        // registered for, and firing one *is* progress — so it comes before
+        // the deadlock report, which is what firing nothing leaves.
+        if fire_idle(&mut s, cv) {
+            continue;
+        }
         if idle(&s) {
             report_deadlock(&s, own);
         }
@@ -444,6 +575,11 @@ pub fn salvo_wait(wid: usize) -> SalvoMsg {
 /// with reserved capacity (never blocks, never counts against the bound).
 /// A reply to a dead actor is a silent no-op.
 fn deliver_reply(s: &mut Sched, reply: SalvoReply, value: SalvoMsg) {
+    // [actor-on-idle] The obligation is met here, whatever the target does
+    // with the value — including a no-op delivery to the dead.
+    if reply.tracked {
+        release(s, &reply.target);
+    }
     match reply.target {
         Target::Waiter(wid) => {
             s.waiters[wid].value = Some(value);
@@ -566,7 +702,15 @@ fn worker(pool: usize) {
         }
         match pick(&s, pool, None) {
             Some((addr, at)) => s = run_job(lock, cv, s, addr, at),
-            None => s = cv.wait(s).unwrap(),
+            None => {
+                // [actor-on-idle] A worker with nothing to do is the other
+                // place quiescence is observed: a hook registered from an
+                // actor is fired by whichever thread next runs dry, without
+                // anybody having to wait for it.
+                if !fire_idle(&mut s, cv) {
+                    s = cv.wait(s).unwrap();
+                }
+            }
         }
     }
 }

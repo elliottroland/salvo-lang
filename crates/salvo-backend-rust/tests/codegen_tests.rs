@@ -9251,6 +9251,99 @@ fn a_watch_lowers_to_a_scheduler_call_with_an_exit_builder() {
     );
 }
 
+/// [actor-on-idle] The quiescence hook, end to end: the program hears about
+/// the scheduler running dry, twice — once with the pool settled and nothing
+/// outstanding, once with an actor gated on an answer another actor has parked
+/// and will never send. The counts are what distinguish *done* from *stuck*.
+///
+/// The hook is also what makes the second report **deterministic**: the message
+/// sent just before the registration cannot still be queued when the answer
+/// arrives, because a queued entry is deliverable and a deliverable entry is
+/// not idle. Expected output is verbatim the Kotlin backend's.
+const ON_IDLE: &str = r#"
+actor effect Desk {
+    send fn ask(out: Reply<Str>) => !out
+}
+
+// Parks every token it is given and answers none, which is legal because the
+// obligation lives in state [linear-state] — and is exactly the shape a
+// quiescence report has to be able to name.
+handler Desking() of Desk {
+    mailbox { capacity: 4 }
+
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn ask(out: Reply<Str>) {
+        add(waiting, out)
+    }
+}
+
+actor effect Client {
+    send fn go(desk: Addr<Desk>) => !desk
+    send fn answered(word: Str) => !word
+}
+
+// The gate: while the continuation is outstanding this actor serves nothing
+// else, so its mailbox is stalled for good.
+handler Clienting() of Client {
+    mailbox { capacity: 4 }
+
+    send fn go(desk: Addr<Desk>) {
+        desk.ask(replyto! answered())
+    }
+
+    send fn answered(word: Str) {
+        discard(word)
+    }
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+    let p = pool(1)
+    let desk = spawn Desking() on p
+    let client = spawn Clienting() on p
+    let settled = waitfor i: Reply<Idle> { on_idle(p, i) }
+    println("settled: gates ${settled.parked_gates}, tokens ${settled.parked_tokens}")
+    client.go(desk)
+    let stuck = waitfor i: Reply<Idle> { on_idle(p, i) }
+    println("stuck: gates ${stuck.parked_gates}, tokens ${stuck.parked_tokens}")
+}
+"#;
+
+const ON_IDLE_OUTPUT: &str =
+    "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_quiescence_hook() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ON_IDLE)]);
+    run_rust_files(&files, "on-idle", ON_IDLE_OUTPUT);
+}
+
+/// [actor-on-idle] [rs-actor] What `on_idle` lowers to, on `watch`'s
+/// precedent: the scheduler call **plus the `Idle` builder** the registration
+/// site closes over, since the runtime holds two counts and cannot construct a
+/// Salvo struct.
+#[test]
+fn a_quiescence_hook_lowers_to_a_scheduler_call_with_an_idle_builder() {
+    let files = generate(&[("main.sv", ON_IDLE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains(
+            "crate::scheduler::salvo_on_idle(p, i, |__gates, __tokens| \
+             Box::new(Idle { parked_gates: __gates, parked_tokens: __tokens }))"
+        ),
+        "the idle registration or its `Idle` builder is missing:\n{}",
+        main.content
+    );
+}
+
 /// [rs-actor] [actor-replyto] The lowering: a continuation enum beside the
 /// message enum; the two generated fields on the handler; a `__dispatch`
 /// factored out of `handle` so member invocation lives in one place; and a

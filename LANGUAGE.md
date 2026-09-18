@@ -2691,6 +2691,17 @@ Two more cases complete the picture:
 * **A token that is never sent to.** The task never runs — but you cannot get there by forgetting, because a `Reply<T>` is linear: whoever holds it must send to it or pass it on. What can still happen is that its holder *dies* first (a faulted actor loses what it owed), and then the runtime's idle report names the waiter that can no longer be answered instead of hanging.
 * **A task that faults.** It has no identity, so there is nothing to `watch`. The fault goes to its pool's **fault sink** if the pool was given one — `pool(4, sink)`, where `sink` is the addr of an actor serving `Faults` — and otherwise is named on stderr. Either way the program carries on: a task's death is not the program's.
 
+**Asking when the work is done.** The same detection that report rests on is available to a program: `on_idle(p, notify)` registers a one-shot for the moment nothing anywhere can run, and answers an `Idle` saying what pool `p` is still owed — `parked_gates`, the actors placed there whose mailbox is gated on a reply, and `parked_tokens`, the reply tokens aimed at work there that nobody has discharged. Both zero means the program is *finished*, not merely quiet.
+
+```
+let p = pool(2)
+counter.bump(2)                                  // … place work on p …
+let settled = waitfor i: Reply<Idle> { on_idle(p, i) }
+println("gates ${settled.parked_gates}, tokens ${settled.parked_tokens}")
+```
+
+The token is minted like any other and **consumed** by the registration, so a hook you forget to register is the ordinary linearity error rather than a request that quietly never answers. The answer is edge-triggered and one-shot, because delivering it is itself work and ends the idleness that produced it: hearing about the next one means registering again. And it says what it says only while nothing outside the scheduler injects work — a platform handler with a thread of its own can make "idle" stale.
+
 Finally, what a task body may *do*. It is ordinary Salvo, with one restriction: it declares no effects but `[waitfor]`. A task runs detached from the frame that minted it — that frame may have returned by the time it runs — so there is no scope left to supply its handlers from. Reaching an actor needs no effect declaration, so the way to give a task a capability is to hand it an `Addr` as a capture and send to it; anything else belongs in the function that mints. A task that declares `[waitfor]` needs a thread it can occupy, which is either an explicit `on thread()` or inheritance from a minting frame that itself declares `[waitfor]`.
 
 ## Specific backend details

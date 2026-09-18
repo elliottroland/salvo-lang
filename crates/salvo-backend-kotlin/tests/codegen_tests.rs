@@ -2052,6 +2052,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_gated_continuation,
     kotlinc_compiles_and_runs_both_readings_of_a_self_send,
     kotlinc_compiles_and_runs_a_death_watch,
+    kotlinc_compiles_and_runs_a_quiescence_hook,
     kotlinc_compiles_and_runs_the_waitfor_package,
     kotlinc_compiles_and_runs_the_task_kernel,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
@@ -9599,6 +9600,89 @@ fn kotlinc_compiles_and_runs_a_death_watch() -> KotlinCase {
         "watch",
         "died with a reason: true\nlate watch answered: true\ndone\n",
     )
+}
+
+/// [actor-on-idle] The quiescence hook, end to end. Source and expected stdout
+/// are **verbatim** the Rust backend's `rustc_compiles_and_runs_a_quiescence_hook`:
+/// the program hears about the scheduler running dry twice, once settled and
+/// once with an actor gated on an answer another actor has parked and will never
+/// send, and the counts are what tell the two apart.
+const ON_IDLE: &str = r#"
+actor effect Desk {
+    send fn ask(out: Reply<Str>) => !out
+}
+
+// Parks every token it is given and answers none, which is legal because the
+// obligation lives in state [linear-state] — and is exactly the shape a
+// quiescence report has to be able to name.
+handler Desking() of Desk {
+    mailbox { capacity: 4 }
+
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn ask(out: Reply<Str>) {
+        add(waiting, out)
+    }
+}
+
+actor effect Client {
+    send fn go(desk: Addr<Desk>) => !desk
+    send fn answered(word: Str) => !word
+}
+
+// The gate: while the continuation is outstanding this actor serves nothing
+// else, so its mailbox is stalled for good.
+handler Clienting() of Client {
+    mailbox { capacity: 4 }
+
+    send fn go(desk: Addr<Desk>) {
+        desk.ask(replyto! answered())
+    }
+
+    send fn answered(word: Str) {
+        discard(word)
+    }
+}
+
+fn main() [use, spawn, waitfor] {
+    use StdOutConsole()
+    let p = pool(1)
+    let desk = spawn Desking() on p
+    let client = spawn Clienting() on p
+    let settled = waitfor i: Reply<Idle> { on_idle(p, i) }
+    println("settled: gates ${settled.parked_gates}, tokens ${settled.parked_tokens}")
+    client.go(desk)
+    let stuck = waitfor i: Reply<Idle> { on_idle(p, i) }
+    println("stuck: gates ${stuck.parked_gates}, tokens ${stuck.parked_tokens}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_quiescence_hook() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", ON_IDLE)]),
+        "on-idle",
+        "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n",
+    )
+}
+
+/// [actor-on-idle] [kt-actor] What `on_idle` lowers to, mirroring the Rust
+/// backend: the scheduler call **plus the `Idle` builder** the registration site
+/// closes over, since the runtime holds two counts and cannot construct a Salvo
+/// class.
+#[test]
+fn a_quiescence_hook_lowers_to_a_scheduler_call_with_an_idle_builder_kotlin() {
+    let files = generate_files(&[("main.sv", ON_IDLE)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content.contains(
+            "salvo.SalvoSched.onIdle(p, i, { __gates, __tokens -> Idle(__gates, __tokens) })"
+        ),
+        "the idle registration or its `Idle` builder is missing:\n{}",
+        main.content
+    );
 }
 
 /// [actor-watch] [kt-actor] What a `watch` lowers to, mirroring the Rust

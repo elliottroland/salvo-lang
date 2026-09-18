@@ -10396,10 +10396,14 @@ impl<'p> Emitter<'p> {
                 self.needs_str = true;
             }
             // [rs-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool (plain or dedicated), and registering a
-            // death watch.
+            // token, building a pool (plain or dedicated), registering a
+            // death watch, and registering a quiescence hook
+            // [actor-on-idle].
             if recv == Some("Reply")
-                || matches!(f.name.name.as_str(), "pool" | "thread" | "watch")
+                || matches!(
+                    f.name.name.as_str(),
+                    "pool" | "thread" | "watch" | "on_idle"
+                )
             {
                 self.needs_scheduler = true;
             }

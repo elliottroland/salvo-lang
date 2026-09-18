@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1094 tests, complete: the toolchain tests are
+cargo test                  # 1099 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,68 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The second sequence, step 3: `on_idle`, the quiescence hook (built
+2026-09-18, T-3(a)).** The step the ROADMAP called cheap, and it was — one new
+rule label, **[actor-on-idle]**, no new syntax, and one intrinsic per backend —
+because the runtime already knew when nothing could run. What it took, and what
+had to be decided while building it:
+
+- **The shape is `watch`'s, deliberately**: `intrinsic fn on_idle(p: Pool,
+  notify: Reply<Idle>) [spawn]` plus `struct Idle { parked_gates: Int,
+  parked_tokens: Int }` in `core.actor`, a linear one-shot whose registration
+  *is* the obligation, `[spawn]`-gated like `pool`, and answered by the
+  scheduler through the ordinary reply path. So `main` registers with `waitfor`
+  and an actor with `replyto`, and neither needed a new context.
+- **Firing is on *global* quiescence, and that is a decision made here** (not in
+  T-3, which says "when the pool reaches quiescence"): nothing running anywhere,
+  no deliverable mailbox entry anywhere, no queued task anywhere — the
+  `idle()`/`idle` predicate the deadlock report already used, untouched. The
+  per-pool reading was rejected because it can answer *settled* to a program
+  that is not: another pool may hold work that will send into the named one. A
+  late answer is a slow test; an early one is a wrong test. Recorded in ROADMAP
+  as the refinement if the earlier edge is ever wanted.
+- **The `Pool` argument therefore decides the answer, not the timing**, which is
+  what keeps it load-bearing: `parked_gates` counts the actors on `p` whose
+  mailbox is gated, `parked_tokens` the undischarged reply tokens aimed at work
+  on `p`. Both zero is *done*; either non-zero is *idle and still owed
+  something* — the distinction the hook exists to make.
+- **`parked_tokens` needed accounting the runtimes did not have**, and this is
+  the part that was more than plumbing: `owed` on each actor (tokens aimed at
+  it) and on each pool (tokens aimed at a task, or held by a frame of that pool
+  parked in a `waitfor`), incremented at every mint and decremented at delivery.
+  A `tracked` flag on the token is what stops a double count — and what
+  implements the rule that a **registration the scheduler holds is not an
+  outstanding obligation**: `watch` and `on_idle` untrack the token they take,
+  so a steady-state program with registrations outstanding reports zero rather
+  than looking stuck. A token whose holder *died* stays counted, which is the
+  honest answer: that obligation is genuinely lost.
+- **Two places observe quiescence**, and both were needed: the wait loop, where
+  firing a hook comes **before** the deadlock report (a pending hook is
+  progress, so the report is what firing *nothing* leaves), and a pool worker
+  about to park, which is what answers a hook an actor registered while nobody
+  is waiting. The registration itself signals the condvar, since the scheduler
+  may already be settled when it arrives.
+- **What the hook buys, demonstrated rather than asserted**: the end-to-end case
+  is deterministic *because of* the hook. A message sent immediately before the
+  registration cannot still be queued when the answer arrives — a queued entry
+  is deliverable, and a deliverable entry is not idle — so "the work I sent has
+  settled" stops being a guess about how many messages the code under test
+  sends. That is exactly what step 5's virtual-time fake needs against the
+  advance race.
+- **The caveats are inherited, not new**, and are stated in the rule: a frame
+  parked in a `waitfor` counts as running, so idleness does not fire while any
+  wait is in flight (the open defect where an *occupied actor's* wait hides the
+  deadlock report is the same condition from the other side), and an idle answer
+  means what it says only while nothing outside the scheduler injects work.
+- **Verified on both backends with identical output**: two new scheduler
+  behaviour scenarios per backend (settled → `gates 0, tokens 0`, then an actor
+  gated on a token another actor has parked → `gates 1, tokens 1`; and the same
+  hook registered *by* an actor, reporting the main pool's one outstanding
+  token), a new compile-and-run case in Salvo with the same two lines of output,
+  a lowering assertion per backend, and `examples/actors/`'s checked-in
+  `core/actor.*` and `scheduler.*` regenerated. Tests: **1099 (+5)**. The fresh
+  run is now ~2m5s, of which ~121s is the Kotlin case driver.
 
 **A design working document opened — shareable handlers (user directions
 2026-09-17, evening).** SHAREABLE_HANDLERS.md, in DESIGN_DOC.md's shape, out of
@@ -11689,7 +11751,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1094)
+## Test inventory (all green: 1099)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12357,7 +12419,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 106 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 107 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -12370,7 +12432,9 @@ cache, with per-test timings.
   watcher answered with an `Exit`, a *late* watch answered immediately, and a
   send to the corpse changing nothing (`died with a reason: true` / `late watch
   answered: true` / `done`) [actor-watch] — its reason text is the one thing
-  not asserted, being the host's; and the parked-continuation trio: a fetcher
+  not asserted, being the host's; the quiescence hook, whose two reports are the
+  assertion (`settled: gates 0, tokens 0` / `stuck: gates 1, tokens 1`) and whose
+  determinism *is* the feature [actor-on-idle]; and the parked-continuation trio: a fetcher
   that
   parks a continuation for a database process's answer and fulfils `main`'s
   token from inside its own activation (`got row 7`), the gate whose *ordering*
@@ -12554,7 +12618,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 196 - including twelve [rs-actor] tests (the first
+- `salvo-backend-rust`: 200 - including fourteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -12574,7 +12638,10 @@ cache, with per-test timings.
   [waitfor-effect] [waitfor-dedicated] [main-pool]; the **task kernel** compiled
   and run — a free `send fn` scheduled by a fulfilled token, inherited and
   written placements, with the closure-not-a-continuation-enum lowering asserted
-  [free-send-fn] [task-mint] [rs-task]; and the generic-handler cut reported as a
+  [free-send-fn] [task-mint] [rs-task]; the **quiescence hook** compiled and run —
+  a settled pool answering `gates 0, tokens 0` and a gated actor answering
+  `gates 1, tokens 1`, with its `Idle`-builder lowering asserted
+  [actor-on-idle]; and the generic-handler cut reported as a
   codegen error) - and the
   member-name-collision case [effect-available], which is a compile-and-run
   test precisely because one half of the defect it pins was silently wrong

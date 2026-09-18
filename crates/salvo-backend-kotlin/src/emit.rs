@@ -6047,10 +6047,14 @@ impl<'p> Emitter<'p> {
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
             // [kt-actor] The scheduler's own intrinsics: answering a reply
-            // token, building a pool (plain or dedicated), and registering a
-            // death watch.
+            // token, building a pool (plain or dedicated), registering a
+            // death watch, and registering a quiescence hook
+            // [actor-on-idle].
             if recv == Some("Reply")
-                || matches!(f.name.name.as_str(), "pool" | "thread" | "watch")
+                || matches!(
+                    f.name.name.as_str(),
+                    "pool" | "thread" | "watch" | "on_idle"
+                )
             {
                 self.needs_scheduler = true;
             }

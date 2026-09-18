@@ -89,6 +89,15 @@ pub fn fn_call(
             a(0),
             a(1)
         ),
+        // [actor-on-idle] The quiescence hook, registered the same way and for
+        // the same reason: the runtime holds two counts and cannot construct
+        // the language's `Idle`, so the registration site closes over the
+        // constructor. `Idle` is named unqualified on `Exit`'s precedent above.
+        ("on_idle", Some("Pool")) => format!(
+            "salvo.SalvoSched.onIdle({}, {}, {{ __gates, __tokens -> Idle(__gates, __tokens) }})",
+            a(0),
+            a(1)
+        ),
         // core.list ------------------------------------------------------
         // The element type is spelled out: `listOf()` with no arguments
         // leaves kotlinc with nothing to infer from

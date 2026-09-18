@@ -9,8 +9,9 @@
 // actor; while gated only the awaited reply is delivered), death = a
 // faulted activation caught at the dispatch boundary (sends and replies
 // to the dead are silent no-ops; watchers are notified with the reason),
-// and the idle-with-parked-gates report. Pool threads are daemon threads:
-// the program ends when main returns.
+// the quiescence hook ([actor-on-idle]: a registered token answered when
+// nothing anywhere can run), and the idle-with-parked-gates report. Pool
+// threads are daemon threads: the program ends when main returns.
 //
 // [main-pool] [waitfor-pump] `main` is the **single worker of its own pool**
 // (pool 0), which is given no thread of its own: main's thread is the
@@ -62,9 +63,17 @@ private class SalvoActorState(val bound: Int, val pool: Int, var body: SalvoActo
      * class, so the watch site supplies the constructor.
      */
     val watchers = mutableListOf<Pair<SalvoReply, (String) -> Any?>>()
+
+    /**
+     * [actor-on-idle] Reply tokens aimed at this actor that nobody has
+     * discharged — the continuations it is still owed. A token whose holder
+     * died stays counted, which is the honest answer: the obligation is
+     * genuinely lost.
+     */
+    var owed = 0
 }
 
-private class SalvoWaiterState {
+private class SalvoWaiterState(val pool: Int) {
     var value: Any? = null
     var filled = false
 }
@@ -87,6 +96,13 @@ private class SalvoPoolState {
     val tasks = ArrayDeque<Pair<(Any?) -> Unit, Any?>>()
     var sinkAddr: Int? = null
     var sinkBuild: ((String) -> Any?)? = null
+
+    /**
+     * [actor-on-idle] Undischarged tokens that belong to this pool without
+     * belonging to an actor on it: a task waiting for its answer, and the
+     * token a frame working for this pool is parked on.
+     */
+    var owed = 0
 }
 
 /**
@@ -108,6 +124,14 @@ object SalvoSched {
     private val pools = mutableListOf(SalvoPoolState())
     private var nextSlot = 0L
     private var active = 0
+
+    /**
+     * [actor-on-idle] Registered quiescence hooks: the pool whose obligations
+     * the answer reports, the token to fulfil, and the builder for its
+     * payload. Taken as a whole when the scheduler settles — every
+     * registration is a one-shot.
+     */
+    private val idleHooks = mutableListOf<Triple<Int, SalvoReply, (Int, Int) -> Any?>>()
     private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
 
     /** Creates a pool of [n] daemon worker threads and answers its id. */
@@ -152,6 +176,7 @@ object SalvoSched {
     ): SalvoReply =
         lock.withLock {
             nextSlot += 1
+            pools[pool].owed += 1
             SalvoReply(SalvoTargetTask(pool, body), nextSlot)
         }
 
@@ -228,6 +253,7 @@ object SalvoSched {
     fun mint(addr: Int): Pair<SalvoReply, Long> =
         lock.withLock {
             nextSlot += 1
+            actors[addr].owed += 1
             Pair(SalvoReply(SalvoTargetProc(addr), nextSlot), nextSlot)
         }
 
@@ -241,6 +267,7 @@ object SalvoSched {
             check(actors[addr].gate == null) { "a gated continuation is already outstanding" }
             nextSlot += 1
             actors[addr].gate = nextSlot
+            actors[addr].owed += 1
             Pair(SalvoReply(SalvoTargetProc(addr), nextSlot), nextSlot)
         }
 
@@ -256,6 +283,7 @@ object SalvoSched {
         exit: (String) -> Any?,
     ) {
         lock.withLock {
+            untrack(onExit)
             if (actors[addr].dead) {
                 deliverReply(onExit, exit(actors[addr].exitReason ?: "fault"))
                 cv.signalAll()
@@ -265,11 +293,34 @@ object SalvoSched {
         }
     }
 
+    /**
+     * [actor-on-idle] Registers a quiescence hook: [notify] is sent the `Idle`
+     * [idle] builds the moment nothing anywhere can run, reporting what [pool]
+     * is still owed. One-shot, exactly as a watch is — delivering the answer is
+     * work, which ends the idleness that produced it.
+     *
+     * The registration itself wakes every worker: the scheduler may *already*
+     * be settled, in which case the next thread to look fires the hook.
+     */
+    fun onIdle(
+        pool: Int,
+        notify: SalvoReply,
+        idle: (Int, Int) -> Any?,
+    ) {
+        lock.withLock {
+            untrack(notify)
+            idleHooks.add(Triple(pool, notify, idle))
+            cv.signalAll()
+        }
+    }
+
     /** A waiter: the `waitfor` bridge. Answers (token, waiter id). */
     fun waiter(): Pair<SalvoReply, Int> =
         lock.withLock {
-            waiters.add(SalvoWaiterState())
+            val pool = currentPool()
+            waiters.add(SalvoWaiterState(pool))
             nextSlot += 1
+            pools[pool].owed += 1
             Pair(SalvoReply(SalvoTargetWaiter(waiters.size - 1), nextSlot), waiters.size - 1)
         }
 
@@ -303,6 +354,13 @@ object SalvoSched {
                     runJob(job.first, job.second)
                     continue
                 }
+                // [actor-on-idle] Nothing to run is exactly the event the hooks
+                // are registered for, and firing one *is* progress — so it comes
+                // before the deadlock report, which is what firing nothing
+                // leaves.
+                if (fireIdle()) {
+                    continue
+                }
                 if (idle()) {
                     reportDeadlock(spot.actor)
                 }
@@ -322,6 +380,9 @@ object SalvoSched {
 
     /** Delivery under the lock: reserved capacity, no-op to the dead. */
     private fun deliverReply(reply: SalvoReply, value: Any?) {
+        // [actor-on-idle] The obligation is met here, whatever the target does
+        // with the value — including a no-op delivery to the dead.
+        untrack(reply)
         when (val target = reply.target) {
             is SalvoTargetWaiter -> {
                 waiters[target.wid].value = value
@@ -354,6 +415,73 @@ object SalvoSched {
     /** True when nothing can ever run again without outside input. */
     private fun idle(): Boolean =
         active == 0 && actors.all { deliverable(it) == null } && pools.all { it.tasks.isEmpty() }
+
+    /**
+     * [actor-on-idle] Marks one token as no longer outstanding, against
+     * whatever it was owed by: the actor it targets, the pool a task will run
+     * on, or the pool of the frame parked on it. Clamped at zero, so a double
+     * release cannot go negative.
+     */
+    private fun release(target: SalvoTarget) {
+        when (target) {
+            is SalvoTargetProc -> actors[target.addr].owed = clamp(actors[target.addr].owed - 1)
+            is SalvoTargetTask -> pools[target.pool].owed = clamp(pools[target.pool].owed - 1)
+            is SalvoTargetWaiter -> {
+                val pool = waiters[target.wid].pool
+                pools[pool].owed = clamp(pools[pool].owed - 1)
+            }
+        }
+    }
+
+    private fun clamp(n: Int): Int = if (n < 0) 0 else n
+
+    /**
+     * [actor-on-idle] Hands a token over to the scheduler: it stops counting as
+     * an obligation the program owes, because the scheduler is now the one who
+     * will answer it. Used by [watch] and [onIdle], which is why a steady-state
+     * program with registrations outstanding still reports zero.
+     */
+    private fun untrack(reply: SalvoReply) {
+        if (reply.tracked) {
+            reply.tracked = false
+            release(reply.target)
+        }
+    }
+
+    /**
+     * [actor-on-idle] What an `Idle` payload says about a pool: how many actors
+     * placed there have a gated mailbox, and how many reply tokens aimed at
+     * work there nobody has discharged. Both zero is "done"; either non-zero is
+     * "idle and still owed something".
+     */
+    private fun parked(pool: Int): Pair<Int, Int> {
+        val gates = actors.count { it.pool == pool && it.gate != null && !it.dead }
+        val tokens = actors.filter { it.pool == pool }.sumOf { it.owed } + pools[pool].owed
+        return Pair(gates, tokens)
+    }
+
+    /**
+     * [actor-on-idle] Fires every registered quiescence hook, if the scheduler
+     * has settled. Answers whether anything fired — which is *progress*, so a
+     * caller about to declare a deadlock has to look again first.
+     *
+     * Registrations are one-shots and all of them fire together: quiescence is
+     * a property of the whole scheduler, so there is no order in which one hook
+     * could see it and another not.
+     */
+    private fun fireIdle(): Boolean {
+        if (idleHooks.isEmpty() || !idle()) {
+            return false
+        }
+        val hooks = idleHooks.toList()
+        idleHooks.clear()
+        for ((pool, notify, build) in hooks) {
+            val (gates, tokens) = parked(pool)
+            deliverReply(notify, build(gates, tokens))
+        }
+        cv.signalAll()
+        return true
+    }
 
     /**
      * [waitfor-pump] The next job a thread working for [pool] may run:
@@ -526,7 +654,13 @@ object SalvoSched {
                 }
                 val job = pick(pool, null)
                 if (job == null) {
-                    cv.await()
+                    // [actor-on-idle] A worker with nothing to do is the other
+                    // place quiescence is observed: a hook registered from an
+                    // actor is fired by whichever thread next runs dry, without
+                    // anybody having to wait for it.
+                    if (!fireIdle()) {
+                        cv.await()
+                    }
                 } else {
                     runJob(job.first, job.second)
                 }
@@ -551,5 +685,14 @@ internal class SalvoTargetTask(val pool: Int, val body: (Any?) -> Unit) : SalvoT
  * guarantee is the checker's; the runtime only enqueues.
  */
 class SalvoReply internal constructor(internal val target: SalvoTarget, internal val slot: Long) {
+    /**
+     * [actor-on-idle] Whether this token still counts as an obligation the
+     * program owes. A mint counts it; a delivery, or a handover to the
+     * scheduler itself ([SalvoSched.watch], [SalvoSched.onIdle]), stops
+     * counting it — what an `Idle` payload reports is work *user code* has not
+     * answered, not registrations the scheduler will answer on its own.
+     */
+    internal var tracked: Boolean = true
+
     fun send(value: Any?) = SalvoSched.sendReply(this, value)
 }

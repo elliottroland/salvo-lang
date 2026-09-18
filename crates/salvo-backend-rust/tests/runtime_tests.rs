@@ -647,3 +647,118 @@ fn main() {
         "salvo: deadlock: all actors idle while main waits",
     );
 }
+
+/// [actor-on-idle] The quiescence hook: a registered token is answered the
+/// moment nothing anywhere can run, and the payload says whether the program
+/// is *done* or merely *stuck*. Registered twice, so both answers are in one
+/// run: first with the pool settled and nothing outstanding, then with an
+/// actor gated on a reply another actor has parked and will never send.
+///
+/// The counts are what make the hook a test instrument rather than a bell:
+/// "the work I sent has finished" is otherwise a guess about how many
+/// messages the code under test sends.
+#[test]
+fn scheduler_answers_a_quiescence_hook_with_the_parked_counts() {
+    run_scheduler_program(
+        "idle-hook",
+        r#"
+/// Parks every token it is given and answers none: the obligation stays
+/// outstanding, which is what the second report has to see.
+struct Holder {
+    held: Vec<SalvoReply>,
+}
+
+impl SalvoActor for Holder {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        self.held.push(*msg.downcast::<SalvoReply>().unwrap());
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+/// Gates itself on an answer from the holder, so its mailbox is stalled for
+/// good.
+struct Asker {
+    holder: usize,
+}
+
+impl SalvoActor for Asker {
+    fn handle(&mut self, ctx: &SalvoCtx, _msg: SalvoMsg) {
+        let (token, _slot) = salvo_mint_gated(ctx.addr);
+        salvo_send(self.holder, Box::new(token));
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn report(gates: i32, tokens: i32) -> SalvoMsg {
+    Box::new(format!("gates {gates}, tokens {tokens}"))
+}
+
+fn main() {
+    let pool = salvo_pool(1);
+    let holder = salvo_spawn(pool, 4, Box::new(Holder { held: Vec::new() }));
+    let asker = salvo_spawn(pool, 4, Box::new(Asker { holder }));
+    // Nothing has been sent, so the answer is "done".
+    let (first, w1) = salvo_waiter();
+    salvo_on_idle(pool, first, report);
+    println!("settled: {}", salvo_wait(w1).downcast_ref::<String>().unwrap());
+    // The hook cannot fire before the message it was registered after has
+    // run: a queued entry is deliverable, so the scheduler is not idle.
+    salvo_send(asker, Box::new("go".to_string()));
+    let (second, w2) = salvo_waiter();
+    salvo_on_idle(pool, second, report);
+    println!("stuck: {}", salvo_wait(w2).downcast_ref::<String>().unwrap());
+}
+"#,
+        "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n",
+        true,
+        "",
+    );
+}
+
+/// [actor-on-idle] The same hook registered *by an actor*, on a continuation
+/// of its own: quiescence is observed by whichever thread runs dry, so nobody
+/// has to be waiting for the answer to arrive. The pool it asks about is
+/// `main`'s, whose one outstanding token is the one the actor is holding — so
+/// the count is 1 while the actor's own pool is clean.
+#[test]
+fn a_quiescence_hook_registered_by_an_actor_is_fired_by_a_worker() {
+    run_scheduler_program(
+        "idle-hook-actor",
+        r#"
+struct Watcher {
+    out: Option<SalvoReply>,
+}
+
+impl SalvoActor for Watcher {
+    fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg) {
+        // `main`'s token is kept, so the main pool is owed one answer, and
+        // the registration is a continuation on this actor.
+        self.out = Some(*msg.downcast::<SalvoReply>().unwrap());
+        let (token, _slot) = salvo_mint(ctx.addr);
+        salvo_on_idle(SALVO_MAIN_POOL, token, report);
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, value: SalvoMsg) {
+        self.out.take().unwrap().send(value);
+    }
+}
+
+fn report(gates: i32, tokens: i32) -> SalvoMsg {
+    Box::new(format!("gates {gates}, tokens {tokens}"))
+}
+
+fn main() {
+    let pool = salvo_pool(1);
+    let watcher = salvo_spawn(pool, 4, Box::new(Watcher { out: None }));
+    let (token, wid) = salvo_waiter();
+    salvo_send(watcher, Box::new(token));
+    println!(
+        "from the actor: {}",
+        salvo_wait(wid).downcast_ref::<String>().unwrap()
+    );
+}
+"#,
+        "from the actor: gates 0, tokens 1\n",
+        true,
+        "",
+    );
+}

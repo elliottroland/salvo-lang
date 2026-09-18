@@ -142,3 +142,45 @@ struct Exit { reason: Str }
 // [target] is kept, since an addr is freely copyable: watching does not spend
 // the handle, and the same actor may be watched by many.
 intrinsic fn watch<E>(target: Addr<E>, on_exit: Reply<Exit>) [spawn] -> None => target, !on_exit
+
+// [actor-on-idle] What quiescence looked like, delivered to whoever asked to
+// hear about it.
+//
+// The two fields are the difference between *done* and *stuck*, both zero
+// meaning the first: [parked_gates] counts the actors on the pool whose
+// mailbox is gated on an answer that has not come, and [parked_tokens] counts
+// the reply tokens aimed at work on that pool which nobody has discharged. A
+// gated actor is also owed a token, so the gates are the subset of the tokens
+// that block a mailbox as well.
+//
+// A registration the scheduler is holding — a [watch], or an [on_idle] of its
+// own — is not counted: the scheduler will answer it when the event happens,
+// so it is not an obligation the program has forgotten.
+struct Idle {
+    parked_gates: Int,
+    parked_tokens: Int
+}
+
+// [actor-on-idle] Ask to be told when the program runs out of work: the
+// scheduler sends an [Idle] to [notify] the moment nothing anywhere can run —
+// no activation running, every mailbox undeliverable, every queue of scheduled
+// work empty — reporting the obligations still outstanding on [p].
+//
+// The shape is [watch]'s, for the same reasons: the token is minted like any
+// other (`waitfor` in `main`, `replyto` in a handler) and **consumed** here, so
+// a registration that is forgotten is the ordinary leak diagnostic; and it is
+// edge-triggered and one-shot, since delivering the answer is itself work and
+// ends the idleness that prompted it. Hearing about the next one means
+// registering again.
+//
+// What it is for is sequencing: "the work I sent has settled" is otherwise a
+// guess about how many messages the code under test sends. Two caveats it
+// inherits from the detection rather than adding: an idle answer means what it
+// says only while nothing *outside* the scheduler can inject work (a platform
+// handler with a thread of its own can stale it), and a frame parked in a
+// `waitfor` counts as running — so idleness does not fire while a wait is in
+// flight anywhere.
+//
+// [p] is kept: a pool is an ordinary value, and asking about one does not
+// spend it.
+intrinsic fn on_idle(p: Pool, notify: Reply<Idle>) [spawn] -> None => p, !notify
