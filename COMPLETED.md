@@ -47,7 +47,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1138 tests, complete: the toolchain tests are
+cargo test                  # 1142 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -121,6 +121,53 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Equality promotes, and six tooling fixes (user decisions + requests
+2026-09-18).** A short pass over things the previous entry's work had exposed,
+each small and each user-directed:
+
+- **`==` and `!=` widen mixed numeric widths** [op-promote], which ordering and
+  arithmetic already did. The split had no reading behind it — `n < 0` was fine
+  for a `Long` `n` while `n == 0` was an error, so `std/time.sv` had been
+  written with `0L` suffixes — and it cost one branch in the checker plus one
+  case in the Kotlin emitter: `==` is the only comparison the JVM refuses to mix
+  widths on, so a promoted operand renders as `(x).toLong()` there
+  [kt-op-promote]. Rust already cast every promoted operand. std's suffixes came
+  back out.
+- **Underscore separators work after the decimal point** (`1_000.500_5`).
+  [lit-numeric] had always claimed separators; the lexer only accepted them in
+  the integer part, so a reader-friendly fraction was an "invalid numeric
+  literal".
+- **`actor`, `send`, `iter`, `hashed` and `ordered` highlight**, by *shape*
+  rather than by name: they are unreserved identifiers (a variable may be called
+  `send`), so the grammar matches them before the word that makes them keywords
+  — `actor effect`, `send fn`, `iter fn` — and matches `hashed`/`ordered` only
+  inside a `canbe` clause. The `canbe` patterns had to be ordered *before* the
+  plain keyword alternation: TextMate takes the first pattern that matches at a
+  position, so the generic rule would have consumed `canbe` and left `hashed`
+  bare. A variable named `ordered` stays plain, which is what the shape buys
+  over a name list.
+- **`[symbol]` doc references highlight inside comments**, which needed the
+  comment rule to become a `begin`/`end` pair with an inner pattern.
+- **A hover shows `linear`** — on a `linear struct`, on a
+  `linear intrinsic type`, and as the `canbe linear` bound of a generic
+  [lsp-hover-linear]. The bound is the only thing that says a function may be
+  handed an obligation, and it had been dropped from every signature the hover
+  rendered.
+- **A hover lists the rest of the overload set** [lsp-hover-overloads]:
+  "Also visible under this name", one line per declaration, with the module it
+  came from and — for a member — the effect it belongs to. `read_to` in
+  `core.fs` was the case that prompted it. Two things this needed: an owned
+  index in the LSP's `Analysis` (a `Resolution` borrows the program, so the
+  slice hover wants is extracted while the resolution is alive), and a
+  fn-shaped lookup in the renderer — `decl_at` covers only the declarations
+  that hover through `declaration_hover`, and a top-level fn resolves through
+  `fn_refs`, so the first version listed members and silently skipped every
+  fn.
+
+Tests: **1142 (+4)** — the three grammar/lang assertions, one LSP hover test
+covering all three hover changes, and an analysis unit test for the overload
+index.
 
 **Time: `Instant`, `Tick`, `Duration`, the two clocks, the timer, and `ManualTime`
 (user decisions + built 2026-09-18 — step 5 of the second sequence).** The
@@ -12047,7 +12094,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1138)
+## Test inventory (all green: 1142)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

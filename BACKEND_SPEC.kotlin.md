@@ -946,6 +946,14 @@ where Rust had to build the fusion to get the same programs running
   * `replace(map, k, v)` is `put`, which already answers the previous value on
     the JVM — the two Salvo functions differ only in what the language lets you
     do with the answer [linear-container].
+* [kt-op-promote] [op-promote] **Equality is the one comparison Kotlin will not
+  mix widths on.** Its operators cover `Long + Int` and `Long < Int` directly,
+  so a recorded promotion needs no rendering for arithmetic or ordering — but
+  `Long == Int` is a compile error on the JVM, so where the checker widened an
+  equality operand the narrower side is emitted as `(x).toLong()` /
+  `(x).toDouble()`. Added with equality promotion (user decision 2026-09-18);
+  the Rust backend needs no special case, since it casts every promoted operand
+  anyway [rs-borrows].
 * [kt-time] [time-types] **The clock readings are a runtime module of their
   own**, `runtime/hosttime.kt` [kt-runtime-source]: `SalvoTime.monoNanos()` is
   `System.nanoTime()` — documented as "some fixed but arbitrary origin", which

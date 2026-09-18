@@ -363,8 +363,22 @@ impl Server<'_> {
                 // std's, an import's, or this module's, and the signature
                 // alone does not say which won.
                 let origin = self.origin_section(&analysis, key.file, file_idx);
+                // [lsp-hover-overloads] The rest of the overload set, so the
+                // resolved signature reads as *a choice* rather than as the
+                // only candidate.
+                let others = decl.and_then(|d| {
+                    self.overload_section(
+                        &analysis,
+                        file_idx,
+                        &d.name.name,
+                        DefSite {
+                            file: key.file,
+                            span: d.name.span,
+                        },
+                    )
+                });
                 return Some(markdown_hover(
-                    docs::hover_markdown(&signature, &[docs, refinements, origin]),
+                    docs::hover_markdown(&signature, &[docs, refinements, origin, others]),
                     span_to_range(content, span),
                 ));
             }
@@ -552,6 +566,18 @@ impl Server<'_> {
 
         let items = &analysis.program.modules.get(target.file)?.items;
         let found = decl_at(items, &|s: Span| s == target.span)?;
+        // [lsp-hover-overloads] Read before the rendering match below consumes
+        // `found`: the name is what the other declarations are looked up by.
+        let decl_name: Option<String> = match &found {
+            DeclAt::Member { decl, .. } => Some(decl.name.name.clone()),
+            DeclAt::Field { decl, .. } => Some(decl.name.name.clone()),
+            DeclAt::Struct(s) => Some(s.name.name.clone()),
+            DeclAt::Qualifier(q) => Some(q.name.name.clone()),
+            DeclAt::Effect(e) => Some(e.name.name.clone()),
+            DeclAt::Params(g) => Some(g.name.name.clone()),
+            DeclAt::Handler(h) => Some(h.name.name.clone()),
+            DeclAt::Type(t) => Some(t.name.name.clone()),
+        };
         let source = &analysis.program.files.get(target.file)?.content;
         let scope = |locals: Vec<(String, Span)>| docs::DocScope {
             locals,
@@ -683,9 +709,100 @@ impl Server<'_> {
         let origin = (target.file != file_idx)
             .then(|| self.origin_section(analysis, target.file, file_idx))
             .flatten();
+        // [lsp-hover-overloads] Same-named declarations visible here — the
+        // effect-member case is the one that matters most (`read_to` of
+        // `core.fs` has three), and it arrives through this path rather than
+        // the fn-ref one, since a member has no `FnKey`.
+        let others =
+            decl_name.and_then(|name| self.overload_section(analysis, file_idx, &name, target));
         Some(markdown_hover(
-            docs::hover_markdown(&signature, &[body, fields, origin]),
+            docs::hover_markdown(&signature, &[body, fields, origin, others]),
             span_to_range(content, span),
+        ))
+    }
+
+    /// [lsp-hover-overloads] The *other* declarations visible under this
+    /// name, as a hover section (user request 2026-09-18).
+    ///
+    /// A name in Salvo can carry several declarations at once — overloads by
+    /// argument type [fn-overload-rank], effect members of the same name
+    /// [effect-member-overload], and both mixed, since a call site cannot tell
+    /// a member from a fn. Showing only the one the cursor resolved to hides
+    /// the choice that was made: `read_to` in `core.fs` has three, and a
+    /// reader hovering it needs to see which three.
+    ///
+    /// `here` is the resolved declaration, left out of the list; everything
+    /// else is rendered from its own declaration, so a member reads as a
+    /// member and a fn shows its deductions.
+    fn overload_section(
+        &self,
+        analysis: &Analysis,
+        file_idx: usize,
+        name: &str,
+        here: DefSite,
+    ) -> Option<String> {
+        let sites = analysis.overloads.get(file_idx)?.get(name)?;
+        let mut lines: Vec<String> = Vec::new();
+        for site in sites {
+            if site.file == here.file && site.span == here.span {
+                continue;
+            }
+            let Some(items) = analysis.program.modules.get(site.file) else {
+                continue;
+            };
+            // A **top-level fn** is not a `DeclAt` — `decl_at` covers the
+            // declarations that hover through `declaration_hover`, and a fn
+            // resolves through `fn_refs` instead — so it is matched here by
+            // its name span before falling back to the declaration kinds.
+            let fn_decl = items.items.iter().find_map(|item| match item {
+                Item::Fn(f) if f.name.span == site.span => Some(f),
+                _ => None,
+            });
+            // The note is kept out of the code span: an owner renders with
+            // backticks of its own (`effect `Store``), and nesting them makes
+            // markdown swallow the line.
+            let mut note: Option<String> = None;
+            let signature = if let Some(f) = fn_decl {
+                fn_decl_signature(f, None)
+            } else {
+                let Some(found) = decl_at(&items.items, &|s: Span| s == site.span) else {
+                    continue;
+                };
+                match found {
+                    DeclAt::Member { owner, decl, .. } => {
+                        note = Some(format!("of {owner}"));
+                        fn_decl_signature(decl, None)
+                    }
+                    DeclAt::Field { owner, decl, .. } => {
+                        note = Some(format!("field of {owner}"));
+                        format!("{}: {}", decl.name.name, decl.ty)
+                    }
+                    DeclAt::Struct(s) => struct_signature(s),
+                    DeclAt::Qualifier(q) => qualifier_signature(q),
+                    DeclAt::Effect(e) => format!("effect {}", e.name.name),
+                    DeclAt::Params(g) => format!("params {}", g.name.name),
+                    DeclAt::Handler(h) => handler_signature(h),
+                    DeclAt::Type(t) => type_signature(t),
+                }
+            };
+            let module = analysis
+                .program
+                .files
+                .get(site.file)
+                .map(|f| f.module.to_string())
+                .unwrap_or_default();
+            lines.push(match note {
+                Some(note) => format!("- `{signature}` — {note} *({module})*"),
+                None => format!("- `{signature}` *({module})*"),
+            });
+        }
+        if lines.is_empty() {
+            return None;
+        }
+        lines.sort();
+        Some(format!(
+            "Also visible under this name:\n{}",
+            lines.join("\n")
         ))
     }
 
@@ -1111,16 +1228,56 @@ fn qualifies_section(
 
 /// A struct's declaration line, without its body: `struct Person canbe Mut`.
 fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
-    let mut sig = format!("struct {}", decl.name.name);
-    if !decl.generics.is_empty() {
-        let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
-        sig.push_str(&format!("<{}>", generics.join(", ")));
+    // [linear-group] [lsp-hover-linear] The `linear` modifier leads the
+    // signature, as it does in source: it is the obligation, so a hover that
+    // omitted it described the type as if it were ordinary data.
+    let mut sig = String::new();
+    if decl.linear {
+        sig.push_str("linear ");
     }
+    sig.push_str(&format!("struct {}", decl.name.name));
+    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe));
     if !decl.auto_qualifiers.is_empty() {
         let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
         sig.push_str(&format!(" canbe {}", quals.join(", ")));
     }
     sig
+}
+
+/// [linear-generics] [lsp-hover-linear] The generic list *with its bounds*:
+/// `<T canbe linear>`. A bound is the only thing that says a generic function
+/// or a container may carry an obligation, so leaving it out of a hover hid the
+/// one fact a reader is looking for (user request 2026-09-18).
+///
+/// A `canbe` entry may name a parameter that is not in `generics` — the parser
+/// accepts `fn hold<T canbe linear>(…)` with the bound as the declaration — so
+/// those are appended rather than dropped.
+fn generic_list_with_bounds(
+    generics: &[salvo_syntax::ast::Ident],
+    bounds: &[(salvo_syntax::ast::Ident, salvo_syntax::ast::TypeRef)],
+) -> String {
+    let mut names: Vec<String> = generics.iter().map(|g| g.name.clone()).collect();
+    for (g, _) in bounds {
+        if !names.contains(&g.name) {
+            names.push(g.name.clone());
+        }
+    }
+    if names.is_empty() {
+        return String::new();
+    }
+    let rendered: Vec<String> = names
+        .iter()
+        .map(|name| {
+            let mut out = name.clone();
+            for (g, bound) in bounds {
+                if &g.name == name {
+                    out.push_str(&format!(" canbe {bound}"));
+                }
+            }
+            out
+        })
+        .collect();
+    format!("<{}>", rendered.join(", "))
 }
 
 fn generic_list(generics: &[salvo_syntax::ast::Ident]) -> String {
@@ -1227,13 +1384,18 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
 /// `type Number = Int | Long`, or `intrinsic type List<T> canbe Mut`.
 fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     let mut sig = String::new();
+    // [linear-group] [lsp-hover-linear] `linear intrinsic type Reply<T>`, in
+    // the source order of its modifiers.
+    if decl.linear {
+        sig.push_str("linear ");
+    }
     if decl.intrinsic {
         sig.push_str("intrinsic ");
     }
     sig.push_str(&format!(
         "type {}{}",
         decl.name.name,
-        generic_list(&decl.generics)
+        generic_list_with_bounds(&decl.generics, &decl.generic_canbe)
     ));
     if !decl.auto_qualifiers.is_empty() {
         let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
@@ -1259,10 +1421,9 @@ fn fn_signature(program: &Program, checked: &Checked, key: FnKey) -> Option<Stri
 fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> String {
     let mut sig = String::from("fn ");
     sig.push_str(&decl.name.name);
-    if !decl.generics.is_empty() {
-        let generics: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
-        sig.push_str(&format!("<{}>", generics.join(", ")));
-    }
+    // [linear-generics] [lsp-hover-linear] With bounds: `<T canbe linear>` is
+    // what tells a reader this function may be handed an obligation.
+    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe));
     let params: Vec<String> = decl
         .params
         .iter()

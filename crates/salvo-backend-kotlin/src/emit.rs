@@ -1053,6 +1053,20 @@ impl<'p> Emitter<'p> {
         self.checked.expr_ty.get(&(self.file_idx, span))
     }
 
+    /// [op-promote] [kt-op-promote] The explicit conversion a widened operand
+    /// needs where Kotlin's own operator set does not cover the mix. Only
+    /// equality needs it — `==`/`!=` are type-strict on the JVM, while the
+    /// arithmetic and ordering operators accept mixed widths directly — and
+    /// only `Long` and `Double` can be targets, since widening goes up within
+    /// a class.
+    fn promote_operand(&self, span: Span, code: String) -> String {
+        match self.checked.promotions.get(&(self.file_idx, span)) {
+            Some(Ty::Named { name, .. }) if name == "Long" => format!("({code}).toLong()"),
+            Some(Ty::Named { name, .. }) if name == "Double" => format!("({code}).toDouble()"),
+            _ => code,
+        }
+    }
+
     /// The declared (physical) type of a narrowed identifier use.
     fn repr_of(&self, span: Span) -> Option<&'p Ty> {
         self.checked.repr_ty.get(&(self.file_idx, span))
@@ -4983,6 +4997,18 @@ impl<'p> Emitter<'p> {
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
                 let r = self.emit_operand(rhs, prec);
+                // [op-promote] [kt-op-promote] Kotlin's own operators cover
+                // the mixed widths for arithmetic and ordering (`Long + Int`,
+                // `Long < Int`), so a promotion needs no rendering there — but
+                // **equality is type-strict**: `Long == Int` is refused by
+                // kotlinc. Since equality promotes too (user decision
+                // 2026-09-18), the narrower operand is converted explicitly
+                // wherever the checker recorded a widening.
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                    let l = self.promote_operand(lhs.span(), l);
+                    let r = self.promote_operand(rhs.span(), r);
+                    return format!("{l} {} {r}", binary_op(*op));
+                }
                 format!("{l} {} {r}", binary_op(*op))
             }
             // [qual-widen] The dual of `is`: the *same* runtime test (the

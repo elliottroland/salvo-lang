@@ -69,8 +69,11 @@ Conventions:
     [iter-for-native]; `BytesYield` is the pass the combinators drive
     [iter-protocol].
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
-  `Double`; `1.2f` is `Float`. Underscore separators are allowed
-  (`1_000L`).
+  `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
+  inside the digits, before *and* after the decimal point (`1_000L`,
+  `1_000.500_5`; the fractional half was added 2026-09-18 at the user's
+  request, having been an "invalid numeric literal" until then). They are
+  stripped before the value is parsed, so a backend never sees one.
   * The `f` suffix requires a decimal point (`1f` is a lex error telling
     you to write `1.0f`); `L` forbids one (`1.2L` is a lex error); a
     literal running into identifier characters (`10x`, `1.2fx`) is a lex
@@ -366,6 +369,9 @@ Conventions:
     `canbe hashed` / `canbe ordered`.
   * **Ordering (`< <= > >=`) needs `canbe ordered`**; equality needs no
     opt-in. The axes are separate.
+  * **Numeric widths mix** [op-promote]: `Long == Int` compares at `Long`.
+    Everything else still demands the same base type, and the int↔float mix
+    is refused with the conversions named.
   * **Salvo owns floating-point equality.** Rust's derived `PartialEq` is
     IEEE (`NaN` equals nothing, `+0.0 == -0.0`); Kotlin's data-class
     `equals` calls `Double.equals`, which is the *opposite* on both counts,
@@ -961,7 +967,12 @@ Conventions:
     documented leftover matching the equality slice, not a rule.
 * [op-promote] Mixed widths widen implicitly **within** a class:
   `Int + Long` computes at `Long`, `Float`/`Double` at `Double`, for
-  arithmetic and ordering alike; the narrower operand's span is recorded
+  arithmetic, ordering **and equality** alike (equality joined 2026-09-18,
+  user decision: `n < 0` had always been fine for a `Long` `n` while `n == 0`
+  was an error, and no reading justified the split — a widening comparison is
+  exact in both directions). On Kotlin, equality is the one operator whose
+  mixed form the target refuses, so the promotion is rendered as an explicit
+  `.toLong()`/`.toDouble()` there [kt-op-promote]; the narrower operand's span is recorded
   in `Checked::promotions`. Backends render it their own way: Rust casts
   (`((n) as i64)` — it has no mixed-width operators), Kotlin's operator
   set already covers the mixes. Mixing the integer and float classes is
@@ -5067,9 +5078,44 @@ the same day. **Not part of `core`**: the surface is imported, and one
     categories (control / declaration / other / boolean). A test
     asserts the partition covers the table exactly, so adding a keyword
     without categorizing it fails `cargo test`.
+  * **Keywords by position** are highlighted by *shape*, not by name (user
+    request 2026-09-18): `actor`, `send` and `iter` are ordinary identifiers
+    to the lexer — the asynchronous words are deliberately unreserved — so the
+    grammar matches them only before the word that makes them keywords
+    (`actor effect`, `send fn`, `iter fn`), and `hashed`/`ordered` only inside
+    a `canbe` clause. A variable named `ordered` therefore stays plain, which
+    highlighting them unconditionally would not have managed. The `canbe`
+    patterns come *first* in the keyword list, since TextMate takes the first
+    pattern that matches at a position and the plain alternation would
+    otherwise consume `canbe` and leave `hashed` unmatched.
+  * **`[symbol]` doc references highlight inside comments** [doc-symbol-ref]
+    (user request 2026-09-18): the comment rule is a `begin`/`end` pair with
+    one inner pattern, so a reference — and a `[rule-label]` in the compiler's
+    own comments — reads as a link rather than as more comment text.
   * The checked-in extension grammar must byte-equal the generated one
     (`vscode_extension_grammar_is_up_to_date`); regenerate with
     `cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json`.
+* [lsp-hover-linear] A hover shows **obligations and bounds**, because they are
+  what a reader cannot infer from the name (user requests 2026-09-18):
+  `linear struct Ticket` and `linear intrinsic type Reply<T>` lead with their
+  modifier exactly as the source does, and a generic that may be handed an
+  obligation shows its bound — `fn hold<T canbe linear>(value: T)`. Bounds
+  render for structs and opaque types too, which is what says a container is
+  *conditionally* linear [linear-container].
+* [lsp-hover-overloads] A hover lists **every other declaration visible under
+  the name**, under "Also visible under this name" (user request 2026-09-18).
+  A name can carry several declarations at once — overloads by argument type
+  [fn-overload-rank], same-named effect members [effect-member-overload], and
+  the two mixed, since a call site cannot tell a member from a fn — so showing
+  only the resolved one hid the fact that a choice was made. `read_to` in
+  `core.fs` is the case that prompted it.
+  * Each entry renders from its own declaration (a member says which effect it
+    belongs to, a fn shows its signature) with the module it comes from, which
+    is the same information the scope ladder decides on [fn-overload-scope].
+  * The index is built by the LSP's analysis pass while the resolver's scopes
+    are alive and kept as owned data (`Analysis::overloads`), since a
+    `Resolution` borrows the program. Only names with more than one
+    declaration are stored.
 * [cli-platform] `salvo platform generate --backend NAME (--src DIR |
   --main FILE)` writes the host implementation skeleton for every
   `platform effect` and `platform handler` into `<src>/platform/`

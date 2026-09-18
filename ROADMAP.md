@@ -446,14 +446,6 @@ Found while building step 4; none blocks step 5.
 
 Found while building step 5; none blocks step 6.
 
-- **`Long == Int` is refused, so std writes `0L`.** [op-promote] widens mixed
-  widths for arithmetic *and ordering*, but equality demands the same base type
-  [op-equality], and [lit-adopt] deliberately does not apply to operator
-  operands — so `d.nanos % 1000 == 0` is an error while
-  `d.nanos % 1000L == 0L` is fine, and `let a: Long = 5` followed by `a == 5`
-  is an error too. `std/time.sv` carries `L` suffixes because of it. The fix is
-  a one-line rule change (let equality promote like ordering does) and it is a
-  **DECISION**, since it widens what `==` accepts.
 - **A runtime file name silently clobbers an emitted std module of the same
   name.** `runtime/time.rs` and std's module `time` both write `time.rs`; one
   overwrites the other and the program fails several steps later (duplicate

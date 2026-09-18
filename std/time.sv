@@ -139,7 +139,7 @@ fn times(d: Duration, n: Long) [] -> Duration {
 
 // [d] with its sign removed.
 fn abs(d: Duration) [] -> Duration {
-    if d.nanos < 0L {
+    if d.nanos < 0 {
         return Duration {nanos: 0L - d.nanos}
     }
     return d
@@ -155,20 +155,20 @@ fn abs(d: Duration) [] -> Duration {
 // formatting decision this function is the wrong size for — and which belongs
 // with the calendar layer, where the units have calendars behind them.
 fn to_str(d: Duration) [] -> Str {
-    if d.nanos < 0L {
+    if d.nanos < 0 {
         let positive = Duration {nanos: 0L - d.nanos}
         return "-${to_str(positive)}"
     }
-    if d.nanos == 0L {
+    if d.nanos == 0 {
         return "0s"
     }
-    if d.nanos % 1000000000L == 0L {
+    if d.nanos % 1000000000 == 0 {
         return "${d.nanos / 1000000000L}s"
     }
-    if d.nanos % 1000000L == 0L {
+    if d.nanos % 1000000 == 0 {
         return "${d.nanos / 1000000L}ms"
     }
-    if d.nanos % 1000L == 0L {
+    if d.nanos % 1000 == 0 {
         return "${d.nanos / 1000L}us"
     }
     return "${d.nanos}ns"

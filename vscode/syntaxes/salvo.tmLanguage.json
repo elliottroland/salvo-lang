@@ -20,7 +20,15 @@
       "patterns": [
         {
           "name": "comment.line.double-slash.salvo",
-          "match": "//.*$"
+          "begin": "//",
+          "end": "$",
+          "patterns": [
+            {
+              "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",
+              "name": "variable.parameter.reference.salvo",
+              "match": "\\[[A-Za-z_][A-Za-z0-9_.-]*\\]"
+            }
+          ]
         }
       ]
     },
@@ -66,7 +74,7 @@
       "patterns": [
         {
           "name": "constant.numeric.float.salvo",
-          "match": "\\b[0-9][0-9_]*\\.[0-9]+f?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*f?\\b"
         },
         {
           "name": "constant.numeric.integer.salvo",
@@ -76,6 +84,20 @@
     },
     "keywords": {
       "patterns": [
+        {
+          "match": "\\b(canbe)\\s+(hashed|ordered)\\b",
+          "captures": {
+            "1": { "name": "keyword.other.salvo" },
+            "2": { "name": "keyword.other.salvo" }
+          }
+        },
+        {
+          "comment": "the second and later claims of a `canbe a, b` clause: a comma before and a clause terminator after, so an argument named `ordered` stays plain",
+          "match": "(?<=,)\\s*(hashed|ordered)\\b(?=\\s*(?:,|\\{|>|->|$))",
+          "captures": {
+            "1": { "name": "keyword.other.salvo" }
+          }
+        },
         {
           "name": "keyword.control.salvo",
           "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|try)\\b"
@@ -87,6 +109,11 @@
         {
           "name": "keyword.other.salvo",
           "match": "\\b(as|of|with|canbe|is|use|proj|once|linear)\\b"
+        },
+        {
+          "comment": "keywords by position, not reserved words",
+          "name": "keyword.declaration.salvo",
+          "match": "\\bactor(?=\\s+effect\\b)|\\bsend(?=\\s+fn\\b)|\\biter(?=\\s+fn\\b)"
         },
         {
           "name": "constant.language.boolean.salvo",

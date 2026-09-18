@@ -1197,3 +1197,129 @@ fn hover_reaches_obligation_and_is_check_names() {
     let status = lsp.child.wait().expect("failed to wait for salvo lsp");
     assert!(status.success(), "exit status: {status}");
 }
+
+/// [lsp-hover-linear] [lsp-hover-overloads] Three things a hover used to leave
+/// out (user requests 2026-09-18): the `linear` modifier of a linear type, the
+/// `canbe linear` bound of a generic that may carry an obligation, and the
+/// *other* declarations visible under a name — an overload set reads as a
+/// choice, and only the full list shows what the choice was between.
+#[test]
+fn hover_shows_linearity_and_the_rest_of_an_overload_set() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_linear_overloads");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+linear struct Ticket {
+    id: Int
+}
+
+fn redeem(ticket: Ticket) -> Int => !ticket {
+    let id = copy(ticket.id)
+    discard(ticket)
+    return id
+}
+
+fn hold<T canbe linear>(value: T) -> T => !value {
+    return value
+}
+
+fn describe(n: Int) -> Str {
+    return \"int\"
+}
+
+fn describe(s: Str) -> Str {
+    return s
+}
+
+// Two members of one effect sharing a name, which is the shape `read_to` has
+// in `core.fs` [effect-member-overload].
+effect Store {
+    fn keep(n: Int) -> Bool => n
+    fn keep(s: Str) -> Bool => s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let t = Ticket {id: 1}
+    println(\"${redeem(t)} ${describe(1)}\")
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // [lsp-hover-linear] The struct's own declaration, and a use of it: the
+    // obligation leads the signature exactly as it does in source.
+    let value = hover(&mut lsp, 40, &uri, 0, 15);
+    assert!(
+        value.contains("linear struct Ticket"),
+        "expected the linear modifier on the declaration: {value}"
+    );
+    let value = hover(&mut lsp, 41, &uri, 31, 13);
+    assert!(
+        value.contains("linear struct Ticket"),
+        "expected the linear modifier at a use: {value}"
+    );
+
+    // [lsp-hover-linear] A generic that may be handed an obligation says so.
+    let value = hover(&mut lsp, 42, &uri, 10, 4);
+    assert!(
+        value.contains("fn hold<T canbe linear>"),
+        "expected the canbe bound in the signature: {value}"
+    );
+
+    // [lsp-hover-overloads] Hovering one overload lists the others, with the
+    // module they come from — and does not list itself.
+    let value = hover(&mut lsp, 43, &uri, 32, 29);
+    assert!(
+        value.starts_with("```salvo\nfn describe(n: Int) -> Str"),
+        "expected the resolved overload first: {value}"
+    );
+    assert!(
+        value.contains("Also visible under this name:")
+            && value.contains("fn describe(s: Str) -> Str"),
+        "expected the other overload listed: {value}"
+    );
+    assert!(
+        value.matches("fn describe(n: Int)").count() == 1,
+        "the resolved overload must not repeat in the list: {value}"
+    );
+
+    // [lsp-hover-overloads] [effect-member-overload] The member case, which is
+    // the one the request named: hovering one `keep` shows the other, marked as
+    // a member of its effect.
+    let value = hover(&mut lsp, 44, &uri, 25, 8);
+    assert!(
+        value.contains("fn keep(n: Int) -> Bool"),
+        "expected the hovered member: {value}"
+    );
+    assert!(
+        value.contains("Also visible under this name:")
+            && value.contains("`fn keep(s: Str) -> Bool` — of effect `Store`"),
+        "expected the sibling member listed: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

@@ -34,6 +34,28 @@ const OTHER_KEYWORDS: &[&str] = &[
 ];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 
+/// [cli-lang] Words that are **keywords by position** rather than reserved
+/// words: they are ordinary identifiers to the lexer (a variable may be called
+/// `send`, and `the_asynchronous_words_are_not_reserved` asserts it), so they
+/// are highlighted only where the grammar can see the shape that makes them
+/// keywords — `actor effect`, `send fn`, `iter fn`, and the `canbe` clause's
+/// `hashed`/`ordered`. Highlighting them unconditionally would colour a
+/// variable named `ordered`; matching the shape costs a lookahead instead
+/// (user request 2026-09-18).
+///
+/// They are deliberately *not* in `KEYWORDS`, so
+/// `keywords_are_fully_categorized` neither expects nor forbids them.
+const MODIFIER_LOOKAHEAD: &[(&str, &str)] = &[
+    ("actor", "effect"),
+    ("send", "fn"),
+    ("iter", "fn"),
+];
+
+/// [col-hashed-ordered] The claims a `canbe` clause can carry that are not
+/// keywords elsewhere. `Mut` and `linear` need no entry: `linear` is a real
+/// keyword and `Mut` highlights as a type.
+const CANBE_WORDS: &[&str] = &["hashed", "ordered"];
+
 fn alternation(words: &[&str]) -> String {
     words.join("|")
 }
@@ -48,6 +70,14 @@ pub fn tm_grammar() -> String {
     let declaration = alternation(DECLARATION_KEYWORDS);
     let other = alternation(OTHER_KEYWORDS);
     let boolean = alternation(BOOLEAN_KEYWORDS);
+    // [cli-lang] `\bword(?=\s+next\b)`, one alternative per contextual
+    // modifier: the lookahead is what keeps a variable named `send` plain.
+    let modifiers = MODIFIER_LOOKAHEAD
+        .iter()
+        .map(|(word, next)| format!("\\\\b{word}(?=\\\\s+{next}\\\\b)"))
+        .collect::<Vec<_>>()
+        .join("|");
+    let canbe_words = alternation(CANBE_WORDS);
     format!(
         r##"{{
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
@@ -71,7 +101,15 @@ pub fn tm_grammar() -> String {
       "patterns": [
         {{
           "name": "comment.line.double-slash.salvo",
-          "match": "//.*$"
+          "begin": "//",
+          "end": "$",
+          "patterns": [
+            {{
+              "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",
+              "name": "variable.parameter.reference.salvo",
+              "match": "\\[[A-Za-z_][A-Za-z0-9_.-]*\\]"
+            }}
+          ]
         }}
       ]
     }},
@@ -117,7 +155,7 @@ pub fn tm_grammar() -> String {
       "patterns": [
         {{
           "name": "constant.numeric.float.salvo",
-          "match": "\\b[0-9][0-9_]*\\.[0-9]+f?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*f?\\b"
         }},
         {{
           "name": "constant.numeric.integer.salvo",
@@ -127,6 +165,20 @@ pub fn tm_grammar() -> String {
     }},
     "keywords": {{
       "patterns": [
+        {{
+          "match": "\\b(canbe)\\s+({canbe_words})\\b",
+          "captures": {{
+            "1": {{ "name": "keyword.other.salvo" }},
+            "2": {{ "name": "keyword.other.salvo" }}
+          }}
+        }},
+        {{
+          "comment": "the second and later claims of a `canbe a, b` clause: a comma before and a clause terminator after, so an argument named `ordered` stays plain",
+          "match": "(?<=,)\\s*({canbe_words})\\b(?=\\s*(?:,|\\{{|>|->|$))",
+          "captures": {{
+            "1": {{ "name": "keyword.other.salvo" }}
+          }}
+        }},
         {{
           "name": "keyword.control.salvo",
           "match": "\\b({control})\\b"
@@ -138,6 +190,11 @@ pub fn tm_grammar() -> String {
         {{
           "name": "keyword.other.salvo",
           "match": "\\b({other})\\b"
+        }},
+        {{
+          "comment": "keywords by position, not reserved words",
+          "name": "keyword.declaration.salvo",
+          "match": "{modifiers}"
         }},
         {{
           "name": "constant.language.boolean.salvo",
@@ -294,6 +351,53 @@ mod tests {
 
     // [cli-lang] The generated grammar is valid JSON and contains every
     // keyword.
+    // [cli-lang] Words that are keywords *by position* are highlighted where
+    // the shape says so and nowhere else (user request 2026-09-18). Asserted on
+    // the generated patterns rather than by eye, since the false-positive case
+    // — a variable named `ordered` — is exactly what a hand check misses.
+    #[test]
+    fn contextual_keywords_are_matched_only_in_their_shape() {
+        let grammar = tm_grammar();
+        for shape in [
+            "\\\\bactor(?=\\\\s+effect\\\\b)",
+            "\\\\bsend(?=\\\\s+fn\\\\b)",
+            "\\\\biter(?=\\\\s+fn\\\\b)",
+        ] {
+            assert!(
+                grammar.contains(shape),
+                "expected the contextual pattern `{shape}` in the grammar"
+            );
+        }
+        // The `canbe` clause's claims, both the first and the continuations.
+        assert!(grammar.contains("\\\\b(canbe)\\\\s+(hashed|ordered)\\\\b"));
+        assert!(grammar.contains("(?<=,)\\\\s*(hashed|ordered)\\\\b"));
+        // Ordered *before* the plain keyword alternation, which would
+        // otherwise consume `canbe` and leave `hashed` unmatched: TextMate
+        // takes the first pattern that matches at a position.
+        let canbe_clause = grammar.find("(canbe)\\\\s+(hashed").expect("canbe clause pattern");
+        let plain = grammar.find("(as|of|with|canbe").expect("plain keyword pattern");
+        assert!(
+            canbe_clause < plain,
+            "the `canbe hashed` pattern must come before the plain keyword alternation"
+        );
+    }
+
+    // [cli-lang] A `[symbol]` doc reference inside a comment is highlighted,
+    // which needs the comment rule to be a begin/end with an inner pattern
+    // (user request 2026-09-18).
+    #[test]
+    fn doc_references_inside_comments_are_highlighted() {
+        let grammar = tm_grammar();
+        let comments = grammar
+            .split("\"comments\"")
+            .nth(1)
+            .expect("a comments rule");
+        assert!(
+            comments.contains("\"begin\": \"//\"") && comments.contains("variable.parameter.reference.salvo"),
+            "expected the comment rule to carry a doc-reference pattern:\n{comments}"
+        );
+    }
+
     #[test]
     fn grammar_is_valid_json_with_all_keywords() {
         let grammar = tm_grammar();

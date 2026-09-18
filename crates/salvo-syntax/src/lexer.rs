@@ -209,9 +209,16 @@ impl<'s> Lexer<'s> {
             is_float = true;
             text.push('.');
             self.bump();
+            // [lit-numeric] Separators are allowed after the point too
+            // (`0.500_5`), for the same readability reason they are allowed
+            // before it — a rule that used to stop at the decimal point, so
+            // `1_000.500_5` was an "invalid numeric literal" while
+            // `1_000.5005` was fine (fixed 2026-09-18, user request).
             while let Some(c) = self.peek() {
-                if c.is_ascii_digit() {
-                    text.push(c);
+                if c.is_ascii_digit() || c == '_' {
+                    if c != '_' {
+                        text.push(c);
+                    }
                     self.bump();
                 } else {
                     break;

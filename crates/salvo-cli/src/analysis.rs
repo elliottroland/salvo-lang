@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use include_dir::{include_dir, Dir};
 
-use salvo_core::{Checked, FileDiagnostic, Program, SourceSet, Symbols};
+use salvo_core::{Checked, DefSite, FileDiagnostic, Program, SourceSet, Symbols};
 
 /// The standard library, embedded into the binary at build time. Every file
 /// in it is a language file: std reaches its target languages through the
@@ -30,6 +30,16 @@ pub struct Analysis {
     /// Files that could not be loaded (does not abort the analysis): one
     /// rendered message each.
     pub io_errors: Vec<String>,
+    /// [lsp-hover-overloads] Per file (aligned with `program.files`): every
+    /// name that has **more than one** declaration visible there, and where
+    /// each of those declarations is written — free fns and effect members
+    /// alike, since a call site cannot tell them apart either
+    /// [effect-member-overload].
+    ///
+    /// Kept as owned data rather than the `Resolution` itself, which borrows
+    /// the program: this is the slice hover needs, so it is extracted while
+    /// the resolution is alive (user request 2026-09-18).
+    pub overloads: Vec<HashMap<String, Vec<DefSite>>>,
 }
 
 /// Parses, resolves, and type-checks `src` (plus the embedded std).
@@ -130,14 +140,15 @@ pub fn analyze_sources(
     // still resolves for other files), but their own resolution/checker
     // diagnostics are dropped: recovered ASTs cascade nonsense, and the
     // parse errors are the actionable signal there.
-    let checked = {
+    let (checked, overloads) = {
         let symbols = Symbols::collect(&program);
         let resolution = salvo_core::resolve(&program);
+        let overloads = overload_index(&resolution);
         // `check_program` folds resolution errors into its own.
         let mut checked = salvo_core::check_program(&program, &resolution, &symbols);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
         diagnostics.append(&mut checked.errors);
-        Some(checked)
+        (Some(checked), overloads)
     };
 
     Ok(Analysis {
@@ -145,7 +156,57 @@ pub fn analyze_sources(
         diagnostics,
         checked,
         io_errors,
+        overloads,
     })
+}
+
+/// [lsp-hover-overloads] The per-file "names with more than one declaration"
+/// index, read off the resolver's scopes: free fns from `scope.fns` and effect
+/// members from `scope.effect_members`, each as the span its name is written at
+/// so a hover can render the declaration.
+///
+/// Only names with two or more entries are kept — the common case is one, and
+/// storing it would double the index for nothing.
+fn overload_index(resolution: &salvo_core::Resolution<'_>) -> Vec<HashMap<String, Vec<DefSite>>> {
+    let mut out = Vec::with_capacity(resolution.scopes.len());
+    for scope in &resolution.scopes {
+        let mut per_file: HashMap<String, Vec<DefSite>> = HashMap::new();
+        for (name, entries) in &scope.fns {
+            let sites: Vec<DefSite> = entries
+                .iter()
+                .map(|e| DefSite {
+                    file: e.key.file,
+                    span: e.decl.name.span,
+                })
+                .collect();
+            per_file.entry((*name).to_string()).or_default().extend(sites);
+        }
+        for (name, members) in &scope.effect_members {
+            for (owner, decl) in members {
+                // The member's file is its effect's, which the scope records
+                // by effect name.
+                let Some(file) = scope.effect_files.get(owner.name.name.as_str()) else {
+                    continue;
+                };
+                per_file
+                    .entry((*name).to_string())
+                    .or_default()
+                    .push(DefSite {
+                        file: *file,
+                        span: decl.name.span,
+                    });
+            }
+        }
+        // One declaration is not an overload set, and duplicates can arrive
+        // from a module visible at two levels.
+        for sites in per_file.values_mut() {
+            sites.sort_by_key(|s| (s.file, s.span.start));
+            sites.dedup_by_key(|s| (s.file, s.span.start));
+        }
+        per_file.retain(|_, sites| sites.len() > 1);
+        out.push(per_file);
+    }
+    out
 }
 
 /// Loads the embedded standard library: every `.sv` module, plus std's own
@@ -195,5 +256,44 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
             content.to_string(),
             true,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // [lsp-hover-overloads] The index holds every declaration a name has in a
+    // file, which is what a hover lists.
+    #[test]
+    fn overload_index_records_same_named_declarations() {
+        // Repo-local scratch, per AGENTS.md: `tmp/` is gitignored, and a test
+        // that writes outside the repository is a test that leaks.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tmp/overload_index_test");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("main.sv"),
+            "fn describe(n: Int) [] -> Str {\n    return \"int\"\n}\n\n\
+             fn describe(s: Str) [] -> Str {\n    return s\n}\n",
+        )
+        .unwrap();
+        let analysis = analyze_sources(&root, "", &HashMap::new()).expect("analysis");
+        let file_idx = analysis
+            .program
+            .files
+            .iter()
+            .position(|f| !f.is_std)
+            .expect("the user file");
+        let sites = analysis.overloads[file_idx]
+            .get("describe")
+            .unwrap_or_else(|| {
+                panic!(
+                    "no `describe` entry; keys: {:?}",
+                    analysis.overloads[file_idx].keys().take(20).collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(sites.len(), 2, "expected both overloads: {sites:?}");
     }
 }
