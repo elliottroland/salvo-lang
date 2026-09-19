@@ -460,6 +460,13 @@ fn monitor_class_name(effect: &str) -> String {
     format!("__Mon_{effect}")
 }
 
+/// [mixed-handler] [kt-mixed] The façade of a mixed handler:
+/// `__Fac_CyclicRandom` — the servant's addr plus the constructor parameters
+/// plus the sync member bodies. Per *handler*, since the bodies are its.
+fn facade_class_name(handler: &str) -> String {
+    format!("__Fac_{handler}")
+}
+
 /// The base name of a *rendered* effect instance (`Store<Int>` → `Store`) —
 /// what a generated class named after the effect declaration needs. An actor
 /// effect is never generic today ([actor-effect-kind] refuses one as a
@@ -1970,10 +1977,18 @@ impl<'p> Emitter<'p> {
             };
             format!(" where {}", dep_bounds.join(", "))
         };
-        let mut out = format!(
-            "\nclass {}{generics}{ctor} : {of}{where_clause} {{\n",
-            h.name.name
-        );
+        // [mixed-handler] [kt-mixed] A mixed handler's class is the servant
+        // alone: it implements no face (the sync members live on the façade),
+        // so it has no supertype.
+        let mixed = self.handler_is_mixed(h);
+        let mut out = if mixed {
+            format!("\nclass {}{generics}{ctor}{where_clause} {{\n", h.name.name)
+        } else {
+            format!(
+                "\nclass {}{generics}{ctor} : {of}{where_clause} {{\n",
+                h.name.name
+            )
+        };
         for field in &h.state {
             let ty = self.emit_type(&field.ty);
             let init = match &field.default {
@@ -2001,7 +2016,7 @@ impl<'p> Emitter<'p> {
         // only inside the class itself, and `__Actor_H` — a different class —
         // has to write one and read the other. (Rust needs no such care: its
         // privacy is per module, and both live in one.)
-        let actor_handler = self.handler_is_actor(h);
+        let actor_handler = self.handler_is_actor(h) || mixed;
         if actor_handler {
             // [kt-mailbox] [actor-mailbox] The mailbox bound, computed where a
             // state field's initialiser is computed — which is what it is: an
@@ -2033,6 +2048,16 @@ impl<'p> Emitter<'p> {
         let saved_handler =
             std::mem::replace(&mut self.current_handler, Some(h.name.name.clone()));
         for f in &h.fns {
+            // [mixed-handler] [kt-mixed] The split: send members are the
+            // servant's, plain `fun`s (no interface declares them); sync
+            // members are the façade's and are emitted there.
+            if mixed {
+                if !f.is_send {
+                    continue;
+                }
+                out.push_str(&self.emit_fn_inner(f, "fun", 1, false));
+                continue;
+            }
             out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
         }
         self.current_handler = saved_handler;
@@ -2040,6 +2065,12 @@ impl<'p> Emitter<'p> {
         self.ctor_implicits = saved_ctor;
         self.handler_deps = saved_deps;
         out.push_str("}\n");
+        if mixed {
+            out.push_str(&self.emit_facade(h));
+            out.push_str(&self.emit_mixed_actor_parts(h));
+            self.generics = saved;
+            return out;
+        }
         // [actor-replyto] The parked-continuation classes, beside the handler
         // whose members they name.
         out.push_str(&self.emit_cont_classes(h));
@@ -3112,7 +3143,11 @@ impl<'p> Emitter<'p> {
             ));
             return "Unit".to_string();
         }
-        monitor_class_name(effect)
+        // [monitor-handler] [mixed-handler] [kt-monitor] The handle *is* the
+        // interface: a monitor's `__Mon_E` and a mixed handler's `__Fac_H`
+        // both implement it, and JVM references make the value freely
+        // shareable — Kotlin needs no clone-box machinery where Rust does.
+        effect.to_string()
     }
 
     /// Maps a named type (with already-emitted generic arguments) to Kotlin:
@@ -3618,17 +3653,6 @@ impl<'p> Emitter<'p> {
                 })
             });
         if plain_faces {
-            // [mixed-handler] Send members make it a mixed handler — decided
-            // (SH-1, 2026-09-19) and checked, but the emission (servant
-            // message classes, façade value) is the next slice. Loud, never
-            // wrong [backend-never-wrong].
-            if decl.fns.iter().any(|f| f.is_send) {
-                self.error(format!(
-                    "handler `{handler_name}` is mixed (send members + a plain face), \
-                     which the kotlin backend does not emit yet"
-                ));
-                return "TODO()".to_string();
-            }
             if decl.of.len() > 1 {
                 self.error(format!(
                     "handler `{handler_name}` implements several plain effects, and a \
@@ -3636,11 +3660,43 @@ impl<'p> Emitter<'p> {
                 ));
                 return "TODO()".to_string();
             }
-            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
             let ctor = self.handler_ctor_name(&handler_name, decl);
+            // [mixed-handler] [kt-mixed] The mixed spawn: build the handler,
+            // spawn the servant, answer the façade. Constructor arguments are
+            // evaluated **once** into locals shared by handler and façade —
+            // the checker refused `Mut` parameters, which is what makes the
+            // JVM's sharing and Rust's cloning observably identical.
+            if decl.fns.iter().any(|f| f.is_send) {
+                self.needs_scheduler = true;
+                let mut lets = String::new();
+                let mut handler_args: Vec<String> = Vec::new();
+                let mut fac_args: Vec<String> = vec!["__a".to_string()];
+                for (i, code) in args.iter().enumerate() {
+                    lets.push_str(&format!("val __c{i} = {code}; "));
+                    handler_args.push(format!("__c{i}"));
+                    fac_args.push(format!("__c{i}"));
+                }
+                let pool_code = match pool {
+                    Some(pool) => self.emit_expr(pool),
+                    None => "salvo.SalvoSched.currentPool()".to_string(),
+                };
+                return format!(
+                    "run {{ {lets}val __h = {ctor}({}); \
+                     val __a = salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, \
+                     {}(__h)); {}({}) }}",
+                    handler_args.join(", "),
+                    actor_class_name(&handler_name),
+                    facade_class_name(&handler_name),
+                    fac_args.join(", ")
+                );
+            }
+            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
+            let _ = effect;
             return format!(
                 "{}({ctor}({}))",
-                monitor_class_name(effect),
+                monitor_class_name(
+                    decl.of.first().and_then(type_base_name).unwrap_or_default()
+                ),
                 args.join(", ")
             );
         }
@@ -3843,6 +3899,140 @@ impl<'p> Emitter<'p> {
             "salvo.SalvoSched.send({target}, {msg}.{variant}({}))",
             payload.join(", ")
         )
+    }
+
+    /// [mixed-handler] [kt-mixed] A façade send: enqueue on the servant's
+    /// mailbox through the façade's own addr. The message class is the
+    /// *handler's* (`__Msg_H`), not an effect's.
+    fn emit_facade_send(&mut self, member: &str, args: &[Expr]) -> String {
+        self.needs_scheduler = true;
+        let Some(handler) = self.current_handler.clone() else {
+            self.error("internal: a façade send outside a handler member");
+            return "TODO()".to_string();
+        };
+        let msg = msg_class_name(&handler);
+        let variant = msg_variant_name(member);
+        let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        format!(
+            "salvo.SalvoSched.send(__addr, {msg}.{variant}({}))",
+            payload.join(", ")
+        )
+    }
+
+    /// [mixed-handler] [kt-mixed] Whether a handler is mixed: every face a
+    /// plain effect, and at least one `send fn` member — the checker's
+    /// classification, mirrored.
+    fn handler_is_mixed(&self, h: &HandlerDecl) -> bool {
+        h.fns.iter().any(|f| f.is_send)
+            && !h.of.is_empty()
+            && h.of.iter().all(|of| {
+                type_base_name(of).is_some_and(|n| {
+                    self.symbols.effects.get(n).is_some_and(|e| !e.is_actor)
+                })
+            })
+    }
+
+    /// [mixed-handler] [kt-mixed] The façade: the servant's addr plus the
+    /// constructor parameters, implementing each plain face with the sync
+    /// member bodies.
+    fn emit_facade(&mut self, h: &'p HandlerDecl) -> String {
+        let fac = facade_class_name(&h.name.name);
+        let of = h
+            .of
+            .clone()
+            .iter()
+            .map(|of| self.emit_type(of))
+            .collect::<Vec<String>>()
+            .join(", ");
+        let mut params: Vec<String> = vec!["private val __addr: Int".to_string()];
+        for p in &h.params {
+            params.push(format!(
+                "private val {}: {}",
+                kt_ident(&p.name.name),
+                self.emit_type(&p.ty)
+            ));
+        }
+        let mut out = format!("\nclass {fac}({}) : {of} {{\n", params.join(", "));
+        let saved_member_effect = std::mem::replace(&mut self.handler_member_of, Some(h));
+        let saved_handler =
+            std::mem::replace(&mut self.current_handler, Some(h.name.name.clone()));
+        for f in &h.fns {
+            if f.is_send {
+                continue;
+            }
+            out.push_str(&self.emit_fn_inner(f, "override fun", 1, false));
+        }
+        self.current_handler = saved_handler;
+        self.handler_member_of = saved_member_effect;
+        out.push_str("}\n");
+        out
+    }
+
+    /// [mixed-handler] [kt-mixed] The servant's runtime parts: the
+    /// handler-keyed message class (`__Msg_H`, one subclass per `send fn`
+    /// member) and the actor body dispatching it. Simpler than the
+    /// face-keyed twin: a mixed servant has (for now) no dependencies, no
+    /// continuations and one protocol.
+    fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
+        self.needs_scheduler = true;
+        let name = h.name.name.clone();
+        let msg = msg_class_name(&name);
+        let actor = actor_class_name(&name);
+        let sends: Vec<&FnDecl> = h.fns.iter().filter(|f| f.is_send).collect();
+        let mut out = format!("\nsealed class {msg} {{\n");
+        for f in &sends {
+            let variant = msg_variant_name(&f.name.name);
+            let payload: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                .collect();
+            if payload.is_empty() {
+                out.push_str(&format!("    object {variant} : {msg}()\n"));
+            } else {
+                out.push_str(&format!(
+                    "    class {variant}({}) : {msg}()\n",
+                    payload.join(", ")
+                ));
+            }
+        }
+        out.push_str("}\n");
+        out.push_str(&format!(
+            "\nclass {actor}(private val handler: {name}) : salvo.SalvoActor {{\n    \
+             override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {{\n        \
+             handler.__addr = ctx.addr\n        \
+             when (msg) {{\n"
+        ));
+        for f in &sends {
+            let variant = msg_variant_name(&f.name.name);
+            let has_payload = f.params.iter().any(|p| !p.implicit);
+            let args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| format!("msg.{}", p.name.name))
+                .collect();
+            if has_payload {
+                out.push_str(&format!(
+                    "            is {msg}.{variant} -> handler.{}({})\n",
+                    f.name.name,
+                    args.join(", ")
+                ));
+            } else {
+                out.push_str(&format!(
+                    "            is {msg}.{variant} -> handler.{}()\n",
+                    f.name.name
+                ));
+            }
+        }
+        out.push_str(
+            "            else -> error(\"a message of this servant's protocol\")\n        \
+             }\n    }\n\n    \
+             override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {\n        \
+             error(\"a mixed servant parks no continuations yet\")\n    }\n}\n",
+        );
+        out
     }
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
@@ -6328,6 +6518,17 @@ impl<'p> Emitter<'p> {
         // not an argument.
         if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
             return self.emit_addr_send(&effect, callee, args, span);
+        }
+        // [mixed-handler] [kt-mixed] A façade send: a sync member of a mixed
+        // handler calling one of the handler's own `send fn` members — an
+        // enqueue on the servant's mailbox through the façade's own addr.
+        if let Some(member) = self
+            .checked
+            .facade_sends
+            .get(&(self.file_idx, span))
+            .cloned()
+        {
+            return self.emit_facade_send(&member, args);
         }
         // [actor-self-send] `k@self(args)`: a message to the actor the
         // enclosing member belongs to.

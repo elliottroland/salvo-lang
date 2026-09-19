@@ -1464,11 +1464,11 @@ what makes "no word" a visibility *improvement* rather than a trade.
 
 ## 7. The SH-1 build plan (established 2026-09-19; **checker half built the same day**)
 
-Status: everything under "Checker rules" below is **built and tested**
-(`mixed_tests.rs`, 8 tests — the acceptance test is the design's own
-motivating program, `waitfor` under no capability included), with both
-emitters refusing a mixed spawn loudly until the emission half lands. What
-remains is the emission: findings 2–4 below.
+Status: **built end to end, 2026-09-19** — the checker surface
+(`mixed_tests.rs`, 8 tests) and the emission (findings 2–4 below, as
+specified: the clone-box handle, `__Msg_H`/`__Actor_H`, `__Fac_H`), verified
+on both backends with identical output. The findings below are the record of
+what shaped it.
 
 Findings from reading the machinery SH-1 extends, each of which shapes the
 implementation; recorded so the build does not rediscover them.
@@ -1538,8 +1538,8 @@ Two interim gaps, deliberate and recorded:
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|
-| SH-1 | Amend [actor-effect-kind]: mixed handlers (send members + state confined to them; sync members touch no state) | yes / no | ✅ **decided yes** (user, 2026-09-19): mixed handlers allowed, first-class, "with all the protections we can offer" — honestly scoped by §3.11 (the two-piece adapter form exists today; SH-1 is the idiom made first-class and checked) |
-| SH-2 | The façade value: `Addr<E>` generalized (stub + ctor params + sync dispatch), sendable; mixed handlers spawn-only | as stated / variants | ✅ **decided as stated** (user, 2026-09-19) (§3, §5) |
+| SH-1 | Amend [actor-effect-kind]: mixed handlers (send members + state confined to them; sync members touch no state) | yes / no | ✅ **decided yes and built** (2026-09-19): [mixed-handler], [rs-mixed], [kt-mixed] — checker surface *and* emission, verified end to end on both backends with identical output (COMPLETED.md's log). First-slice cuts recorded in ROADMAP: no deps, one face, no `replyto` (which enforces SH-9's direct-answer default by construction until `defer`) |
+| SH-2 | The façade value: `Addr<E>` generalized (stub + ctor params + sync dispatch), sendable; mixed handlers spawn-only | as stated / variants | ✅ **decided as stated and built** (2026-09-19): Rust's clone-boxed `__Mon_E` handle carries monitors and façades alike; Kotlin's handle is the interface itself |
 | SH-3 | Monitors: synchronized members restricted to state + pure computation — no effects, no waits | yes / no / unrestricted-with-analysis | ✅ **decided yes, restricted** (user, 2026-09-19) and ✅ **built the same day** — [monitor-handler], [rs-monitor], [kt-monitor]; the restriction is checked as "no dependencies", the lowering is a per-effect lock wrapper, verified end to end on both backends (COMPLETED.md's log) |
 | SH-4 | Occupancy in the graph: inferred through façades; cycles containing an occupancy edge are **errors** (no back-pressure downgrade) | as stated / declarations required | ✅ **decided as stated** (user, 2026-09-19) (§3.3); must land before or with SH-5's deletion (§6.4, job 8) |
 | SH-5 | `[waitfor]`: (a) keep step 1 whole / (b) optional **checked** annotation / (c) delete the word outright / (d) **move it to the boundary** | — | ✅ **decided (d)** (user, 2026-09-19, confirming the 2026-09-18 direction): no internal spelling; occupancy an inferred fact (graph, LSP hover, SH-8's report); the mandatory placement gate survives only at host bridges. (b) was rejected 2026-09-18: non-propagating has no consequence, propagating-when-declared is incoherent (§6.5–6.7) |

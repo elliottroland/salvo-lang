@@ -141,18 +141,124 @@ pub trait Fs {
     fn close__2(&mut self, s: OutStream) -> Union2<(), FsError>;
 }
 
-#[derive(Clone)]
+pub trait __Share_Fs: Fs + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Fs>;
+}
+
+impl<T: Fs + Clone + Send + 'static> __Share_Fs for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Fs> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Fs {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>,
+    inner: Box<dyn __Share_Fs>,
+}
+
+impl Clone for __Mon_Fs {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Fs {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Fs>) -> Self {
         Self { inner }
     }
 }
 
 impl Fs for __Mon_Fs {
+    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
+        self.inner.open_read(path)
+    }
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
+        self.inner.open_read_at(path, offset)
+    }
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        self.inner.open_write(path)
+    }
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        self.inner.open_append(path)
+    }
+    fn exists(&mut self, path: &String) -> bool {
+        self.inner.exists(path)
+    }
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
+        self.inner.metadata(path)
+    }
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
+        self.inner.list_dir(path)
+    }
+    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
+        self.inner.create_dirs(path)
+    }
+    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
+        self.inner.delete(path)
+    }
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
+        self.inner.rename_path(from, to)
+    }
+    fn read_line(&mut self, s: &InStream) -> Option<String> {
+        self.inner.read_line(s)
+    }
+    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+        self.inner.read_all(s)
+    }
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+        self.inner.read_bytes(s, max)
+    }
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+        self.inner.read_to(s, buf, max)
+    }
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+        self.inner.read_to__2(s, buf)
+    }
+    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
+        self.inner.read_line_to(s, buf)
+    }
+    fn position(&mut self, s: &InStream) -> i64 {
+        self.inner.position(s)
+    }
+    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+        self.inner.close(s)
+    }
+    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
+        self.inner.write(s, text)
+    }
+    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
+        self.inner.write_line(s, text)
+    }
+    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
+        self.inner.write_bytes(s, data)
+    }
+    fn position__2(&mut self, s: &OutStream) -> i64 {
+        self.inner.position__2(s)
+    }
+    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+        self.inner.flush(s)
+    }
+    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+        self.inner.close__2(s)
+    }
+}
+
+pub struct __Lock_Fs<H: Fs + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Fs + Send> Clone for __Lock_Fs<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Fs + Send> __Lock_Fs<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Fs + Send> Fs for __Lock_Fs<H> {
     fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
         self.inner.lock().unwrap().open_read(path)
     }

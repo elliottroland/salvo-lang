@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1175 tests, complete: the toolchain tests are
+cargo test                  # 1178 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,48 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 2b: the mixed handler emitted end to end
+(2026-09-19, SH-1 complete — and SH-2 with it).** Both backends run the
+design's motivating program with identical output: one `CyclicRandom` servant
+whose cursor lives behind its mailbox, its façade bound in `main` *and*
+supplied to a spawned actor's dependency clause, three draws sequenced by the
+`waitfor` (`main drew 12345` / `actor drew 95040` / `main drew 58585`), and
+`[waitfor]` written nowhere. New labels **[rs-mixed]** / **[kt-mixed]**; the
+[mixed-handler] rule is in LANGUAGE_SPEC.md and the narrative in LANGUAGE.md.
+
+- **The handle rework the façade forced** (§7's finding 3): a façade must not
+  sit behind the monitor's mutex — a second caller blocked on it serves
+  nothing while the first waits inside — so Rust's `__Mon_E` became the
+  **clone-boxed handle** (`Box<dyn __Share_E>`, blanket impl over `E + Clone
+  + Send + 'static`) with the lock demoted to the per-effect generic adapter
+  `__Lock_E<H>` that only monitor spawns wrap. Kotlin went the other way:
+  `Addr<plain E>` lowers to the **interface itself**, both wrappers implement
+  it, and JVM references share. SH-2's "the façade value is `Addr<E>`
+  generalized" is thereby built, not just decided.
+- **The servant**: handler-keyed `__Msg_H` + `__Actor_H` (the face-keyed
+  machinery's twins, simpler: no deps, no continuations, one protocol); send
+  members as inherent methods/plain `fun`s, their parameter modes from their
+  own written all-consumed clause — the fix the first rustc run demanded,
+  since the default mode borrowed what the message enum owns.
+- **The façade**: `__Fac_H` carrying `__addr` + ctor params, implementing
+  each face with the sync bodies through the ordinary handler-member
+  machinery; a façade send lowers to an enqueue through `self.__addr`. The
+  mixed spawn evaluates ctor args **once**, clones them into the handler
+  (Rust) or shares them (Kotlin) — which is exactly why the checker refuses
+  `Mut` ctor params: the two backends would otherwise diverge observably.
+- **Two checker rules added with the emission**: no `replyto` inside a mixed
+  handler (a deferred answer is the `defer` build's business — which makes
+  every mixed handler **direct-answer by construction**, SH-9's default
+  enforced by the cut before the rule exists), and the `Mut` ctor-param
+  refusal above.
+- **Verified**: the compile-and-run case on both backends (identical output,
+  the parity assertion), lowering assertions per backend (servant enum/class,
+  actor body, façade struct/class, façade send, the spawn answering the
+  handle over the façade), monitor assertions updated for the handle rework,
+  goldens re-accepted (additive `__Share_`/`__Lock_` blocks; Kotlin `Addr`
+  type renderings), examples regenerated. Tests: **1178 (+3)**, fresh nextest
+  1178/1178 in ~2m.
 
 **Shareable handlers, slice 2a: the mixed handler's checker surface
 (2026-09-19, SH-1, first half).** The declaration, classification and every
@@ -12652,7 +12694,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1175)
+## Test inventory (all green: 1178)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

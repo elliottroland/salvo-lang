@@ -2019,19 +2019,22 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [monitor-handler] [rs-monitor] `__Mon_E`: a **plain** effect
-    /// implemented by locking a shared handler instance and delegating — the
-    /// monitor of SH-3 (user decision 2026-09-19). The lock is innermost by
-    /// construction (the checker refused the handler any dependencies, so a
-    /// member can perform no effect and no wait while it is held), which is
-    /// what makes the whole shape deadlock-free without analysis, and why the
-    /// non-reentrancy of Rust's `Mutex` can never be observed: no member can
-    /// reach another handler, so no path routes back.
+    /// [monitor-handler] [mixed-handler] [rs-monitor] The **shareable
+    /// handle** of a plain effect, plus the monitor's lock adapter. What
+    /// `Addr<E>` lowers to must cover two kinds of value — a monitor (a
+    /// handler behind a lock) and a mixed handler's façade (an addr plus
+    /// ctor params, whose sync members *wait*) — and the façade must NOT sit
+    /// behind the monitor's mutex: a second caller blocked on it would serve
+    /// nothing while the first waits inside, which wedges a shared
+    /// single-threaded pool. So the handle is a **clone-boxed trait object**
+    /// (`__Mon_E` over `Box<dyn __Share_E>`), and the lock is demoted into a
+    /// per-effect generic adapter (`__Lock_E<H>`) that only monitor spawns
+    /// wrap.
     ///
-    /// Per effect, like the send stub: a holder of the handle knows only the
-    /// effect it serves, and any monitor of `E` sits behind `dyn E + Send`.
-    /// Emitted for every non-generic plain effect — generated programs allow
-    /// `dead_code`, so an unshared effect's wrapper costs bytes, not noise.
+    /// The lock stays innermost by construction (the checker refused a
+    /// monitor-spawned handler any dependencies), which is what keeps
+    /// Rust's non-reentrant `Mutex` unobservable against the JVM's
+    /// re-entrant monitor [backend-never-wrong].
     fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
         if e.is_actor || !e.generics.is_empty() {
             return String::new();
@@ -2046,13 +2049,22 @@ impl<'p> Emitter<'p> {
             .filter(|(_, f)| !f.is_send && f.generics.is_empty())
             .collect();
         let name = monitor_struct_name(&e.name.name);
+        let share = share_trait_name(&e.name.name);
+        let lock = lock_struct_name(&e.name.name);
         let trait_name = rs_ident(&e.name.name);
-        let inner = format!("std::sync::Arc<std::sync::Mutex<dyn {trait_name} + Send>>");
         let mut out = format!(
-            "\n#[derive(Clone)]\npub struct {name} {{\n    inner: {inner},\n}}\n\n\
-             impl {name} {{\n    pub fn new(inner: {inner}) -> Self {{\n        \
+            "\npub trait {share}: {trait_name} + Send {{\n    \
+             fn __clone_box(&self) -> Box<dyn {share}>;\n}}\n\n\
+             impl<T: {trait_name} + Clone + Send + 'static> {share} for T {{\n    \
+             fn __clone_box(&self) -> Box<dyn {share}> {{\n        \
+             Box::new(self.clone())\n    }}\n}}\n\n\
+             pub struct {name} {{\n    inner: Box<dyn {share}>,\n}}\n\n\
+             impl Clone for {name} {{\n    fn clone(&self) -> Self {{\n        \
+             Self {{ inner: self.inner.__clone_box() }}\n    }}\n}}\n\n\
+             impl {name} {{\n    pub fn new(inner: Box<dyn {share}>) -> Self {{\n        \
              Self {{ inner }}\n    }}\n}}\n\nimpl {trait_name} for {name} {{\n"
         );
+        let mut forwards = String::new();
         for (i, f) in &members {
             let member = self.member_name(e, *i);
             let params = format!(
@@ -2068,13 +2080,30 @@ impl<'p> Emitter<'p> {
                 .map(|p| rs_ident(&p.name.name))
                 .collect();
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            let args = args.join(", ");
             out.push_str(&format!(
                 "    fn {member}(&mut self{params}){ret} {{\n        \
-                 self.inner.lock().unwrap().{member}({})\n    }}\n",
-                args.join(", ")
+                 self.inner.{member}({args})\n    }}\n"
+            ));
+            forwards.push_str(&format!(
+                "    fn {member}(&mut self{params}){ret} {{\n        \
+                 self.inner.lock().unwrap().{member}({args})\n    }}\n"
             ));
         }
         out.push_str("}\n");
+        // [rs-monitor] The lock adapter, generic over the handler so one
+        // definition serves every monitor of this effect.
+        out.push_str(&format!(
+            "\npub struct {lock}<H: {trait_name} + Send> {{\n    \
+             inner: std::sync::Arc<std::sync::Mutex<H>>,\n}}\n\n\
+             impl<H: {trait_name} + Send> Clone for {lock}<H> {{\n    \
+             fn clone(&self) -> Self {{\n        \
+             Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
+             impl<H: {trait_name} + Send> {lock}<H> {{\n    \
+             pub fn new(inner: H) -> Self {{\n        \
+             Self {{ inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }}\n    }}\n}}\n\n\
+             impl<H: {trait_name} + Send> {trait_name} for {lock}<H> {{\n{forwards}}}\n"
+        ));
         out
     }
 
@@ -2498,7 +2527,11 @@ impl<'p> Emitter<'p> {
         //   cannot see the actor struct; `resume` reaches it through
         //   `self.handler` (D5-b). Keeping it here is also what leaves
         //   `SalvoActor`'s decided signature untouched.
-        let actor_handler = self.handler_is_actor(h);
+        // [mixed-handler] A mixed handler's servant is an actor too: its
+        // send members run as activations, so it carries the same generated
+        // fields (no `__parked` — a mixed servant parks no continuations yet).
+        let mixed = self.handler_is_mixed(h);
+        let actor_handler = self.handler_is_actor(h) || mixed;
         if actor_handler {
             // [rs-mailbox] [actor-mailbox] The mailbox bound, evaluated by the
             // constructor exactly as a state field's initialiser is — which is
@@ -2588,6 +2621,22 @@ impl<'p> Emitter<'p> {
         }
         out.push_str("        }\n    }\n}\n");
 
+        if mixed {
+            // [mixed-handler] [rs-mixed] The split: send members are the
+            // servant, emitted as inherent methods the actor body dispatches
+            // to; sync members are the façade's and are emitted there —
+            // nothing of them belongs on the handler struct, whose instance
+            // lives behind the mailbox.
+            out.push_str(&format!("\nimpl{generics} {name}{generic_args} {{\n"));
+            for f in h.fns.iter().filter(|f| f.is_send) {
+                out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+            }
+            out.push_str("}\n");
+            out.push_str(&self.emit_facade(h));
+            out.push_str(&self.emit_mixed_actor_parts(h));
+            self.generics = saved;
+            return out;
+        }
         if deps.is_empty() {
             // [effect-handler-multi] One trait impl per face, each carrying the
             // members that face declares. A member that implements a same-named
@@ -3798,6 +3847,12 @@ impl<'p> Emitter<'p> {
                         let m = m.clone();
                         self.member_param_mode(&m, p)
                     }
+                    // [mixed-handler] [rs-mixed] A handler-local send member
+                    // has no effect contract to mirror; its own written
+                    // clause is the contract (the checker required it
+                    // complete and all-consumed), so its payloads are owned
+                    // exactly as the message enum carries them.
+                    None if f.is_send => self.member_param_mode(f, p),
                     None => self.default_param_mode(&p.ty, p.variadic),
                 },
                 _ => self.default_param_mode(&p.ty, p.variadic),
@@ -5156,6 +5211,27 @@ fn monitor_struct_name(effect: &str) -> String {
     format!("__Mon_{}", rs_ident(effect))
 }
 
+/// [rs-monitor] The clone-box supertrait behind the handle: what lets a
+/// `Box<dyn __Share_E>` be cloned, which is what makes the handle freely
+/// copyable whatever kind of value sits inside it.
+fn share_trait_name(effect: &str) -> String {
+    format!("__Share_{}", rs_ident(effect))
+}
+
+/// [rs-monitor] The monitor's lock adapter: `__Lock_E<H>`, generic over the
+/// handler, wrapped by monitor spawns only — a mixed handler's façade must
+/// never sit behind it.
+fn lock_struct_name(effect: &str) -> String {
+    format!("__Lock_{}", rs_ident(effect))
+}
+
+/// [mixed-handler] [rs-mixed] The façade of a mixed handler:
+/// `__Fac_CyclicRandom`, the servant's addr plus the constructor parameters
+/// plus the sync member bodies — per *handler*, since the bodies are its.
+fn facade_struct_name(handler: &str) -> String {
+    format!("__Fac_{}", rs_ident(handler))
+}
+
 /// [rs-actor] The message enum of a protocol: `__Msg_Counter`. Named after
 /// the *effect*, since that is what a sender knows [actor-types].
 fn msg_enum_name(effect: &str) -> String {
@@ -6086,17 +6162,6 @@ impl<'p> Emitter<'p> {
                 })
             });
         if plain_faces {
-            // [mixed-handler] Send members make it a mixed handler — decided
-            // (SH-1, 2026-09-19) and checked, but the emission (servant
-            // message enum, façade value) is the next slice. Loud, never
-            // wrong [backend-never-wrong].
-            if decl.fns.iter().any(|f| f.is_send) {
-                self.error(format!(
-                    "handler `{handler_name}` is mixed (send members + a plain face), \
-                     which the rust backend does not emit yet"
-                ));
-                return "todo!()".to_string();
-            }
             if decl.of.len() > 1 {
                 self.error(format!(
                     "handler `{handler_name}` implements several plain effects, and a \
@@ -6105,15 +6170,51 @@ impl<'p> Emitter<'p> {
                 return "todo!()".to_string();
             }
             let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
+            let mon = monitor_struct_name(effect);
+            let ctor = self.handler_ctor_path(&handler_name, decl);
+            // [mixed-handler] [rs-mixed] The mixed spawn: build the handler,
+            // read its mailbox bound, spawn the servant, and answer the
+            // handle over the façade. Constructor arguments are evaluated
+            // **once**, cloned into the handler and moved into the façade —
+            // the checker proved them sendable and refused `Mut`, which is
+            // what makes the copy legal and unobservable.
+            if decl.fns.iter().any(|f| f.is_send) {
+                self.needs_scheduler = true;
+                let mut lets = String::new();
+                let mut handler_args: Vec<String> = Vec::new();
+                let mut fac_fields: Vec<String> = vec!["__addr: __a".to_string()];
+                for (i, (a, p)) in args.iter().zip(&decl.params).enumerate() {
+                    let code = self.emit_owned(a);
+                    lets.push_str(&format!("let __c{i} = {code}; "));
+                    handler_args.push(format!("__c{i}.clone()"));
+                    fac_fields.push(format!("{}: __c{i}", rs_ident(&p.name.name)));
+                }
+                let pool_code = match pool {
+                    Some(pool) => self.emit_owned(pool),
+                    None => "crate::scheduler::salvo_current_pool()".to_string(),
+                };
+                return format!(
+                    "({{ {lets}let __h = {ctor}::new({}); \
+                     let __cap = __h.__mailbox_capacity; \
+                     let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, \
+                     Box::new({}::new(__h))); \
+                     {mon}::new(Box::new({} {{ {} }})) }})",
+                    handler_args.join(", "),
+                    actor_struct_name(&handler_name),
+                    facade_struct_name(&handler_name),
+                    fac_fields.join(", ")
+                );
+            }
+            // [monitor-handler] [rs-monitor] The monitor spawn: the handler
+            // behind the per-effect lock adapter, boxed into the handle.
             let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
             let saved_producer = self.emitting_producer_args;
             self.emitting_producer_args = true;
             arg_code.extend(self.emit_implicit_args(&[], span));
             self.emitting_producer_args = saved_producer;
-            let ctor = self.handler_ctor_path(&handler_name, decl);
             return format!(
-                "{}::new(std::sync::Arc::new(std::sync::Mutex::new({ctor}::new({}))))",
-                monitor_struct_name(effect),
+                "{mon}::new(Box::new({}::new({ctor}::new({}))))",
+                lock_struct_name(effect),
                 arg_code.join(", ")
             );
         }
@@ -6327,6 +6428,139 @@ impl<'p> Emitter<'p> {
         };
         let target = self.emit_expr(base);
         format!("crate::scheduler::salvo_send({target}, Box::new({built}))")
+    }
+
+    /// [mixed-handler] [rs-mixed] A façade send: enqueue on the servant's
+    /// mailbox through the façade's own addr. The member is one of the
+    /// enclosing mixed handler's `send fn` members, so the message enum is
+    /// the *handler's* (`__Msg_H`), not an effect's.
+    fn emit_facade_send(&mut self, member: &str, args: &[Expr]) -> String {
+        self.needs_scheduler = true;
+        let Some(handler) = self.current_handler.clone() else {
+            self.error("internal: a façade send outside a handler member");
+            return "todo!()".to_string();
+        };
+        let msg = msg_enum_name(&handler);
+        let variant = msg_variant_name(member);
+        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        let built = if payload.is_empty() {
+            format!("{msg}::{variant}")
+        } else {
+            format!("{msg}::{variant}({})", payload.join(", "))
+        };
+        format!("crate::scheduler::salvo_send(self.__addr, Box::new({built}))")
+    }
+
+    /// [mixed-handler] [rs-mixed] Whether a handler is mixed: every face a
+    /// plain effect, and at least one `send fn` member — the checker's
+    /// classification, mirrored.
+    fn handler_is_mixed(&self, h: &HandlerDecl) -> bool {
+        h.fns.iter().any(|f| f.is_send)
+            && !h.of.is_empty()
+            && h.of.iter().all(|of| {
+                type_base_name(of).is_some_and(|n| {
+                    self.symbols.effects.get(n).is_some_and(|e| !e.is_actor)
+                })
+            })
+    }
+
+    /// [mixed-handler] [rs-mixed] The façade: the servant's addr plus the
+    /// constructor parameters, implementing each plain face with the sync
+    /// member bodies. Its fields are what the checker proved sendable, and
+    /// `Clone` is what makes the handle it sits inside copyable.
+    fn emit_facade(&mut self, h: &HandlerDecl) -> String {
+        let fac = facade_struct_name(&h.name.name);
+        let mut out = format!("\n#[derive(Clone)]\npub struct {fac} {{\n    __addr: usize,\n");
+        for p in &h.params {
+            let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
+            out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
+        }
+        out.push_str("}\n");
+        for (face, effect) in h.of.iter().zip(self.handler_faces(h)) {
+            let of = self.emit_type(face);
+            out.push_str(&format!("\nimpl {of} for {fac} {{\n"));
+            for f in &h.fns {
+                if f.is_send {
+                    continue;
+                }
+                if !self
+                    .member_faces(h, f)
+                    .iter()
+                    .any(|(e, _)| std::ptr::eq(*e, effect))
+                {
+                    continue;
+                }
+                out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+            }
+            out.push_str("}\n");
+        }
+        out
+    }
+
+    /// [mixed-handler] [rs-mixed] The servant's runtime parts: the
+    /// handler-keyed message enum (`__Msg_H`, one variant per `send fn`
+    /// member) and the actor body dispatching it. The face-keyed twin lives
+    /// in `emit_actor_body`; this one is simpler because a mixed servant has
+    /// (for now) no dependencies, no continuations and one protocol.
+    fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
+        self.needs_scheduler = true;
+        let name = rs_ident(&h.name.name);
+        let msg = msg_enum_name(&h.name.name);
+        let actor = actor_struct_name(&h.name.name);
+        let sends: Vec<&FnDecl> = h.fns.iter().filter(|f| f.is_send).collect();
+        let mut out = format!("\npub enum {msg} {{\n");
+        for f in &sends {
+            let payload: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                // A message *owns* its payload: it outlives the send.
+                .map(|p| self.param_type(&p.ty, p.variadic, ParamMode::Owned))
+                .collect();
+            let variant = msg_variant_name(&f.name.name);
+            if payload.is_empty() {
+                out.push_str(&format!("    {variant},\n"));
+            } else {
+                out.push_str(&format!("    {variant}({}),\n", payload.join(", ")));
+            }
+        }
+        out.push_str("}\n");
+        out.push_str(&format!(
+            "\npub struct {actor} {{\n    handler: {name},\n}}\n\n\
+             impl {actor} {{\n    pub fn new(handler: {name}) -> Self {{\n        \
+             Self {{ handler }}\n    }}\n}}\n\n\
+             impl crate::scheduler::SalvoActor for {actor} {{\n    \
+             fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {{\n        \
+             self.handler.__addr = Some(_ctx.addr);\n        \
+             let msg = *msg.downcast::<{msg}>().expect(\"a message of this servant's protocol\");\n        \
+             match msg {{\n"
+        ));
+        for f in &sends {
+            let variant = msg_variant_name(&f.name.name);
+            let params: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            let bind = if params.is_empty() {
+                String::new()
+            } else {
+                format!("({})", params.join(", "))
+            };
+            out.push_str(&format!(
+                "            {msg}::{variant}{bind} => self.handler.{}({}),\n",
+                rs_ident(&f.name.name),
+                params.join(", ")
+            ));
+        }
+        out.push_str(
+            "        }\n    }\n\n    \
+             fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
+             _slot: u64, _value: crate::scheduler::SalvoMsg) {\n        \
+             unreachable!(\"a mixed servant parks no continuations yet\")\n    }\n}\n",
+        );
+        out
     }
 
     fn emit_use(&mut self, handler: &Expr, span: Span, indent: usize) -> String {
@@ -10293,6 +10527,17 @@ impl<'p> Emitter<'p> {
         // receiver names *where* it goes, not an argument.
         if let Some(effect) = self.checked.addr_calls.get(&(self.file_idx, span)).cloned() {
             return self.emit_addr_send(&effect, callee, args, span);
+        }
+        // [mixed-handler] [rs-mixed] A façade send: a sync member of a mixed
+        // handler calling one of the handler's own `send fn` members — an
+        // enqueue on the servant's mailbox through the façade's own addr.
+        if let Some(member) = self
+            .checked
+            .facade_sends
+            .get(&(self.file_idx, span))
+            .cloned()
+        {
+            return self.emit_facade_send(&member, args);
         }
         // [actor-self-send] `k@self(args)` — a message to the actor this
         // member belongs to.

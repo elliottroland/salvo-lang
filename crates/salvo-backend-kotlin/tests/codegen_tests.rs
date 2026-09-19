@@ -2046,6 +2046,7 @@ export fn main() [use] {
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
+    kotlinc_compiles_and_runs_a_mixed_handler,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
@@ -9375,6 +9376,109 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
     assert!(
         !main.content.contains("__Stub_Random"),
         "a plain effect must not get a send stub:\n{}",
+        main.content
+    );
+}
+
+/// [mixed-handler] [kt-mixed] The mixed handler (SH-1): the same program the
+/// Rust backend runs, with the same expected output — the servant's state
+/// behind a mailbox, the façade on the callers' threads, one instance
+/// serving `main` and a spawned actor.
+const MIXED: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    mailbox { capacity: 8 }
+    cursor: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = (cursor * 31 + seed) % 100000
+        send(out, cursor)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let rng = spawn CyclicRandom(12345)
+    use rng
+    println("main drew ${next()}")
+    let drawer = spawn Drawing() use rng
+    let drawn = waitfor got: Reply<Int> {
+        drawer.draw(got)
+    }
+    println("actor drew ${drawn}")
+    println("main drew ${next()}")
+}
+"#;
+
+fn generate_mixed_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", MIXED)])
+}
+
+fn kotlinc_compiles_and_runs_a_mixed_handler() -> KotlinCase {
+    kotlin_case(
+        generate_mixed_demo(),
+        "mixed",
+        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
+    )
+}
+
+/// [kt-mixed] What the mixed lowering *is*: the handler-keyed message class
+/// and actor body (the servant), the façade class carrying the addr and ctor
+/// params, the façade send, and the spawn answering the façade.
+#[test]
+fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
+    let files = generate_mixed_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content.contains("sealed class __Msg_CyclicRandom {"),
+        "the servant's message class is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("class __Actor_CyclicRandom(private val handler: CyclicRandom) : salvo.SalvoActor"),
+        "the servant's actor body is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("class __Fac_CyclicRandom(private val __addr: Int, private val seed: Int) : Random {"),
+        "the façade class is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("salvo.SalvoSched.send(__addr, __Msg_CyclicRandom.Advance("),
+        "the façade send is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("__Fac_CyclicRandom(__a, __c0)"),
+        "the mixed spawn does not answer the façade:\n{}",
         main.content
     );
 }

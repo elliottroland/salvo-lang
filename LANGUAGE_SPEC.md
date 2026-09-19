@@ -2567,8 +2567,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     two ways out (keep it `use`-bound in one scope, or give it an actor face
     and a mailbox).
   * **Refused with it, each by name**: an `on` clause (members run on the
-    callers' threads — there is nothing to place); a `send fn` member (the
-    mixed-handler shape, SH-1 — decided, not yet built); more than one plain
+    callers' threads — there is nothing to place); more than one plain
     face (one instance behind several effect types has no backend
     representation yet); unsendable constructor parameters or state fields
     [actor-sendable] (the instance crosses to every thread that binds the
@@ -2590,6 +2589,60 @@ LANGUAGE.md remains the source of truth for everything that does.
     lock-and-delegate, so every downstream binding and dispatch path is
     unchanged; the checker and both emitters key the `Addr<E>` representation
     on the effect's declared kind.
+
+* [mixed-handler] **A mixed handler is a servant and a façade in one
+  declaration** (SH-1, user decision 2026-09-19; built the same day). Every
+  face a plain effect, plus `send fn` members: the send members and the state
+  form the **servant** — an ordinary actor over a handler-local protocol,
+  with a `mailbox` (required, [actor-mailbox] keys on "has send members" as
+  much as the faces' kind) — and the sync members form the **façade**,
+  running on the caller's thread. `spawn H(args)` answers the same `Addr<E>`
+  a monitor spawn answers: the façade value — the servant's addr plus the
+  constructor parameters plus dispatch to the sync bodies — copyable and
+  sendable by construction, which is [actor-use-addr]'s addr *generalized*.
+  * **Confinement**: state fields are reachable only from `send fn` members.
+    A sync member's environment is its own parameters, the constructor
+    parameters (immutable after construction, so freely copied into the
+    façade), and sends to its own servant; touching a state field is refused
+    by name ("`cursor` is the servant's state…"), and the handler's
+    dependency list is invisible to sync members. Even an immutable read is
+    refused: it would race an activation that assigns.
+  * **The façade send**: inside a sync member, a bare call naming one of the
+    handler's own `send fn` members resolves as a send to the servant —
+    after locals, before the general ladder; every argument is consumed (the
+    payload crosses), and the call answers nothing. This is the one place
+    sibling members resolve; everywhere else they stay unresolved as they
+    always were.
+  * **No `[waitfor]` anywhere** (the user's stated intent, SH-5(d)'s down
+    payment): a sync member may `waitfor` with no capability declared — on
+    the plain effect's member, on the handler, or at the callers. Occupancy
+    is a fact the deadlock graph will infer (SH-4); until that lands, mixed
+    handlers are unpriced statically and the runtime's deadlock report is
+    the net.
+  * **Spawn-only**: a `use` of a mixed handler is refused where the binding
+    is chosen — its sync members would send toward an instance with no
+    mailbox and no dispatcher (the parking-handler reasoning, structural).
+    The `on` clause stays, optional as at any actor spawn: the servant is an
+    ordinary actor and runs somewhere.
+  * **Constructor parameters are copied into the façade**, so they must be
+    sendable and must not be `Mut` — a mutable parameter would be *shared*
+    between servant and façade on the JVM and *cloned apart* on Rust, an
+    observable divergence refused rather than emitted [backend-never-wrong].
+  * **A servant `send fn` carries the free send fn's obligations**
+    [free-send-fn], because no effect declaration mirrors it: an explicit
+    all-consumed clause when it has parameters, no `Mut`/unsendable/generic
+    parameters — and no overloading (dispatch is by member name).
+  * **First-slice cuts, each a diagnostic naming its remedy**: no
+    dependencies (take an `Addr` constructor parameter and send to it), one
+    face only, and no `replyto` inside a mixed handler — a deferred answer is
+    the `defer` build's business, which is also what will price it. Until
+    `defer` lands, every mixed handler is therefore **direct-answer (rung 3)
+    by construction**: its servant cannot park, so a façade wait is terminal
+    — SH-9's default, enforced by the cut before it is enforced by the rule.
+  * Lowering: [rs-mixed] and [kt-mixed] — a handler-keyed message enum/class
+    (`__Msg_H`) and actor body for the servant, a `__Fac_H` value for the
+    façade, and the spawn answering the shared handle over it. Constructor
+    arguments are evaluated once and shared between handler and façade.
 
 * [actor-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
   structural rule (a)): a value may not transitively hold

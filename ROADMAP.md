@@ -67,16 +67,19 @@ then whatever those decisions schedule** — SHAREABLE_HANDLERS.md's calls were
 **all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
 round, including the same-day SH-6 revision to shape-based classification, is
 in COMPLETED.md's log), so the shareable-handler build is pure engineering:
-**SH-3 is built** (2026-09-19, same day — monitors end to end on both
-backends, [monitor-handler]) and **SH-1's checker half is too** (same day,
-[mixed-handler]: classification, façade-send resolution, confinement, the
-waitfor carve, spawn-only — with both emitters refusing a mixed spawn loudly;
-COMPLETED.md's log). What remains: **SH-1b, the mixed emission** (specified in
-SHAREABLE_HANDLERS.md §7: the clone-box handle rework, `__Msg_H`/`__Actor_H`,
-`__Fac_H`), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the
-constraint), the `defer` build, and SH-7's sugar. Two first-slice cuts to
-lift later: mixed handlers with dependencies (reroute the dependent-member
-machinery through handler-local dispatch), and overloaded local send members.
+**SH-3, SH-1 and SH-2 are built** (2026-09-19, one day — monitors and mixed
+handlers end to end on both backends with identical output; [monitor-handler],
+[mixed-handler], [rs-mixed], [kt-mixed]; COMPLETED.md's log). SH-9's
+direct-answer default is enforced by construction meanwhile (no `replyto`
+inside a mixed handler until `defer`). What remains of the surface: **SH-4**
+(occupancy inference in the graph — the priority, since mixed handlers are
+statically unpriced until it lands and SH-8's runtime report is the only
+net), then **SH-5's deletion** (after SH-4 — the constraint), the **`defer`
+build** (which lifts the no-replyto cut and draws the rung-3/4 line), and
+**SH-7's sugar**. First-slice cuts to lift later: mixed handlers with
+dependencies (reroute the dependent-member machinery through handler-local
+dispatch), overloaded servant members, several faces, and `k@self` inside
+mixed servants (untested).
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 

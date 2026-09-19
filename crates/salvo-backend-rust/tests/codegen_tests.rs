@@ -8892,8 +8892,13 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
     );
     assert!(
         main.content
-            .contains("__Mon_Random::new(std::sync::Arc::new(std::sync::Mutex::new("),
+            .contains("__Mon_Random::new(Box::new(__Lock_Random::new("),
         "the monitor spawn is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("pub trait __Share_Random: Random + Send {"),
+        "the clone-box supertrait is missing:\n{}",
         main.content
     );
     assert!(
@@ -8904,6 +8909,123 @@ fn a_monitor_lowers_to_a_lock_wrapper() {
     assert!(
         !main.content.contains("__Stub_Random"),
         "a plain effect must not get a send stub:\n{}",
+        main.content
+    );
+}
+
+/// [mixed-handler] [rs-mixed] The mixed handler (SH-1): state confined to
+/// `send fn` members (the servant), sync members on the caller's thread (the
+/// façade) sending to it and waiting — one shared instance serving `main`
+/// and a spawned actor, behind a plain effect nobody declares `[waitfor]`
+/// for. Same program, same output as the Kotlin backend's case.
+const MIXED: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    mailbox { capacity: 8 }
+    cursor: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = (cursor * 31 + seed) % 100000
+        send(out, cursor)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let rng = spawn CyclicRandom(12345)
+    use rng
+    println("main drew ${next()}")
+    let drawer = spawn Drawing() use rng
+    let drawn = waitfor got: Reply<Int> {
+        drawer.draw(got)
+    }
+    println("actor drew ${drawn}")
+    println("main drew ${next()}")
+}
+"#;
+
+fn generate_mixed_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", MIXED)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_mixed_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate_mixed_demo();
+    run_rust_files(
+        &files,
+        "mixed",
+        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
+    );
+}
+
+/// [rs-mixed] What the mixed lowering *is*: the handler-keyed message enum
+/// and actor body (the servant), the façade struct carrying the addr and
+/// ctor params, the façade send lowering, and the spawn answering the handle
+/// over the façade.
+#[test]
+fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
+    let files = generate_mixed_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains("pub enum __Msg_CyclicRandom {"),
+        "the servant's message enum is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("impl crate::scheduler::SalvoActor for __Actor_CyclicRandom"),
+        "the servant's actor body is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("pub struct __Fac_CyclicRandom {"),
+        "the façade struct is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("impl Random for __Fac_CyclicRandom {"),
+        "the façade does not implement the effect:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains(
+            "crate::scheduler::salvo_send(self.__addr, Box::new(__Msg_CyclicRandom::Advance("
+        ),
+        "the façade send is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("__Mon_Random::new(Box::new(__Fac_CyclicRandom {"),
+        "the mixed spawn does not answer the handle over the façade:\n{}",
         main.content
     );
 }

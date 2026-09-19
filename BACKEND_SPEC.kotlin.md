@@ -980,6 +980,25 @@ where Rust had to build the fusion to get the same programs running
   the two backends agree on when a program is quiescent and when it is stuck.
   * The `Fired` builder is the site's (`{ __at -> Fired(Tick(__at)) }`), on the
     `Exit`/`Idle` precedent.
+* [kt-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
+  2026-09-19). The JVM half of [rs-mixed], simpler because references share:
+
+  * **The handler class is the servant alone** — no supertype (the sync
+    members live on the façade), `send fn` members as plain `fun`s, plus the
+    actor fields (`__mailboxCapacity`, `__addr`).
+  * **`__Msg_H` + `__Actor_H`**: a sealed class with one subclass per
+    `send fn` member, and the actor body dispatching it.
+  * **`__Fac_H(private val __addr: Int, ctor params) : E`** with the sync
+    member bodies; a façade send lowers to
+    `salvo.SalvoSched.send(__addr, __Msg_H.Variant(args))`.
+  * **`Addr<E>` for a plain `E` lowers to the interface `E` itself** —
+    Kotlin needs no clone-box machinery: `__Mon_E` and `__Fac_H` both
+    implement the interface, and JVM references make the handle freely
+    shareable. (This is also why the ctor-param `Mut` refusal matters:
+    without it the JVM would share what Rust clones apart.)
+  * **The mixed spawn** hoists ctor args into `val __cN`, shared by handler
+    and façade, spawns the servant and answers `__Fac_H(__a, __c0, …)`.
+
 * [kt-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
   2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
   beside its interface:

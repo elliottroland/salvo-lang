@@ -1633,6 +1633,38 @@ The price of sharing is a restriction, and the restriction is one line: **a moni
 
 A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`.
 
+### Mixed handlers — a servant behind a plain effect
+
+The other way to share mutable state keeps a mailbox: a handler of a plain effect may declare `send fn` members beside its plain ones, and the two halves divide the work. The send members and the state form the **servant** — an ordinary actor over a handler-local protocol, with a `mailbox` like any other — and the plain members form the **façade**, running on the caller's thread: a façade member sends to its own servant and waits for the answer.
+
+```
+handler CyclicRandom(seed: Int) of Random {
+    mailbox { capacity: 8 }
+    cursor: Int = 0                          // the servant's, and only the servant's
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = (cursor * 31 + seed) % 100000
+        send(out, cursor)
+    }
+
+    fn next() -> Int {                       // the façade: the caller's thread
+        return waitfor got: Reply<Int> {
+            advance(got)                     // a send to its own servant
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    let rng = spawn CyclicRandom(12345)      // one servant; the handle is the façade
+    use rng
+    let n = next()                           // send, wait, answer — no [waitfor] anywhere
+}
+```
+
+State is **confined**: only send members touch it, so every access is a serialized activation, and a sync member that reads a field is refused by name — its environment is its own parameters, the constructor parameters, and sends to its own servant. Nothing here declares `waitfor`: a call occupying its thread until it returns is what a call is, and the façade's wait serves its pool while it waits. What a caller of `next()` can never learn is whether the `Random` in scope is a scope-local handler, a monitor, or three threads' shared servant — which is the point.
+
+A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive), and — until deferred answers arrive with `defer` — its servant answers every request within the activation that received it, which is what makes a façade's wait end after one straight-line activation rather than after an event that may never come.
+
 ### Two effects, one member name
 
 Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call resolves through whichever effect actually has a handler in scope; when more than one does, the call picks its effect with `@`, the same selector that picks a module's overload:

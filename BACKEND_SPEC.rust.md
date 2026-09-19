@@ -1412,6 +1412,32 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   2026-09-18): the spawn site need not be in the same module, and std's own
   `DefaultTimer` is spawned from user code — a private field made that a raw
   rustc E0616 [backend-never-wrong].
+* [rs-mixed] **The mixed lowering** [mixed-handler] (SH-1, built
+  2026-09-19). A mixed handler splits into two generated types plus the
+  servant's runtime parts:
+
+  * **The handler struct is the servant alone**: state + ctor params + the
+    actor fields (`__mailbox_capacity`, `__addr` — no `__parked`, a mixed
+    servant parks no continuations yet); `send fn` members are **inherent
+    methods** (no trait declares them), their parameter modes from their own
+    written all-consumed clause, so payloads are owned exactly as the message
+    enum carries them. Sync members are not emitted here at all.
+  * **`__Msg_H` + `__Actor_H`**: the handler-keyed twins of the face-keyed
+    message enum and actor body — one variant per `send fn` member, `handle`
+    downcasting `__Msg_H` and calling the inherent method, `resume`
+    unreachable.
+  * **`__Fac_H`**: `#[derive(Clone)]`, `__addr: usize` plus the ctor params
+    (owned), implementing each plain face with the sync member bodies —
+    emitted with the ordinary handler-member machinery (ctor params resolve
+    as self fields; state never resolves, the checker confined it). A façade
+    send lowers to `salvo_send(self.__addr, Box::new(__Msg_H::Variant(args)))`.
+  * **The mixed spawn** evaluates ctor args once (`let __cN = …`), clones
+    them into the handler, moves them into the façade, reads the mailbox
+    bound off the instance, spawns `__Actor_H`, and answers
+    `__Mon_E::new(Box::new(__Fac_H { __addr: __a, … }))` — the façade inside
+    the effect's shareable handle, **not** behind the monitor's lock (a
+    blocked second caller would serve nothing while the first waits inside).
+
 * [rs-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
   2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
   beside its trait:
@@ -1431,9 +1457,14 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     actor effect's addr stays `usize`. A generic plain effect's addr is
     refused (the wrapper would need the instantiation), mirroring the actor
     kind's message-enum refusal.
-  * **A monitor spawn** is `__Mon_E::new(Arc::new(Mutex::new(H::new(args))))`
-    — no scheduler, no mailbox, no pool. This is the deferred C-4(c)
-    "Arc-where-sent" growth point arriving with the design that needs it.
+  * **The handle is clone-boxed** (reworked with [rs-mixed], 2026-09-19):
+    `__Mon_E { inner: Box<dyn __Share_E> }`, where `__Share_E: E + Send` adds
+    `__clone_box` with a blanket impl over `E + Clone + Send + 'static` — so
+    one handle type carries a monitor *or* a mixed handler's façade. The lock
+    is the per-effect generic adapter `__Lock_E<H: E + Send>` over
+    `Arc<Mutex<H>>` (the deferred C-4(c) "Arc-where-sent" growth point), and
+    a monitor spawn is `__Mon_E::new(Box::new(__Lock_E::new(H::new(args))))`
+    — no scheduler, no mailbox, no pool.
   * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
     checker treats every `Addr` as freely reusable, so an owned read of a
     plain-effect addr **clones** (`emit_owned`'s ident arm); a handle bound

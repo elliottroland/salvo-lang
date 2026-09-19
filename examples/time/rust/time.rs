@@ -160,18 +160,55 @@ pub trait __Has_Ticker {
     fn __get_Ticker(&mut self) -> &mut dyn Ticker;
 }
 
-#[derive(Clone)]
+pub trait __Share_Ticker: Ticker + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Ticker>;
+}
+
+impl<T: Ticker + Clone + Send + 'static> __Share_Ticker for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Ticker> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Ticker {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>,
+    inner: Box<dyn __Share_Ticker>,
+}
+
+impl Clone for __Mon_Ticker {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Ticker {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Ticker>) -> Self {
         Self { inner }
     }
 }
 
 impl Ticker for __Mon_Ticker {
+    fn tick(&mut self) -> Tick {
+        self.inner.tick()
+    }
+}
+
+pub struct __Lock_Ticker<H: Ticker + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Ticker + Send> Clone for __Lock_Ticker<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Ticker + Send> __Lock_Ticker<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Ticker + Send> Ticker for __Lock_Ticker<H> {
     fn tick(&mut self) -> Tick {
         self.inner.lock().unwrap().tick()
     }
@@ -187,18 +224,61 @@ pub trait __Has_Clock {
     fn __get_Clock(&mut self) -> &mut dyn Clock;
 }
 
-#[derive(Clone)]
+pub trait __Share_Clock: Clock + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Clock>;
+}
+
+impl<T: Clock + Clone + Send + 'static> __Share_Clock for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Clock> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Clock {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>,
+    inner: Box<dyn __Share_Clock>,
+}
+
+impl Clone for __Mon_Clock {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Clock {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Clock>) -> Self {
         Self { inner }
     }
 }
 
 impl Clock for __Mon_Clock {
+    fn now(&mut self) -> Instant {
+        self.inner.now()
+    }
+    fn to_instant(&mut self, at: &Tick) -> Instant {
+        self.inner.to_instant(at)
+    }
+    fn to_tick(&mut self, at: &Instant) -> Tick {
+        self.inner.to_tick(at)
+    }
+}
+
+pub struct __Lock_Clock<H: Clock + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Clock + Send> Clone for __Lock_Clock<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Clock + Send> __Lock_Clock<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Clock + Send> Clock for __Lock_Clock<H> {
     fn now(&mut self) -> Instant {
         self.inner.lock().unwrap().now()
     }

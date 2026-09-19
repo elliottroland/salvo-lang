@@ -9913,6 +9913,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-sendable] The façade value copies the constructor
         // parameters to every thread that binds the handle.
         for p in &decl.params {
+            // A `Mut` parameter would be *shared* between the servant and
+            // every façade copy on Kotlin and *cloned apart* on Rust — an
+            // observable divergence, so it is refused rather than emitted
+            // [backend-never-wrong].
+            if let ast::Type::Named { qualifiers, .. } = &p.ty {
+                if qualifiers.iter().any(|q| q.name.name == "Mut") {
+                    self.error(
+                        span,
+                        format!(
+                            "`{}` cannot be shared: its constructor parameter `{}` is \
+                             `Mut`, and the façade value carries a copy of every \
+                             parameter — a mutable one would go two ways at once. \
+                             Move the mutable state into a field (the servant owns \
+                             it), or pass immutable data",
+                            id.name, p.name.name
+                        ),
+                    );
+                }
+            }
             let ty = self.lower_type(&p.ty);
             if let Some(why) = self.unsendable_reason(&ty) {
                 self.error(
@@ -10198,6 +10217,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Ty {
         let form = if gated { "replyto!" } else { "replyto" };
+        // [mixed-handler] First-slice cut: a mixed handler's servant cannot
+        // park continuations yet — the continuation machinery is keyed on
+        // effect faces, and rerouting it through the handler-local protocol
+        // arrives with the `defer` build (which is also what would *price*
+        // the deferral). Refused rather than half-built.
+        if self
+            .own_handler
+            .is_some_and(|h| self.handler_is_mixed(h))
+        {
+            self.error(
+                span,
+                format!(
+                    "`{form}` inside a mixed handler is not supported yet: a deferred \
+                     answer is the `defer` build's business — answer within the \
+                     activation instead"
+                ),
+            );
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            return Ty::Unknown;
+        }
         // [task-mint] A **free `send fn`** is a legal target, and the mint is
         // then legal in any function — the answer needs no mailbox, because
         // the continuation is a detached task rather than an activation (user

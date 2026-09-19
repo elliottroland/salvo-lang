@@ -38,18 +38,55 @@ pub trait __Has_Clock {
     fn __get_Clock(&mut self) -> &mut dyn Clock;
 }
 
-#[derive(Clone)]
+pub trait __Share_Clock: Clock + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Clock>;
+}
+
+impl<T: Clock + Clone + Send + 'static> __Share_Clock for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Clock> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Clock {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>,
+    inner: Box<dyn __Share_Clock>,
+}
+
+impl Clone for __Mon_Clock {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Clock {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Clock>) -> Self {
         Self { inner }
     }
 }
 
 impl Clock for __Mon_Clock {
+    fn now(&mut self) -> i32 {
+        self.inner.now()
+    }
+}
+
+pub struct __Lock_Clock<H: Clock + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Clock + Send> Clone for __Lock_Clock<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Clock + Send> __Lock_Clock<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Clock + Send> Clock for __Lock_Clock<H> {
     fn now(&mut self) -> i32 {
         self.inner.lock().unwrap().now()
     }
@@ -92,18 +129,55 @@ pub trait __Has_Logger {
     fn __get_Logger(&mut self) -> &mut dyn Logger;
 }
 
-#[derive(Clone)]
+pub trait __Share_Logger: Logger + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Logger>;
+}
+
+impl<T: Logger + Clone + Send + 'static> __Share_Logger for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Logger> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Logger {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Logger + Send>>,
+    inner: Box<dyn __Share_Logger>,
+}
+
+impl Clone for __Mon_Logger {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Logger {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Logger + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Logger>) -> Self {
         Self { inner }
     }
 }
 
 impl Logger for __Mon_Logger {
+    fn log(&mut self, message: &String) {
+        self.inner.log(message)
+    }
+}
+
+pub struct __Lock_Logger<H: Logger + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Logger + Send> Clone for __Lock_Logger<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Logger + Send> __Lock_Logger<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Logger + Send> Logger for __Lock_Logger<H> {
     fn log(&mut self, message: &String) {
         self.inner.lock().unwrap().log(message)
     }
@@ -260,18 +334,55 @@ pub trait __Has_Audit {
     fn __get_Audit(&mut self) -> &mut dyn Audit;
 }
 
-#[derive(Clone)]
+pub trait __Share_Audit: Audit + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Audit>;
+}
+
+impl<T: Audit + Clone + Send + 'static> __Share_Audit for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Audit> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Audit {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Audit + Send>>,
+    inner: Box<dyn __Share_Audit>,
+}
+
+impl Clone for __Mon_Audit {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Audit {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Audit + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Audit>) -> Self {
         Self { inner }
     }
 }
 
 impl Audit for __Mon_Audit {
+    fn record(&mut self, what: &String) {
+        self.inner.record(what)
+    }
+}
+
+pub struct __Lock_Audit<H: Audit + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Audit + Send> Clone for __Lock_Audit<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Audit + Send> __Lock_Audit<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Audit + Send> Audit for __Lock_Audit<H> {
     fn record(&mut self, what: &String) {
         self.inner.lock().unwrap().record(what)
     }
@@ -285,18 +396,55 @@ pub trait __Has_Metrics {
     fn __get_Metrics(&mut self) -> &mut dyn Metrics;
 }
 
-#[derive(Clone)]
+pub trait __Share_Metrics: Metrics + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Metrics>;
+}
+
+impl<T: Metrics + Clone + Send + 'static> __Share_Metrics for T {
+    fn __clone_box(&self) -> Box<dyn __Share_Metrics> {
+        Box::new(self.clone())
+    }
+}
+
 pub struct __Mon_Metrics {
-    inner: std::sync::Arc<std::sync::Mutex<dyn Metrics + Send>>,
+    inner: Box<dyn __Share_Metrics>,
+}
+
+impl Clone for __Mon_Metrics {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
 }
 
 impl __Mon_Metrics {
-    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Metrics + Send>>) -> Self {
+    pub fn new(inner: Box<dyn __Share_Metrics>) -> Self {
         Self { inner }
     }
 }
 
 impl Metrics for __Mon_Metrics {
+    fn record(&mut self, what: &String) {
+        self.inner.record(what)
+    }
+}
+
+pub struct __Lock_Metrics<H: Metrics + Send> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H: Metrics + Send> Clone for __Lock_Metrics<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H: Metrics + Send> __Lock_Metrics<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<H: Metrics + Send> Metrics for __Lock_Metrics<H> {
     fn record(&mut self, what: &String) {
         self.inner.lock().unwrap().record(what)
     }
