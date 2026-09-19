@@ -141,6 +141,92 @@ pub trait Fs {
     fn close__2(&mut self, s: OutStream) -> Union2<(), FsError>;
 }
 
+#[derive(Clone)]
+pub struct __Mon_Fs {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>,
+}
+
+impl __Mon_Fs {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Fs + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Fs for __Mon_Fs {
+    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
+        self.inner.lock().unwrap().open_read(path)
+    }
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
+        self.inner.lock().unwrap().open_read_at(path, offset)
+    }
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        self.inner.lock().unwrap().open_write(path)
+    }
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        self.inner.lock().unwrap().open_append(path)
+    }
+    fn exists(&mut self, path: &String) -> bool {
+        self.inner.lock().unwrap().exists(path)
+    }
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
+        self.inner.lock().unwrap().metadata(path)
+    }
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
+        self.inner.lock().unwrap().list_dir(path)
+    }
+    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().create_dirs(path)
+    }
+    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().delete(path)
+    }
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().rename_path(from, to)
+    }
+    fn read_line(&mut self, s: &InStream) -> Option<String> {
+        self.inner.lock().unwrap().read_line(s)
+    }
+    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+        self.inner.lock().unwrap().read_all(s)
+    }
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+        self.inner.lock().unwrap().read_bytes(s, max)
+    }
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+        self.inner.lock().unwrap().read_to(s, buf, max)
+    }
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+        self.inner.lock().unwrap().read_to__2(s, buf)
+    }
+    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
+        self.inner.lock().unwrap().read_line_to(s, buf)
+    }
+    fn position(&mut self, s: &InStream) -> i64 {
+        self.inner.lock().unwrap().position(s)
+    }
+    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().close(s)
+    }
+    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
+        self.inner.lock().unwrap().write(s, text)
+    }
+    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
+        self.inner.lock().unwrap().write_line(s, text)
+    }
+    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
+        self.inner.lock().unwrap().write_bytes(s, data)
+    }
+    fn position__2(&mut self, s: &OutStream) -> i64 {
+        self.inner.lock().unwrap().position__2(s)
+    }
+    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().flush(s)
+    }
+    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+        self.inner.lock().unwrap().close__2(s)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lines {
     pub s: InStream,

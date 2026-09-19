@@ -2045,6 +2045,7 @@ export fn main() [use] {
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
+    kotlinc_compiles_and_runs_a_monitor,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
@@ -9285,6 +9286,96 @@ fn an_actor_lowers_to_message_classes_and_a_body() {
             .iter()
             .any(|f| f.rel_path.to_string_lossy() == "scheduler.kt"),
         "the scheduler file is not part of the program"
+    );
+}
+
+/// [monitor-handler] [kt-monitor] The monitor spawn (SH-3, user decision
+/// 2026-09-19): the same program the Rust backend runs, with the same
+/// expected output — one plain-effect handler shared behind a lock, serving
+/// `main` and a spawned actor.
+const MONITOR: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    cursor: Int = 0
+
+    fn next() -> Int {
+        cursor = (cursor * 31 + seed) % 100000
+        return cursor
+    }
+}
+
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let rng = spawn CyclicRandom(12345)
+    use rng
+    println("main drew ${next()}")
+    let drawer = spawn Drawing() use rng
+    let drawn = waitfor got: Reply<Int> {
+        drawer.draw(got)
+    }
+    println("actor drew ${drawn}")
+    println("main drew ${next()}")
+}
+"#;
+
+fn generate_monitor_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
+    generate_files(&[("main.sv", MONITOR)])
+}
+
+fn kotlinc_compiles_and_runs_a_monitor() -> KotlinCase {
+    kotlin_case(
+        generate_monitor_demo(),
+        "monitor",
+        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
+    )
+}
+
+/// [kt-monitor] What the monitor lowering *is*, asserted on the generated
+/// text: the per-effect lock wrapper implementing the effect's interface by
+/// synchronizing and delegating, the spawn wrapping the handler instance,
+/// and no send stub for a plain effect.
+#[test]
+fn a_monitor_lowers_to_a_lock_wrapper() {
+    let files = generate_monitor_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    assert!(
+        main.content
+            .contains("class __Mon_Random(private val inner: Random) : Random {"),
+        "the lock wrapper is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("synchronized(inner) { inner.next() }"),
+        "a member does not lock and delegate:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("__Mon_Random(CyclicRandom(12345))"),
+        "the monitor spawn is missing:\n{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("__Stub_Random"),
+        "a plain effect must not get a send stub:\n{}",
+        main.content
     );
 }
 

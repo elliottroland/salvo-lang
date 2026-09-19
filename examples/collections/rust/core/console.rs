@@ -5,6 +5,23 @@ pub trait Console {
     fn print(&mut self, message: &String);
 }
 
+#[derive(Clone)]
+pub struct __Mon_Console {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>,
+}
+
+impl __Mon_Console {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Console for __Mon_Console {
+    fn print(&mut self, message: &String) {
+        self.inner.lock().unwrap().print(message)
+    }
+}
+
 pub struct StdOutConsole {
 }
 

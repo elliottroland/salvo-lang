@@ -169,10 +169,24 @@ interface Ticker {
     fun tick(): Tick
 }
 
+class __Mon_Ticker(private val inner: Ticker) : Ticker {
+    override fun tick(): Tick =
+        synchronized(inner) { inner.tick() }
+}
+
 interface Clock {
     fun now(): Instant
     fun to_instant(at: Tick): Instant
     fun to_tick(at: Instant): Tick
+}
+
+class __Mon_Clock(private val inner: Clock) : Clock {
+    override fun now(): Instant =
+        synchronized(inner) { inner.now() }
+    override fun to_instant(at: Tick): Instant =
+        synchronized(inner) { inner.to_instant(at) }
+    override fun to_tick(at: Instant): Tick =
+        synchronized(inner) { inner.to_tick(at) }
 }
 
 fun<__Fx> elapsed(__fx: __Fx, since: Tick): Duration where __Fx : __Has_Ticker {

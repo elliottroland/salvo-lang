@@ -1300,12 +1300,45 @@ actor effect Peek {
     );
 }
 
-/// [actor-effect-kind] The binding gate, which is what closes the design's
-/// carried named question: a plain effect is **never** process-backed, so
-/// `spawn`, `use addr` and even naming `Addr<E>` require the actor kind. The
-/// last is reported where the type is written, before any spawn exists.
+/// [actor-effect-kind] [monitor-handler] The binding gate, amended by SH-3
+/// (user decision 2026-09-19): a plain effect is still never actor-backed —
+/// no mailbox, no messages — but `spawn`, `use addr` and naming `Addr<E>` now
+/// accept it as the **monitor** kind: one shared instance behind a lock, its
+/// members on the callers' threads. What remains refused is what has no
+/// meaning for a monitor: a mailbox on the handler, and a pool to place it on.
 #[test]
-fn only_an_actor_effect_can_be_bound_to_an_actor() {
+fn a_plain_effect_spawns_as_a_monitor_not_an_actor() {
+    let errs = errors(
+        "\
+effect Plain {
+    fn ping() -> Int
+}
+
+handler Pinging() of Plain {
+    fn ping() -> Int {
+        return 1
+    }
+}
+
+fn hold(a: Addr<Plain>) -> Int => a {
+    return 1
+}
+
+fn main() [use, spawn, waitfor] {
+    let p = spawn Pinging()
+    let held = hold(p)
+    use p
+    let pinged = ping()
+}
+",
+    );
+    assert!(errs.is_empty(), "got {errs:?}");
+}
+
+/// And the two shapes a monitor cannot wear, each named: a mailbox (there is
+/// no queue to bound) and a placement (there is nothing to place).
+#[test]
+fn a_monitor_refuses_a_mailbox_and_a_pool() {
     let errs = errors(
         "\
 effect Plain {
@@ -1320,23 +1353,20 @@ handler Pinging() of Plain {
     }
 }
 
-fn hold(a: Addr<Plain>) -> Int => a {
-    return 1
-}
-
 fn main() [use, spawn, waitfor] {
     let p = spawn Pinging() on pool(1)
 }
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("`Addr<Plain>` needs an `actor effect`")),
-        "expected the addr-type gate: {errs:?}"
+        errs.iter()
+            .any(|m| m.contains("only a handler of an `actor effect` has a mailbox")),
+        "expected the mailbox refusal: {errs:?}"
     );
     assert!(
-        errs.iter().any(|m| m.contains("`spawn` cannot bind `Plain` to an actor")
-            && m.contains("no mailbox")),
-        "expected the spawn gate: {errs:?}"
+        errs.iter()
+            .any(|m| m.contains("monitor") && m.contains("Remove the `on` clause")),
+        "expected the placement refusal: {errs:?}"
     );
 }
 

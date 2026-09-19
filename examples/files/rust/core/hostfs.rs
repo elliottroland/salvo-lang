@@ -38,6 +38,89 @@ pub trait __Has_RawFs {
     fn __get_RawFs(&mut self) -> &mut dyn RawFs;
 }
 
+#[derive(Clone)]
+pub struct __Mon_RawFs {
+    inner: std::sync::Arc<std::sync::Mutex<dyn RawFs + Send>>,
+}
+
+impl __Mon_RawFs {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn RawFs + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl RawFs for __Mon_RawFs {
+    fn raw_open_read(&mut self, path: &String) -> Union2<i64, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_open_read(path)
+    }
+    fn raw_open_read_at(&mut self, path: &String, offset: i64) -> Union2<i64, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_open_read_at(path, offset)
+    }
+    fn raw_open_write(&mut self, path: &String) -> Union2<i64, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_open_write(path)
+    }
+    fn raw_open_append(&mut self, path: &String) -> Union2<i64, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_open_append(path)
+    }
+    fn raw_exists(&mut self, path: &String) -> bool {
+        self.inner.lock().unwrap().raw_exists(path)
+    }
+    fn raw_metadata(&mut self, path: &String) -> Union2<FileInfo, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_metadata(path)
+    }
+    fn raw_list_dir(&mut self, path: &String) -> Union2<Vec<String>, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_list_dir(path)
+    }
+    fn raw_create_dirs(&mut self, path: &String) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_create_dirs(path)
+    }
+    fn raw_delete(&mut self, path: &String) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_delete(path)
+    }
+    fn raw_rename_path(&mut self, from: &String, to: &String) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_rename_path(from, to)
+    }
+    fn raw_read_line(&mut self, handle: i64) -> Option<String> {
+        self.inner.lock().unwrap().raw_read_line(handle)
+    }
+    fn raw_read_all(&mut self, handle: i64) -> Union2<String, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_read_all(handle)
+    }
+    fn raw_read_bytes(&mut self, handle: i64, max: i32) -> Union2<Vec<u8>, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_read_bytes(handle, max)
+    }
+    fn raw_read_to_bytes(&mut self, handle: i64, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_read_to_bytes(handle, buf, max)
+    }
+    fn raw_read_to_str(&mut self, handle: i64, buf: &mut String) -> Union2<i64, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_read_to_str(handle, buf)
+    }
+    fn raw_read_line_to_str(&mut self, handle: i64, buf: &mut String) -> bool {
+        self.inner.lock().unwrap().raw_read_line_to_str(handle, buf)
+    }
+    fn raw_read_position(&mut self, handle: i64) -> i64 {
+        self.inner.lock().unwrap().raw_read_position(handle)
+    }
+    fn raw_close_read(&mut self, handle: i64) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_close_read(handle)
+    }
+    fn raw_write(&mut self, handle: i64, text: &String) -> i64 {
+        self.inner.lock().unwrap().raw_write(handle, text)
+    }
+    fn raw_write_bytes(&mut self, handle: i64, data: &Vec<u8>) -> i64 {
+        self.inner.lock().unwrap().raw_write_bytes(handle, data)
+    }
+    fn raw_write_position(&mut self, handle: i64) -> i64 {
+        self.inner.lock().unwrap().raw_write_position(handle)
+    }
+    fn raw_flush(&mut self, handle: i64) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_flush(handle)
+    }
+    fn raw_close_write(&mut self, handle: i64) -> Union2<(), Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+        self.inner.lock().unwrap().raw_close_write(handle)
+    }
+}
+
 pub struct DefaultFs {
 }
 

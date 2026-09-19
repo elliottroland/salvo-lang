@@ -132,6 +132,57 @@ interface Fs {
     fun close__2(s: OutStream): Union2<Unit, FsError>
 }
 
+class __Mon_Fs(private val inner: Fs) : Fs {
+    override fun open_read(path: String): Union2<InStream, FsError> =
+        synchronized(inner) { inner.open_read(path) }
+    override fun open_read_at(path: String, offset: Long): Union2<InStream, FsError> =
+        synchronized(inner) { inner.open_read_at(path, offset) }
+    override fun open_write(path: String): Union2<OutStream, FsError> =
+        synchronized(inner) { inner.open_write(path) }
+    override fun open_append(path: String): Union2<OutStream, FsError> =
+        synchronized(inner) { inner.open_append(path) }
+    override fun exists(path: String): Boolean =
+        synchronized(inner) { inner.exists(path) }
+    override fun metadata(path: String): Union2<FileInfo, FsError> =
+        synchronized(inner) { inner.metadata(path) }
+    override fun list_dir(path: String): Union2<List<String>, FsError> =
+        synchronized(inner) { inner.list_dir(path) }
+    override fun create_dirs(path: String): Union2<Unit, FsError> =
+        synchronized(inner) { inner.create_dirs(path) }
+    override fun delete(path: String): Union2<Unit, FsError> =
+        synchronized(inner) { inner.delete(path) }
+    override fun rename_path(from: String, to: String): Union2<Unit, FsError> =
+        synchronized(inner) { inner.rename_path(from, to) }
+    override fun read_line(s: InStream): String? =
+        synchronized(inner) { inner.read_line(s) }
+    override fun read_all(s: InStream): Union2<String, FsError> =
+        synchronized(inner) { inner.read_all(s) }
+    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, FsError> =
+        synchronized(inner) { inner.read_bytes(s, max) }
+    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, FsError> =
+        synchronized(inner) { inner.read_to(s, buf, max) }
+    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, FsError> =
+        synchronized(inner) { inner.read_to__2(s, buf) }
+    override fun read_line_to(s: InStream, buf: StringBuilder): Boolean =
+        synchronized(inner) { inner.read_line_to(s, buf) }
+    override fun position(s: InStream): Long =
+        synchronized(inner) { inner.position(s) }
+    override fun close(s: InStream): Union2<Unit, FsError> =
+        synchronized(inner) { inner.close(s) }
+    override fun write(s: OutStream, text: String): Long =
+        synchronized(inner) { inner.write(s, text) }
+    override fun write_line(s: OutStream, text: String): Long =
+        synchronized(inner) { inner.write_line(s, text) }
+    override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.write_bytes(s, data) }
+    override fun position__2(s: OutStream): Long =
+        synchronized(inner) { inner.position__2(s) }
+    override fun flush(s: OutStream): Union2<Unit, FsError> =
+        synchronized(inner) { inner.flush(s) }
+    override fun close__2(s: OutStream): Union2<Unit, FsError> =
+        synchronized(inner) { inner.close__2(s) }
+}
+
 data class Lines(
     var s: InStream,
 )

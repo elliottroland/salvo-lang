@@ -8,6 +8,11 @@ interface Clock {
     fun now(): Int
 }
 
+class __Mon_Clock(private val inner: Clock) : Clock {
+    override fun now(): Int =
+        synchronized(inner) { inner.now() }
+}
+
 class TickingClock : Clock {
     private var tick: Int = 0
 
@@ -28,6 +33,11 @@ fun<__Fx> banner(__fx: __Fx, text: String) where __Fx : __Has_Console {
 
 interface Logger {
     fun log(message: String)
+}
+
+class __Mon_Logger(private val inner: Logger) : Logger {
+    override fun log(message: String) =
+        synchronized(inner) { inner.log(message) }
 }
 
 class PlainLogger<__Fx>(private val __fx: __Fx) : Logger where __Fx : __Has_Console {
@@ -85,8 +95,18 @@ interface Audit {
     fun record(what: String)
 }
 
+class __Mon_Audit(private val inner: Audit) : Audit {
+    override fun record(what: String) =
+        synchronized(inner) { inner.record(what) }
+}
+
 interface Metrics {
     fun record(what: String)
+}
+
+class __Mon_Metrics(private val inner: Metrics) : Metrics {
+    override fun record(what: String) =
+        synchronized(inner) { inner.record(what) }
 }
 
 class ConsoleAudit<__Fx>(private val __fx: __Fx) : Audit where __Fx : __Has_Console {

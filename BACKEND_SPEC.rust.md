@@ -1412,6 +1412,49 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   2026-09-18): the spawn site need not be in the same module, and std's own
   `DefaultTimer` is spawned from user code — a private field made that a raw
   rustc E0616 [backend-never-wrong].
+* [rs-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
+  2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
+  beside its trait:
+
+  ```rust
+  #[derive(Clone)]
+  pub struct __Mon_E {
+      inner: std::sync::Arc<std::sync::Mutex<dyn E + Send>>,
+  }
+  impl E for __Mon_E {
+      fn member(&mut self, …) -> … { self.inner.lock().unwrap().member(…) }
+  }
+  ```
+
+  * **`Addr<E>` lowers to `__Mon_E`** when `E` is plain (both type paths —
+    checked `Ty` and written AST — branch on the effect's declared kind); an
+    actor effect's addr stays `usize`. A generic plain effect's addr is
+    refused (the wrapper would need the instantiation), mirroring the actor
+    kind's message-enum refusal.
+  * **A monitor spawn** is `__Mon_E::new(Arc::new(Mutex::new(H::new(args))))`
+    — no scheduler, no mailbox, no pool. This is the deferred C-4(c)
+    "Arc-where-sent" growth point arriving with the design that needs it.
+  * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
+    checker treats every `Addr` as freely reusable, so an owned read of a
+    plain-effect addr **clones** (`emit_owned`'s ident arm); a handle bound
+    once shares into any number of spawns and `use`s. `Arc<Mutex<dyn E +
+    Send>>` is `Send + Sync`, which is the sendability the checker promised
+    at the spawn [actor-sendable].
+  * **`use addr` binds the value itself** (it already implements the trait);
+    a plain-effect addr supplied in a spawn's dependency clause passes
+    through as itself, where an actor addr gets the `__Stub_E` send wrapper.
+  * **The wrapper is emitted for every non-generic plain effect** beside its
+    trait, used or not — generated programs allow `dead_code`, and per-effect
+    emission is what gives the type one identity across modules (the message
+    enum's reasoning). Members with their own generics are skipped exactly as
+    the trait skips them ([rs-effects] refuses dyn-dispatching them).
+  * **Rust's `Mutex` is not reentrant, and that is unobservable**: a monitor
+    member can reach no other handler (no dependencies), so no path routes
+    back into the wrapper; sibling calls inside the handler are direct self
+    calls under the one acquisition. A poisoned lock (`unwrap`) surfaces as a
+    panic only after another member already panicked, which is the fault
+    boundary's business.
+
 * [rs-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.rs`
   [rs-runtime-source] — emitted, and mounted as `mod scheduler;`, only into a

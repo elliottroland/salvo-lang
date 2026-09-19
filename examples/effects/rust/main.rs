@@ -38,6 +38,23 @@ pub trait __Has_Clock {
     fn __get_Clock(&mut self) -> &mut dyn Clock;
 }
 
+#[derive(Clone)]
+pub struct __Mon_Clock {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>,
+}
+
+impl __Mon_Clock {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Clock for __Mon_Clock {
+    fn now(&mut self) -> i32 {
+        self.inner.lock().unwrap().now()
+    }
+}
+
 pub struct TickingClock {
     tick: i32,
 }
@@ -73,6 +90,23 @@ pub trait Logger {
 
 pub trait __Has_Logger {
     fn __get_Logger(&mut self) -> &mut dyn Logger;
+}
+
+#[derive(Clone)]
+pub struct __Mon_Logger {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Logger + Send>>,
+}
+
+impl __Mon_Logger {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Logger + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Logger for __Mon_Logger {
+    fn log(&mut self, message: &String) {
+        self.inner.lock().unwrap().log(message)
+    }
 }
 
 pub struct PlainLogger {
@@ -226,12 +260,46 @@ pub trait __Has_Audit {
     fn __get_Audit(&mut self) -> &mut dyn Audit;
 }
 
+#[derive(Clone)]
+pub struct __Mon_Audit {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Audit + Send>>,
+}
+
+impl __Mon_Audit {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Audit + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Audit for __Mon_Audit {
+    fn record(&mut self, what: &String) {
+        self.inner.lock().unwrap().record(what)
+    }
+}
+
 pub trait Metrics {
     fn record(&mut self, what: &String);
 }
 
 pub trait __Has_Metrics {
     fn __get_Metrics(&mut self) -> &mut dyn Metrics;
+}
+
+#[derive(Clone)]
+pub struct __Mon_Metrics {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Metrics + Send>>,
+}
+
+impl __Mon_Metrics {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Metrics + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Metrics for __Mon_Metrics {
+    fn record(&mut self, what: &String) {
+        self.inner.lock().unwrap().record(what)
+    }
 }
 
 pub struct ConsoleAudit {

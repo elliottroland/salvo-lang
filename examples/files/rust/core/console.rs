@@ -9,6 +9,23 @@ pub trait __Has_Console {
     fn __get_Console(&mut self) -> &mut dyn Console;
 }
 
+#[derive(Clone)]
+pub struct __Mon_Console {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>,
+}
+
+impl __Mon_Console {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Console + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Console for __Mon_Console {
+    fn print(&mut self, message: &String) {
+        self.inner.lock().unwrap().print(message)
+    }
+}
+
 pub struct StdOutConsole {
 }
 

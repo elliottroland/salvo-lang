@@ -1604,6 +1604,35 @@ let (timer, ctl) = spawn ManualTime() on pool(1)
 
 A single face answers a bare `Addr<E>` as it always did; several answer a tuple. The rules the list brings with it are the ones you would guess: every member of every effect must be implemented, each effect may be named once, and the effects must be of one kind — all `actor effect`s or none, because a handler is bound one way or the other. Where two of the effects declare the same member *name*, one handler method may implement both when their signatures are identical, or two methods may implement them when the parameters differ (ordinary overloading); what is refused is the case overloading cannot see — same parameters, a different return type — since no single method could answer for both. Callers still pick the face with `@` where two effects in scope declare the name, exactly as below.
 
+### Monitors — sharing a plain-effect handler
+
+A handler of a *plain* effect can also be spawned. That does not make it an actor — there is no mailbox and no messages — it makes it a **monitor**: one shared instance behind a lock, whose members run on the callers' threads under mutual exclusion. The spawn answers the same `Addr<E>` an actor spawn answers, the handle is freely copyable and sendable, and `use` binds it like any handle — so a caller of `next()` never learns whether the `Random` in scope is a scope-local handler or a monitor three threads share.
+
+```
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    cursor: Int = 0
+    fn next() -> Int {
+        cursor = (cursor * 31 + seed) % 100000
+        return cursor
+    }
+}
+
+fn main() [use, spawn] {
+    let rng = spawn CyclicRandom(12345)   // one shared instance, no `on` —
+    use rng                               // a monitor runs on its callers' threads
+    let n = next()                        // lock, advance, unlock
+    let child = spawn Worker() use rng    // the same instance, from another thread
+}
+```
+
+The price of sharing is a restriction, and the restriction is one line: **a monitor declares no dependencies.** With nothing to perform, its members are pure state transformation — no effects, no waits — so the lock is *innermost by construction*: no thread ever holds it while wanting anything else, and no deadlock involving a monitor can be written. A handler that needs to print, read a file, or wait for an answer is not a monitor; the diagnostic says so and names the alternatives (keep it `use`-bound in one scope, or give it an actor face and a mailbox). `use CyclicRandom(1)` in a single scope keeps today's meaning — inline, single-threaded, no lock; the restriction binds only where the handler is *shared*.
+
+A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`.
+
 ### Two effects, one member name
 
 Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call resolves through whichever effect actually has a handler in scope; when more than one does, the call picks its effect with `@`, the same selector that picks a module's overload:

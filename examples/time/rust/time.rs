@@ -160,6 +160,23 @@ pub trait __Has_Ticker {
     fn __get_Ticker(&mut self) -> &mut dyn Ticker;
 }
 
+#[derive(Clone)]
+pub struct __Mon_Ticker {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>,
+}
+
+impl __Mon_Ticker {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Ticker + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Ticker for __Mon_Ticker {
+    fn tick(&mut self) -> Tick {
+        self.inner.lock().unwrap().tick()
+    }
+}
+
 pub trait Clock {
     fn now(&mut self) -> Instant;
     fn to_instant(&mut self, at: &Tick) -> Instant;
@@ -168,6 +185,29 @@ pub trait Clock {
 
 pub trait __Has_Clock {
     fn __get_Clock(&mut self) -> &mut dyn Clock;
+}
+
+#[derive(Clone)]
+pub struct __Mon_Clock {
+    inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>,
+}
+
+impl __Mon_Clock {
+    pub fn new(inner: std::sync::Arc<std::sync::Mutex<dyn Clock + Send>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl Clock for __Mon_Clock {
+    fn now(&mut self) -> Instant {
+        self.inner.lock().unwrap().now()
+    }
+    fn to_instant(&mut self, at: &Tick) -> Instant {
+        self.inner.lock().unwrap().to_instant(at)
+    }
+    fn to_tick(&mut self, at: &Instant) -> Tick {
+        self.inner.lock().unwrap().to_tick(at)
+    }
 }
 
 pub fn elapsed<__Fx: __Has_Ticker>(__fx: &mut __Fx, since: &Tick) -> Duration {

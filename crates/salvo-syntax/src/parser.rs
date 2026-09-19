@@ -3611,9 +3611,13 @@ impl<'s> Parser<'s> {
         // dependencies are bound to [effect-handler-deps]. Each item is a
         // handler construction or an `Addr` value — the parser keeps both as
         // expressions, as the `use` *statement* does, and the checker tells
-        // them apart.
+        // them apart. Same line as the spawn, like the `on` clause below:
+        // without the guard, a bare spawn followed by a `use` *statement*
+        // (`let rng = spawn CyclicRandom(1)` then `use rng`) swallowed the
+        // next line as its clause (defect found 2026-09-19 building the
+        // monitor spawn, whose natural shape is exactly that pair).
         let mut uses = Vec::new();
-        if self.at(&TokenKind::KwUse) {
+        if self.at(&TokenKind::KwUse) && self.same_line() {
             self.bump();
             loop {
                 uses.push(self.parse_expr()?);

@@ -35,6 +35,55 @@ interface RawFs {
     fun raw_close_write(handle: Long): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>
 }
 
+class __Mon_RawFs(private val inner: RawFs) : RawFs {
+    override fun raw_open_read(path: String): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_open_read(path) }
+    override fun raw_open_read_at(path: String, offset: Long): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_open_read_at(path, offset) }
+    override fun raw_open_write(path: String): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_open_write(path) }
+    override fun raw_open_append(path: String): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_open_append(path) }
+    override fun raw_exists(path: String): Boolean =
+        synchronized(inner) { inner.raw_exists(path) }
+    override fun raw_metadata(path: String): Union2<FileInfo, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_metadata(path) }
+    override fun raw_list_dir(path: String): Union2<List<String>, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_list_dir(path) }
+    override fun raw_create_dirs(path: String): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_create_dirs(path) }
+    override fun raw_delete(path: String): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_delete(path) }
+    override fun raw_rename_path(from: String, to: String): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_rename_path(from, to) }
+    override fun raw_read_line(handle: Long): String? =
+        synchronized(inner) { inner.raw_read_line(handle) }
+    override fun raw_read_all(handle: Long): Union2<String, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_read_all(handle) }
+    override fun raw_read_bytes(handle: Long, max: Int): Union2<salvo.SalvoBytes, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_read_bytes(handle, max) }
+    override fun raw_read_to_bytes(handle: Long, buf: salvo.SalvoBytes, max: Int): Union2<Int, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_read_to_bytes(handle, buf, max) }
+    override fun raw_read_to_str(handle: Long, buf: StringBuilder): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_read_to_str(handle, buf) }
+    override fun raw_read_line_to_str(handle: Long, buf: StringBuilder): Boolean =
+        synchronized(inner) { inner.raw_read_line_to_str(handle, buf) }
+    override fun raw_read_position(handle: Long): Long =
+        synchronized(inner) { inner.raw_read_position(handle) }
+    override fun raw_close_read(handle: Long): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_close_read(handle) }
+    override fun raw_write(handle: Long, text: String): Long =
+        synchronized(inner) { inner.raw_write(handle, text) }
+    override fun raw_write_bytes(handle: Long, data: salvo.SalvoBytes): Long =
+        synchronized(inner) { inner.raw_write_bytes(handle, data) }
+    override fun raw_write_position(handle: Long): Long =
+        synchronized(inner) { inner.raw_write_position(handle) }
+    override fun raw_flush(handle: Long): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_flush(handle) }
+    override fun raw_close_write(handle: Long): Union2<Unit, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> =
+        synchronized(inner) { inner.raw_close_write(handle) }
+}
+
 class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")

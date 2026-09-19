@@ -67,9 +67,10 @@ then whatever those decisions schedule** — SHAREABLE_HANDLERS.md's calls were
 **all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
 round, including the same-day SH-6 revision to shape-based classification, is
 in COMPLETED.md's log), so the shareable-handler build is pure engineering:
-SH-1+SH-3 first (`CyclicRandom` as a monitor is the smallest end-to-end
-slice), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the constraint),
-the `defer` build, and SH-7's sugar.
+**SH-3 is built** (2026-09-19, same day — monitors end to end on both
+backends, [monitor-handler]; COMPLETED.md's log), so what remains is SH-1
+(mixed handlers), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the
+constraint), the `defer` build, and SH-7's sugar.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 

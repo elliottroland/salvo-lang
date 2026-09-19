@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1156 tests, complete: the toolchain tests are
+cargo test                  # 1167 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,61 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 1: monitors built end to end (2026-09-19, SH-3).**
+The first build slice of the 2026-09-19 decision round, and the smallest
+end-to-end piece of the design: `CyclicRandom` as a monitor, shared between
+`main` and a spawned actor, identical output on both backends. New rule
+**[monitor-handler]**, plus **[rs-monitor]** / **[kt-monitor]**.
+
+- **The surface**: `spawn H(args)` where every face of `H` is a plain effect
+  answers the same `Addr<E>` an actor spawn answers — one shared instance
+  behind a lock, members on the callers' threads. `use addr` binds it; the
+  handle crosses into spawn dependency clauses as itself; `use H(args)` keeps
+  its scope-local, lock-free meaning (the classification governs sharing, not
+  existence). No new syntax anywhere.
+- **The restriction is one check**: a monitor-spawned handler declares **no
+  dependencies**, and the existing effect discipline enforces the body
+  restrictions transitively — with no deps there is no effect to perform, no
+  `use`/`spawn`/`waitfor` capability to hold, and an effectful helper call
+  fails ordinary resolution. Refused beside it, each by name: an `on` clause,
+  a `send fn` member (SH-1's shape, not yet built), several plain faces (no
+  backend representation for one instance behind two dyn types), unsendable
+  ctor params or state fields, and — at the declaration already — a `mailbox`.
+- **The lowering** is a per-effect lock wrapper emitted beside the effect,
+  implementing its trait/interface by lock-and-delegate, so every downstream
+  binding and dispatch path is untouched: Rust `__Mon_E` holding
+  `Arc<Mutex<dyn E + Send>>` (the deferred C-4(c) "Arc-where-sent" growth
+  point, arrived), Kotlin `class __Mon_E(inner: E) : E` with
+  `synchronized(inner)`. `Addr<E>` lowers to the wrapper when `E` is plain
+  (both type paths, both backends); a plain-effect addr is `Clone`-not-`Copy`
+  on Rust, so an owned read of one **clones the handle** — the checker treats
+  every `Addr` as freely reusable, and this keeps that true. §4's re-entrancy
+  parity trap is closed by construction: no member can reach another handler,
+  so the JVM monitor's re-entrancy against Rust's non-reentrant `Mutex` is
+  unobservable.
+- **[actor-effect-kind] amended, not weakened**: `spawn`, `use addr` and
+  naming `Addr<E>` now accept a plain effect as the monitor kind, and "a
+  plain effect is never actor-backed" stays exactly true — no mailbox, no
+  messages, and an ordinary member still cannot be answered by an actor. The
+  old per-kind refusals (the `Addr<plain>` type gate, the `use`/`spawn`
+  actor-kind requirement) are deleted.
+- **A parser defect fell out and is closed** (see the defect log): a spawn's
+  `use` clause was not same-line-guarded, so a bare spawn followed by a `use`
+  *statement* swallowed the next line as its dependency clause. Never bitten
+  before because actor spawns usually carry clauses; the monitor spawn's
+  natural shape is exactly `let rng = spawn H(…)` then `use rng`.
+- **Verified**: six checker tests (`monitor_tests.rs` — acceptance including
+  the addr crossing into a dependency clause, the plain-`Addr` type now legal,
+  and the refusals: `on`, dependencies, several faces, unsendable state with
+  the same handler still `use`-bindable), the amended [actor-effect-kind]
+  binding-gate tests, a parser test for the same-line fix, per-backend
+  lowering assertions, and a compile-and-run case on **both backends with
+  identical output** (`main drew 12345` / `actor drew 95040` / `main drew
+  58585` — deterministic because the draws are sequenced by the `waitfor`).
+  Golden snapshots re-accepted (the diff is the additive `__Mon_` blocks);
+  every `examples/` tree regenerated. Tests: **1167 (+11)**, fresh nextest
+  2m5s all green.
 
 **Shareable handlers: the decision round (user decisions 2026-09-19).**
 SHAREABLE_HANDLERS.md's surface, decided across two sittings (2026-09-18
@@ -7631,6 +7686,30 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
+### ~~A spawn's `use` clause swallows a `use` statement on the next line~~ — found and closed 2026-09-19
+
+**Was reproduced** while building the monitor spawn (SH-3), whose natural
+shape is the pair that triggers it:
+
+```
+fn main() [use, spawn] {
+    let rng = spawn CyclicRandom(1)
+    use rng                            // parsed as the spawn's dependency clause
+}
+```
+
+The `use` statement vanished into the spawn as its clause, so `rng` was
+reported unused, the binding was consumed as a clause item, and the program
+failed with "no variable or function named `rng`" *at its own binding*. On
+HEAD before the fix, with a plain actor spawn — the defect predates monitors
+and was never noticed because actor spawns usually carry a clause or an `on`.
+
+**Root cause**: `parse_spawn` guarded the `on` clause with `same_line()` but
+not the `use` clause. **Fix**: the same guard — a spawn's `use` clause must
+begin on the spawn's line (continuation past a comma still legal), which is
+also `replyto`'s documented rule for its `on`. One parser test pins both
+halves.
+
 ### ~~The deadlock report never fires when the waiter is an occupied actor~~ — found 2026-09-17, closed 2026-09-18
 
 **Was reproduced** as a scheduler driver against `runtime/scheduler.rs`, while
@@ -12520,7 +12599,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1156)
+## Test inventory (all green: 1167)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

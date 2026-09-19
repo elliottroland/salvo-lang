@@ -8804,6 +8804,110 @@ fn an_actor_lowers_to_a_message_enum_and_a_body() {
     );
 }
 
+/// [monitor-handler] [rs-monitor] The monitor spawn (SH-3, user decision
+/// 2026-09-19): a **plain** effect's handler shared behind a lock. One
+/// instance serves `main` (use-bound) and a spawned actor (supplied through
+/// the dependency clause), and the output is deterministic because the three
+/// draws are sequenced by the `waitfor` — the parity assertion with the
+/// Kotlin backend's case of the same name.
+const MONITOR: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    cursor: Int = 0
+
+    fn next() -> Int {
+        cursor = (cursor * 31 + seed) % 100000
+        return cursor
+    }
+}
+
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+
+fn main() [use, spawn, waitfor] -> None {
+    use StdOutConsole()
+    let rng = spawn CyclicRandom(12345)
+    use rng
+    println("main drew ${next()}")
+    let drawer = spawn Drawing() use rng
+    let drawn = waitfor got: Reply<Int> {
+        drawer.draw(got)
+    }
+    println("actor drew ${drawn}")
+    println("main drew ${next()}")
+}
+"#;
+
+fn generate_monitor_demo() -> Vec<salvo_backend_rust::EmittedFile> {
+    generate(&[("main.sv", MONITOR)])
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_monitor() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate_monitor_demo();
+    run_rust_files(
+        &files,
+        "monitor",
+        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
+    );
+}
+
+/// [rs-monitor] What the monitor lowering *is*, asserted on the generated
+/// text: the per-effect lock wrapper implementing the effect's trait, the
+/// spawn building `Arc<Mutex<…>>` with no scheduler call, and the handle
+/// passing into the actor's dependency clause as itself (cloned, not
+/// stub-wrapped).
+#[test]
+fn a_monitor_lowers_to_a_lock_wrapper() {
+    let files = generate_monitor_demo();
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    assert!(
+        main.content.contains("pub struct __Mon_Random {"),
+        "the lock wrapper is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("impl Random for __Mon_Random {"),
+        "the wrapper does not implement the effect:\n{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("__Mon_Random::new(std::sync::Arc::new(std::sync::Mutex::new("),
+        "the monitor spawn is missing:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("self.inner.lock().unwrap().next()"),
+        "a member does not lock and delegate:\n{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("__Stub_Random"),
+        "a plain effect must not get a send stub:\n{}",
+        main.content
+    );
+}
+
 /// [actor-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
 /// declares `[Log, Tally]` and the spawn's `use` clause supplies one of each
 /// kind — `Recording()` as a **construction**, built on the child, and `tally`

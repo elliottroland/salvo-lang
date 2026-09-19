@@ -5204,8 +5204,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return;
         };
-        // [actor-effect-kind] Binding an addr binds an actor's protocol.
-        self.require_actor_effect(&effect, span, "use");
+        // [actor-effect-kind] Binding an addr binds an actor's protocol —
+        // or, since SH-3 [monitor-handler], a shared monitor of a plain
+        // effect: both kinds are handles a `use` puts in scope, and no call
+        // site learns the difference.
         self.out.use_addrs.insert(self.key(span), effect.clone());
         self.out
             .use_effects
@@ -9377,14 +9379,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
         // (built on the child) or an `Addr` (an effect another actor serves).
-        // [actor-effect-kind] Only an actor protocol may be spawned. Checked
-        // after the construction, so argument errors still surface.
-        // [effect-handler-multi] Every face of a spawned handler is a protocol
-        // its addr tuple hands out, so every one of them must be an actor
-        // effect. The kinds already agree by the declaration check, so this
-        // reports the same thing once per face at worst.
-        for effect in &effects {
-            self.require_actor_effect(effect, span, "spawn");
+        // [actor-effect-kind] [monitor-handler] The spawn form serves two
+        // kinds, split by the faces' kind. Every face an actor effect: the
+        // actor spawn — a mailbox, a scheduler index, an addr per face. Every
+        // face a *plain* effect: the **monitor spawn** (SH-3, user decision
+        // 2026-09-19) — one shared instance behind a lock, reached through the
+        // same `Addr<E>` type, its members running on the callers' threads.
+        // A mixture is refused face-by-face by the actor path's kind check.
+        let plain_faces = !effects.is_empty()
+            && effects.iter().all(|effect| {
+                matches!(effect.strip_quals(), Ty::Named { name, .. }
+                    if self.scope.effects.get(name.as_str()).is_some_and(|d| !d.is_actor))
+            });
+        if plain_faces {
+            self.check_monitor_spawn(id, &effects, pool, span);
+        } else {
+            for effect in &effects {
+                self.require_actor_effect(effect, span, "spawn");
+            }
         }
         // The clause item's own index travels with the effect it supplies:
         // the matching below drains this list, so the position in it is not
@@ -9456,6 +9468,121 @@ impl<'p, 'r> Checker<'p, 'r> {
             addrs.pop().unwrap_or(Ty::Unknown)
         } else {
             Ty::Tuple(addrs)
+        }
+    }
+
+    /// [monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
+    /// `spawn H(args)` where every face of `H` is a **plain** effect answers a
+    /// shared instance behind a lock — reached through the same `Addr<E>`
+    /// type, bound with `use addr` like any handle, its members running on
+    /// the callers' threads under mutual exclusion.
+    ///
+    /// The restriction *is* the design (§4 of the retired working document):
+    /// a monitor's members are pure state transformation — no effects, no
+    /// waits — which makes the lock innermost by construction, so no thread
+    /// ever holds it while wanting anything else. One declaration-level check
+    /// carries the whole rule: **no dependency list**. With no dependencies
+    /// there is nothing to perform, `use`/`spawn`/`waitfor` are capabilities
+    /// the members then cannot hold, and a call to an effectful helper fails
+    /// effect resolution — the existing discipline enforces the body
+    /// restrictions transitively.
+    fn check_monitor_spawn(
+        &mut self,
+        id: &Ident,
+        effects: &[Ty],
+        pool: Option<&'p Expr>,
+        span: Span,
+    ) {
+        let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
+            return;
+        };
+        // One face only, for now: one instance behind several effect types
+        // needs a representation neither backend has yet (Rust would want one
+        // `Arc<Mutex<dyn E1 + E2>>`, and trait objects have one principal
+        // trait). Refused rather than guessed [backend-never-wrong].
+        if effects.len() > 1 {
+            let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+            self.error(
+                span,
+                format!(
+                    "handler `{}` implements several plain effects ({}), and a shared \
+                     instance behind several faces is not supported yet: split the \
+                     handler, or give it a single face",
+                    id.name,
+                    faces.join(", ")
+                ),
+            );
+        }
+        // A monitor runs on its callers' threads: there is nothing to place.
+        if let Some(pool) = pool {
+            self.error(
+                pool.span(),
+                format!(
+                    "`{}` implements a plain effect, so this spawn shares it as a \
+                     monitor — its members run on the callers' threads, and there \
+                     is nothing to place `on` a pool. Remove the `on` clause",
+                    id.name
+                ),
+            );
+        }
+        // The restriction: no dependencies, which is "no effects and no
+        // waits" stated once at the declaration.
+        if decl.effects.iter().flatten().next().is_some() {
+            self.error(
+                span,
+                format!(
+                    "`{}` declares dependencies, so it cannot be shared as a monitor: \
+                     a shared handler of a plain effect runs its members under a lock, \
+                     and they are restricted to state and pure computation — no \
+                     effects, no waits. Keep it `use`-bound in one scope, or give it \
+                     an `actor effect` face and a mailbox",
+                    id.name
+                ),
+            );
+        }
+        // A `send fn` member is the mixed-handler shape (SH-1), a servant
+        // beside a façade — decided, not yet built.
+        if let Some(f) = decl.fns.iter().find(|f| f.is_send) {
+            self.error(
+                span,
+                format!(
+                    "`{}` has a `send fn` member (`{}`), which makes it a mixed \
+                     handler — state confined to send members with a synchronous \
+                     façade — and that shape is not built yet: a monitor has only \
+                     plain members",
+                    id.name, f.name.name
+                ),
+            );
+        }
+        // [actor-sendable] The instance crosses to every thread that binds
+        // the handle, so what it holds must be sendable: constructor
+        // parameters and state fields alike.
+        for p in &decl.params {
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    span,
+                    format!(
+                        "`{}` cannot be shared: its constructor parameter `{}` is \
+                         `{ty}` — {why}, and a shared handler's state must be \
+                         sendable",
+                        id.name, p.name.name
+                    ),
+                );
+            }
+        }
+        for field in &decl.state {
+            let ty = self.lower_type(&field.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    span,
+                    format!(
+                        "`{}` cannot be shared: its state field `{}` is `{ty}` — \
+                         {why}, and a shared handler's state must be sendable",
+                        id.name, field.name.name
+                    ),
+                );
+            }
         }
     }
 
@@ -11292,33 +11419,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
-    /// [actor-effect-kind] The kind gate on an `Addr`'s argument: only an
-    /// `actor effect` can sit behind one, because only an actor effect can be
-    /// spawned. Reported where the type is *written*, which is earlier and
-    /// clearer than at a spawn that could never have produced it.
-    fn check_addr_effect_kind(&mut self, base: &TypeRef, arg: &ast::Type) {
-        if base.name.name != ADDR_TYPE {
-            return;
-        }
-        let ast::Type::Named { base: eff, .. } = arg else {
-            return;
-        };
-        let name = eff.name.name.clone();
-        let Some(decl) = self.scope.effects.get(name.as_str()).copied() else {
-            return;
-        };
-        if !decl.is_actor {
-            self.error(
-                eff.span,
-                format!(
-                    "`{ADDR_TYPE}<{name}>` needs an `actor effect`: an addr names a \
-                     actor, and a plain effect is never actor-backed — declare \
-                     `actor effect {name}` if it is meant to be spawned"
-                ),
-            );
-        }
-    }
-
+    /// [actor-effect-kind] [monitor-handler] The kind gate on an `Addr`'s
+    /// argument, since SH-3 an *acceptance* of both kinds: an `Addr` of an
+    /// actor effect is a mailbox handle (a spawn produced it), and an `Addr`
+    /// of a **plain** effect is a shared monitor's handle (a monitor spawn
+    /// produced it) — one type, two backing shapes, chosen by the effect's
+    /// declared kind. What remains refused here is only an argument that is
+    /// not an effect at all, which the general argument checks report.
+    /// [actor-effect-kind] [monitor-handler] Naming `Addr<E>` accepts both
+    /// effect kinds since SH-3 (user decision 2026-09-19): an actor effect's
+    /// addr is a mailbox handle, and a plain effect's is a shared monitor's
+    /// handle. The former per-kind refusal lived here; the walk above now
+    /// documents the acceptance at the one call site it had.
     fn is_addr_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
         if base.name.name != ADDR_TYPE || index != 0 || base.args.len() != 1 {
             return false;
@@ -11595,9 +11707,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // here rather than in `reject_effect_as_data`, because
                     // only this walk knows what the argument belongs to.
                     if self.is_addr_effect_arg(base, i, a) {
-                        // [actor-effect-kind] Legal *as* an effect here, but
-                        // only an actor effect can sit behind an addr.
-                        self.check_addr_effect_kind(base, a);
+                        // [actor-effect-kind] [monitor-handler] Legal *as* an
+                        // effect here, of either kind: an actor effect's addr
+                        // is a mailbox handle, a plain effect's a shared
+                        // monitor's handle (SH-3, user decision 2026-09-19).
                         continue;
                     }
                     self.validate_type(a);

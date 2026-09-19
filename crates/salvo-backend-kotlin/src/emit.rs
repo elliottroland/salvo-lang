@@ -451,6 +451,15 @@ fn stub_class_name(effect: &str) -> String {
     format!("__Stub_{effect}")
 }
 
+/// [monitor-handler] [kt-monitor] The lock wrapper of a **plain** effect:
+/// `__Mon_Random`, the effect implemented by synchronizing on a shared
+/// instance and delegating — what an `Addr<Random>` *is* in Kotlin, and what
+/// a monitor spawn answers. Per effect, like the send stub: a holder knows
+/// only the effect the handle serves.
+fn monitor_class_name(effect: &str) -> String {
+    format!("__Mon_{effect}")
+}
+
 /// The base name of a *rendered* effect instance (`Store<Int>` → `Store`) —
 /// what a generated class named after the effect declaration needs. An actor
 /// effect is never generic today ([actor-effect-kind] refuses one as a
@@ -1547,6 +1556,11 @@ impl<'p> Emitter<'p> {
         // [kt-actor] [actor-use-addr] The forwarding stub: the effect,
         // implemented by sending to an addr.
         out.push_str(&self.emit_addr_stub(e));
+        // [monitor-handler] [kt-monitor] The lock wrapper: the effect,
+        // implemented by synchronizing on a shared instance and delegating —
+        // what a monitor spawn answers and `Addr<E>` lowers to for a plain
+        // effect.
+        out.push_str(&self.emit_monitor_stub(e));
         // [kt-actor] [actor-send-fn] The protocol's **message type**: a
         // sealed class with one nested class per send member. It belongs to
         // the *effect*, because a sender holds an `Addr` and knows only the
@@ -1598,6 +1612,59 @@ impl<'p> Emitter<'p> {
                 msg_variant_name(&member),
                 args.join(", ")
             ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// [monitor-handler] [kt-monitor] `__Mon_E`: a **plain** effect
+    /// implemented by synchronizing on a shared handler instance and
+    /// delegating — the monitor of SH-3 (user decision 2026-09-19), the
+    /// Kotlin half of the Rust backend's `Arc<Mutex<dyn E + Send>>` wrapper.
+    /// The lock is innermost by construction (the checker refused the handler
+    /// any dependencies, so a member can perform no effect and no wait while
+    /// it is held) — which is also why the JVM monitor's *re-entrancy* can
+    /// never be observed against Rust's non-reentrant `Mutex`: no member can
+    /// reach another handler, so no path routes back [backend-never-wrong].
+    ///
+    /// Per effect, like the send stub; emitted for every non-generic plain
+    /// effect, and unused wrappers are inert classes kotlinc accepts quietly.
+    fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
+        if e.is_actor || !e.generics.is_empty() {
+            return String::new();
+        }
+        let members: Vec<(usize, &FnDecl)> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.is_send)
+            .collect();
+        let name = monitor_class_name(&e.name.name);
+        let mut out = format!(
+            "\nclass {name}(private val inner: {}) : {} {{\n",
+            e.name.name, e.name.name
+        );
+        for (i, f) in &members {
+            let member = self.member_name(e, *i);
+            // A member's own generics render on the override, exactly as they
+            // do on the interface [effect-member-generics].
+            let member_saved = self.enter_generics(&f.generics);
+            let member_generics = self.emit_generic_params(&f.generics);
+            let params = self.emit_member_param_list_with_implicits(f);
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| kt_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| kt_ident(&imp.name)));
+            out.push_str(&format!(
+                "    override fun{member_generics} {member}({params}){ret} =\n        \
+                 synchronized(inner) {{ inner.{member}({}) }}\n",
+                args.join(", ")
+            ));
+            self.generics = member_saved;
         }
         out.push_str("}\n");
         out
@@ -3008,8 +3075,44 @@ impl<'p> Emitter<'p> {
                 return self.emit_type(&substituted);
             }
         }
+        // [monitor-handler] [kt-monitor] A plain effect's addr is the
+        // effect's lock wrapper, not a scheduler index — decided on the
+        // *written* type here, before the argument is rendered away.
+        if name == "Addr" && args.len() == 1 {
+            if let Type::Named { base: eff, .. } = &args[0] {
+                let effect = eff.name.name.clone();
+                if self
+                    .symbols
+                    .effects
+                    .get(effect.as_str())
+                    .is_some_and(|e| !e.is_actor)
+                {
+                    return self.plain_addr_rendering(&effect);
+                }
+            }
+        }
         let arg_strs: Vec<String> = args.iter().map(|a| self.emit_type(a)).collect();
         self.emit_named_parts(name, &arg_strs)
+    }
+
+    /// [monitor-handler] [kt-monitor] The rendering of `Addr<E>` for a plain
+    /// effect `E`: the `__Mon_E` wrapper, refusing a generic effect (its
+    /// wrapper would need the instantiation, which an addr does not carry —
+    /// the actor kind refuses the same shape at its message classes).
+    fn plain_addr_rendering(&mut self, effect: &str) -> String {
+        let generic = self
+            .symbols
+            .effects
+            .get(effect)
+            .is_some_and(|e| !e.generics.is_empty());
+        if generic {
+            self.error(format!(
+                "effect `{effect}` is generic, which the kotlin backend cannot make a \
+                 shared monitor handle of yet"
+            ));
+            return "Unit".to_string();
+        }
+        monitor_class_name(effect)
     }
 
     /// Maps a named type (with already-emitted generic arguments) to Kotlin:
@@ -3077,6 +3180,21 @@ impl<'p> Emitter<'p> {
     fn kotlin_ty(&mut self, ty: &Ty) -> String {
         match ty {
             Ty::Named { name, args } => {
+                // [monitor-handler] [kt-monitor] A plain effect's addr is the
+                // effect's lock wrapper, not a scheduler index.
+                if name == "Addr" && args.len() == 1 {
+                    if let Ty::Named { name: effect, .. } = args[0].strip_quals() {
+                        let effect = effect.clone();
+                        if self
+                            .symbols
+                            .effects
+                            .get(effect.as_str())
+                            .is_some_and(|e| !e.is_actor)
+                        {
+                            return self.plain_addr_rendering(&effect);
+                        }
+                    }
+                }
                 let arg_strs: Vec<String> = args.iter().map(|a| self.kotlin_ty(a)).collect();
                 self.emit_named_parts(name, &arg_strs)
             }
@@ -3458,7 +3576,6 @@ impl<'p> Emitter<'p> {
         pool: Option<&Expr>,
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let (handler_name, args): (String, Vec<String>) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -3486,6 +3603,37 @@ impl<'p> Emitter<'p> {
             ));
             return "TODO()".to_string();
         }
+        // [monitor-handler] [kt-monitor] Every face a plain effect: the
+        // **monitor spawn** — no mailbox, no scheduler, no pool. One shared
+        // instance behind a lock, handed out as the effect's `__Mon_E`
+        // wrapper. The checker restricted the handler (single face, no
+        // dependencies, sendable state) and refused the `on` clause.
+        let plain_faces = !decl.of.is_empty()
+            && decl.of.iter().all(|of| {
+                type_base_name(of).is_some_and(|n| {
+                    self.symbols
+                        .effects
+                        .get(n)
+                        .is_some_and(|e| !e.is_actor)
+                })
+            });
+        if plain_faces {
+            if decl.of.len() > 1 {
+                self.error(format!(
+                    "handler `{handler_name}` implements several plain effects, and a \
+                     shared instance behind several faces is not supported yet"
+                ));
+                return "TODO()".to_string();
+            }
+            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
+            let ctor = self.handler_ctor_name(&handler_name, decl);
+            return format!(
+                "{}({ctor}({}))",
+                monitor_class_name(effect),
+                args.join(", ")
+            );
+        }
+        self.needs_scheduler = true;
         // [effect-handler-deps] [kt-effect-fusion] The child's carrier, built
         // here instead of at a `use` site: the same generated `__Fx_N` class,
         // its arguments the clause's instances in the handler's *declaration*
@@ -3606,8 +3754,21 @@ impl<'p> Emitter<'p> {
             }
         }
         // Not a handler name, so it is an addr: the stub is the instance.
+        // [monitor-handler] [kt-monitor] A plain effect's handle *is* an
+        // instance already — the effect's lock wrapper — so it passes through
+        // as itself, and the same monitor serves every actor it is supplied
+        // to. An actor effect's addr is an index the send stub wraps.
         let addr_code = self.emit_expr(item);
-        format!("{}({addr_code})", stub_class_name(base_of_rendered(dep)))
+        let base = base_of_rendered(dep);
+        if self
+            .symbols
+            .effects
+            .get(base)
+            .is_some_and(|e| !e.is_actor)
+        {
+            return addr_code;
+        }
+        format!("{}({addr_code})", stub_class_name(base))
     }
 
     /// [actor-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:
@@ -3680,15 +3841,29 @@ impl<'p> Emitter<'p> {
         // nothing downstream needs to know the difference.
         if let Some(effect) = self.checked.use_addrs.get(&(self.file_idx, span)).cloned() {
             let rendered = self.kotlin_ty(&effect);
-            let stub = match &effect {
-                salvo_core::Ty::Named { name, .. } => stub_class_name(name),
+            let addr_code = self.emit_expr(handler);
+            // [monitor-handler] [kt-monitor] A plain effect's handle already
+            // *is* the effect's lock wrapper, so binding it is binding the
+            // value itself; an actor's addr is an index that the send stub
+            // turns into an instance.
+            let instance = match &effect {
+                salvo_core::Ty::Named { name, .. } => {
+                    if self
+                        .symbols
+                        .effects
+                        .get(name.as_str())
+                        .is_some_and(|e| !e.is_actor)
+                    {
+                        addr_code
+                    } else {
+                        format!("{}({addr_code})", stub_class_name(name))
+                    }
+                }
                 _ => {
                     self.error("internal: a `use addr` with no effect recorded");
                     return String::new();
                 }
             };
-            let addr_code = self.emit_expr(handler);
-            let instance = format!("{stub}({addr_code})");
             return self.bind_effect_instance(vec![(Some(effect), rendered)], instance, indent);
         }
         let (handler_name, written_args) = match handler {

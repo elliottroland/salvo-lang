@@ -2514,10 +2514,13 @@ LANGUAGE.md remains the source of truth for everything that does.
   something an author reckons with when deciding which effect to write.
   * A **plain effect is never actor-backed** — which is how the design's
     carried named question ("may an ordinary member be actor-backed?")
-    closes: *forbid*, with the actor kind as the sanctioned spelling. So
-    `spawn`, `use addr` and even *naming* `Addr<E>` require an actor effect,
-    the last reported where the type is written rather than at a spawn that
-    could never have produced it.
+    closes: *forbid*, with the actor kind as the sanctioned spelling. Since
+    SH-3 (user decision 2026-09-19) `spawn`, `use addr` and naming `Addr<E>`
+    *accept* a plain effect — as the **monitor** kind [monitor-handler], one
+    shared instance behind a lock — which does not reopen the question: a
+    monitor has no mailbox and no messages, its members run synchronously on
+    the callers' threads, and an ordinary member still cannot be answered by
+    an actor.
   * `send fn` requires the actor kind, and is refused in a plain effect.
   * **Mixed kinds are refused outright**, not per member: the same handler
     state would be reachable from two threads, and a synchronous reader can
@@ -2541,6 +2544,53 @@ LANGUAGE.md remains the source of truth for everything that does.
     because the old spelling kept implying it. `async effect` is a parse error
     naming this form — worth its own diagnostic, since `async` is what an
     author arriving from another language will reach for.
+* [monitor-handler] **A monitor is a plain-effect handler shared behind a
+  lock** (SH-3, user decision 2026-09-19 — the first piece of the
+  shareable-handler design; the decision round is in COMPLETED.md's log).
+  `spawn H(args)` where every face of `H` is a **plain** effect answers the
+  same `Addr<E>` an actor spawn answers; the handle is freely copyable and
+  sendable, `use addr` binds the effect to it, and every member call locks,
+  runs the member on the caller's thread, and unlocks. Sharing is the spawn:
+  `use H(args)` keeps today's scope-local, lock-free meaning, so the
+  classification governs *sharing, not existence*.
+  * **The restriction is the design**: a monitor's members are pure state
+    transformation — no effects, no waits — which makes the lock innermost by
+    construction, so no thread ever holds it while wanting anything else
+    (no lock-order cycles, no lock-across-pump self-deadlock, no lock wait
+    that serves nothing, and the JVM-reentrant/Rust-non-reentrant parity trap
+    is unwritable [backend-never-wrong]). One declaration-level check carries
+    the whole rule: **a monitor-spawned handler declares no dependencies.**
+    With no dependencies there is nothing to perform, `use`/`spawn`/`waitfor`
+    are capabilities its members cannot hold, and a call to an effectful
+    helper fails ordinary effect resolution — the existing discipline
+    enforces the body restrictions transitively, and the diagnostic names the
+    two ways out (keep it `use`-bound in one scope, or give it an actor face
+    and a mailbox).
+  * **Refused with it, each by name**: an `on` clause (members run on the
+    callers' threads — there is nothing to place); a `send fn` member (the
+    mixed-handler shape, SH-1 — decided, not yet built); more than one plain
+    face (one instance behind several effect types has no backend
+    representation yet); unsendable constructor parameters or state fields
+    [actor-sendable] (the instance crosses to every thread that binds the
+    handle); and a `mailbox` slot, refused at the declaration already (a
+    plain-face handler has no queue to bound [actor-mailbox]).
+  * **Serialization without a servant**: members are mutually excluded by the
+    lock, not serialized by a mailbox — two handle holders' calls interleave
+    per member, and there is no arrival order, no gate, no death, nothing to
+    `watch`. A member calling a sibling member runs within one acquisition on
+    both backends (a direct self-call underneath).
+  * **Both binding forms remain**: the same handler `use`-bound is today's
+    inline handler (single-threaded, no lock, and it may then perform effects
+    if it declares dependencies — the restriction binds only where the
+    handler is *shared*).
+  * Calling a plain member *through the addr* (`rng.next()` without a `use`)
+    stays refused for now, with the send-member diagnostic; `use` the handle.
+  * Lowering: [rs-monitor] and [kt-monitor] — a per-effect lock wrapper
+    (`__Mon_E`) implementing the effect's trait/interface by
+    lock-and-delegate, so every downstream binding and dispatch path is
+    unchanged; the checker and both emitters key the `Addr<E>` representation
+    on the effect's declared kind.
+
 * [actor-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
   structural rule (a)): a value may not transitively hold
   * a **function value** — a callback is shared rather than owned, and the

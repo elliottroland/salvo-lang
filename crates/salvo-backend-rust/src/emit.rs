@@ -1945,6 +1945,10 @@ impl<'p> Emitter<'p> {
         // [rs-actor] [actor-use-addr] The forwarding stub: the effect,
         // implemented by sending to an addr.
         out.push_str(&self.emit_addr_stub(e));
+        // [monitor-handler] [rs-monitor] The lock wrapper: the effect,
+        // implemented by locking a shared instance and delegating — what a
+        // monitor spawn answers and `Addr<E>` lowers to for a plain effect.
+        out.push_str(&self.emit_monitor_stub(e));
         // [rs-actor] [actor-send-fn] The protocol's **message type**: one
         // variant per send member, carrying its payload. It belongs to the
         // *effect* rather than to a handler, because a sender holds an `Addr`
@@ -2009,6 +2013,65 @@ impl<'p> Emitter<'p> {
                 "    fn {}(&mut self{params}) {{\n        \
                  crate::scheduler::salvo_send(self.addr, Box::new({built}));\n    }}\n",
                 rs_ident(&member)
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// [monitor-handler] [rs-monitor] `__Mon_E`: a **plain** effect
+    /// implemented by locking a shared handler instance and delegating — the
+    /// monitor of SH-3 (user decision 2026-09-19). The lock is innermost by
+    /// construction (the checker refused the handler any dependencies, so a
+    /// member can perform no effect and no wait while it is held), which is
+    /// what makes the whole shape deadlock-free without analysis, and why the
+    /// non-reentrancy of Rust's `Mutex` can never be observed: no member can
+    /// reach another handler, so no path routes back.
+    ///
+    /// Per effect, like the send stub: a holder of the handle knows only the
+    /// effect it serves, and any monitor of `E` sits behind `dyn E + Send`.
+    /// Emitted for every non-generic plain effect — generated programs allow
+    /// `dead_code`, so an unshared effect's wrapper costs bytes, not noise.
+    fn emit_monitor_stub(&mut self, e: &EffectDecl) -> String {
+        if e.is_actor || !e.generics.is_empty() {
+            return String::new();
+        }
+        // A plain effect's members are sync members (send fns need the actor
+        // kind); a member with its own generics was refused and skipped by
+        // the trait above, so it is skipped here to match.
+        let members: Vec<(usize, &FnDecl)> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.is_send && f.generics.is_empty())
+            .collect();
+        let name = monitor_struct_name(&e.name.name);
+        let trait_name = rs_ident(&e.name.name);
+        let inner = format!("std::sync::Arc<std::sync::Mutex<dyn {trait_name} + Send>>");
+        let mut out = format!(
+            "\n#[derive(Clone)]\npub struct {name} {{\n    inner: {inner},\n}}\n\n\
+             impl {name} {{\n    pub fn new(inner: {inner}) -> Self {{\n        \
+             Self {{ inner }}\n    }}\n}}\n\nimpl {trait_name} for {name} {{\n"
+        );
+        for (i, f) in &members {
+            let member = self.member_name(e, *i);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(f),
+                self.emit_member_implicits(f)
+            );
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            out.push_str(&format!(
+                "    fn {member}(&mut self{params}){ret} {{\n        \
+                 self.inner.lock().unwrap().{member}({})\n    }}\n",
+                args.join(", ")
             ));
         }
         out.push_str("}\n");
@@ -4550,6 +4613,22 @@ impl<'p> Emitter<'p> {
                 return self.emit_type(&substituted);
             }
         }
+        // [monitor-handler] [rs-monitor] A plain effect's addr is the effect's
+        // lock wrapper, not a scheduler index — decided on the *written* type
+        // here, before the argument is rendered away.
+        if name == "Addr" && args.len() == 1 {
+            if let Type::Named { base: eff, .. } = &args[0] {
+                let effect = eff.name.name.clone();
+                if self
+                    .symbols
+                    .effects
+                    .get(effect.as_str())
+                    .is_some_and(|e| !e.is_actor)
+                {
+                    return self.plain_addr_rendering(&effect);
+                }
+            }
+        }
         let mut arg_strs: Vec<String> = args.iter().map(|a| self.emit_type(a)).collect();
         // [rs-proj-struct] A borrowing struct carries its source's lifetime
         // at every mention; `'_` lets rustc infer it in signatures and
@@ -4694,6 +4773,21 @@ impl<'p> Emitter<'p> {
     fn rust_ty(&mut self, ty: &Ty) -> String {
         match ty {
             Ty::Named { name, args } => {
+                // [monitor-handler] [rs-monitor] A plain effect's addr is the
+                // effect's lock wrapper, not a scheduler index.
+                if name == "Addr" && args.len() == 1 {
+                    if let Ty::Named { name: effect, .. } = args[0].strip_quals() {
+                        let effect = effect.clone();
+                        if self
+                            .symbols
+                            .effects
+                            .get(effect.as_str())
+                            .is_some_and(|e| !e.is_actor)
+                        {
+                            return self.plain_addr_rendering(&effect);
+                        }
+                    }
+                }
                 let arg_strs: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
                 self.emit_named_parts(name, &arg_strs)
             }
@@ -4772,6 +4866,46 @@ impl<'p> Emitter<'p> {
                         "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
                     )
         )
+    }
+
+    /// [monitor-handler] [rs-monitor] Whether a type is the `Addr` of a
+    /// **plain** effect — a shared monitor's handle, which lowers to the
+    /// effect's `__Mon_E` lock wrapper rather than to the scheduler's
+    /// `usize` index.
+    fn is_plain_addr_ty(&self, ty: &Ty) -> bool {
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return false;
+        };
+        if name != "Addr" || args.len() != 1 {
+            return false;
+        }
+        let Ty::Named { name: effect, .. } = args[0].strip_quals() else {
+            return false;
+        };
+        self.symbols
+            .effects
+            .get(effect.as_str())
+            .is_some_and(|e| !e.is_actor)
+    }
+
+    /// [monitor-handler] [rs-monitor] The rendering of `Addr<E>` for a plain
+    /// effect `E`: the `__Mon_E` wrapper, refusing a generic effect (its
+    /// wrapper would need the instantiation, which an addr does not carry —
+    /// the actor kind refuses the same shape at its message enum).
+    fn plain_addr_rendering(&mut self, effect: &str) -> String {
+        let generic = self
+            .symbols
+            .effects
+            .get(effect)
+            .is_some_and(|e| !e.generics.is_empty());
+        if generic {
+            self.error(format!(
+                "effect `{effect}` is generic, which the rust backend cannot make a \
+                 shared monitor handle of yet"
+            ));
+            return "()".to_string();
+        }
+        monitor_struct_name(effect)
     }
 
     /// Whether an AST type is a Copy scalar (post alias expansion).
@@ -5011,6 +5145,15 @@ fn has_trait_name(name: &str) -> String {
 /// effect implemented by sending to an addr.
 fn stub_struct_name(effect: &str) -> String {
     format!("__Stub_{}", rs_ident(effect))
+}
+
+/// [monitor-handler] [rs-monitor] The lock wrapper of a **plain** effect:
+/// `__Mon_Random`, the effect implemented by locking a shared instance and
+/// delegating — what an `Addr<Random>` *is* in Rust, and what a monitor
+/// spawn answers. Per effect, like the send stub: a holder knows only the
+/// effect the handle serves.
+fn monitor_struct_name(effect: &str) -> String {
+    format!("__Mon_{}", rs_ident(effect))
 }
 
 /// [rs-actor] The message enum of a protocol: `__Msg_Counter`. Named after
@@ -5904,7 +6047,6 @@ impl<'p> Emitter<'p> {
         pool: Option<&Expr>,
         span: Span,
     ) -> String {
-        self.needs_scheduler = true;
         let (handler_name, args): (String, Vec<&Expr>) = match handler {
             Expr::Ident(id) => (id.name.clone(), Vec::new()),
             Expr::Call { callee, args, .. } => match callee.as_ref() {
@@ -5929,6 +6071,42 @@ impl<'p> Emitter<'p> {
             ));
             return "todo!()".to_string();
         }
+        // [monitor-handler] [rs-monitor] Every face a plain effect: the
+        // **monitor spawn** — no mailbox, no scheduler, no pool. One shared
+        // instance behind a lock, handed out as the effect's `__Mon_E`
+        // wrapper. The checker restricted the handler (single face, no
+        // dependencies, sendable state) and refused the `on` clause.
+        let plain_faces = !decl.of.is_empty()
+            && decl.of.iter().all(|of| {
+                type_base_name(of).is_some_and(|n| {
+                    self.symbols
+                        .effects
+                        .get(n)
+                        .is_some_and(|e| !e.is_actor)
+                })
+            });
+        if plain_faces {
+            if decl.of.len() > 1 {
+                self.error(format!(
+                    "handler `{handler_name}` implements several plain effects, and a \
+                     shared instance behind several faces is not supported yet"
+                ));
+                return "todo!()".to_string();
+            }
+            let effect = decl.of.first().and_then(type_base_name).unwrap_or_default();
+            let mut arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+            let saved_producer = self.emitting_producer_args;
+            self.emitting_producer_args = true;
+            arg_code.extend(self.emit_implicit_args(&[], span));
+            self.emitting_producer_args = saved_producer;
+            let ctor = self.handler_ctor_path(&handler_name, decl);
+            return format!(
+                "{}::new(std::sync::Arc::new(std::sync::Mutex::new({ctor}::new({}))))",
+                monitor_struct_name(effect),
+                arg_code.join(", ")
+            );
+        }
+        self.needs_scheduler = true;
         // [effect-handler-deps] [rs-effect-fusion] A dependent child owns its
         // dependencies rather than reaching a fusion: the clause's instances
         // go into the generated flat provider, in the *handler's declaration*
@@ -6047,7 +6225,20 @@ impl<'p> Emitter<'p> {
             }
         }
         // Not a handler name, so it is an addr: the stub is the instance.
+        // [monitor-handler] [rs-monitor] A plain effect's handle *is* an
+        // instance already — the effect's lock wrapper — so it passes through
+        // as itself (`emit_owned` clones the handle), and the same monitor
+        // serves every actor it is supplied to. An actor effect's addr is an
+        // index the send stub wraps.
         let addr_code = self.emit_owned(item);
+        if self
+            .symbols
+            .effects
+            .get(dep.0.as_str())
+            .is_some_and(|e| !e.is_actor)
+        {
+            return Some(addr_code);
+        }
         Some(format!("{}::new({addr_code})", stub_struct_name(&dep.0)))
     }
 
@@ -6135,15 +6326,37 @@ impl<'p> Emitter<'p> {
         // call site learns the difference.
         if let Some(effect) = self.checked.use_addrs.get(&(self.file_idx, span)).cloned() {
             let rendered = self.rust_ty(&effect);
-            let stub = match &effect {
-                Ty::Named { name, .. } => stub_struct_name(name),
+            let (stub, is_plain) = match &effect {
+                Ty::Named { name, .. } => {
+                    let is_plain = self
+                        .symbols
+                        .effects
+                        .get(name.as_str())
+                        .is_some_and(|e| !e.is_actor);
+                    (
+                        if is_plain {
+                            monitor_struct_name(name)
+                        } else {
+                            stub_struct_name(name)
+                        },
+                        is_plain,
+                    )
+                }
                 _ => {
                     self.error("internal: a `use addr` with no effect recorded");
                     return String::new();
                 }
             };
             let addr_code = self.emit_owned(handler);
-            let instance = format!("{stub}::new({addr_code})");
+            // [monitor-handler] [rs-monitor] A plain effect's handle already
+            // *is* the effect's lock wrapper, so binding it is binding the
+            // value itself; an actor's addr is an index that the send stub
+            // turns into an instance.
+            let instance = if is_plain {
+                addr_code
+            } else {
+                format!("{stub}::new({addr_code})")
+            };
             if self.fusion {
                 return self.emit_fusion_instance(
                     Vec::new(),
@@ -7804,6 +8017,15 @@ impl<'p> Emitter<'p> {
                     }
                     Some(BindKind::Ref) | Some(BindKind::RefMut) => format!("*{place}"),
                     Some(BindKind::SelfField) if !copy => format!("{place}.clone()"),
+                    // [monitor-handler] [rs-monitor] A plain effect's addr is
+                    // a lock-wrapper value (`Arc`-backed), not a `Copy` index:
+                    // an owned read clones the handle, so a handle bound once
+                    // can be shared into any number of spawns and `use`s —
+                    // the checker treats every `Addr` as freely reusable, and
+                    // this is what keeps that true of the monitor kind.
+                    _ if self.ty_of(id.span).is_some_and(|t| self.is_plain_addr_ty(t)) => {
+                        format!("{place}.clone()")
+                    }
                     _ => place,
                 }
             }

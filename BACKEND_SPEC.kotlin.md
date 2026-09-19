@@ -980,6 +980,37 @@ where Rust had to build the fusion to get the same programs running
   the two backends agree on when a program is quiescent and when it is stuck.
   * The `Fired` builder is the site's (`{ __at -> Fired(Tick(__at)) }`), on the
     `Exit`/`Idle` precedent.
+* [kt-monitor] **The monitor lowering** [monitor-handler] (SH-3, built
+  2026-09-19). A plain effect `E` gets a per-effect lock wrapper emitted
+  beside its interface:
+
+  ```kotlin
+  class __Mon_E(private val inner: E) : E {
+      override fun member(…): … = synchronized(inner) { inner.member(…) }
+  }
+  ```
+
+  * **`Addr<E>` lowers to `__Mon_E`** when `E` is plain (both type paths
+    branch on the effect's declared kind); an actor effect's addr stays
+    `Int`. A generic plain effect's addr is refused, mirroring the actor
+    kind's message-class refusal.
+  * **A monitor spawn** is `__Mon_E(H(args))` — no scheduler, no mailbox, no
+    pool. JVM references make the handle freely shareable with no clone
+    machinery (the Rust half carries an `Arc`).
+  * **`use addr` binds the value itself**; a plain-effect addr in a spawn's
+    dependency clause passes through as itself, where an actor addr gets the
+    `__Stub_E` send wrapper.
+  * **`synchronized(inner)`** uses the handler instance's own JVM monitor.
+    Its *re-entrancy* (against Rust's non-reentrant `Mutex`) is unobservable
+    by construction: a monitor member can reach no other handler, so no path
+    routes back [backend-never-wrong]. Members with their own generics are
+    forwarded generically, exactly as the interface declares them
+    [effect-member-generics] — Kotlin has no dyn-dispatch restriction to
+    mirror, so the wrapper implements the whole interface.
+  * **Emitted for every non-generic plain effect** beside its interface, used
+    or not: an unused wrapper is an inert class kotlinc accepts quietly, and
+    per-effect emission gives the type one identity across files.
+
 * [kt-actor] **Asynchronous effect handlers** lower to three generated
   pieces plus one shipped runtime module, `runtime/scheduler.kt`
   [kt-runtime-source] — emitted only into a program that spawns, in package

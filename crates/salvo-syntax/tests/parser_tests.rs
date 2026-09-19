@@ -1933,6 +1933,61 @@ fn main() [use] -> Int {
     assert!(errors.is_empty(), "`capacity` is not reserved: {errors:?}");
 }
 
+/// A spawn's `use` clause is same-line, like its `on` clause: without the
+/// guard, a bare spawn followed by a `use` **statement** swallowed the next
+/// line as its dependency clause (defect found and closed 2026-09-19 — the
+/// pair is the monitor spawn's natural shape [monitor-handler]).
+#[test]
+fn a_spawn_does_not_swallow_a_use_statement_on_the_next_line() {
+    let source = "\
+fn main() [use, spawn] {
+    let rng = spawn CyclicRandom(1)
+    use rng
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "both statements parse: {errors:?}");
+    let main = module
+        .items
+        .iter()
+        .find_map(|i| match i {
+            salvo_syntax::ast::Item::Fn(f) if f.name.name == "main" => Some(f),
+            _ => None,
+        })
+        .expect("main is declared");
+    let stmts = &main.body.as_ref().expect("main has a body").stmts;
+    assert_eq!(stmts.len(), 2, "the `use` is its own statement: {stmts:?}");
+    match &stmts[0] {
+        salvo_syntax::ast::Stmt::Let { value, .. } => match value {
+            salvo_syntax::ast::Expr::Spawn { uses, .. } => {
+                assert!(uses.is_empty(), "the spawn has no clause: {uses:?}")
+            }
+            other => panic!("expected a spawn, got {other:?}"),
+        },
+        other => panic!("expected the let, got {other:?}"),
+    }
+    assert!(
+        matches!(&stmts[1], salvo_syntax::ast::Stmt::Use { .. }),
+        "the second statement is the `use`: {:?}",
+        stmts[1]
+    );
+
+    // The clause itself still parses when written where it belongs.
+    let with_clause = "\
+fn main() [use, spawn] {
+    let child = spawn Child() use rng,
+        Printing()
+}
+";
+    let (_m, diagnostics) = salvo_syntax::parse_module(with_clause);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(
+        errors.is_empty(),
+        "a same-line clause may continue past a comma: {errors:?}"
+    );
+}
+
 /// [actor-mailbox] The slot itself: a struct literal with its type elided, and
 /// `mailbox` contextual — a state field may still be called `mailbox`.
 #[test]
