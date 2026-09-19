@@ -6086,6 +6086,17 @@ impl<'p> Emitter<'p> {
                 })
             });
         if plain_faces {
+            // [mixed-handler] Send members make it a mixed handler — decided
+            // (SH-1, 2026-09-19) and checked, but the emission (servant
+            // message enum, façade value) is the next slice. Loud, never
+            // wrong [backend-never-wrong].
+            if decl.fns.iter().any(|f| f.is_send) {
+                self.error(format!(
+                    "handler `{handler_name}` is mixed (send members + a plain face), \
+                     which the rust backend does not emit yet"
+                ));
+                return "todo!()".to_string();
+            }
             if decl.of.len() > 1 {
                 self.error(format!(
                     "handler `{handler_name}` implements several plain effects, and a \

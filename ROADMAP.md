@@ -68,9 +68,15 @@ then whatever those decisions schedule** — SHAREABLE_HANDLERS.md's calls were
 round, including the same-day SH-6 revision to shape-based classification, is
 in COMPLETED.md's log), so the shareable-handler build is pure engineering:
 **SH-3 is built** (2026-09-19, same day — monitors end to end on both
-backends, [monitor-handler]; COMPLETED.md's log), so what remains is SH-1
-(mixed handlers), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the
-constraint), the `defer` build, and SH-7's sugar.
+backends, [monitor-handler]) and **SH-1's checker half is too** (same day,
+[mixed-handler]: classification, façade-send resolution, confinement, the
+waitfor carve, spawn-only — with both emitters refusing a mixed spawn loudly;
+COMPLETED.md's log). What remains: **SH-1b, the mixed emission** (specified in
+SHAREABLE_HANDLERS.md §7: the clone-box handle rework, `__Msg_H`/`__Actor_H`,
+`__Fac_H`), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the
+constraint), the `defer` build, and SH-7's sugar. Two first-slice cuts to
+lift later: mixed handlers with dependencies (reroute the dependent-member
+machinery through handler-local dispatch), and overloaded local send members.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -2208,6 +2214,16 @@ blocking, and several are "revisit only if a customer appears".
   matrix size itself — trimming compile-and-run cases whose behavior the
   goldens already pin.
 
+- **The spawn's `use` clause renames to `using`** (user decision 2026-09-19,
+  unscheduled): `spawn H(args) using D1(), addr on POOL`. Two reasons, one
+  present and one anticipated: the clause and the `use` *statement* are
+  different constructs sharing a word, which is what let a bare spawn swallow
+  a next-line `use` statement until the same-line guard closed it (defect,
+  2026-09-19) — and the user wants **multi-line spawn statements** eventually,
+  where a same-line rule stops being available and `use` becomes genuinely
+  ambiguous. `using` is the clause's own word; the statement keeps `use`.
+  A sweep when done: parser, every spec snippet, every example and test
+  source. No compatibility shim, per the standing invariant.
 - **`const` bindings** (user intent, stated 2026-09-19 while refining the
   shareable-handler taxonomy): a binding form that forbids reassignment.
   Announced, not designed — no syntax round yet. Its first customer is

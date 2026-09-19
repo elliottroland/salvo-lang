@@ -1360,7 +1360,7 @@ fn main() [use, spawn, waitfor] {
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("only a handler of an `actor effect` has a mailbox")),
+            .any(|m| m.contains("only a handler with something to enqueue has a mailbox")),
         "expected the mailbox refusal: {errs:?}"
     );
     assert!(
@@ -2201,7 +2201,7 @@ handler Quiet() of Log {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("has a mailbox and has to say how deep it is")
+        errs.iter().any(|m| m.contains("has a mailbox") && m.contains("how deep it is")
             && m.contains("mailbox { capacity: 16 }")),
         "expected the missing-mailbox error: {errs:?}"
     );
@@ -2229,7 +2229,7 @@ handler Answering() of Plain {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("only a handler of an `actor effect` has a mailbox")),
+        errs.iter().any(|m| m.contains("only a handler with something to enqueue has a mailbox")),
         "expected the plain-effect refusal: {errs:?}"
     );
 }

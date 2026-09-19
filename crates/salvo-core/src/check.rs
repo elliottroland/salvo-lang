@@ -398,6 +398,11 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
+    /// [mixed-handler] Façade sends: a bare call inside a mixed handler's
+    /// sync member that names one of the handler's own `send fn` members,
+    /// mapped to that member's name. The emitters lower each to an enqueue
+    /// on the façade value's addr.
+    pub facade_sends: HashMap<Key, String>,
     /// [task-mint] The free `send fn` each *task* mint targets, keyed by the
     /// `replyto` span: a [`FnKey`] rather than a name, because a task target is
     /// resolved through the scope ladder and the emitters need the declaration
@@ -908,6 +913,8 @@ fn check_once<'p>(
             own_handler: None,
             handler_spawns: false,
             handler_waits: false,
+            facade_handler: None,
+            confined_state: Vec::new(),
             own_task: None,
             can_use: false,
             can_spawn: false,
@@ -1290,6 +1297,21 @@ struct Checker<'p, 'r> {
     /// among its dependencies. Its members inherit the capability, and its
     /// *spawn site* pays for it: the placement must be a `Dedicated Pool`.
     handler_waits: bool,
+    /// [mixed-handler] The handler whose **sync member** is being checked,
+    /// when that handler is mixed (plain faces + `send fn` members, SH-1):
+    /// the member is the façade, running on the caller's thread over the
+    /// façade value. What it changes: bare calls to the handler's own send
+    /// members resolve as sends to the servant, state fields are out of
+    /// scope (`confined_state` carries their names for the diagnostic),
+    /// handler dependencies are invisible (they live in the servant), and a
+    /// `waitfor` needs no capability (SH-5(d)'s down payment — the façade
+    /// does not run on the spawned thread at all).
+    facade_handler: Option<&'p ast::HandlerDecl>,
+    /// [mixed-handler] The state field names confined to the servant while a
+    /// façade member is checked — consulted by the unresolved-name path, so
+    /// touching one is the confinement diagnostic rather than an "unknown
+    /// variable".
+    confined_state: Vec<String>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
     /// [actor-spawn-effect] Whether the current fn (or the handler whose
@@ -1839,6 +1861,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved_waits = std::mem::replace(&mut self.handler_waits, waits);
                     let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
                     let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
+                    // [mixed-handler] Plain faces + `send fn` members: the
+                    // mixed handler (SH-1, user decision 2026-09-19). The
+                    // send members and the state form the servant; the sync
+                    // members form the façade.
+                    let mixed = self.handler_is_mixed(h);
                     // [actor-mailbox] The actor settings slot, before the
                     // state fields: it is the one part of a handler that is
                     // computed *before* any state exists.
@@ -1872,6 +1899,45 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [actor-send-fn] A handler's `send fn` answers
                         // nothing, exactly as the effect's declaration does.
                         self.check_send_member(f);
+                        // [mixed-handler] A **mixed** handler's send member
+                        // is the servant protocol, and it carries the free
+                        // send fn's obligations, because no effect
+                        // declaration mirrors it. (An *actor* handler's
+                        // local send members stay as they are: private
+                        // helpers under the face's regime.)
+                        if f.is_send && mixed {
+                            self.check_local_send_member(h, f);
+                        }
+                        // [mixed-handler] A sync member of a mixed handler is
+                        // the façade: it runs on the caller's thread over the
+                        // façade value, so it sees the constructor parameters
+                        // and its own arguments — not the state (confined to
+                        // the servant), not the handler's dependencies (they
+                        // live in the servant) — and its `waitfor` needs no
+                        // capability (SH-5(d)'s down payment: the façade does
+                        // not run on the spawned thread, so there is no
+                        // placement to check).
+                        let facade = mixed && !f.is_send;
+                        let saved_facade =
+                            std::mem::replace(&mut self.facade_handler, facade.then_some(h));
+                        let saved_confined = std::mem::replace(
+                            &mut self.confined_state,
+                            if facade {
+                                h.state.iter().map(|s| s.name.name.clone()).collect()
+                            } else {
+                                Vec::new()
+                            },
+                        );
+                        let saved_facade_deps = if facade {
+                            std::mem::take(&mut self.handler_deps)
+                        } else {
+                            Vec::new()
+                        };
+                        let facade_waits = self.handler_waits || facade;
+                        let saved_facade_waits =
+                            std::mem::replace(&mut self.handler_waits, facade_waits);
+                        let member_state: &[ast::FieldDecl] =
+                            if facade { &[] } else { &h.state };
                         // [linear-group] [linear-discard] A handler member
                         // implementing a **consuming** effect member is a
                         // discharge context: discharger status attaches to
@@ -1883,8 +1949,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let context = self.member_discharge_context(h, f);
                         let saved_discharges =
                             std::mem::replace(&mut self.own_discharges, context);
-                        self.check_fn(f, &h.params, &h.state);
+                        self.check_fn(f, &h.params, member_state);
                         self.own_discharges = saved_discharges;
+                        self.facade_handler = saved_facade;
+                        self.confined_state = saved_confined;
+                        if facade {
+                            self.handler_deps = saved_facade_deps;
+                        }
+                        self.handler_waits = saved_facade_waits;
                     }
                     self.handler_deps = saved_deps;
                     self.handler_spawns = saved_spawns;
@@ -4982,17 +5054,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .is_some_and(|e| e.is_actor),
             _ => false,
         });
-        match (&h.mailbox, is_actor) {
+        // [mixed-handler] A mixed handler's servant has a mailbox too: its
+        // handler-local `send fn` members are delivered through one, so the
+        // requirement keys on "has send members" as much as on the faces'
+        // kind.
+        let has_queue = is_actor || h.fns.iter().any(|f| f.is_send);
+        match (&h.mailbox, has_queue) {
             (None, true) => {
                 self.error(
                     h.name.span,
                     format!(
-                        "`{}` handles an actor effect, so it has a mailbox and has to \
+                        "`{}` has a mailbox — {} — and has to \
                          say how deep it is: add `mailbox {{ capacity: 16 }}` (or take \
                          it as a constructor parameter — `mailbox {{ capacity: \
                          capacity }}`). There is no default, because a queue bound \
                          chosen by the compiler is a performance cliff nobody wrote",
-                        h.name.name
+                        h.name.name,
+                        if is_actor {
+                            "it handles an actor effect"
+                        } else {
+                            "its `send fn` members are delivered through one"
+                        }
                     ),
                 );
             }
@@ -5000,9 +5082,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     mailbox.span(),
                     format!(
-                        "only a handler of an `actor effect` has a mailbox, and `{}` \
-                         handles a plain one: its members run on the caller's thread, \
-                         so there is no queue to bound",
+                        "only a handler with something to enqueue has a mailbox, and \
+                         `{}` has no actor face and no `send fn` member: its members \
+                         run on the caller's thread, so there is no queue to bound",
                         h.name.name
                     ),
                 );
@@ -5147,6 +5229,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                      be `spawn`ed: bound with `use` its members run inline, and the \
                      answer would have nowhere to arrive — write `spawn {}(...) on \
                      pool(1)` instead",
+                    id.name, id.name
+                ),
+            );
+        }
+        // [mixed-handler] The same reasoning, structural: a mixed handler's
+        // sync members send to the servant and wait for its answers, so
+        // bound with `use` they would send toward an instance with no
+        // mailbox and no dispatcher. Spawn-only, refused where the binding
+        // is chosen.
+        if self
+            .scope
+            .handlers
+            .get(id.name.as_str())
+            .copied()
+            .is_some_and(|h| self.handler_is_mixed(h))
+        {
+            self.error(
+                span,
+                format!(
+                    "handler `{}` is mixed — its state is confined to `send fn` \
+                     members, and its sync members send to that servant — so it can \
+                     only be `spawn`ed: bound with `use` there would be no mailbox \
+                     for the sends to arrive on. Write `let handle = spawn {}(...)` \
+                     and `use handle`",
                     id.name, id.name
                 ),
             );
@@ -9392,7 +9498,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if self.scope.effects.get(name.as_str()).is_some_and(|d| !d.is_actor))
             });
         if plain_faces {
-            self.check_monitor_spawn(id, &effects, pool, span);
+            // [mixed-handler] Send members split the plain-face spawn in two:
+            // with them the handler is mixed (a servant + a façade), without
+            // them it is a monitor (a lock).
+            let mixed = self
+                .scope
+                .handlers
+                .get(id.name.as_str())
+                .is_some_and(|h| h.fns.iter().any(|f| f.is_send));
+            if mixed {
+                self.check_mixed_spawn(id, &effects, span);
+            } else {
+                self.check_monitor_spawn(id, &effects, pool, span);
+            }
         } else {
             for effect in &effects {
                 self.require_actor_effect(effect, span, "spawn");
@@ -9540,16 +9658,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // A `send fn` member is the mixed-handler shape (SH-1), a servant
-        // beside a façade — decided, not yet built.
+        // A `send fn` member routes the spawn to the mixed path before this
+        // check, so reaching one here is an internal inconsistency.
         if let Some(f) = decl.fns.iter().find(|f| f.is_send) {
             self.error(
                 span,
                 format!(
-                    "`{}` has a `send fn` member (`{}`), which makes it a mixed \
-                     handler — state confined to send members with a synchronous \
-                     façade — and that shape is not built yet: a monitor has only \
-                     plain members",
+                    "internal: monitor spawn of `{}` with send member `{}` — the \
+                     mixed path should have taken it",
                     id.name, f.name.name
                 ),
             );
@@ -9580,6 +9696,232 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`{}` cannot be shared: its state field `{}` is `{ty}` — \
                          {why}, and a shared handler's state must be sendable",
                         id.name, field.name.name
+                    ),
+                );
+            }
+        }
+    }
+
+    /// [mixed-handler] Whether a handler is **mixed** (SH-1, user decision
+    /// 2026-09-19): every face a plain effect, and at least one `send fn`
+    /// member. The send members and the state form the servant (an ordinary
+    /// actor over a handler-local protocol); the sync members form the
+    /// façade, running on the caller's thread.
+    fn handler_is_mixed(&self, h: &ast::HandlerDecl) -> bool {
+        if !h.fns.iter().any(|f| f.is_send) {
+            return false;
+        }
+        !h.of.is_empty()
+            && h.of.iter().all(|of| {
+                let name = match of {
+                    ast::Type::Named { base, .. } => base.name.name.as_str(),
+                    ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                        ast::Type::Named { base, .. } => base.name.name.as_str(),
+                        _ => return false,
+                    },
+                    _ => return false,
+                };
+                self.scope
+                    .effects
+                    .get(name)
+                    .is_some_and(|e| !e.is_actor)
+            })
+    }
+
+    /// [mixed-handler] [free-send-fn] A handler-local `send fn` carries the
+    /// free send fn's obligations, because no effect declaration mirrors it:
+    /// an explicit all-consumed deduction clause (a scheduled body outlives
+    /// the frame that enqueued it, so what it is given is always consumed),
+    /// no `Mut` parameter, no generics, and every parameter sendable
+    /// [actor-sendable]. And one restriction of its own: no overloading —
+    /// the servant's message dispatch is by member name.
+    fn check_local_send_member(&mut self, h: &'p ast::HandlerDecl, f: &'p FnDecl) {
+        let has_params = f.params.iter().any(|p| !p.implicit);
+        if f.deductions.is_none() && has_params {
+            self.error(
+                f.name.span,
+                format!(
+                    "`send fn {}` implements no effect member, so its deduction clause \
+                     must be written out: a scheduled body outlives the frame that \
+                     enqueued it, so every parameter is consumed — `=> {}`",
+                    f.name.name,
+                    f.params
+                        .iter()
+                        .filter(|p| !p.implicit)
+                        .map(|p| format!("!{}", p.name.name))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
+        }
+        for d in f.deductions.iter().flatten() {
+            if matches!(d.kind, ast::DeductionKind::Moved) {
+                continue;
+            }
+            let Some(name) = d.param_name() else { continue };
+            self.error(
+                d.span,
+                format!(
+                    "`send fn {}` cannot keep `{}`: a scheduled body outlives the \
+                     frame that enqueued it, so every parameter is consumed (`=> !{}`)",
+                    f.name.name, name.name, name.name
+                ),
+            );
+        }
+        if let Some(g) = f.generics.first() {
+            self.error(
+                f.name.span,
+                format!(
+                    "`send fn {}` cannot be generic: a message carries payloads and no \
+                     type arguments, so `{}` would have nothing to be chosen by",
+                    f.name.name, g.name
+                ),
+            );
+        }
+        let inner = self.enter_generics(&f.generics);
+        for p in &f.params {
+            if p.implicit {
+                continue;
+            }
+            if let ast::Type::Named { qualifiers, .. } = &p.ty {
+                if let Some(q) = qualifiers.iter().find(|q| q.name.name == "Mut") {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`send fn {}` cannot take `Mut` parameter `{}`: mutating a \
+                             value across a seam would share what the servant owns alone",
+                            f.name.name, p.name.name
+                        ),
+                    );
+                }
+            }
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    p.ty.span(),
+                    format!(
+                        "`send fn {}` cannot carry `{ty}`: {why}, and everything crossing \
+                         to the servant must be sendable",
+                        f.name.name
+                    ),
+                );
+            }
+        }
+        self.generics = inner;
+        if h.fns
+            .iter()
+            .filter(|other| other.is_send && other.name.name == f.name.name)
+            .count()
+            > 1
+        {
+            self.error(
+                f.name.span,
+                format!(
+                    "`send fn {}` is overloaded, which a servant protocol does not \
+                     support yet: the message dispatch is by member name — rename one",
+                    f.name.name
+                ),
+            );
+        }
+    }
+
+    /// [mixed-handler] A bare call inside a façade member that names one of
+    /// the handler's own `send fn` members: a **send to the servant**. Typed
+    /// like an addr send — every argument consumed (the payload crosses),
+    /// answering nothing — and recorded for the emitters, which lower it to
+    /// an enqueue on the façade value's addr. Answers `None` when the callee
+    /// is not a local send member, so ordinary resolution proceeds.
+    fn check_facade_send(&mut self, id: &Ident, args: &'p [Expr], span: Span) -> Option<Ty> {
+        let h = self.facade_handler?;
+        let target = h
+            .fns
+            .iter()
+            .find(|f| f.is_send && f.name.name == id.name)?;
+        self.record_def_ref(id.span, &id.name);
+        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
+        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        if args.len() != param_tys.len() {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` takes {} argument(s), found {}",
+                    id.name,
+                    param_tys.len(),
+                    args.len()
+                ),
+            );
+            return Some(Ty::none());
+        }
+        for (i, a) in args.iter().enumerate() {
+            let want = &param_tys[i];
+            let got = self.check_expr(a, Some(want));
+            if !got.is_unknown() && !is_subtype(&got, want) {
+                self.error(a.span(), format!("expected `{want}`, found `{got}`"));
+            }
+            let repr = self.repr_of(a, &got);
+            self.maybe_coerce(a.span(), &got, &repr, want);
+            // The payload crosses to the servant: the façade gives it up
+            // [deduce-consume] — which is also how a reply token minted by
+            // the façade's `waitfor` discharges.
+            self.fate_move(a, "send", "a send to the servant", a.span());
+        }
+        self.out.facade_sends.insert(self.key(span), id.name.clone());
+        Some(Ty::none())
+    }
+
+    /// [mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
+    /// send members present. It answers the same `Addr<E>` a monitor spawn
+    /// answers — the façade value: the servant's addr plus the constructor
+    /// parameters plus dispatch to the sync bodies. The servant is an
+    /// ordinary actor, so the `on` clause stays (optional, inheriting the
+    /// current pool), unlike a monitor's.
+    fn check_mixed_spawn(&mut self, id: &Ident, effects: &[Ty], span: Span) {
+        let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
+            return;
+        };
+        if effects.len() > 1 {
+            let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+            self.error(
+                span,
+                format!(
+                    "handler `{}` implements several plain effects ({}), and a façade \
+                     behind several faces is not supported yet: split the handler, or \
+                     give it a single face",
+                    id.name,
+                    faces.join(", ")
+                ),
+            );
+        }
+        // First-slice cut: the servant's dependencies want the dependent-
+        // member machinery rerouted through the handler-local dispatch,
+        // which is its own piece of work. Refused rather than half-built.
+        if decl.effects.iter().flatten().next().is_some() {
+            self.error(
+                span,
+                format!(
+                    "`{}` declares dependencies, which a mixed handler does not \
+                     support yet: the servant's members would carry them, and that \
+                     wiring is not built — take an `{ADDR_TYPE}` constructor parameter \
+                     and send to it instead",
+                    id.name
+                ),
+            );
+        }
+        // [actor-sendable] The façade value copies the constructor
+        // parameters to every thread that binds the handle.
+        for p in &decl.params {
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                self.error(
+                    span,
+                    format!(
+                        "`{}` cannot be shared: its constructor parameter `{}` is \
+                         `{ty}` — {why}, and the façade value carries a copy of it \
+                         to every thread that binds the handle",
+                        id.name, p.name.name
                     ),
                 );
             }
@@ -13795,6 +14137,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // `Ty::Unknown` that reaches a backend and becomes rustc's or
                 // kotlinc's problem [backend-never-wrong].
                 //
+                // [mixed-handler] Inside a mixed handler's sync member, a
+                // state field's name is deliberately out of scope — the
+                // confinement rule — and the diagnostic names the rule
+                // rather than claiming the name does not exist.
+                if self.confined_state.iter().any(|n| n == &id.name) {
+                    self.error(
+                        id.span,
+                        format!(
+                            "`{}` is the servant's state, which a mixed handler \
+                             confines to its `send fn` members: a sync member runs \
+                             on the caller's thread, where reading it would race an \
+                             activation — send to a member that answers instead",
+                            id.name
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                //
                 // A name that *is* declared, but as something that is not a
                 // value, says so instead — the same courtesy the effect and
                 // handler rules already extend [effect-not-a-type].
@@ -17474,6 +17834,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
+            // [mixed-handler] Inside a façade member, a bare call naming one
+            // of the handler's own `send fn` members is a send to the
+            // servant — resolved before the general ladder (the handler's
+            // members are the innermost declaration scope), after locals
+            // (which shadow, as they shadow everything).
+            if let Some(ty) = self.check_facade_send(id, args, span) {
+                return ty;
+            }
             return self.resolve_named_call(
                 &id.name, id.span, type_args, &arg_refs, named, expected, None, span,
             );

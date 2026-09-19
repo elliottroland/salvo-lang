@@ -13,7 +13,7 @@ read off the members that appear (with rung 1 keyed on *mutable* state — a
 handler carrying only immutable constructor parameters, later `const`
 immutable fields, is shareable bare), and the design's entire syntax bill is one
 contextual word (`defer`) plus one sugar (`use … on POOL`). What remains is
-engineering (build order at the end of §7) plus one inferred residue noted
+engineering (the SH-1 plan is §7, the build order at the end of §8) plus one inferred residue noted
 for SH-4's build (§3.12 point 3). The document stays alive until built. Written 2026-09-17, the evening the second sequence's steps 1–2
 landed, out of a conversation that began at "how do I implement `Random` when
 its state must live behind a thread boundary" and worked through four designs,
@@ -1462,7 +1462,79 @@ would leave declared waits in handlers with no edge at all. The hover is a small
 follow-on once the inference exists, and worth doing in the same breath — it is
 what makes "no word" a visibility *improvement* rather than a trade.
 
-## 7. Decision surface
+## 7. The SH-1 build plan (established 2026-09-19; **checker half built the same day**)
+
+Status: everything under "Checker rules" below is **built and tested**
+(`mixed_tests.rs`, 8 tests — the acceptance test is the design's own
+motivating program, `waitfor` under no capability included), with both
+emitters refusing a mixed spawn loudly until the emission half lands. What
+remains is the emission: findings 2–4 below.
+
+Findings from reading the machinery SH-1 extends, each of which shapes the
+implementation; recorded so the build does not rediscover them.
+
+1. **Sibling member calls do not resolve today** — a handler member cannot
+   call another member of the same handler by bare name (verified: "no
+   function named `advance` is in scope"). So the façade's core line,
+   `advance(got)` inside `fn next()`, is *new resolution*, scoped narrowly:
+   inside a **sync member of a mixed handler**, a bare call naming one of the
+   handler's own `send fn` members resolves as a send to the servant — typed
+   like an addr send (payload consumed, answers nothing), own-members-first
+   in the scope ladder. Handler-local members are otherwise already legal
+   (conformance skips members that implement no face).
+2. **The actor body is face-keyed and needs a handler-keyed twin.** Message
+   enums are per *effect* (`__Msg_E` over an actor effect's sends); a mixed
+   handler's send members belong to no effect, so the servant needs
+   `__Msg_H` + an `__Actor_H` dispatching it — the same machinery keyed on
+   the handler. `replyto` already resolves against the enclosing handler's
+   members, so parked continuations toward local send members should ride
+   for free.
+3. **The handle representation must unify monitors and façades.** Both are
+   `Addr<E>` for a plain `E`, and the monitor slice lowered that to the lock
+   wrapper — but a mixed handler's façade must NOT sit behind that lock (a
+   façade member waits inside it; a second caller then blocks on the mutex
+   *without pumping*, which wedges a shared single-threaded pool). So
+   `__Mon_E` becomes the **clonable boxed handle** on Rust — a per-effect
+   clone-box trait (`__Share_E: E + Send` with a blanket impl over
+   `E + Clone + Send + 'static`), `__Mon_E { inner: Box<dyn __Share_E> }` —
+   with the lock demoted into a per-effect generic adapter
+   (`__Lock_E<H: E + Send>(Arc<Mutex<H>>)`) that monitor spawns wrap, and
+   façades boxed directly. On Kotlin the unification is the interface
+   itself: `Addr<plain E>` lowers to `E`, and both `__Mon_E` and `__Fac_H`
+   implement it.
+4. **The façade is a second generated type per mixed handler**:
+   `__Fac_H { __addr, ctor params }` implementing each plain face, sync
+   member bodies emitted on it (ctor params as self-fields, the existing
+   handler-member binding machinery reused), own-send calls lowered to
+   `salvo_send(self.__addr, __Msg_H::…)`. Constructor arguments are
+   evaluated **once** and shared between the handler instance and the
+   façade (hoisted locals; cloned on Rust) — sendability of ctor params is
+   the declaration-level check that makes the copy legal.
+
+Checker rules, beyond the resolution above: a handler is **mixed** when all
+faces are plain and it has send members (the monitor path's send-member
+refusal reroutes here); `mailbox` becomes required (the mailbox check keys on
+"actor face OR local send members"); **confinement** — sync members bind no
+state fields, and a read of one gets the confinement diagnostic by name, not
+"unknown variable"; sync members also see **no handler dependencies** (deps
+live in the servant; the façade has none); **spawn-only** (a `use` of a mixed
+handler is refused naming spawn — the parking-handler refusal's reasoning,
+verbatim); multi-face mixed refused like multi-face monitors.
+
+Two interim gaps, deliberate and recorded:
+
+* **The `waitfor` carve**: a sync member of a mixed handler may wait without
+  any `[waitfor]` declaration — the user's §0.2 position and SH-5(d)'s down
+  payment, since requiring the capability would force `thread()` placement
+  machinery that fits nothing here (the façade does not run on the spawned
+  thread at all).
+* **Mixed handlers are unpriced until SH-4 and the `defer` build land**: no
+  occupancy edges, no rung-3/4 boundary — a §3.1-shaped program compiles and
+  dies at runtime with SH-8's named report rather than statically. The build
+  order accepts this window; SH-4 is the next slice after SH-1 for exactly
+  this reason.
+
+## 8. Decision surface
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|

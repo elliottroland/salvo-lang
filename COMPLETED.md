@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1167 tests, complete: the toolchain tests are
+cargo test                  # 1175 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,59 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 2a: the mixed handler's checker surface
+(2026-09-19, SH-1, first half).** The declaration, classification and every
+static rule of the mixed handler — with both emitters refusing a mixed spawn
+*loudly* until the emission half lands, so nothing silently wrong exists in
+the window. New rule label **[mixed-handler]** (spec text with the emission
+half). What is built and tested (8 new checker tests, `mixed_tests.rs`):
+
+- **Classification**: plain faces + `send fn` members = mixed; the plain-face
+  spawn path splits (send members → mixed, none → monitor). The send members
+  and state form the servant; sync members form the façade.
+- **The façade-send resolution** — the design's core line: inside a sync
+  member, a bare call naming one of the handler's own `send fn` members
+  resolves as a send to the servant (typed like an addr send, every argument
+  consumed, answering nothing), after locals, before the general ladder.
+  Recorded in `Checked::facade_sends` for the emitters. Sibling calls
+  otherwise stay unresolved, as they always were.
+- **Confinement**: sync members bind no state fields, and touching one gets
+  the rule by name ("`cursor` is the servant's state…"), not an unknown-
+  variable error. Sync members also see no handler dependencies.
+- **The `waitfor` carve** (SH-5(d)'s down payment, the user's §0.2 position):
+  a façade member may wait with no `[waitfor]` anywhere — the acceptance test
+  is the design's own motivating program, `Random` backed by confined state,
+  callable from a plain `[Random]` fn that declares nothing.
+- **Local send members carry the free send fn's obligations** ([free-send-fn]
+  mirrored): explicit all-consumed clause when they have parameters, no
+  `Mut`/unsendable/generic params, and — new — no overloading (the servant's
+  dispatch is by member name). Scoped to *mixed* handlers only: actor
+  handlers' local send helpers exist in the wild (the deadlock-graph tests
+  use them) and keep today's regime.
+- **Mailbox required** ([actor-mailbox] amended): the requirement now keys on
+  "has send members" as much as the faces' kind, with the message naming
+  which reason applies.
+- **Spawn-only**: `use` of a mixed handler is refused where the binding is
+  chosen (the parking-handler reasoning, structural). Mixed spawns keep the
+  optional `on` clause (the servant is an ordinary actor), answer `Addr<E>`,
+  and refuse — for now — several faces and handler dependencies (the
+  dependent-member machinery wants rerouting through handler-local dispatch;
+  the remedy named is an `Addr` constructor parameter).
+
+Tests: **1175 (+8)**. The emission half (SH-1b) is specified in
+SHAREABLE_HANDLERS.md §7: the clone-box handle rework (`__Mon_E` becomes the
+shareable handle, `__Lock_E<H>` the monitor's adapter — a façade must not sit
+behind the monitor's mutex, since a blocked second caller does not pump),
+`__Msg_H`/`__Actor_H` keyed on the handler, and `__Fac_H` carrying the addr
+and ctor params.
+
+**The spawn clause will be `using` (user decision 2026-09-19).** The spawn's
+dependency clause and the `use` statement share a word while being different
+constructs — the same-line guard that closed the swallowed-statement defect is
+a patch on that, and multi-line spawn statements (wanted eventually) would
+remove the patch's premise. The clause renames to `using`; the statement keeps
+`use`. Recorded in ROADMAP, unscheduled.
 
 **Shareable handlers, slice 1: monitors built end to end (2026-09-19, SH-3).**
 The first build slice of the 2026-09-19 decision round, and the smallest
@@ -12599,7 +12652,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1167)
+## Test inventory (all green: 1175)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
