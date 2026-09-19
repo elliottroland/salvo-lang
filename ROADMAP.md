@@ -75,11 +75,14 @@ inside a mixed handler until `defer`). **SH-4 is built too** (same day: the
 occupancy edge and the servant node, no-downgrade classification, the upcall
 cycle refused with the three remedies — COMPLETED.md's log). **And SH-5(d) is built**
 (same day: the capability deleted whole, the block edge site-inferred with
-construction-propagation, the sweep done — COMPLETED.md's log). What remains
-of the whole design: the **`defer` build** (lifts the no-replyto cut inside
-mixed handlers, draws the rung-3/4 line, brings the declared-`defer` opt-in
-and its upper-bound checking), and **SH-7's sugar** (`use H() on POOL`).
-SHAREABLE_HANDLERS.md retires when those two land. First-slice cuts to lift later: mixed handlers with
+construction-propagation, the sweep done — COMPLETED.md's log). **And SH-7's sugar is built**
+(same day, zero emitter changes — a `use` of a spawn expression; dep clauses
+wait for the `using` rename). What remains of the whole design: the
+**`defer` build** — lifts the no-replyto cut inside mixed handlers, draws
+the rung-3/4 line (a spawned handler's send member that defers must declare
+it, the declaration is the opt-in), upper-bound checking at both levels, and
+the servant-side continuation emission (`__Cont` for handler-keyed actors)
+that the cut deferred. SHAREABLE_HANDLERS.md retires when it lands. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
 dispatch), overloaded servant members, several faces, and `k@self` inside
 mixed servants (untested).

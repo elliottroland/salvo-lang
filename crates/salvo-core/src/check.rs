@@ -5155,6 +5155,33 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
     fn check_use(&mut self, handler: &'p Expr, span: Span) {
+        // [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user
+        // decision 2026-09-19): the parser wrapped the construction in a
+        // spawn expression, so checking the expression *is* the spawn, and
+        // binding its addr is exactly `use addr`. A multi-face handler
+        // answers a tuple, which one binding cannot split — spawn it and
+        // bind the faces yourself.
+        if let Expr::Spawn { .. } = handler {
+            let ty = self.check_expr(handler, None);
+            if matches!(ty, Ty::Tuple(_)) {
+                self.error(
+                    span,
+                    "`use … on POOL` binds one face, and this handler has several: \
+                     spawn it (`let (a, b) = spawn H(...) on POOL`) and `use` each \
+                     face yourself",
+                );
+                return;
+            }
+            let Some(effect) = addr_effect(&ty) else {
+                return;
+            };
+            self.out.use_addrs.insert(self.key(span), effect.clone());
+            self.out
+                .use_effects
+                .insert(self.key(span), vec![effect.clone()]);
+            self.effect_env.push(effect);
+            return;
+        }
         // [actor-use-addr] `use addr` binds an effect to a forwarding stub over
         // an `Addr` instead of constructing a handler: first-pass surface, and
         // no new syntax — which means telling the two apart is this

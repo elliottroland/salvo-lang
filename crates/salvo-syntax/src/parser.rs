@@ -2290,6 +2290,26 @@ impl<'s> Parser<'s> {
             TokenKind::KwUse => {
                 let start = self.bump().span;
                 let handler = self.parse_expr()?;
+                // [actor-use-addr] `use H(args) on POOL` — the sugar for
+                // `let __a = spawn H(args) on POOL` then `use __a` (SH-7,
+                // user decision 2026-09-19): the dominant case, one shared
+                // instance serving an effect in a scope, in one line. Parsed
+                // as a `use` whose handler is a spawn expression, so the
+                // spawn machinery and the addr-binding machinery each do
+                // their own half. Same-line, like every trailing clause.
+                if self.at_word("on") && self.same_line() {
+                    self.bump();
+                    let pool = self.parse_expr()?;
+                    let span = start.to(pool.span());
+                    let spawn_span = handler.span().to(pool.span());
+                    let handler = Expr::Spawn {
+                        handler: Box::new(handler),
+                        uses: Vec::new(),
+                        pool: Some(Box::new(pool)),
+                        span: spawn_span,
+                    };
+                    return Some(Stmt::Use { handler, span });
+                }
                 let span = start.to(handler.span());
                 Some(Stmt::Use { handler, span })
             }

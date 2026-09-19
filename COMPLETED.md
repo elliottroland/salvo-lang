@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1178 tests, complete: the toolchain tests are
+cargo test                  # 1179 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,20 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 5: the `use … on POOL` sugar (2026-09-19,
+SH-7).** `use Counter() on pool(1)` ≡ `let __a = spawn Counter() on pool(1)`
+then `use __a` — the dominant case in one line. The implementation is the
+composition the design hoped for: the parser wraps the construction in a
+spawn *expression*, `check_use` checks that expression (which is the spawn,
+capability gate included) and binds its addr exactly as `use addr` does, and
+**neither emitter changed at all** — the existing use-addr path emits the
+spawn expression as the addr code. Refused by name: a multi-face handler
+(one binding cannot split the addr tuple). Not in the sugar yet: a
+dependency clause — `use H() use D() on P` cannot parse (the inner `use`
+ends the expression), and the natural fix is the recorded **`using` rename**
+(`use H() using D() on P`), so it waits for that sweep. Verified on both
+backends (`sum 5` through the sugar); tests **1179 (+1)**.
 
 **Shareable handlers, slice 4: the `[waitfor]` capability is deleted
 (2026-09-19, SH-5(d)).** Two days old, and priced against a hazard
@@ -12775,7 +12789,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1178)
+## Test inventory (all green: 1179)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

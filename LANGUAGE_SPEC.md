@@ -3058,7 +3058,16 @@ LANGUAGE.md remains the source of truth for everything that does.
     [effect-member-overload]. Typing the arguments to choose the overload and
     again against the winner's parameters would report every mistake in them
     twice; arity settles every overload the first pass can express, and a
-    same-arity tie is refused rather than guessed.
+    same-arity tie is refused rather than guessed.  * **`use H(args) on POOL` is the spawn-and-bind sugar** (SH-7, user
+    decision 2026-09-19; built the same day): one shared instance serving an
+    effect in a scope, in one line — parsed as a `use` whose handler is a
+    spawn expression, so the spawn machinery and the addr binding each do
+    their own half and the emitters need nothing new. The `on` clause is the
+    marker (without it, `use H(args)` keeps its scope-local meaning); a
+    multi-face handler is refused by name (one binding cannot split the
+    tuple); and a dependency clause does not fit the sugar yet — it arrives
+    with the `using` rename, which unambiguates the two `use`s.
+
 * [actor-self-send] `k@self(args)` — send a message to **the actor the
   enclosing member belongs to** (user decision 2026-09-15, option (a) of
   three). The one thing an unqualified call cannot say: that would be

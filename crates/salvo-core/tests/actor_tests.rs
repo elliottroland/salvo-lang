@@ -636,6 +636,38 @@ fn main() [use, spawn] {
     );
 }
 
+/// [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user decision
+/// 2026-09-19): `let __a = spawn H(args) on POOL` then `use __a`, in one
+/// line. The spawn half wants `[spawn]`, the binding half is the ordinary
+/// `use addr`, and a multi-face handler is refused by name (one binding
+/// cannot split a tuple).
+#[test]
+fn use_on_pool_is_spawn_plus_bind() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    use Printing() on pool(1)
+    note(\"hello\")
+}
+",
+    );
+    assert!(errs.is_empty(), "the sugar binds the effect: {errs:?}");
+
+    let uncapable = errors(
+        "\
+fn main() [use] {
+    use Printing() on pool(1)
+}
+",
+    );
+    assert!(
+        uncapable
+            .iter()
+            .any(|m| m.contains("`spawn` requires the `spawn` capability")),
+        "the sugar is a spawn, so it wants the capability: {uncapable:?}"
+    );
+}
+
 /// [main-pool] An omitted `on` clause means the pool current at the spawn —
 /// `main`'s own pool in `main` (FC-4(a)), the actor's own in a member. It is
 /// how a spawn site names the main pool without new vocabulary.
