@@ -1442,6 +1442,7 @@ fn the_deduction_clause_parses_every_entry_form() {
         match k {
             DeductionKind::KeepAll => "KeepAll".into(),
             DeductionKind::Moved => "Moved".into(),
+            DeductionKind::Deferred => "Deferred".into(),
             DeductionKind::Exhaustive(q) => {
                 format!("Exhaustive[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
             }
@@ -2188,5 +2189,49 @@ handler Working() of Work {
             && d.message.contains("is not the self-send form")
             && d.message.contains("`k@self(…)`")),
         "expected the retired spelling to be a parse error: {diagnostics:?}"
+    );
+}
+
+/// [defer-deduction] `=> !d, defer out` — the deferral entry (SH-10, user
+/// decision 2026-09-19): consumed like `!out`, and the obligation may
+/// outlive the frame. Contextual: a parameter named `defer` stays writable
+/// as a bare keep.
+#[test]
+fn a_defer_deduction_parses() {
+    let source = "\
+handler H() of E {
+    mailbox { capacity: 2 }
+    send fn after(d: Int, out: Reply<Int>) => !d, defer out {
+    }
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "the clause parses: {errors:?}");
+    let handler = module
+        .items
+        .iter()
+        .find_map(|i| match i {
+            salvo_syntax::ast::Item::Handler(h) => Some(h),
+            _ => None,
+        })
+        .expect("the handler is declared");
+    let member = &handler.fns[0];
+    let kinds: Vec<String> = member
+        .deductions
+        .iter()
+        .flatten()
+        .map(|d| {
+            format!(
+                "{}:{:?}",
+                d.param_name().map(|n| n.name.as_str()).unwrap_or("?"),
+                matches!(d.kind, salvo_syntax::ast::DeductionKind::Deferred)
+            )
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["d:false".to_string(), "out:true".to_string()],
+        "the second entry is the deferral"
     );
 }

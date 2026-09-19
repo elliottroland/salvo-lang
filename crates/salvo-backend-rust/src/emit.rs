@@ -2393,7 +2393,12 @@ impl<'p> Emitter<'p> {
         }
         let moved = member.deductions.iter().flatten().any(|d| {
             d.param_name().is_some_and(|n| n.name == p.name.name)
-                && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+                && matches!(
+                    d.kind,
+                    // [defer-deduction] A deferral is consumed like a move.
+                    salvo_syntax::ast::DeductionKind::Moved
+                        | salvo_syntax::ast::DeductionKind::Deferred
+                )
         });
         if moved {
             ParamMode::Owned
@@ -11332,8 +11337,11 @@ impl<'p> Emitter<'p> {
             .map(|p| {
                 f.deductions.as_ref().is_some_and(|ds| {
                     ds.iter().any(|d| {
-                        matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
-                            && d.param_name().is_some_and(|n| n.name == p.name.name)
+                        matches!(
+                            d.kind,
+                            salvo_syntax::ast::DeductionKind::Moved
+                                | salvo_syntax::ast::DeductionKind::Deferred
+                        ) && d.param_name().is_some_and(|n| n.name == p.name.name)
                     })
                 })
             })
@@ -12560,7 +12568,11 @@ fn ast_fn_param_contract(
     let kept = match (param_names.get(i).and_then(|n| n.as_ref()), deductions) {
         (Some(name), Some(list)) => !list.iter().any(|d| {
             d.param_name().is_some_and(|n| n.name == name.name)
-                && matches!(d.kind, salvo_syntax::ast::DeductionKind::Moved)
+                && matches!(
+                    d.kind,
+                    salvo_syntax::ast::DeductionKind::Moved
+                        | salvo_syntax::ast::DeductionKind::Deferred
+                )
         }),
         _ => true,
     };

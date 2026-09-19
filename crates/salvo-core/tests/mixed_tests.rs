@@ -475,3 +475,161 @@ fn main() [use, spawn] {
         "an acyclic occupancy edge reports nothing: {diags:?}"
     );
 }
+
+/// [defer-deduction] The rung-4 contract point: a reply that leaves the
+/// activation any way but the discharge must be declared `defer` — here by
+/// forwarding to another actor, and by storing into state. The diagnostic
+/// names the declaration.
+#[test]
+fn an_escaping_reply_requires_defer() {
+    let forwarded = errors(
+        "\
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Forwarding(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        tally = tally + 1
+        oracle.divine(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        forwarded.iter().any(|m| m.contains("outlive the activation")
+            && m.contains("`=> defer out`")),
+        "expected the forwarding escape: {forwarded:?}"
+    );
+
+    let passed_on = errors(
+        "\
+fn stash(keep: Reply<Int>) [] -> None => !keep {
+    send(keep, 0)
+}
+
+handler Latch() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        tally = tally + 1
+        stash(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        passed_on.iter().any(|m| m.contains("outlive the activation")
+            && m.contains("`=> defer out`")),
+        "expected the passing-on escape: {passed_on:?}"
+    );
+}
+
+/// And with the declaration, both are legal — plus the upper bound: a
+/// declared `defer` whose body answers in-frame anyway is fine (SH-10(b)).
+#[test]
+fn a_declared_defer_permits_the_escape_and_need_not_be_exercised() {
+    let forwarded = errors(
+        "\
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Forwarding(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        oracle.divine(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(forwarded.is_empty(), "a declared deferral forwards: {forwarded:?}");
+
+    let unexercised = errors(
+        "\
+handler Prompt() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        send(out, tally)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        unexercised.is_empty(),
+        "an upper bound: a `defer` the body never exercises is legal: {unexercised:?}"
+    );
+}
+
+/// [defer-deduction] What is still refused, by name: parking inside a mixed
+/// handler — the servant's continuation machinery is not emitted yet, and
+/// the diagnostic names the forwarding respelling that works today.
+#[test]
+fn parking_in_a_mixed_handler_names_the_forwarding_respelling() {
+    let errs = errors(
+        "\
+handler Parking() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        follow(replyto settled(out))
+    }
+
+    send fn settled(out: Reply<Int>, n: Int) => defer out, !n {
+        send(out, n)
+    }
+
+    send fn follow(done: Reply<Int>) => !done {
+        send(done, 9)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("not supported yet")
+            && m.contains("forwarding")),
+        "expected the staged refusal naming the respelling: {errs:?}"
+    );
+}

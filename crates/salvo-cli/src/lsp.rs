@@ -1572,6 +1572,7 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
             match &d.kind {
                 DeductionKind::KeepAll => t,
                 DeductionKind::Moved => format!("!{t}"),
+                DeductionKind::Deferred => format!("defer {t}"),
                 DeductionKind::Exhaustive(items) if items.is_empty() => format!("{t}: None"),
                 DeductionKind::Exhaustive(items) => format!("{t}: {}", names(items).join(" ")),
                 DeductionKind::Remove(items) => format!(

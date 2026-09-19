@@ -643,7 +643,7 @@ fn check_refined_qual(
 fn kept_in(list: &[Deduction], param: &str) -> bool {
     // [deduce-syntax] Unmentioned is kept; only a written move consumes.
     !list.iter().any(|d| {
-        d.param_name().is_some_and(|n| n.name == param) && matches!(d.kind, DeductionKind::Moved)
+        d.param_name().is_some_and(|n| n.name == param) && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
     })
 }
 

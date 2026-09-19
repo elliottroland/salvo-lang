@@ -2047,6 +2047,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
     kotlinc_compiles_and_runs_a_mixed_handler,
+    kotlinc_compiles_and_runs_a_deferring_mixed_handler,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
@@ -9430,6 +9431,60 @@ fn main() [use, spawn] -> None {
     println("main drew ${next()}")
 }
 "#;
+
+/// [defer-deduction] [mixed-handler] The same rung-4 forwarding program the
+/// Rust backend runs, with the same output.
+const DEFERRING: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Delphi() of Oracle {
+    mailbox { capacity: 4 }
+    n: Int = 0
+
+    send fn divine(out: Reply<Int>) {
+        n = n + 7
+        send(out, n)
+    }
+}
+
+handler Forwarding(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        oracle.divine(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let oracle = spawn Delphi() on pool(1)
+    use Forwarding(oracle) on pool(1)
+    println("first ${next()}")
+    println("second ${next()}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_deferring_mixed_handler() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", DEFERRING)]),
+        "deferring",
+        "first 7\nsecond 14\n",
+    )
+}
 
 fn generate_mixed_demo() -> Vec<salvo_backend_kotlin::EmittedFile> {
     generate_files(&[("main.sv", MIXED)])

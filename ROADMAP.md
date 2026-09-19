@@ -77,12 +77,18 @@ cycle refused with the three remedies — COMPLETED.md's log). **And SH-5(d) is 
 (same day: the capability deleted whole, the block edge site-inferred with
 construction-propagation, the sweep done — COMPLETED.md's log). **And SH-7's sugar is built**
 (same day, zero emitter changes — a `use` of a spawn expression; dep clauses
-wait for the `using` rename). What remains of the whole design: the
-**`defer` build** — lifts the no-replyto cut inside mixed handlers, draws
-the rung-3/4 line (a spawned handler's send member that defers must declare
-it, the declaration is the opt-in), upper-bound checking at both levels, and
-the servant-side continuation emission (`__Cont` for handler-keyed actors)
-that the cut deferred. SHAREABLE_HANDLERS.md retires when it lands. First-slice cuts to lift later: mixed handlers with
+wait for the `using` rename). **And `defer`'s first half is
+built** (same day: the word, the contract point with its four escape hooks,
+upper-bound checking, and forwarding deferral end to end on both backends —
+[defer-deduction], COMPLETED.md's log). What remains of the whole design is
+**one piece: parking inside mixed handlers** — the servant-continuation
+emission (`__Cont_H` for handler-keyed actors, the `__parked` field,
+`resume` dispatch rebuilding `__Msg_H` variants, in both backends — mirror
+`emit_actor_body`'s face-keyed resume), the checker lift of the staged
+`replyto` refusal (the capture hook already requires `defer`), and the
+servant node's gate treatment in the graph (a gated park makes its sends
+Wait-kind, mirroring the actor logic). SHAREABLE_HANDLERS.md retires when it
+lands. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
 dispatch), overloaded servant members, several faces, and `k@self` inside
 mixed servants (untested).

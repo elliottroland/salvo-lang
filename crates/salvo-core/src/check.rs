@@ -926,6 +926,7 @@ fn check_once<'p>(
             handler_spawns: false,
             facade_handler: None,
             confined_state: Vec::new(),
+            servant_reply_params: None,
             own_task: None,
             can_use: false,
             can_spawn: false,
@@ -1318,6 +1319,12 @@ struct Checker<'p, 'r> {
     /// touching one is the confinement diagnostic rather than an "unknown
     /// variable".
     confined_state: Vec<String>,
+    /// [defer-deduction] [mixed-handler] The `Reply`-typed parameters of the
+    /// **mixed send member** being checked, each with whether its clause
+    /// declares `defer`. `Some` only in that context: it is the rung-4
+    /// contract point — an escape of an undeclared reply is refused there,
+    /// and nowhere else is the declaration required.
+    servant_reply_params: Option<Vec<(String, bool)>>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
     /// [actor-spawn-effect] Whether the current fn (or the handler whose
@@ -1899,6 +1906,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if f.is_send && mixed {
                             self.check_local_send_member(h, f);
                         }
+                        // [defer-deduction] The rung-4 contract point: while
+                        // a mixed send member's body is checked, its reply
+                        // parameters and their declared deferrals are what
+                        // the escape hooks consult.
+                        let saved_replies = std::mem::replace(
+                            &mut self.servant_reply_params,
+                            (f.is_send && mixed).then(|| {
+                                f.params
+                                    .iter()
+                                    .filter(|p| !p.implicit)
+                                    .filter(|p| {
+                                        matches!(
+                                            &p.ty,
+                                            ast::Type::Named { base, .. }
+                                                if base.name.name == REPLY_TYPE
+                                        )
+                                    })
+                                    .map(|p| {
+                                        let deferred = f.deductions.iter().flatten().any(|d| {
+                                            matches!(d.kind, ast::DeductionKind::Deferred)
+                                                && d.param_name()
+                                                    .is_some_and(|n| n.name == p.name.name)
+                                        });
+                                        (p.name.name.clone(), deferred)
+                                    })
+                                    .collect()
+                            }),
+                        );
                         // [mixed-handler] A sync member of a mixed handler is
                         // the façade: it runs on the caller's thread over the
                         // façade value, so it sees the constructor parameters
@@ -1939,6 +1974,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             std::mem::replace(&mut self.own_discharges, context);
                         self.check_fn(f, &h.params, member_state);
                         self.own_discharges = saved_discharges;
+                        self.servant_reply_params = saved_replies;
                         self.facade_handler = saved_facade;
                         self.confined_state = saved_confined;
                         if facade {
@@ -2420,9 +2456,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // message cannot carry: the payload crosses the seam and the sender
         // gives it up.
         for d in f.deductions.iter().flatten() {
-            // Every entry but `Moved` keeps the parameter: a bare `=> p`, an
-            // exhaustive or subtractive qualifier list, or a projection.
-            if matches!(d.kind, ast::DeductionKind::Moved) {
+            // Every entry but `Moved`/`Deferred` keeps the parameter: a bare
+            // `=> p`, an exhaustive or subtractive qualifier list, or a
+            // projection. A deferral consumes too — what differs is what the
+            // body may do with the obligation [defer-deduction].
+            if matches!(
+                d.kind,
+                ast::DeductionKind::Moved | ast::DeductionKind::Deferred
+            ) {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
@@ -2609,7 +2650,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let inner = self.enter_generics(&f.generics);
         for d in f.deductions.iter().flatten() {
-            if matches!(d.kind, ast::DeductionKind::Moved) {
+            // [defer-deduction] A deferral consumes too.
+            if matches!(
+                d.kind,
+                ast::DeductionKind::Moved | ast::DeductionKind::Deferred
+            ) {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
@@ -8237,7 +8282,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(list) = &entry.decl.deductions {
             if list.iter().any(|d| {
                 d.param_name().is_some_and(|n| n.name == param)
-                    && matches!(d.kind, ast::DeductionKind::Moved)
+                    && matches!(
+                        d.kind,
+                        ast::DeductionKind::Moved | ast::DeductionKind::Deferred
+                    )
             }) {
                 return true;
             }
@@ -9309,6 +9357,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, &want);
+            // [defer-deduction] Forwarding a received reply to another actor
+            // extends its dependency chain past this activation.
+            self.reply_escape(a, "forwarding it to another actor");
             // A payload crosses the seam: the sender gives it up
             // [deduce-consume]. This is what makes a reply token's linearity
             // discharge by sending it to an actor.
@@ -9709,7 +9760,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         for d in f.deductions.iter().flatten() {
-            if matches!(d.kind, ast::DeductionKind::Moved) {
+            // [defer-deduction] A deferral consumes too.
+            if matches!(
+                d.kind,
+                ast::DeductionKind::Moved | ast::DeductionKind::Deferred
+            ) {
                 continue;
             }
             let Some(name) = d.param_name() else { continue };
@@ -9824,6 +9879,39 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.out.facade_sends.insert(self.key(span), id.name.clone());
         Some(Ty::none())
+    }
+
+    /// [defer-deduction] [mixed-handler] The escape check at the rung-4
+    /// contract point: inside a mixed send member, a `Reply` parameter that
+    /// leaves this activation any way but the discharge — passed to a
+    /// function, forwarded to an actor, stored, captured — must be declared
+    /// `defer`, which is the handler's rung-4 opt-in. An upper bound the
+    /// other way: a declared `defer` that the body never exercises is legal
+    /// (SH-10(b), user decision 2026-09-19).
+    fn reply_escape(&mut self, arg: &Expr, how: &str) {
+        let Some(list) = &self.servant_reply_params else {
+            return;
+        };
+        let Expr::Ident(id) = arg else { return };
+        let Some((name, deferred)) = list
+            .iter()
+            .find(|(n, _)| *n == id.name)
+            .cloned()
+        else {
+            return;
+        };
+        if deferred {
+            return;
+        }
+        self.error(
+            id.span,
+            format!(
+                "`{name}` is a reply this member received, and {how} lets its \
+                 answer outlive the activation: declare it — `=> defer {name}` — \
+                 which is the handler's opt-in to deferred answers, and what the \
+                 deadlock graph prices [mixed-handler]"
+            ),
+        );
     }
 
     /// [mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
@@ -10115,6 +10203,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // Stored in the continuation, so a bare name moves
             // [deduce-consume].
+            self.reply_escape(c, "capturing it in a continuation");
             self.fate_move(c, "capture", "a `replyto`", c.span());
         }
         // [task-mint] Who minted it, for FC-6's tracing: a handler, or another
@@ -10164,9 +10253,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 span,
                 format!(
-                    "`{form}` inside a mixed handler is not supported yet: a deferred \
-                     answer is the `defer` build's business — answer within the \
-                     activation instead"
+                    "`{form}` inside a mixed handler is not supported yet: the \
+                     servant's continuation machinery is not emitted. Until it is, \
+                     defer by **forwarding** — declare `=> defer out` and send the \
+                     reply to an actor that answers it"
                 ),
             );
             for c in captures {
@@ -10321,6 +10411,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else {
                 "a `replyto`"
             };
+            self.reply_escape(c, "capturing it in a continuation");
             self.fate_move(c, "capture", moved_by, c.span());
         }
         self.out
@@ -11372,7 +11463,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 ast::DeductionKind::Remove(items) => {
                                     (true, QualEffect::Remove(names(items)))
                                 }
-                                ast::DeductionKind::Moved => {
+                                ast::DeductionKind::Moved
+                                | ast::DeductionKind::Deferred => {
                                     (false, QualEffect::Exhaustive(Vec::new()))
                                 }
                             },
@@ -13354,6 +13446,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .lookup(&id.name)
                         .is_some_and(|var| var.is_handler_state);
                     if is_state {
+                        self.reply_escape(value, "storing it in state");
                         self.fate_move(value, "store", "a handler state assignment", value.span());
                     }
                     // Reassignment: the variable's old value is gone, so
@@ -18398,6 +18491,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subst = best.subst.clone();
         let decl = best.decl;
         let best_key = best.key;
+        // [defer-deduction] The escape check: in a mixed send member, a
+        // reply parameter handed to any callee but the discharge (std's
+        // `send`, whose first argument is the token being fulfilled) leaves
+        // the activation and must be declared `defer`.
+        if self.servant_reply_params.is_some() {
+            let is_discharge = decl.name.name == "send" && decl.intrinsic;
+            for (i, arg) in args.iter().enumerate() {
+                if is_discharge && i == 0 {
+                    continue;
+                }
+                self.reply_escape(arg, "passing it to a function");
+            }
+        }
         // Record argument coercions against the selected parameter types.
         for (i, pt) in best.pairings.clone() {
             let logical = arg_tys[i].clone();

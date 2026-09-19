@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1179 tests, complete: the toolchain tests are
+cargo test                  # 1184 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,43 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 6: `defer`, first half (2026-09-19, SH-10 —
+the word, the contract point, and forwarding deferral end to end).** New rule
+**[defer-deduction]**; with it, SH-9's direct-answer default is carried by
+the declared opt-in instead of by a blanket cut.
+
+- **The word**: `DeductionKind::Deferred`, parsed as `defer name` in any
+  deduction clause (contextual — a parameter named `defer` stays writable).
+  To callers and to every consumer of contract shape (deduce, lends, refine,
+  emitters' param modes, all-consumed requirements) a deferral **is a move**;
+  the difference is what the body may do with the obligation.
+- **The contract point**: inside a mixed handler's `send fn` member, a
+  `Reply` parameter that leaves the activation any way but the discharge
+  must be declared `defer`. Four escape hooks, each naming the declaration:
+  the resolved-call site (any callee but std's intrinsic `send` in its first
+  position), the addr-send payload, the `replyto` capture, and the
+  state-assignment store. **Upper bound** (SH-10(b)): a declared `defer` the
+  body never exercises is legal; nowhere outside the contract point is the
+  declaration required (ordinary fns, free send fns and actor handlers keep
+  the inferred regime — their escapes are already the graph's business).
+- **What it buys today: forwarding** — rung 4's smallest shape. The
+  `Delphi`/`Forwarding` program runs on both backends with identical output
+  (`first 7` / `second 14`): the servant declares `=> defer out`, hands the
+  reply to another actor, and the façade's wait ends when *that* actor
+  discharges it, one activation later. No emitter changes were needed for
+  forwarding — a `Reply` payload already crosses seams.
+- **Parking stays refused by name** inside mixed handlers, now with the
+  working respelling in the diagnostic ("defer by forwarding"). The lift is
+  the one remaining piece of the whole design: the servant-continuation
+  emission (`__Cont` for handler-keyed actors, `__parked`, `resume` dispatch,
+  both backends), plus its graph edge (a mixed servant's park mirrors the
+  gate logic on its servant node).
+
+Tests: **1184 (+5)** — a parser test for the clause, three checker tests
+(escape refused ×2 forms, declared-defer permits + upper bound, the staged
+parking refusal naming the respelling), and the compile-and-run case on both
+backends.
 
 **Shareable handlers, slice 5: the `use … on POOL` sugar (2026-09-19,
 SH-7).** `use Counter() on pool(1)` ≡ `let __a = spawn Counter() on pool(1)`
@@ -12789,7 +12826,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1179)
+## Test inventory (all green: 1184)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

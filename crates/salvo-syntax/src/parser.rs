@@ -1712,6 +1712,21 @@ impl<'s> Parser<'s> {
                 kind: DeductionKind::Moved,
             });
         }
+        // [defer-deduction] `defer elem`: consumed, and the obligation may
+        // outlive the frame. Contextual — a parameter named `defer` stays
+        // writable as a bare keep (`=> defer`), since the form here needs a
+        // name after the word.
+        if self.at_word("defer")
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(_))
+        {
+            self.bump();
+            let name = self.ident()?;
+            return Some(Deduction {
+                span: start.to(name.span),
+                target: DeductionTarget::Param { name, path: Vec::new() },
+                kind: DeductionKind::Deferred,
+            });
+        }
         // Bare `proj[from: …]`: opaque.
         if matches!(&self.peek().kind, TokenKind::KwProj) {
             let r = self.parse_type_ref()?;

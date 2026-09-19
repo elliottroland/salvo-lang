@@ -575,6 +575,13 @@ pub enum DeductionKind {
     Remove(Vec<TypeRef>),
     /// `=> !list` / `=> list: Nothing`: moved (the caller loses access).
     Moved,
+    /// [defer-deduction] `=> defer out`: consumed like `!out`, and the
+    /// obligation it carries **may outlive the frame** — parked, stored,
+    /// forwarded or captured instead of discharged here (SH-10, user
+    /// decision 2026-09-19). An upper bound: a declared `defer` need not be
+    /// exercised. The load-bearing consequence is the mixed handler's
+    /// rung-4 opt-in [mixed-handler]; elsewhere it is checked documentation.
+    Deferred,
     /// `proj[from: a, b]`: a projection of the named parameters — of the
     /// entry's target (a result path, a parameter, a parameter's field) or,
     /// with no target, held somewhere inside the result [proj-infer].

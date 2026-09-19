@@ -2628,15 +2628,49 @@ LANGUAGE.md remains the source of truth for everything that does.
     parameters — and no overloading (dispatch is by member name).
   * **First-slice cuts, each a diagnostic naming its remedy**: no
     dependencies (take an `Addr` constructor parameter and send to it), one
-    face only, and no `replyto` inside a mixed handler — a deferred answer is
-    the `defer` build's business, which is also what will price it. Until
-    `defer` lands, every mixed handler is therefore **direct-answer (rung 3)
-    by construction**: its servant cannot park, so a façade wait is terminal
-    — SH-9's default, enforced by the cut before it is enforced by the rule.
+    face only, and no `replyto` inside a mixed handler — parking waits on the
+    servant-continuation emission, and the diagnostic names the forwarding
+    respelling `defer` already supports [defer-deduction]. A mixed handler is
+    **direct-answer (rung 3) unless a member declares `defer`** — SH-9's
+    default, now carried by the declared opt-in.
   * Lowering: [rs-mixed] and [kt-mixed] — a handler-keyed message enum/class
     (`__Msg_H`) and actor body for the servant, a `__Fac_H` value for the
     façade, and the spawn answering the shared handle over it. Constructor
     arguments are evaluated once and shared between handler and façade.
+
+* [defer-deduction] **`defer p` is the escaped disposition of a linear
+  parameter** (SH-10, user decisions 2026-09-19; built the same day, first
+  half). A linear parameter's obligation has three fates relative to a call:
+  discharged in-frame, returned, or **escaped** — parked, stored, forwarded,
+  captured — and `defer` is the third arm made declarable, riding the
+  deduction syntax (`send fn after(d: Duration, out: Reply<Fired>) => !d,
+  defer out`). To the *caller* a deferral is a move (`!p` and `defer p` are
+  the same contract shape); what differs is what the body may do with the
+  obligation.
+  * **The load-bearing consequence is the mixed handler's rung-4 opt-in**
+    [mixed-handler]: inside a mixed handler's `send fn` member, a `Reply`
+    parameter that leaves the activation any way but the discharge (std's
+    `send`, its first argument) **must be declared `defer`** — inference
+    alone is not accepted at the contract point, so an edit that starts
+    deferring errors at the member rather than detonating in a consumer's
+    build. Checked at the sites an escape has: passing it to a function,
+    forwarding it to another actor, storing it in state, capturing it in a
+    continuation.
+  * **An upper bound, both ways** (SH-10(b)): a declared `defer` the body
+    never exercises is legal — the member reserves the right, and pays with
+    graph precision, a self-inflicted price. (The effect-member level of the
+    bound has no customer until mixed handlers wear actor faces, and arrives
+    with T-4's intersection.)
+  * **Nowhere else is the declaration required**: ordinary functions, free
+    `send fn`s and actor handlers keep the inferred regime — their escapes
+    are already the graph's business through gates, sends and task tracing.
+    `defer` on them is checked documentation.
+  * **What deferral buys today is forwarding**: the servant hands the reply
+    to another actor, whose discharge ends the caller's wait one activation
+    later — rung 4's smallest shape, running on both backends. **Parking**
+    (`replyto` inside a mixed handler) is still refused by name: the
+    servant's continuation machinery is not emitted yet, and the diagnostic
+    names the forwarding respelling that works.
 
 * [actor-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
   structural rule (a)): a value may not transitively hold

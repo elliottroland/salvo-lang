@@ -447,7 +447,12 @@ pub(crate) fn from_written(
             };
             let invalidates = mutated.contains(&name);
             let effect = match &d.kind {
-                DeductionKind::Moved => {
+                // [defer-deduction] Consumed either way: a deferred
+                // obligation leaves the caller's hands exactly as a moved
+                // one does — what differs is only what the *body* may do
+                // with it, which is the checker's business, not the
+                // contract-shape's.
+                DeductionKind::Moved | DeductionKind::Deferred => {
                     return ParamDeduction {
                         param: name,
                         kept: false,
@@ -1194,7 +1199,7 @@ impl<'p> Walk<'_, 'p> {
                             .map(|n| {
                                 !list.iter().any(|d| {
                                     d.param_name().is_some_and(|q| q.name == n.name)
-                                        && matches!(d.kind, DeductionKind::Moved)
+                                        && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
                                 })
                             })
                             .unwrap_or(true);

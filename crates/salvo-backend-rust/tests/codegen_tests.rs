@@ -8965,6 +8965,64 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
+/// [defer-deduction] [mixed-handler] A **rung-4** mixed handler: the servant
+/// declares `=> defer out` and answers by *forwarding* the reply to another
+/// actor — the caller's wait ends when Delphi discharges it, one activation
+/// later. Also exercises the `use … on POOL` sugar. Same output as Kotlin.
+const DEFERRING: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Delphi() of Oracle {
+    mailbox { capacity: 4 }
+    n: Int = 0
+
+    send fn divine(out: Reply<Int>) {
+        n = n + 7
+        send(out, n)
+    }
+}
+
+handler Forwarding(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        oracle.divine(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let oracle = spawn Delphi() on pool(1)
+    use Forwarding(oracle) on pool(1)
+    println("first ${next()}")
+    println("second ${next()}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_deferring_mixed_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", DEFERRING)]);
+    run_rust_files(&files, "deferring", "first 7\nsecond 14\n");
+}
+
 fn generate_mixed_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", MIXED)])
 }

@@ -157,7 +157,7 @@ pub fn kept_params(decl: &FnDecl) -> Vec<usize> {
             // bodiless default); only a written move consumes.
             Some(list) => !list.iter().any(|d| {
                 d.param_name().is_some_and(|n| n.name == p.name.name)
-                    && matches!(d.kind, DeductionKind::Moved)
+                    && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
             }),
         })
         .map(|(i, _)| i)
