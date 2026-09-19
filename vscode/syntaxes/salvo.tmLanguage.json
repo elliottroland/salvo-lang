@@ -153,7 +153,7 @@
         {
           "comment": "a capability effect in an effect list — a keyword by position, not a reserved word",
           "name": "keyword.other.salvo",
-          "match": "(?<=[\\[,])\\s*(spawn|waitfor)\\b(?=\\s*[,\\]])"
+          "match": "(?<=[\\[,])\\s*(spawn)\\b(?=\\s*[,\\]])"
         },
         {
           "comment": "the placement clause — a keyword by position, not a reserved word",

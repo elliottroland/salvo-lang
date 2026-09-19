@@ -217,6 +217,28 @@ fn build(
             }
         }
     }
+    // [actor-waitfor] Which handlers *wait*: directly (a member contains a
+    // `waitfor` expression) or transitively (a member binds — constructs — a
+    // handler that waits, running its members inline). A fixpoint over the
+    // recorded constructions, anchored at whatever brought the wait in.
+    let mut waits_of: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
+    for (handler, (file, span)) in &out.waitfor_sites {
+        waits_of.entry(handler.as_str()).or_insert((*file, *span));
+    }
+    loop {
+        let mut grew = false;
+        for (owner, constructed, (file, span)) in &out.handler_constructs {
+            if waits_of.contains_key(constructed.as_str())
+                && !waits_of.contains_key(owner.as_str())
+            {
+                waits_of.insert(owner.as_str(), (*file, *span));
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
     for (file_idx, ast) in program.modules.iter().enumerate() {
@@ -272,13 +294,13 @@ fn build(
                 .iter()
                 .find(|(handler, _)| *handler == h.name.name)
                 .map(|(_, key)| *key);
-            // [waitfor-effect] The signature half: a handler that declares
-            // `[waitfor]` waits like a gate, and the declaration is the site
-            // to blame — that is what "from signatures" means.
-            let blocks = h.effects.iter().flatten().find_map(|e| match e {
-                EffectRef::WaitFor(span) => Some((file_idx, *span)),
-                _ => None,
-            });
+            // [actor-waitfor] The occupancy half, **inferred** since SH-5(d)
+            // deleted the `[waitfor]` declaration (user decision 2026-09-19):
+            // a handler waits when a member of its own contains a `waitfor`
+            // expression, or when it binds a handler that waits — the
+            // propagation the deleted capability used to spell, computed
+            // here over the recorded sites and constructions instead.
+            let blocks = waits_of.get(h.name.name.as_str()).copied();
             // Declared dependencies: any member may call any of them, and a
             // helper fn declaring `[Q]` is reachable only if the handler
             // declares `Q` too — so the declaration covers the whole call
@@ -501,8 +523,8 @@ fn report(
             first.file,
             first.span,
             format!(
-                "these actors wait for each other: {path} ({handlers}). A handler that \
-                 declares `[waitfor]` serves no message while it waits, so each of them \
+                "these actors wait for each other: {path} ({handlers}). A handler whose \
+                 member waits serves no message while it waits, so each of them \
                  is waiting for an answer the next can only produce after its own \
                  arrives — and a thread of its own does not help, since the fulfilment \
                  routes back through a stalled mailbox. Break the cycle: park a \

@@ -104,7 +104,7 @@ fn errors(src: &str) -> Vec<String> {
 fn a_monitor_spawn_shares_a_plain_effect_handler() {
     let errs = errors(
         "\
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     let rng = spawn CyclicRandom(12345)
     use rng
     let first = next()

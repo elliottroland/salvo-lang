@@ -3230,9 +3230,9 @@ impl<'p> Emitter<'p> {
             .filter_map(|e| match e {
                 EffectRef::Effect(r) => Some(r.clone()),
                 EffectRef::Use(_) => None,
-                // [actor-spawn-effect] [waitfor-effect] Capabilities, not
-                // effect types: no handler parameter is threaded for either.
-                EffectRef::Spawn(_) | EffectRef::WaitFor(_) => None,
+                // [actor-spawn-effect] A capability, not an effect type: no
+                // handler parameter is threaded for it.
+                EffectRef::Spawn(_) => None,
             })
             .collect();
         refs.iter()

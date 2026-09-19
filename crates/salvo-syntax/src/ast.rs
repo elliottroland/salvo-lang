@@ -501,13 +501,6 @@ pub enum EffectRef {
     /// resolve and nothing to thread — `fn main() [use, spawn]` is the
     /// typical entry point.
     Spawn(Span),
-    /// [waitfor-effect] The special `waitfor` effect: the right to occupy
-    /// this thread until an answer arrives. Lowercase and compiler-owned like
-    /// the other two, and validated by *placement* — whatever carries it must
-    /// run on a `Dedicated Pool` [waitfor-dedicated], of which `main`'s own
-    /// thread is one. Accepted on a function, on a handler's dependency list,
-    /// and — alone among the effect refs — on an effect declaration's member.
-    WaitFor(Span),
     /// A named effect, possibly generic: `Random<Int>`.
     Effect(TypeRef),
 }
@@ -731,7 +724,6 @@ impl fmt::Display for EffectRef {
         match self {
             EffectRef::Use(_) => write!(f, "use"),
             EffectRef::Spawn(_) => write!(f, "spawn"),
-            EffectRef::WaitFor(_) => write!(f, "waitfor"),
             EffectRef::Effect(r) => write!(f, "{r}"),
         }
     }

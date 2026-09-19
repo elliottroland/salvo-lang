@@ -177,7 +177,7 @@ fn report_line(counter: Addr<Counter>, label: Str, out: Reply<Str>) [] -> None
     counter.total(replyto formatted(label, out))
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
 
     // A pool is an ordinary value: one pool, several actors on it.

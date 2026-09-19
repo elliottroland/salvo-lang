@@ -97,11 +97,11 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.control.salvo",
         "a reply-token mint",
     ),
-    // `[use, spawn, waitfor]`: the lowercase capability effects, which sit in
+    // `[use, spawn]`: the lowercase capability effects, which sit in
     // an effect list beside uppercase effect names. A comma or a bracket on
     // each side is the shape, and `use` needs no entry — it is a real keyword.
     (
-        "(?<=[\\\\[,])\\\\s*(spawn|waitfor)\\\\b(?=\\\\s*[,\\\\]])",
+        "(?<=[\\\\[,])\\\\s*(spawn)\\\\b(?=\\\\s*[,\\\\]])",
         "keyword.other.salvo",
         "a capability effect in an effect list",
     ),

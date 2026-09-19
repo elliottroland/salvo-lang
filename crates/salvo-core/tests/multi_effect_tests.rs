@@ -126,7 +126,7 @@ handler ManualTime() of Timer, TimerCtl {
     }
 }
 
-fn main() [spawn, waitfor] -> None {
+fn main() [spawn] -> None {
     let (timer, ctl) = spawn ManualTime() on pool(1)
     let n = waitfor c: Reply<Int> { ctl.pending(c) }
     let s = waitfor f: Reply<Str> {
@@ -193,7 +193,7 @@ handler Ticking() of Timer {
     }
 }
 
-fn main() [spawn, waitfor] -> None {
+fn main() [spawn] -> None {
     let timer = spawn Ticking() on pool(1)
     let s = waitfor f: Reply<Str> { timer.after(1, f) }
     discard(s)

@@ -73,16 +73,13 @@ handlers end to end on both backends with identical output; [monitor-handler],
 direct-answer default is enforced by construction meanwhile (no `replyto`
 inside a mixed handler until `defer`). **SH-4 is built too** (same day: the
 occupancy edge and the servant node, no-downgrade classification, the upcall
-cycle refused with the three remedies — COMPLETED.md's log). What remains:
-**SH-5's deletion** — with one prerequisite found while building SH-4: the
-graph's Block edge keys on the `[waitfor]` *declaration*, so a non-mixed
-handler whose member waits (the TestTicker shape) would lose its edge with
-the declaration; record the `waitfor` **site** in `Checked` (which handler's
-members contain one) and key the edge on that, then delete the capability,
-the propagation, the three grant checks and the fn-type refusal, and sweep
-the ~99 `[waitfor]` occurrences (every test `main`, the examples, the specs).
-Then the **`defer` build** (lifts the no-replyto cut, draws the rung-3/4
-line), and **SH-7's sugar**. First-slice cuts to lift later: mixed handlers with
+cycle refused with the three remedies — COMPLETED.md's log). **And SH-5(d) is built**
+(same day: the capability deleted whole, the block edge site-inferred with
+construction-propagation, the sweep done — COMPLETED.md's log). What remains
+of the whole design: the **`defer` build** (lifts the no-replyto cut inside
+mixed handlers, draws the rung-3/4 line, brings the declared-`defer` opt-in
+and its upper-bound checking), and **SH-7's sugar** (`use H() on POOL`).
+SHAREABLE_HANDLERS.md retires when those two land. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
 dispatch), overloaded servant members, several faces, and `k@self` inside
 mixed servants (untested).
@@ -576,15 +573,12 @@ anything scheduled.
   the recorded order of postures puts it last, but a test that reads the clock
   inside a loop pays per iteration. The alternatives are already recorded —
   scheduler-owned virtual time (which makes a reading a local read again) or
-  SH-5's deletion, **now decided** (2026-09-19, option (d)): when it is built,
-  the `[waitfor]` declaration and the dedicated thread both go.
-- **The dedicated thread is the stance's real cost, and it is per waiting
-  actor** — until SH-5(d) is built. Today `[waitfor]` propagates to whoever
-  binds the clock, so every actor under test that reads the time needs
-  `on thread()`; two actors reading one virtual clock is two OS threads. The
-  2026-09-19 decision removes the requirement with the capability; the T-2
-  upgrade path (scheduler-owned virtual time) remains the answer if the *round
-  trip* itself ever bites.
+  SH-5's deletion, **built** (2026-09-19): the `[waitfor]` declaration and
+  the owed dedicated thread are both gone.
+- **The round trip per reading is the stance's remaining cost** — the owed
+  dedicated thread went with SH-5(d) (built 2026-09-19). The T-2 upgrade path
+  (scheduler-owned virtual time) remains the answer if the round trip ever
+  bites.
 
 ### Module visibility — leftovers (2026-09-18)
 

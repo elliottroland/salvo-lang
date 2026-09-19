@@ -357,7 +357,8 @@ export struct Fired {
 // cannot block mid-body [actor-kind], so "wait for two seconds" can only mean
 // "park a continuation and be resumed". `after` therefore takes the
 // continuation rather than returning anything, and the caller mints it with
-// `replyto` (in a handler) or `waitfor` (anywhere that may occupy its thread).
+// `replyto` (in a handler) or `waitfor` (anywhere — a wait needs no
+// declaration, and serves its pool while it waits).
 //
 // There is no cancellation: a timer nobody wants any more fires into a
 // continuation that finds its work already done — one no-op activation, the
@@ -429,7 +430,7 @@ export actor effect TimerCtl {
 // deadlines, the two must agree, and the way to make them agree is a handler of
 // your own whose reading is a deadline of zero on this very timer:
 //
-//     handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+//     handler TestTicker(timer: Addr<Timer>) of Ticker {
 //         fn tick() -> Tick {
 //             let fired = waitfor answer: Reply<Fired> {
 //                 timer.after(nanos(0), answer)

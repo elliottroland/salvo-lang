@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1180 tests, complete: the toolchain tests are
+cargo test                  # 1178 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,52 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 4: the `[waitfor]` capability is deleted
+(2026-09-19, SH-5(d)).** Two days old, and priced against a hazard
+[waitfor-pump] had already removed — the full argument is the day's earlier
+log entries and §6 of the shareable-handler document. A wait now needs no
+declaration anywhere: not on the function, not on the handler, not on an
+effect member, not at any caller, and no placement is owed. What replaced
+each job, and what survived:
+
+- **The graph's block edge is site-inferred** (the prerequisite found with
+  SH-4): `Checked` records which handlers' members contain a `waitfor`
+  (`waitfor_sites`) and which handlers construct which (`handler_constructs`
+  — `use` statements in members, and spawn-clause constructions attributed to
+  the *child*), and the graph computes "may wait" as a fixpoint — the
+  propagation the deleted capability used to spell, computed instead. The
+  wait-cycle test (`Timing`/`Clocking`) passes unchanged in substance: the
+  same cycle, now inferred, anchored at the wait site.
+- **Deleted**: `EffectRef::WaitFor` (the variant, the parser arm), `can_wait`
+  and `handler_waits` (and the mixed-handler façade carve, now moot), the
+  three grant checks (spawn placement, use-site binding, task-mint target),
+  the call-site and effect-member propagation checks, and the
+  [effect-member-no-effects] exception (members refuse every effect ref
+  again).
+- **Survived on its own footing**: the lambda refusal (a wait inside a
+  function value would occupy call sites nothing can enumerate, so the graph
+  could not place the edge — reworded to say so); `thread()`, `Dedicated
+  Pool` and the `on` clause's linear consumption (placement one may *want*);
+  and `waitfor` in an effect list is a **parse error naming the deletion**
+  ("occupancy is inferred … delete it from this list") rather than an
+  unknown name.
+- **The sweep**: every `[use, spawn, waitfor]` in the test suites, corpus and
+  examples; `TestTicker` loses its declaration in the example, both backends'
+  codegen tests and LANGUAGE.md's own snippet; std's prose
+  (`core/actor.sv`, `time.sv`); the grant-check tests rewritten to assert
+  the new rules (any function waits, any placement spawns a waiting handler,
+  a waiting task needs nothing; the on-clause consumption test unchanged);
+  [waitfor-effect] rewritten as the deletion record, [waitfor-dedicated] as
+  placement-by-choice; README, LANGUAGE.md's task-body and coupling prose.
+  `examples/time` runs identically after the sweep — the posture's cost
+  paragraph now describes the round trip, not a thread per waiting actor.
+
+Tests: **1178 (−2 net: the propagation and effect-member grant tests went
+with their subject; a parse-level deletion test arrived)**, fresh nextest
+1178/1178. With this, **`core.time`'s recorded "dedicated thread per waiting
+actor" cost is gone** — the ROADMAP leftovers that pointed at SH-5(b)/(d)
+are settled.
 
 **Shareable handlers, slice 3: occupancy in the deadlock graph (2026-09-19,
 SH-4).** The price of rung 4, quoted statically — and the piece that makes
@@ -12729,7 +12775,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1180)
+## Test inventory (all green: 1178)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

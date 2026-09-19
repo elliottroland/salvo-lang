@@ -179,10 +179,10 @@ fn main() [use] {
   runs by being scheduled, so an ordinary synchronous function can wire future
   work with `replyto` and return, on the pool it is running on unless an `on`
   clause says otherwise. Where a frame does mean
-  to wait, `waitfor` is the bridge and `[waitfor]` the capability it takes —
-  validated by *placement*, since `thread()` answers a `Dedicated Pool` that
-  the `on` clause consumes, so a thread that may be occupied has exactly one
-  occupant. A wait serves its own pool while it waits rather than merely
+  to wait, `waitfor` is the bridge — no capability, no declaration: occupancy
+  is inferred, priced by the deadlock graph, and reported by name at runtime.
+  `thread()` answers a `Dedicated Pool` the `on` clause consumes, for work
+  that *wants* a thread of its own. A wait serves its own pool while it waits rather than merely
   blocking on it. Actors depend on each
   other through ordinary effect lists (`use addr` binds one to a scope, so
   callers never learn their capability is an actor), hold queues of obligations

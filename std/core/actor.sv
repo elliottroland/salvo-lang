@@ -8,8 +8,8 @@
 // The forms that use them are language syntax rather than functions, because
 // a handler is not a value: `spawn H(args) use D(...) on POOL`
 // mints an [Addr], `replyto k(captures)` mints a [Reply], and `waitfor` is
-// the bridge into both — `main`'s, and any frame's that declares
-// `[waitfor]`. See LANGUAGE_SPEC.md's "Actors".
+// any frame's bridge into both — no declaration needed: a wait serves its
+// pool while it waits. See LANGUAGE_SPEC.md's "Actors".
 
 // [actor-spawn-expr] A handle to a running actor, and the *only* thing a
 // spawn hands back: the state behind it is the child's alone, so an `Addr` is
@@ -112,7 +112,7 @@ export actor effect Faults {
 export intrinsic fn pool(size: Int, sink: Addr<Faults>) [spawn] -> Pool => size, sink
 
 // [waitfor-dedicated] One fresh thread, owned by whatever is placed on it.
-// This is the placement a `[waitfor]`-carrying handler needs: a wait may
+// Placement one may *want* for work that occupies its thread: a wait may
 // occupy its thread until the answer arrives, so it must not be a thread
 // anything else was counting on. Spending the value is spending the thread —
 // `on thread()` consumes it, and there is no second spawn onto the same one.

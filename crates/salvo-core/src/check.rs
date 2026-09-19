@@ -403,6 +403,18 @@ pub struct Checked {
     /// mapped to that member's name. The emitters lower each to an enqueue
     /// on the façade value's addr.
     pub facade_sends: HashMap<Key, String>,
+    /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
+    /// expression, with the site: since SH-5(d) (user decision 2026-09-19)
+    /// occupancy is **inferred**, not declared, and this is the graph's
+    /// input where the deleted `[waitfor]` declaration used to be.
+    pub waitfor_sites: Vec<(String, Key)>,
+    /// [actor-deadlock-cycle] Handler constructions inside handlers: the
+    /// owner (the handler whose members will run the constructed one
+    /// inline), the constructed handler's name, and the site. What lets the
+    /// graph propagate "may wait" through bindings — a handler that binds a
+    /// waiting handler waits, which the deleted capability's propagation
+    /// used to spell.
+    pub handler_constructs: Vec<(String, String, Key)>,
     /// [task-mint] The free `send fn` each *task* mint targets, keyed by the
     /// `replyto` span: a [`FnKey`] rather than a name, because a task target is
     /// resolved through the scope ladder and the emitters need the declaration
@@ -912,13 +924,11 @@ fn check_once<'p>(
             handler_ofs: Vec::new(),
             own_handler: None,
             handler_spawns: false,
-            handler_waits: false,
             facade_handler: None,
             confined_state: Vec::new(),
             own_task: None,
             can_use: false,
             can_spawn: false,
-            can_wait: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
             next_var_id: 0,
@@ -1293,10 +1303,6 @@ struct Checker<'p, 'r> {
     /// [task-mint] The **free `send fn`** whose body is being checked, if any:
     /// what its sends and its own mints are attributed to.
     own_task: Option<String>,
-    /// [waitfor-effect] Whether the handler being checked declared `waitfor`
-    /// among its dependencies. Its members inherit the capability, and its
-    /// *spawn site* pays for it: the placement must be a `Dedicated Pool`.
-    handler_waits: bool,
     /// [mixed-handler] The handler whose **sync member** is being checked,
     /// when that handler is mixed (plain faces + `send fn` members, SH-1):
     /// the member is the façade, running on the caller's thread over the
@@ -1318,12 +1324,6 @@ struct Checker<'p, 'r> {
     /// member it is) declared the `spawn` capability — the gate a `spawn`
     /// expression checks.
     can_spawn: bool,
-    /// [waitfor-effect] Whether the current fn (or the handler whose member
-    /// it is) declared the `waitfor` capability — the gate a `waitfor`
-    /// expression checks. What makes holding it safe is *placement*: whatever
-    /// carries it runs on a `Dedicated Pool` [waitfor-dedicated], and `main`'s
-    /// own thread is one.
-    can_wait: bool,
     /// Enclosing loops of the code being checked; `break`/`continue`
     /// statements record their value contributions into the innermost
     /// entry [while-value]. Lambda bodies are a barrier.
@@ -1850,15 +1850,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .flatten()
                         .any(|e| matches!(e, EffectRef::Spawn(_)));
                     let saved_spawns = std::mem::replace(&mut self.handler_spawns, spawns);
-                    // [waitfor-effect] And `waitfor` the same way: a handler
-                    // that declares it may block from any member — which is
-                    // why its spawn site must place it on a dedicated thread.
-                    let waits = h
-                        .effects
-                        .iter()
-                        .flatten()
-                        .any(|e| matches!(e, EffectRef::WaitFor(_)));
-                    let saved_waits = std::mem::replace(&mut self.handler_waits, waits);
                     let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
                     let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
                     // [mixed-handler] Plain faces + `send fn` members: the
@@ -1933,9 +1924,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         } else {
                             Vec::new()
                         };
-                        let facade_waits = self.handler_waits || facade;
-                        let saved_facade_waits =
-                            std::mem::replace(&mut self.handler_waits, facade_waits);
                         let member_state: &[ast::FieldDecl] =
                             if facade { &[] } else { &h.state };
                         // [linear-group] [linear-discard] A handler member
@@ -1956,11 +1944,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if facade {
                             self.handler_deps = saved_facade_deps;
                         }
-                        self.handler_waits = saved_facade_waits;
                     }
                     self.handler_deps = saved_deps;
                     self.handler_spawns = saved_spawns;
-                    self.handler_waits = saved_waits;
                     self.own_handler = saved_own_handler;
                     self.handler_ofs = saved_of;
                     self.generics = saved;
@@ -2680,7 +2666,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // would have to be supplied, and a task has no scope to supply it from.
         for eff in f.effects.iter().flatten() {
             let span = match eff {
-                EffectRef::WaitFor(_) => continue,
                 EffectRef::Use(sp) | EffectRef::Spawn(sp) => *sp,
                 EffectRef::Effect(r) => r.span,
             };
@@ -4767,15 +4752,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
-        let (mut fn_effects, can_use, mut can_spawn, mut can_wait) = self.check_effect_list(f);
+        let (mut fn_effects, can_use, mut can_spawn) = self.check_effect_list(f);
         // [actor-spawn-effect] A handler member inherits its handler's
         // dependency list, and `[spawn]` is part of that list — a supervisor
         // spawns its children from a member body.
         can_spawn = can_spawn || self.handler_spawns;
-        // [waitfor-effect] So is `[waitfor]`: a handler that declares it may
-        // block from any member, and the *placement* check at its spawn site
-        // is what makes that safe [waitfor-dedicated].
-        can_wait = can_wait || self.handler_waits;
         // [throw-not-main] The entry point has nowhere to throw *to*: Rust
         // cannot express a `main` returning `ControlFlow` and Kotlin would
         // die on an uncaught signal, so the delimiter must be inside.
@@ -4820,10 +4801,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let saved_env = std::mem::replace(&mut self.effect_env, fn_effects);
         let saved_can_use = std::mem::replace(&mut self.can_use, can_use);
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, can_spawn);
-        // [waitfor-effect] `waitfor` is legal wherever the capability was
-        // declared. `main` is no longer special — it was only ever special by
-        // being a dedicated thread, and that is now what the rule says.
-        let saved_can_wait = std::mem::replace(&mut self.can_wait, can_wait);
         // [implicit-forward] What this body can forward to the calls it makes.
         let saved_implicits = std::mem::replace(&mut self.own_implicits, implicits.clone());
         // Inside a qualifier constructor (`-> T as Qual`) return points
@@ -4956,7 +4933,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.effect_env = saved_env;
         self.can_use = saved_can_use;
         self.can_spawn = saved_can_spawn;
-        self.can_wait = saved_can_wait;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
     }
@@ -4966,11 +4942,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Validates a fn's declared effect list and lowers it into the
     /// starting effect environment [effect-fn-deps] [effect-no-dup].
     /// Returns `(env, can_use, can_spawn, can_wait)`.
-    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool, bool, bool) {
+    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool, bool) {
         let mut env: Vec<Ty> = Vec::new();
         let mut can_use = false;
         let mut can_spawn = false;
-        let mut can_wait = false;
         // [fn-effects] A fn-typed parameter's effects are the enclosing fn's
         // too (user decision 2026-09-04): the only reason to take `f` is to
         // call it, and calling it needs those effects here — so they are
@@ -4994,10 +4969,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 EffectRef::Spawn(_) => can_spawn = true,
                 // [waitfor-effect] The right to occupy this thread until an
                 // answer arrives. Like `spawn` it names no effect type, so
-                // there is nothing to thread; what it opens is the `waitfor`
-                // expression, and what validates it is the *placement* of
-                // whatever carries it [waitfor-dedicated].
-                EffectRef::WaitFor(_) => can_wait = true,
                 EffectRef::Effect(r) => {
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
@@ -5019,7 +4990,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        (env, can_use, can_spawn, can_wait)
+        (env, can_use, can_spawn)
     }
 
     /// [actor-mailbox] The `mailbox { capacity: … }` slot on a handler (user
@@ -5168,13 +5139,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             let span = match eff {
                 EffectRef::Use(s) => *s,
                 EffectRef::Spawn(s) => *s,
-                // [waitfor-effect] The one exception (user decision
-                // 2026-09-17, with T-5): a member may declare `[waitfor]`,
-                // because "this member may occupy your thread" is a fact
-                // about the *protocol* that its callers have to reckon with —
-                // there is nothing to thread, so the objection above does not
-                // apply.
-                EffectRef::WaitFor(_) => continue,
                 EffectRef::Effect(r) => r.span,
             };
             self.error(
@@ -5257,35 +5221,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [waitfor-effect] Binding a handler that declares `[waitfor]` makes
-        // *this* frame one that may be occupied until an answer arrives: the
-        // capability flows outward from the binding, so the binder declares it
-        // too — and in an actor's member that means the handler does, which is
-        // what its own spawn site then pays for [waitfor-dedicated]. Effect
-        // *callers* learn nothing, by the ordinary handler-dependency rule:
-        // the hazard keys on the binding, which is where it is visible.
-        if !self.can_wait
-            && self
-                .scope
-                .handlers
-                .get(id.name.as_str())
-                .is_some_and(|h| {
-                    h.effects
-                        .iter()
-                        .flatten()
-                        .any(|e| matches!(e, EffectRef::WaitFor(_)))
-                })
-        {
-            self.error(
-                span,
-                format!(
-                    "handler `{}` declares `[waitfor]`, so a scope that binds it may \
-                     be occupied until an answer arrives: this function must declare \
-                     `[waitfor]` too (in a handler, that is its dependency list, and \
-                     its spawn then needs `on thread()`)",
-                    id.name
-                ),
-            );
+        // [actor-deadlock-cycle] A construction inside a handler's member
+        // runs the constructed handler's members inline, so "may wait"
+        // propagates through it — the record the graph's fixpoint reads.
+        if let Some(h) = self.own_handler {
+            self.out.handler_constructs.push((
+                h.name.name.clone(),
+                id.name.clone(),
+                self.key(span),
+            ));
         }
         self.finish_use(id, concrete, deps, span);
     }
@@ -8688,17 +8632,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                      function containing it may"
                         .to_string(),
                 ),
-                // [waitfor-effect] [actor-no-closure] And the same again: a
-                // function value runs wherever it is called, so it cannot
-                // carry a claim about *where* — which is the whole content of
-                // this capability.
-                EffectRef::WaitFor(span) => self.error(
-                    *span,
-                    "a fn type cannot declare `waitfor`: the capability is a \
-                     claim about the thread the body runs on, and a function \
-                     value runs wherever it is called"
-                        .to_string(),
-                ),
                 EffectRef::Effect(r) => {
                     if let Some(ty) = self.lower_effect_ref(r) {
                         if !out.contains(&ty) {
@@ -9403,7 +9336,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         pool: Option<&'p Expr>,
         span: Span,
     ) -> Ty {
-        let mut dedicated_placement = false;
         if let Some(pool) = pool {
             let pool_ty = self.check_expr(pool, Some(&Ty::named(POOL_TYPE)));
             if !pool_ty.is_unknown() && !is_subtype(pool_ty.strip_quals(), &Ty::named(POOL_TYPE)) {
@@ -9419,9 +9351,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // occupant, and the `on` clause is what spends it: the placement
             // is consumed, so a second spawn onto the same `thread()` is the
             // ordinary use-after-move diagnostic rather than a rule of its
-            // own.
+            // own. Placement one may *want* — no grant requires it since
+            // SH-5(d) deleted the capability (user decision 2026-09-19).
             if pool_ty.quals().iter().any(|q| q.name == DEDICATED_QUALIFIER) {
-                dedicated_placement = true;
                 self.fate_move(pool, "spawn on", "this spawn", pool.span());
             }
         }
@@ -9444,36 +9376,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         else {
             return Ty::Unknown;
         };
-        // [waitfor-dedicated] The grant check, and the reason the placement is
-        // typed at all: a handler that may occupy its thread must own one. An
-        // omitted `on` is refused here rather than inherited — the current
-        // pool is a plain `Pool` (the main pool included), and inheriting a
-        // dedicated one would put a second occupant on it.
-        if self
-            .scope
-            .handlers
-            .get(id.name.as_str())
-            .is_some_and(|h| {
-                h.effects
-                    .iter()
-                    .flatten()
-                    .any(|e| matches!(e, EffectRef::WaitFor(_)))
-            })
-            && !dedicated_placement
-        {
-            self.error(
-                pool.map_or(span, |p| p.span()),
-                format!(
-                    "`{}` declares `[waitfor]`, so it may occupy its thread until an \
-                     answer arrives and must run on a thread of its own: place it \
-                     `on thread()`, which answers a `{DEDICATED_QUALIFIER} \
-                     {POOL_TYPE}` and is consumed by this spawn. A shared `pool(n)` \
-                     would let one wait stall every actor on it, and the pool \
-                     current here — `main`'s included — is a shared one",
-                    id.name
-                ),
-            );
-        }
         let Some((effects, declared)) =
             self.check_handler_construction(id, args, written_type_args, "spawn", span)
         else {
@@ -9521,6 +9423,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the position the program wrote.
         let mut supplied: Vec<(Ty, Span, usize)> = Vec::new();
         for (at, u) in uses.iter().enumerate() {
+            // [actor-deadlock-cycle] A clause construction is built *on the
+            // child*: its members run inline in the child's activations, so
+            // "may wait" propagates child-ward — recorded for the graph's
+            // fixpoint, keyed on the child handler's name.
+            let constructed = match u {
+                Expr::Ident(cid) if self.scope.handlers.contains_key(cid.name.as_str()) => {
+                    Some(cid.name.clone())
+                }
+                Expr::Call { callee, .. } => match callee.as_ref() {
+                    Expr::Ident(cid)
+                        if self.scope.handlers.contains_key(cid.name.as_str()) =>
+                    {
+                        Some(cid.name.clone())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(constructed) = constructed {
+                self.out.handler_constructs.push((
+                    id.name.clone(),
+                    constructed,
+                    self.key(u.span()),
+                ));
+            }
             if let Some(eff) = self.check_spawn_dep(u) {
                 supplied.push((eff, u.span(), at));
             }
@@ -10097,16 +10024,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [waitfor-dedicated] The typed exception to inheritance: a target that
-        // may occupy its thread needs one of its own. Explicit `on thread()`,
-        // or inherited from a minting frame that itself carries `[waitfor]` —
-        // whose ambient pool is thereby provably dedicated.
-        let target_waits = target
-            .effects
-            .iter()
-            .flatten()
-            .any(|e| matches!(e, EffectRef::WaitFor(_)));
-        let mut dedicated = false;
+        // A placement is optional and may be dedicated: `thread()` answers a
+        // `Dedicated Pool`, which the clause consumes [waitfor-dedicated] —
+        // placement one may *want*, no longer a grant anything requires
+        // (SH-5(d), user decision 2026-09-19).
         if let Some(p) = pool {
             let pool_ty = self.check_expr(p, Some(&Ty::named(POOL_TYPE)));
             if !pool_ty.is_unknown() && !is_subtype(pool_ty.strip_quals(), &Ty::named(POOL_TYPE)) {
@@ -10119,21 +10040,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
             if pool_ty.quals().iter().any(|q| q.name == DEDICATED_QUALIFIER) {
-                dedicated = true;
                 self.fate_move(p, "run on", "this mint", p.span());
             }
-        }
-        if target_waits && !dedicated && !self.can_wait {
-            self.error(
-                span,
-                format!(
-                    "`{}` declares `[waitfor]`, so it may occupy the thread it runs on and \
-                     needs one of its own: write `on thread()`. Inheriting this frame's pool \
-                     is allowed only where the frame itself declares `[waitfor]`, which \
-                     proves its pool is a `{DEDICATED_QUALIFIER} {POOL_TYPE}`",
-                    member.name
-                ),
-            );
         }
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
         if params.len() != captures.len() + 1 {
@@ -10432,23 +10340,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         body: &'p Block,
         span: Span,
     ) -> Ty {
-        if !self.can_wait {
-            let msg = if self.in_lambda() {
-                "`waitfor` cannot be written inside a lambda: it may occupy the \
-                 thread it runs on, and a function value runs wherever it is \
-                 called — a fn type cannot declare `waitfor`"
-                    .to_string()
-            } else {
-                format!(
-                    "`waitfor` may occupy the thread it runs on until an answer \
-                     arrives, so the function must declare `[waitfor]` in its effect \
-                     list. In an actor's member that is the handler's dependency \
-                     list, and its spawn then needs `on thread()` — a \
-                     `{DEDICATED_QUALIFIER} {POOL_TYPE}`; the alternative is to mint \
-                     the token with `replyto` and let the continuation run"
-                )
-            };
-            self.error(span, msg);
+        // [actor-waitfor] No capability: a wait occupying its frame until it
+        // returns is what a call is (SH-5(d), user decision 2026-09-19), the
+        // wait serves its pool while it waits [waitfor-pump], and the
+        // deadlock net is the graph's inferred occupancy plus the runtime
+        // report. One refusal stays, on its own reason: a lambda's call
+        // sites are not statically known, so the graph could not place the
+        // occupancy a wait inside one would create.
+        if self.in_lambda() {
+            self.error(
+                span,
+                "`waitfor` cannot be written inside a lambda: a function value \
+                 runs wherever it is called, so the wait would occupy call sites \
+                 nothing can enumerate — wait in the function that calls the \
+                 value, and pass what it needs",
+            );
+        }
+        // [actor-deadlock-cycle] The graph's input: this handler's members
+        // wait, which the deleted `[waitfor]` declaration used to say.
+        if let Some(h) = self.own_handler {
+            self.out
+                .waitfor_sites
+                .push((h.name.name.clone(), self.key(span)));
         }
         self.validate_type(ty);
         let token = self.lower_type(ty);
@@ -11716,11 +11629,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect type, so there is nothing to lower here; the gate
                 // arrives with the `spawn` expression.
                 EffectRef::Spawn(_) => continue,
-                // [waitfor-effect] A handler *may* depend on `waitfor` — the
-                // motivating customer is a test clock that asks a timer for
-                // the time. It names no effect type either; what it costs is
-                // paid at the spawn site, where the placement is chosen.
-                EffectRef::WaitFor(_) => continue,
                 EffectRef::Effect(r) => r,
             };
             if r.name.name == THROW_EFFECT {
@@ -15755,9 +15663,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // thread, and a `replyto` continuation belongs to the handler that
         // minted it — none of which travels with a function value.
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
-        // [actor-no-closure] A lambda body carries neither capability: it runs
-        // wherever it is called, and a fn type declares neither.
-        let saved_can_wait = std::mem::replace(&mut self.can_wait, false);
         let saved_own_handler = self.own_handler.take();
         let ret = match body {
             LambdaBody::Expr(e) => self.check_expr(e, exp_ret.as_ref()),
@@ -15770,7 +15675,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         self.loop_stack = saved_loops;
         self.can_spawn = saved_can_spawn;
-        self.can_wait = saved_can_wait;
         self.own_handler = saved_own_handler;
         self.ret_ty = saved_ret;
         // [linear-obligation] Lambda parameters are owned by the body:
@@ -19203,27 +19107,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // [waitfor-effect] The `waitfor` capability propagates the same way,
-        // and for a sharper reason: a callee that may occupy the thread makes
-        // *its caller* a frame that may be occupied, which is what the
-        // placement check downstream reads.
-        if !self.can_wait
-            && decl
-                .effects
-                .iter()
-                .flatten()
-                .any(|e| matches!(e, EffectRef::WaitFor(_)))
-        {
-            self.error(
-                span,
-                format!(
-                    "`{name}` may occupy the thread it runs on until an answer \
-                     arrives, so this function must declare that too (`[waitfor]` in \
-                     its effect list) — and whatever runs it must be placed on a \
-                     `{DEDICATED_QUALIFIER} {POOL_TYPE}` (`thread()`)"
-                ),
-            );
-        }
         // The callee's *effective* effect list: what it declares, plus what
         // it inherited from its fn-typed parameters [fn-effects] — a caller
         // has to supply those too, since they are how the callee calls the
@@ -19867,27 +19750,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             let instance = instance.clone();
             self.note_effect_use(&instance);
             self.out.effect_calls.insert(self.key(span), instance);
-        }
-        // [waitfor-effect] The one capability an effect *member* may declare,
-        // and it propagates to the call like any other: a member that may
-        // occupy your thread makes this frame one that may be occupied.
-        if !self.can_wait
-            && member
-                .effects
-                .iter()
-                .flatten()
-                .any(|e| matches!(e, EffectRef::WaitFor(_)))
-        {
-            self.error(
-                span,
-                format!(
-                    "`{}` may occupy the thread it runs on until an answer arrives, so \
-                     this function must declare that too (`[waitfor]` in its effect \
-                     list) — and whatever runs it must be placed on a \
-                     `{DEDICATED_QUALIFIER} {POOL_TYPE}` (`thread()`)",
-                    member.name.name
-                ),
-            );
         }
         // [implicit-param] An effect member is an ordinary signature, so it
         // may declare implicit parameters: they resolve at *this* call, with

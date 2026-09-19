@@ -1554,13 +1554,18 @@ impl<'s> Parser<'s> {
                     let tok = self.bump();
                     effects.push(EffectRef::Spawn(tok.span));
                 }
-                // [waitfor-effect] `[waitfor]`: the right to occupy this
-                // thread until an answer arrives. Contextual too — the
-                // expression form is `waitfor out: Reply<T> { … }`, and a
-                // function named `waitfor` stays callable.
+                // `waitfor` in an effect list was the deleted capability
+                // (SH-5(d), user decision 2026-09-19): occupancy is inferred,
+                // not declared, so the word here is a plain unknown-effect
+                // error like any other — named, because the fix is deletion.
                 TokenKind::Ident(name) if name == "waitfor" => {
                     let tok = self.bump();
-                    effects.push(EffectRef::WaitFor(tok.span));
+                    self.error(
+                        "`waitfor` is not a declarable effect: occupancy is inferred \
+                         (a wait needs no capability since 2026-09-19) — delete it \
+                         from this list",
+                        tok.span,
+                    );
                 }
                 _ => match self.parse_type_ref() {
                     Some(r) => effects.push(EffectRef::Effect(r)),

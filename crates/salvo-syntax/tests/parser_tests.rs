@@ -1536,7 +1536,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     let c = 0
 }
 ";
@@ -1665,7 +1665,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     let counter = spawn Counting() on pool(2)
     let audited = spawn Counting() use counter, Counting() on pool(1)
     use counter
@@ -1888,7 +1888,7 @@ fn on(n: Int) -> Int {
 #[test]
 fn a_spawn_states_its_pool() {
     let no_pool = "\
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     let h = spawn H()
 }
 ";

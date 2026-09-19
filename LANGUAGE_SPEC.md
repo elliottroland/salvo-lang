@@ -1973,14 +1973,8 @@ Conventions:
     [rs-effect-fusion] / [kt-effect-fusion]). A *member* declaring its own
     effects stays an error: the dependency belongs to the implementation,
     not the interface.
-  * **One exception, since 2026-09-17: `[waitfor]`** [waitfor-effect]. It
-    names no effect type, so there is nothing to thread and the reason above
-    does not reach it — and "this member may occupy your thread" is a fact
-    about the *interface*, which is exactly what a member declaration is for.
-* [effect-handler] `handler H<G>(ctor params) [effects] of E<G>, … { state fns }`
-  implements every member of every effect it names [effect-handler-multi];
-  state fields have initializers
-  and persist for the handler's lifetime.
+  * (The `[waitfor]` exception of 2026-09-17 went with the capability's
+    deletion [waitfor-effect]: members refuse every effect ref again.)
   * A state field's initializer is **checked against its declared type**,
     like a struct field's default: it runs at construction with no locals
     in scope. (Until 2026-09-04 it was not checked at all, so
@@ -2779,10 +2773,12 @@ LANGUAGE.md remains the source of truth for everything that does.
   the asynchronous world and `main`'s only token source (`replyto` targets a
   member of the enclosing handler, and `main` has none): it mints a token,
   requires the block to consume it, occupies the thread until it is sent to,
-  and yields what was sent. Legal wherever the `[waitfor]` capability was
-  declared [waitfor-effect] — it was `main`-only until 2026-09-17, and `main`
-  was only ever special by owning its thread, which is now what the rule
-  says.
+  and yields what was sent. Legal **anywhere** but inside a lambda (SH-5(d),
+  user decision 2026-09-19 — a function value's call sites cannot be
+  enumerated, so the graph could not place the occupancy): it was `main`-only
+  until 2026-09-17, capability-gated for the two days after, and is now what
+  a wait always was underneath — an ordinary expression whose occupancy the
+  graph infers and the runtime reports [waitfor-effect].
   * "The block must consume it" is **not a rule of its own**: the binding is
     an ordinary linear local, so [linear-obligation] reports a token the
     block never sent to, naming `send` as the discharge. The expression's
@@ -2792,59 +2788,49 @@ LANGUAGE.md remains the source of truth for everything that does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
-* [waitfor-effect] **`[waitfor]` is a capability effect**: the right to occupy
-  the thread you are running on until an answer arrives (user decision
-  2026-09-17, T-5(c) — the argument trail is in COMPLETED.md's log). Lowercase
-  and compiler-owned like `use` and
-  `spawn`, contextual for the same reason, and it names no effect type — so
-  there is nothing to thread and nothing to resolve. What validates holding it
-  is not *who* you are but *where you run* [waitfor-dedicated].
-  * **It propagates through calls like any effect**: a function reaching a
-    wait through a helper declares `[waitfor]` too. (The `[spawn]` capability
-    was decorative for exactly this reason once; the same mistake is not
-    repeated.)
-  * **Accepted on a function, on a handler's dependency list, and — alone
-    among effect refs — on an *effect declaration's member*** (user
-    refinement 2026-09-17). "This member may occupy your thread" is a fact
-    about the protocol, so it belongs where the protocol is written, and it
-    reaches callers as an ordinary propagation. That is the one exception to
-    [effect-member-no-effects], whose reason (a member's dispatch cannot
-    thread handler arguments) does not apply to a capability that threads
-    nothing.
-  * **Refused on a fn type** [actor-no-closure], exactly as `use` and `spawn`
-    are: a function value runs wherever it is called, and the capability is a
-    claim about *where*.
-  * A handler that declares it makes **every member** able to wait, and its
-    `use` sites carry it outward: binding such a handler is refused unless the
-    binding scope declares `[waitfor]` too. Effect *callers* learn nothing —
-    a handler's dependencies are invisible to them by the ordinary rule — so
-    the hazard keys on the binding, which is where it is visible. The
-    motivating customer is a test clock that asks a timer for the time
-    (`handler TestClock() of Clock [Timer, waitfor]`).
-  * It contributes the deadlock graph's **third edge kind**
-    [actor-deadlock-cycle], from the declaration rather than from a site.
-* [waitfor-dedicated] **A wait is validated by placement.** `thread()` (std)
+* [waitfor-effect] **The `[waitfor]` capability is deleted** (SH-5(d), user
+  decision 2026-09-19; it existed for two days — introduced 2026-09-17 with
+  T-5(c), whose argument trail is in COMPLETED.md's log beside the
+  deletion's). A wait needs no declaration anywhere: not on the function that
+  waits, not on a handler whose member waits, not on an effect member, not at
+  any caller. The reasoning, §6 of the retired shareable-handler document:
+  after [waitfor-pump] a wait *serves its pool*, so the placement gate priced
+  a hazard that no longer exists; the deadlock net is the graph's **inferred**
+  occupancy (a handler waits when a member contains a `waitfor`, or when it
+  binds a handler that waits — the propagation the capability used to spell,
+  computed instead) plus the runtime's named report; and an optional checked
+  annotation was examined and rejected (non-propagating it has no consequence,
+  propagating-when-declared is incoherent). What survives:
+  * **`waitfor` in an effect list is a parse error naming the deletion**, not
+    an unknown name.
+  * **The lambda refusal, on its own reason**: `waitfor` inside a function
+    value would occupy call sites nothing can enumerate, so the graph could
+    not place the edge.
+  * **The word at the host boundary** (FC-7, unbuilt): a synchronous export
+    bridge blocks a host thread that serves nothing — there the hazard is
+    real and cannot be inferred into, and the mandatory placement gate
+    returns with it.
+  * The graph's block edge, **site-inferred** [actor-deadlock-cycle]: from
+    `Checked`'s recorded `waitfor` sites and handler constructions, with the
+    same severity it always had.
+* [waitfor-dedicated] **A dedicated thread is placement one may want** —
+  no longer a grant anything requires (SH-5(d), 2026-09-19). `thread()` (std)
   answers a **`Dedicated Pool`** — one fresh thread, owned by whatever is
-  placed on it; `pool(n)` answers a plain `Pool`. "May occupy this thread" is
-  thereby an affordance in the type, and every grant is a binding-site check:
-  * `spawn H(...) on P` where `H` declares `[waitfor]`: `P` must type as
-    `Dedicated Pool`. An omitted `on` is refused with it — the current pool is
-    a shared one (`main`'s included), and inheriting a dedicated one would put
-    a second occupant on it.
+  placed on it; `pool(n)` answers a plain `Pool`.
   * **The `on` clause consumes a `Dedicated Pool`** (user refinement
-    2026-09-17): reusing a thread is impossible *by linearity* rather than by
-    convention, so a second spawn onto the same `thread()` is the ordinary
-    use-after-move diagnostic and needs no rule. `Dedicated` is a **provenance
-    qualifier** — a claim about where the handle came from, not about the
-    pool's contents — so it survives stores and calls [qual-subject], and it
-    is erased in the generated code like every qualifier [qual-erasure].
-  * `main` declares `[waitfor]` like anything else (`fn main() [use, spawn,
-    waitfor]`); a `main` that never waits does not say it. Its own thread is
-    the dedicated one, which is why no placement is written for it.
+    2026-09-17, unchanged): reusing a thread is impossible *by linearity*
+    rather than by convention, so a second spawn onto the same `thread()` is
+    the ordinary use-after-move diagnostic and needs no rule. `Dedicated` is a
+    **provenance qualifier** — a claim about where the handle came from, not
+    about the pool's contents — so it survives stores and calls
+    [qual-subject], and it is erased in the generated code like every
+    qualifier [qual-erasure].
+  * The fit: work that genuinely wants a thread of its own — blocking-IO
+    wrappers around host APIs, and the FC-7 bridges when they arrive.
   * An actor on its own thread **may** block: it wedges only itself, which is
     its own business, like a gate. What placement does *not* remove is a wait
     whose fulfilment routes back through the waiter's own stalled mailbox —
-    that is the edge kind [actor-deadlock-cycle] gains.
+    that is the edge the graph prices [actor-deadlock-cycle].
 * [main-pool] **`main` is the single worker of its own pool** (user decision
   2026-09-17, FC-4(a); the argument trail is in COMPLETED.md's log). The pool
   exists from the start
@@ -2855,9 +2841,7 @@ LANGUAGE.md remains the source of truth for everything that does.
     is for: a function called from `main` and the same function called from an
     actor behave identically.
   * **Actors may be spawned onto it**, which yields genuinely single-threaded
-    cooperatively-scheduled programs. The main pool is plain-`Pool`-typed, so
-    no `[waitfor]` grant can flow to an actor placed there: nothing but `main`
-    itself may ever occupy `main`'s thread.
+    cooperatively-scheduled programs.
   * Two consequences, each the existing rule seen from a new angle: work
     placed there runs **only while `main` waits** [waitfor-pump], and it dies
     when `main` returns [actor-waitfor].
@@ -3121,10 +3105,10 @@ LANGUAGE.md remains the source of truth for everything that does.
   `waitfor` and `replyto` are all errors inside a lambda body, and so is
   `k@self(…)` — `self` names nothing there. A function
   value's body runs wherever it is *called*, and none of the three can travel
-  with it — a fn type cannot declare `spawn` [actor-spawn-effect] or `waitfor`
-  [waitfor-effect] (both are claims about the frame, and a `waitfor` needs a
-  thread it may occupy), and a continuation belongs to the handler that minted
-  it. Each diagnostic says so
+  with it — a fn type cannot declare `spawn` [actor-spawn-effect], a `waitfor`
+  inside one would occupy call sites nothing can enumerate (so the graph could
+  not place the edge [waitfor-effect]), and a continuation belongs to the
+  handler that minted it. Each diagnostic says so
   in the closure's terms, since "add the capability to the effect list" is not
   available for a lambda. ([fate-lambda], the escaping-closure work, is
   deferred to the call-sugar pass for exactly this reason: nothing in the
@@ -3355,14 +3339,15 @@ LANGUAGE.md remains the source of truth for everything that does.
     actors that send to each other would refuse most useful topologies.
     The remedies it names are a larger `capacity` or routing one direction
     through a reply token, whose capacity is reserved at park time.
-  * A **declared `[waitfor]`** is a *wait-for* edge too, and the third edge
-    kind [waitfor-effect]: a handler that may occupy its thread serves no
-    message while it does, so a cycle through it deadlocks exactly as a gate
-    cycle does — and a thread of its own does not save it, because the
-    fulfilment has to route back through the stalled mailbox. An **error**,
-    reported at the *declaration*: this edge comes from a signature rather
-    than from a site, which is the modular form the retired survey predicted
-    for awaits and which arrives here for blocks.
+  * An **inferred wait** is a *wait-for* edge too, and the third edge kind
+    [waitfor-effect]: a handler whose member contains a `waitfor` — or which
+    binds a handler that waits, the propagation the deleted capability used
+    to spell, computed over recorded sites and constructions since SH-5(d)
+    (2026-09-19) — serves no message while it waits, so a cycle through it
+    deadlocks exactly as a gate cycle does, and a thread of its own does not
+    save it: the fulfilment has to route back through the stalled mailbox.
+    An **error**, anchored at the wait site (or at the construction that
+    brought the wait in).
   * A `fulfil` (`r.send(v)`) contributes nothing: the capacity is already
     reserved, so it never blocks. Neither does a `k@self(…)` — a self-send
     waits for no *other* actor (the wedge a full own mailbox could cause is

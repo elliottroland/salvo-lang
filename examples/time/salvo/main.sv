@@ -93,15 +93,15 @@ handler Sessions() [Timer] of Session {
 // clocks.
 //
 // This handler makes them one clock: a reading is a deadline of zero, so the
-// answer is the timer's own virtual `now`. `waitfor` occupies the thread until
-// the fire arrives, which is a capability — `[waitfor]` — and the compiler
-// checks *where* whatever carries it runs (see `main`).
+// answer is the timer's own virtual `now`. `waitfor` occupies the frame until
+// the fire arrives — no declaration anywhere: occupancy is inferred, the wait
+// serves its pool while it waits, and the deadlock graph prices the cycles.
 //
 // The timer arrives as a plain `Addr<Timer>` constructor parameter rather than
 // as a handler dependency, because a handler with dependencies of its own cannot
 // be *constructed* in a spawn's `use` clause: there is no scope on the child to
 // resolve them from, so an addr is what crosses.
-handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+handler TestTicker(timer: Addr<Timer>) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)
@@ -130,7 +130,7 @@ handler Napping() [Timer, Ticker] of Sleeper {
     }
 }
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
 
     // ===== 1. spans, and two kinds of point =====
@@ -199,10 +199,11 @@ fn main() [use, spawn, waitfor] -> None {
     //
     // `Napping` reads the clock itself, so its `Ticker` is `TestTicker` over the
     // same `ManualTime` — one virtual clock behind both the deadline and the
-    // reading. `TestTicker` waits, so it carries `[waitfor]`, so `Napping`
-    // carries it too, and the compiler requires the actor to run on a thread of
-    // its own: `thread()` answers a `Dedicated Pool`, which the `on` clause
-    // consumes. A wait can then occupy only its own thread.
+    // reading. `TestTicker` waits inside `Napping`'s activations, and nothing
+    // declares that anywhere: a wait serves the pool it runs on, so no special
+    // placement is owed. The `on thread()` here is a *choice* — a thread of
+    // its own, which the `on` clause consumes (`thread()` answers a
+    // `Dedicated Pool`, and linearity gives it exactly one occupant).
     let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
     let napped = waitfor answer: Reply<Str> {
         sleeper.nap(seconds(2), answer)

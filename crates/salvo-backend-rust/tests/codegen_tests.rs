@@ -8745,7 +8745,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let counter = spawn Counting() on pool(1)
     counter.bump(2)
@@ -8836,7 +8836,7 @@ handler Drawing() [Random] of Drawer {
     }
 }
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
     let rng = spawn CyclicRandom(12345)
     use rng
@@ -8951,7 +8951,7 @@ handler Drawing() [Random] of Drawer {
     }
 }
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
     let rng = spawn CyclicRandom(12345)
     use rng
@@ -9100,7 +9100,7 @@ handler Counting() [Log, Tally] of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let tally = spawn Summing() on pool(1)
     let counter = spawn Counting() use Recording(), tally on pool(1)
@@ -9255,7 +9255,7 @@ handler Fetching() [Db] of Notices {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(2)
     let rows = spawn Rows() on p
@@ -9315,7 +9315,7 @@ handler Tracing() [Echo] of Trace {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(3)
     let echo = spawn Echoing() on p
@@ -9357,7 +9357,7 @@ handler Stepping() of Steps {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let s = spawn Stepping() on pool(1)
     let spawned = waitfor out: Reply<Str> {
@@ -9443,7 +9443,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let c = spawn Counting() on pool(1)
     c.bump(2)
@@ -9507,7 +9507,7 @@ handler Desking() of Desk {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let desk = spawn Desking() on pool(1)
     let first = waitfor a: Reply<Str> {
@@ -9661,7 +9661,7 @@ fn count() [Tally, Stats] -> Int {
     return total()
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let (timer, ctl) = spawn ManualTime() on pool(1)
     let idle = waitfor c: Reply<Int> { ctl.pending(c) }
@@ -9773,7 +9773,7 @@ handler Clienting() of Client {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(1)
     let desk = spawn Desking() on p
@@ -9980,7 +9980,7 @@ fn work() [Log] {
     note("b")
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let logger = spawn Counting() on pool(1)
     use logger
@@ -10029,7 +10029,7 @@ handler Timing(at: Int) of TimerApi {
 
 // The T-5 shape: a handler whose member *waits* for another actor's answer.
 // It declares the capability, so every spawn of it must give it a thread.
-handler Clocking() [TimerApi, waitfor] of ClockApi {
+handler Clocking() [TimerApi] of ClockApi {
     mailbox { capacity: 4 }
 
     send fn now(out: Reply<Int>) {
@@ -10054,7 +10054,7 @@ handler Counting() of Counter {
     }
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
 
     let timer = spawn Timing(1000) on pool(1)
@@ -10125,7 +10125,7 @@ fn fetch_on(id: Int, out: Reply<Str>, p: Pool) [Db] -> None => !out, p {
     query(id, replyto finish("placed", out) on p)
 }
 
-fn main() [use, spawn, waitfor] {
+fn main() [use, spawn] {
     use StdOutConsole()
     let workers = pool(2)
     let db = spawn Rows() on workers
@@ -10450,7 +10450,7 @@ const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nm
 const TIME_TIMER: &str = r#"
 import time
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
     use DefaultTicker()
     let timers = spawn DefaultTimer() on pool(1)
@@ -10493,7 +10493,7 @@ handler Napping() [Timer] of Sleeper {
     }
 }
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
@@ -10554,7 +10554,7 @@ handler SteppingTicker(step: Duration) of Ticker {
 // The unified test clock: a reading is a deadline of zero, so the answer is the
 // timer's own virtual now. The timer arrives as a value, not a dependency — a
 // handler with dependencies of its own cannot be built in a spawn `use` clause.
-handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {
+handler TestTicker(timer: Addr<Timer>) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)
@@ -10580,7 +10580,7 @@ handler Napping() [Timer, Ticker] of Sleeper {
     }
 }
 
-fn main() [use, spawn, waitfor] -> None {
+fn main() [use, spawn] -> None {
     use StdOutConsole()
     println("data: ${verdict(Tick {nanos: 0}, Tick {nanos: 1000000000}, millis(1500))}")
     use SteppingTicker(millis(500))
