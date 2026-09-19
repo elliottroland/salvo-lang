@@ -50,6 +50,47 @@ handler CyclicRandom(seed: Int) of Random {
 }
 "#;
 
+fn diagnostics(src: &str) -> Vec<(bool, String)> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        format!("{PRELUDE}\n{src}"),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diags) = salvo_syntax::parse_module(&file.content);
+        let parse_errors: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            parse_errors.is_empty(),
+            "parse errors in {}: {parse_errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    resolution
+        .errors
+        .iter()
+        .chain(checked.errors.iter())
+        .map(|d| (d.is_error(), d.message.clone()))
+        .collect()
+}
+
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
@@ -347,5 +388,90 @@ fn main() [use, spawn] {
         errs.iter()
             .any(|m| m.contains("several plain effects") && m.contains("not supported yet")),
         "expected the multi-face refusal: {errs:?}"
+    );
+}
+
+
+/// [actor-deadlock-cycle] [mixed-handler] SH-4: the occupancy edge, inferred
+/// from declarations. An actor handler depending on a plain effect with a
+/// mixed handler in the program may park on that servant, and the servant
+/// here sends back to the actor's own protocol -- the design's upcall shape,
+/// as close as the first slice can write it. The cycle mixes an occupancy
+/// edge with a back-pressure edge and is an **error**: the ungated-side
+/// downgrade does not apply, because an occupied activation serves nothing.
+#[test]
+fn an_occupancy_cycle_is_an_error_even_through_back_pressure() {
+    let diags = diagnostics(
+        "\
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Feedback(drawer: Addr<Drawer>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        tally = tally + 1
+        drawer.draw(out)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+",
+    );
+    let errs: Vec<&String> = diags.iter().filter(|(e, _)| *e).map(|(_, m)| m).collect();
+    assert!(
+        errs.iter().any(|m| m
+            .contains("wait for each other through a shared handler")
+            && m.contains("Feedback's servant")
+            && m.contains("Drawer")
+            && m.contains("send plus a continuation")),
+        "expected the occupancy-cycle error: {diags:?}"
+    );
+}
+
+/// The same dependency with no return path is an edge, not a cycle: nothing
+/// is reported.
+#[test]
+fn an_occupancy_edge_without_a_cycle_is_silent() {
+    let diags = diagnostics(
+        "\
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+
+fn main() [use, spawn, waitfor] {
+    let rng = spawn CyclicRandom(1)
+    let drawer = spawn Drawing() use rng
+    let _drawn = waitfor got: Reply<Int> {
+        drawer.draw(got)
+    }
+}
+",
+    );
+    assert!(
+        diags.is_empty(),
+        "an acyclic occupancy edge reports nothing: {diags:?}"
     );
 }

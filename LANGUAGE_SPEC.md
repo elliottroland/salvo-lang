@@ -3330,6 +3330,24 @@ LANGUAGE.md remains the source of truth for everything that does.
     ways out (make one side's continuation ungated, or have the answer come
     from a third actor). A bare `replyto` leaves the mailbox open and
     contributes **no** edge — which is why one ungated side is enough.
+  * An **occupancy** edge [mixed-handler] (SH-4, user decision 2026-09-19;
+    built the same day) is *inferred, never written*: an actor handler that
+    declares a dependency on a plain effect with **mixed handlers** in the
+    program may call a façade member, which parks its activation until the
+    servant answers — and a parked activation serves nothing of its own
+    mailbox. One edge per mixed handler of the effect, from every served
+    protocol to the servant's own node (`H's servant` — a mixed handler
+    serves no actor effect, so it is a node in its own right, whose outgoing
+    edges are its servant's sends). A cycle containing an occupancy edge is
+    an **error with no downgrade**, even when back-pressure closes it: the
+    ungated-side argument (the other actor keeps serving) is exactly what an
+    occupied activation's `running` flag removes. The report is anchored at
+    the dependency declaration — the seam where the binding is chosen — and
+    names the three ways out: answer without reaching the peer, respell the
+    consulting call as a send plus a continuation, or bind a handler of the
+    effect that does not wait (a monitor, or a scope-local `use`). Over
+    types, not instances, like every edge here: a program that binds a
+    non-mixed handler everywhere still gets the edge if a mixed one exists.
   * An ordinary **send** is a *back-pressure* edge: it blocks while the
     target's bounded mailbox is full, so a cycle of sends deadlocks only when
     the mailboxes fill together. A **warning** (user decision 2026-09-16):

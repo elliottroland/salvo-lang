@@ -79,15 +79,26 @@ enum EdgeKind {
     /// [waitfor-effect] A declared `[waitfor]`: the actor may occupy its
     /// thread until an answer arrives, and serves no message meanwhile.
     Block,
+    /// [mixed-handler] [actor-deadlock-cycle] An **occupancy** edge (SH-4,
+    /// user decision 2026-09-19): a caller of a mixed handler's sync member
+    /// parks until the servant answers, and a parked *activation* stalls its
+    /// own mailbox while it waits. Inferred from declarations — an actor
+    /// handler that declares a plain-effect dependency with mixed handlers
+    /// in the program may reach a façade call — never written.
+    Occupancy,
     /// A send that can block on a full mailbox.
     BackPressure,
 }
 
 impl EdgeKind {
-    /// Whether the edge waits unconditionally — the error class. Both a gate
-    /// and a declared block do; back-pressure needs full mailboxes.
+    /// Whether the edge waits unconditionally — the error class. A gate, a
+    /// declared block and an inferred occupancy all do; back-pressure needs
+    /// full mailboxes. And occupancy admits **no downgrade**: the ungated-
+    /// side argument (the other actor keeps serving) is exactly what an
+    /// occupied activation's `running` flag removes, so a cycle that mixes
+    /// occupancy with ordinary sends is still an error.
     fn unconditional(self) -> bool {
-        matches!(self, EdgeKind::Wait | EdgeKind::Block)
+        matches!(self, EdgeKind::Wait | EdgeKind::Block | EdgeKind::Occupancy)
     }
 }
 
@@ -131,10 +142,25 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
         }
         report(&waits, &cycle, out, true);
     }
-    // Then the whole graph: a cycle that only closes through a send is the
+    // Then the whole graph. A cycle containing an **occupancy** edge is an
+    // error even when back-pressure closes it — the ungated-side downgrade
+    // does not apply, because an occupied activation serves *nothing* of its
+    // mailbox [mixed-handler]. A cycle that only closes through sends is the
     // load-conditioned class, and a warning.
     let seen_nodes: BTreeSet<String> = reported.iter().flatten().cloned().collect();
     for cycle in cycles(&graph) {
+        let occupying = cycle.windows(2).any(|pair| {
+            graph
+                .get(&pair[0])
+                .and_then(|tos| tos.get(&pair[1]))
+                .is_some_and(|e| e.kind == EdgeKind::Occupancy)
+        });
+        if occupying {
+            if reported.insert(cycle.clone()) {
+                report(&graph, &cycle, out, true);
+            }
+            continue;
+        }
         if cycle.iter().all(|n| seen_nodes.contains(n)) {
             continue;
         }
@@ -157,6 +183,40 @@ fn build(
             .get(name)
             .is_some_and(|decl| decl.is_actor)
     };
+    let is_plain = |name: &str| {
+        symbols
+            .effects
+            .get(name)
+            .is_some_and(|decl| !decl.is_actor)
+    };
+    // [mixed-handler] The mixed handlers of each plain effect: what an
+    // occupancy edge can point at. Over types, not instances — a program
+    // that binds `SystemRandom` everywhere still gets the edge if a mixed
+    // `CyclicRandom` exists, the same trade the whole graph makes.
+    let mut mixed_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for ast in program.modules.iter() {
+        for item in &ast.items {
+            let Item::Handler(h) = item else { continue };
+            if !h.fns.iter().any(|f| f.is_send) {
+                continue;
+            }
+            let plain_faces = !h.of.is_empty()
+                && h.of
+                    .iter()
+                    .all(|of| base_name(of).is_some_and(is_plain));
+            if !plain_faces {
+                continue;
+            }
+            for of in &h.of {
+                if let Some(n) = base_name(of) {
+                    mixed_of
+                        .entry(n.to_string())
+                        .or_default()
+                        .push(h.name.name.clone());
+                }
+            }
+        }
+    }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
     for (file_idx, ast) in program.modules.iter().enumerate() {
@@ -172,6 +232,38 @@ fn build(
                 .filter_map(|of| base_name(of))
                 .filter(|name| is_actor(name))
                 .collect();
+            // [mixed-handler] A mixed handler's servant is a node of its
+            // own: it serves no actor effect, but its send members can send
+            // through the `Addr` values it holds, and those are the edges
+            // that close an occupancy cycle. (A slice-one servant cannot
+            // gate, block or occupy — `replyto` and dependencies are refused
+            // — so its outgoing edges are all back-pressure.)
+            let mixed = h.fns.iter().any(|f| f.is_send)
+                && !h.of.is_empty()
+                && h.of
+                    .iter()
+                    .all(|of| base_name(of).is_some_and(is_plain));
+            if mixed {
+                let from = servant_node(&h.name.name);
+                for (handler, target, (file, span)) in &out.actor_sends {
+                    if *handler == h.name.name && is_actor(target) {
+                        let edge = Edge {
+                            kind: EdgeKind::BackPressure,
+                            handler: h.name.name.clone(),
+                            file: *file,
+                            span: *span,
+                        };
+                        let slot = graph.entry(from.clone()).or_default();
+                        match slot.get(target.as_str()) {
+                            Some(existing) if existing.kind <= edge.kind => {}
+                            _ => {
+                                slot.insert(target.clone(), edge);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
             if served.is_empty() {
                 continue;
             }
@@ -192,12 +284,27 @@ fn build(
             // declares `Q` too — so the declaration covers the whole call
             // graph without walking it.
             let mut targets: Vec<(String, usize, Span)> = Vec::new();
+            // [mixed-handler] Occupancy edges, inferred from the same
+            // declarations: a dependency on a plain effect that has mixed
+            // handlers means a member may call a façade — and park until the
+            // servant answers, stalling its own mailbox meanwhile. One edge
+            // per mixed handler of the effect, since the graph cannot know
+            // which one a binding will choose [actor-deadlock-cycle].
+            let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
             for dep in h.effects.iter().flatten() {
                 let EffectRef::Effect(r) = dep else { continue };
                 let name = r.name.name.as_str();
+                if !is_actor(name) {
+                    if let Some(mixed_handlers) = mixed_of.get(name) {
+                        for mh in mixed_handlers {
+                            occupancies.push((servant_node(mh), file_idx, r.span));
+                        }
+                    }
+                    continue;
+                }
                 // Interception: an own-effect dependency binds outward, so it
                 // closes no cycle. "Own" is any face this handler wears.
-                if !is_actor(name) || served.contains(&name) {
+                if served.contains(&name) {
                     continue;
                 }
                 targets.push((name.to_string(), file_idx, r.span));
@@ -217,6 +324,23 @@ fn build(
                 for (owner, target, (file, span)) in &out.task_sends {
                     if *owner == task && is_actor(target) {
                         targets.push((target.clone(), *file, *span));
+                    }
+                }
+            }
+            for (target, file, span) in occupancies {
+                let edge = Edge {
+                    kind: EdgeKind::Occupancy,
+                    handler: h.name.name.clone(),
+                    file,
+                    span,
+                };
+                for from in &served {
+                    let slot = graph.entry((*from).to_string()).or_default();
+                    match slot.get(&target) {
+                        Some(existing) if existing.kind <= edge.kind => {}
+                        _ => {
+                            slot.insert(target.clone(), edge.clone());
+                        }
                     }
                 }
             }
@@ -348,6 +472,26 @@ fn report(
     let handlers: BTreeSet<&str> = edges.iter().map(|e| e.handler.as_str()).collect();
     let handlers: Vec<String> = handlers.iter().map(|h| format!("`{h}`")).collect();
     let handlers = handlers.join(", ");
+    // [mixed-handler] An occupancy cycle gets its own report, anchored at the
+    // occupancy edge — the seam where a caller parks on a servant — with the
+    // three ways out §3.3 of the design named.
+    if let Some(occ) = edges.iter().find(|e| e.kind == EdgeKind::Occupancy) {
+        out.errors.push(FileDiagnostic::error(
+            occ.file,
+            occ.span,
+            format!(
+                "these actors can wait for each other through a shared handler: {path} \
+                 ({handlers}). A sync member of a mixed handler parks its caller until \
+                 the servant answers, and a parked activation serves nothing of its own \
+                 mailbox — so each step of this cycle waits on the next, and the \
+                 fulfilment routes back through a stalled queue. Break the cycle: have \
+                 the servant answer without reaching the peer, respell the consulting \
+                 call as a send plus a continuation, or bind a handler of the effect \
+                 that does not wait — a monitor, or a scope-local `use`"
+            ),
+        ));
+        return;
+    }
     // [waitfor-effect] Which unconditional cycle this is decides what the
     // remedy is: a gate is respelled, a declared block is a design to move
     // off the waiting path.
@@ -391,6 +535,13 @@ fn report(
             ),
         )),
     }
+}
+
+/// [mixed-handler] The graph node of a mixed handler's servant. Handlers are
+/// not effects, so the node needs a name of its own — one that reads in a
+/// printed path and cannot collide with a protocol's.
+fn servant_node(handler: &str) -> String {
+    format!("{handler}'s servant")
 }
 
 /// The base name of a written type, for a handler's `of` clause.

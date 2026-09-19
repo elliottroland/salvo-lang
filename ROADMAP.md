@@ -71,12 +71,18 @@ in COMPLETED.md's log), so the shareable-handler build is pure engineering:
 handlers end to end on both backends with identical output; [monitor-handler],
 [mixed-handler], [rs-mixed], [kt-mixed]; COMPLETED.md's log). SH-9's
 direct-answer default is enforced by construction meanwhile (no `replyto`
-inside a mixed handler until `defer`). What remains of the surface: **SH-4**
-(occupancy inference in the graph — the priority, since mixed handlers are
-statically unpriced until it lands and SH-8's runtime report is the only
-net), then **SH-5's deletion** (after SH-4 — the constraint), the **`defer`
-build** (which lifts the no-replyto cut and draws the rung-3/4 line), and
-**SH-7's sugar**. First-slice cuts to lift later: mixed handlers with
+inside a mixed handler until `defer`). **SH-4 is built too** (same day: the
+occupancy edge and the servant node, no-downgrade classification, the upcall
+cycle refused with the three remedies — COMPLETED.md's log). What remains:
+**SH-5's deletion** — with one prerequisite found while building SH-4: the
+graph's Block edge keys on the `[waitfor]` *declaration*, so a non-mixed
+handler whose member waits (the TestTicker shape) would lose its edge with
+the declaration; record the `waitfor` **site** in `Checked` (which handler's
+members contain one) and key the edge on that, then delete the capability,
+the propagation, the three grant checks and the fn-type refusal, and sweep
+the ~99 `[waitfor]` occurrences (every test `main`, the examples, the specs).
+Then the **`defer` build** (lifts the no-replyto cut, draws the rung-3/4
+line), and **SH-7's sugar**. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
 dispatch), overloaded servant members, several faces, and `k@self` inside
 mixed servants (untested).

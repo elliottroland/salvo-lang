@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1178 tests, complete: the toolchain tests are
+cargo test                  # 1180 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,41 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 3: occupancy in the deadlock graph (2026-09-19,
+SH-4).** The price of rung 4, quoted statically — and the piece that makes
+mixed handlers safe to ship, since until it they were unpriced and SH-8's
+runtime report was the only net. The graph gains its **fourth edge kind and a
+new node kind**:
+
+- **Mixed handlers are nodes** (`Feedback's servant`): they serve no actor
+  effect, so the face-keyed graph never saw them. A servant node's outgoing
+  edges are its sends through the `Addr` values it holds (back-pressure —
+  a slice-one servant cannot gate, block or occupy: `replyto` and
+  dependencies are refused).
+- **The occupancy edge is inferred from the same declarations the graph
+  already reads**: an actor handler declaring a dependency on a plain effect
+  that has mixed handlers may reach a façade call and park on the servant —
+  one edge per mixed handler of the effect, from every served protocol. No
+  new syntax, no new side tables: the dependency-declaration proxy that
+  covers the call graph for sends covers it for occupancy too.
+- **No downgrade**: a cycle containing an occupancy edge is an error even
+  when back-pressure closes it — the ungated-side argument is exactly what an
+  occupied activation's `running` flag removes (§3.2 II-c's warning). The
+  test is the design's upcall shape as close as slice one can write it: a
+  `Feedback of Random` servant answering through `drawer.draw(out)` while
+  `Drawing [Random] of Drawer` consults the façade — reported as an error
+  anchored at the `[Random]` dependency, naming the path
+  (`Drawer → Feedback's servant → Drawer`) and the three remedies.
+- The acyclic case stays silent (the second test), and the stated
+  imprecision is the graph's own: over types, not instances.
+
+Tests: **1180 (+2)**. What SH-5's deletion must replace before the `[waitfor]`
+declaration goes: the **Block edge currently keys on the declaration** — a
+non-mixed handler whose member waits (the TestTicker shape) is visible to the
+graph only through `[waitfor]` — so the deletion needs a `waitfor`-*site*
+record in `Checked` (which handler's members contain one) to key the same
+edge on inference. Noted in ROADMAP with the deletion item.
 
 **Shareable handlers, slice 2b: the mixed handler emitted end to end
 (2026-09-19, SH-1 complete — and SH-2 with it).** Both backends run the
@@ -12694,7 +12729,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1178)
+## Test inventory (all green: 1180)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
