@@ -2049,6 +2049,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_mixed_handler,
     kotlinc_compiles_and_runs_a_deferring_mixed_handler,
     kotlinc_compiles_and_runs_a_parking_mixed_handler,
+    kotlinc_compiles_and_runs_a_servant_sibling_chain,
     kotlinc_compiles_and_runs_a_stub_bound_effect,
     kotlinc_compiles_and_runs_a_dependent_spawn,
     kotlinc_compiles_and_runs_a_member_named_like_a_std_fn,
@@ -9545,6 +9546,56 @@ fn kotlinc_compiles_and_runs_a_parking_mixed_handler() -> KotlinCase {
         generate_files(&[("main.sv", PARKING)]),
         "parking-mixed",
         "first 8\nsecond 16\n",
+    )
+}
+
+/// [mixed-handler] [actor-self-send] [kt-mixed] A servant reaching its
+/// siblings (user decision 2026-09-19): a bare sibling call in a send member
+/// and `k@self(…)` in both member kinds, all lowering to enqueues on the
+/// servant's own mailbox (`__Msg_H`), the reply travelling hop to hop by
+/// value. Same program and output as the Rust backend.
+const SERVANT_CHAIN: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler Chain() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        relay(out)
+    }
+
+    send fn relay(out: Reply<Int>) => defer out {
+        deliver@self(out)
+    }
+
+    send fn deliver(out: Reply<Int>) => !out {
+        send(out, tally * 10)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance@self(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    use Chain() on pool(1)
+    println("first ${next()}")
+    println("second ${next()}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_servant_sibling_chain() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", SERVANT_CHAIN)]),
+        "servant-chain",
+        "first 10\nsecond 20\n",
     )
 }
 

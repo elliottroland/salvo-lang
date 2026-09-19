@@ -8901,6 +8901,29 @@ impl<'p> Emitter<'p> {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "todo!()".to_string();
         };
+        // The message owns its payload either way: it outlives the send when
+        // it is queued, and the member's parameters are consumed when it is
+        // called [actor-self-send].
+        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+        // [mixed-handler] [rs-mixed] A mixed servant's self-send — a bare
+        // sibling call or `k@self(…)` in a send member (user decision
+        // 2026-09-19): the message enum is the *handler's* (`__Msg_H`), and
+        // the enqueue is unconditional — a mixed handler is spawn-only, so
+        // its send members always run as activations and `__addr` was
+        // written before the body ran.
+        if self.handler_is_mixed(decl) {
+            let msg = msg_enum_name(&handler);
+            let variant = msg_variant_name(member);
+            let built = if payload.is_empty() {
+                format!("{msg}::{variant}")
+            } else {
+                format!("{msg}::{variant}({})", payload.join(", "))
+            };
+            return format!(
+                "crate::scheduler::salvo_send(self.__addr\
+                 .expect(\"a mixed servant runs as an actor\"), Box::new({built}))"
+            );
+        }
         // [effect-handler-multi] The message enum is the *face's*, so the
         // protocol is the one whose members include this one.
         let Some(effect_name) = self
@@ -8914,10 +8937,6 @@ impl<'p> Emitter<'p> {
             ));
             return "todo!()".to_string();
         };
-        // The message owns its payload either way: it outlives the send when
-        // it is queued, and the member's parameters are consumed when it is
-        // called [actor-self-send].
-        let payload: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
         let msg = self.effect_path(&effect_name, &msg_enum_name(&effect_name));
         let variant = msg_variant_name(member);
         let built = if payload.is_empty() {

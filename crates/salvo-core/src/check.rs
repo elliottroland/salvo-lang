@@ -398,10 +398,12 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
-    /// [mixed-handler] Façade sends: a bare call inside a mixed handler's
-    /// sync member that names one of the handler's own `send fn` members,
-    /// mapped to that member's name. The emitters lower each to an enqueue
-    /// on the façade value's addr.
+    /// [mixed-handler] Façade sends: a call inside a mixed handler's
+    /// sync member that names one of the handler's own `send fn` members —
+    /// bare, or spelled `k@self(…)` — mapped to that member's name. The
+    /// emitters lower each to an enqueue on the façade value's addr. (The
+    /// same call inside a **send** member is a self-send and lives in
+    /// `self_sends`: the servant enqueues on its own mailbox.)
     pub facade_sends: HashMap<Key, String>,
     /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
     /// expression, with the site: since SH-5(d) (user decision 2026-09-19)
@@ -9132,15 +9134,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
+            // [defer-deduction] A reply riding the payload leaves this
+            // activation — the same hook an addr-send payload passes
+            // through (fires only inside a mixed send member).
+            self.reply_escape(a, "sending it onward");
             // A payload crosses the seam even when both ends are the same
             // actor: the message outlives this activation, so the sender
             // gives it up [deduce-consume].
             self.fate_move(a, "send", "a send to this actor", a.span());
         }
         self.record_def_ref(member.span, &member.name);
-        self.out
-            .self_sends
-            .insert(self.key(span), member.name.clone());
+        // [mixed-handler] Inside a mixed handler's **sync** member the
+        // explicit spelling means what the bare call means — a send to the
+        // servant through the façade value's addr — so it shares that
+        // table and lowering (user decision 2026-09-19: `@self` is the
+        // disambiguator, in both member kinds).
+        if self.facade_handler.is_some() {
+            self.out
+                .facade_sends
+                .insert(self.key(span), member.name.clone());
+        } else {
+            self.out
+                .self_sends
+                .insert(self.key(span), member.name.clone());
+        }
         // [actor-send-fn] A send answers nothing.
         Ty::none()
     }
@@ -9837,18 +9854,66 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [mixed-handler] A bare call inside a façade member that names one of
-    /// the handler's own `send fn` members: a **send to the servant**. Typed
-    /// like an addr send — every argument consumed (the payload crosses),
-    /// answering nothing — and recorded for the emitters, which lower it to
-    /// an enqueue on the façade value's addr. Answers `None` when the callee
-    /// is not a local send member, so ordinary resolution proceeds.
-    fn check_facade_send(&mut self, id: &Ident, args: &'p [Expr], span: Span) -> Option<Ty> {
-        let h = self.facade_handler?;
+    /// [mixed-handler] A bare call inside a mixed handler's member that
+    /// names one of the handler's own `send fn` members: a **send to the
+    /// servant** (user decision 2026-09-19 — from a sync member since SH-1,
+    /// from a send member too since the same-day extension, where it is a
+    /// self-enqueue [actor-self-send]). Typed like an addr send — every
+    /// argument consumed (the payload crosses), answering nothing — and
+    /// recorded for the emitters: façade sends lower to an enqueue on the
+    /// façade value's addr, servant sends to one on the handler's own.
+    /// Answers `None` when the callee is not a local send member, so
+    /// ordinary resolution proceeds.
+    ///
+    /// **Ambiguity is refused, not resolved** (the same decision): a name
+    /// that is *also* a member of an effect available in this body — a
+    /// declared dependency, once mixed handlers may have them — must say
+    /// which it means: `k@self(…)` for the servant, `k@Effect(…)` for the
+    /// effect [effect-at].
+    fn check_servant_send(&mut self, id: &Ident, args: &'p [Expr], span: Span) -> Option<Ty> {
+        // Façade context (sync member) or servant context (send member)?
+        let (h, servant) = match (self.facade_handler, self.servant_reply_params.is_some()) {
+            (Some(h), _) => (h, false),
+            (None, true) => (self.own_handler?, true),
+            _ => return None,
+        };
         let target = h
             .fns
             .iter()
             .find(|f| f.is_send && f.name.name == id.name)?;
+        let claimed: Vec<String> = self
+            .scope
+            .effect_members
+            .get(id.name.as_str())
+            .map(|ms| {
+                ms.iter()
+                    .filter(|(e, _)| {
+                        self.effect_env.iter().any(
+                            |t| matches!(t, Ty::Named { name, .. } if *name == e.name.name),
+                        )
+                    })
+                    .map(|(e, _)| format!("`{}`", e.name.name))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !claimed.is_empty() {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(
+                span,
+                format!(
+                    "`{}` is both a `send fn` of this handler and a member of {} \
+                     available here: say which — `{}@self(…)` for a send to this \
+                     handler's servant, or name the effect (`{}@E(…)`)",
+                    id.name,
+                    claimed.join(", "),
+                    id.name,
+                    id.name
+                ),
+            );
+            return Some(Ty::Unknown);
+        }
         self.record_def_ref(id.span, &id.name);
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
         let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
@@ -9875,12 +9940,23 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let repr = self.repr_of(a, &got);
             self.maybe_coerce(a.span(), &got, &repr, want);
-            // The payload crosses to the servant: the façade gives it up
+            // [defer-deduction] A reply riding the payload leaves this
+            // activation, so it must be declared `defer` — the same hook an
+            // addr-send payload passes through. (Nothing fires in a façade:
+            // sync members have no reply parameters to escape.)
+            self.reply_escape(a, "sending it onward");
+            // The payload crosses to the servant: the sender gives it up
             // [deduce-consume] — which is also how a reply token minted by
             // the façade's `waitfor` discharges.
             self.fate_move(a, "send", "a send to the servant", a.span());
         }
-        self.out.facade_sends.insert(self.key(span), id.name.clone());
+        if servant {
+            // [actor-self-send] A servant's bare sibling call *is* a
+            // self-send, so it shares the spelling's table and lowering.
+            self.out.self_sends.insert(self.key(span), id.name.clone());
+        } else {
+            self.out.facade_sends.insert(self.key(span), id.name.clone());
+        }
         Some(Ty::none())
     }
 
@@ -17879,12 +17955,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
-            // [mixed-handler] Inside a façade member, a bare call naming one
-            // of the handler's own `send fn` members is a send to the
+            // [mixed-handler] Inside a mixed handler's member — sync or
+            // send (user decision 2026-09-19) — a bare call naming one of
+            // the handler's own `send fn` members is a send to the
             // servant — resolved before the general ladder (the handler's
             // members are the innermost declaration scope), after locals
-            // (which shadow, as they shadow everything).
-            if let Some(ty) = self.check_facade_send(id, args, span) {
+            // (which shadow, as they shadow everything). A collision with
+            // an available effect member is refused inside, naming `@self`.
+            if let Some(ty) = self.check_servant_send(id, args, span) {
                 return ty;
             }
             return self.resolve_named_call(

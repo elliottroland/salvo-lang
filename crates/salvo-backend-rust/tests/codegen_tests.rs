@@ -9086,6 +9086,58 @@ fn rustc_compiles_and_runs_a_parking_mixed_handler() {
     run_rust_files(&files, "parking-mixed", "first 8\nsecond 16\n");
 }
 
+/// [mixed-handler] [actor-self-send] [rs-mixed] A servant reaching its
+/// siblings (user decision 2026-09-19): a bare sibling call in a send member
+/// and `k@self(…)` in both member kinds, all lowering to enqueues on the
+/// servant's own mailbox (`__Msg_H`), the reply travelling hop to hop by
+/// value. Same program and output as Kotlin.
+const SERVANT_CHAIN: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+handler Chain() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        relay(out)
+    }
+
+    send fn relay(out: Reply<Int>) => defer out {
+        deliver@self(out)
+    }
+
+    send fn deliver(out: Reply<Int>) => !out {
+        send(out, tally * 10)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance@self(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    use Chain() on pool(1)
+    println("first ${next()}")
+    println("second ${next()}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_servant_sibling_chain() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SERVANT_CHAIN)]);
+    run_rust_files(&files, "servant-chain", "first 10\nsecond 20\n");
+}
+
 fn generate_mixed_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", MIXED)])
 }

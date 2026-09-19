@@ -595,6 +595,114 @@ handler Prompt() of Random {
     );
 }
 
+/// [mixed-handler] [actor-self-send] A servant member reaches a sibling
+/// `send fn` by bare call (user decision 2026-09-19) — a self-enqueue — and
+/// `@self` is the explicit spelling, in send members and in sync members
+/// alike. The whole chain checks clean.
+#[test]
+fn a_servant_member_reaches_a_sibling_by_bare_call() {
+    let diags = diagnostics(
+        "\
+handler Chain() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn step(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        relay(out)
+    }
+
+    send fn relay(out: Reply<Int>) => defer out {
+        deliver@self(out)
+    }
+
+    send fn deliver(out: Reply<Int>) => !out {
+        send(out, tally * 10)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            step@self(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        diags.is_empty(),
+        "the sibling-call chain checks clean: {diags:?}"
+    );
+}
+
+/// [defer-deduction] A reply riding a bare sibling call's payload leaves the
+/// activation, so the escape hook fires exactly as it does for an addr send:
+/// the member must declare `defer`.
+#[test]
+fn a_reply_sent_onward_by_a_bare_sibling_call_requires_defer() {
+    let errs = errors(
+        "\
+handler Chain() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn step(out: Reply<Int>) => !out {
+        tally = tally + 1
+        relay(out)
+    }
+
+    send fn relay(out: Reply<Int>) => !out {
+        send(out, tally * 10)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            step(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("outlive the activation")
+            && m.contains("`=> defer out`")),
+        "expected the payload escape naming the declaration: {errs:?}"
+    );
+}
+
+/// The bare-call resolution reaches `send fn` siblings only: a sync member
+/// named bare from a send member stays unresolved, as sibling members always
+/// were outside this rule.
+#[test]
+fn a_sync_sibling_stays_unresolved_from_a_send_member() {
+    let errs = errors(
+        "\
+handler Chain() of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn step(out: Reply<Int>) => !out {
+        tally = tally + peek()
+        send(out, tally)
+    }
+
+    fn peek() -> Int {
+        return 1
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            step(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("peek")),
+        "expected `peek` to stay unresolved from the servant: {errs:?}"
+    );
+}
+
 /// [defer-deduction] [actor-replyto] Parking inside a mixed handler — the
 /// lift of the staged refusal: a servant member may mint a continuation on
 /// another of its own send members, provided the captured reply is declared

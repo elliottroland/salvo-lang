@@ -1663,6 +1663,8 @@ fn main() [use, spawn] {
 
 State is **confined**: only send members touch it, so every access is a serialized activation, and a sync member that reads a field is refused by name — its environment is its own parameters, the constructor parameters, and sends to its own servant. Nothing here declares `waitfor`: a call occupying its thread until it returns is what a call is, and the façade's wait serves its pool while it waits. What a caller of `next()` can never learn is whether the `Random` in scope is a scope-local handler, a monitor, or three threads' shared servant — which is the point.
 
+Send members reach their siblings the same way: a bare call naming another of the handler's `send fn` members enqueues on the servant's own mailbox — "finish this activation, then that one" — so a request can travel member to member without leaving the actor. `k@self(…)` is the explicit spelling of the same send, available in either member kind, and it is how the call says what it means where a bare name would be ambiguous with an effect member in scope.
+
 A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive). By default its servant answers every request within the activation that received it, which is what makes a façade's wait end after one straight-line activation rather than after an event that may never come. A send member that declares `defer` on a reply parameter opts out of that default: the answer may outlive the activation — forwarded to another actor whose discharge ends the caller's wait, or parked in a continuation on one of the servant's own members with `replyto`, exactly as an actor parks — and the deadlock graph prices the deferral.
 
 ### Two effects, one member name

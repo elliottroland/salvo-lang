@@ -3964,10 +3964,13 @@ impl<'p> Emitter<'p> {
         let msg = msg_class_name(&handler);
         let variant = msg_variant_name(member);
         let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-        format!(
-            "salvo.SalvoSched.send(__addr, {msg}.{variant}({}))",
-            payload.join(", ")
-        )
+        // An empty payload is an `object` subclass of `__Msg_H`.
+        let built = if payload.is_empty() {
+            format!("{msg}.{variant}")
+        } else {
+            format!("{msg}.{variant}({})", payload.join(", "))
+        };
+        format!("salvo.SalvoSched.send(__addr, {built})")
     }
 
     /// [mixed-handler] [kt-mixed] Whether a handler is mixed: every face a
@@ -5729,6 +5732,24 @@ impl<'p> Emitter<'p> {
             self.error(format!("internal: no handler `{handler}` for a self-send"));
             return "TODO()".to_string();
         };
+        let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+        // [mixed-handler] [kt-mixed] A mixed servant's self-send — a bare
+        // sibling call or `k@self(…)` in a send member (user decision
+        // 2026-09-19): the message class is the *handler's* (`__Msg_H`),
+        // and the enqueue is unconditional — a mixed handler is spawn-only,
+        // so its send members always run as activations and `__addr` is
+        // written before the body runs.
+        if self.handler_is_mixed(decl) {
+            let msg = msg_class_name(&handler);
+            let variant = msg_variant_name(member);
+            // An empty payload is an `object` subclass of `__Msg_H`.
+            let built = if payload.is_empty() {
+                format!("{msg}.{variant}")
+            } else {
+                format!("{msg}.{variant}({})", payload.join(", "))
+            };
+            return format!("salvo.SalvoSched.send(__addr!!, {built})");
+        }
         // [effect-handler-multi] The message class is the *face's*, so the
         // protocol is the one whose members include this one.
         let Some(effect_name) = self
@@ -5742,7 +5763,6 @@ impl<'p> Emitter<'p> {
             ));
             return "TODO()".to_string();
         };
-        let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         let msg = msg_class_name(&effect_name);
         let variant = msg_variant_name(member);
         format!(

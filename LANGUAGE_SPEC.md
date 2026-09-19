@@ -2601,12 +2601,24 @@ LANGUAGE.md remains the source of truth for everything that does.
     by name ("`cursor` is the servant's state…"), and the handler's
     dependency list is invisible to sync members. Even an immutable read is
     refused: it would race an activation that assigns.
-  * **The façade send**: inside a sync member, a bare call naming one of the
-    handler's own `send fn` members resolves as a send to the servant —
-    after locals, before the general ladder; every argument is consumed (the
-    payload crosses), and the call answers nothing. This is the one place
-    sibling members resolve; everywhere else they stay unresolved as they
-    always were.
+  * **The servant send**: inside *either* member kind, a bare call naming
+    one of the handler's own `send fn` members resolves as a send to the
+    servant — after locals, before the general ladder; every argument is
+    consumed (the payload crosses), and the call answers nothing. From a
+    sync member it enqueues through the façade's addr; from a send member it
+    is a **self-enqueue** on the servant's own mailbox [actor-self-send]
+    (user decision 2026-09-19 — sync-only at SH-1, extended the same day),
+    and a reply riding the payload must be declared `defer`
+    [defer-deduction], exactly as on an addr send. This is the one place
+    sibling members resolve — `send fn` siblings only; sync siblings stay
+    unresolved as they always were.
+    * **Ambiguity is refused, not resolved**: a name that is *also* a
+      member of an effect available in the body (a declared dependency,
+      once mixed handlers may have them) must say which it means —
+      `k@self(…)` for the servant, `k@E(…)` for the effect [effect-at]. The
+      arm is dormant until the dependency cut lifts: today a mixed handler
+      declares no effects and its members may declare none, so nothing can
+      collide.
   * **No `[waitfor]` anywhere** (the user's stated intent, SH-5(d)'s down
     payment): a sync member may `waitfor` with no capability declared — on
     the plain effect's member, on the handler, or at the callers. Occupancy
@@ -3125,6 +3137,13 @@ LANGUAGE.md remains the source of truth for everything that does.
       address, absent exactly when the instance was bound synchronously
       ([rs-actor], [kt-actor]). One field, two rules, no second
       compilation.
+  * **Inside a mixed handler** [mixed-handler] the form works in both member
+    kinds (user decision 2026-09-19): in a send member it enqueues on the
+    servant's own mailbox unconditionally (a mixed handler is spawn-only, so
+    there is no inline reading to discriminate), and in a sync member it is
+    the explicit spelling of the façade send. It is also the
+    **disambiguator** where a bare call would be ambiguous — see the servant
+    send rule under [mixed-handler].
   * `k` must be a member of the enclosing handler and a **`send fn`**: a
     member that answers would have to wait for itself. Arguments are typed
     against its parameters and *consumed* — the message outlives this

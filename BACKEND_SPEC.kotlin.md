@@ -995,6 +995,11 @@ where Rust had to build the fusion to get the same programs running
   * **`__Fac_H(private val __addr: Int, ctor params) : E`** with the sync
     member bodies; a façade send lowers to
     `salvo.SalvoSched.send(__addr, __Msg_H.Variant(args))`.
+  * **A servant send** [actor-self-send] — a bare sibling call or `k@self(…)`
+    in a send member — lowers to
+    `salvo.SalvoSched.send(__addr!!, __Msg_H.Variant(args))`, unconditional:
+    a mixed handler is spawn-only, so `__addr` is always written. A façade
+    `k@self(…)` lowers exactly as the bare façade send does.
   * **`Addr<E>` for a plain `E` lowers to the interface `E` itself** —
     Kotlin needs no clone-box machinery: `__Mon_E` and `__Fac_H` both
     implement the interface, and JVM references make the handle freely

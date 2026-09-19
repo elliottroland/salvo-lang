@@ -86,10 +86,12 @@ log). **With that the shareable-handler design is built end to end and
 SHAREABLE_HANDLERS.md is retired** — its record lives in COMPLETED.md's
 decision log. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
-dispatch), overloaded servant members, several faces, sibling send-member
-calls from inside a send member (today only sync members resolve them; a
-servant member reaches a sibling through `replyto` or an addr), and
-`k@self` inside mixed servants (untested).
+dispatch — and when it lands, the servant-send ambiguity refusal gets its
+first live trigger and needs a test: a bare sibling call whose name an
+available effect member also claims requires `@self`, built 2026-09-19 but
+dormant while deps are refused), overloaded servant members, and several
+faces. Servant sibling calls and `k@self` in mixed handlers landed
+2026-09-19 (user decision; COMPLETED.md's log).
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 

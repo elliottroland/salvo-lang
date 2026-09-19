@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1187 tests, complete: the toolchain tests are
+cargo test                  # 1191 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,48 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Servant sibling calls: bare in send members, `@self` as the disambiguator
+(user decision 2026-09-19, built the same day).** Found while explaining the
+parking slice's discovered edge: a mixed servant member could not name a
+sibling `send fn` at all (the façade-send resolution was sync-member-only),
+so a request could not travel member to member without an oracle actor to
+bounce off. The user's call: **allow the bare call in send members when it
+is not ambiguous with a declared effect of the handler; ambiguity requires
+`@self`, in both member kinds.**
+
+- **One resolution rule for the whole handler**: `check_facade_send` became
+  `check_servant_send`, hooked at the same ladder position (after locals,
+  before the general ladder) for both member kinds. From a sync member the
+  send goes through the façade's addr (as before); from a send member it is
+  a **self-enqueue**, recorded in `self_sends` so it shares
+  [actor-self-send]'s lowering. `send fn` siblings only — sync siblings stay
+  unresolved.
+- **`@self` in mixed handlers is now real**, both member kinds: in a send
+  member an unconditional enqueue on the servant's own mailbox (`__Msg_H`,
+  `__addr!!` / `.expect(…)` — a mixed handler is spawn-only, so no inline
+  reading exists to discriminate); in a sync member it records as a façade
+  send and lowers identically to the bare spelling. This closes the
+  "`k@self` inside mixed servants (untested)" cut.
+- **The ambiguity refusal is built but dormant**: a bare name that an
+  available effect member also claims errors naming both spellings
+  (`k@self(…)` / `k@E(…)`). No live trigger exists today — mixed handlers
+  refuse dependencies and members may declare no effects — so its first
+  test rides the deps lift (noted in ROADMAP).
+- **The `defer` contract point extends naturally**: a reply riding a
+  sibling-send payload leaves the activation, so the escape hook fires
+  exactly as on an addr send — added to both the bare path and
+  `check_self_send` (where it fires only inside mixed send members).
+- **Riding along**: the Kotlin façade/servant send now emits `object`
+  variants of `__Msg_H` without parens (a latent façade-send bug for
+  parameterless send members; Rust already did this right).
+
+Tests: **1191 (+4)** — three checker tests (the chain of all three
+spellings checks clean; a reply sent onward bare requires `defer`; a sync
+sibling stays unresolved from a send member) and a compile-and-run chain on
+both backends with identical output (`first 10` / `second 20`: bare sibling
+call, `k@self` in a send member, `k@self` in a sync member, the reply
+travelling hop to hop by value).
 
 **Shareable handlers, slice 7 — parking inside mixed handlers, and the
 design closes (2026-09-19).** The lift of slice 6's staged refusal: `replyto`
@@ -12870,7 +12912,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1187)
+## Test inventory (all green: 1191)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12878,7 +12920,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 667 - 7 module-visibility tests
+- `salvo-core`: 670 - 7 module-visibility tests
   (`tests/export_tests.rs` [mod-export]: an exported declaration crossing while
   a private one does not — its own module reaching both — the private-name
   diagnostic naming the module and the fix, that name *not* being offered as an
@@ -13756,7 +13798,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 218 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 219 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —

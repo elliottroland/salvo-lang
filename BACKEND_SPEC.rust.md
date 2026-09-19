@@ -1433,6 +1433,12 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     emitted with the ordinary handler-member machinery (ctor params resolve
     as self fields; state never resolves, the checker confined it). A façade
     send lowers to `salvo_send(self.__addr, Box::new(__Msg_H::Variant(args)))`.
+  * **A servant send** [actor-self-send] — a bare sibling call or `k@self(…)`
+    in a send member — lowers to
+    `salvo_send(self.__addr.expect(…), Box::new(__Msg_H::Variant(args)))`,
+    unconditional: a mixed handler is spawn-only, so `__addr` is always
+    written. A façade `k@self(…)` lowers exactly as the bare façade send
+    does.
   * **The mixed spawn** evaluates ctor args once (`let __cN = …`), clones
     them into the handler, moves them into the façade, reads the mailbox
     bound off the instance, spawns `__Actor_H`, and answers
