@@ -63,8 +63,13 @@ worked example in `examples/actors/`. **"The second sequence" is finished too**
 multi-effect handlers, `core.time` — now module `time` — and the coupling stance,
 each recorded below with what it left behind. **With no sequence in progress,
 the work is: the open defects below, then the decisions waiting on the user,
-then whatever those decisions schedule** — SHAREABLE_HANDLERS.md being the
-largest of them, and its SH-8 the idle-report defect that is a bug today.
+then whatever those decisions schedule** — SHAREABLE_HANDLERS.md's calls were
+**all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
+round, including the same-day SH-6 revision to shape-based classification, is
+in COMPLETED.md's log), so the shareable-handler build is pure engineering:
+SH-1+SH-3 first (`CyclicRandom` as a monitor is the smallest end-to-end
+slice), then SH-9+SH-2, SH-4, SH-5's deletion (after SH-4 — the constraint),
+the `defer` build, and SH-7's sugar.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -294,6 +299,15 @@ Found while building step 1; none blocks step 2.
   reason it is not built is that the interesting case arrives with step 2,
   when a pool holds tasks as well as actors. Sibling of the recorded
   self-send mailbox wedge.
+- **The `[waitfor]` spawn-placement diagnostic states a hazard the pump rule
+  removed** (noticed 2026-09-18 while unpacking SH-5). Grant check I tells the
+  user that "a shared `pool(n)` would let one wait stall every actor on it" —
+  but [waitfor-pump] landed in the same step, and a wait *serves* its pool,
+  excluding only the waiting actor's own activations, so a wait on a shared
+  pool stalls exactly one mailbox: its own. The text is the original,
+  pre-pump justification. It disappears with the check under every SH-5 option
+  except (a); under (a) it has to be rewritten to the two costs that are real
+  (a pinned stack frame, and the waiter's own stalled mailbox).
 - **A `use` site does not check the `[spawn]` capability**, where it now
   checks `[waitfor]`. A handler declaring `[spawn]` among its dependencies
   can be `use`d from a function that does not hold it, and its members
@@ -415,6 +429,27 @@ Found while building step 3; none blocks step 4.
   a program that recovers by respawning therefore sees a count that never
   returns to zero. That is the honest reading, but it means "both zero" is a
   *sufficient*, not necessary, sign of a clean finish after any death.
+- **DECISION — should the hook read the report's condition?** The deadlock
+  report's `active` hole was fixed 2026-09-18 (COMPLETED.md's log): a frame
+  parked in a wait is counted out of the running frames, so the report now
+  fires for an occupied waiter. The **hook** was deliberately left on the
+  stricter predicate, because relaxing it is observable behaviour and therefore
+  the user's call: today a program that is stuck *with* a parked frame gets the
+  report and exit 1, where the relaxed reading would fire `Idle { parked_gates,
+  parked_tokens }` and let the program react. The argument for relaxing it is
+  consistency — `main`'s wait already does not hold off idleness, and the
+  payload exists precisely to say "idle and still owed something"; the argument
+  against is that `on_idle`'s meaning drifts from "the work I sent has
+  finished" toward "nobody can move", which is the report's job. One line in
+  each runtime either way ([waitfor-pump]'s `stuck` versus `idle`).
+- **The deadlock report names actors by index, not by handler or member.** It
+  now distinguishes the two unservable shapes — parked in a wait, and gated —
+  but prints `actor 0`, where a diagnosis wants `CyclicRandom` and the member
+  it is parked in. Both need plumbing the runtime does not have: a
+  `&'static str` per spawn for the handler, and one per waiter mint for the
+  member (both emitters, every hand-written driver call site, and the
+  snapshots). Worth doing as one item — richer reports for gates and parks
+  alike — rather than half of it with the defect fix.
 
 Parked with named triggers: FC-5's minter-attribution refinement (if the sink
 proves too coarse for recovery); deadlock stratification and the
@@ -508,29 +543,32 @@ anything scheduled.
   Nobody has needed it: code that measures uses ticks, which is the point of the
   two timelines. Write it when a test needs a deterministic wall clock *and*
   deadlines in the same program.
-- **A handler that waits on a *positive* deadline hangs a `ManualTime` test, with
-  no diagnostic** — and this is the practical face of the open
-  idle-with-parked-gates defect below. A synchronous `sleep`-shaped helper
-  (`fn nap(d: Duration) [Timer, waitfor]`) parks its actor's activation; main is
-  typically inside `waitfor … on_idle`, which cannot fire while an actor is
-  occupied; so nothing advances virtual time and nothing reports why. Reading the
-  clock is *not* affected any more (a zero deadline fires at registration
-  [time-coupling]), which is what made step 6 work at all, but the general shape
-  is live. Fixing the defect — counting activations parked in a wait out of
-  `active` — makes it a named deadlock report instead of a hang.
+- **A handler that waits on a *positive* deadline still wedges a `ManualTime`
+  test — but it now says so** (updated 2026-09-18). A synchronous
+  `sleep`-shaped helper (`fn nap(d: Duration) [Timer, waitfor]`) parks its
+  actor's activation, and `main` is typically inside `waitfor … on_idle`, which
+  does not fire while an actor is occupied — so nothing advances virtual time.
+  Until the report's hole was fixed that was a silent hang; it is now the named
+  deadlock report, naming the actor parked in a wait. Reading the clock is not
+  affected at all (a zero deadline fires at registration [time-coupling]),
+  which is what made step 6 work. What is still owed is the *shape* of the fix
+  for a test that means to do this: the deadline has to be advanced by someone
+  who is not parked behind it, which is the ordering `on_idle` exists to
+  sequence.
 - **Every clock reading through the unified form is a round trip**: a message to
   the timer, a park, and a wake, per `tick()`. Fine for a fake, and the reason
   the recorded order of postures puts it last, but a test that reads the clock
   inside a loop pays per iteration. The alternatives are already recorded —
   scheduler-owned virtual time (which makes a reading a local read again) or
-  SHAREABLE_HANDLERS.md's SH-5(b), which would remove the `[waitfor]`
-  declaration *and* the dedicated thread.
+  SH-5's deletion, **now decided** (2026-09-19, option (d)): when it is built,
+  the `[waitfor]` declaration and the dedicated thread both go.
 - **The dedicated thread is the stance's real cost, and it is per waiting
-  actor.** `[waitfor]` propagates to whoever binds the clock, so every actor
-  under test that reads the time needs `on thread()`. Two actors reading one
-  virtual clock is two OS threads. That is the trigger the T-2 upgrade path was
-  recorded against: if this starts to bite, scheduler-owned virtual time is the
-  answer that removes it rather than trading it.
+  actor** — until SH-5(d) is built. Today `[waitfor]` propagates to whoever
+  binds the clock, so every actor under test that reads the time needs
+  `on thread()`; two actors reading one virtual clock is two OS threads. The
+  2026-09-19 decision removes the requirement with the capability; the T-2
+  upgrade path (scheduler-owned virtual time) remains the answer if the *round
+  trip* itself ever bites.
 
 ### Module visibility — leftovers (2026-09-18)
 
@@ -603,7 +641,7 @@ links to the section that states the options.
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
-| **Shareable handlers** — SH-1…SH-8: mixed handlers (state confined to send members + sync façades), synchronized monitor members, occupancy inference in the deadlock graph, and whether `[waitfor]` stays a propagating declared effect or demotes to an optional checked annotation | after the second sequence (SH-8, the idle-report defect, first — it is a bug today) | SHAREABLE_HANDLERS.md |
+| **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
 decided and built 2026-09-16 — the mailbox moved to the handler
@@ -625,7 +663,10 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Seven open.** (Closed in the sessions before this one, with repros and
+**Six open.** (**Closed 2026-09-18**: the idle report never fired when the
+waiter was an occupied actor — the prerequisite of SHAREABLE_HANDLERS.md's
+SH-8; the repro and the fix are in COMPLETED.md. Closed in the sessions before
+this one, with repros and
 root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
 and the adapter's silent clone of a returned projection; a tuple-array type
 `(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
@@ -640,33 +681,6 @@ Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
 std fn — one loud half inside std's own emission and one *silently wrong
 output* half through `@module` — and consuming a handler's stored values,
 which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
-
-- **The idle-with-parked-gates report never fires when the waiter is an
-  occupied actor** (reproduced 2026-09-17, while working SHAREABLE_HANDLERS.md;
-  introduced with step 1, which made actor waits legal — the report was
-  designed when only `main` could wait). Repro, as a scheduler driver against
-  `runtime/scheduler.rs`:
-
-  ```rust
-  // an actor's activation waits on a token nothing can fulfil:
-  fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {
-      let (_token, wid) = salvo_waiter();   // token dropped: unfulfillable
-      let _ = salvo_wait(wid);
-  }
-  // main: spawn it on pool(1), send to it, then wait on a second
-  // unfulfillable token. Expected: the named deadlock report, exit non-zero.
-  // Actual: a silent hang, on both backends.
-  ```
-
-  Root cause: `idle()` requires `active == 0`, and an activation parked in a
-  nested `salvo_wait` still counts in `active` — so no waiter ever sees the
-  scheduler as idle while any actor is occupied. Fix: count activations
-  parked in a wait out of `active` (or track `parked_in_wait` separately and
-  make `idle()` read `active == parked`), and extend the report to name the
-  occupied actor and the member it is parked in. SHAREABLE_HANDLERS.md's SH-8
-  marks this the prerequisite of that whole design: with hidden waits, the
-  occupied-waiter deadlock becomes the common failure shape and the runtime
-  net must fire for it. Worth fixing regardless — the hole exists today.
 
 - **The Kotlin case driver costs ~17s on every run, cached or skipped**
   (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
@@ -2193,6 +2207,14 @@ blocking, and several are "revisit only if a customer appears".
   matrix size itself — trimming compile-and-run cases whose behavior the
   goldens already pin.
 
+- **`const` bindings** (user intent, stated 2026-09-19 while refining the
+  shareable-handler taxonomy): a binding form that forbids reassignment.
+  Announced, not designed — no syntax round yet. Its first customer is
+  already recorded: SHAREABLE_HANDLERS.md §3.12's rung 1 keys on *no mutable
+  state*, which today means "no fields, no `Mut` constructor parameters";
+  `const` immutable fields would join the allowance (const restricts the
+  binding, not the contents, so a `const` field of a `Mut` type still counts
+  as mutable state).
 - **`once` inference**: a callee calling its fn param at most once does
   not auto-promote to `once`; written only [once-fn]. Same
   written-validates/unwritten-infers pattern as deductions when taken.

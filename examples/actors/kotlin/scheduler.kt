@@ -10,8 +10,13 @@
 // faulted activation caught at the dispatch boundary (sends and replies
 // to the dead are silent no-ops; watchers are notified with the reason),
 // the quiescence hook ([actor-on-idle]: a registered token answered when
-// nothing anywhere can run), and the idle-with-parked-gates report. Pool
-// threads are daemon threads: the program ends when main returns.
+// nothing anywhere can run), and the deadlock report — nothing left that can
+// run while a frame waits, and no hook to fire, is a named runtime error
+// rather than a hang. The waiting frame need not be main: an activation
+// parked in a nested wait holds its actor's `running` flag, so its own
+// mailbox is stalled while it waits, and the report counts parked frames out
+// of the running ones. Pool threads are daemon threads: the program ends when
+// main returns.
 //
 // [main-pool] [waitfor-pump] `main` is the **single worker of its own pool**
 // (pool 0), which is given no thread of its own: main's thread is the
@@ -76,15 +81,28 @@ private class SalvoActorState(val bound: Int, val pool: Int, var body: SalvoActo
 private class SalvoWaiterState(val pool: Int) {
     var value: Any? = null
     var filled = false
+
+    /**
+     * [waitfor-pump] While this waiter is parked: whether a frame is sitting
+     * on it, and the actor whose activation that frame is, if it is one
+     * ([parkedActor] is null for main and for a task). What the deadlock
+     * report reads to name the **occupied** actors — the ones whose mailbox
+     * is stalled by a wait nested inside an activation.
+     */
+    var parked = false
+    var parkedActor: Int? = null
 }
 
 /**
- * [main-pool] [waitfor-pump] Where a thread is: the pool it works for, and
- * the actor whose activation it is currently inside (`null` on main and
- * between activations). The pool is what an `on`-less spawn or mint
- * inherits; the actor is the one thing a wait must not serve.
+ * [main-pool] [waitfor-pump] Where a thread is: the pool it works for, the
+ * actor whose activation it is currently inside (`null` on main, inside a task
+ * and between activations), and whether it is inside a frame the scheduler
+ * counts in `active` at all. The pool is what an `on`-less spawn or mint
+ * inherits; the actor is the one thing a wait must not serve; [frame]
+ * distinguishes main's own thread from a task running on the main pool, which
+ * is what a wait has to know to book itself correctly.
  */
-private class SalvoHere(val pool: Int, val actor: Int?)
+private class SalvoHere(val pool: Int, val actor: Int?, val frame: Boolean = false)
 
 /**
  * [task-mint] What a pool owns besides its worker threads: a queue of
@@ -124,6 +142,25 @@ object SalvoSched {
     private val pools = mutableListOf(SalvoPoolState())
     private var nextSlot = 0L
     private var active = 0
+
+    /**
+     * [waitfor-pump] Of the [active] frames, the ones parked in a wait: an
+     * activation or a task whose frame is alive on some thread's stack but
+     * which cannot proceed until its token arrives. It still holds its actor's
+     * `running` flag — so its mailbox is stalled and nobody else will serve it
+     * — which is why a parked frame is *not* progress and must not hide a
+     * deadlock. `active - parkedFrames` is the number of frames that can still
+     * get somewhere on their own.
+     */
+    private var parkedFrames = 0
+
+    /**
+     * [waitfor-pump] How deep main's own thread is in a wait. main is the one
+     * thread that runs program code without being a frame the scheduler
+     * counts, so while it is *not* waiting it is progress the scheduler cannot
+     * see, and no deadlock may be declared.
+     */
+    private var mainWaits = 0
 
     /**
      * [actor-on-idle] Registered quiescence hooks: the pool whose obligations
@@ -414,16 +451,23 @@ object SalvoSched {
      * waits* (everything on it except the waiting actor's own activations,
      * which stay stalled). For main, whose pool has no other worker, that is
      * what runs main-pool work at all; where the queue is empty the wait is a
-     * plain block. If the scheduler is idle and can never fulfil the token,
-     * reports the deadlock instead of hanging.
+     * plain block. If nothing can run while this frame waits, reports the
+     * deadlock instead of hanging — including when the waiting frame is an
+     * **occupied actor**, whose own mailbox its wait has stalled.
      */
     fun awaitReply(wid: Int): Any? {
         val spot = here.get()
         lock.lock()
         try {
+            // This frame is parked for the whole call, including across the
+            // jobs the pump runs below: each of those books itself in `active`
+            // on its own, so `active - parkedFrames` stays the count of frames
+            // that can still proceed.
+            enterWait(spot, wid)
             while (true) {
                 if (waiters[wid].filled) {
                     waiters[wid].filled = false
+                    leaveWait(spot, wid)
                     return waiters[wid].value
                 }
                 // [waitfor-pump] Detached tasks are what the rule names
@@ -445,13 +489,51 @@ object SalvoSched {
                 if (fireIdle()) {
                     continue
                 }
-                if (idle()) {
+                if (stuck()) {
                     reportDeadlock(spot.actor)
                 }
                 cv.await()
             }
         } finally {
             lock.unlock()
+        }
+    }
+
+    /**
+     * [waitfor-pump] Books the calling frame as parked on [wid]: an activation
+     * or a task counts out of the frames that can still proceed, and main's own
+     * thread — which the scheduler never counts as a frame — records that it is
+     * inside a wait at all, since main running program code is progress nothing
+     * else can see.
+     */
+    private fun enterWait(
+        spot: SalvoHere,
+        wid: Int,
+    ) {
+        waiters[wid].parked = true
+        waiters[wid].parkedActor = spot.actor
+        if (spot.frame) {
+            parkedFrames += 1
+        } else if (spot.pool == MAIN_POOL) {
+            mainWaits += 1
+        }
+    }
+
+    /**
+     * The exact reverse, on every way out of a wait. Clamped at zero, so an
+     * unbalanced pair cannot turn the counts into a permanent "everything is
+     * stuck".
+     */
+    private fun leaveWait(
+        spot: SalvoHere,
+        wid: Int,
+    ) {
+        waiters[wid].parked = false
+        waiters[wid].parkedActor = null
+        if (spot.frame) {
+            parkedFrames = clamp(parkedFrames - 1)
+        } else if (spot.pool == MAIN_POOL) {
+            mainWaits = clamp(mainWaits - 1)
         }
     }
 
@@ -497,18 +579,56 @@ object SalvoSched {
     }
 
     /**
-     * True when nothing can ever run again without outside input.
+     * True when no work is *queued* anywhere: no actor has a deliverable
+     * entry, no pool has a scheduled task, no deadline is pending, and no
+     * parked frame has an answer sitting in its slot.
+     *
+     * [waitfor-pump] That last clause is a queue too, even though it looks
+     * like a variable: a fulfilled waiter slot is work whose *pickup is the
+     * waiting thread itself*, which will take it at the top of its next pass.
+     * Between the delivery and the pickup the frame is still booked as parked,
+     * so without this clause a thread that looked in that window would call a
+     * program stuck one instant before it proceeds.
      *
      * [time-timer] A pending deadline counts as work on its way: the timer
      * thread will deliver it, so a program waiting for a fire is neither
      * quiescent ([actor-on-idle]) nor deadlocked — it is waiting for time to
      * pass, which is the one thing that happens without anybody running.
      */
-    private fun idle(): Boolean =
-        active == 0 &&
-            actors.all { deliverable(it) == null } &&
+    private fun quiet(): Boolean =
+        actors.all { deliverable(it) == null } &&
             pools.all { it.tasks.isEmpty() } &&
-            timers.isEmpty()
+            timers.isEmpty() &&
+            waiters.none { it.parked && it.filled }
+
+    /**
+     * True when nothing can ever run again without outside input: no
+     * activation is running and nothing is queued.
+     *
+     * [actor-on-idle] What the quiescence hook fires on. A frame parked in a
+     * `waitfor` counts as running here, so idleness does not fire while any
+     * wait is in flight — the stated caveat of the rule.
+     */
+    private fun idle(): Boolean = active == 0 && quiet()
+
+    /**
+     * True when nothing can ever run again *and* somebody is waiting for
+     * something — the deadlock condition, which is weaker than [idle] in
+     * exactly one way: a frame **parked in a wait** is not progress.
+     *
+     * [waitfor-pump] Every clause is a thread that could still get somewhere:
+     * `active - parkedFrames > 0` is a frame running rather than parked (a body
+     * between two waits, or a sender blocked on a full mailbox, which will
+     * proceed when the mailbox drains); `mainWaits == 0` is main's thread
+     * running program code, which the scheduler does not count as a frame and
+     * therefore cannot see; `!quiet()` is something queued for whoever runs
+     * next. With all of them false, every thread the scheduler knows about is
+     * parked on an answer and nothing is queued to produce one. The remaining
+     * blind spot is stated with [actor-on-idle] and is the same one the report
+     * has always had — a platform handler with a thread of its own can inject
+     * work the scheduler never saw.
+     */
+    private fun stuck(): Boolean = active == parkedFrames && mainWaits > 0 && quiet()
 
     /**
      * [actor-on-idle] Marks one token as no longer outstanding, against
@@ -592,17 +712,31 @@ object SalvoSched {
         }
 
     /**
-     * The idle-with-parked-gates report [actor-watch]. [waiter] names the
-     * frame that is waiting, which since [waitfor-effect] need not be main.
+     * The deadlock report [actor-watch] [waitfor-pump]: nothing can run while a
+     * frame waits, so nothing can ever change — a named error instead of a
+     * silent hang. [waiter] names the frame that is waiting, which since
+     * [waitfor-effect] need not be main.
+     *
+     * The two lists are the two ways a mailbox comes to be unservable, and a
+     * diagnosis starts by reading them: an actor **parked in a wait** holds its
+     * own `running` flag, so *nothing* of its mailbox is delivered by anybody
+     * until its token arrives; a **gated** actor serves only the reply it is
+     * waiting for.
      */
     private fun reportDeadlock(waiter: Int?): Nothing {
-        val parked =
+        val occupied = waiters.filter { it.parked && it.parkedActor != null }.map { "actor ${it.parkedActor}" }
+        val gated =
             actors.withIndex().filter { it.value.gate != null && !it.value.dead }.map { "actor ${it.index}" }
         val who = if (waiter == null) "main" else "actor $waiter"
-        System.err.println(
-            "salvo: deadlock: all actors idle while $who waits" +
-                if (parked.isEmpty()) "" else " (parked gates: ${parked.joinToString(", ")})",
-        )
+        val clauses = mutableListOf<String>()
+        if (occupied.isNotEmpty()) {
+            clauses.add("parked in a wait: ${occupied.joinToString(", ")}")
+        }
+        if (gated.isNotEmpty()) {
+            clauses.add("parked gates: ${gated.joinToString(", ")}")
+        }
+        val detail = if (clauses.isEmpty()) "" else " (${clauses.joinToString("; ")})"
+        System.err.println("salvo: deadlock: nothing can run while $who waits$detail")
         kotlin.system.exitProcess(1)
     }
 
@@ -636,7 +770,7 @@ object SalvoSched {
         // The activation runs *here*: an ambient mint inside it inherits this
         // pool, and a nested wait must not serve this actor [waitfor-pump].
         val spot = here.get()
-        here.set(SalvoHere(p.pool, addr))
+        here.set(SalvoHere(p.pool, addr, frame = true))
         val ctx = SalvoCtx(addr)
         var fault: String? = null
         try {
@@ -692,7 +826,7 @@ object SalvoSched {
         // A task belongs to no actor, so a nested wait inside it may serve
         // every activation on the pool [waitfor-pump].
         val spot = here.get()
-        here.set(SalvoHere(pool, null))
+        here.set(SalvoHere(pool, null, frame = true))
         var fault: String? = null
         try {
             job.first(job.second)

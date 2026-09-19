@@ -10,8 +10,11 @@
 // the dispatch boundary; sends and replies to the dead are silent
 // no-ops), `watch` notification as a one-shot reply, the quiescence hook
 // ([actor-on-idle]: a registered token answered when nothing anywhere can
-// run), and the idle-with-parked-gates report (all queues idle while `main`
-// waits, with no hook to fire, is a named runtime error, not a hang).
+// run), and the deadlock report — nothing left that can run while a frame
+// waits, and no hook to fire, is a named runtime error rather than a hang.
+// The waiting frame need not be `main`: an activation parked in a nested wait
+// holds its actor's `running` flag, so its own mailbox is stalled while it
+// waits, and the report counts parked frames out of the running ones.
 //
 // [main-pool] [waitfor-pump] `main` is the **single worker of its own
 // pool** (pool 0), which is given no OS thread: `main`'s own thread is its
@@ -126,6 +129,13 @@ struct WaiterState {
     /// token targeting this waiter is owed *by* for the purposes of an `Idle`
     /// payload.
     pool: usize,
+    /// [waitfor-pump] While this waiter is parked: the actor whose activation
+    /// is parked on it, if the waiting frame is one. `Some(None)` is a park
+    /// that belongs to no actor (`main` or a task); `None` is not parked at
+    /// all. What the deadlock report reads to name the **occupied** actors —
+    /// the ones whose mailbox is stalled by a wait nested inside an
+    /// activation.
+    parked: Option<Option<usize>>,
 }
 
 /// [task-mint] What a pool owns besides its worker threads: a queue of
@@ -151,6 +161,19 @@ struct Sched {
     next_slot: u64,
     /// Activations currently running, across all pools.
     active: usize,
+    /// [waitfor-pump] Of those, the ones parked in a `salvo_wait`: an
+    /// activation or a task whose frame is alive on some thread's stack but
+    /// which cannot proceed until its token arrives. It still holds its
+    /// actor's `running` flag — so its mailbox is stalled and nobody else
+    /// will serve it — which is why a parked frame is *not* progress and must
+    /// not hide a deadlock. `active - parked_frames` is the number of frames
+    /// that can still get somewhere on their own.
+    parked_frames: usize,
+    /// [waitfor-pump] How deep `main`'s own thread is in `salvo_wait`.
+    /// `main` is the one thread that runs program code without being a frame
+    /// the scheduler counts, so while it is *not* waiting it is progress the
+    /// scheduler cannot see, and no deadlock may be declared.
+    main_waits: usize,
     /// [actor-on-idle] Registered quiescence hooks: the pool whose
     /// obligations the answer reports, the token to fulfil, and the builder
     /// for its payload. Taken as a whole when the scheduler settles — every
@@ -184,6 +207,8 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 }],
                 next_slot: 0,
                 active: 0,
+                parked_frames: 0,
+                main_waits: 0,
                 idle_hooks: Vec::new(),
                 timers: Vec::new(),
                 timer_thread: false,
@@ -198,18 +223,36 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
 /// pool's work while it waits in `salvo_wait`.
 pub const SALVO_MAIN_POOL: usize = 0;
 
+/// Where a thread is. Saved and restored by every frame, so a nested wait
+/// reads the frame it is actually inside.
+#[derive(Clone, Copy)]
+struct Here {
+    /// The pool this thread works for — what a `spawn` or a mint with no
+    /// `on` clause inherits, and the pool a wait serves [waitfor-pump].
+    pool: usize,
+    /// The actor whose activation this thread is currently inside (`None` on
+    /// `main`, inside a task, and between activations): the one actor a wait
+    /// must not serve.
+    actor: Option<usize>,
+    /// Whether this thread is inside a frame that counts in `active` — an
+    /// activation or a task. `main`'s own thread is not one, which is what
+    /// distinguishes it from a task running on the main pool. Read by
+    /// `salvo_wait` to decide *which* kind of park this wait is.
+    frame: bool,
+}
+
 thread_local! {
-    /// Where this thread is: the pool it works for, and the actor whose
-    /// activation it is currently inside (`None` on `main` and between
-    /// activations). Both are what [waitfor-pump] reads — the pool to
-    /// serve, and the one actor a wait must not serve.
-    static HERE: Cell<(usize, Option<usize>)> = Cell::new((SALVO_MAIN_POOL, None));
+    static HERE: Cell<Here> = Cell::new(Here {
+        pool: SALVO_MAIN_POOL,
+        actor: None,
+        frame: false,
+    });
 }
 
 /// [main-pool] The pool the calling thread works for — what a `spawn` or a
 /// mint with no `on` clause inherits. `main`'s thread answers the main pool.
 pub fn salvo_current_pool() -> usize {
-    HERE.with(|h| h.get().0)
+    HERE.with(|h| h.get().pool)
 }
 
 /// [waitfor-dedicated] A pool of exactly one thread, for work that may
@@ -239,18 +282,61 @@ fn deliverable(p: &ActorState) -> Option<usize> {
     }
 }
 
-/// True when nothing can ever run again without outside input: no
-/// activation is running and no actor has a deliverable entry.
+/// True when no work is *queued* anywhere: no actor has a deliverable entry,
+/// no pool has a scheduled task, no deadline is pending, and no parked frame
+/// has an answer sitting in its slot.
+///
+/// [waitfor-pump] That last clause is a queue too, even though it looks like a
+/// variable: a fulfilled waiter slot is work whose *pickup is the waiting
+/// thread itself*, which will take it at the top of its next pass. Between the
+/// delivery and the pickup the frame is still booked as parked, so without this
+/// clause a thread that looked in that window would call a program stuck one
+/// instant before it proceeds.
 ///
 /// [time-timer] A pending deadline counts as work on its way: the timer thread
 /// will deliver it, so a program waiting for a fire is neither quiescent
 /// ([actor-on-idle]) nor deadlocked — it is waiting for time to pass, which is
 /// the one thing that happens without anybody running.
-fn idle(s: &Sched) -> bool {
-    s.active == 0
-        && s.actors.iter().all(|p| deliverable(p).is_none())
+fn quiet(s: &Sched) -> bool {
+    s.actors.iter().all(|p| deliverable(p).is_none())
         && s.pools.iter().all(|p| p.tasks.is_empty())
         && s.timers.is_empty()
+        && s.waiters
+            .iter()
+            .all(|w| !(w.parked.is_some() && w.value.is_some()))
+}
+
+/// True when nothing can ever run again without outside input: no
+/// activation is running and no actor has a deliverable entry.
+///
+/// [actor-on-idle] What the quiescence hook fires on. A frame parked in a
+/// `waitfor` counts as running here, so idleness does not fire while any wait
+/// is in flight — the stated caveat of the rule.
+fn idle(s: &Sched) -> bool {
+    s.active == 0 && quiet(s)
+}
+
+/// True when nothing can ever run again *and* somebody is waiting for
+/// something — the deadlock condition, which is weaker than `idle` in exactly
+/// one way: a frame **parked in a `salvo_wait`** is not progress.
+///
+/// [waitfor-pump] Every clause is a thread that could still get somewhere:
+///
+/// * `active - parked_frames > 0` — a frame is running rather than parked (a
+///   body between two waits, or a sender blocked on a full mailbox, which
+///   will proceed when the mailbox drains).
+/// * `main_waits == 0` — `main`'s thread is running program code, which the
+///   scheduler does not count as a frame and therefore cannot see. Whatever
+///   it does next may fulfil the token that is being waited on.
+/// * `!quiet` — something is queued, so whoever runs next will run it.
+///
+/// With all of them false, every thread the scheduler knows about is parked
+/// on an answer and nothing is queued to produce one: the wait cannot end.
+/// The remaining blind spot is stated with [actor-on-idle] and is the same one
+/// the report has always had — a platform handler with a thread of its own can
+/// inject work the scheduler never saw.
+fn stuck(s: &Sched) -> bool {
+    s.active == s.parked_frames && s.main_waits > 0 && quiet(s)
 }
 
 /// [actor-on-idle] Marks one token as no longer outstanding, against whatever
@@ -331,12 +417,26 @@ fn pick(s: &Sched, pool: usize, exclude: Option<usize>) -> Option<(usize, usize)
         .find_map(|(addr, p)| deliverable(p).map(|at| (addr, at)))
 }
 
-/// The idle-with-parked-gates report [actor-watch]: the scheduler
-/// is idle while a wait is outstanding, so nothing can ever change — a named
-/// error instead of a silent hang. `waiter` names the frame that is waiting,
-/// which since [waitfor-effect] need not be `main`.
+/// The deadlock report [actor-watch] [waitfor-pump]: nothing can run while a
+/// frame waits, so nothing can ever change — a named error instead of a silent
+/// hang. `waiter` names the frame that is waiting, which since
+/// [waitfor-effect] need not be `main`.
+///
+/// The two lists are the two ways a mailbox comes to be unservable, and a
+/// diagnosis starts by reading them: an actor **parked in a wait** holds its
+/// own `running` flag, so *nothing* of its mailbox is delivered by anybody
+/// until its token arrives; a **gated** actor serves only the reply it is
+/// waiting for.
 fn report_deadlock(s: &Sched, waiter: Option<usize>) -> ! {
-    let parked: Vec<String> = s
+    let occupied: Vec<String> = s
+        .waiters
+        .iter()
+        .filter_map(|w| match w.parked {
+            Some(Some(addr)) => Some(format!("actor {addr}")),
+            _ => None,
+        })
+        .collect();
+    let gated: Vec<String> = s
         .actors
         .iter()
         .enumerate()
@@ -347,14 +447,18 @@ fn report_deadlock(s: &Sched, waiter: Option<usize>) -> ! {
         None => "main".to_string(),
         Some(addr) => format!("actor {addr}"),
     };
-    eprintln!(
-        "salvo: deadlock: all actors idle while {who} waits{}",
-        if parked.is_empty() {
-            String::new()
-        } else {
-            format!(" (parked gates: {})", parked.join(", "))
-        }
-    );
+    let mut detail = String::new();
+    if !occupied.is_empty() {
+        detail.push_str(&format!(" (parked in a wait: {}", occupied.join(", ")));
+    }
+    if !gated.is_empty() {
+        detail.push_str(if detail.is_empty() { " (" } else { "; " });
+        detail.push_str(&format!("parked gates: {}", gated.join(", ")));
+    }
+    if !detail.is_empty() {
+        detail.push(')');
+    }
+    eprintln!("salvo: deadlock: nothing can run while {who} waits{detail}");
     std::process::exit(1);
 }
 
@@ -606,7 +710,11 @@ pub fn salvo_waiter() -> (SalvoReply, usize) {
     let (lock, _cv) = state();
     let pool = salvo_current_pool();
     let mut s = lock.lock().unwrap();
-    s.waiters.push(WaiterState { value: None, pool });
+    s.waiters.push(WaiterState {
+        value: None,
+        pool,
+        parked: None,
+    });
     let wid = s.waiters.len() - 1;
     s.next_slot += 1;
     let slot = s.next_slot;
@@ -626,14 +734,21 @@ pub fn salvo_waiter() -> (SalvoReply, usize) {
 /// (everything on it except the waiting actor's own activations, which stay
 /// stalled). For `main`, whose pool has no other worker, that is what runs
 /// main-pool work at all; where the queue is empty the wait is a plain
-/// block. If the scheduler is idle and can never fulfil the token, reports
-/// the deadlock instead of hanging.
+/// block. If nothing can run while this frame waits, reports the deadlock
+/// instead of hanging — including when the waiting frame is an **occupied
+/// actor**, whose own mailbox its wait has stalled.
 pub fn salvo_wait(wid: usize) -> SalvoMsg {
     let (lock, cv) = state();
-    let (pool, own) = HERE.with(|h| h.get());
+    let here = HERE.with(|h| h.get());
+    let (pool, own) = (here.pool, here.actor);
     let mut s = lock.lock().unwrap();
+    // This frame is parked for the whole call, including across the jobs the
+    // pump runs below: each of those books itself in `active` on its own, so
+    // `active - parked` stays the count of frames that can still proceed.
+    enter_wait(&mut s, &here, wid);
     loop {
         if let Some(v) = s.waiters[wid].value.take() {
+            leave_wait(&mut s, &here, wid);
             return v;
         }
         // [waitfor-pump] Detached tasks are what the rule names first, and
@@ -653,10 +768,36 @@ pub fn salvo_wait(wid: usize) -> SalvoMsg {
         if fire_idle(&mut s, cv) {
             continue;
         }
-        if idle(&s) {
+        if stuck(&s) {
             report_deadlock(&s, own);
         }
         s = cv.wait(s).unwrap();
+    }
+}
+
+/// [waitfor-pump] Books the calling frame as parked on `wid`: an activation or
+/// a task counts out of the frames that can still proceed, and `main`'s own
+/// thread — which the scheduler never counts as a frame — records that it is
+/// inside a wait at all, since `main` running program code is progress nothing
+/// else can see.
+fn enter_wait(s: &mut Sched, here: &Here, wid: usize) {
+    s.waiters[wid].parked = Some(here.actor);
+    if here.frame {
+        s.parked_frames += 1;
+    } else if here.pool == SALVO_MAIN_POOL {
+        s.main_waits += 1;
+    }
+}
+
+/// The exact reverse, on every way out of a wait. Saturating, so an
+/// unbalanced pair cannot wrap the count into a permanent "everything is
+/// stuck".
+fn leave_wait(s: &mut Sched, here: &Here, wid: usize) {
+    s.waiters[wid].parked = None;
+    if here.frame {
+        s.parked_frames = s.parked_frames.saturating_sub(1);
+    } else if here.pool == SALVO_MAIN_POOL {
+        s.main_waits = s.main_waits.saturating_sub(1);
     }
 }
 
@@ -729,7 +870,13 @@ fn run_job<'g>(
 
     // The activation runs *here*: an ambient mint inside it inherits this
     // pool, and a nested wait must not serve this actor [waitfor-pump].
-    let saved = HERE.with(|h| h.replace((pool, Some(addr))));
+    let saved = HERE.with(|h| {
+        h.replace(Here {
+            pool,
+            actor: Some(addr),
+            frame: true,
+        })
+    });
     let ctx = SalvoCtx { addr };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         match entry {
@@ -778,7 +925,13 @@ fn run_job<'g>(
 /// One pool worker: pick a deliverable entry for an actor on this pool,
 /// run the activation to completion, repeat.
 fn worker(pool: usize) {
-    HERE.with(|h| h.set((pool, None)));
+    HERE.with(|h| {
+        h.set(Here {
+            pool,
+            actor: None,
+            frame: false,
+        })
+    });
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();
     loop {
@@ -823,7 +976,13 @@ fn run_task<'g>(
 
     // A task belongs to no actor, so a nested wait inside it may serve every
     // activation on the pool [waitfor-pump].
-    let saved = HERE.with(|h| h.replace((pool, None)));
+    let saved = HERE.with(|h| {
+        h.replace(Here {
+            pool,
+            actor: None,
+            frame: true,
+        })
+    });
     let outcome = catch_unwind(AssertUnwindSafe(move || body(value)));
     HERE.with(|h| h.set(saved));
 

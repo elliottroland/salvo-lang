@@ -1,7 +1,20 @@
 # Shareable handlers — monitors, mixed handlers, and the future of `[waitfor]` (working document)
 
-Status: **OPEN** — every decision below is the user's (AGENTS.md's first
-invariant). Written 2026-09-17, the evening the second sequence's steps 1–2
+Status: **DECIDED 2026-09-19, fully** — the decision round took every row.
+SH-1, SH-2, SH-3, SH-4, SH-5(d), SH-7, SH-9's defaulting (pumping request send
+deferred); SH-10: the word is `defer`, general per (c), **(b) upper bound at
+both levels** (a declared `defer` need not be exercised; an effect member's
+`defer` is an upper bound on handlers — and its absence forbids, or the
+interface says nothing), the rung-4 opt-in is the **declared-`defer`
+synthesis** (no kind word); SH-6 was decided `sync fn` and **revised the same
+day to shape-based classification** (§3.12) — a lock and a mailbox are two
+serialization mechanisms over one state, so the kind is a whole-handler fact
+read off the members that appear (with rung 1 keyed on *mutable* state — a
+handler carrying only immutable constructor parameters, later `const`
+immutable fields, is shareable bare), and the design's entire syntax bill is one
+contextual word (`defer`) plus one sugar (`use … on POOL`). What remains is
+engineering (build order at the end of §7) plus one inferred residue noted
+for SH-4's build (§3.12 point 3). The document stays alive until built. Written 2026-09-17, the evening the second sequence's steps 1–2
 landed, out of a conversation that began at "how do I implement `Random` when
 its state must live behind a thread boundary" and worked through four designs,
 two of which survive below. The document follows DESIGN_DOC.md's shape —
@@ -50,7 +63,10 @@ decisions below can be judged against it.
    here because their answers shape the design: whether `Addr` should
    survive at all once handlers are shareable (§5 — it should, and the
    façade *is* its generalization), and whether `[waitfor]` should remain a
-   declared effect (§6 — the load-bearing open question).
+   declared effect (§6 — unpacked job by job at the user's request 2026-09-18,
+   with "occupancy" defined in §2.1; the optional-annotation middle ground was
+   put up and **rejected** the same day, leaving §6.5's (d) as the recommendation:
+   no internal spelling, the gate re-aimed at the host boundary).
 
 ## 1. Fixed points — already decided, inherited here
 
@@ -127,18 +143,78 @@ walkthrough becomes an exercise in pointing at the fact that pins each thread.
    but the fulfilment sits inside a continuation that must be *delivered as
    an activation* of the occupied peer (path two), and path two is what the
    `running` flag stalls.
-5. **The idle report has a hole for occupied waiters** (reproduced
-   2026-09-17; the repro is in ROADMAP's open defects). `idle()` requires
+5. **The idle report had a hole for occupied waiters — ✅ fixed 2026-09-18
+   (SH-8, the one row here that needed no user call).** `idle()` required
    `active == 0`, and an activation parked in a nested wait still counts in
-   `active` — so any deadlock involving an occupied actor hangs silently
-   instead of producing the named report. Every hard case below currently
-   dies as a hang, not a diagnostic. Fixing this (count activations parked in
-   `salvo_wait` out of `active`, or track them separately) is a
-   **prerequisite** of everything in this document: with hidden waits, the
-   occupied-waiter deadlock becomes the common failure shape, and the runtime
-   net must fire for it.
+   `active`, so every deadlock involving an occupied actor hung *silently*
+   instead of producing the named report. The runtime now books frames parked
+   in `salvo_wait` (`parked_frames`) and `main`'s own waits (`main_waits`)
+   separately, and the report reads `stuck()` — `active == parked_frames &&
+   main_waits > 0 && quiet()` — where the `on_idle` hook keeps the stricter
+   `idle()`. `main`'s clause is load-bearing (its thread runs program code
+   without being a frame the scheduler counts, so an actor parked while `main`
+   works is an ordinary program), and a fulfilled-but-not-yet-picked-up waiter
+   slot counts as queued work, which closes the delivery/pickup race. The
+   report now names the actors **parked in a wait** beside the **gated** ones.
+   Two things stay open and are recorded in ROADMAP rather than here: whether
+   the *hook* should read `stuck()` too (observable, so the user's call), and
+   naming the handler and member rather than `actor 0`. So every hard case
+   below now dies **loudly**, which is what this document's §3.3 point 4
+   assumed.
 
-### 2.1 Considered: one mailbox for everything (waits unified into deliveries)
+### 2.1 Occupancy, precisely — the word, and what it costs
+
+The word is used from §3 on, and it is not a synonym for "blocking".
+
+**A frame occupies its thread when it is waiting for an answer only somebody
+else can produce, and its own stack frame stays alive until that answer
+arrives.** The unit is the *frame* — one `waitfor`'s place on one stack —
+not the thread (which keeps working) and not the actor (which may have no
+frame in flight at all).
+
+Four neighbouring things, kept apart because Salvo's mechanisms differ exactly
+there:
+
+| | the frame | the thread | who may serve the frame's actor |
+|---|---|---|---|
+| **occupancy** — `waitfor` | alive, parked in the wait | *works*: pumps its own pool, minus the waiting actor's activations (fact 2) | nobody: the `running` flag is held for the whole body (fact 1) |
+| **gating** — `replyto!` | **ended** at the mint | free | the actor itself, for the awaited reply only |
+| **deferral** — bare `replyto`, `defer` (§3.9) | **ended** at the mint | free | anybody: the mailbox is open |
+| **blocking** — a send into a full mailbox, a host mutex, an FFI call | alive | idle: serves nothing (fact 3) | nobody |
+
+Occupancy costs exactly three things, and the ladder (§3.5) bounds them
+differently, which is why they are worth naming separately:
+
+1. **A stack frame is pinned.** Pumped work runs nested on that stack, and a
+   pumped item that itself waits nests further; nothing bounds the depth
+   ([waitfor-pump]'s stated cost).
+2. **The waiting actor's mailbox is stalled** — and only this cost needs the
+   frame to be an *activation*. Nothing of that mailbox is delivered by
+   anybody, the waiting thread included: its pump excludes its own actor
+   deliberately, because the alternative is re-entering an activation
+   mid-body. `main` has no mailbox, so `main`'s occupancy costs 1 and 3 only,
+   which is the whole reason `waitfor` was `main`-only before 2026-09-17.
+3. **The duration belongs to somebody else.** It ends when a token is
+   discharged: a lock body at rung 1–2, one straight-line activation plus
+   queue drain at rung 3, and at rung 4 a future event that may never come
+   (§3.6) — legitimately, as `acquire()` on an exhausted pool.
+
+Two properties that shape every option in §6:
+
+- **Occupancy is transitive, and invisible at the call.** A caller of a sync
+  façade member occupies its frame although the *callee* is what waits, and
+  the same holds through any helper. That is why SH-4's edge is inferred at
+  the call site through the binding in force there, rather than read off the
+  caller's own signature.
+- **The language already has undeclared occupancy.** An ordinary send into a
+  full mailbox holds the sender's frame for as long as the target takes to
+  drain, stalls the *sender's* mailbox if the sender is an actor, and serves
+  nothing while it waits (fact 3) — strictly worse than a wait on every axis
+  — in the most common operation an actor program has, with no declaration
+  anywhere and no placement check. `waitfor` is not the language's first
+  occupancy; it is the first one anybody proposed to annotate.
+
+### 2.2 Considered: one mailbox for everything (waits unified into deliveries)
 
 Asked by the user at this document's revision: should `waitfor` and `replyto`
 be unified — always a mailbox, with `main` owning an unbounded one? Worked
@@ -287,9 +363,10 @@ servant **when the peer answers the second validate** — which requires the
 peer to serve a mailbox entry — which requires the peer's activation to end —
 which requires `got2`. T-serv idles (genuinely free, nothing deliverable),
 T-peer pumps an empty pool inside `validate`, T-main pumps an empty pool
-inside `lookup`. And by fact 5, `active ≥ 1` (the peer's occupied
-activation), so the idle report never fires: **a silent hang on both
-backends**, today.
+inside `lookup`. Until 2026-09-18 that was a **silent hang on both backends**
+— `active ≥ 1` (the peer's occupied activation) suppressed the report; with
+fact 5's hole fixed the same program now dies with the named report, naming the
+peer as parked in a wait. The deadlock is unchanged; only its failure mode is.
 
 Three things this case establishes:
 
@@ -377,9 +454,10 @@ its only server. Nothing new to detect; the same edges.
    sends the addr still gets the error (the servant's *body* can send to
    `PeerApi`; whether `meet` ever runs is invisible). Same trade the graph
    already documents, same remedy style.
-4. **The runtime net under it**: fix fact 5's hole (the prerequisite), so
-   that whatever the graph misses hangs loudly — the report should name the
-   occupied actor and the member it is parked in.
+4. **The runtime net under it**: fact 5's hole is fixed (2026-09-18), so
+   whatever the graph misses now fails loudly rather than hanging, and the
+   report names the occupied actor. Naming the *member* it is parked in is the
+   remaining half, recorded in ROADMAP.
 5. **What stays invisible, stated**: stack depth (nested pumped waits pin
    frames; a deep façade chain across actors sharing a pool nests on one
    stack, and nothing bounds it), and senders blocked on full mailboxes
@@ -725,7 +803,7 @@ a property of the **handler**, never of the effect:
   members already carry sendable deductions (`=> !id, !out`). Parking is a
   fact of the same kind — "the `Reply` escapes its activation" — so it can
   ride the same syntax: `send fn after(d: Duration, out: Reply<Fired>) =>
-  !d, hold out` (spelling open), inferred from the body when unsaid,
+  !d, defer out` (spelling open), inferred from the body when unsaid,
   checked when said, exactly the deductions model. Per-member, so the
   diagnostic names the member and the effect; multi-effect-safe by
   construction. What it lacks alone is the handler-level summary a human
@@ -734,7 +812,7 @@ a property of the **handler**, never of the effect:
   reader and a consumer see; the member-level reply deduction as what the
   checker verifies and points at when the contract is violated. Under
   SH-9's defaulting, the mandatory vocabulary is minimal (rung 2's kind,
-  rung 4's opt-in), and a rung-4 member's `hold` deduction doubles as the
+  rung 4's opt-in), and a rung-4 member's `defer` deduction doubles as the
   per-member documentation of *which* answer is deferred.
 
 **Recommendation: M-5**, with SH-9's defaulting. This also bears on SH-6:
@@ -742,45 +820,45 @@ the locality argument weighs against implicit-by-state-access — the
 prior-art norm is a declared kind, and "least visible" is now a cost, not
 an economy.
 
-### 3.9 `hold`, precisely — and the Koka model it borrows from (asked 2026-09-18)
+### 3.9 `defer`, precisely — and the Koka model it borrows from (asked 2026-09-18)
 
 **The semantics.** `Reply<T>` is already linear: [actor-replyto] tracks
 every reply until it is discharged exactly once, and §3.5's rule already
-enumerates the four ways one can escape an activation. `hold p` (spelling
+enumerates the four ways one can escape an activation. `defer p` (spelling
 open with SH-10) surfaces that already-computed fact as a declarable
 contract, so it costs the checker nothing new:
 
-- **Without `hold`** — the direct-answer default — the obligation carried
+- **Without `defer`** — the direct-answer default — the obligation carried
   by `p` is discharged *in-frame*: `p.send(v)` happens exactly once, on
   every control path, before the activation ends. Anywhere on the
   activation's stack counts (a helper the member calls may fulfil it); `p`
   never escapes.
-- **With `hold p`** the obligation *may outlive the activation that
+- **With `defer p`** the obligation *may outlive the activation that
   received it*, by any of the four escape routes linearity already
   distinguishes: parked in a `replyto` continuation, stored in handler
   state, forwarded as a message payload, captured in a task mint.
   Linearity keeps tracking it wherever it went — exactly-once discharge
-  still holds globally; `hold` only withdraws the promise that the
+  still holds globally; `defer` only withdraws the promise that the
   discharge happens in *this* activation.
 
 What each party reads off it: for the **caller and the graph**, a façade
-wait on a `hold` member is a wait for a future event — occupancy of
+wait on a `defer` member is a wait for a future event — occupancy of
 unknowable duration, so the edge is non-terminal and participates in
-cycles, while a non-`hold`, non-occupying member gives the terminal edge
+cycles, while a non-`defer`, non-occupying member gives the terminal edge
 §3.5's guarantee rests on. For the **handler kind** (M-5's other half), an
-inferred hold inside a monitor or direct-answer handler is an error at the
+inferred `defer` inside a monitor or direct-answer handler is an error at the
 escape site; inside a rung-4 handler it is legal, and writing it documents
 *which* answers are deferred — §3.6's table becomes readable off
 signatures. For **composition**, it rides the existing deduction
 machinery: inferred from the body when unsaid, through callees (a helper
-that parks its `Reply` parameter confers `hold` on whatever its callers
-passed it), per-parameter (one member can hold one reply and discharge
+that parks its `Reply` parameter confers `defer` on whatever its callers
+passed it), per-parameter (one member can defer one reply and discharge
 another).
 
-Two edges pinned: **forwarding counts as hold even when the forwardee
+Two edges pinned: **forwarding counts as `defer` even when the forwardee
 answers promptly** — the dependency chain now extends past one activation
 of this servant, which is exactly what the terminal guarantee cannot
-contain. And token-free `k@self` or fire-and-forget sends stay non-hold
+contain. And token-free `k@self` or fire-and-forget sends stay non-deferring
 *unless they carry the reply* — they defer work, not answers, as §3.5
 already rules.
 
@@ -820,24 +898,24 @@ post-pump-rule, occupancy is a fact, not a capability needing a grant) and
 declaring it falsely is a warning. Each polarity follows from what the
 annotation is *for* in its language.
 
-**The sub-decision this exposes (SH-10(b)): is a declared `hold` exact or
-an upper bound?** Exact (SH-5(b)-style: a `hold` the body never exercises
-warns) keeps documentation honest. Upper bound (Koka-style: a false `hold`
+**The sub-decision this exposes (SH-10(b)): is a declared `defer` exact or
+an upper bound?** Exact (SH-5(b)-style: a `defer` the body never exercises
+warns) keeps documentation honest. Upper bound (Koka-style: a false `defer`
 is legal) lets a rung-4 handler *reserve* deferral before its body needs
 it — contract stability under evolution. An over-claim's cost is real but
-self-inflicted and coherent: a spurious `hold` adds a spurious
+self-inflicted and coherent: a spurious `defer` adds a spurious
 non-terminal edge, so the author pays with graph precision for evolution
-room. Leaning: **upper bound for `hold`** (it is a "may", and the handler
+room. Leaning: **upper bound for `defer`** (it is a "may", and the handler
 already paid rung 4's price by declaring the kind), keeping the warning
 polarity for `[waitfor]` — the user's call, with SH-10.
 
-**Generalization (asked 2026-09-18): is `hold` Reply-specific, or a fact
+**Generalization (asked 2026-09-18): is `defer` Reply-specific, or a fact
 about linear parameters?** The fact is general; the load-bearing
 consequence is (today) unique to `Reply`. A linear parameter's obligation
 has exactly three dispositions relative to a call: **discharged in-frame**
 (the stream closed, the reply fulfilled, on every path before the call's
 synchronous extent ends), **returned** (the obligation threads back to the
-caller), or **escaped** — stored, captured, forwarded. `hold` is the third
+caller), or **escaped** — stored, captured, forwarded. `defer` is the third
 arm, and the compiler already computes the distinction for a different
 reason: the Rust backend's ownership inference (an escaping parameter must
 be moved; an in-frame-only one is borrowable). It is binary for send
@@ -851,15 +929,197 @@ worth reading off a signature, but nobody stalls on it. And even the
 `Reply` case already exceeds the handler setting: any function with a
 `Reply` parameter — helper, free `send fn`, task body — carries the
 disposition and confers it up the call chain, and the graph traces task
-bodies, so it needs `hold` everywhere a `Reply` travels; the handler
+bodies, so it needs `defer` everywhere a `Reply` travels; the handler
 member is merely where the fact becomes a *contract* via the kind word.
-**Leaning (SH-10(c))**: define `hold` generally — the escaped disposition
+**Leaning (SH-10(c))**: define `defer` generally — the escaped disposition
 of a linear parameter, beside consumed/returned — with load-bearing
 consequences only where a waiter exists (`Reply` now; the parked
 `Reply | TimedOut` timeout form inherits it for free; other linear types
 get checked documentation, lifetime lints a plausible future consumer).
 Costs nothing now and avoids a second word later if another waiter-backed
 type arrives.
+
+### 3.10 Considered: timeouts or fallible waits by default (asked 2026-09-19)
+
+The user's aim, stated with the question: make deadlock-risky code the *less
+obvious* way to write Salvo, accepting it cannot be removed outright (any more
+than infinite recursion can). Three proposals examined: a default timeout on
+`send`/`waitfor`; a fallible result type (`T | TimedOut`, fed by wall time or
+by runtime deadlock detection) with the infallible blocking form gated behind
+an effect; and timeouts set on handlers rather than callers.
+
+**Default timeouts: rejected, on four grounds.**
+
+1. **Determinism.** A wall-clock timeout fires on a loaded machine and not on
+   a fast one, so a program's *output* becomes timing-dependent — against both
+   backend parity and the [time-coupling] posture. Worse, it tears the two
+   timelines the time module keeps apart: under `ManualTime` nothing advances
+   real time's proxy, so a default (real) timeout under a virtual-time test
+   either never fires or fires meaninglessly. There is no timeline a *default*
+   can safely live on.
+2. **The tax lands on the common case.** Every wait's value becomes a union
+   and every caller handles a `TimedOut` arm that almost never arrives.
+   Erlang's precedent points the other way: its 5s call timeout *crashes* the
+   caller into supervision rather than answering a value, precisely so that
+   ordinary code does not branch on it.
+3. **The mechanics weaken linearity's meaning.** A timed-out wait resumes, but
+   the `Reply` it minted is still in someone's hands — linearity *requires*
+   the holder to discharge it. So a late answer must become a silent no-op
+   into a dead slot, and "exactly once" quietly becomes "at most once
+   observed". (A timeout is also only observed between pumped items: a wait
+   that is mid-way through a pumped activation checks its slot again when the
+   activation ends, so a long pumped body delays the deadline it sits under.)
+4. **The incentive inversion.** A recoverable deadlock is a *cheaper*
+   deadlock: the named report (SH-8) is loud, attributable and terminal, where
+   a `TimedOut` arm invites the retry loop — a livelock with worse
+   diagnostics. Making the risky shape survivable makes it more attractive to
+   write, which is the opposite of the stated aim.
+
+**Fallibility fed by deadlock *detection* rather than time**: better —
+`stuck()` is a logical condition, so it is deterministic and test-stable — but
+it inherits ground 4 whole, and its coverage is thin: `stuck()` is global
+quiescence, which a partially-live program never reaches, so the value would
+arrive exactly when the whole program is wedged and almost never in a server
+with live parts. Per-cycle runtime detection (a runtime waits-for graph over
+tokens and frames) is real machinery the scheduler does not have, and it
+still converts a defect into control flow.
+
+**Timeouts on the handler: the salvageable piece — as an opt-in deadline on
+`defer`.** The caller cannot set a meaningful budget (occupancy is transitive
+and invisible at the call, §2.1); the handler author knows the semantics. And
+the handler side already has the exact slot: a deferred answer is a declared
+`defer` (§3.9, rung 4), so a deadline is a *parameter of the hold* — "held, and
+answered or timed out within d" — checked and discharged by the runtime timer,
+riding M-4/M-5's syntax. Where it makes no sense is §3.6's own table: the
+rows whose *semantics* is indefinite deferral — `acquire()` on an exhausted
+pool, a barrier, a shutdown drain, the timer itself — which is the proof it
+cannot be a default even handler-side. Recorded as a refinement of the
+`Reply | TimedOut` form (same machinery, better placement), unscheduled until
+a rung-4 handler wants it.
+
+**What actually does the job the aim names is already on the table.** The
+unmarked idioms are deadlock-free by construction: a bare `replyto` leaves the
+minter serving, rungs 1–3 contribute no occupancy edges, and the graph refuses
+the statically visible cycles among what remains. SH-9's defaulting plus
+SH-10's marking make the risky forms the *asked-for* forms — rung 4 is an
+opt-in word, a gate is a distinct spelling (`replyto!`), and occupancy is
+priced by the graph. That is the static version of "risky code is the less
+obvious way", achieved with no runtime tax on the common case — and it is
+stronger than the recursion analogy suggests, since recursion gets no static
+help at all.
+
+### 3.11 What sync members buy over caller-side waiting (asked 2026-09-19)
+
+The question: with monitors covering the no-locking motivation, why not expose
+only actor effects and let callers do their own waiting? Four answers, one of
+them a concession.
+
+1. **Monitors cover rung 2 only.** No effects, no waits, no mailbox: a monitor
+   is pure state transformation under a lock. Every row of §3.6's table —
+   answers that depend on a *future event*: the multiplexed connection, the
+   blocking acquire, the coalesced fetch, the timer-backed clock — is out of
+   its reach, and those are the cases the sync member exists for. The locking
+   motivation is moot; the event-dependent-answer motivation is untouched.
+2. **The interface is the real purchase.** Caller-side waiting requires the
+   *effect* to be actor-kind, and that colours every consumer forever: each
+   call site writes the token dance, and — by the decided "forbid" (an
+   ordinary member with a return type cannot be actor-backed) — no plain
+   effect can ever be served by confined state. `Clock` is the standing
+   counter-example: `SystemClock` is a stateless rung-1 handler and
+   `TestClock` a rung-4 servant behind one plain interface, interchangeable at
+   the binding site. Declare `Clock` actor-kind for the fake's benefit and the
+   real clock's every caller pays the token style; higher-order and generic
+   code stops composing with it too, since combinators take functions, not
+   protocols-plus-a-place-to-wait.
+3. **The concession: the power is not new.** The two-piece form exists today —
+   an actor protocol plus an adapter handler of the plain effect whose member
+   waits on the addr. `TestTicker` *is* that adapter: `handler
+   TestTicker(timer: Addr<Timer>) [waitfor] of Ticker`, a plain-effect handler
+   parking its caller on a servant's answer. So SH-1 is honestly scoped: it
+   does not add expressiveness, it makes the existing idiom first-class — one
+   declaration instead of protocol + adapter, the confinement rule *checked*
+   rather than idiomatic, the façade value that travels where two pieces
+   cannot, spawn-only enforced, and the occupancy edge inferred through it
+   (§3.3) instead of through an ad-hoc adapter the graph reads as a
+   `[waitfor]` block today. (Under SH-5(d) the adapter also loses its
+   `[waitfor]` declaration and its dedicated thread, so the fused and
+   two-piece forms converge in cost; what remains different is the checking
+   and the one-declaration surface.)
+4. **The deadlock-minimisation lens cuts against hiding, and the ladder is the
+   reconciliation.** A caller-side `waitfor` is lexically visible at every
+   wait; a sync member hides the wait at the call — that is exactly the burden
+   SH-4 carries. The resolution is not to forbid the hiding but to bound it:
+   at rungs ≤ 3 the hidden wait is terminal and bounded (§3.5), so hiding is
+   harmless; rung 4 — where hiding a wait means hiding an unbounded one — is
+   the declared, graph-priced opt-in. SH-9's defaulting makes that the
+   *shape of the feature*: what you get without asking cannot deadlock, and
+   the form that can is the marked one.
+
+### 3.12 The shape taxonomy (user decision 2026-09-19, revising SH-6)
+
+The user's revision, after choosing `sync fn` earlier the same day: attaching
+the monitor marker to a *member* suggests it can vary within one handler, and
+it cannot — **a lock and a mailbox are two serialization mechanisms, and one
+state can be under only one of them**. A monitor handler cannot be mixed. So
+the kind is a whole-handler fact, and the members that appear are the
+declaration of it; `sync fn` is retired, and no member-level keyword replaces
+it.
+
+| shape | kind | rung |
+|---|---|---|
+| no **mutable** state | **immutable** — shareable bare, nothing to serialize | 1 |
+| mutable state, no `send fn`s | **monitor** — members run under the lock, restricted (§4: no effects, no waits) | 2 |
+| mutable state + `send fn`s + bare `fn`s, no declared `defer` | **mixed, direct-answer** — state confined to send members; bare fns are the façade and touch no state | 3 |
+| same, with a declared `defer` | **mixed, deferring** — the declared `defer` is the opt-in | 4 |
+| mutable state + `send fn`s only | ordinary actor | 5 |
+
+With this, the design's entire syntax bill is **one contextual word (`defer`)
+and one sugar (`use H() on POOL`)**: no `sync fn`, no kind words, no
+`[waitfor]` (SH-5(d)). The declaration a user already writes is the
+classification.
+
+Refinements recorded with it:
+
+1. **Rung 1's criterion is *no mutable state*, not "no state" and not
+   "pure"** (user refinement, 2026-09-19). A handler whose data cannot change
+   needs no synchronization at all, and "cannot change" is two conditions,
+   both required: **not reassignable** — today only constructor parameters
+   qualify (immutable after construction; §3's confinement rule already lets
+   façade members read them on exactly this ground), and later `const` fields,
+   a binding form the user intends to add (recorded in ROADMAP) — and **an
+   immutable type**: a `Mut List<Int>` constructor parameter is mutable state
+   with no reassignment anywhere, since two threads mutating through it race
+   regardless, so a `Mut`-typed anything disqualifies however it is bound.
+   Today rung 1 therefore reads: no fields, no `Mut` constructor parameters.
+   And rung 1 is *not* "pure": its members may perform effects and even
+   occupy — `TestTicker` carries only an `Addr<Timer>` ctor param and parks
+   its caller until a timer fires. Occupancy is orthogonal to the ladder
+   (§6.6); rung 1 means *shareable without synchronization*, nothing more.
+2. **The classification governs sharing, not existence.** "Mutable state + no
+   send fns" also describes handlers that exist today and are neither monitors nor
+   wrong: a stateful interceptor whose members call the effect it wraps is
+   scope-local, single-threaded, lock-free, and effectful. Unshared, they stay
+   exactly as they are. The monitor reading — and §4's restrictions — bind
+   where the handler is *shared*: spawned, bound with `use … on POOL`, or its
+   handle crossing into a spawn clause. Precedent: [actor-sendable] checks
+   constructor params at the spawn, not the declaration. Whole-program lets
+   the diagnostic do better than a spawn-site error: anchor it **at the
+   offending member**, naming the sharing site as the reason monitor rules
+   apply.
+3. **The rung-3 guarantee keeps one inferred residue**, noted for SH-4's build
+   rather than decided here: a send member that calls a **rung-4** handler's
+   façade waits an unbounded time inside its activation, so its own answers
+   are unbounded transitively — effectively rung 4 with no `defer` of its own.
+   It cannot be refused outright (a send member calling `random()` backed by a
+   mixed handler is a core use case) and cannot be declared (SH-5(d) deleted
+   the vocabulary). The graph sees it — the edge is anchored at the *callee's*
+   declared `defer` — so cycles are still errors; what is inferred is only the
+   transitive unboundedness. Calls to rung ≤ 3 façades from send members are
+   terminal and harmless.
+4. **Bare fns mean two disciplines, disambiguated by shape**: in a mixed
+   handler they are the façade and touch no state (§3's confinement rule); in
+   a monitor they touch state and do nothing else (§4's restriction). Same
+   spelling — which is exactly why the shape must be the classifier.
 
 ## 4. Design B — the monitor (synchronized members, restricted)
 
@@ -954,81 +1214,272 @@ design's shape:
 
 Step 1 made `[waitfor]` a declared, propagating capability validated by
 placement. Design A deliberately does **not** put it on the plain effect's
-member, the mixed handler, or the callers — the user's §0.2 position — and
-the pump rule (fact 2) already removed most of what dedicated placement was
-protecting against (an occupied worker no longer starves its pool). What is
-left of the declaration, case by case:
+member, the mixed handler, or the callers — the user's §0.2 position. This
+section unpacks what the declaration actually does today, what its price is,
+which of its jobs survive its removal, and the four options, one of which
+(§6.5 option (d)) was added at the user's prompting: *should it exist at all
+apart from bridging a host boundary?*
 
-- **Not safety.** The upcall (§3.1) deadlocks with or without declarations;
-  what prevents it is the graph, and the graph can *infer* occupancy
-  whole-program (§3.3) — the declaration was a spelling of the edge, not its
-  source.
-- **Not the placement gate, mostly.** "May occupy this thread" needed a
-  dedicated thread when a wait blocked; a wait that serves its pool is not
-  the hazard the gate priced in. The genuine residue: a wait still pins a
-  *stack frame* (depth is the budget), and a wait still stalls the waiting
-  actor's own mailbox (the §3.1 mechanism) — but neither is addressed by
-  placement, so the gate does not earn its cost against them.
-- **Human visibility** — the one thing inference cannot give. The user's
-  position: a call occupying its thread is what a call *is*; the language
-  does not annotate ordinary blocking, so it should not annotate this. The
-  counter-position (Locality): "this call may park your activation and stall
-  your mailbox until another actor answers" is a bigger fact than "this call
-  takes a while", and it is precisely the fact §3.1's author needed to see.
-- **Three places it remains load-bearing regardless**: `main`'s own
-  signature is harmless either way (its thread is dedicated by nature);
-  **host/FFI bridges** (FC-7, parked) want a signature-level "this export
-  blocks the calling thread", and a host thread cannot be inferred *into*;
-  and **`thread()` + `Dedicated Pool`** keep their meaning — "exactly one
-  occupant, by linearity" — for the cases that genuinely want a thread of
-  their own (blocking-IO wrappers around host APIs), independent of any
-  grant check.
+### 6.1 What the declaration does today — the eight jobs, and where each lives
 
-**Options:**
+`[waitfor]` is one word doing eight separate jobs. They have to be listed
+separately, because every option below keeps some and drops others.
 
-- **(a) Keep step 1 whole**: `[waitfor]` declared and propagating; mixed
+1. **It gates the expression.** `waitfor out: Reply<T> { … }` is legal only in
+   a frame whose effect list declares `[waitfor]` (`can_wait` in `check.rs`;
+   `handler_waits` for the handler-dependency form). Without it: an error
+   naming the capability.
+2. **It propagates through calls**, like any effect: a function reaching a wait
+   through a helper declares it too.
+3. **It may sit on an effect declaration's *member*** — the single exception to
+   [effect-member-no-effects], carved for it on 2026-09-17 — so a protocol can
+   say "this member may occupy your thread" and have it reach callers by
+   ordinary propagation.
+4. **It is refused on a fn type**, and `waitfor` is refused inside a lambda
+   [actor-no-closure]: a function value runs wherever it is called, and the
+   capability is a claim about *where*.
+5. **Grant check I — the spawn's placement** [waitfor-dedicated]: a handler
+   declaring `[waitfor]` must be spawned `on thread()`, whose `Dedicated Pool`
+   the `on` clause **consumes**, so a dedicated thread has exactly one occupant
+   by linearity. An omitted `on` is refused with it.
+6. **Grant check II — the `use` site**: binding such a handler is refused
+   unless the binding scope declares `[waitfor]` too. This is the only way the
+   hazard reaches a *synchronous* consumer, since a handler's dependencies are
+   otherwise invisible to callers.
+7. **Grant check III — the task mint**: `replyto` at a free `send fn` that
+   declares `[waitfor]` needs `on thread()`, unless the minting frame itself
+   declares `[waitfor]` — which proves its own pool is already dedicated.
+8. **The deadlock graph's third edge kind** [actor-deadlock-cycle]: a handler
+   declaring `[waitfor]` gets a **block** edge to every actor protocol it can
+   reach — declared dependencies, addrs it sends through, and the sends of
+   tasks it mints — with the *declaration* as the blamed site. Cycles through
+   it are errors. This is the one job that is analysis rather than bookkeeping.
+
+`main` participates as an ordinary holder (`fn main() [use, spawn, waitfor]`);
+its thread is dedicated by nature, so no placement is written for it.
+
+### 6.2 What it costs today, measured
+
+The whole footprint of the feature in real Salvo is **three declarations**:
+
+```
+examples/time/salvo/main.sv:104  handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker
+examples/time/salvo/main.sv:133  fn main() [use, spawn, waitfor] -> None
+examples/actors/salvo/main.sv:180 fn main() [use, spawn, waitfor]
+```
+
+Nothing in `std` declares it. **No effect member anywhere declares it** — job 3,
+the exception carved into [effect-member-no-effects] for it, has zero users. Of
+the ~99 occurrences across the repository including inline test sources, almost
+all are test `main`s.
+
+So the one non-`main` customer is the unified test clock, and it is worth
+reading what the declaration does to that program:
+
+```
+handler TestTicker(timer: Addr<Timer>) [waitfor] of Ticker {   // one zero-length
+    fn tick() -> Tick { … waitfor … }                          // deadline read
+}
+…
+let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
+```
+
+`Napping` is an ordinary actor with no wait of its own. It is forced onto a
+**dedicated thread** because a handler it binds reads a clock — one virtual,
+zero-length deadline that is fulfilled inside `after` at registration. That is
+the shape [time-coupling] recommends, so the cost lands on the posture std
+itself teaches. Generalize it to SH-1's motivating case and the price is the
+design: a shared `Random` façade would cost its consumer a thread per binding
+scope, and `Random.next()` — a plain member on a plain effect — could not be
+declared at all without job 3.
+
+### 6.3 What changed under it, the same day and the day after
+
+- **The pump** [waitfor-pump]: a wait *serves its own pool* while it waits,
+  minus the waiting actor's own activations. The hazard the placement gate was
+  priced against — an occupied worker starves the pool it sits on — no longer
+  exists for a Salvo wait.
+  * Sharp enough to catch the diagnostic in the act: grant check I tells the
+    user that "a shared `pool(n)` would let one wait stall every actor on it",
+    which the pump rule made false in the same step. Under option (a) that
+    message has to be rewritten; under the others it goes away.
+- **SH-8** (fixed 2026-09-18): a wait that cannot end is now a named report
+  rather than a silent hang, and it names the occupied actor. The runtime net
+  the declaration was standing in for exists.
+- **§3.1**: the upcall deadlocks *identically* with every signature declared.
+  Occupancy cycles are a property of waits on cyclic request topology, not of
+  hidden waits, so the declaration is a spelling of the edge, never its source.
+
+### 6.4 Job by job: what survives removal, and what would have to replace it
+
+| job | survives without the capability? |
+|---|---|
+| 1 — gates the expression | **No, and nothing is lost.** A wait in an ordinary function is exactly what §0.2 asks for; the placement it needs is no longer special. |
+| 2 — propagates | **No.** Replaced by inference, which SH-4 must compute anyway. |
+| 3 — on an effect member | **No.** Zero users today, and SH-1 wants its *absence* (a plain effect backed by confined state). Optional under (b) as documentation. |
+| 4 — no fn types, no lambdas | **Yes, and it must be kept on its own footing.** A wait inside a function value would be occupancy at every call site of that value, and a fn value's call sites are not statically known — so the graph cannot place the edge. Keep it as a syntactic rule, independent of any capability. |
+| 5 — spawn placement | **No**, for Salvo waits. Genuinely needed for *host* blocking, which does not pump (§6.5(d)). |
+| 6 — the `use`-site grant | **No.** What it communicated — "binding this may park your frame" — is a documentation job, and §6.6 asks whether anything else can carry it. |
+| 7 — task-mint placement | **No**, same reason as 5. |
+| 8 — the graph's block edge | **Must be replaced, and the replacement is better.** The declaration draws edges from a handler to *everything it can reach*; SH-4's inference draws them at the sites that actually wait, resolved through the binding in force. An explicit `waitfor` block is the *easy* case for it — the block names the sends. Whole-program rather than modular, which Salvo has by decision. |
+
+The load-bearing conclusion: **only jobs 4 and 8 carry weight, and neither
+needs a capability effect** — job 4 is a syntactic refusal, job 8 is the
+inference SH-4 builds regardless.
+
+### 6.5 The options
+
+- **(a) Keep step 1 whole.** `[waitfor]` declared and propagating; mixed
   handlers carry it; callers declare it; spawn sites need `thread()`.
-  *Cost*: kills §0.1 — `Random`'s member would need `[waitfor]`, so a plain
-  effect could never be backed by confined state; a shared façade costs a
-  dedicated thread per consumer. Recorded as rejected by the intent unless
-  the user reverses.
-- **(b) Demote to inference + keep the vocabulary** *(recommended)*: drop
-  the propagation requirement and the placement gate for occupancy; the
-  graph infers occupancy edges (§3.3) and classifies them as errors in
-  cycles; `[waitfor]` remains as an **optional, checked annotation** — a
-  function or effect member *may* declare it, the checker verifies it
-  against the inferred truth (declaring it falsely is a warning, hiding it
-  is legal), FFI exports and `main` keep it, and `thread()`/`Dedicated
-  Pool` stay for placement that is wanted rather than required. The
-  deadlock net moves fully onto the graph + the fixed runtime report.
-- **(c) Delete the effect**: pure inference, no vocabulary. *Cost*: FC-7's
-  bridge story loses its spelling; TestClock-style handlers lose the
-  documented hazard marker; and un-deciding a same-day decision without
-  keeping even the optional form throws away a word the language will want
-  at the FFI boundary. Not recommended.
+  *Cost*: kills §0.1 — `Random`'s member would need job 3, so a plain effect
+  could never be backed by confined state, and a shared façade costs a
+  dedicated thread per consumer. Also inherits a diagnostic that now
+  misstates its own reason (§6.3). Rejected by the stated intent unless the
+  user reverses it.
+- **(b) Demote to optional-checked** — *recommended until 2026-09-18, then
+  **rejected by the user**, and the argument is decisive.* The proposal was:
+  drop jobs 1, 2, 5, 6, 7, keep 4 as a syntactic rule, replace 8 with SH-4's
+  inference, and let `[waitfor]` survive as an **optional, checked
+  annotation** verified against the inferred truth.
+  * **The user's question**: would a caller of a function that declares it
+    have to declare it too? Both answers sink the option.
+  * **If yes** — propagating whenever declared — it is a nuisance *and*
+    incoherent: one author's documentation becomes every caller's obligation,
+    while "optional" means the chain breaks at the first author who omits it.
+    A propagation that may be abandoned anywhere carries no information; it
+    only spreads noise from the sites that opted in.
+  * **If no** — and this is what "optional" has to mean — the annotation has
+    **no consequence anywhere**: not on callers, not on placement, not on the
+    graph, which reads the inference either way. It reduces to local
+    documentation, which is spotty by construction (a wrapper that waits says
+    nothing unless its author felt like saying it) and needs a grammar slot, an
+    `EffectRef` variant, a check and a warning class to carry.
+  * **And the positive claim has no teeth to gain.** Salvo's other
+    optional-but-checked annotation is the deduction clause, and writing one
+    *constrains the body* — that is why it is worth writing. `[waitfor]` is a
+    **may**: writing it forbids nothing, promises nothing, and rules out no
+    program. §6.6 follows this where it leads.
+- **(c) Delete the effect outright.** Pure inference, no vocabulary at all.
+  *Cost*: nothing internal can document occupancy, and the word the FFI
+  boundary will want has to be re-invented.
+- **(d) Move it to the boundary** *(the user's question, and it sharpens the
+  whole section)*. Internally the capability disappears, as in (c); the word
+  survives — and the **mandatory grant check with it** — only where a host
+  thread crosses in: FC-7's synchronous export bridge, and any `platform
+  effect` member that blocks the calling thread inside the host.
+  * **Why the boundary is where it belongs.** The check exists to price
+    "occupies a thread that serves nothing". After [waitfor-pump] that
+    describes *no* Salvo wait and *every* host block: an FFI call sits in the
+    OS, invisible to the scheduler (fact 3), so it genuinely starves the pool
+    its thread belongs to, and genuinely needs `on thread()`. The capability
+    is not being deleted so much as **following its hazard**: same word, same
+    placement gate, correctly targeted for the first time.
+  * **A host thread cannot be inferred into**, so the boundary is exactly
+    where a declaration is the only option — the mirror of why inference
+    suffices inside.
+  * **What it keeps**: `thread()`, `Dedicated Pool` and the `on` clause's
+    consumption (now mandatory only at the boundary), the lambda barrier
+    (job 4), and SH-4's inference (job 8).
+  * **What it gives up**: any internal spelling of "this call may park your
+    frame" — see §6.6, which is the one argument that keeps (b) alive.
+  * **Cost of the interim**: FC-7 is deferred, so the word would have no user
+    at all until a host caller exists. Under (b) the optional form keeps it
+    in the language meanwhile.
 
-The step-1 machinery is **not** wasted under (b): the edge kind, the pump,
-the main pool, `thread()`, and the consumption rule all survive; what is
-dropped is the *mandatory* grant check, which §2's facts show was pricing
-the wrong hazard.
+### 6.6 Visibility without a word — and the claim that would have teeth
+
+(b) existed for one job: letting a human see that a call may park their frame.
+Two replacements cover it better, and one of them is already how Salvo treats
+a fact of exactly this kind.
+
+- **Inferred and *displayed*, the deduction precedent.** A deduction clause is
+  inferred from the body when unwritten, and the language server renders a fn's
+  hover with the **effective** list — `Checked::deductions` when available, else
+  as declared (`fn_decl_signature`, [fn-ref-table]). Occupancy is the same shape
+  of fact: SH-4 computes it for the graph regardless, so the hover can show "may
+  occupy the calling frame" on *every* function, always current, with nothing to
+  write and nothing to maintain. Annotation gives spotty coverage of the same
+  fact and can go stale between edits; inference-plus-display cannot.
+- **Named where it bites.** The graph's refusal already has to name the cycle,
+  the seam and the binding that chose the handler (§3.3), and SH-8's report
+  names the actor parked in a wait. A reader who needs the fact in order to act
+  gets it there, in the one situation where acting is required.
+
+**And the claim worth spelling is the negative one.** "This may park you" is
+unfalsifiable, constrains nothing and refuses no program. "This will *not* park
+you" constrains a body and everything it calls, is checkable, and is something a
+caller can build on — a latency contract rather than a hazard label. Salvo
+already has that claim in two places, which is the reason no third word is
+needed:
+
+- **the rung** (§3.5): a direct-answer handler's sync members provably do not
+  occupy, by the restriction that defines the rung;
+- **an effect-level promise**, if it is ever wanted: an `actor effect` or plain
+  effect could declare that *every* handler of it answers without occupying,
+  checked at each handler. Recorded as an option rather than proposed, because
+  the cost is concrete and known: such a promise on `Ticker` would have refused
+  `TestTicker`, and with it step 6's unified test clock. So it can only ever be
+  opt-in per effect, never a default — and until something asks for it, the rung
+  covers the same ground where it is actually needed.
+
+The residual honest loss of carrying no word at all: a handler like
+`TestTicker` — stateless, **rung 1**, no synchronization of any kind, and it
+parks its caller until a timer fires — has nothing in its declaration that says
+so. Occupancy is orthogonal to the ladder (the ladder grades state and
+synchronization; occupancy is about waiting), so the rung cannot carry it. The
+answer is the hover and the diagnostics, not a modifier: the fact is real, it is
+computed, and it does not need an author to repeat it.
+
+### 6.7 Recommendation: (d), with occupancy an inferred fact
+
+**(d) — move it to the boundary** (user direction 2026-09-18, having rejected
+(b); the call itself is still open):
+
+- **Internally there is no spelling.** Jobs 1, 2, 3, 5, 6, 7 go; job 4 stays as
+  a syntactic refusal on its own reason (a wait inside a function value would be
+  occupancy at call sites the graph cannot enumerate); job 8 becomes SH-4's
+  inferred occupancy edges, which are strictly more precise than the
+  declaration-wide block edge.
+- **Occupancy becomes an inferred fact with three consumers**: the deadlock
+  graph (refusal), the language server (hover, on the deduction precedent), and
+  the runtime report (SH-8). Nobody writes it; it cannot go stale.
+- **At the host boundary the word and its mandatory gate survive**, because
+  there the hazard is real and inference cannot reach: an FFI call blocks a
+  thread that serves *nothing* (fact 3), so it starves its pool and genuinely
+  needs `on thread()`. FC-7's synchronous export bridge and any blocking
+  `platform effect` member are its only holders.
+- **`thread()` / `Dedicated Pool` survive as placement you may want**, with the
+  linear one-occupant meaning intact, required only at that boundary.
+
+What that removes from today's language: the `waitfor` gate, the propagation,
+the three grant checks, the fn-type refusal, the [effect-member-no-effects]
+exception (zero users), and three declarations in real Salvo plus the test
+`main`s. What it adds: nothing at the surface.
+
+**Sequencing.** SH-4's occupancy inference must land *before or with* the
+deletion, because job 8 is real coverage today: dropping the declaration first
+would leave declared waits in handlers with no edge at all. The hover is a small
+follow-on once the inference exists, and worth doing in the same breath — it is
+what makes "no word" a visibility *improvement* rather than a trade.
 
 ## 7. Decision surface
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|
-| SH-1 | Amend [actor-effect-kind]: mixed handlers (send members + state confined to them; sync members touch no state) | yes / no | **yes**, as stated in §3 |
-| SH-2 | The façade value: `Addr<E>` generalized (stub + ctor params + sync dispatch), sendable; mixed handlers spawn-only | as stated / variants | **as stated** (§3, §5) |
-| SH-3 | Monitors: synchronized members restricted to state + pure computation — no effects, no waits | yes / no / unrestricted-with-analysis | **yes, restricted**; unrestricted is rejected (§4: it re-imports every pathology plus a parity trap) |
-| SH-4 | Occupancy in the graph: inferred through façades; cycles containing an occupancy edge are **errors** (no back-pressure downgrade) | as stated / declarations required | **as stated** (§3.3); §3.4 records why full deadlock *freedom* is not the goal, and stratification as the opt-in that would provide it |
-| SH-5 | `[waitfor]`: (a) keep whole / (b) demote to optional-checked, drop propagation + placement gate / (c) delete | — | **(b)** (§6) |
-| SH-9 | Direct-answer façades (§3.5) as a declared rung: the two-part restriction, its checkability, and whether the request send pumps (or reserves at mint) to close the back-pressure residue | as stated / collapse into SH-1 (all mixed handlers start restricted, graph unlocks rung 3) / omit | **as stated**, and consider *defaulting* to it: a mixed handler is direct-answer unless its body needs rung 3, so the guarantee is what you get unless you ask for the analysis — sharpened by §3.7 into a position: rung 4 is the thing you *ask for*, and the price quoted is the graph |
-| SH-6 | Spelling for monitor members (`sync fn`? `locked fn`? bare `fn` + state access implies?) | — | needs a round of its own; implicit-by-state-access is the ergonomic option and the least visible — and §3.8's locality argument now weighs against implicit: the prior-art norm is a declared kind (M-2/M-5) |
-| SH-10 | Marking the rung (§3.8): per-handler, never per-effect (`Clock` spans rung 1 to rung 4); one declaration covering the whole `of` list; M-1–M-5. Sub-decisions: (b) a declared `hold` as exact vs upper bound (§3.9); (c) `hold` general over linear parameters vs Reply-specific (§3.9) | M-1 infer / M-2 handler-kind words / M-3 member kinds only / M-4 reply deductions / M-5 = M-2 over M-4 | **M-5** — handler-level kind word as the contract (rung 2's kind + rung 4's opt-in, rung 3 the unmarked mixed default per SH-9), member-level `hold` deductions as the checked mechanism the diagnostics point at; on (b), leaning upper bound; on (c), leaning general with Reply-only consequences (§3.9) |
-| SH-7 | `use H() on POOL` sugar for `spawn` + `use addr` | yes / no | **yes**, low-cost (§5) |
-| SH-8 | Prerequisite defect: the idle report's `active` hole (fact 5) | — | fix **first**, independent of every other row |
+| SH-1 | Amend [actor-effect-kind]: mixed handlers (send members + state confined to them; sync members touch no state) | yes / no | ✅ **decided yes** (user, 2026-09-19): mixed handlers allowed, first-class, "with all the protections we can offer" — honestly scoped by §3.11 (the two-piece adapter form exists today; SH-1 is the idiom made first-class and checked) |
+| SH-2 | The façade value: `Addr<E>` generalized (stub + ctor params + sync dispatch), sendable; mixed handlers spawn-only | as stated / variants | ✅ **decided as stated** (user, 2026-09-19) (§3, §5) |
+| SH-3 | Monitors: synchronized members restricted to state + pure computation — no effects, no waits | yes / no / unrestricted-with-analysis | ✅ **decided yes, restricted** (user, 2026-09-19); unrestricted rejected (§4: it re-imports every pathology plus a parity trap) |
+| SH-4 | Occupancy in the graph: inferred through façades; cycles containing an occupancy edge are **errors** (no back-pressure downgrade) | as stated / declarations required | ✅ **decided as stated** (user, 2026-09-19) (§3.3); must land before or with SH-5's deletion (§6.4, job 8) |
+| SH-5 | `[waitfor]`: (a) keep step 1 whole / (b) optional **checked** annotation / (c) delete the word outright / (d) **move it to the boundary** | — | ✅ **decided (d)** (user, 2026-09-19, confirming the 2026-09-18 direction): no internal spelling; occupancy an inferred fact (graph, LSP hover, SH-8's report); the mandatory placement gate survives only at host bridges. (b) was rejected 2026-09-18: non-propagating has no consequence, propagating-when-declared is incoherent (§6.5–6.7) |
+| SH-9 | Direct-answer façades (§3.5) as a declared rung, and the default | as stated / collapse into SH-1 / omit | ✅ **decided: the default** (user, 2026-09-19): a mixed handler is direct-answer unless it opts into rung 4 — the principle row (what you get without asking cannot deadlock; §3.10 examined and rejected default timeouts/fallible waits for the same job). The **pumping request send is deferred** (user, 2026-09-19): it bifurcates the send semantics (a second entry point, or all sends pump and §2 fact 3 changes globally), and the residue it closes is a burst limiter on a promptly-draining servant. Trigger to revisit: a reproduced wedge of a façade request into a full servant queue on a shared single-threaded pool. Mint-time reservation stays the recorded alternative |
+| SH-6 | Spelling for monitor members | `sync fn` / `locked fn` / implicit-by-state-access | ✅ **decided `sync fn`, then revised the same day** (user, 2026-09-19) to **shape-based classification** (§3.12): the kind is a whole-handler fact — a lock and a mailbox cannot share one state — so no member keyword exists; "state + no send fns" *is* the monitor declaration, checked where the handler is shared |
+| SH-10 | Marking the rung (§3.8) + the deferral deduction (§3.9) | M-1…M-5; (b) exact vs upper bound; (c) general vs Reply-specific | ✅ **decided** (user, 2026-09-19): the word is **`defer`** (the deleted 2026-09-10 statement leaves it free; contextual in deduction position); **(c) general** — any function may defer a linear obligation, the escaped disposition beside consumed/returned, inferred when unsaid and checked when said; **(b) upper bound, at both levels** — a declared `defer` need not be exercised, and an effect member's `defer` is an upper bound on its handlers (its absence forbids: hide never, over-approximate freely; handler-local servant members have no contract above them); **the rung-4 opt-in is the declared-`defer` synthesis** — a spawned handler's send member that defers must declare it, and the declaration is the opt-in; no kind word (§3.12 removed the last one) |
+| SH-7 | `use H() on POOL` sugar for `spawn` + `use addr` | yes / no | ✅ **decided yes** (user, 2026-09-19) (§5) |
+| SH-8 | Prerequisite defect: the idle report's `active` hole (fact 5) | — | ✅ **done 2026-09-18** — the report fires for an occupied waiter and names it; two sub-questions left in ROADMAP (whether the `on_idle` hook reads the same weaker condition; naming handlers and members instead of `actor 0`) |
 
-Sequencing, if decided: SH-8 immediately (it is a defect regardless); the
-rest after the second sequence's steps 3–6, since T-4 (multi-effect
+Sequencing, now decided: SH-8 is **done** (2026-09-18 — it was a defect
+regardless); the rest is unblocked, and lands after the second sequence's
+steps 3–6, which are also complete, since T-4 (multi-effect
 handlers) and `core.time`'s `TestClock` interact with SH-1/SH-5 — a
 TestClock under SH-5(b) needs no `[waitfor]` declaration and no dedicated
 thread, which would simplify the unified test clock [time-coupling] built at

@@ -1126,6 +1126,15 @@ where Rust had to build the fusion to get the same programs running
     hook is progress, so the report is what firing nothing leaves) and in
     `worker` before it awaits, which is what fires a hook registered by an actor
     while nobody is waiting.
+  * **[waitfor-pump] The deadlock report reads a different predicate from the
+    hook** (defect fixed 2026-09-18): `idle()` (`active == 0 && quiet()`) is the
+    hook's; `stuck()` (`active == parkedFrames && mainWaits > 0 && quiet()`) is
+    the report's. `parkedFrames` counts frames sitting in `awaitReply` —
+    `SalvoHere.frame` is what tells an activation or task frame apart from
+    main's own thread — `mainWaits` counts main's own waits, and `quiet()` adds
+    "no waiter is parked on a slot that is already filled", which is the
+    delivery-before-pickup window. `reportDeadlock` names the actors parked in a
+    wait (`SalvoWaiterState.parkedActor`) beside the gated ones.
   * **`replyto k(caps)`** → `run { val (__r, __s) = SalvoSched.mint(__addr!!);
     __parked[__s] = __Cont_H.K(caps); __r }`, with `mintGated` for `replyto!`.
     `SalvoSched.mint`/`mintGated` answer a `Pair` of the token and its slot —

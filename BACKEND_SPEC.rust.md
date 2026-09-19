@@ -1606,6 +1606,15 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     (firing a hook is progress, so the report is what firing nothing leaves) and
     in `worker` before it parks, which is what fires a hook registered by an
     actor while nobody is waiting.
+  * **[waitfor-pump] The deadlock report reads a different predicate from the
+    hook** (defect fixed 2026-09-18): `idle()` (`active == 0 && quiet()`) is the
+    hook's; `stuck()` (`active == parked_frames && main_waits > 0 && quiet()`)
+    is the report's. `parked_frames` counts frames sitting in `salvo_wait` —
+    `Here::frame` is what tells an activation or task frame apart from `main`'s
+    own thread — `main_waits` counts `main`'s own waits, and `quiet()` adds "no
+    waiter is parked on a slot that already holds its value", which is the
+    delivery-before-pickup window. `report_deadlock` names the actors parked in
+    a wait (`WaiterState::parked`) beside the gated ones.
   * **`replyto k(caps)`** → a block that mints, parks and answers the token:
     `{ let (__r, __s) = salvo_mint(self.__addr.expect(…)); self.__parked.insert(__s, __Cont_H::K(caps)); __r }`.
     `replyto!` differs only in calling `salvo_mint_gated` — the gate is the

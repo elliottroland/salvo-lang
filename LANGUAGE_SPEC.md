@@ -2786,6 +2786,28 @@ LANGUAGE.md remains the source of truth for everything that does.
     (recursion — a pumped item that itself waits nests further, with stack
     depth the budget, the nested-`runBlocking` precedent), and side effects
     are observable *during* a wait. Only the waiting actor's mailbox is quiet.
+  * **A wait that cannot end is a named error, not a hang** (defect fixed
+    2026-09-18, the prerequisite of the shareable-handler work). A frame parked
+    in a wait is **not progress**: it still holds its actor's `running` flag, so
+    nothing of that actor's mailbox is delivered by anybody until its token
+    arrives. The runtime therefore books parked frames separately from running
+    ones, and reports the deadlock when *every* frame it knows about is parked,
+    nothing is queued anywhere (no deliverable entry, no task, no deadline, no
+    answer already sitting in a waiter's slot) and `main`'s own thread is
+    waiting too. The report names the waiting frame, the actors **parked in a
+    wait** — whose whole mailbox is stalled — and the **gated** ones, which
+    serve only the reply they are waiting for.
+    * `main`'s liveness is the load-bearing clause: `main`'s thread runs
+      program code without being a frame the scheduler counts, so while it is
+      not waiting, it may yet fulfil the token anybody is parked on, and
+      nothing may be declared stuck. An actor parked in a wait while `main`
+      works is an ordinary program, not a deadlock.
+    * The blind spot is the one [actor-on-idle] states: a platform handler with
+      a thread of its own can inject work the scheduler never saw.
+    * Until the fix the condition required *no* frame to be running, so any
+      wait nested inside an activation hid the report and the program hung
+      silently — which was tolerable only while `main` was the one thing that
+      could wait.
   * The rule is stated in terms of *work* because the task kernel is what
     fills a pool with things that are not activations; until it lands, what a
     wait can serve is main-pool actors.
@@ -3181,11 +3203,15 @@ LANGUAGE.md remains the source of truth for everything that does.
     running actors.
   * **It composes with the deadlock report rather than competing**: a pending
     hook is *progress*, so a waiter fires it and looks again, and the report is
-    what firing nothing leaves. The one caveat is inherited, not new — a frame
-    parked in a `waitfor` counts as running, so idleness does not fire while
-    any wait is in flight; the open defect that makes an *occupied actor's*
-    wait hide the report (ROADMAP.md) is the same condition seen from the other
-    side.
+    what firing nothing leaves. The two predicates are no longer the same one,
+    though, since the report's hole was fixed (2026-09-18, [waitfor-pump]): the
+    **report** counts a frame parked in a wait out of the running frames, where
+    the **hook** still counts it as running — so idleness does not fire while
+    any wait is in flight, and a program that is stuck *with* a parked frame
+    gets the report rather than an `Idle` answer. Whether the hook should read
+    the report's weaker condition (firing `Idle { parked_gates, parked_tokens }`
+    where the report would kill the program) is an open call, recorded in
+    ROADMAP.md: it is observable behaviour, so it is the user's.
   * **Meaningful only while nothing outside injects work** — a platform handler
     with a thread of its own can stale the answer. The same caveat the report
     has always had, stated where a program can now read the answer.

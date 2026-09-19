@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1154 tests, complete: the toolchain tests are
+cargo test                  # 1156 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,211 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers: the decision round (user decisions 2026-09-19).**
+SHAREABLE_HANDLERS.md's surface, decided across two sittings (2026-09-18
+evening: SH-5's unpacking; 2026-09-19: the rest), under the principle the
+analysis converged on: **what you get without asking cannot deadlock; the form
+that can is the one you ask for, and asking has a price the compiler quotes.**
+The calls:
+
+- **SH-1 — yes**: mixed handlers (state confined to `send fn` members, sync
+  members touching no state) join the language, first-class, "with all the
+  protections we can offer". Honestly scoped by the user's own question
+  (§3.11): the two-piece form — actor protocol + adapter handler, exactly
+  `TestTicker`'s shape — exists today, so SH-1 is the idiom made first-class
+  and *checked*, not new power.
+- **SH-2 — as stated**: the façade value is `Addr<E>` generalized (servant
+  addr + ctor params + sync dispatch), sendable by construction; mixed
+  handlers are spawn-only.
+- **SH-3 — yes, restricted**: monitors are synchronized members limited to
+  state + pure computation, no effects, no waits — deadlock-free by making the
+  lock innermost, with the JVM-reentrant/Rust-not parity trap unwritable.
+  Unrestricted rejected.
+- **SH-4 — as stated**: occupancy inferred through façades at
+  binding-resolved call sites; any cycle containing an occupancy edge is an
+  error, no back-pressure downgrade. Must land **before or with** SH-5's
+  deletion, since the declared block edge is real coverage until then.
+- **SH-5 — (d), move it to the boundary**: no internal `[waitfor]` at all.
+  The gate, the propagation, the three grant checks, the fn-type refusal and
+  the [effect-member-no-effects] exception (zero users) go; the lambda barrier
+  stays on its own reason; `thread()`/`Dedicated Pool` stay as placement one
+  may *want*, with the linear one-occupant meaning. Occupancy becomes an
+  inferred fact with three consumers — the graph, the LSP hover (deduction
+  precedent: inferred, displayed as effective), SH-8's report. The word and
+  its mandatory placement gate survive only at host bridges (FC-7), where
+  "blocks a thread that serves nothing" is true and cannot be inferred. The
+  optional-checked middle ground (b) was **rejected 2026-09-18** on the user's
+  argument: propagating-when-declared is a nuisance and incoherent,
+  non-propagating has no consequence anywhere — and the positive claim
+  constrains nothing, where Salvo's other optional annotation (a deduction)
+  constrains its body.
+- **SH-9 — the default**: a mixed handler is direct-answer (rung 3) unless it
+  opts into rung 4. This row is the principle. The **pumping request send is
+  deferred** (user, 2026-09-19, on being told it bifurcates: either a second
+  send entry point chosen at the call site, or every send pumps and the
+  documented "sends do not pump" fact changes globally); the residue it would
+  close is a burst limiter on a promptly-draining servant. Revisit trigger: a
+  reproduced wedge of a façade request into a full servant queue on a shared
+  single-threaded pool.
+- **SH-6 — `sync fn`** for monitor members, the *synchronized* (lock) reading
+  — recorded against confusion: a mixed handler's façade members are
+  synchronous too but stay bare `fn`. Implicit-by-state-access rejected on the
+  prior-art locality argument (Ada/Swift declare; Rust's inferred-`Send`
+  instability is the counterexample).
+- **SH-7 — yes**: `use H() on POOL` as sugar for `spawn` + `use addr`.
+- **SH-10 — the word is `defer`, and it is general**: the user chose `defer`
+  over `hold` (the deleted 2026-09-10 `defer` statement leaves the word free;
+  in deduction position it is contextual) and asked the question that
+  confirmed sub-decision (c) — deferral was never a handler ability. Any
+  function may defer a linear obligation (helper, free `send fn`, task body,
+  ordinary fn): the *escaped* disposition beside consumed/returned, which the
+  compiler already computes for Rust ownership inference — inferred when
+  unsaid, checked when said, like every deduction. Waiter-backed types
+  (`Reply` today) make it a progress fact and a graph input; other linear
+  types get checked documentation.
+- **Still open under SH-10**, the two calls left in the whole surface:
+  **(b)** a declared `defer` as exact vs upper bound (leaning upper bound — a
+  false `defer` costs its author graph precision, a self-inflicted and
+  coherent price); and **the rung-4 opt-in mechanism** — M-5's handler kind
+  word, or the synthesis the generality suggests: a spawned handler's send
+  member that defers must *declare* it, and a declared `defer` is the opt-in
+  (locality, maintenance stability and consumer visibility with no kind word,
+  at the cost of reading members instead of one word).
+- **Examined and rejected along the way** (2026-09-19, both recorded in the
+  document): **default timeouts / fallible waits** on `send`/`waitfor` —
+  determinism (no timeline a default can live on once virtual time exists),
+  the union tax on the common case, weakened linearity (late answers become
+  no-ops into dead slots), and the incentive inversion (a recoverable deadlock
+  is a cheaper deadlock; the retry loop is a livelock with worse diagnostics
+  than the named report). The salvageable half: a per-`defer` deadline as an
+  opt-in parameter of the deduction, unscheduled until a rung-4 handler wants
+  it. And **caller-side waiting instead of sync members** — monitors cover
+  rung 2 only; the plain-effect interface is the purchase (an actor-kind
+  effect colours every consumer forever, and by the decided "forbid" no plain
+  effect could ever be served by confined state).
+
+**The round closed later the same sitting (user decisions 2026-09-19,
+continued):**
+
+- **SH-10(b) — upper bound, at both levels.** A declared `defer` need not be
+  exercised by the body; and — the user's own extension — an effect member's
+  `defer` is an upper bound on its handlers: `actor effect` members already
+  carry deductions, so `defer out` rides there as "implementations may defer
+  this answer", and a handler that answers in-frame conforms. The polarity
+  completion recorded with it (Koka's): over-approximate freely, hide never —
+  a handler member implementing an effect member may declare `defer` only if
+  the effect member does, else the interface carries no information;
+  handler-local servant members implement no effect member and declare theirs
+  directly.
+- **The rung-4 opt-in is the declared-`defer` synthesis** — a spawned
+  handler's send member that defers must declare it, and the declaration is
+  the opt-in. No kind word.
+- **SH-6 revised the same day it was decided**: `sync fn` (chosen that
+  morning) is retired for **shape-based classification**, on the user's
+  observation that a member-level marker suggests per-member variability the
+  semantics cannot have — a lock and a mailbox are two serialization
+  mechanisms, and one state can be under only one of them, so the kind is a
+  whole-handler fact. The taxonomy (SHAREABLE_HANDLERS.md §3.12): no state →
+  **stateless** (rung 1); state + no send fns → **monitor** (rung 2); state +
+  send fns + bare fns, no declared `defer` → **mixed, direct-answer** (rung
+  3); with a declared `defer` → rung 4; state + send fns only → ordinary
+  actor. Refinements recorded: rung 1 is "stateless" not "pure" (members may
+  perform effects and occupy — `TestTicker`); the classification governs
+  *sharing*, not existence (today's scope-local stateful effectful handlers —
+  interceptors — stay untouched; monitor restrictions bind at spawn /
+  `use … on` / a handle crossing a spawn clause, on [actor-sendable]'s
+  precedent, with the diagnostic anchored at the member and naming the
+  sharing site); one inferred residue noted for SH-4's build (a send member
+  calling a rung-4 façade is transitively unbounded with no `defer` of its
+  own — the graph sees it via the callee's declared `defer`); bare fns mean
+  façade-touching-no-state in a mixed handler and state-only in a monitor,
+  disambiguated by the shape.
+- **Rung 1's criterion is *no mutable state***, refined by the user in the
+  same round: a handler carrying only immutable, unreassignable data is
+  shareable bare — no monitor, nothing to serialize. Two conditions, both
+  required: not reassignable (today only constructor parameters, which are
+  immutable after construction — §3's confinement rule already reads them
+  from façades on this ground; later `const` fields, a binding form the user
+  intends to add, recorded in ROADMAP), and an immutable *type* — a `Mut
+  List<Int>` ctor param is mutable state with no reassignment anywhere, so
+  `Mut` disqualifies however it is bound. Today: no fields, no `Mut` ctor
+  params → rung 1.
+- **Net syntax bill for the entire design, after the revision: one contextual
+  word (`defer`) and one sugar (`use H() on POOL`).** No `sync fn`, no kind
+  words, no `[waitfor]`.
+
+With that, **every SHAREABLE_HANDLERS.md row is decided** and the build is
+engineering. Build order, agreed: SH-1 + SH-3 first (the two machines;
+`CyclicRandom` as a monitor is the smallest end-to-end slice), then SH-9's
+defaulting with SH-2 riding, then SH-4, then SH-5's deletion (after SH-4 —
+the constraint), then SH-10's `defer` build, SH-7 any time after SH-1.
+SHAREABLE_HANDLERS.md stays alive until built, per its charter.
+
+**Defect closed: a wait nested inside an activation hid the deadlock report
+(2026-09-18).** SHAREABLE_HANDLERS.md's **SH-8**, its stated prerequisite, and a
+bug in its own right since step 1 made actor waits legal — the report was
+designed when only `main` could wait. Reproduced 2026-09-17, fixed here, both
+runtimes, and the only part of that document that needed no user call.
+
+- **The symptom**: an actor whose activation parks in a wait nothing can fulfil
+  hangs **silently**, on both backends, instead of producing the named report.
+  The repro, kept here as it was in ROADMAP: an actor whose member does
+  `let (_token, wid) = salvo_waiter(); salvo_wait(wid)` — the token dropped on
+  the spot — with `main` spawning it, sending to it, and then waiting on a
+  second unfulfillable token. Expected the report and exit 1; got a hang. It is
+  now the `occupied-waiter` scheduler case on both backends, and against the
+  pre-fix runtime it hangs the full 30s timeout with `waiting` on stdout and an
+  empty stderr — which is the defect, reproduced as a test.
+- **The root cause**: `idle()` required `active == 0`, and an activation parked
+  in a nested wait still counts in `active` — it holds its actor's `running`
+  flag for the whole body, which is exactly *why* its mailbox is stalled. So the
+  one condition that makes the deadlock unbreakable was also the condition that
+  suppressed the report.
+- **The fix is an accounting, not a rule change**: the scheduler now books
+  `parked_frames` beside `active` (a frame sitting in `salvo_wait`), and
+  `main_waits` for `main`'s own thread, which runs program code *without* being
+  a frame the scheduler counts. `idle()` keeps its meaning (`active == 0 &&
+  quiet()`, what the `on_idle` hook fires on); the report reads a new, weaker
+  `stuck()` — `active == parked_frames && main_waits > 0 && quiet()`.
+- **`main`'s liveness is the load-bearing clause**, and the second test is the
+  one that proves it: an actor parked in a wait while `main` works through
+  ordinary code, fulfilling the token afterwards, is a correct program, and a
+  report that ignored `main` would kill it. `main` is the one thread that can
+  make progress invisibly, so "everything is parked" has to include it.
+- **One race found while writing the tests, and it shaped `quiet()`**: between
+  *delivering* a waiter's answer and the waiting thread *picking it up* the
+  frame is still booked as parked, so a thread looking in that window would call
+  a live program stuck. A fulfilled waiter slot is therefore work queued, and
+  `quiet()` says so — the slot is the pickup, which is what [waitfor-pump]'s
+  fact-4 split (a token targets a *thread*, a continuation a *mailbox*) means at
+  run time. Without that clause the second test fails intermittently.
+- **The report says more, and no longer lies.** Its wording was "all actors idle
+  while X waits", which stops being true the moment an occupied actor is in the
+  picture; it is now "nothing can run while X waits", and it names the two ways
+  a mailbox comes to be unservable side by side — `parked in a wait: actor 0`
+  (the whole mailbox stalled) and `parked gates: actor 2` (only the awaited
+  reply served). What it still cannot say is *which handler* and *which member*,
+  because the runtime holds indices; that is a recorded leftover
+  (ROADMAP, under "`on_idle` — leftovers") and wants both emitters, not half a
+  fix here.
+- **Left deliberately undecided**: whether the **hook** should read `stuck()`
+  too, so a stuck program with a parked frame gets an `Idle { parked_gates,
+  parked_tokens }` answer instead of the report. It is observable behaviour, so
+  it is the user's call — a ROADMAP decision row, one line in each runtime
+  either way.
+- **Verified on both backends with identical behaviour**: two new Rust scheduler
+  driver tests (`occupied-waiter`, `parked-not-stuck`) and the same two cases in
+  the Kotlin behaviour registry — the drivers and their expected output are
+  verbatim the same, which is the parity assertion — plus the existing
+  main-waits report case updated to the new wording. The rules are
+  [waitfor-pump] (a new bullet: a wait that cannot end is a named error, with
+  the `main` clause and the blind spot) and [actor-on-idle] (the caveat bullet
+  now records that the two predicates differ, and why). Tests: **1156 (+2)**
+  (+2 Kotlin behaviour cases inside the existing driver test). The checked-in
+  `scheduler.{rs,kt}` under `examples/actors/` and `examples/time/` were
+  regenerated. The warm suite is 45s, of which 28s is the Kotlin case driver's
+  recorded defect.
 
 **Modules get visibility: private by default, `export` to let a declaration out
 (user decision 2026-09-18).** Prompted by a `core.time` leftover — `fire_after`
@@ -7426,6 +7631,41 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
+### ~~The deadlock report never fires when the waiter is an occupied actor~~ — found 2026-09-17, closed 2026-09-18
+
+**Was reproduced** as a scheduler driver against `runtime/scheduler.rs`, while
+working SHAREABLE_HANDLERS.md (whose SH-8 this was the prerequisite of):
+
+```rust
+// an actor's activation waits on a token nothing can fulfil:
+fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {
+    let (_token, wid) = salvo_waiter();   // token dropped: unfulfillable
+    let _ = salvo_wait(wid);
+}
+// main: spawn it on pool(1), send to it, then wait on a second
+// unfulfillable token. Expected: the named deadlock report, exit non-zero.
+// Actual: a silent hang, on both backends.
+```
+
+**Root cause**: `idle()` — the predicate both the report and the quiescence hook
+read — required `active == 0`, and an activation parked in a nested
+`salvo_wait` still counts in `active`. It holds its actor's `running` flag for
+the whole body, which is precisely *why* its mailbox is stalled and the deadlock
+unbreakable; so the condition that made the program hang was also the one that
+suppressed the report. Introduced with the second sequence's step 1, which made
+actor waits legal — until then only `main` could wait, and `main` is not an
+activation.
+
+**The fix**: the scheduler books frames parked in a wait (`parked_frames`) and
+`main`'s own waits (`main_waits`) separately from `active`, and the report reads
+`stuck()` = `active == parked_frames && main_waits > 0 && quiet()` where the
+hook keeps `idle()`. `main`'s clause is what keeps it honest: `main`'s thread
+runs program code without being a frame the scheduler counts, so an actor parked
+while `main` works is an ordinary program. Both are now scheduler cases on both
+backends (`occupied-waiter`, `parked-not-stuck`); the full account, including the
+delivery/pickup race that put fulfilled waiter slots into `quiet()`, is the
+decision-log entry of 2026-09-18.
+
 ### ~~An `is` binding evaluates its subject twice, silently dropping values~~ — found and closed 2026-09-16
 
 **Was reproduced** while writing `examples/actors/`, by the loop the language
@@ -12280,7 +12520,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1154)
+## Test inventory (all green: 1156)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13166,7 +13406,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 210 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 212 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -13183,7 +13423,13 @@ cache, with per-test timings.
   [actor-watch]; the **`waitfor` package** compiled and run — a handler that
   declares `[waitfor]` and blocks on a timer actor's answer from its own
   `thread()`, plus an actor on `main`'s pool served by `main`'s wait
-  [waitfor-effect] [waitfor-dedicated] [main-pool]; the **task kernel** compiled
+  [waitfor-effect] [waitfor-dedicated] [main-pool]; the **deadlock report for an
+  occupied waiter** as two scheduler driver cases — an actor parked in a wait
+  nothing can fulfil reported by name and exit 1, and the converse, an actor
+  parked while `main` works through ordinary code and fulfils its token
+  afterwards, which must *not* be reported (2026-09-18, the closed defect;
+  mirrored case-for-case in the Kotlin behaviour registry) [waitfor-pump]; the
+  **task kernel** compiled
   and run — a free `send fn` scheduled by a fulfilled token, inherited and
   written placements, with the closure-not-a-continuation-enum lowering asserted
   [free-send-fn] [task-mint] [rs-task]; the **quiescence hook** compiled and run —
@@ -13413,7 +13659,23 @@ snapshot diffs.
   worse by the waiter being an occupied actor, which is precisely the case the
   runtime's idle report cannot see. When writing a double, the question to ask
   of every member is not "does it behave plausibly" but "does it behave
-  *identically* at the edges" — zero, negative, already-past.
+  *identically* at the edges" — zero, negative, already-past. (The blind spot
+  that made it silent is closed as of 2026-09-18: the report counts parked
+  frames out of the running ones.)
+- **A runtime predicate over "can anything still run" must account for the
+  threads it does not own.** Fixing the occupied-waiter report (2026-09-18) the
+  first formulation was "every active frame is parked and nothing is queued",
+  and it would have killed a perfectly good program: `main`'s thread runs
+  program code *without being a frame the scheduler counts*, so an actor parked
+  in a wait while `main` works looks identical to a deadlock. Two more windows
+  had to be closed for the same reason — an answer already delivered into a
+  waiter's slot but not yet picked up (the parked frame is still booked as
+  parked, so the check has to treat a filled slot as queued work), and a sender
+  blocked on a full mailbox (a frame, not parked, so it counts as able to
+  proceed). The general shape: for every thread that can make progress, name
+  where the scheduler *sees* it, and if it cannot see it, the predicate needs a
+  clause for it. The one remaining blind spot is stated rather than fixed — a
+  platform handler with a thread of its own.
 - **A handler with dependencies cannot be constructed in a spawn's `use`
   clause**, so a dependency of a *dependency* is threaded as a value: take an
   `Addr<E>` constructor parameter instead of declaring `[E]`. There is no scope

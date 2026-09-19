@@ -662,7 +662,109 @@ fn main() {
 "#,
         "waiting\n",
         false,
-        "salvo: deadlock: all actors idle while main waits",
+        "salvo: deadlock: nothing can run while main waits",
+    );
+}
+
+/// [waitfor-pump] The same report when the waiting frame is an **occupied
+/// actor** — the shape hidden waits make common, and a silent hang until
+/// 2026-09-18. An activation parked in a nested wait holds its actor's
+/// `running` flag, so its own mailbox is served by nobody; it is therefore not
+/// progress, and the scheduler must count it out of the running frames rather
+/// than let it mask the deadlock.
+///
+/// Either thread may notice first — the actor's own wait, or `main`'s — so the
+/// assertion is on the part of the report both produce: the actor named as
+/// parked in a wait.
+#[test]
+fn scheduler_reports_a_deadlock_when_the_waiter_is_an_occupied_actor() {
+    run_scheduler_program(
+        "occupied-waiter",
+        r#"
+struct Parking;
+
+impl SalvoActor for Parking {
+    fn handle(&mut self, _ctx: &SalvoCtx, _msg: SalvoMsg) {
+        // The token is dropped on the spot, so nothing can ever fulfil it —
+        // and this activation keeps running, stalling its own mailbox, for as
+        // long as it waits.
+        let (_token, wid) = salvo_waiter();
+        let _never = salvo_wait(wid);
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(1);
+    let parking = salvo_spawn(pool, 2, Box::new(Parking));
+    println!("waiting");
+    salvo_send(parking, Box::new(0i64));
+    let (_token, wid) = salvo_waiter();
+    let _never = salvo_wait(wid);
+    println!("unreachable");
+}
+"#,
+        "waiting\n",
+        false,
+        "(parked in a wait: actor 0)",
+    );
+}
+
+/// [waitfor-pump] The other side of that accounting, which is what keeps the
+/// report honest: a frame parked in a wait is **not** a deadlock while `main`
+/// is still running. `main`'s thread is the one thread that runs program code
+/// without being a frame the scheduler counts, so its liveness is invisible —
+/// and a report that ignored it would kill this program, where the actor's
+/// token is fulfilled by `main` after a stretch of ordinary work.
+#[test]
+fn a_parked_actor_is_not_a_deadlock_while_main_runs() {
+    run_scheduler_program(
+        "parked-not-stuck",
+        r#"
+/// Where the actor leaves its token for `main`: the runtime has no channel,
+/// and the point of the case is that `main` fulfils it from outside any wait.
+/// Spelled out, because the scheduler module this driver is compiled beside
+/// has already imported `Mutex` into the same module.
+static STASH: std::sync::Mutex<Vec<SalvoReply>> = std::sync::Mutex::new(Vec::new());
+
+struct Parking;
+
+impl SalvoActor for Parking {
+    fn handle(&mut self, _ctx: &SalvoCtx, msg: SalvoMsg) {
+        let back = *msg.downcast::<SalvoReply>().unwrap();
+        let (token, wid) = salvo_waiter();
+        println!("parked");
+        STASH.lock().unwrap().push(token);
+        let _answer = salvo_wait(wid);
+        println!("resumed");
+        back.send(Box::new(1i64));
+    }
+    fn resume(&mut self, _ctx: &SalvoCtx, _slot: u64, _value: SalvoMsg) {}
+}
+
+fn main() {
+    let pool = salvo_pool(1);
+    let parking = salvo_spawn(pool, 2, Box::new(Parking));
+    let (back, back_wid) = salvo_waiter();
+    salvo_send(parking, Box::new(back));
+    // Ordinary program code, outside any wait, while the actor is parked: the
+    // scheduler sees one active frame and one parked frame, and only `main`'s
+    // own liveness says the program is not stuck.
+    let token = loop {
+        if let Some(token) = STASH.lock().unwrap().pop() {
+            break token;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    token.send(Box::new(0i64));
+    let _answer = salvo_wait(back_wid);
+    println!("done");
+}
+"#,
+        "parked\nresumed\ndone\n",
+        true,
+        "",
     );
 }
 

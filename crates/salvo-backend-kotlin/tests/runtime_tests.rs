@@ -504,7 +504,95 @@ fun main() {
 "#,
             expected_stdout: "waiting\n",
             expect_success: false,
-            stderr_contains: "salvo: deadlock: all actors idle while main waits",
+            stderr_contains: "salvo: deadlock: nothing can run while main waits",
+        },
+        // [waitfor-pump] The same report when the waiting frame is an
+        // **occupied actor** — the shape hidden waits make common, and a
+        // silent hang until 2026-09-18. An activation parked in a nested wait
+        // holds its actor's `running` flag, so its own mailbox is served by
+        // nobody; it is therefore not progress, and the scheduler counts it
+        // out of the running frames rather than let it mask the deadlock.
+        // Either thread may notice first, so the assertion is on the part of
+        // the report both produce.
+        SchedulerCase {
+            tag: "occupied-waiter",
+            driver: r#"
+class Parking : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        // The token is dropped on the spot, so nothing can ever fulfil it —
+        // and this activation keeps running, stalling its own mailbox, for as
+        // long as it waits.
+        val (_, wid) = SalvoSched.waiter()
+        SalvoSched.awaitReply(wid)
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(1)
+    val parking = SalvoSched.spawn(pool, 2, Parking())
+    println("waiting")
+    SalvoSched.send(parking, 0L)
+    val (_, wid) = SalvoSched.waiter()
+    SalvoSched.awaitReply(wid)
+    println("unreachable")
+}
+"#,
+            expected_stdout: "waiting\n",
+            expect_success: false,
+            stderr_contains: "(parked in a wait: actor 0)",
+        },
+        // [waitfor-pump] The other side of that accounting, which is what
+        // keeps the report honest: a frame parked in a wait is **not** a
+        // deadlock while main is still running. main's thread is the one
+        // thread that runs program code without being a frame the scheduler
+        // counts, so its liveness is invisible — and a report that ignored it
+        // would kill this program, where the actor's token is fulfilled by
+        // main after a stretch of ordinary work.
+        SchedulerCase {
+            tag: "parked-not-stuck",
+            driver: r#"
+/** Where the actor leaves its token for main: the runtime has no channel, and
+ * the point of the case is that main fulfils it from outside any wait. */
+val stash = java.util.concurrent.ConcurrentLinkedQueue<SalvoReply>()
+
+class Parking : SalvoActor {
+    override fun handle(ctx: SalvoCtx, msg: Any?) {
+        val back = msg as SalvoReply
+        val (token, wid) = SalvoSched.waiter()
+        println("parked")
+        stash.add(token)
+        SalvoSched.awaitReply(wid)
+        println("resumed")
+        back.send(1L)
+    }
+
+    override fun resume(ctx: SalvoCtx, slot: Long, value: Any?) {}
+}
+
+fun main() {
+    val pool = SalvoSched.pool(1)
+    val parking = SalvoSched.spawn(pool, 2, Parking())
+    val (back, backWid) = SalvoSched.waiter()
+    SalvoSched.send(parking, back)
+    // Ordinary program code, outside any wait, while the actor is parked: the
+    // scheduler sees one active frame and one parked frame, and only main's
+    // own liveness says the program is not stuck.
+    var token = stash.poll()
+    while (token == null) {
+        Thread.sleep(5)
+        token = stash.poll()
+    }
+    Thread.sleep(100)
+    token.send(0L)
+    SalvoSched.awaitReply(backWid)
+    println("done")
+}
+"#,
+            expected_stdout: "parked\nresumed\ndone\n",
+            expect_success: true,
+            stderr_contains: "",
         },
         // [actor-on-idle] The quiescence hook: a registered token answered
         // the moment nothing anywhere can run, with the counts that say
