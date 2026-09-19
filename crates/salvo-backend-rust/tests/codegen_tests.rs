@@ -9023,6 +9023,69 @@ fn rustc_compiles_and_runs_a_deferring_mixed_handler() {
     run_rust_files(&files, "deferring", "first 7\nsecond 14\n");
 }
 
+/// [defer-deduction] [actor-replyto] [rs-mixed] Parking inside a mixed
+/// handler — the full rung-4 shape: the servant captures the caller's reply
+/// in a continuation on its own `settled` member (`__Cont_H`, handler-keyed),
+/// consults another actor, and answers when the resume delivers the oracle's
+/// number one activation later. Same program and output as Kotlin.
+const PARKING: &str = r#"
+effect Random {
+    fn next() -> Int
+}
+
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Delphi() of Oracle {
+    mailbox { capacity: 4 }
+    n: Int = 0
+
+    send fn divine(out: Reply<Int>) {
+        n = n + 7
+        send(out, n)
+    }
+}
+
+handler Parking(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        oracle.divine(replyto settled(out))
+    }
+
+    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+        send(out, drawn + tally)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let oracle = spawn Delphi() on pool(1)
+    use Parking(oracle) on pool(1)
+    println("first ${next()}")
+    println("second ${next()}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_parking_mixed_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", PARKING)]);
+    run_rust_files(&files, "parking-mixed", "first 8\nsecond 16\n");
+}
+
 fn generate_mixed_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", MIXED)])
 }

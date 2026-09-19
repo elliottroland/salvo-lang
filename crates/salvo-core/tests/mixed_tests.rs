@@ -3,9 +3,9 @@
 //! and whose sync members run on the caller's thread (the façade), sending to
 //! the servant and waiting on its answers. This file tests the **checker
 //! surface** — classification, confinement, the façade-send resolution, the
-//! spawn-only rule, the mailbox requirement, and the local-send-member
-//! obligations. The emission is the following slice, and both backends refuse
-//! a mixed spawn loudly until it lands.
+//! spawn-only rule, the mailbox requirement, the local-send-member
+//! obligations, the `defer` contract point and servant parking. The emission
+//! lives in the backends, verified end to end by their codegen tests.
 
 use std::path::Path;
 
@@ -595,28 +595,39 @@ handler Prompt() of Random {
     );
 }
 
-/// [defer-deduction] What is still refused, by name: parking inside a mixed
-/// handler — the servant's continuation machinery is not emitted yet, and
-/// the diagnostic names the forwarding respelling that works today.
+/// [defer-deduction] [actor-replyto] Parking inside a mixed handler — the
+/// lift of the staged refusal: a servant member may mint a continuation on
+/// another of its own send members, provided the captured reply is declared
+/// `defer`. The whole rung-4 shape checks clean.
 #[test]
-fn parking_in_a_mixed_handler_names_the_forwarding_respelling() {
-    let errs = errors(
+fn parking_in_a_mixed_handler_checks_clean() {
+    let diags = diagnostics(
         "\
-handler Parking() of Random {
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Delphi() of Oracle {
+    mailbox { capacity: 4 }
+    n: Int = 0
+
+    send fn divine(out: Reply<Int>) {
+        n = n + 7
+        send(out, n)
+    }
+}
+
+handler Parking(oracle: Addr<Oracle>) of Random {
     mailbox { capacity: 4 }
     tally: Int = 0
 
     send fn advance(out: Reply<Int>) => defer out {
         tally = tally + 1
-        follow(replyto settled(out))
+        oracle.divine(replyto settled(out))
     }
 
-    send fn settled(out: Reply<Int>, n: Int) => defer out, !n {
-        send(out, n)
-    }
-
-    send fn follow(done: Reply<Int>) => !done {
-        send(done, 9)
+    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+        send(out, drawn + tally)
     }
 
     fn next() -> Int {
@@ -628,8 +639,107 @@ handler Parking() of Random {
 ",
     );
     assert!(
-        errs.iter().any(|m| m.contains("not supported yet")
-            && m.contains("forwarding")),
-        "expected the staged refusal naming the respelling: {errs:?}"
+        diags.is_empty(),
+        "parking in a mixed handler checks clean: {diags:?}"
+    );
+}
+
+/// [defer-deduction] The capture hook still holds: parking a received reply
+/// in a continuation lets its answer outlive the activation, so it must be
+/// declared `defer` — the diagnostic names the declaration.
+#[test]
+fn parking_a_received_reply_requires_defer() {
+    let errs = errors(
+        "\
+actor effect Oracle {
+    send fn divine(out: Reply<Int>) => !out
+}
+
+handler Delphi() of Oracle {
+    mailbox { capacity: 4 }
+    n: Int = 0
+
+    send fn divine(out: Reply<Int>) {
+        n = n + 7
+        send(out, n)
+    }
+}
+
+handler Parking(oracle: Addr<Oracle>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => !out {
+        tally = tally + 1
+        oracle.divine(replyto settled(out))
+    }
+
+    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+        send(out, drawn + tally)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("outlive the activation")
+            && m.contains("`=> defer out`")),
+        "expected the capture escape naming the declaration: {errs:?}"
+    );
+}
+
+/// [actor-deadlock-cycle] [defer-deduction] A gated park in a mixed servant
+/// makes its sends Wait-kind, mirroring the actor logic: the servant serves
+/// nothing but its answer while the gate holds, so a peer whose handler
+/// occupies the servant's effect closes a reported cycle.
+#[test]
+fn a_gated_park_in_a_mixed_servant_closes_a_cycle() {
+    let diags = diagnostics(
+        "\
+actor effect Drawer {
+    send fn draw(out: Reply<Int>) => !out
+}
+
+handler Feedback(drawer: Addr<Drawer>) of Random {
+    mailbox { capacity: 4 }
+    tally: Int = 0
+
+    send fn advance(out: Reply<Int>) => defer out {
+        tally = tally + 1
+        drawer.draw(replyto! settled(out))
+    }
+
+    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
+        send(out, drawn + tally)
+    }
+
+    fn next() -> Int {
+        return waitfor got: Reply<Int> {
+            advance(got)
+        }
+    }
+}
+
+handler Drawing() [Random] of Drawer {
+    mailbox { capacity: 4 }
+
+    send fn draw(out: Reply<Int>) {
+        send(out, next())
+    }
+}
+",
+    );
+    let errs: Vec<&String> = diags.iter().filter(|(e, _)| *e).map(|(_, m)| m).collect();
+    assert!(
+        errs.iter().any(|m| m
+            .contains("wait for each other through a shared handler")
+            && m.contains("Feedback's servant")
+            && m.contains("Drawer")),
+        "expected the gated-servant cycle error: {diags:?}"
     );
 }

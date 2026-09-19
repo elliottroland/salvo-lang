@@ -352,8 +352,9 @@ handler Both() of Ping, Pong {
 }
 
 /// The faces must be of one **kind**: a handler is bound one way or the other,
-/// and a handler mixing an `actor effect` with a plain one is the mixed handler
-/// SHAREABLE_HANDLERS.md is still designing.
+/// and a handler mixing an `actor effect` with a plain one is refused — the
+/// mixed handler [mixed-handler] is a different construct, classified by
+/// shape, with every face plain.
 #[test]
 fn the_faces_must_all_be_of_one_kind() {
     let errs = errors(

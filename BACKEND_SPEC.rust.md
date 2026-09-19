@@ -1417,15 +1417,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   servant's runtime parts:
 
   * **The handler struct is the servant alone**: state + ctor params + the
-    actor fields (`__mailbox_capacity`, `__addr` — no `__parked`, a mixed
-    servant parks no continuations yet); `send fn` members are **inherent
+    actor fields (`__mailbox_capacity`, `__addr`, and `__parked` when a
+    send member could be a continuation target); `send fn` members are **inherent
     methods** (no trait declares them), their parameter modes from their own
     written all-consumed clause, so payloads are owned exactly as the message
     enum carries them. Sync members are not emitted here at all.
-  * **`__Msg_H` + `__Actor_H`**: the handler-keyed twins of the face-keyed
-    message enum and actor body — one variant per `send fn` member, `handle`
-    downcasting `__Msg_H` and calling the inherent method, `resume`
-    unreachable.
+  * **`__Msg_H` + `__Cont_H` + `__Actor_H`**: the handler-keyed twins of the
+    face-keyed message enum, continuation enum and actor body — one variant
+    per `send fn` member (continuation variants only for members with
+    parameters), `handle` downcasting `__Msg_H` and calling the inherent
+    method, `resume` removing the parked continuation and calling the member
+    with the downcast answer as its trailing argument [defer-deduction].
   * **`__Fac_H`**: `#[derive(Clone)]`, `__addr: usize` plus the ctor params
     (owned), implementing each plain face with the sync member bodies —
     emitted with the ordinary handler-member machinery (ctor params resolve

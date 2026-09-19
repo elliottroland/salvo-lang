@@ -257,9 +257,14 @@ fn build(
             // [mixed-handler] A mixed handler's servant is a node of its
             // own: it serves no actor effect, but its send members can send
             // through the `Addr` values it holds, and those are the edges
-            // that close an occupancy cycle. (A slice-one servant cannot
-            // gate, block or occupy — `replyto` and dependencies are refused
-            // — so its outgoing edges are all back-pressure.)
+            // that close an occupancy cycle. [defer-deduction] Since parking
+            // landed, a servant can gate too (`replyto!` in a send member)
+            // and can wait (`waitfor` in one), so its edge kinds mirror an
+            // actor's: a gate makes its sends waits, a wait makes them
+            // blocks, and otherwise they are back-pressure. Task sends count
+            // against it the same way they count against an actor
+            // [task-mint]. (Dependencies stay refused on a servant, so it
+            // still occupies nothing.)
             let mixed = h.fns.iter().any(|f| f.is_send)
                 && !h.of.is_empty()
                 && h.of
@@ -267,20 +272,42 @@ fn build(
                     .all(|of| base_name(of).is_some_and(is_plain));
             if mixed {
                 let from = servant_node(&h.name.name);
+                let gate = out
+                    .actor_gates
+                    .iter()
+                    .find(|(handler, _)| *handler == h.name.name)
+                    .map(|(_, key)| *key);
+                let blocks = waits_of.get(h.name.name.as_str()).copied();
+                let mut targets: Vec<(String, usize, Span)> = Vec::new();
                 for (handler, target, (file, span)) in &out.actor_sends {
                     if *handler == h.name.name && is_actor(target) {
-                        let edge = Edge {
-                            kind: EdgeKind::BackPressure,
-                            handler: h.name.name.clone(),
-                            file: *file,
-                            span: *span,
-                        };
-                        let slot = graph.entry(from.clone()).or_default();
-                        match slot.get(target.as_str()) {
-                            Some(existing) if existing.kind <= edge.kind => {}
-                            _ => {
-                                slot.insert(target.clone(), edge);
-                            }
+                        targets.push((target.clone(), *file, *span));
+                    }
+                }
+                for task in tasks_reached(out, &h.name.name) {
+                    for (owner, target, (file, span)) in &out.task_sends {
+                        if *owner == task && is_actor(target) {
+                            targets.push((target.clone(), *file, *span));
+                        }
+                    }
+                }
+                for (target, file, span) in targets {
+                    let (kind, file, span) = match (gate, blocks) {
+                        (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
+                        (None, Some((bfile, bspan))) => (EdgeKind::Block, bfile, bspan),
+                        (None, None) => (EdgeKind::BackPressure, file, span),
+                    };
+                    let edge = Edge {
+                        kind,
+                        handler: h.name.name.clone(),
+                        file,
+                        span,
+                    };
+                    let slot = graph.entry(from.clone()).or_default();
+                    match slot.get(target.as_str()) {
+                        Some(existing) if existing.kind <= edge.kind => {}
+                        _ => {
+                            slot.insert(target.clone(), edge);
                         }
                     }
                 }

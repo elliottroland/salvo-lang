@@ -1729,11 +1729,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [effect-handler-multi] Every implemented effect must be
                     // of the **same kind**. A handler with both an `actor
-                    // effect` and a plain one is the mixed handler
-                    // SHAREABLE_HANDLERS.md is still designing: its plain
-                    // members would run on the caller's thread while its send
-                    // members run on the actor's, over one piece of state, and
-                    // what protects that state is exactly the open question.
+                    // effect` and a plain one is refused: a handler is bound
+                    // one way or the other, and the construct whose plain
+                    // members run on the caller's thread while its send
+                    // members run on the actor's is the mixed handler
+                    // [mixed-handler] — classified by shape, all faces plain.
                     let kinds: Vec<(&ast::Type, bool)> = h
                         .of
                         .iter()
@@ -5257,7 +5257,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The gate is syntactic per *handler* rather than per member, because
         // effects propagate: a fn declaring `[E]` may call any member, so a
         // `use` site cannot know which ones this scope will reach.
-        if self.parking_handlers.contains(id.name.as_str()) {
+        //
+        // [mixed-handler] A mixed handler is spawn-only for the structural
+        // reason below whether or not it parks, so its refusal speaks alone.
+        let mixed = self
+            .scope
+            .handlers
+            .get(id.name.as_str())
+            .copied()
+            .is_some_and(|h| self.handler_is_mixed(h));
+        if !mixed && self.parking_handlers.contains(id.name.as_str()) {
             self.error(
                 span,
                 format!(
@@ -5274,13 +5283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // bound with `use` they would send toward an instance with no
         // mailbox and no dispatcher. Spawn-only, refused where the binding
         // is chosen.
-        if self
-            .scope
-            .handlers
-            .get(id.name.as_str())
-            .copied()
-            .is_some_and(|h| self.handler_is_mixed(h))
-        {
+        if mixed {
             self.error(
                 span,
                 format!(
@@ -10241,29 +10244,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) -> Ty {
         let form = if gated { "replyto!" } else { "replyto" };
-        // [mixed-handler] First-slice cut: a mixed handler's servant cannot
-        // park continuations yet — the continuation machinery is keyed on
-        // effect faces, and rerouting it through the handler-local protocol
-        // arrives with the `defer` build (which is also what would *price*
-        // the deferral). Refused rather than half-built.
-        if self
-            .own_handler
-            .is_some_and(|h| self.handler_is_mixed(h))
-        {
-            self.error(
-                span,
-                format!(
-                    "`{form}` inside a mixed handler is not supported yet: the \
-                     servant's continuation machinery is not emitted. Until it is, \
-                     defer by **forwarding** — declare `=> defer out` and send the \
-                     reply to an actor that answers it"
-                ),
-            );
-            for c in captures {
-                self.check_expr(c, None);
-            }
-            return Ty::Unknown;
-        }
         // [task-mint] A **free `send fn`** is a legal target, and the mint is
         // then legal in any function — the answer needs no mailbox, because
         // the continuation is a detached task rather than an activation (user

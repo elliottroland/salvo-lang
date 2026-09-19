@@ -1734,6 +1734,35 @@ impl<'p> Emitter<'p> {
     /// A parameterless member can never be a target — there is no answer for
     /// the token to carry — so it gets no subclass.
     fn emit_cont_classes(&mut self, h: &HandlerDecl) -> String {
+        // [mixed-handler] [kt-mixed] Handler-keyed for a mixed servant: the
+        // subclasses are its own `send fn` members, named as `__Msg_H`'s
+        // variants are.
+        if self.handler_is_mixed(h) {
+            let targets = self.mixed_cont_targets(h);
+            if targets.is_empty() {
+                return String::new();
+            }
+            let cont_name = cont_class_name(&h.name.name);
+            let mut out = format!("\nsealed class {cont_name} {{\n");
+            for f in targets {
+                let variant = msg_variant_name(&f.name.name);
+                let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                let captures: Vec<String> = fixed[..fixed.len() - 1]
+                    .iter()
+                    .map(|p| format!("val {}: {}", p.name.name, self.emit_type(&p.ty)))
+                    .collect();
+                if captures.is_empty() {
+                    out.push_str(&format!("    object {variant} : {cont_name}()\n"));
+                } else {
+                    out.push_str(&format!(
+                        "    class {variant}({}) : {cont_name}()\n",
+                        captures.join(", ")
+                    ));
+                }
+            }
+            out.push_str("}\n");
+            return out;
+        }
         let targets = self.cont_targets(h);
         if targets.is_empty() {
             return String::new();
@@ -2066,6 +2095,9 @@ impl<'p> Emitter<'p> {
         self.handler_deps = saved_deps;
         out.push_str("}\n");
         if mixed {
+            // [actor-replyto] [kt-mixed] The parked-continuation classes,
+            // handler-keyed like the servant's protocol.
+            out.push_str(&self.emit_cont_classes(h));
             out.push_str(&self.emit_facade(h));
             out.push_str(&self.emit_mixed_actor_parts(h));
             self.generics = saved;
@@ -2259,10 +2291,18 @@ impl<'p> Emitter<'p> {
     /// handler `h` — named after the **handler**, not the effect, because a
     /// mint is lexical: `replyto k(…)` targets a member of the handler it is
     /// written in, and with several faces those members come from several
-    /// protocols. `None` when no member could be a continuation target (every
-    /// send member is parameterless, so no answer could be carried), in which
-    /// case no `__parked` table is emitted either.
+    /// protocols. [mixed-handler] [kt-mixed] A mixed servant parks too, keyed
+    /// on its own `send fn` members — no face declares them. `None` when no
+    /// member could be a continuation target (every send member is
+    /// parameterless, so no answer could be carried), in which case no
+    /// `__parked` table is emitted either.
     fn handler_cont_type(&self, h: &HandlerDecl) -> Option<String> {
+        if self.handler_is_mixed(h) {
+            if self.mixed_cont_targets(h).is_empty() {
+                return None;
+            }
+            return Some(cont_class_name(&h.name.name));
+        }
         if !self.handler_is_actor(h) {
             return None;
         }
@@ -2270,6 +2310,17 @@ impl<'p> Emitter<'p> {
             return None;
         }
         Some(cont_class_name(&h.name.name))
+    }
+
+    /// [mixed-handler] [kt-mixed] The mixed servant's members a continuation
+    /// could target: a handler-local `send fn` with at least one parameter
+    /// (the trailing one is the answer) — the handler-keyed twin of
+    /// [`Emitter::cont_targets`], named as `__Msg_H`'s variants are.
+    fn mixed_cont_targets<'h>(&self, h: &'h HandlerDecl) -> Vec<&'h FnDecl> {
+        h.fns
+            .iter()
+            .filter(|f| f.is_send && f.params.iter().any(|p| !p.implicit))
+            .collect()
     }
 
     /// [effect-handler-multi] The effects a handler implements, as
@@ -3970,9 +4021,10 @@ impl<'p> Emitter<'p> {
 
     /// [mixed-handler] [kt-mixed] The servant's runtime parts: the
     /// handler-keyed message class (`__Msg_H`, one subclass per `send fn`
-    /// member) and the actor body dispatching it. Simpler than the
-    /// face-keyed twin: a mixed servant has (for now) no dependencies, no
-    /// continuations and one protocol.
+    /// member) and the actor body dispatching it — resume included, since a
+    /// servant parks continuations of its own [defer-deduction]. Simpler
+    /// than the face-keyed twin: a mixed servant has (for now) no
+    /// dependencies and one protocol.
     fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
         self.needs_scheduler = true;
         let name = h.name.name.clone();
@@ -4028,10 +4080,48 @@ impl<'p> Emitter<'p> {
         }
         out.push_str(
             "            else -> error(\"a message of this servant's protocol\")\n        \
-             }\n    }\n\n    \
-             override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {\n        \
-             error(\"a mixed servant parks no continuations yet\")\n    }\n}\n",
+             }\n    }\n",
         );
+        // [actor-replyto] [defer-deduction] The other half of the servant's
+        // parked table, mirroring the face-keyed resume: the slot names the
+        // continuation, and its subclass says which send member to run and
+        // therefore what the answer casts to — its *trailing* parameter's
+        // type.
+        match self.handler_cont_type(h) {
+            None => out.push_str(
+                "\n    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {\n        \
+                 error(\"this servant's protocol has no continuation targets\")\n    }\n",
+            ),
+            Some(cont) => {
+                out.push_str(
+                    "\n    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {\n        \
+                     handler.__addr = ctx.addr\n        \
+                     // A reply whose continuation is gone: nothing to run.\n        \
+                     val c = handler.__parked.remove(slot) ?: return\n        \
+                     when (c) {\n",
+                );
+                for f in &sends {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let mut args: Vec<String> = fixed[..fixed.len() - 1]
+                        .iter()
+                        .map(|p| format!("c.{}", p.name.name))
+                        .collect();
+                    let answer_ty = self.emit_type(&fixed[fixed.len() - 1].ty);
+                    args.push(format!("value as {answer_ty}"));
+                    out.push_str(&format!(
+                        "            is {cont}.{variant} -> handler.{}({})\n",
+                        f.name.name,
+                        args.join(", ")
+                    ));
+                }
+                out.push_str("        }\n    }\n");
+            }
+        }
+        out.push_str("}\n");
         out
     }
 

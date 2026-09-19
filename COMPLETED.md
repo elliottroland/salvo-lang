@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1184 tests, complete: the toolchain tests are
+cargo test                  # 1187 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,50 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable handlers, slice 7 — parking inside mixed handlers, and the
+design closes (2026-09-19).** The lift of slice 6's staged refusal: `replyto`
+/ `replyto!` inside a mixed handler's `send fn` member now parks a
+continuation on another of the servant's own send members, end to end on
+both backends. **With it every SHAREABLE_HANDLERS.md item is built, and the
+document is retired per its delete-when-built charter** (the TIME.md /
+FREE_CONCURRENCY.md precedent): the decisions are in this log's 2026-09-19
+entries, the rules in the specs ([mixed-handler], [defer-deduction],
+[actor-replyto], [actor-deadlock-cycle], [kt-mixed], [rs-mixed]).
+
+- **Checker**: the refusal in `check_replyto` deleted — everything after it
+  was already generic over the handler's own members, so the mint resolves,
+  records its target, marks the handler parking and its gates gated with no
+  mixed-specific code. The capture hook ([defer-deduction]'s four escape
+  sites) already required the received reply to be declared `defer`. The
+  use-site parking error now yields to the mixed spawn-only refusal rather
+  than doubling it.
+- **Emission, both backends**: `handler_cont_type` answers for mixed
+  handlers too, keyed on handler-local send members with parameters
+  (`mixed_cont_targets`), which puts `__parked` on the servant through the
+  existing gate; `__Cont_H` is emitted handler-keyed (variants named like
+  `__Msg_H`'s); and the servant's `resume` mirrors the face-keyed one —
+  remove the parked continuation, dispatch on its variant, call the member
+  with the captures and the answer cast/downcast to the trailing parameter's
+  type. `emit_replyto` needed nothing: the mint was already lexical.
+- **Graph**: the servant node's outgoing edges take the actor
+  classification — a gated park makes its sends Wait-kind, an inferred wait
+  Block-kind, otherwise back-pressure, task sends traced the same way
+  (previously: unconditionally back-pressure). A gated servant consulted by
+  a handler that occupies it closes a reported cycle.
+- **Worth knowing**: inside a *send* member, a sibling send member does not
+  resolve as a bare call — the façade-send resolution is sync-member-only by
+  design — so a servant member reaches a sibling through `replyto` (as here)
+  or an addr. The first-slice cuts that remain are recorded in ROADMAP.md:
+  dependencies, several faces, overloaded servant members, `k@self` in
+  servants.
+
+Tests: **1187 (+3)** — three checker tests replacing the staged-refusal one
+(the clean park, the undeclared capture refused naming `=> defer out`, the
+gated-servant cycle reported), and a compile-and-run parking program on both
+backends with identical output (`first 8` / `second 16`: the servant parks
+the caller's reply on its own `settled` member, consults an oracle actor,
+and answers on resume).
 
 **Shareable handlers, slice 6: `defer`, first half (2026-09-19, SH-10 —
 the word, the contract point, and forwarding deferral end to end).** New rule
@@ -12826,7 +12870,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1184)
+## Test inventory (all green: 1187)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12834,7 +12878,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 646 - 7 module-visibility tests
+- `salvo-core`: 667 - 7 module-visibility tests
   (`tests/export_tests.rs` [mod-export]: an exported declaration crossing while
   a private one does not — its own module reaching both — the private-name
   diagnostic naming the module and the fix, that name *not* being offered as an
@@ -13438,7 +13482,7 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 95 (four [mod-export] parser tests — the flag set only on
+- `salvo-syntax`: 97 (four [mod-export] parser tests — the flag set only on
   the declaration it precedes, `export` staying an ordinary name for a variable
   or field, the deduction-terminator regression over all four contextual
   modifiers, and the three non-declaration refusals; three parser tests for the scope selector and
@@ -13510,7 +13554,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 111 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 113 - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -13712,7 +13756,7 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 212 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 218 - including sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —

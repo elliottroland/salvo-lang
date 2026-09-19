@@ -77,21 +77,19 @@ cycle refused with the three remedies — COMPLETED.md's log). **And SH-5(d) is 
 (same day: the capability deleted whole, the block edge site-inferred with
 construction-propagation, the sweep done — COMPLETED.md's log). **And SH-7's sugar is built**
 (same day, zero emitter changes — a `use` of a spawn expression; dep clauses
-wait for the `using` rename). **And `defer`'s first half is
-built** (same day: the word, the contract point with its four escape hooks,
-upper-bound checking, and forwarding deferral end to end on both backends —
-[defer-deduction], COMPLETED.md's log). What remains of the whole design is
-**one piece: parking inside mixed handlers** — the servant-continuation
-emission (`__Cont_H` for handler-keyed actors, the `__parked` field,
-`resume` dispatch rebuilding `__Msg_H` variants, in both backends — mirror
-`emit_actor_body`'s face-keyed resume), the checker lift of the staged
-`replyto` refusal (the capture hook already requires `defer`), and the
-servant node's gate treatment in the graph (a gated park makes its sends
-Wait-kind, mirroring the actor logic). SHAREABLE_HANDLERS.md retires when it
-lands. First-slice cuts to lift later: mixed handlers with
+wait for the `using` rename). **And `defer` is whole** (2026-09-19, two same-day slices: the word, the
+contract point with its four escape hooks, upper-bound checking, forwarding
+deferral, then **parking inside mixed handlers** — the servant-continuation
+emission on both backends, the checker lift of the staged refusal, the
+servant's gate treatment in the graph; [defer-deduction], COMPLETED.md's
+log). **With that the shareable-handler design is built end to end and
+SHAREABLE_HANDLERS.md is retired** — its record lives in COMPLETED.md's
+decision log. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
-dispatch), overloaded servant members, several faces, and `k@self` inside
-mixed servants (untested).
+dispatch), overloaded servant members, several faces, sibling send-member
+calls from inside a send member (today only sync members resolve them; a
+servant member reaches a sibling through `replyto` or an addr), and
+`k@self` inside mixed servants (untested).
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -2239,7 +2237,8 @@ blocking, and several are "revisit only if a customer appears".
 - **`const` bindings** (user intent, stated 2026-09-19 while refining the
   shareable-handler taxonomy): a binding form that forbids reassignment.
   Announced, not designed — no syntax round yet. Its first customer is
-  already recorded: SHAREABLE_HANDLERS.md §3.12's rung 1 keys on *no mutable
+  already recorded: the shareable-handler taxonomy's rung 1 (COMPLETED.md's
+  decision-round entry) keys on *no mutable
   state*, which today means "no fields, no `Mut` constructor parameters";
   `const` immutable fields would join the allowance (const restricts the
   binding, not the contents, so a `const` field of a `Mut` type still counts

@@ -2017,8 +2017,8 @@ Conventions:
   * **The faces are all of one kind.** An `actor effect` beside a plain one is
     refused: a handler is bound one way or the other (`spawn` or `use`), and a
     handler whose plain members run on the caller's thread while its send
-    members run on the actor's is the mixed handler SHAREABLE_HANDLERS.md is
-    still designing.
+    members run on the actor's is the mixed handler [mixed-handler] — a
+    different construct, classified by shape.
   * **Each face is named once** — a repeated face would make a `spawn` answer
     the same addr twice and say nothing new.
   * **A bodyless handler wears one face**: an `intrinsic handler`'s members are
@@ -2610,9 +2610,8 @@ LANGUAGE.md remains the source of truth for everything that does.
   * **No `[waitfor]` anywhere** (the user's stated intent, SH-5(d)'s down
     payment): a sync member may `waitfor` with no capability declared — on
     the plain effect's member, on the handler, or at the callers. Occupancy
-    is a fact the deadlock graph will infer (SH-4); until that lands, mixed
-    handlers are unpriced statically and the runtime's deadlock report is
-    the net.
+    is a fact the deadlock graph infers (SH-4): a dependency on a plain
+    effect with mixed handlers is an occupancy edge onto each servant node.
   * **Spawn-only**: a `use` of a mixed handler is refused where the binding
     is chosen — its sync members would send toward an instance with no
     mailbox and no dispatcher (the parking-handler reasoning, structural).
@@ -2626,17 +2625,23 @@ LANGUAGE.md remains the source of truth for everything that does.
     [free-send-fn], because no effect declaration mirrors it: an explicit
     all-consumed clause when it has parameters, no `Mut`/unsendable/generic
     parameters — and no overloading (dispatch is by member name).
+  * **A servant parks like an actor** [defer-deduction] [actor-replyto]:
+    `replyto k(captures)` inside a `send fn` member targets another of the
+    handler's own send members, parks the continuation in the servant's
+    table, and resumes on its own mailbox — the received reply it captures
+    must be declared `defer`. A gated mint (`replyto!`) makes the servant's
+    sends Wait-kind in the deadlock graph, mirroring the actor rule. A mixed
+    handler is **direct-answer (rung 3) unless a member declares `defer`** —
+    SH-9's default, carried by the declared opt-in.
   * **First-slice cuts, each a diagnostic naming its remedy**: no
     dependencies (take an `Addr` constructor parameter and send to it), one
-    face only, and no `replyto` inside a mixed handler — parking waits on the
-    servant-continuation emission, and the diagnostic names the forwarding
-    respelling `defer` already supports [defer-deduction]. A mixed handler is
-    **direct-answer (rung 3) unless a member declares `defer`** — SH-9's
-    default, now carried by the declared opt-in.
+    face only.
   * Lowering: [rs-mixed] and [kt-mixed] — a handler-keyed message enum/class
-    (`__Msg_H`) and actor body for the servant, a `__Fac_H` value for the
-    façade, and the spawn answering the shared handle over it. Constructor
-    arguments are evaluated once and shared between handler and façade.
+    (`__Msg_H`) and continuation enum/class (`__Cont_H`, one variant per
+    parked-on send member) and actor body for the servant, a `__Fac_H` value
+    for the façade, and the spawn answering the shared handle over it.
+    Constructor arguments are evaluated once and shared between handler and
+    façade.
 
 * [defer-deduction] **`defer p` is the escaped disposition of a linear
   parameter** (SH-10, user decisions 2026-09-19; built the same day, first
@@ -2665,12 +2670,12 @@ LANGUAGE.md remains the source of truth for everything that does.
     `send fn`s and actor handlers keep the inferred regime — their escapes
     are already the graph's business through gates, sends and task tracing.
     `defer` on them is checked documentation.
-  * **What deferral buys today is forwarding**: the servant hands the reply
-    to another actor, whose discharge ends the caller's wait one activation
-    later — rung 4's smallest shape, running on both backends. **Parking**
-    (`replyto` inside a mixed handler) is still refused by name: the
-    servant's continuation machinery is not emitted yet, and the diagnostic
-    names the forwarding respelling that works.
+  * **What deferral buys**: **forwarding** — the servant hands the reply to
+    another actor, whose discharge ends the caller's wait one activation
+    later — and **parking** (2026-09-19, the design's last piece): `replyto`
+    inside a mixed handler parks a continuation on another of the servant's
+    own send members, handler-keyed (`__Cont_H`), resumed on the servant's
+    mailbox. Both run on both backends.
 
 * [actor-sendable] **What may cross a seam** (user decision 2026-09-15, C-4's
   structural rule (a)): a value may not transitively hold
@@ -3365,7 +3370,9 @@ LANGUAGE.md remains the source of truth for everything that does.
     mailbox. One edge per mixed handler of the effect, from every served
     protocol to the servant's own node (`H's servant` — a mixed handler
     serves no actor effect, so it is a node in its own right, whose outgoing
-    edges are its servant's sends). A cycle containing an occupancy edge is
+    edges are its servant's sends, classified as an actor's are: a gated
+    park makes them wait-for edges, an inferred wait makes them blocks,
+    otherwise back-pressure — task sends counted the same way). A cycle containing an occupancy edge is
     an **error with no downgrade**, even when back-pressure closes it: the
     ungated-side argument (the other actor keeps serving) is exactly what an
     occupied activation's `running` flag removes. The report is anchored at

@@ -2171,6 +2171,31 @@ impl<'p> Emitter<'p> {
     /// A member with no parameters can never be a target (there is no answer
     /// for the token to carry), so it gets no variant.
     fn emit_cont_enum(&mut self, h: &HandlerDecl) -> String {
+        // [mixed-handler] [rs-mixed] Handler-keyed for a mixed servant: the
+        // variants are its own `send fn` members, named as `__Msg_H`'s are.
+        if self.handler_is_mixed(h) {
+            let targets = mixed_cont_targets(h);
+            if targets.is_empty() {
+                return String::new();
+            }
+            let mut out = format!("\npub enum {} {{\n", cont_enum_name(&h.name.name));
+            for f in targets {
+                let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                let captures: Vec<String> = fixed[..fixed.len() - 1]
+                    .iter()
+                    // A capture is *stored* in the continuation, so it is owned.
+                    .map(|p| self.param_type(&p.ty, p.variadic, ParamMode::Owned))
+                    .collect();
+                let variant = msg_variant_name(&f.name.name);
+                if captures.is_empty() {
+                    out.push_str(&format!("    {variant},\n"));
+                } else {
+                    out.push_str(&format!("    {variant}({}),\n", captures.join(", ")));
+                }
+            }
+            out.push_str("}\n");
+            return out;
+        }
         let targets = self.cont_targets(h);
         if targets.is_empty() {
             return String::new();
@@ -2534,7 +2559,8 @@ impl<'p> Emitter<'p> {
         //   `SalvoActor`'s decided signature untouched.
         // [mixed-handler] A mixed handler's servant is an actor too: its
         // send members run as activations, so it carries the same generated
-        // fields (no `__parked` — a mixed servant parks no continuations yet).
+        // fields — `__parked` included, keyed on its own send members
+        // [defer-deduction].
         let mixed = self.handler_is_mixed(h);
         let actor_handler = self.handler_is_actor(h) || mixed;
         if actor_handler {
@@ -2637,6 +2663,9 @@ impl<'p> Emitter<'p> {
                 out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
             }
             out.push_str("}\n");
+            // [actor-replyto] [rs-mixed] The parked-continuation enum,
+            // handler-keyed like the servant's protocol.
+            out.push_str(&self.emit_cont_enum(h));
             out.push_str(&self.emit_facade(h));
             out.push_str(&self.emit_mixed_actor_parts(h));
             self.generics = saved;
@@ -2996,10 +3025,18 @@ impl<'p> Emitter<'p> {
     /// handler `h` — named after the **handler**, not the effect, because a
     /// mint is lexical: `replyto k(…)` targets a member of the handler it is
     /// written in, and with several faces those members come from several
-    /// protocols. `None` when no member could be a target (every send member is
-    /// parameterless, so no answer could be carried), in which case no
-    /// `__parked` table is emitted either.
+    /// protocols. [mixed-handler] [rs-mixed] A mixed servant parks too, keyed
+    /// on its own `send fn` members — no face declares them. `None` when no
+    /// member could be a target (every send member is parameterless, so no
+    /// answer could be carried), in which case no `__parked` table is
+    /// emitted either.
     fn handler_cont_type(&mut self, h: &HandlerDecl) -> Option<String> {
+        if self.handler_is_mixed(h) {
+            if mixed_cont_targets(h).is_empty() {
+                return None;
+            }
+            return Some(cont_enum_name(&h.name.name));
+        }
         if !self.handler_is_actor(h) {
             return None;
         }
@@ -5250,6 +5287,17 @@ fn cont_enum_name(effect: &str) -> String {
     format!("__Cont_{}", rs_ident(effect))
 }
 
+/// [mixed-handler] [rs-mixed] The mixed servant's members a continuation
+/// could target: a handler-local `send fn` with at least one parameter (the
+/// trailing one is the answer) — the handler-keyed twin of
+/// `Emitter::cont_targets`, named as `__Msg_H`'s variants are.
+fn mixed_cont_targets(h: &HandlerDecl) -> Vec<&FnDecl> {
+    h.fns
+        .iter()
+        .filter(|f| f.is_send && f.params.iter().any(|p| !p.implicit))
+        .collect()
+}
+
 /// [rs-actor] One variant of it, named after the member. Upper-camel, since
 /// a Rust variant that is not would warn in generated code.
 fn msg_variant_name(member: &str) -> String {
@@ -6504,9 +6552,11 @@ impl<'p> Emitter<'p> {
 
     /// [mixed-handler] [rs-mixed] The servant's runtime parts: the
     /// handler-keyed message enum (`__Msg_H`, one variant per `send fn`
-    /// member) and the actor body dispatching it. The face-keyed twin lives
-    /// in `emit_actor_body`; this one is simpler because a mixed servant has
-    /// (for now) no dependencies, no continuations and one protocol.
+    /// member) and the actor body dispatching it — resume included, since a
+    /// servant parks continuations of its own [defer-deduction]. The
+    /// face-keyed twin lives in `emit_actor_body`; this one is simpler
+    /// because a mixed servant has (for now) no dependencies and one
+    /// protocol.
     fn emit_mixed_actor_parts(&mut self, h: &HandlerDecl) -> String {
         self.needs_scheduler = true;
         let name = rs_ident(&h.name.name);
@@ -6559,12 +6609,59 @@ impl<'p> Emitter<'p> {
                 params.join(", ")
             ));
         }
-        out.push_str(
-            "        }\n    }\n\n    \
-             fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
-             _slot: u64, _value: crate::scheduler::SalvoMsg) {\n        \
-             unreachable!(\"a mixed servant parks no continuations yet\")\n    }\n}\n",
-        );
+        out.push_str("        }\n    }\n");
+        // [actor-replyto] [defer-deduction] The other half of the servant's
+        // parked table, mirroring the face-keyed resume: look the slot up,
+        // and the variant says which send member to run and therefore what
+        // the answer downcasts to — its *trailing* parameter's type.
+        match self.handler_cont_type(h) {
+            None => out.push_str(
+                "\n    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
+                 _slot: u64, _value: crate::scheduler::SalvoMsg) {\n        \
+                 unreachable!(\"this servant's protocol has no continuation targets\")\n    }\n",
+            ),
+            Some(cont) => {
+                out.push_str(&format!(
+                    "\n    fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, \
+                     slot: u64, value: crate::scheduler::SalvoMsg) {{\n        \
+                     self.handler.__addr = Some(_ctx.addr);\n        \
+                     let Some(__cont) = self.handler.__parked.remove(&slot) else {{\n            \
+                     return; // a reply whose continuation is gone: nothing to run\n        \
+                     }};\n        match __cont {{\n"
+                ));
+                for f in &sends {
+                    let fixed: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                    if fixed.is_empty() {
+                        continue;
+                    }
+                    let variant = msg_variant_name(&f.name.name);
+                    let caps: Vec<String> = fixed[..fixed.len() - 1]
+                        .iter()
+                        .map(|p| rs_ident(&p.name.name))
+                        .collect();
+                    let bind = if caps.is_empty() {
+                        String::new()
+                    } else {
+                        format!("({})", caps.join(", "))
+                    };
+                    let answer_ty = {
+                        let last = fixed[fixed.len() - 1];
+                        self.param_type(&last.ty, last.variadic, ParamMode::Owned)
+                    };
+                    let mut args: Vec<String> = caps.clone();
+                    args.push(format!(
+                        "*value.downcast::<{answer_ty}>().expect(\"the awaited answer\")"
+                    ));
+                    out.push_str(&format!(
+                        "            {cont}::{variant}{bind} => self.handler.{}({}),\n",
+                        rs_ident(&f.name.name),
+                        args.join(", ")
+                    ));
+                }
+                out.push_str("        }\n    }\n");
+            }
+        }
+        out.push_str("}\n");
         out
     }
 

@@ -985,9 +985,13 @@ where Rust had to build the fusion to get the same programs running
 
   * **The handler class is the servant alone** — no supertype (the sync
     members live on the façade), `send fn` members as plain `fun`s, plus the
-    actor fields (`__mailboxCapacity`, `__addr`).
-  * **`__Msg_H` + `__Actor_H`**: a sealed class with one subclass per
-    `send fn` member, and the actor body dispatching it.
+    actor fields (`__mailboxCapacity`, `__addr`, and `__parked` when a send
+    member could be a continuation target).
+  * **`__Msg_H` + `__Cont_H` + `__Actor_H`**: sealed classes with one
+    subclass per `send fn` member (continuation subclasses only for members
+    with parameters), and the actor body dispatching them — `resume` removes
+    the parked continuation and calls the member with the cast answer as its
+    trailing argument [defer-deduction].
   * **`__Fac_H(private val __addr: Int, ctor params) : E`** with the sync
     member bodies; a façade send lowers to
     `salvo.SalvoSched.send(__addr, __Msg_H.Variant(args))`.
