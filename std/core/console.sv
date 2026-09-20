@@ -5,7 +5,7 @@ export effect Console {
 
 export intrinsic handler StdOutConsole of Console
 
-export fn println(message: Str) [Console] -> None {
+export fn println(message: Str) [local Console] -> None {
     print(message)
     print("\n")
 }

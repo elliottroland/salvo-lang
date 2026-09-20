@@ -501,8 +501,15 @@ pub enum EffectRef {
     /// resolve and nothing to thread — `fn main() [use, spawn]` is the
     /// typical entry point.
     Spawn(Span),
-    /// A named effect, possibly generic: `Random<Int>`.
+    /// A named effect, possibly generic: `Random<Int>`. [effect-local]
+    /// `local` (contextual, user decision 2026-09-20) accepts a
+    /// scope-local binding and disclaims seam rights for it; the default
+    /// requires a shareable one.
     Effect(TypeRef),
+    /// [effect-local] `local Random<Int>` — the requirement that accepts a
+    /// `use local` binding. Kept apart from `Effect` so every existing
+    /// match keeps meaning "the shareable default".
+    LocalEffect(TypeRef),
 }
 
 /// An entry in a function's deduction clause [deduce-syntax], written after
@@ -732,6 +739,7 @@ impl fmt::Display for EffectRef {
             EffectRef::Use(_) => write!(f, "use"),
             EffectRef::Spawn(_) => write!(f, "spawn"),
             EffectRef::Effect(r) => write!(f, "{r}"),
+            EffectRef::LocalEffect(r) => write!(f, "local {r}"),
         }
     }
 }
@@ -766,7 +774,10 @@ pub enum Stmt {
     /// `continue`
     Continue { span: Span },
     /// `use HandlerExpr(...)` — register a handler for the current context.
-    Use { handler: Expr, span: Span },
+    /// [use-local] `use local HandlerExpr(...)` binds it **scope-local**
+    /// (lock-free, unshareable) instead of shareable-by-default (user
+    /// decision 2026-09-20).
+    Use { handler: Expr, local: bool, span: Span },
     /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)` inside a block:
     /// in force from this line to the end of the enclosing scope.
     Rename(RenameDecl),

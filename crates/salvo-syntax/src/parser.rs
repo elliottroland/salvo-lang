@@ -1567,6 +1567,25 @@ impl<'s> Parser<'s> {
                         tok.span,
                     );
                 }
+                // [effect-local] `local E` (contextual, user decision
+                // 2026-09-20): the requirement that accepts a scope-local
+                // binding of `E`, disclaiming seam rights. `local` followed
+                // by anything but a type name stays an ordinary effect
+                // name, so an effect called `local` (unwise) still parses
+                // alone.
+                TokenKind::Ident(name)
+                    if name == "local"
+                        && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) =>
+                {
+                    self.bump();
+                    match self.parse_type_ref() {
+                        Some(r) => effects.push(EffectRef::LocalEffect(r)),
+                        None => {
+                            self.group_depth -= 1;
+                            return None;
+                        }
+                    }
+                }
                 _ => match self.parse_type_ref() {
                     Some(r) => effects.push(EffectRef::Effect(r)),
                     None => {
@@ -2304,6 +2323,21 @@ impl<'s> Parser<'s> {
             }
             TokenKind::KwUse => {
                 let start = self.bump().span;
+                // [use-local] `use local H(args)` — the scope-local opt-out
+                // (user decision 2026-09-20): lock-free, unshareable, the
+                // pre-2026-09-20 default. Contextual: `use local` followed
+                // by nothing an expression can start with would be a plain
+                // parse error either way, and a *binding named* `local` is
+                // still reachable as `use (local)`.
+                let local = if self.at_word("local")
+                    && self.same_line()
+                    && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+                {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
                 let handler = self.parse_expr()?;
                 // [actor-use-addr] `use H(args) on POOL` — the sugar for
                 // `let __a = spawn H(args) on POOL` then `use __a` (SH-7,
@@ -2317,16 +2351,24 @@ impl<'s> Parser<'s> {
                     let pool = self.parse_expr()?;
                     let span = start.to(pool.span());
                     let spawn_span = handler.span().to(pool.span());
+                    if local {
+                        self.error(
+                            "`use local … on POOL` contradicts itself: the `on` clause \
+                             spawns a shared servant, and `local` is the scope-local \
+                             opt-out — drop one of them",
+                            span,
+                        );
+                    }
                     let handler = Expr::Spawn {
                         handler: Box::new(handler),
                         uses: Vec::new(),
                         pool: Some(Box::new(pool)),
                         span: spawn_span,
                     };
-                    return Some(Stmt::Use { handler, span });
+                    return Some(Stmt::Use { handler, local: false, span });
                 }
                 let span = start.to(handler.span());
-                Some(Stmt::Use { handler, span })
+                Some(Stmt::Use { handler, local, span })
             }
             _ => {
                 let expr = self.parse_expr()?;

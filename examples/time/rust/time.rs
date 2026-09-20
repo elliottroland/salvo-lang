@@ -164,7 +164,7 @@ pub trait __Share_Ticker: Ticker + Send {
     fn __clone_box(&self) -> Box<dyn __Share_Ticker>;
 }
 
-impl<T: Ticker + Clone + Send + 'static> __Share_Ticker for T {
+impl<__H: Ticker + Clone + Send + 'static> __Share_Ticker for __H {
     fn __clone_box(&self) -> Box<dyn __Share_Ticker> {
         Box::new(self.clone())
     }
@@ -192,17 +192,17 @@ impl Ticker for __Mon_Ticker {
     }
 }
 
-pub struct __Lock_Ticker<H: Ticker + Send> {
+pub struct __Lock_Ticker<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: Ticker + Send> Clone for __Lock_Ticker<H> {
+impl<H> Clone for __Lock_Ticker<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: Ticker + Send> __Lock_Ticker<H> {
+impl<H> __Lock_Ticker<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -211,6 +211,12 @@ impl<H: Ticker + Send> __Lock_Ticker<H> {
 impl<H: Ticker + Send> Ticker for __Lock_Ticker<H> {
     fn tick(&mut self) -> Tick {
         self.inner.lock().unwrap().tick()
+    }
+}
+
+impl __Has_Ticker for __Mon_Ticker {
+    fn __get_Ticker(&mut self) -> &mut dyn Ticker {
+        self
     }
 }
 
@@ -228,7 +234,7 @@ pub trait __Share_Clock: Clock + Send {
     fn __clone_box(&self) -> Box<dyn __Share_Clock>;
 }
 
-impl<T: Clock + Clone + Send + 'static> __Share_Clock for T {
+impl<__H: Clock + Clone + Send + 'static> __Share_Clock for __H {
     fn __clone_box(&self) -> Box<dyn __Share_Clock> {
         Box::new(self.clone())
     }
@@ -262,17 +268,17 @@ impl Clock for __Mon_Clock {
     }
 }
 
-pub struct __Lock_Clock<H: Clock + Send> {
+pub struct __Lock_Clock<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: Clock + Send> Clone for __Lock_Clock<H> {
+impl<H> Clone for __Lock_Clock<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: Clock + Send> __Lock_Clock<H> {
+impl<H> __Lock_Clock<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -290,10 +296,17 @@ impl<H: Clock + Send> Clock for __Lock_Clock<H> {
     }
 }
 
+impl __Has_Clock for __Mon_Clock {
+    fn __get_Clock(&mut self) -> &mut dyn Clock {
+        self
+    }
+}
+
 pub fn elapsed<__Fx: __Has_Ticker>(__fx: &mut __Fx, since: &Tick) -> Duration {
     return between__2(since, &(__Has_Ticker::__get_Ticker(&mut *__fx).tick()));
 }
 
+#[derive(Clone)]
 pub struct DefaultTicker {
 }
 

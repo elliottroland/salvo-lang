@@ -40,10 +40,10 @@ class __Mon_Logger(private val inner: Logger) : Logger {
         synchronized(inner) { inner.log(message) }
 }
 
-class PlainLogger<__Fx>(private val __fx: __Fx) : Logger where __Fx : __Has_Console {
+class PlainLogger(private val __dep_Console: __Has_Console) : Logger {
 
     override fun log(message: String) {
-        println(__fx, "   $message")
+        println(__dep_Console, "   $message")
     }
 }
 
@@ -109,17 +109,17 @@ class __Mon_Metrics(private val inner: Metrics) : Metrics {
         synchronized(inner) { inner.record(what) }
 }
 
-class ConsoleAudit<__Fx>(private val __fx: __Fx) : Audit where __Fx : __Has_Console {
+class ConsoleAudit(private val __dep_Console: __Has_Console) : Audit {
 
     override fun record(what: String) {
-        println(__fx, "   audit: $what")
+        println(__dep_Console, "   audit: $what")
     }
 }
 
-class ConsoleMetrics<__Fx>(private val __fx: __Fx) : Metrics where __Fx : __Has_Console {
+class ConsoleMetrics(private val __dep_Console: __Has_Console) : Metrics {
 
     override fun record(what: String) {
-        println(__fx, "   metric: $what")
+        println(__dep_Console, "   metric: $what")
     }
 }
 
@@ -134,6 +134,11 @@ fun<__Fx> audit_and_measure(__fx: __Fx, what: String) where __Fx : __Has_Audit, 
 
 interface Setting<T> {
     fun setting(copy: (T) -> T): T
+}
+
+class __Mon_Setting<T>(private val inner: Setting<T>) : Setting<T> {
+    override fun setting(copy: (T) -> T): T =
+        synchronized(inner) { inner.setting(copy) }
 }
 
 class Fixed<T>(private val value: T) : Setting<T> {
@@ -151,21 +156,21 @@ fun<__Fx> settings(__fx: __Fx) where __Fx : __Has_Setting_Int, __Fx : __Has_Sett
 
 fun main() {
     val __fx = __Fx_3(StdOutConsole())
-    val __fx2 = __Fx_4(TickingClock(), __fx.__fx_Console)
+    val __fx2 = __Fx_4(__Mon_Clock(TickingClock()), __fx.__fx_Console)
     println(__fx2, "1. the clock reads ${__fx2.__fx_Clock.now()}, then ${__fx2.__fx_Clock.now()}")
     println(__fx2, "2. two effects in one signature:")
     stamp(__fx2, "2. a labelled moment")
     println(__fx2, "3. a logger whose handler needs the console:")
-    val __fx3 = __Fx_5(__fx2.__fx_Clock, __fx2.__fx_Console, PlainLogger(__Fx_3(__fx2.__fx_Console)))
+    val __fx3 = __Fx_5(__fx2.__fx_Clock, __fx2.__fx_Console, PlainLogger(__fx2))
     work(__fx3, "3. logged through the console")
     println(__fx3, "4. interception — each `use` wraps the one before it:")
     interception(__fx3)
     println(__fx3, "5. shadowing is not wrapping:")
     scoping(__fx3)
     println(__fx3, "6. two effects, one member name:")
-    val __fx4 = __Fx_6(ConsoleAudit(__Fx_3(__fx3.__fx_Console)), __fx3.__fx_Clock, __fx3.__fx_Console, __fx3.__fx_Logger)
+    val __fx4 = __Fx_6(ConsoleAudit(__fx3), __fx3.__fx_Clock, __fx3.__fx_Console, __fx3.__fx_Logger)
     audit_only(__fx4, "6. audited only")
-    val __fx5 = __Fx_7(__fx4.__fx_Audit, __fx4.__fx_Clock, __fx4.__fx_Console, __fx4.__fx_Logger, ConsoleMetrics(__Fx_3(__fx4.__fx_Console)))
+    val __fx5 = __Fx_7(__fx4.__fx_Audit, __fx4.__fx_Clock, __fx4.__fx_Console, __fx4.__fx_Logger, ConsoleMetrics(__fx4))
     audit_and_measure(__fx5, "6. audited and measured")
     println(__fx5, "7. two instances of one generic effect:")
     val __fx6 = __Fx_8(__fx5.__fx_Audit, __fx5.__fx_Clock, __fx5.__fx_Console, __fx5.__fx_Logger, __fx5.__fx_Metrics, Fixed<Int>(3))

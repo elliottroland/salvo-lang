@@ -388,8 +388,12 @@ pub fn sandbox_edges<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
 
 pub fn main() {
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
-    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: crate::platform_core_hostfs::HostRawFs::new() };
-    let mut __fx3 = __Fx_main_3 { __outer: &mut __fx2, __h: DefaultFs::new() };
+    let mut __bind = crate::core_hostfs::__Lock_RawFs::new(crate::platform_core_hostfs::HostRawFs::new());
+    let __handle = crate::core_hostfs::__Mon_RawFs::new(Box::new(__bind.clone()));
+    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: __bind };
+    let mut __bind2 = DefaultFs::new(__handle.clone());
+    let __handle2 = crate::core_fs::__Mon_Fs::new(Box::new(__bind2.clone()));
+    let mut __fx3 = __Fx_main_3 { __outer: &mut __fx2, __h: __bind2 };
     let mut root = "tmp/files-example".to_string();
     let mut made = __Has_Fs::__get_Fs(&mut __fx3).create_dirs(&root);
     if matches!(made, Union2::U2(_)) {
@@ -398,7 +402,9 @@ pub fn main() {
     }
     println(&mut __fx3, &("-- the real filesystem, scoped to one directory --".to_string()));
     if true {
-        let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: RestrictedFs::new(root.clone()) };
+        let mut __bind3 = RestrictedFs::new(root.clone(), __handle2.clone());
+        let __handle3 = crate::core_fs::__Mon_Fs::new(Box::new(__bind3.clone()));
+        let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: __bind3 };
         workflow(&mut __fx4);
         sandbox_edges(&mut __fx4);
     }
@@ -408,7 +414,9 @@ pub fn main() {
     }
     println(&mut __fx3, &("-- the same code, with no disk at all --".to_string()));
     if true {
-        let mut __fx5 = __Fx_main_5 { __outer: &mut __fx3, __h: MemFs::new() };
+        let mut __bind4 = crate::core_fs::__Lock_Fs::new(MemFs::new());
+        let __handle4 = crate::core_fs::__Mon_Fs::new(Box::new(__bind4.clone()));
+        let mut __fx5 = __Fx_main_4 { __outer: &mut __fx3, __h: __bind4 };
         workflow(&mut __fx5);
     }
 }
@@ -460,132 +468,9 @@ impl<'a, __H> __Has_RawFs for __Fx_main_3<'a, __H> {
     }
 }
 
-impl<'a, __H: __Impl_DefaultFs> Fs for __Fx_main_3<'a, __H> {
-    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::open_read(__h, &mut __deps, path)
-    }
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::open_read_at(__h, &mut __deps, path, offset)
-    }
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::open_write(__h, &mut __deps, path)
-    }
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::open_append(__h, &mut __deps, path)
-    }
-    fn exists(&mut self, path: &String) -> bool {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::exists(__h, &mut __deps, path)
-    }
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::metadata(__h, &mut __deps, path)
-    }
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::list_dir(__h, &mut __deps, path)
-    }
-    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::create_dirs(__h, &mut __deps, path)
-    }
-    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::delete(__h, &mut __deps, path)
-    }
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::rename_path(__h, &mut __deps, from, to)
-    }
-    fn read_line(&mut self, s: &InStream) -> Option<String> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_line(__h, &mut __deps, s)
-    }
-    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_all(__h, &mut __deps, s)
-    }
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_bytes(__h, &mut __deps, s, max)
-    }
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_to(__h, &mut __deps, s, buf, max)
-    }
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_to__2(__h, &mut __deps, s, buf)
-    }
-    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::read_line_to(__h, &mut __deps, s, buf)
-    }
-    fn position(&mut self, s: &InStream) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::position(__h, &mut __deps, s)
-    }
-    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::close(__h, &mut __deps, s)
-    }
-    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::write(__h, &mut __deps, s, text)
-    }
-    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::write_line(__h, &mut __deps, s, text)
-    }
-    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::write_bytes(__h, &mut __deps, s, data)
-    }
-    fn position__2(&mut self, s: &OutStream) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::position__2(__h, &mut __deps, s)
-    }
-    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::flush(__h, &mut __deps, s)
-    }
-    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_DefaultFs{ __p: &mut **__outer };
-        __Impl_DefaultFs::close__2(__h, &mut __deps, s)
-    }
-}
-
-impl<'a, __H: __Impl_DefaultFs> __Has_Fs for __Fx_main_3<'a, __H> {
+impl<'a, __H: Fs> __Has_Fs for __Fx_main_3<'a, __H> {
     fn __get_Fs(&mut self) -> &mut dyn Fs {
-        self
+        &mut self.__h
     }
 }
 
@@ -609,153 +494,7 @@ impl<'a, __H> __Has_RawFs for __Fx_main_4<'a, __H> {
     }
 }
 
-impl<'a, __H: __Impl_RestrictedFs> Fs for __Fx_main_4<'a, __H> {
-    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::open_read(__h, &mut __deps, path)
-    }
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::open_read_at(__h, &mut __deps, path, offset)
-    }
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::open_write(__h, &mut __deps, path)
-    }
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::open_append(__h, &mut __deps, path)
-    }
-    fn exists(&mut self, path: &String) -> bool {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::exists(__h, &mut __deps, path)
-    }
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::metadata(__h, &mut __deps, path)
-    }
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::list_dir(__h, &mut __deps, path)
-    }
-    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::create_dirs(__h, &mut __deps, path)
-    }
-    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::delete(__h, &mut __deps, path)
-    }
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::rename_path(__h, &mut __deps, from, to)
-    }
-    fn read_line(&mut self, s: &InStream) -> Option<String> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_line(__h, &mut __deps, s)
-    }
-    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_all(__h, &mut __deps, s)
-    }
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_bytes(__h, &mut __deps, s, max)
-    }
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_to(__h, &mut __deps, s, buf, max)
-    }
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_to__2(__h, &mut __deps, s, buf)
-    }
-    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::read_line_to(__h, &mut __deps, s, buf)
-    }
-    fn position(&mut self, s: &InStream) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::position(__h, &mut __deps, s)
-    }
-    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::close(__h, &mut __deps, s)
-    }
-    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::write(__h, &mut __deps, s, text)
-    }
-    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::write_line(__h, &mut __deps, s, text)
-    }
-    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::write_bytes(__h, &mut __deps, s, data)
-    }
-    fn position__2(&mut self, s: &OutStream) -> i64 {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::position__2(__h, &mut __deps, s)
-    }
-    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::flush(__h, &mut __deps, s)
-    }
-    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
-        let Self { __outer, __h } = self;
-        let mut __deps = __Deps_RestrictedFs{ __p: &mut **__outer };
-        __Impl_RestrictedFs::close__2(__h, &mut __deps, s)
-    }
-}
-
-impl<'a, __H: __Impl_RestrictedFs> __Has_Fs for __Fx_main_4<'a, __H> {
-    fn __get_Fs(&mut self) -> &mut dyn Fs {
-        self
-    }
-}
-
-pub struct __Fx_main_5<'a, __H> {
-    __outer: &'a mut dyn __Prov_Console_Fs_RawFs,
-    __h: __H,
-}
-
-impl<'a, __H> __Has_Console for __Fx_main_5<'a, __H> {
-    fn __get_Console(&mut self) -> &mut dyn Console {
-        __Has_Console::__get_Console(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H> __Has_RawFs for __Fx_main_5<'a, __H> {
-    fn __get_RawFs(&mut self) -> &mut dyn RawFs {
-        __Has_RawFs::__get_RawFs(&mut *self.__outer)
-    }
-}
-
-impl<'a, __H: Fs> __Has_Fs for __Fx_main_5<'a, __H> {
+impl<'a, __H: Fs> __Has_Fs for __Fx_main_4<'a, __H> {
     fn __get_Fs(&mut self) -> &mut dyn Fs {
         &mut self.__h
     }

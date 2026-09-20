@@ -292,7 +292,7 @@ export effect Clock {
 
 // [time-ticker] How long ago [since] was — `between(since, tick())`, which is
 // the shape almost every measurement takes.
-export fn elapsed(since: Tick) [Ticker] -> Duration {
+export fn elapsed(since: Tick) [local Ticker] -> Duration {
     return between(since, tick())
 }
 

@@ -542,6 +542,7 @@ Module {
                                     named: [],
                                     span: 399..425,
                                 },
+                                local: false,
                                 span: 395..425,
                             },
                             Let {

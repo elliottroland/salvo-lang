@@ -303,6 +303,35 @@ pub struct ThrowSite {
     pub arm: Option<usize>,
 }
 
+/// [use-local] How a `use` of a handler construction binds (user decision
+/// 2026-09-20: shareable by default, `local` the opt-out).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UseKind {
+    /// `use local H(args)`: scope-local, lock-free, unshareable — the
+    /// pre-2026-09-20 default.
+    Local,
+    /// A **stateless** handler bound shareable: no lock needed, the bare
+    /// instance is the binding (and it is clonable into a handle at a seam).
+    Bare,
+    /// A **stateful** handler bound shareable: a monitor — the instance is
+    /// lock-shaped from birth (`__Lock_E<H>` / `__Mon_E(H(...))`).
+    Monitor,
+}
+
+/// [use-local] [effect-local] One entry of the checker's effect
+/// environment: the instance, whether the availability is **local-only**
+/// (a `use local` binding, a `[local E]` declaration, or an
+/// inherited/lambda requirement — those are call-only), and whether it is
+/// a *declared* availability rather than a lexical `use` binding (a
+/// shareable handler's dependency capture needs the value, so v1 refuses
+/// declared sources there).
+#[derive(Clone, Debug)]
+struct EffectAvail {
+    ty: Ty,
+    local: bool,
+    declared: bool,
+}
+
 /// The checker's output.
 #[derive(Default)]
 pub struct Checked {
@@ -359,6 +388,18 @@ pub struct Checked {
     /// [effect-handler-multi] Several entries when the handler wears several
     /// faces: a `use` binds every effect it implements, in declaration order.
     pub use_effects: HashMap<Key, Vec<Ty>>,
+    /// [use-local] [effect-handler-deps] Dependency instances captured as
+    /// **owned handles** at a shareable construction — a `use` of a
+    /// handle-dep handler, or a monitor spawn with deps — keyed by the
+    /// statement/expression span, in the handler's declaration order. The
+    /// emitters synthesize one handle argument per entry, and pre-scan this
+    /// table to know which bindings need an eager handle variable.
+    pub handle_captures: HashMap<Key, Vec<Ty>>,
+    /// [use-local] How each `use` of a handler construction was classified
+    /// (keyed by the statement span): the emitters wrap, or don't, off this
+    /// — never off their own re-derivation (checker and emitter must
+    /// agree).
+    pub use_kinds: HashMap<Key, UseKind>,
     /// Effect instances resolved for a `use`d handler's *dependencies*
     /// [effect-handler-deps], in the handler's declaration order (keyed by
     /// the `use` statement span). Only present when the handler declares
@@ -1278,12 +1319,12 @@ struct Checker<'p, 'r> {
     /// Effect instances available to the code being checked: the current
     /// fn's declared effect dependencies plus `use`d handlers. Entries
     /// added by `use` are truncated at block boundaries.
-    effect_env: Vec<Ty>,
+    effect_env: Vec<EffectAvail>,
     /// [effect-handler-deps] The effects declared by the handler whose
     /// members are being checked (`handler H [E1, E2] of E`), empty
     /// elsewhere. A member may use them exactly as if it had declared them,
     /// which it may not ([effect-member-no-effects]).
-    handler_deps: Vec<Ty>,
+    handler_deps: Vec<EffectAvail>,
     /// [effect-handler-deps] The effect implemented by the handler whose
     /// members are being checked, so a member calling *its own* effect can be
     /// told what is actually wrong: self-dispatch is not a feature yet, and
@@ -2714,7 +2755,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for eff in f.effects.iter().flatten() {
             let span = match eff {
                 EffectRef::Use(sp) | EffectRef::Spawn(sp) => *sp,
-                EffectRef::Effect(r) => r.span,
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => r.span,
             };
             self.error(
                 span,
@@ -4813,7 +4854,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .flatten()
                 .filter_map(|e| match e {
-                    EffectRef::Effect(r) if r.name.name == THROW_EFFECT => Some(r.span),
+                    EffectRef::Effect(r) | EffectRef::LocalEffect(r)
+                        if r.name.name == THROW_EFFECT =>
+                    {
+                        Some(r.span)
+                    }
                     _ => None,
                 })
                 .next()
@@ -4834,12 +4879,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // ([effect-member-no-effects]): the dependency belongs to the
         // implementation, so it is declared once on the handler.
         for dep in &self.handler_deps {
-            if !fn_effects.contains(dep) {
+            if !fn_effects.iter().any(|a| a.ty == dep.ty) {
                 fn_effects.push(dep.clone());
             }
         }
         if let Some(key) = self.own_fn {
-            self.out.fn_effects.insert(key, fn_effects.clone());
+            self.out
+                .fn_effects
+                .insert(key, fn_effects.iter().map(|a| a.ty.clone()).collect());
         }
         let Some(body) = &f.body else {
             self.generics = saved_generics;
@@ -4989,8 +5036,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Validates a fn's declared effect list and lowers it into the
     /// starting effect environment [effect-fn-deps] [effect-no-dup].
     /// Returns `(env, can_use, can_spawn, can_wait)`.
-    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<Ty>, bool, bool) {
-        let mut env: Vec<Ty> = Vec::new();
+    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<EffectAvail>, bool, bool) {
+        let mut env: Vec<EffectAvail> = Vec::new();
         let mut can_use = false;
         let mut can_spawn = false;
         // [fn-effects] A fn-typed parameter's effects are the enclosing fn's
@@ -4998,10 +5045,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // call it, and calling it needs those effects here — so they are
         // *inherited* rather than repeated in the written list. Callers
         // supply them like any declared effect.
+        //
+        // [effect-local] Inherited availabilities are **call-only**: a fn
+        // type cannot spawn, so its requirement grants no seam rights, and
+        // what this fn received to call the value with may be a local
+        // binding — so the availability is local here too.
         for p in &f.params {
             for ty in self.inherited_fn_effects(&p.ty) {
-                if !env.contains(&ty) {
-                    env.push(ty);
+                if !env.iter().any(|a| a.ty == ty) {
+                    env.push(EffectAvail { ty, local: true, declared: true });
                 }
             }
         }
@@ -5016,7 +5068,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 EffectRef::Spawn(_) => can_spawn = true,
                 // [waitfor-effect] The right to occupy this thread until an
                 // answer arrives. Like `spawn` it names no effect type, so
-                EffectRef::Effect(r) => {
+                // [effect-local] `local E` accepts a `use local` binding
+                // and disclaims seam rights; the bare default requires a
+                // shareable one (user decision 2026-09-20).
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => {
+                    let local = matches!(eff, EffectRef::LocalEffect(_));
                     let Some(ty) = self.lower_effect_ref(r) else {
                         continue;
                     };
@@ -5030,8 +5086,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         );
                     } else {
                         written.push(ty.clone());
-                        if !env.contains(&ty) {
-                            env.push(ty);
+                        if !env.iter().any(|a| a.ty == ty) {
+                            env.push(EffectAvail { ty, local, declared: true });
                         }
                     }
                 }
@@ -5186,7 +5242,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let span = match eff {
                 EffectRef::Use(s) => *s,
                 EffectRef::Spawn(s) => *s,
-                EffectRef::Effect(r) => r.span,
+                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => r.span,
             };
             self.error(
                 span,
@@ -5201,7 +5257,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the current scope. A registration may **shadow** an earlier one for
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
-    fn check_use(&mut self, handler: &'p Expr, span: Span) {
+    fn check_use(&mut self, handler: &'p Expr, local: bool, span: Span) {
         // [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user
         // decision 2026-09-19): the parser wrapped the construction in a
         // spawn expression, so checking the expression *is* the spawn, and
@@ -5226,7 +5282,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out
                 .use_effects
                 .insert(self.key(span), vec![effect.clone()]);
-            self.effect_env.push(effect);
+            self.effect_env.push(EffectAvail {
+                ty: effect,
+                local: false,
+                declared: false,
+            });
             return;
         }
         // [actor-use-addr] `use addr` binds an effect to a forwarding stub over
@@ -5236,6 +5296,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Expr::Ident(id) = handler {
             if !self.scope.handlers.contains_key(id.name.as_str()) && self.lookup(&id.name).is_some()
             {
+                // [use-local] A handle is already shareable; `local` would
+                // claim to take that away, which a binding cannot.
+                if local {
+                    self.error(
+                        span,
+                        "`use local` binds a scope-local handler instance, and this \
+                         is a handle — a handle is shareable by construction, so \
+                         bind it plain: `use` it without `local`",
+                    );
+                }
                 self.check_use_addr(handler, span);
                 return;
             }
@@ -5308,7 +5378,165 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.key(span),
             ));
         }
-        self.finish_use(id, concrete, deps, span);
+        // [use-local] Classification (user decision 2026-09-20): shareable
+        // by default — a stateless handler binds bare, a stateful one binds
+        // as a monitor — and `use local` opts into the scope-local,
+        // lock-free binding. A handler that *cannot* be shared is refused
+        // under the default, naming the opt-out.
+        let kind = if local || mixed {
+            UseKind::Local
+        } else if let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() {
+            self.classify_shareable_use(decl, span)
+        } else {
+            UseKind::Local
+        };
+        self.out.use_kinds.insert(self.key(span), kind);
+        self.finish_use(id, concrete, deps, kind, span);
+    }
+
+    /// [use-local] [effect-handler-deps] The shared dependency-form
+    /// predicate, with this checker's effect table answering the face kind.
+    fn handler_handle_deps(&self, h: &ast::HandlerDecl) -> bool {
+        crate::handler_handle_deps(h, |name| {
+            self.scope
+                .effects
+                .get(name)
+                .is_some_and(|e| e.is_actor)
+        })
+    }
+
+    /// [use-local] [monitor-handler] Whether a bare `use` of this plain
+    /// handler may bind shareable, and as what — validating the monitor
+    /// rules where they apply and naming `use local` when they cannot hold.
+    /// The rules are the monitor spawn's, with the dependency restriction
+    /// lifted per 2026-09-20: deps are legal when every one is the shareable
+    /// default (`[E]`, captured as an owned handle at construction), and
+    /// what stays closed is the door reentrancy needs — no `use`, no
+    /// `spawn` capability on a shareable handler, so its bindings are fixed
+    /// at construction.
+    fn classify_shareable_use(&mut self, decl: &'p ast::HandlerDecl, span: Span) -> UseKind {
+        let name = decl.name.name.as_str();
+        // [actor-effect-kind] A handler of an actor effect bound with `use`
+        // runs its members inline in this scope — the historical escape
+        // hatch, and necessarily scope-local: the shareable handle of an
+        // actor effect is the addr a `spawn` answers, not a lock.
+        let actor_face = decl.of.iter().any(|of| {
+            let base = match of {
+                ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                    ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            base.is_some_and(|n| self.scope.effects.get(n).is_some_and(|e| e.is_actor))
+        });
+        if actor_face {
+            return UseKind::Local;
+        }
+        let mut blockers: Vec<String> = Vec::new();
+        for eff in decl.effects.iter().flatten() {
+            match eff {
+                EffectRef::Use(_) => blockers.push(
+                    "it holds the `use` capability, so its bindings would not be \
+                     fixed at construction"
+                        .to_string(),
+                ),
+                EffectRef::Spawn(_) => blockers.push(
+                    "it holds the `spawn` capability, so its members are not pure \
+                     calls over fixed bindings"
+                        .to_string(),
+                ),
+                EffectRef::LocalEffect(r) => blockers.push(format!(
+                    "its dependency `local {}` accepts a scope-local binding, which \
+                     cannot be captured into a shared instance",
+                    r.name.name
+                )),
+                // The two dependency shapes the owned-handle form excludes
+                // ([effect-handler-deps], `handler_handle_deps`): either
+                // pins the fusion form, which binds `use local` only.
+                EffectRef::Effect(r) => {
+                    if self
+                        .scope
+                        .effects
+                        .get(r.name.name.as_str())
+                        .is_some_and(|e| e.is_actor)
+                    {
+                        blockers.push(format!(
+                            "its dependency `{}` is an actor effect, which has no \
+                             owned-handle capture (an addr constructor parameter is \
+                             the shape for that)",
+                            r.name.name
+                        ));
+                    } else if !r.args.is_empty() {
+                        blockers.push(format!(
+                            "its dependency `{}` is a generic effect instance, which \
+                             the owned-handle capture does not cover yet",
+                            r.name.name
+                        ));
+                    }
+                }
+            }
+        }
+        // [actor-sendable] The instance crosses to every thread that binds
+        // the handle, so what it holds must be sendable.
+        let saved = self.enter_generics(&decl.generics);
+        for p in &decl.params {
+            let ty = self.lower_type(&p.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                blockers.push(format!(
+                    "its constructor parameter `{}` is `{ty}` — {why}",
+                    p.name.name
+                ));
+            }
+        }
+        for field in &decl.state {
+            let ty = self.lower_type(&field.ty);
+            if let Some(why) = self.unsendable_reason(&ty) {
+                blockers.push(format!(
+                    "its state field `{}` is `{ty}` — {why}",
+                    field.name.name
+                ));
+            }
+        }
+        self.generics = saved;
+        // [platform-handler] A platform handler is **assumed thread-safe by
+        // its design** (user decision 2026-09-20, second round): it
+        // classifies as bare/stateless — no `local E` anywhere near it, and
+        // no lock imposed on a host that does its own synchronization. Its
+        // state is the host's and invisible here, so this is an assumption,
+        // not a proof; a way to validate/specify it is future work
+        // (ROADMAP). The Rust lowering still shares the instance through
+        // the lock adapter — a mechanical consequence of `&mut self`
+        // members, not a semantic claim ([rs-platform-handler]).
+        let stateful = !decl.state.is_empty();
+        // A stateful shared binding is one instance behind one lock; several
+        // faces would need one lock behind several effect types, which has
+        // no backend representation yet (the monitor spawn's rule).
+        if stateful && decl.of.len() > 1 {
+            blockers.push(
+                "it is stateful and implements several effects, and one lock behind \
+                 several faces is not supported yet"
+                    .to_string(),
+            );
+        }
+        if !blockers.is_empty() {
+            self.error(
+                span,
+                format!(
+                    "`{name}` cannot be bound shareable, which is what a plain `use` \
+                     means now: {}. Bind it `use local {name}(...)` — scope-local and \
+                     lock-free — or restructure it",
+                    blockers.join("; ")
+                ),
+            );
+            return UseKind::Local;
+        }
+        if stateful {
+            UseKind::Monitor
+        } else {
+            UseKind::Bare
+        }
     }
 
     /// [actor-use-addr] `use addr` — bind the effect an actor serves in this
@@ -5339,7 +5567,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out
             .use_effects
             .insert(self.key(span), vec![effect.clone()]);
-        self.effect_env.push(effect);
+        self.effect_env.push(EffectAvail {
+            ty: effect,
+            local: false,
+            declared: false,
+        });
     }
 
     /// The written shape of a handler construction — a name, or a name with
@@ -5396,7 +5628,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         written_type_args: &'p [ast::Type],
         form: &str,
         span: Span,
-    ) -> Option<(Vec<Ty>, Vec<Ty>)> {
+    ) -> Option<(Vec<Ty>, Vec<EffectAvail>)> {
         let Some(decl) = self.scope.handlers.get(id.name.as_str()).copied() else {
             self.error_unresolved(
                 id.span,
@@ -5413,7 +5645,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // effect type are *dependencies* the compiler supplies from the
         // enclosing scope, and are not written at the `use` site; every
         // constructor parameter is therefore ordinary data.
-        let deps: Vec<Ty> = self.handler_dep_effects(decl);
+        let deps: Vec<EffectAvail> = self.handler_dep_effects(decl);
         let value_params: Vec<&Param> = decl.params.iter().filter(|p| !p.implicit).collect();
         let param_tys: Vec<Ty> = value_params
             .iter()
@@ -5543,16 +5775,27 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|of| substitute_vars(of, &subst, &generic_set))
             .collect();
-        let deps: Vec<Ty> = deps
+        let deps: Vec<EffectAvail> = deps
             .iter()
-            .map(|d| substitute_vars(d, &subst, &generic_set))
+            .map(|d| EffectAvail {
+                ty: substitute_vars(&d.ty, &subst, &generic_set),
+                local: d.local,
+                declared: d.declared,
+            })
             .collect();
         Some((concrete, deps))
     }
 
     /// The `use`-specific half: resolve the handler's dependencies from the
     /// **enclosing scope** and register the instance for the rest of it.
-    fn finish_use(&mut self, id: &'p Ident, concrete: Vec<Ty>, deps: Vec<Ty>, span: Span) {
+    fn finish_use(
+        &mut self,
+        id: &'p Ident,
+        concrete: Vec<Ty>,
+        deps: Vec<EffectAvail>,
+        kind: UseKind,
+        span: Span,
+    ) {
         // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
         // registration for the same effect instance: the innermost wins for
         // the rest of the scope, which is what makes interception writable
@@ -5566,22 +5809,68 @@ impl<'p, 'r> Checker<'p, 'r> {
         // recorded for the emitters, in declaration order. The lookup runs
         // *before* this `use` is registered, which is exactly the
         // binds-outward rule for a self-dependency [effect-intercept].
+        let handle_deps = self
+            .scope
+            .handlers
+            .get(id.name.as_str())
+            .copied()
+            .is_some_and(|decl| self.handler_handle_deps(decl));
         let mut resolved_deps: Vec<Ty> = Vec::new();
-        let visible = self.visible_effects();
+        let visible = self.visible_avail();
         for want in &deps {
-            let want = want.clone();
-            let found = visible.iter().find(|c| **c == want).cloned().or_else(|| {
-                let compatible: Vec<&Ty> = visible
-                    .iter()
-                    .filter(|c| unify(&want, c, &mut HashMap::new()))
-                    .collect();
-                match compatible.len() {
-                    1 => Some(compatible[0].clone()),
-                    _ => None,
-                }
-            });
+            let req_local = want.local;
+            let want = want.ty.clone();
+            let found = visible
+                .iter()
+                .find(|c| c.ty == want)
+                .cloned()
+                .or_else(|| {
+                    let compatible: Vec<&EffectAvail> = visible
+                        .iter()
+                        .filter(|c| unify(&want, &c.ty, &mut HashMap::new()))
+                        .collect();
+                    match compatible.len() {
+                        1 => Some(compatible[0].clone()),
+                        _ => None,
+                    }
+                });
             match found {
-                Some(instance) => resolved_deps.push(instance),
+                Some(avail) => {
+                    // [effect-local] A shareable-default dependency needs a
+                    // shareable binding: it is captured into the instance as
+                    // an owned handle, which a local binding cannot yield.
+                    if handle_deps && !req_local && avail.local {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` depends on a shareable `{want}`, and the \
+                                 binding in scope here is `use local`: bind `{want}` \
+                                 shareable, or declare the dependency `local {want}` \
+                                 (which pins `{}` to scope-local bindings)",
+                                id.name, id.name
+                            ),
+                        );
+                    }
+                    // [effect-local] The v1 lexical cut: a handle is
+                    // synthesized from the *value* of a binding in this
+                    // function, which a signature-declared `[E]` does not
+                    // provide yet. Spawn-inheritance (ROADMAP) is the lift.
+                    if handle_deps && !req_local && avail.declared && !avail.local {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` captures a handle for `{want}` at \
+                                 construction, and the `{want}` here comes from the \
+                                 enclosing signature rather than a `use` in this \
+                                 function: bind it here (`use` a handler or a handle \
+                                 first) — threading a signature-supplied effect into \
+                                 a captured handle arrives with spawn-inheritance",
+                                id.name
+                            ),
+                        );
+                    }
+                    resolved_deps.push(avail.ty);
+                }
                 // [effect-intercept] A self-dependency binds *outward*, so
                 // "nothing in scope" means there is nothing to intercept —
                 // worth its own wording, since the remedy is not "register a
@@ -5608,6 +5897,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         if !resolved_deps.is_empty() {
+            if handle_deps {
+                self.out
+                    .handle_captures
+                    .insert(self.key(span), resolved_deps.clone());
+            }
             self.out.use_deps.insert(self.key(span), resolved_deps);
         }
         // [effect-handler-multi] Every face is registered, in declaration
@@ -5617,7 +5911,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             .use_effects
             .insert(self.key(span), concrete.clone());
         for effect in concrete {
-            self.effect_env.push(effect);
+            self.effect_env.push(EffectAvail {
+                ty: effect,
+                local: kind == UseKind::Local,
+                declared: false,
+            });
         }
     }
 
@@ -5632,10 +5930,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// call the inner one shadowed, and an intercepting handler would
     /// silently never run.
     fn visible_effects(&self) -> Vec<Ty> {
-        let mut out: Vec<Ty> = Vec::new();
-        for ty in self.effect_env.iter().rev() {
-            if !out.contains(ty) {
-                out.push(ty.clone());
+        self.visible_avail().into_iter().map(|a| a.ty).collect()
+    }
+
+    /// [use-local] The locality-aware sibling: same visibility rule, with
+    /// each instance's availability record.
+    fn visible_avail(&self) -> Vec<EffectAvail> {
+        let mut out: Vec<EffectAvail> = Vec::new();
+        for avail in self.effect_env.iter().rev() {
+            if !out.iter().any(|a| a.ty == avail.ty) {
+                out.push(avail.clone());
             }
         }
         out
@@ -8712,6 +9016,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                      function containing it may"
                         .to_string(),
                 ),
+                // [effect-local] `local E` on a fn type says nothing a fn
+                // type does not already say — a value's call grants no seam
+                // rights, ever — so the qualifier is refused as redundant
+                // rather than silently accepted.
+                EffectRef::LocalEffect(r) => {
+                    self.error(
+                        r.span,
+                        format!(
+                            "a fn type's effects are always call-only — a function \
+                             value cannot spawn, so `{}` grants no seam rights here \
+                             either way: drop the `local`",
+                            r.name.name
+                        ),
+                    );
+                    if let Some(ty) = self.lower_effect_ref(r) {
+                        if !out.contains(&ty) {
+                            out.push(ty);
+                        }
+                    }
+                }
                 EffectRef::Effect(r) => {
                     if let Some(ty) = self.lower_effect_ref(r) {
                         if !out.contains(&ty) {
@@ -8870,7 +9194,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The enclosing fn's declared throw message type, if it declared
     /// `[Throw<M>]`.
     fn declared_throw_message(&self) -> Option<Ty> {
-        self.effect_env.iter().find_map(|e| match e {
+        self.effect_env.iter().find_map(|e| match &e.ty {
             Ty::Named { name, args } if name == THROW_EFFECT => {
                 Some(args.first().cloned().unwrap_or(Ty::Unknown))
             }
@@ -9510,6 +9834,42 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_mixed_spawn(id, &effects, span);
             } else {
                 self.check_monitor_spawn(id, &effects, pool, span);
+                // [use-local] A shareable handler's dependencies come from
+                // the **enclosing scope**, captured as handles at
+                // construction — resolved exactly as a `use` resolves them,
+                // never from a spawn clause (that clause builds *on the
+                // child*, and a monitor has no child thread to build on).
+                for u in uses {
+                    self.error(
+                        u.span(),
+                        format!(
+                            "`{}` is shared as a monitor, and a monitor's \
+                             dependencies come from the enclosing scope at the \
+                             spawn — not from a `use` clause: bind the dependency \
+                             with `use` before this spawn and drop the clause",
+                            id.name
+                        ),
+                    );
+                    self.check_expr(u, None);
+                }
+                if !declared.is_empty() {
+                    self.resolve_monitor_deps(id, &declared, span);
+                }
+                self.out
+                    .spawn_effects
+                    .insert(self.key(span), effects.clone());
+                let mut addrs: Vec<Ty> = effects
+                    .into_iter()
+                    .map(|effect| Ty::Named {
+                        name: ADDR_TYPE.to_string(),
+                        args: vec![effect],
+                    })
+                    .collect();
+                return if addrs.len() == 1 {
+                    addrs.pop().unwrap_or(Ty::Unknown)
+                } else {
+                    Ty::Tuple(addrs)
+                };
             }
         } else {
             for effect in &effects {
@@ -9553,6 +9913,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut resolved: Vec<Ty> = Vec::new();
         let mut items: Vec<usize> = Vec::new();
         for want in &declared {
+            let want = &want.ty;
             let found = supplied
                 .iter()
                 .position(|(eff, _, _)| eff == want)
@@ -9614,21 +9975,95 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [use-local] [monitor-handler] Resolve a shareable spawn's
+    /// dependencies from the enclosing scope — `finish_use`'s rules, at the
+    /// spawn: each must be a shareable, lexically bound availability, since
+    /// it is captured into the instance as an owned handle. Recorded in
+    /// `use_deps` under the spawn's span for the emitters.
+    fn resolve_monitor_deps(&mut self, id: &Ident, declared: &[EffectAvail], span: Span) {
+        let mut resolved_deps: Vec<Ty> = Vec::new();
+        let visible = self.visible_avail();
+        for want in declared {
+            let want = want.ty.clone();
+            let found = visible
+                .iter()
+                .find(|c| c.ty == want)
+                .cloned()
+                .or_else(|| {
+                    let compatible: Vec<&EffectAvail> = visible
+                        .iter()
+                        .filter(|c| unify(&want, &c.ty, &mut HashMap::new()))
+                        .collect();
+                    match compatible.len() {
+                        1 => Some(compatible[0].clone()),
+                        _ => None,
+                    }
+                });
+            match found {
+                Some(avail) => {
+                    if avail.local {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` depends on a shareable `{want}`, and the \
+                                 binding in scope here is `use local`: bind `{want}` \
+                                 shareable first",
+                                id.name
+                            ),
+                        );
+                    }
+                    if avail.declared && !avail.local {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` captures a handle for `{want}` at \
+                                 construction, and the `{want}` here comes from the \
+                                 enclosing signature rather than a `use` in this \
+                                 function: bind it here first — threading a \
+                                 signature-supplied effect into a captured handle \
+                                 arrives with spawn-inheritance",
+                                id.name
+                            ),
+                        );
+                    }
+                    resolved_deps.push(avail.ty);
+                }
+                None => self.error(
+                    span,
+                    format!(
+                        "handler `{}` depends on effect `{want}`, which has no \
+                         handler in scope here: register one before this spawn",
+                        id.name
+                    ),
+                ),
+            }
+        }
+        if !resolved_deps.is_empty() {
+            self.out
+                .handle_captures
+                .insert(self.key(span), resolved_deps.clone());
+            self.out.use_deps.insert(self.key(span), resolved_deps);
+        }
+    }
+
     /// [monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
     /// `spawn H(args)` where every face of `H` is a **plain** effect answers a
     /// shared instance behind a lock — reached through the same `Addr<E>`
     /// type, bound with `use addr` like any handle, its members running on
     /// the callers' threads under mutual exclusion.
     ///
-    /// The restriction *is* the design (§4 of the retired working document):
-    /// a monitor's members are pure state transformation — no effects, no
-    /// waits — which makes the lock innermost by construction, so no thread
-    /// ever holds it while wanting anything else. One declaration-level check
-    /// carries the whole rule: **no dependency list**. With no dependencies
-    /// there is nothing to perform, `use`/`spawn`/`waitfor` are capabilities
-    /// the members then cannot hold, and a call to an effectful helper fails
-    /// effect resolution — the existing discipline enforces the body
-    /// restrictions transitively.
+    /// The restriction *was* "no dependency list"; since 2026-09-20 (user
+    /// decision) a monitor may declare **shareable** dependencies, captured
+    /// as owned handles at construction. The availability rule keeps the
+    /// lock discipline: a dependency was bound before its dependent, so
+    /// lock acquisition follows construction order (no cycles) and no
+    /// synchronous path routes back into its own lock (no reentrancy — and
+    /// the JVM-reentrant/Rust-non-reentrant divergence stays unwritable).
+    /// What stays closed is the door reentrancy would need: no `use`, no
+    /// `spawn` capability, no `local E` deps — a shareable handler's
+    /// bindings are fixed at construction. Waits reachable through its deps
+    /// are **priced, not refused**: the deadlock graph gives dep-bearing
+    /// shareable handlers nodes of their own [actor-deadlock-cycle].
     fn check_monitor_spawn(
         &mut self,
         id: &Ident,
@@ -9668,17 +10103,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        // The restriction: no dependencies, which is "no effects and no
-        // waits" stated once at the declaration.
-        if decl.effects.iter().flatten().next().is_some() {
+        // [use-local] The dependency restriction, lifted 2026-09-20 (user
+        // decision): a monitor may declare **shareable** deps — captured as
+        // owned handles at construction, resolved from the enclosing scope
+        // exactly as a `use` resolves them (the availability rule makes the
+        // capture acyclic: a dep was bound before this spawn, so no lock
+        // order can cycle and no path routes back). What stays closed is the
+        // door reentrancy needs: `local E` deps, and the `use`/`spawn`
+        // capabilities, keep a handler off the shareable form.
+        if decl.effects.iter().flatten().next().is_some() && !self.handler_handle_deps(decl) {
             self.error(
                 span,
                 format!(
-                    "`{}` declares dependencies, so it cannot be shared as a monitor: \
-                     a shared handler of a plain effect runs its members under a lock, \
-                     and they are restricted to state and pure computation — no \
-                     effects, no waits. Keep it `use`-bound in one scope, or give it \
-                     an `actor effect` face and a mailbox",
+                    "`{}` cannot be shared: a shareable handler's dependencies are \
+                     captured as handles at construction, which needs every one to \
+                     be the shareable default — no `local E`, no `use`, no `spawn`. \
+                     Keep it `use local`-bound in one scope, or give it an \
+                     `actor effect` face and a mailbox",
                     id.name
                 ),
             );
@@ -9889,7 +10330,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ms.iter()
                     .filter(|(e, _)| {
                         self.effect_env.iter().any(
-                            |t| matches!(t, Ty::Named { name, .. } if *name == e.name.name),
+                            |t| matches!(&t.ty, Ty::Named { name, .. } if *name == e.name.name),
                         )
                     })
                     .map(|(e, _)| format!("`{}`", e.name.name))
@@ -10112,6 +10553,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
             for dep in &deps {
+                let dep = &dep.ty;
                 self.error(
                     item.span(),
                     format!(
@@ -11784,10 +12226,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// unnamed and every entry must be an effect a `use` could provide.
     /// `use` and `Throw` are refused — a handler registers nothing, and a
     /// throw needs a delimiter rather than a handler [throw].
-    fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<Ty> {
-        let mut out: Vec<Ty> = Vec::new();
+    fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
+        let mut out: Vec<EffectAvail> = Vec::new();
         for eff in h.effects.iter().flatten() {
-            let r = match eff {
+            let (r, local) = match eff {
                 EffectRef::Use(span) => {
                     self.error(
                         *span,
@@ -11804,7 +12246,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect type, so there is nothing to lower here; the gate
                 // arrives with the `spawn` expression.
                 EffectRef::Spawn(_) => continue,
-                EffectRef::Effect(r) => r,
+                // [effect-local] A `local E` dependency accepts a scope-local
+                // binding — and pins the handler to the **fusion** form, so
+                // the handler itself becomes `use local`-only.
+                EffectRef::Effect(r) => (r, false),
+                EffectRef::LocalEffect(r) => (r, true),
             };
             if r.name.name == THROW_EFFECT {
                 self.error(
@@ -11821,14 +12267,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(ty) = self.lower_effect_ref(r) else {
                 continue;
             };
-            if out.contains(&ty) {
+            if out.iter().any(|a| a.ty == ty) {
                 self.error(
                     r.span,
                     format!("handler `{}` declares `{ty}` twice", h.name.name),
                 );
                 continue;
             }
-            out.push(ty);
+            out.push(EffectAvail { ty, local, declared: true });
         }
         out
     }
@@ -13701,7 +14147,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Nothing
             }
-            Stmt::Use { handler, span } => {
+            Stmt::Use { handler, local, span } => {
                 // [use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
                     self.error(
@@ -13709,7 +14155,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`use` requires the `use` effect in the function's effect list",
                     );
                 }
-                self.check_use(handler, *span);
+                self.check_use(handler, *local, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => {
@@ -15824,7 +16270,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `effect_uses` collects; the enclosing environment stands in for
         // the duration so the calls resolve.
         let saved_effects = match &exp_effects {
-            Some(effects) => Some(std::mem::replace(&mut self.effect_env, effects.clone())),
+            // [effect-local] A fn value's availabilities are call-only —
+            // it can never spawn — so its declared effects enter as local.
+            Some(effects) => Some(std::mem::replace(
+                &mut self.effect_env,
+                effects
+                    .iter()
+                    .map(|ty| EffectAvail {
+                        ty: ty.clone(),
+                        local: true,
+                        declared: true,
+                    })
+                    .collect(),
+            )),
             None => None,
         };
         self.effect_uses.push(Vec::new());
@@ -16398,12 +16856,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue;
                 };
                 for eff in qf.effects.iter().flatten() {
-                    let EffectRef::Effect(r) = eff else { continue };
+                    let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = eff else { continue };
                     let ename = r.name.name.as_str();
                     let available = self
                         .effect_env
                         .iter()
-                        .any(|c| matches!(c, Ty::Named { name, .. } if name == ename));
+                        .any(|c| matches!(&c.ty, Ty::Named { name, .. } if name == ename));
                     if !available {
                         self.error(
                             *span,
@@ -18043,7 +18501,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let any_available = members.iter().any(|(e, _)| {
                 self.effect_env
                     .iter()
-                    .any(|t| matches!(t, Ty::Named { name: n, .. } if *n == e.name.name))
+                    .any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == e.name.name))
             });
             if !any_available && !self.overloads_of(name).is_empty() {
                 // Fall through to the fn overloads below — and tell the
@@ -18071,7 +18529,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .filter(|e| {
                         self.effect_env.iter().any(
-                            |t| matches!(t, Ty::Named { name: n, .. } if *n == e.name.name),
+                            |t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == e.name.name),
                         )
                     })
                     .copied()
@@ -19302,11 +19760,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         // it inherited from its fn-typed parameters [fn-effects] — a caller
         // has to supply those too, since they are how the callee calls the
         // value it was given.
-        let mut wants: Vec<Ty> = Vec::new();
+        //
+        // [effect-local] Each requirement carries its declared strength: the
+        // bare default demands a **shareable** binding (the callee may pass
+        // it across seams), `local E` accepts either, and an inherited
+        // requirement is call-only, so it accepts either too.
+        let mut wants: Vec<(Ty, bool)> = Vec::new();
         {
             let saved = self.enter_generics(&decl.generics);
             for eff in decl.effects.iter().flatten() {
-                let EffectRef::Effect(r) = eff else { continue };
+                let (r, req_local) = match eff {
+                    EffectRef::Effect(r) => (r, false),
+                    EffectRef::LocalEffect(r) => (r, true),
+                    _ => continue,
+                };
                 // Unknown effect names are reported at the callee's own
                 // declaration; skip them here.
                 if !self.scope.effects.contains_key(r.name.name.as_str()) {
@@ -19314,22 +19781,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let empty = HashMap::new();
                 let lowered = self.lower_base_ref(r, &empty, 0);
-                if !wants.contains(&lowered) {
-                    wants.push(lowered);
+                if !wants.iter().any(|(w, _)| *w == lowered) {
+                    wants.push((lowered, req_local));
                 }
             }
             for p in &decl.params {
                 for ty in self.inherited_fn_effects(&p.ty) {
-                    if !wants.contains(&ty) {
-                        wants.push(ty);
+                    if !wants.iter().any(|(w, _)| *w == ty) {
+                        wants.push((ty, true));
                     }
                 }
             }
             self.generics = saved;
         }
         // [use-no-dup] Innermost first, shadowed duplicates hidden.
-        let visible = self.visible_effects();
-        for lowered in wants {
+        let visible = self.visible_avail();
+        for (lowered, req_local) in wants {
             let want = substitute_vars(&lowered, subst, callee_generics);
             // [throw] A callee that may throw does not need a handler — it
             // needs a delimiter. The call is an *exit* of everything up to
@@ -19343,11 +19810,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // Exact instance first, then a unique compatible match (the
             // callee's requirement may still contain unresolved parts).
-            let found = visible.iter().find(|c| **c == want).cloned();
+            let found = visible.iter().find(|c| c.ty == want).cloned();
             let found = found.or_else(|| {
-                let compatible: Vec<&Ty> = visible
+                let compatible: Vec<&EffectAvail> = visible
                     .iter()
-                    .filter(|c| unify(&want, c, &mut HashMap::new()))
+                    .filter(|c| unify(&want, &c.ty, &mut HashMap::new()))
                     .collect();
                 match compatible.len() {
                     1 => Some(compatible[0].clone()),
@@ -19355,10 +19822,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             });
             match found {
-                Some(instance) => {
+                Some(avail) => {
+                    // [effect-local] The call-site rule (user decision
+                    // 2026-09-20): a local binding satisfies only a `local`
+                    // requirement; a shareable binding satisfies both.
+                    if !req_local && avail.local {
+                        self.error(
+                            span,
+                            format!(
+                                "`{name}` requires a shareable `{want}` (a bare `[{want}]` \
+                                 grants seam rights), and the binding in scope here is \
+                                 local-only: bind `{want}` shareable, or declare \
+                                 `[local {want}]` on `{name}` if it only calls it"
+                            ),
+                        );
+                    }
                     // [fn-effects] Feeds an enclosing lambda's inferred set.
-                    self.note_effect_use(&instance);
-                    resolved.push(instance);
+                    self.note_effect_use(&avail.ty);
+                    resolved.push(avail.ty);
                 }
                 None => {
                     self.error(

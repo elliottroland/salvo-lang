@@ -69,7 +69,7 @@ pub trait __Share_Console: Console + Send {
     fn __clone_box(&self) -> Box<dyn __Share_Console>;
 }
 
-impl<T: Console + Clone + Send + 'static> __Share_Console for T {
+impl<__H: Console + Clone + Send + 'static> __Share_Console for __H {
     fn __clone_box(&self) -> Box<dyn __Share_Console> {
         Box::new(self.clone())
     }
@@ -97,17 +97,17 @@ impl Console for __Mon_Console {
     }
 }
 
-pub struct __Lock_Console<H: Console + Send> {
+pub struct __Lock_Console<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: Console + Send> Clone for __Lock_Console<H> {
+impl<H> Clone for __Lock_Console<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: Console + Send> __Lock_Console<H> {
+impl<H> __Lock_Console<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -119,6 +119,7 @@ impl<H: Console + Send> Console for __Lock_Console<H> {
     }
 }
 
+#[derive(Clone)]
 pub struct StdOutConsole {
 }
 
@@ -432,6 +433,60 @@ use crate::core_string::*;
 
 pub trait Random<T> {
     fn next_random(&mut self) -> T;
+}
+
+pub trait __Share_Random<T: 'static>: Random<T> + Send {
+    fn __clone_box(&self) -> Box<dyn __Share_Random<T>>;
+}
+
+impl<T: 'static, __H: Random<T> + Clone + Send + 'static> __Share_Random<T> for __H {
+    fn __clone_box(&self) -> Box<dyn __Share_Random<T>> {
+        Box::new(self.clone())
+    }
+}
+
+pub struct __Mon_Random<T: 'static> {
+    inner: Box<dyn __Share_Random<T>>,
+}
+
+impl<T: 'static> Clone for __Mon_Random<T> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.__clone_box() }
+    }
+}
+
+impl<T: 'static> __Mon_Random<T> {
+    pub fn new(inner: Box<dyn __Share_Random<T>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<T: 'static> Random<T> for __Mon_Random<T> {
+    fn next_random(&mut self) -> T {
+        self.inner.next_random()
+    }
+}
+
+pub struct __Lock_Random<H> {
+    inner: std::sync::Arc<std::sync::Mutex<H>>,
+}
+
+impl<H> Clone for __Lock_Random<H> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
+impl<H> __Lock_Random<H> {
+    pub fn new(inner: H) -> Self {
+        Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
+    }
+}
+
+impl<T: 'static, H: Random<T> + Send> Random<T> for __Lock_Random<H> {
+    fn next_random(&mut self) -> T {
+        self.inner.lock().unwrap().next_random()
+    }
 }
 
 pub struct CyclicRandom<T: Clone + 'static> {

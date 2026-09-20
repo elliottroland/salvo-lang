@@ -19,11 +19,12 @@ pub mod types;
 pub use check::{
     check_program, Checked, Coercion, ImplicitArg, ImplicitParam, PassDriver, PassMember,
     ThrowSite,
-    UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
+    UnionTest, UseKind, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use deduce::ParamDeduction;
 pub use effects::{
-    effect_member_index, effect_member_name, effect_members_named, handler_member_faces,
+    effect_member_index, effect_member_name, effect_members_named, handler_handle_deps,
+    handler_member_faces,
 };
 pub use diag::FileDiagnostic;
 pub use place::{Place, Step};

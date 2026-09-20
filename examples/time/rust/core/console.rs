@@ -13,7 +13,7 @@ pub trait __Share_Console: Console + Send {
     fn __clone_box(&self) -> Box<dyn __Share_Console>;
 }
 
-impl<T: Console + Clone + Send + 'static> __Share_Console for T {
+impl<__H: Console + Clone + Send + 'static> __Share_Console for __H {
     fn __clone_box(&self) -> Box<dyn __Share_Console> {
         Box::new(self.clone())
     }
@@ -41,17 +41,17 @@ impl Console for __Mon_Console {
     }
 }
 
-pub struct __Lock_Console<H: Console + Send> {
+pub struct __Lock_Console<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: Console + Send> Clone for __Lock_Console<H> {
+impl<H> Clone for __Lock_Console<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: Console + Send> __Lock_Console<H> {
+impl<H> __Lock_Console<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -63,6 +63,13 @@ impl<H: Console + Send> Console for __Lock_Console<H> {
     }
 }
 
+impl __Has_Console for __Mon_Console {
+    fn __get_Console(&mut self) -> &mut dyn Console {
+        self
+    }
+}
+
+#[derive(Clone)]
 pub struct StdOutConsole {
 }
 

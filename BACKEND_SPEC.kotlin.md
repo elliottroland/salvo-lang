@@ -804,6 +804,13 @@ where Rust had to build the fusion to get the same programs running
     `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
     — a skeleton that does not compile is a skeleton that fails at its one
     job.
+  * **A shared platform binding is the raw host instance** — no `__Mon_E`
+    wrapper, no `synchronized` ([use-local], user decision 2026-09-20: a
+    platform handler is assumed thread-safe by its design and classifies
+    bare). JVM references make the instance freely shareable; the Rust
+    backend shares the same instance through its lock adapter as `&mut
+    self` mechanics ([rs-platform-handler], where the residual divergence
+    for a *non-conforming* host is recorded).
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
@@ -1018,24 +1025,40 @@ where Rust had to build the fusion to get the same programs running
   }
   ```
 
-  * **`Addr<E>` lowers to `__Mon_E`** when `E` is plain (both type paths
-    branch on the effect's declared kind); an actor effect's addr stays
-    `Int`. A generic plain effect's addr is refused, mirroring the actor
-    kind's message-class refusal.
+  * **`Addr<E>` lowers to the effect's own interface** when `E` is plain
+    (both type paths branch on the effect's declared kind); an actor
+    effect's addr stays `Int`. The handle *is* the interface — a monitor's
+    `__Mon_E` and a mixed handler's `__Fac_H` both implement it, and JVM
+    references make the value freely shareable. A **generic** instance
+    carries its instantiation (`Addr<Random<Int>>` is `Random<Int>`,
+    2026-09-20); an uninstantiated mention is refused by arity, a leniency
+    path rather than a rule.
   * **A monitor spawn** is `__Mon_E(H(args))` — no scheduler, no mailbox, no
-    pool. JVM references make the handle freely shareable with no clone
-    machinery (the Rust half carries an `Arc`).
+    pool. A bare `use` of a stateful handler wraps the construction the same
+    way at the binding ([use-local]). JVM references make the handle freely
+    shareable with no clone machinery (the Rust half carries an `Arc`). The
+    wrapper is **generic exactly as the effect is**
+    (`class __Mon_Random<T>(private val inner: Random<T>) : Random<T>`,
+    2026-09-20), with the instantiation inferred from the construction.
+  * **A handle-dep handler** ([effect-handler-deps]'s owned-handles form)
+    takes its dependencies as trailing constructor parameters typed as the
+    dep's **Has-accessor interface** (`__Has_E` — stable per-effect
+    identity, unlike the per-file `__Fx_N` classes); the `use` site passes
+    its fused carrier, and member environment entries read `__dep_e`
+    properties so fn-typed calls thread.
   * **`use addr` binds the value itself**; a plain-effect addr in a spawn's
     dependency clause passes through as itself, where an actor addr gets the
     `__Stub_E` send wrapper.
   * **`synchronized(inner)`** uses the handler instance's own JVM monitor.
     Its *re-entrancy* (against Rust's non-reentrant `Mutex`) is unobservable
-    by construction: a monitor member can reach no other handler, so no path
+    by construction: a shareable handler's bindings are fixed at
+    construction and its deps bind strictly outward/earlier ([use-local]'s
+    blockers keep `use`/`spawn` and `local` deps off the form), so no path
     routes back [backend-never-wrong]. Members with their own generics are
     forwarded generically, exactly as the interface declares them
     [effect-member-generics] — Kotlin has no dyn-dispatch restriction to
     mirror, so the wrapper implements the whole interface.
-  * **Emitted for every non-generic plain effect** beside its interface, used
+  * **Emitted for every plain effect** beside its interface, used
     or not: an unused wrapper is an inert class kotlinc accepts quietly, and
     per-effect emission gives the type one identity across files.
 

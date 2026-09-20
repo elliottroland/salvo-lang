@@ -382,10 +382,12 @@ fn a_handler_constructor_resolves_implicits_at_use() {
          fn show(v: Int) -> Str => v { return fmt(v) }\n\
          }\n\
          fn main() [use] {\n\
-         \x20   use Angle()\n\
+         \x20   use local Angle()\n\
          \x20   let _s = show(1)\n\
          }\n",
     );
+    // [use-local] A stored fn value is unsendable, so the binding is
+    // `use local` — which is also why the implicit resolves here at all.
     assert!(errs.is_empty(), "expected `?fmt` to resolve at `use`, got: {errs:?}");
 }
 

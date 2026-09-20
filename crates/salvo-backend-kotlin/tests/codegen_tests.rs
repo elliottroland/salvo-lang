@@ -1524,20 +1524,20 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn draw() [Random<Int>, Random<Str>, Console] {
+fn draw() [local Random<Int>, local Random<Str>, Console] {
     let n: Int = next_random()
     let s: Str = next_random()
     println("${s}: ${n}")
 }
 
-fn lucky_number() [Random<Int>] -> Int {
+fn lucky_number() [local Random<Int>] -> Int {
     return next_random()
 }
 
 fn main() [use] {
     use StdOutConsole
-    use CyclicRandom(list_of(10, 20, 30))
-    use CyclicRandom(list_of("a", "b"))
+    use local CyclicRandom(list_of(10, 20, 30))
+    use local CyclicRandom(list_of("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -1725,8 +1725,8 @@ fn a_generic_dependency_is_refused() {
          fn keep(value: T) -> Str => value {\n        return \"kept\"\n    }\n}\n\n\
          handler Twice<T> [Store<T>] of Store<T> {\n    \
          fn keep(value: T) -> Str => value {\n        return \"twice\"\n    }\n}\n\n\
-         fn main() [use] -> None {\n    use MemStore<Int>()\n    \
-         use Twice<Int>()\n}\n",
+         fn main() [use] -> None {\n    use local MemStore<Int>()\n    \
+         use local Twice<Int>()\n}\n",
     );
     assert!(
         errors
@@ -2121,6 +2121,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
+    kotlinc_compiles_and_runs_a_shareable_interceptor_chain,
+    kotlinc_compiles_and_runs_a_generic_handler_with_a_handle_dep,
     kotlinc_compiles_and_runs_handler_deps_in_anger,
     kotlinc_compiles_and_runs_handler_deps_chain,
     kotlinc_compiles_and_runs_handler_deps_mixed,
@@ -4275,13 +4277,13 @@ handler Formal of Greeter {
     }
 }
 
-handler Loud [Greeter] of Greeter {
+handler Loud [local Greeter] of Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"
     }
 }
 
-handler Counting [Greeter] of Greeter {
+handler Counting [local Greeter] of Greeter {
     count: Int = 0
     fn greet(name: Str) -> Str => name {
         count = count + 1
@@ -4295,34 +4297,34 @@ handler MemStore<T> of Store<T> {
     }
 }
 
-handler Twice [Store<Int>] of Store<Int> {
+handler Twice [local Store<Int>] of Store<Int> {
     fn keep(value: Int) -> Str => value {
         return "${keep(value)} ${keep(value)}"
     }
 }
 
-fn shout(name: Str) [Greeter, Console] -> None => name {
+fn shout(name: Str) [local Greeter, Console] -> None => name {
     println(greet(name))
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use Plain
+    use local Plain
     shout("a")
-    use Formal
+    use local Formal
     shout("b")
-    use Counting
+    use local Counting
     shout("c")
     if true {
-        use Loud
+        use local Loud
         shout("d")
     }
     shout("e")
-    use MemStore<Int>()
-    use MemStore<Str>()
+    use local MemStore<Int>()
+    use local MemStore<Str>()
     println(keep(1))
     println(keep("x"))
-    use Twice
+    use local Twice
     println(keep(2))
     println(keep("y"))
 }
@@ -4390,6 +4392,110 @@ fn kotlinc_compiles_and_runs_interception() -> KotlinCase {
     )
 }
 
+// ===== the shareable-by-default interceptor chain [use-local] =====
+// The production shape the 2026-09-20 arc was built for, with no `local`
+// anywhere: a stateful handler binds as a monitor, a stateless dependent
+// handler binds bare with its dependencies injected at construction — one
+// of them the effect it implements (interception binds outward), another a
+// monitor. The program and its stdout are shared with the Rust backend.
+
+const SHAREABLE_CHAIN_DEMO: &str = r#"
+effect Counter {
+    fn bump() -> None
+    fn total() -> Int
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() { n = n + 1 }
+    fn total() -> Int { return n }
+}
+
+effect Logger {
+    fn log(m: Str) -> None => m
+}
+
+handler PlainLogger [Console] of Logger {
+    fn log(m: Str) -> None => m {
+        println("log: ${m}")
+    }
+}
+
+handler Shout [Logger, Counter] of Logger {
+    fn log(m: Str) -> None => m {
+        bump()
+        log("${m}!")
+    }
+}
+
+fn work(step: Str) [Logger] -> None => step {
+    log(step)
+}
+
+fn audit() [Counter, Console] -> None {
+    println("shouted ${total()}")
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use MemCounter()
+    use PlainLogger()
+    work("plain")
+    use Shout()
+    work("loud")
+    work("louder")
+    audit()
+}
+"#;
+
+/// [use-local] [effect-handler-deps] [kt-monitor] The chain end to end:
+/// `MemCounter` behind `__Mon_Counter`, `PlainLogger` bare with an injected
+/// console, `Shout` wrapping the `Logger` registered before it — and the
+/// count proving both `work` calls went through the interceptor and the
+/// monitor. Byte-identical stdout on Rust.
+fn kotlinc_compiles_and_runs_a_shareable_interceptor_chain() -> KotlinCase {
+    let program = build_program(&[("main.sv", SHAREABLE_CHAIN_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "shareable-chain",
+        "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n",
+    )
+}
+
+/// [use-local] [effect-handler-deps] A **generic** dependent handler works
+/// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
+/// no carrier has to name the handler's generics — the cut that still
+/// stands for the fusion form (`a_generic_dependency_is_refused`) does not
+/// bind here.
+fn kotlinc_compiles_and_runs_a_generic_handler_with_a_handle_dep() -> KotlinCase {
+    const SRC: &str = r#"
+effect Sink<T> {
+    fn accept(value: T) -> Str => value
+}
+
+handler Relay<T> [Console] of Sink<T> {
+    fn accept(value: T) -> Str => value {
+        println("relayed")
+        return "ok"
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use Relay<Int>()
+    println(accept(1))
+}
+"#;
+    let program = build_program(&[("main.sv", SRC)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic-handle-dep", "relayed\nok\n")
+}
+
 // ===== effect dependencies on handlers [effect-handler-deps] =====
 // A handler constructor parameter of effect type is a dependency: the
 // member body may use that effect, the `use` site supplies it from scope,
@@ -4400,19 +4506,19 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [local Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn work() [Logger] -> None {
+fn work() [local Logger] -> None {
     log("from work")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use ConsoleLogger()
+    use local ConsoleLogger()
     work()
     log("from main")
 }
@@ -5096,13 +5202,13 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn roll() [Random<Count>] -> Count {
+fn roll() [local Random<Count>] -> Count {
     return next_random()
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use CyclicRandom(list_of(7, 8))
+    use local CyclicRandom(list_of(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -8800,11 +8906,12 @@ fn fs_program() -> String {
     FS_PROGRAM.replace("__DIR__", &dir.to_string_lossy())
 }
 
-/// [kt-platform-handler] [kt-effect-fusion] What the layering emits: the
-/// effect interfaces, no class for the platform handler, and `DefaultFs`
-/// carrying its dependency as a **bounded type parameter** — the fix for
-/// per-file `__Fx_N` classes, without which a std handler could not be
-/// constructed from a program.
+/// [kt-platform-handler] [use-local] [effect-handler-deps] What the layering
+/// emits: the effect interfaces, no class for the platform handler, and
+/// `DefaultFs` capturing its dependency as an **owned handle at
+/// construction** — a constructor parameter typed as the dep's Has-accessor
+/// interface, whose per-effect identity is what lets a std handler be
+/// constructed from a program (per-file `__Fx_N` classes could not).
 #[test]
 fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     let files = generate_files(&[("main.sv", &fs_program())]);
@@ -8833,7 +8940,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     for expected in [
         "interface RawFs {",
         "fun raw_close_read(handle: Long)",
-        "class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs",
+        "class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs",
     ] {
         assert!(host.contains(expected), "expected `{expected}` in:\n{host}");
     }
@@ -10201,7 +10308,7 @@ handler Counting() of Tally, Stats {
     }
 }
 
-fn count() [Tally, Stats] -> Int {
+fn count() [local Tally, local Stats] -> Int {
     bump(2)
     bump(3)
     return total()
@@ -10219,7 +10326,7 @@ fn main() [use, spawn] {
     println(fired)
     let left = waitfor c: Reply<Int> { ctl.pending(c) }
     println("pending ${left}")
-    use Counting()
+    use local Counting()
     println("total ${count()}")
 }
 "#;

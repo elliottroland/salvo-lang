@@ -55,154 +55,96 @@ pub fn fs_escaped(path: &String) -> FsError {
     return FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U5(PathEscapes { path: path.clone() }) };
 }
 
+#[derive(Clone)]
 pub struct RestrictedFs {
     root: String,
+    __dep_Fs: crate::core_fs::__Mon_Fs,
 }
 
 impl RestrictedFs {
-    pub fn new(root: String) -> Self {
+    pub fn new(root: String, __dep_Fs: crate::core_fs::__Mon_Fs) -> Self {
         Self {
             root,
+            __dep_Fs,
         }
     }
 }
 
-pub struct __Deps_RestrictedFs<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Fs for RestrictedFs {
 
-impl<'a, __P: __Has_Fs + ?Sized> __Has_Fs for __Deps_RestrictedFs<'a, __P> {
-    fn __get_Fs(&mut self) -> &mut dyn Fs {
-        __Has_Fs::__get_Fs(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_RestrictedFs {
-
-    fn open_read<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<InStream, FsError>;
-
-    fn open_read_at<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String, offset: i64) -> Union2<InStream, FsError>;
-
-    fn open_write<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError>;
-
-    fn open_append<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError>;
-
-    fn exists<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> bool;
-
-    fn metadata<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<FileInfo, FsError>;
-
-    fn list_dir<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<Vec<String>, FsError>;
-
-    fn create_dirs<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError>;
-
-    fn delete<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError>;
-
-    fn rename_path<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, from: &String, to: &String) -> Union2<(), FsError>;
-
-    fn read_line<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Option<String>;
-
-    fn read_all<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Union2<String, FsError>;
-
-    fn read_bytes<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError>;
-
-    fn read_to<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError>;
-
-    fn read_to__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> Union2<i64, FsError>;
-
-    fn read_line_to<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> bool;
-
-    fn position<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> i64;
-
-    fn close<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: InStream) -> Union2<(), FsError>;
-
-    fn write<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64;
-
-    fn write_line<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64;
-
-    fn write_bytes<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, data: &Vec<u8>) -> i64;
-
-    fn position__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> i64;
-
-    fn flush<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> Union2<(), FsError>;
-
-    fn close__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: OutStream) -> Union2<(), FsError>;
-}
-
-impl __Impl_RestrictedFs for RestrictedFs {
-
-    fn open_read<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<InStream, FsError> {
+    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).open_read(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read(&(real.as_ref().unwrap().clone()));
     }
 
-    fn open_read_at<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String, offset: i64) -> Union2<InStream, FsError> {
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).open_read_at(&(real.as_ref().unwrap().clone()), offset);
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read_at(&(real.as_ref().unwrap().clone()), offset);
     }
 
-    fn open_write<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError> {
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).open_write(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_write(&(real.as_ref().unwrap().clone()));
     }
 
-    fn open_append<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError> {
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).open_append(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_append(&(real.as_ref().unwrap().clone()));
     }
 
-    fn exists<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> bool {
+    fn exists(&mut self, path: &String) -> bool {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return false;
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).exists(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).exists(&(real.as_ref().unwrap().clone()));
     }
 
-    fn metadata<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<FileInfo, FsError> {
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<FileInfo, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).metadata(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).metadata(&(real.as_ref().unwrap().clone()));
     }
 
-    fn list_dir<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<Vec<String>, FsError> {
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<Vec<String>, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).list_dir(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).list_dir(&(real.as_ref().unwrap().clone()));
     }
 
-    fn create_dirs<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError> {
+    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).create_dirs(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).create_dirs(&(real.as_ref().unwrap().clone()));
     }
 
-    fn delete<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError> {
+    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).delete(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).delete(&(real.as_ref().unwrap().clone()));
     }
 
-    fn rename_path<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, from: &String, to: &String) -> Union2<(), FsError> {
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
         let mut real_from = fs_resolve(&self.root, from);
         if real_from.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(from)));
@@ -211,62 +153,62 @@ impl __Impl_RestrictedFs for RestrictedFs {
         if real_to.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(to)));
         }
-        return __Has_Fs::__get_Fs(&mut *__fx).rename_path(&(real_from.as_ref().unwrap().clone()), &(real_to.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).rename_path(&(real_from.as_ref().unwrap().clone()), &(real_to.as_ref().unwrap().clone()));
     }
 
-    fn read_line<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Option<String> {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_line(s);
+    fn read_line(&mut self, s: &InStream) -> Option<String> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_line(s);
     }
 
-    fn read_all<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Union2<String, FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_all(s);
+    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_all(s);
     }
 
-    fn read_bytes<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_bytes(s, max);
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_bytes(s, max);
     }
 
-    fn read_to<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_to(s, buf, max);
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_to(s, buf, max);
     }
 
-    fn read_to__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_to__2(s, buf);
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_to__2(s, buf);
     }
 
-    fn read_line_to<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> bool {
-        return __Has_Fs::__get_Fs(&mut *__fx).read_line_to(s, buf);
+    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_line_to(s, buf);
     }
 
-    fn position<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &InStream) -> i64 {
-        return __Has_Fs::__get_Fs(&mut *__fx).position(s);
+    fn position(&mut self, s: &InStream) -> i64 {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).position(s);
     }
 
-    fn close<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: InStream) -> Union2<(), FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).close(s);
+    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).close(s);
     }
 
-    fn write<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64 {
-        return __Has_Fs::__get_Fs(&mut *__fx).write(s, text);
+    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).write(s, text);
     }
 
-    fn write_line<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64 {
-        return __Has_Fs::__get_Fs(&mut *__fx).write_line(s, text);
+    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).write_line(s, text);
     }
 
-    fn write_bytes<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream, data: &Vec<u8>) -> i64 {
-        return __Has_Fs::__get_Fs(&mut *__fx).write_bytes(s, data);
+    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).write_bytes(s, data);
     }
 
-    fn position__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> i64 {
-        return __Has_Fs::__get_Fs(&mut *__fx).position__2(s);
+    fn position__2(&mut self, s: &OutStream) -> i64 {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).position__2(s);
     }
 
-    fn flush<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> Union2<(), FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).flush(s);
+    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).flush(s);
     }
 
-    fn close__2<__Fx: __Has_Fs>(&mut self, __fx: &mut __Fx, s: OutStream) -> Union2<(), FsError> {
-        return __Has_Fs::__get_Fs(&mut *__fx).close__2(s);
+    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).close__2(s);
     }
 }

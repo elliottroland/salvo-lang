@@ -376,6 +376,11 @@ interface Random<T> {
     fun next_random(): T
 }
 
+class __Mon_Random<T>(private val inner: Random<T>) : Random<T> {
+    override fun next_random(): T =
+        synchronized(inner) { inner.next_random() }
+}
+
 class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) : Random<T> {
     private var i: Int = 0
 

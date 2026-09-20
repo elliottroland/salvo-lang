@@ -96,11 +96,16 @@ fn a_handler_may_depend_on_a_platform_effect() {
         "platform effect Telemetry {\n    \
              fn record(name: Str) [] -> None => name\n}\n\n\
          effect Logger {\n    fn log(message: Str) -> None => message\n}\n\n\
-         handler AuditLogger [Telemetry] of Logger {\n    \
+         handler AuditLogger [local Telemetry] of Logger {\n    \
              fn log(message: Str) -> None => message {\n        \
                  record(message)\n    }\n}\n\n\
-         fn main() [use, Telemetry] {\n    use AuditLogger()\n}\n",
+         fn main() [use, Telemetry] {\n    use local AuditLogger()\n}\n",
     ));
+    // [use-local] [effect-local] `main`'s Telemetry arrives from the host
+    // through the signature, so there is no lexical binding to capture a
+    // handle from — the dependency is declared `local` and the handler
+    // binds `use local` (the signature-to-handle threading arrives with
+    // spawn-inheritance; ROADMAP).
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
@@ -240,6 +245,27 @@ fn a_platform_handler_is_registered_with_use_like_any_handler() {
          platform handler HostRawFs of RawFs\n\n\
          fn shut(handle: Int) [RawFs] -> Bool {\n    return raw_close(handle)\n}\n\n\
          fn main() [use] -> None {\n    use HostRawFs()\n    shut(1)\n}\n",
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [platform-handler] [use-local] A platform handler is **assumed
+/// thread-safe by its design** (user decision 2026-09-20): it classifies
+/// bare/stateless, so a handler depending on its effect binds shareable
+/// with no `local E` anywhere — the `DefaultFs [RawFs]` shape. Validating
+/// or specifying the assumption is future work (ROADMAP).
+#[test]
+fn a_platform_handler_shares_bare_and_needs_no_local_dependency() {
+    let errs = messages(&src(
+        "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
+         platform handler HostRawFs of RawFs\n\n\
+         effect Fs {\n    fn shut(handle: Int) -> Bool => handle\n}\n\n\
+         handler DefaultFs [RawFs] of Fs {\n    \
+         fn shut(handle: Int) -> Bool => handle {\n        \
+         return raw_close(handle)\n    }\n}\n\n\
+         fn close_it(handle: Int) [Fs] -> Bool {\n    return shut(handle)\n}\n\n\
+         fn main() [use] -> None {\n    use HostRawFs()\n    use DefaultFs()\n    \
+         close_it(1)\n}\n",
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

@@ -91,7 +91,106 @@ first live trigger and needs a test: a bare sibling call whose name an
 available effect member also claims requires `@self`, built 2026-09-19 but
 dormant while deps are refused), overloaded servant members, and several
 faces. Servant sibling calls and `k@self` in mixed handlers landed
-2026-09-19 (user decision; COMPLETED.md's log).
+2026-09-19 (user decision; COMPLETED.md's log). **And the shareable-by-default
+arc is built** (user decisions 2026-09-20, both sittings the same day —
+`use` binds shareable, `use local`/`[local E]` are the opt-outs, monitor
+deps as owned handles, priced lock waits, generic monitors; COMPLETED.md's
+log and the section below for what it leaves behind).
+
+## Shareable by default — ✅ built 2026-09-20 (both sittings; record in COMPLETED.md's log)
+
+The whole arc landed the same day it was decided: `use` binds shareable by
+default (stateless bare, stateful monitor), `use local` opts out, `[local E]`
+accepts a local binding, monitors declare shareable deps captured as owned
+handles, waits under a lock are priced through the deadlock graph (option
+(b)), and — the handoff decision — **generic monitors**: `handler
+CyclicRandom of Random<Int>` shares by default, the per-effect wrappers
+generic exactly as the effect. std's forwarders took `[local E]`; platform
+handlers are assumed thread-safe and classify bare. See [use-local],
+[effect-local],
+[monitor-handler], [effect-handler-deps] and the decision-log entry.
+What it leaves behind, each deliberate:
+
+- **Spawn-inheritance** (the arc's motivating goal, now unblocked): `spawn H
+  on pool(2)` synthesizing its dep clause from scope — a modular checker
+  feature now that `[E]` means shareable. With it, the v1 lexical cut goes:
+  a signature-supplied `[E]` becomes capturable into an owned handle.
+- **`local` inference**: the checker writing `local` for you, lifting the
+  virality down local-trafficking call chains (the deduction pattern:
+  written validates, unwritten infers).
+- **Generic-instance dependencies stay fusion-pinned**: `handler X
+  [Random<Int>] of E` binds `use local` only. The representation now exists
+  (`__Mon_Random<i64>` — the *of* side shipped), so lifting the
+  `handler_handle_deps` exclusion is engineering: dep fields at the
+  instantiated wrapper type on Rust, `__Has_E`-typed ctor params picking up
+  the instantiation on Kotlin, and the classify blocker goes with it.
+- **One lock behind several faces**: a stateful multi-face handler still
+  binds `use local` only (no backend representation for one lock under
+  several effect types).
+- **A written thread-safety contract for platform handlers** — moved to its
+  own section, "Platform handlers — the thread-safety contract", which
+  carries the divergence record and the parity plan.
+
+## Platform handlers — the thread-safety contract (DECISION)
+
+**Where this stands (user decision 2026-09-20, third round):** a platform
+handler is *assumed thread-safe by its design*. It classifies bare under
+[use-local], so nothing depending on a platform-backed effect writes
+`local E` (`DefaultFs [RawFs]` is annotation-free) — and nothing validates
+the assumption. The user's call at the time: assume always, design the
+validation/specification mechanism later. This section is that later.
+
+**The divergence it must close** (recorded in [rs-platform-handler]): the
+two backends share a platform instance differently. Kotlin binds the **raw
+host instance** — no wrapper, no `synchronized`. Rust shares the same
+instance through the per-effect **lock adapter** (`__Lock_E` over
+`Arc<Mutex<H>>`), not as a semantic monitor but because the generated
+effect trait's members take `&mut self`, and a local binding coexisting
+with captured handles needs shared ownership the host struct cannot provide
+(`HostRawFs` holds an open-file table and derives no `Clone`). For a host
+that honors the assumption the two are observationally equivalent — same
+instance, same calls, same results; the lock costs latency under
+contention, nothing more. For a host that *violates* it, the failure modes
+diverge: the Kotlin build **races** (data corruption, arbitrary behavior)
+while the Rust build is **accidentally serialized** by the lock — so a
+buggy host can appear to work on Rust and break on Kotlin. At the boundary,
+a host member that blocks waiting for another thread to enter a *sibling*
+member deadlocks on Rust and proceeds on Kotlin (outside "thread-safe by
+design", but it is where the line sits).
+
+**What could change in the emissions to restore full parity**, once a
+contract exists:
+
+- **(a) Drop the Rust lock — the shapes converge upward.** For an effect
+  whose platform handler declares the contract, the Rust backend emits the
+  trait's members as **`&self`** (a parallel shared-access trait, or the
+  effect's own trait when every handler of it is platform), shares the
+  instance as **`Arc<H>`**, and deletes the `__Lock_E` wrap at platform
+  bindings. That is byte-for-byte Kotlin's shape: one raw instance, no
+  compiler synchronization, the host's own discipline load-bearing on both
+  backends. The bonus is that Rust then **machine-checks half the
+  contract for free**: `&self` members force the host struct to compile
+  under shared access, so its interior mutability must actually be
+  `Sync` (a `RefCell` no longer compiles where a `Mutex`/`RwLock`/atomics
+  do) — the Rust host is validated by rustc while the Kotlin host stays on
+  trust, which is already a strictly smaller gap than today's.
+- **(b) Or serialize both — parity by lowering Kotlin to Rust's shape.**
+  Emit Kotlin's platform bindings behind `__Mon_E` (`synchronized`) again,
+  matching the Rust lock. Uniform failure mode (a non-conforming host is
+  serialized everywhere, so it *works* everywhere), no host changes — but
+  it imposes a global lock on hosts that did their own finer-grained
+  synchronization, which is the cost the assume-thread-safe decision
+  refused. Fits as the *fallback* emission for a platform handler that
+  does **not** declare the contract, with (a) as the declared path.
+
+**DECISION — the contract's surface**, the user's call before any of this
+is built: where the declaration lives (`platform handler HostRawFs of
+RawFs` growing a clause vs. a marker on the `platform effect`/effect), what
+it asserts (full concurrent safety vs. per-member claims), and whether the
+undeclared case keeps today's assumption, takes (b)'s serialized fallback,
+or becomes an error. The skeleton generator (`salvo platform generate`)
+should print the chosen contract into the host file it writes, so the
+person implementing the host signs what the compiler assumes.
 
 ## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
 
@@ -660,6 +759,7 @@ links to the section that states the options.
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
+| **Platform-handler thread-safety contract** — the declaration surface, what it asserts, and what the undeclared case means; unblocks the parity-restoring emissions | unscheduled (the assumption stands meanwhile, user decision 2026-09-20) | "Platform handlers — the thread-safety contract" |
 | **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was

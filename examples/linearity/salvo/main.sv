@@ -33,7 +33,9 @@ fn issue(id: Int, seat: Str) [Console] -> Ticket {
 // `!ticket` in the deduction clause says so. Inside one the obligation still
 // has to end, and `discard` is the terminal: it is legal *only* here, in the
 // same file as the declaration, which is what keeps the escape hatch honest.
-fn redeem(ticket: Ticket) [Console] -> None => !ticket {
+// (`local Console` because section 5 calls this from inside a lambda, whose
+// effects are call-only: a fn a lambda calls declares `[local E]`.)
+fn redeem(ticket: Ticket) [local Console] -> None => !ticket {
     println("1. redeemed #${ticket.id}")
     discard(ticket)
 }

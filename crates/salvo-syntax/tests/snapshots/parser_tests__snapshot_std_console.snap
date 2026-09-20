@@ -168,15 +168,15 @@ Module {
                 implicit_groups: [],
                 effects: Some(
                     [
-                        Effect(
+                        LocalEffect(
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 213..220,
+                                    span: 219..226,
                                 },
                                 args: [],
                                 from: [],
-                                span: 213..220,
+                                span: 219..226,
                             },
                         ),
                     ],
@@ -188,11 +188,11 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 225..229,
+                                span: 231..235,
                             },
                             args: [],
                             from: [],
-                            span: 225..229,
+                            span: 231..235,
                         },
                     },
                 ),
@@ -205,7 +205,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 236..241,
+                                            span: 242..247,
                                         },
                                     ),
                                     type_args: [],
@@ -213,12 +213,12 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 242..249,
+                                                span: 248..255,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 236..250,
+                                    span: 242..256,
                                 },
                             ),
                             Expr(
@@ -226,7 +226,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 255..260,
+                                            span: 261..266,
                                         },
                                     ),
                                     type_args: [],
@@ -237,18 +237,18 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 261..265,
+                                            span: 267..271,
                                         },
                                     ],
                                     named: [],
-                                    span: 255..266,
+                                    span: 261..272,
                                 },
                             ),
                         ],
-                        span: 230..268,
+                        span: 236..274,
                     },
                 ),
-                span: 187..268,
+                span: 187..274,
             },
         ),
     ],

@@ -56,14 +56,14 @@ fun fs_escaped(path: String): FsError {
     return FsError(kind = U8_5<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(PathEscapes(path = path)))
 }
 
-class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs where __Fx : __Has_Fs {
+class RestrictedFs(private val root: String, private val __dep_Fs: __Has_Fs) : Fs {
 
     override fun open_read(path: String): Union2<InStream, FsError> {
         val real = fs_resolve(root, path)
         if (real == null) {
             return U2_2<InStream, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.open_read(real)
+        return __dep_Fs.__fx_Fs.open_read(real)
     }
 
     override fun open_read_at(path: String, offset: Long): Union2<InStream, FsError> {
@@ -71,7 +71,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<InStream, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.open_read_at(real, offset)
+        return __dep_Fs.__fx_Fs.open_read_at(real, offset)
     }
 
     override fun open_write(path: String): Union2<OutStream, FsError> {
@@ -79,7 +79,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<OutStream, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.open_write(real)
+        return __dep_Fs.__fx_Fs.open_write(real)
     }
 
     override fun open_append(path: String): Union2<OutStream, FsError> {
@@ -87,7 +87,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<OutStream, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.open_append(real)
+        return __dep_Fs.__fx_Fs.open_append(real)
     }
 
     override fun exists(path: String): Boolean {
@@ -95,7 +95,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return false
         }
-        return __fx.__fx_Fs.exists(real)
+        return __dep_Fs.__fx_Fs.exists(real)
     }
 
     override fun metadata(path: String): Union2<FileInfo, FsError> {
@@ -103,7 +103,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<FileInfo, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.metadata(real)
+        return __dep_Fs.__fx_Fs.metadata(real)
     }
 
     override fun list_dir(path: String): Union2<List<String>, FsError> {
@@ -111,7 +111,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<List<String>, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.list_dir(real)
+        return __dep_Fs.__fx_Fs.list_dir(real)
     }
 
     override fun create_dirs(path: String): Union2<Unit, FsError> {
@@ -119,7 +119,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<Unit, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.create_dirs(real)
+        return __dep_Fs.__fx_Fs.create_dirs(real)
     }
 
     override fun delete(path: String): Union2<Unit, FsError> {
@@ -127,7 +127,7 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real == null) {
             return U2_2<Unit, FsError>(err(fs_escaped(path)))
         }
-        return __fx.__fx_Fs.delete(real)
+        return __dep_Fs.__fx_Fs.delete(real)
     }
 
     override fun rename_path(from: String, to: String): Union2<Unit, FsError> {
@@ -139,62 +139,62 @@ class RestrictedFs<__Fx>(private val root: String, private val __fx: __Fx) : Fs 
         if (real_to == null) {
             return U2_2<Unit, FsError>(err(fs_escaped(to)))
         }
-        return __fx.__fx_Fs.rename_path(real_from, real_to)
+        return __dep_Fs.__fx_Fs.rename_path(real_from, real_to)
     }
 
     override fun read_line(s: InStream): String? {
-        return __fx.__fx_Fs.read_line(s)
+        return __dep_Fs.__fx_Fs.read_line(s)
     }
 
     override fun read_all(s: InStream): Union2<String, FsError> {
-        return __fx.__fx_Fs.read_all(s)
+        return __dep_Fs.__fx_Fs.read_all(s)
     }
 
     override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, FsError> {
-        return __fx.__fx_Fs.read_bytes(s, max)
+        return __dep_Fs.__fx_Fs.read_bytes(s, max)
     }
 
     override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, FsError> {
-        return __fx.__fx_Fs.read_to(s, buf, max)
+        return __dep_Fs.__fx_Fs.read_to(s, buf, max)
     }
 
     override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, FsError> {
-        return __fx.__fx_Fs.read_to__2(s, buf)
+        return __dep_Fs.__fx_Fs.read_to__2(s, buf)
     }
 
     override fun read_line_to(s: InStream, buf: StringBuilder): Boolean {
-        return __fx.__fx_Fs.read_line_to(s, buf)
+        return __dep_Fs.__fx_Fs.read_line_to(s, buf)
     }
 
     override fun position(s: InStream): Long {
-        return __fx.__fx_Fs.position(s)
+        return __dep_Fs.__fx_Fs.position(s)
     }
 
     override fun close(s: InStream): Union2<Unit, FsError> {
-        return __fx.__fx_Fs.close(s)
+        return __dep_Fs.__fx_Fs.close(s)
     }
 
     override fun write(s: OutStream, text: String): Long {
-        return __fx.__fx_Fs.write(s, text)
+        return __dep_Fs.__fx_Fs.write(s, text)
     }
 
     override fun write_line(s: OutStream, text: String): Long {
-        return __fx.__fx_Fs.write_line(s, text)
+        return __dep_Fs.__fx_Fs.write_line(s, text)
     }
 
     override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long {
-        return __fx.__fx_Fs.write_bytes(s, data)
+        return __dep_Fs.__fx_Fs.write_bytes(s, data)
     }
 
     override fun position__2(s: OutStream): Long {
-        return __fx.__fx_Fs.position__2(s)
+        return __dep_Fs.__fx_Fs.position__2(s)
     }
 
     override fun flush(s: OutStream): Union2<Unit, FsError> {
-        return __fx.__fx_Fs.flush(s)
+        return __dep_Fs.__fx_Fs.flush(s)
     }
 
     override fun close__2(s: OutStream): Union2<Unit, FsError> {
-        return __fx.__fx_Fs.close__2(s)
+        return __dep_Fs.__fx_Fs.close__2(s)
     }
 }

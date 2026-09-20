@@ -517,20 +517,20 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn draw() [Random<Int>, Random<Str>, Console] {
+fn draw() [local Random<Int>, local Random<Str>, Console] {
     let n: Int = next_random()
     let s: Str = next_random()
     println("${s}: ${n}")
 }
 
-fn lucky_number() [Random<Int>] -> Int {
+fn lucky_number() [local Random<Int>] -> Int {
     return next_random()
 }
 
 fn main() [use] {
     use StdOutConsole
-    use CyclicRandom(list_of(10, 20, 30))
-    use CyclicRandom(list_of("a", "b"))
+    use local CyclicRandom(list_of(10, 20, 30))
+    use local CyclicRandom(list_of("a", "b"))
     draw()
     draw()
     println("lucky: ${next_random<Int>()}")
@@ -1791,19 +1791,19 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [local Console] of Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-fn work() [Logger] -> None {
+fn work() [local Logger] -> None {
     log("from work")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use ConsoleLogger()
+    use local ConsoleLogger()
     work()
     log("from main")
 }
@@ -1947,13 +1947,13 @@ handler Formal of Greeter {
     }
 }
 
-handler Loud [Greeter] of Greeter {
+handler Loud [local Greeter] of Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"
     }
 }
 
-handler Counting [Greeter] of Greeter {
+handler Counting [local Greeter] of Greeter {
     count: Int = 0
     fn greet(name: Str) -> Str => name {
         count = count + 1
@@ -1967,34 +1967,34 @@ handler MemStore<T> of Store<T> {
     }
 }
 
-handler Twice [Store<Int>] of Store<Int> {
+handler Twice [local Store<Int>] of Store<Int> {
     fn keep(value: Int) -> Str => value {
         return "${keep(value)} ${keep(value)}"
     }
 }
 
-fn shout(name: Str) [Greeter, Console] -> None => name {
+fn shout(name: Str) [local Greeter, Console] -> None => name {
     println(greet(name))
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use Plain
+    use local Plain
     shout("a")
-    use Formal
+    use local Formal
     shout("b")
-    use Counting
+    use local Counting
     shout("c")
     if true {
-        use Loud
+        use local Loud
         shout("d")
     }
     shout("e")
-    use MemStore<Int>()
-    use MemStore<Str>()
+    use local MemStore<Int>()
+    use local MemStore<Str>()
     println(keep(1))
     println(keep("x"))
-    use Twice
+    use local Twice
     println(keep(2))
     println(keep("y"))
 }
@@ -2075,6 +2075,112 @@ fn rustc_compiles_and_runs_interception() {
     );
 }
 
+// ===== the shareable-by-default interceptor chain [use-local] =====
+// The production shape the 2026-09-20 arc was built for, with no `local`
+// anywhere: a stateful handler binds as a monitor, a stateless dependent
+// handler binds bare and captures its dependencies as owned handles at
+// construction — one of them the effect it implements (interception binds
+// outward), another a monitor's handle.
+
+const SHAREABLE_CHAIN_DEMO: &str = r#"
+effect Counter {
+    fn bump() -> None
+    fn total() -> Int
+}
+
+handler MemCounter of Counter {
+    n: Int = 0
+    fn bump() { n = n + 1 }
+    fn total() -> Int { return n }
+}
+
+effect Logger {
+    fn log(m: Str) -> None => m
+}
+
+handler PlainLogger [Console] of Logger {
+    fn log(m: Str) -> None => m {
+        println("log: ${m}")
+    }
+}
+
+handler Shout [Logger, Counter] of Logger {
+    fn log(m: Str) -> None => m {
+        bump()
+        log("${m}!")
+    }
+}
+
+fn work(step: Str) [Logger] -> None => step {
+    log(step)
+}
+
+fn audit() [Counter, Console] -> None {
+    println("shouted ${total()}")
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use MemCounter()
+    use PlainLogger()
+    work("plain")
+    use Shout()
+    work("loud")
+    work("louder")
+    audit()
+}
+"#;
+
+const SHAREABLE_CHAIN_OUTPUT: &str = "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n";
+
+/// [use-local] [effect-handler-deps] [rs-monitor] The chain end to end:
+/// `MemCounter` behind its lock, `PlainLogger` bare with a captured console
+/// handle, `Shout` wrapping the `Logger` registered before it — and the
+/// count proving both `work` calls went through the interceptor and the
+/// monitor. Byte-identical stdout on Kotlin.
+#[test]
+fn rustc_compiles_and_runs_a_shareable_interceptor_chain() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SHAREABLE_CHAIN_DEMO)]);
+    run_rust_files(&files, "shareable-chain", SHAREABLE_CHAIN_OUTPUT);
+}
+
+/// [use-local] [effect-handler-deps] A **generic** dependent handler works
+/// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
+/// no generated trait has to name the handler's generics — the cut that
+/// still stands for the fusion form (`generic_dependent_handler_is_a_
+/// codegen_error`) does not bind here.
+#[test]
+fn rustc_compiles_and_runs_a_generic_handler_with_a_handle_dep() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    const SRC: &str = r#"
+effect Sink<T> {
+    fn accept(value: T) -> Str => value
+}
+
+handler Relay<T> [Console] of Sink<T> {
+    fn accept(value: T) -> Str => value {
+        println("relayed")
+        return "ok"
+    }
+}
+
+fn main() [use] -> None {
+    use StdOutConsole
+    use Relay<Int>()
+    println(accept(1))
+}
+"#;
+    let files = generate(&[("main.sv", SRC)]);
+    run_rust_files(&files, "generic-handle-dep", "relayed\nok\n");
+}
+
 /// [rs-effect-fusion] Identical fusions are **one** struct (user decision
 /// 2026-09-14): two fns registering the same handler over the same inherited
 /// set were emitting a struct and a full set of impls each.
@@ -2085,19 +2191,19 @@ export effect Logger {
     fn log(m: Str) -> None => m
 }
 
-export handler PlainLogger [Console] of Logger {
+export handler PlainLogger [local Console] of Logger {
     fn log(m: Str) -> None => m {
         println("log: ${m}")
     }
 }
 
 export fn first() [Console, use] -> None {
-    use PlainLogger()
+    use local PlainLogger()
     log("first")
 }
 
 export fn second() [Console, use] -> None {
-    use PlainLogger()
+    use local PlainLogger()
     log("second")
 }
 
@@ -2167,7 +2273,7 @@ handler MemCounter of Counter {
     fn total() -> Int { return n }
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [local Console] of Logger {
     seen: Int = 0
     fn log(message: Str) -> None => message {
         seen = seen + 1
@@ -2175,7 +2281,7 @@ handler ConsoleLogger [Console] of Logger {
     }
 }
 
-handler CountingAudit [Console, Counter] of Audit {
+handler CountingAudit [local Console, local Counter] of Audit {
     fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
@@ -2186,29 +2292,29 @@ fn shout(message: Str) [Console] -> None => message {
     println("!! ${message}")
 }
 
-fn banner() [Console, Logger] -> None {
+fn banner() [Console, local Logger] -> None {
     log("banner")
     shout("done")
 }
 
-fn draw() [Console, Random<Int>, use] -> None {
-    use MemCounter
+fn draw() [Console, local Random<Int>, use] -> None {
+    use local MemCounter
     bump()
     println("drew ${next_random<Int>()} at ${total()}")
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use ConsoleLogger()
+    use local ConsoleLogger()
     banner()
     if true {
-        use MemCounter
-        use CountingAudit()
+        use local MemCounter
+        use local CountingAudit()
         note("inner")
         banner()
     }
     log("outer again")
-    use CyclicRandom(array_of(10, 20, 30))
+    use local CyclicRandom(array_of(10, 20, 30))
     draw()
     draw()
 }
@@ -2287,7 +2393,7 @@ export effect Sink<T> {
     fn accept(value: T) -> None => value
 }
 
-export handler Relay<T> [Console] of Sink<T> {
+export handler Relay<T> [local Console] of Sink<T> {
     fn accept(value: T) -> None => value {
         println("relayed")
     }
@@ -2295,7 +2401,7 @@ export handler Relay<T> [Console] of Sink<T> {
 
 export fn main() [use] -> None {
     use StdOutConsole
-    use Relay<Int>()
+    use local Relay<Int>()
     accept(1)
 }
 "#;
@@ -2977,13 +3083,13 @@ handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
     }
 }
 
-fn roll() [Random<Count>] -> Count {
+fn roll() [local Random<Count>] -> Count {
     return next_random()
 }
 
 fn main() [use] -> None {
     use StdOutConsole
-    use CyclicRandom(list_of(7, 8))
+    use local CyclicRandom(list_of(7, 8))
     println("${roll()} ${roll()}")
 }
 "#;
@@ -7708,7 +7814,7 @@ handler Direct of Sink {
     }
 }
 
-handler Doubling [Sink] of Sink {
+handler Doubling [local Sink] of Sink {
     fn take(t: Token) -> Int => !t {
         return take(t) * 2
     }
@@ -7721,7 +7827,7 @@ handler Doubling [Sink] of Sink {
 fn main() [use] {
     use StdOutConsole()
     use Direct()
-    use Doubling()
+    use local Doubling()
     let t: Mut Token = Mut Token { id: 1 }
     bump(t)
     println("bumped ${t.id}")
@@ -9828,7 +9934,7 @@ handler Counting() of Tally, Stats {
     }
 }
 
-fn count() [Tally, Stats] -> Int {
+fn count() [local Tally, local Stats] -> Int {
     bump(2)
     bump(3)
     return total()
@@ -9846,7 +9952,7 @@ fn main() [use, spawn] {
     println(fired)
     let left = waitfor c: Reply<Int> { ctl.pending(c) }
     println("pending ${left}")
-    use Counting()
+    use local Counting()
     println("total ${count()}")
 }
 "#;

@@ -47,8 +47,13 @@ shows both prefixes in that order.
 
 Notice *where* the dependencies surface. `interception` is the function that
 registers `Stamped`, so `interception` is what needs a `Clock` in scope; the
-function actually calling `log` declares `[Logger]` and knows nothing about
-any of it. Wiring lives at the composition site, not along the call path.
+function actually calling `log` declares `[local Logger]` and knows nothing
+about any of it. Wiring lives at the composition site, not along the call
+path. The `local` spelling is this section's other lesson: a plain `use`
+binds **shareable by default** — capturing its dependencies as owned handles,
+which needs a binding in the same function — so wiring that works over
+signature-supplied effects opts out with `use local`, and a `local E` in an
+effect list accepts such a scope-local binding.
 
 **5 — shadowing is not wrapping.** A `use` for an effect already in scope takes
 over for the rest of the block, and what it shadowed comes back at the closing
@@ -89,8 +94,8 @@ Worth a look, because effects are the feature whose lowering is least obvious:
 
 - **Kotlin** (`kotlin/main.kt`): effects become interfaces, handlers classes. A
   handler's dependencies arrive as one small object it stores
-  (`class Stamped(private val __fx: __Fx_2)`), built where the handler is
-  registered — `Stamped(__Fx_2(__fx.__fx_Clock, __fx.__fx_Logger))` is the
+  (`class Stamped<__Fx>(private val __fx: __Fx)`), built where the handler is
+  registered — `Stamped(__Fx_1(__fx.__fx_Clock, __fx.__fx_Logger))` is the
   outward binding, made of nothing but object references, and the member bodies
   read it rather than rebuilding anything per call.
 - **Rust** (`rust/main.rs`): effects become traits, and because a `&mut` cannot

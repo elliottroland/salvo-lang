@@ -360,7 +360,7 @@ fun<__Fx> sandbox_edges(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console 
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
     val __fx2 = __Fx_2(__fx.__fx_Console, salvo.platform.core.hostfs.HostRawFs())
-    val __fx3 = __Fx_4(__fx2.__fx_Console, DefaultFs(__Fx_3(__fx2.__fx_RawFs)), __fx2.__fx_RawFs)
+    val __fx3 = __Fx_3(__fx2.__fx_Console, DefaultFs(__fx2), __fx2.__fx_RawFs)
     val root = "tmp/files-example"
     val made = __fx3.__fx_Fs.create_dirs(root)
     if (made is U2_2<*, *>) {
@@ -369,7 +369,7 @@ fun main() {
     }
     println(__fx3, "-- the real filesystem, scoped to one directory --")
     if (true) {
-        val __fx4 = __Fx_4(__fx3.__fx_Console, RestrictedFs(root, __Fx_5(__fx3.__fx_Fs)), __fx3.__fx_RawFs)
+        val __fx4 = __Fx_3(__fx3.__fx_Console, RestrictedFs(root, __fx3), __fx3.__fx_RawFs)
         workflow(__fx4)
         sandbox_edges(__fx4)
     }
@@ -379,7 +379,7 @@ fun main() {
     }
     println(__fx3, "-- the same code, with no disk at all --")
     if (true) {
-        val __fx5 = __Fx_4(__fx3.__fx_Console, MemFs(), __fx3.__fx_RawFs)
+        val __fx5 = __Fx_3(__fx3.__fx_Console, __Mon_Fs(MemFs()), __fx3.__fx_RawFs)
         workflow(__fx5)
     }
 }
@@ -394,15 +394,7 @@ class __Fx_2(
 ) : __Has_Console, __Has_RawFs
 
 class __Fx_3(
-    override val __fx_RawFs: RawFs,
-) : __Has_RawFs
-
-class __Fx_4(
     override val __fx_Console: Console,
     override val __fx_Fs: Fs,
     override val __fx_RawFs: RawFs,
 ) : __Has_Console, __Has_Fs, __Has_RawFs
-
-class __Fx_5(
-    override val __fx_Fs: Fs,
-) : __Has_Fs

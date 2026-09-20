@@ -1222,6 +1222,24 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     of the same crate, so without them the skeleton does not compile — which
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
+  * **A shared platform binding goes through the lock adapter** even though
+    it classifies bare ([use-local], user decision 2026-09-20): the emitted
+    trait's members take `&mut self`, and the local binding coexisting with
+    captured handles needs shared ownership — which `__Lock_E`'s `Arc`
+    provides and the host struct (no `Clone`, real host state) cannot. This
+    is the mechanics of sharing on this backend, not a semantic monitor —
+    Kotlin shares the raw instance [kt-platform-handler] — and for a host
+    that honors the thread-safety assumption the two are observationally
+    equivalent: same instance, same calls, same results. The **residual
+    divergence** is the failure mode when the assumption is *false*: a
+    non-thread-safe host races on Kotlin but is accidentally serialized
+    here, so a buggy host can appear to work on Rust and break on Kotlin —
+    and a host member that blocks waiting for another thread to enter a
+    *sibling* member would deadlock here and proceed there (both are
+    outside "thread-safe by design"). The recorded follow-up (ROADMAP) — a
+    declaration-level thread-safety contract — is also what would let this
+    backend drop the lock (e.g. `&self` members over `Arc<H>`) and close
+    the gap outright.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic
@@ -1462,17 +1480,44 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
 
   * **`Addr<E>` lowers to `__Mon_E`** when `E` is plain (both type paths —
     checked `Ty` and written AST — branch on the effect's declared kind); an
-    actor effect's addr stays `usize`. A generic plain effect's addr is
-    refused (the wrapper would need the instantiation), mirroring the actor
-    kind's message-enum refusal.
+    actor effect's addr stays `usize`. A **generic** plain effect's addr
+    carries the instantiation into the wrapper (`Addr<Random<Int>>` is
+    `__Mon_Random<i64>`, 2026-09-20); an uninstantiated mention is refused
+    by arity, a leniency path rather than a rule.
   * **The handle is clone-boxed** (reworked with [rs-mixed], 2026-09-19):
     `__Mon_E { inner: Box<dyn __Share_E> }`, where `__Share_E: E + Send` adds
-    `__clone_box` with a blanket impl over `E + Clone + Send + 'static` — so
-    one handle type carries a monitor *or* a mixed handler's façade. The lock
-    is the per-effect generic adapter `__Lock_E<H: E + Send>` over
-    `Arc<Mutex<H>>` (the deferred C-4(c) "Arc-where-sent" growth point), and
-    a monitor spawn is `__Mon_E::new(Box::new(__Lock_E::new(H::new(args))))`
-    — no scheduler, no mailbox, no pool.
+    `__clone_box` with a blanket impl over `Clone + Send + 'static`
+    (implementing parameter spelled `__H`, which an effect's own generics can
+    never collide with) — so one handle type carries a monitor *or* a mixed
+    handler's façade. The lock is the per-effect adapter `__Lock_E<H>` over
+    `Arc<Mutex<H>>` — the struct itself unbounded, the bounds on the trait
+    impl, where the effect's own generics can join them (the deferred C-4(c)
+    "Arc-where-sent" growth point) — and a monitor spawn is
+    `__Mon_E::new(Box::new(__Lock_E::new(H::new(args))))` — no scheduler, no
+    mailbox, no pool. A bare `use` of a stateful handler emits the same lock
+    wrap at the binding ([use-local]); the whole apparatus is **generic
+    exactly as the effect is** (`__Share_Random<T: 'static>`,
+    `__Mon_Random<T: 'static>`, `impl<T: 'static, H: Random<T> + Send>
+    Random<T> for __Lock_Random<H>`), and construction sites name a generic
+    instance's type arguments outright (`__Mon_Random::<i64>::new(…)`, from
+    the checker's resolved instance) rather than asking inference to thread
+    them through the unsize coercion.
+  * **A handle-dep handler** ([effect-handler-deps]'s owned-handles form)
+    gets `__dep_e: __Mon_E` fields and trailing `new` parameters; members
+    emit the independent shape with environment entries at `self.__dep_e`,
+    and `__Mon_E` implements `__Has_E` (`__get_E → self`, emitted under the
+    fusion gate exactly as the `__Has_E` trait itself is — plain mode
+    declares no such trait, so the impl would dangle), which keeps the fused
+    call machinery working with **field-granular borrows** (the E0502 trap
+    otherwise). Bind sites mint an **eager handle variable**
+    (`let __bind = …; let __handle = __Mon_E::new(Box::new(__bind.clone()))`)
+    for effects a later construction in the file captures, because the
+    binding value itself moves into the fusion; `use addr` bindings clone
+    the handle directly. Stateless shareable handler structs and intrinsic
+    structs derive `Clone` (the `__Share_E` blanket impl wants
+    `Clone + Send`); a platform host struct need not — a shared platform
+    binding goes through the lock adapter ([rs-platform-handler]), whose
+    handle-clone is an `Arc` bump.
   * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
     checker treats every `Addr` as freely reusable, so an owned read of a
     plain-effect addr **clones** (`emit_owned`'s ident arm); a handle bound
@@ -1482,15 +1527,17 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * **`use addr` binds the value itself** (it already implements the trait);
     a plain-effect addr supplied in a spawn's dependency clause passes
     through as itself, where an actor addr gets the `__Stub_E` send wrapper.
-  * **The wrapper is emitted for every non-generic plain effect** beside its
-    trait, used or not — generated programs allow `dead_code`, and per-effect
-    emission is what gives the type one identity across modules (the message
-    enum's reasoning). Members with their own generics are skipped exactly as
-    the trait skips them ([rs-effects] refuses dyn-dispatching them).
-  * **Rust's `Mutex` is not reentrant, and that is unobservable**: a monitor
-    member can reach no other handler (no dependencies), so no path routes
-    back into the wrapper; sibling calls inside the handler are direct self
-    calls under the one acquisition. A poisoned lock (`unwrap`) surfaces as a
+  * **The wrapper is emitted for every plain effect** beside its trait, used
+    or not — generated programs allow `dead_code`, and per-effect emission
+    is what gives the type one identity across modules (the message enum's
+    reasoning). Members with their own generics are skipped exactly as the
+    trait skips them ([rs-effects] refuses dyn-dispatching them).
+  * **Rust's `Mutex` is not reentrant, and that is unobservable**: a
+    shareable handler's bindings are fixed at construction and its deps bind
+    strictly outward/earlier ([use-local]'s blockers keep `use`/`spawn` and
+    `local` deps off the form), so no path routes back into the wrapper;
+    sibling calls inside the handler are direct self calls under the one
+    acquisition. A poisoned lock (`unwrap`) surfaces as a
     panic only after another member already panicked, which is the fault
     boundary's business.
 

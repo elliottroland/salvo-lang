@@ -84,11 +84,11 @@ class __Mon_RawFs(private val inner: RawFs) : RawFs {
         synchronized(inner) { inner.raw_close_write(handle) }
 }
 
-class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
+class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun open_read(path: String): Union2<InStream, FsError> {
-        val r = __fx.__fx_RawFs.raw_open_read(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_open_read(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<InStream, FsError>(ok(InStream(handle = (r.value as Long))))
@@ -101,7 +101,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun open_read_at(path: String, offset: Long): Union2<InStream, FsError> {
-        val r = __fx.__fx_RawFs.raw_open_read_at(path, offset)
+        val r = __dep_RawFs.__fx_RawFs.raw_open_read_at(path, offset)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<InStream, FsError>(ok(InStream(handle = (r.value as Long))))
@@ -114,7 +114,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun open_write(path: String): Union2<OutStream, FsError> {
-        val r = __fx.__fx_RawFs.raw_open_write(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_open_write(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<OutStream, FsError>(ok(OutStream(handle = (r.value as Long))))
@@ -127,7 +127,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun open_append(path: String): Union2<OutStream, FsError> {
-        val r = __fx.__fx_RawFs.raw_open_append(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_open_append(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<OutStream, FsError>(ok(OutStream(handle = (r.value as Long))))
@@ -139,12 +139,12 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
     }
 
     override fun exists(path: String): Boolean {
-        return __fx.__fx_RawFs.raw_exists(path)
+        return __dep_RawFs.__fx_RawFs.raw_exists(path)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun metadata(path: String): Union2<FileInfo, FsError> {
-        val r = __fx.__fx_RawFs.raw_metadata(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_metadata(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<FileInfo, FsError>(ok((r.value as FileInfo)))
@@ -157,7 +157,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun list_dir(path: String): Union2<List<String>, FsError> {
-        val r = __fx.__fx_RawFs.raw_list_dir(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_list_dir(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<List<String>, FsError>(ok((r.value as List<String>)))
@@ -170,7 +170,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun create_dirs(path: String): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_create_dirs(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_create_dirs(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Unit, FsError>(ok(Unit))
@@ -183,7 +183,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun delete(path: String): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_delete(path)
+        val r = __dep_RawFs.__fx_RawFs.raw_delete(path)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Unit, FsError>(ok(Unit))
@@ -196,7 +196,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun rename_path(from: String, to: String): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_rename_path(from, to)
+        val r = __dep_RawFs.__fx_RawFs.raw_rename_path(from, to)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Unit, FsError>(ok(Unit))
@@ -208,12 +208,12 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
     }
 
     override fun read_line(s: InStream): String? {
-        return __fx.__fx_RawFs.raw_read_line(s.handle)
+        return __dep_RawFs.__fx_RawFs.raw_read_line(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun read_all(s: InStream): Union2<String, FsError> {
-        val r = __fx.__fx_RawFs.raw_read_all(s.handle)
+        val r = __dep_RawFs.__fx_RawFs.raw_read_all(s.handle)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<String, FsError>(ok((r.value as String)))
@@ -226,7 +226,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, FsError> {
-        val r = __fx.__fx_RawFs.raw_read_bytes(s.handle, max)
+        val r = __dep_RawFs.__fx_RawFs.raw_read_bytes(s.handle, max)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<salvo.SalvoBytes, FsError>(ok((r.value as salvo.SalvoBytes)))
@@ -239,7 +239,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, FsError> {
-        val r = __fx.__fx_RawFs.raw_read_to_bytes(s.handle, buf, max)
+        val r = __dep_RawFs.__fx_RawFs.raw_read_to_bytes(s.handle, buf, max)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Int, FsError>(ok((r.value as Int)))
@@ -252,7 +252,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, FsError> {
-        val r = __fx.__fx_RawFs.raw_read_to_str(s.handle, buf)
+        val r = __dep_RawFs.__fx_RawFs.raw_read_to_str(s.handle, buf)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Long, FsError>(ok((r.value as Long)))
@@ -264,16 +264,16 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
     }
 
     override fun read_line_to(s: InStream, buf: StringBuilder): Boolean {
-        return __fx.__fx_RawFs.raw_read_line_to_str(s.handle, buf)
+        return __dep_RawFs.__fx_RawFs.raw_read_line_to_str(s.handle, buf)
     }
 
     override fun position(s: InStream): Long {
-        return __fx.__fx_RawFs.raw_read_position(s.handle)
+        return __dep_RawFs.__fx_RawFs.raw_read_position(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun close(s: InStream): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_close_read(s.handle)
+        val r = __dep_RawFs.__fx_RawFs.raw_close_read(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {
@@ -286,24 +286,24 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
     }
 
     override fun write(s: OutStream, text: String): Long {
-        return __fx.__fx_RawFs.raw_write(s.handle, text)
+        return __dep_RawFs.__fx_RawFs.raw_write(s.handle, text)
     }
 
     override fun write_line(s: OutStream, text: String): Long {
-        return __fx.__fx_RawFs.raw_write(s.handle, "$text\n")
+        return __dep_RawFs.__fx_RawFs.raw_write(s.handle, "$text\n")
     }
 
     override fun write_bytes(s: OutStream, data: salvo.SalvoBytes): Long {
-        return __fx.__fx_RawFs.raw_write_bytes(s.handle, data)
+        return __dep_RawFs.__fx_RawFs.raw_write_bytes(s.handle, data)
     }
 
     override fun position__2(s: OutStream): Long {
-        return __fx.__fx_RawFs.raw_write_position(s.handle)
+        return __dep_RawFs.__fx_RawFs.raw_write_position(s.handle)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun flush(s: OutStream): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_flush(s.handle)
+        val r = __dep_RawFs.__fx_RawFs.raw_flush(s.handle)
         when (r) {
             is U2_1<*, *> -> {
                 return U2_1<Unit, FsError>(ok(Unit))
@@ -316,7 +316,7 @@ class DefaultFs<__Fx>(private val __fx: __Fx) : Fs where __Fx : __Has_RawFs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
     override fun close__2(s: OutStream): Union2<Unit, FsError> {
-        val r = __fx.__fx_RawFs.raw_close_write(s.handle)
+        val r = __dep_RawFs.__fx_RawFs.raw_close_write(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {

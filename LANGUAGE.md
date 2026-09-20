@@ -1589,8 +1589,8 @@ handler Counting() of Tally, Stats {
 }
 
 fn main() [use] {
-    use Counting()          // registers *both* effects
-    bump(2)
+    use local Counting()    // registers *both* effects — `local` because one
+    bump(2)                 // lock behind several faces has no shared form yet
     println("${total()}")
 }
 ```
@@ -1629,9 +1629,22 @@ fn main() [use, spawn] {
 }
 ```
 
-The price of sharing is a restriction, and the restriction is one line: **a monitor declares no dependencies.** With nothing to perform, its members are pure state transformation — no effects, no waits — so the lock is *innermost by construction*: no thread ever holds it while wanting anything else, and no deadlock involving a monitor can be written. A handler that needs to print, read a file, or wait for an answer is not a monitor; the diagnostic says so and names the alternatives (keep it `use`-bound in one scope, or give it an actor face and a mailbox). `use CyclicRandom(1)` in a single scope keeps today's meaning — inline, single-threaded, no lock; the restriction binds only where the handler is *shared*.
+The price of sharing used to be "a monitor declares no dependencies"; since the shareable-by-default round (2026-09-20) a monitor **may** declare dependencies, provided every one is the shareable default (`[E]` — no `local E`, no `use`, no `spawn` capability). They are captured as **owned handles at construction**, resolved from the enclosing scope exactly as a `use` resolves them, so the bindings are fixed for the instance's life. The availability rule keeps the capture acyclic — a dependency was bound before this handler, so no lock order can cycle by construction — and where a member *can* wait (a dependency with mixed handlers, a `waitfor` in a member), the wait is **priced, not refused**: the handler gets a node in the same deadlock graph actors use (`H's lock`), and a cycle through held locks is reported before it runs. A handler that cannot be shared at all — unsendable state, the `use`/`spawn` capabilities, a `local` dependency — is refused with the opt-out named.
 
-A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`.
+A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`. A generic effect instance shares like any other: `handler CyclicRandom of Random<Int>` gets a monitor of `Random<Int>`, so genericity costs nothing here.
+
+### Shareable by default: `use`, `use local`, and `local E`
+
+`use H(args)` binds **shareable by default** (user decision 2026-09-20). A stateless handler binds *bare* — shareable without a lock, so `StdOutConsole` and friends pay nothing — and a stateful one binds as a **monitor**: lock-shaped from birth, effectively `let h = spawn H(args); use h`. A `use` of an addr or of a spawn expression is already a handle and needs no words. The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to guarantee something that may cross a seam.
+
+That is what `[E]` now means: **a shareable `E`** — the function may pass it across seams. The opt-outs are spelled:
+
+- **`use local H(args)`** binds scope-local and lock-free — the pre-2026-09-20 meaning. It is *required*, by an error naming it, for handlers that cannot be shared: unsendable state (a stored lambda), the `use`/`spawn` capabilities, a `local E` dependency, an actor-effect or generic-instance dependency (both pin the fusion form).
+- **`[local E]`** in an effect list accepts a scope-local binding and disclaims seam rights for `E`. The call-site rule: a `use local` binding satisfies only `[local E]` requirements; a shareable binding satisfies both, since `local` is the weaker claim. The annotation is viral down call chains that traffic in local bindings — an accepted cost, to be lifted later by inference — and std's own effect-forwarding functions (`println`, the `Fs` surface, `elapsed`) declare `[local E]`, being pure forwarders that never cross a seam.
+- A **fn type's** effects are always call-only — a function value cannot spawn — so writing `local` there is refused as redundant, and a lambda's availabilities are local: a function called from inside a lambda declares `[local E]`.
+
+A dependent handler bound shareable captures its dependencies as owned handles **at construction, from bindings in the same function**. An effect that arrives through the enclosing signature has no binding value to mint a handle from, so registering such a handler there is an error pointing at the two current remedies (bind it in this function, or go `use local`) — threading a signature-supplied effect into a captured handle arrives with spawn-inheritance. A `platform handler` is **assumed thread-safe by its design** (user decision 2026-09-20): it classifies bare, so nothing that depends on a platform-backed effect ever writes `local` — `DefaultFs [RawFs]` stays annotation-free, as does the production interceptor chain, which was the point of lifting monitor dependencies. The assumption is unvalidated for now; a way for a host to state (and the compiler to check) its thread-safety is future work.
+
 
 ### Mixed handlers — a servant behind a plain effect
 
@@ -1698,8 +1711,8 @@ Two members with the same name *and* the same parameter types are the error they
 A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` pass.
 
 ```
-fn close(p: Lines) [Fs] -> Ok None | Err FsError => !p {   // a function
-    return close(p.s)                                      // ...calling the member
+fn close(p: Lines) [local Fs] -> Ok None | Err FsError => !p {   // a function
+    return close(p.s)                                            // ...calling the member
 }
 ```
 

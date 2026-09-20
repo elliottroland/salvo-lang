@@ -149,7 +149,7 @@ pub trait __Share_Fs: Fs + Send {
     fn __clone_box(&self) -> Box<dyn __Share_Fs>;
 }
 
-impl<T: Fs + Clone + Send + 'static> __Share_Fs for T {
+impl<__H: Fs + Clone + Send + 'static> __Share_Fs for __H {
     fn __clone_box(&self) -> Box<dyn __Share_Fs> {
         Box::new(self.clone())
     }
@@ -246,17 +246,17 @@ impl Fs for __Mon_Fs {
     }
 }
 
-pub struct __Lock_Fs<H: Fs + Send> {
+pub struct __Lock_Fs<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: Fs + Send> Clone for __Lock_Fs<H> {
+impl<H> Clone for __Lock_Fs<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: Fs + Send> __Lock_Fs<H> {
+impl<H> __Lock_Fs<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -334,6 +334,12 @@ impl<H: Fs + Send> Fs for __Lock_Fs<H> {
     }
     fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
         self.inner.lock().unwrap().close__2(s)
+    }
+}
+
+impl __Has_Fs for __Mon_Fs {
+    fn __get_Fs(&mut self) -> &mut dyn Fs {
+        self
     }
 }
 

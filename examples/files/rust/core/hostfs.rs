@@ -42,7 +42,7 @@ pub trait __Share_RawFs: RawFs + Send {
     fn __clone_box(&self) -> Box<dyn __Share_RawFs>;
 }
 
-impl<T: RawFs + Clone + Send + 'static> __Share_RawFs for T {
+impl<__H: RawFs + Clone + Send + 'static> __Share_RawFs for __H {
     fn __clone_box(&self) -> Box<dyn __Share_RawFs> {
         Box::new(self.clone())
     }
@@ -136,17 +136,17 @@ impl RawFs for __Mon_RawFs {
     }
 }
 
-pub struct __Lock_RawFs<H: RawFs + Send> {
+pub struct __Lock_RawFs<H> {
     inner: std::sync::Arc<std::sync::Mutex<H>>,
 }
 
-impl<H: RawFs + Send> Clone for __Lock_RawFs<H> {
+impl<H> Clone for __Lock_RawFs<H> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
     }
 }
 
-impl<H: RawFs + Send> __Lock_RawFs<H> {
+impl<H> __Lock_RawFs<H> {
     pub fn new(inner: H) -> Self {
         Self { inner: std::sync::Arc::new(std::sync::Mutex::new(inner)) }
     }
@@ -224,81 +224,29 @@ impl<H: RawFs + Send> RawFs for __Lock_RawFs<H> {
     }
 }
 
+impl __Has_RawFs for __Mon_RawFs {
+    fn __get_RawFs(&mut self) -> &mut dyn RawFs {
+        self
+    }
+}
+
+#[derive(Clone)]
 pub struct DefaultFs {
+    __dep_RawFs: crate::core_hostfs::__Mon_RawFs,
 }
 
 impl DefaultFs {
-    pub fn new() -> Self {
+    pub fn new(__dep_RawFs: crate::core_hostfs::__Mon_RawFs) -> Self {
         Self {
+            __dep_RawFs,
         }
     }
 }
 
-pub struct __Deps_DefaultFs<'a, __P: ?Sized> {
-    pub __p: &'a mut __P,
-}
+impl Fs for DefaultFs {
 
-impl<'a, __P: __Has_RawFs + ?Sized> __Has_RawFs for __Deps_DefaultFs<'a, __P> {
-    fn __get_RawFs(&mut self) -> &mut dyn RawFs {
-        __Has_RawFs::__get_RawFs(&mut *self.__p)
-    }
-}
-
-pub trait __Impl_DefaultFs {
-
-    fn open_read<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<InStream, FsError>;
-
-    fn open_read_at<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String, offset: i64) -> Union2<InStream, FsError>;
-
-    fn open_write<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError>;
-
-    fn open_append<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError>;
-
-    fn exists<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> bool;
-
-    fn metadata<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<FileInfo, FsError>;
-
-    fn list_dir<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<Vec<String>, FsError>;
-
-    fn create_dirs<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError>;
-
-    fn delete<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError>;
-
-    fn rename_path<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, from: &String, to: &String) -> Union2<(), FsError>;
-
-    fn read_line<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Option<String>;
-
-    fn read_all<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Union2<String, FsError>;
-
-    fn read_bytes<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError>;
-
-    fn read_to<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError>;
-
-    fn read_to__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> Union2<i64, FsError>;
-
-    fn read_line_to<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> bool;
-
-    fn position<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> i64;
-
-    fn close<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: InStream) -> Union2<(), FsError>;
-
-    fn write<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64;
-
-    fn write_line<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64;
-
-    fn write_bytes<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, data: &Vec<u8>) -> i64;
-
-    fn position__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> i64;
-
-    fn flush<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> Union2<(), FsError>;
-
-    fn close__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: OutStream) -> Union2<(), FsError>;
-}
-
-impl __Impl_DefaultFs for DefaultFs {
-
-    fn open_read<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<InStream, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_open_read(path);
+    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_open_read(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<InStream, FsError>::U1(ok(InStream { handle: *r.u1() }));
@@ -309,8 +257,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn open_read_at<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String, offset: i64) -> Union2<InStream, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_open_read_at(path, offset);
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_open_read_at(path, offset);
         match r {
             Union2::U1(_) => {
                 return Union2::<InStream, FsError>::U1(ok(InStream { handle: *r.u1() }));
@@ -321,8 +269,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn open_write<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_open_write(path);
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_open_write(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<OutStream, FsError>::U1(ok(OutStream { handle: *r.u1() }));
@@ -333,8 +281,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn open_append<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<OutStream, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_open_append(path);
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_open_append(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<OutStream, FsError>::U1(ok(OutStream { handle: *r.u1() }));
@@ -345,12 +293,12 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn exists<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> bool {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_exists(path);
+    fn exists(&mut self, path: &String) -> bool {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_exists(path);
     }
 
-    fn metadata<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<FileInfo, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_metadata(path);
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_metadata(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<FileInfo, FsError>::U1(ok(r.u1().clone()));
@@ -361,8 +309,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn list_dir<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<Vec<String>, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_list_dir(path);
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_list_dir(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<Vec<String>, FsError>::U1(ok(r.u1().clone()));
@@ -373,8 +321,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn create_dirs<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_create_dirs(path);
+    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_create_dirs(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), FsError>::U1(ok(()));
@@ -385,8 +333,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn delete<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, path: &String) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_delete(path);
+    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_delete(path);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), FsError>::U1(ok(()));
@@ -397,8 +345,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn rename_path<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, from: &String, to: &String) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_rename_path(from, to);
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_rename_path(from, to);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), FsError>::U1(ok(()));
@@ -409,12 +357,12 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn read_line<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Option<String> {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_line(s.handle);
+    fn read_line(&mut self, s: &InStream) -> Option<String> {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_line(s.handle);
     }
 
-    fn read_all<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> Union2<String, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_all(s.handle);
+    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_all(s.handle);
         match r {
             Union2::U1(_) => {
                 return Union2::<String, FsError>::U1(ok(r.u1().clone()));
@@ -425,8 +373,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn read_bytes<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_bytes(s.handle, max);
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_bytes(s.handle, max);
         match r {
             Union2::U1(_) => {
                 return Union2::<Vec<u8>, FsError>::U1(ok(r.u1().clone()));
@@ -437,8 +385,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn read_to<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_to_bytes(s.handle, buf, max);
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_to_bytes(s.handle, buf, max);
         match r {
             Union2::U1(_) => {
                 return Union2::<i32, FsError>::U1(ok(*r.u1()));
@@ -449,8 +397,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn read_to__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_to_str(s.handle, buf);
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_to_str(s.handle, buf);
         match r {
             Union2::U1(_) => {
                 return Union2::<i64, FsError>::U1(ok(*r.u1()));
@@ -461,16 +409,16 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn read_line_to<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream, buf: &mut String) -> bool {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_line_to_str(s.handle, buf);
+    fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_line_to_str(s.handle, buf);
     }
 
-    fn position<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &InStream) -> i64 {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_read_position(s.handle);
+    fn position(&mut self, s: &InStream) -> i64 {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_read_position(s.handle);
     }
 
-    fn close<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: InStream) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_close_read(s.handle);
+    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_close_read(s.handle);
         drop(s);
         match r {
             Union2::U1(_) => {
@@ -482,24 +430,24 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn write<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64 {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_write(s.handle, text);
+    fn write(&mut self, s: &OutStream, text: &String) -> i64 {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_write(s.handle, text);
     }
 
-    fn write_line<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, text: &String) -> i64 {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_write(s.handle, &(format!("{}\n", text.clone())));
+    fn write_line(&mut self, s: &OutStream, text: &String) -> i64 {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_write(s.handle, &(format!("{}\n", text.clone())));
     }
 
-    fn write_bytes<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream, data: &Vec<u8>) -> i64 {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_write_bytes(s.handle, data);
+    fn write_bytes(&mut self, s: &OutStream, data: &Vec<u8>) -> i64 {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_write_bytes(s.handle, data);
     }
 
-    fn position__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> i64 {
-        return __Has_RawFs::__get_RawFs(&mut *__fx).raw_write_position(s.handle);
+    fn position__2(&mut self, s: &OutStream) -> i64 {
+        return __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_write_position(s.handle);
     }
 
-    fn flush<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: &OutStream) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_flush(s.handle);
+    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_flush(s.handle);
         match r {
             Union2::U1(_) => {
                 return Union2::<(), FsError>::U1(ok(()));
@@ -510,8 +458,8 @@ impl __Impl_DefaultFs for DefaultFs {
         }
     }
 
-    fn close__2<__Fx: __Has_RawFs>(&mut self, __fx: &mut __Fx, s: OutStream) -> Union2<(), FsError> {
-        let mut r = __Has_RawFs::__get_RawFs(&mut *__fx).raw_close_write(s.handle);
+    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+        let mut r = __Has_RawFs::__get_RawFs(&mut self.__dep_RawFs).raw_close_write(s.handle);
         drop(s);
         match r {
             Union2::U1(_) => {

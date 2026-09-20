@@ -62,7 +62,7 @@ pub fn missing_handler_host_error(
 /// makes it an entry point the host calls.
 pub fn declares_platform_effect(f: &FnDecl, symbols: &Symbols<'_>) -> bool {
     f.effects.iter().flatten().any(|eff| match eff {
-        EffectRef::Effect(r) => symbols
+        EffectRef::Effect(r) | EffectRef::LocalEffect(r) => symbols
             .effects
             .get(r.name.name.as_str())
             .is_some_and(|e| e.platform),

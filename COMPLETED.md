@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1191 tests, complete: the toolchain tests are
+cargo test                  # 1204 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,104 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Shareable by default (user decisions 2026-09-20, built across two sessions
+the same day).** The arc the 2026-09-19/20 design conversation scheduled,
+whose motivating goal is spawn-inheritance: for `spawn H on pool(2)` to pick
+up the scope's effects without re-declaration, a bare `[E]` in a signature
+has to *guarantee* shareability. The calls, all the user's: **`use H(args)`
+binds shareable by default** (stateless → bare, stateful → monitor;
+`use local H(args)` is the spelled opt-out, required by an error for
+handlers that cannot share), **`[local E]` accepts a local binding and
+disclaims seam rights** (call-site rule: a local binding satisfies only
+`[local E]`; a shareable one satisfies both; the annotation is viral down
+local-trafficking call chains — accepted cost, inference lifts it later),
+**monitors may declare dependencies** (captured as owned handles at
+construction when every dep is the shareable default — the interceptor
+chain stays annotation-free, which was the point), **waits under a
+monitor's lock are priced, not refused** (option (b): `H's lock` nodes in
+the existing deadlock graph, cycle reported before it runs), and — the
+second sitting's question, answered at handoff — **generic monitors are
+supported**: `handler CyclicRandom of Random<Int>` shares by default, the
+per-effect wrappers generic exactly as the effect
+([use-local], [effect-local], [monitor-handler], [effect-handler-deps]).
+
+- **The split of forms** lives in one shared predicate
+  (`salvo_core::handler_handle_deps`, used verbatim by checker and both
+  emitters): a plain-face non-mixed handler whose deps are all bare `[E]`
+  takes the **owned-handles** form (fields + trailing ctor args, recorded
+  in `Checked::handle_captures`) and may bind shareable; every other
+  dep-bearing handler keeps the **fusion** form and binds `use local` only
+  (`local E` deps, actor-effect deps, generic-instance deps each named as
+  blockers by `classify_shareable_use`, which must agree with the
+  predicate — an inconsistency there was found and closed in the second
+  sitting). Handles are minted off bindings in the same function (eager
+  handle vars beside shareable bindings the file later captures); a
+  signature-supplied effect has no binding value, so that capture is the
+  **v1 lexical cut**, its error pointing at spawn-inheritance.
+- **Generic monitors** (user decision at handoff): the Rust apparatus went
+  generic — `__Share_E<T: 'static>` (blanket param renamed `__H`, which an
+  effect's generics cannot collide with), `__Mon_E<T: 'static>`, and
+  `__Lock_E<H>` *unbounded* on the struct with bounds moved to the trait
+  impl (`impl<T: 'static, H: E<T> + Send> E<T> for __Lock_E<H>`), so one
+  definition serves every instance; construction sites write the
+  instantiation outright (`__Mon_Random::<i64>::new(…)`, from the checked
+  instance) rather than asking inference to thread it through the unsize
+  coercion. Kotlin's `__Mon_E<T>` mirrors it with inference doing the rest.
+  `Addr<Random<Int>>` renders `__Mon_Random<i64>` / `Random<Int>`.
+- **Platform handlers are assumed thread-safe by their design** (user
+  decision 2026-09-20, third round — restating an earlier-session answer
+  that had not been recorded): they classify **bare/stateless**, so nothing
+  depending on a platform-backed effect ever writes `local E`
+  (`DefaultFs [RawFs]` stays annotation-free — the stated aim). The
+  assumption is unvalidated for now; a declaration-level way to
+  validate/specify it is the recorded follow-up. Kotlin shares the raw host
+  instance; **Rust shares it through the lock adapter anyway** — its
+  members take `&mut self`, and a local binding coexisting with captured
+  handles needs shared ownership, which `Arc` provides and the host struct
+  (no `Clone`, real host state like `HostRawFs`'s open-file table) cannot.
+  Mechanics, not a monitor: for a conforming host the backends are
+  observationally equivalent, and the residual divergence — a
+  *non-conforming* host races on Kotlin but is accidentally serialized on
+  Rust, so the failure mode differs — is recorded with the follow-up
+  ([rs-platform-handler]), which could also let Rust drop the lock
+  (`&self` members over `Arc<H>`). Intrinsic handlers stay trusted at
+  their declared (stateless) shape. A `use` of an **actor-face** handler
+  classifies Local silently (binding one inline is the historical escape
+  hatch; its shareable handle is the addr a spawn answers) — found when
+  the classifier lock-wrapped a `use Stepping()` whose `__Lock_Steps`
+  cannot exist.
+- **std took the design-implied sweep**: `println`, the whole `[Fs]`
+  forwarder surface and `elapsed` declare `[local E]` — a pure forwarder
+  makes the weakest demand, and the fn-type rule forces it anyway: a fn
+  *type*'s effects are call-only (writing `local` there is refused as
+  redundant), so a lambda's availabilities are local and anything a lambda
+  calls needs `[local E]`. `DefaultFs [RawFs]` and `RestrictedFs [Fs]` stay
+  bare and share as handle-dep handlers.
+- **Found and fixed in the second sitting**: `impl __Has_E for __Mon_E` was
+  emitted unconditionally while the `__Has_E` trait exists only under the
+  fusion gate — every non-fusion Rust program failed rustc (115 of the
+  crate's tests); the impl is now gated identically. The examples sweep
+  respelled `examples/effects`' interception section and
+  `examples/linearity`'s lambda-called `redeem` with `local` (prose
+  updated); all nine examples regenerated on both backends with **outputs
+  unchanged**. Fusion-premise tests keep the fused form via `local`
+  respells; `the_fs_surface_emits_…` now pins the handle-dep shape
+  (`class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs`); and
+  `generic_dependent_handler_is_a_codegen_error` keeps its fusion-path
+  premise via a `local` dep — the same handler with a bare dep now
+  compiles and runs on both backends (new e2e cases), as does the
+  annotation-free interceptor chain (monitor + handle-dep + self-intercept,
+  identical output).
+
+Tests: **1204 (+13)** — ten shareable/monitor checker tests (classification both ways, the
+call-site rule both ways, the opt-out named, `local`-dep pinning, the two
+fusion-pinning dep blockers, the generic-monitor acceptance, the lexical
+capture cut, the local-dep-binding refusal, and a lock cycle reported as
+`Pinger's lock → Ponger's lock`) and two rustc compile-and-run cases with
+kotlinc twins riding the case driver (the shareable interceptor chain; a
+generic handle-dep handler); plus a platform test — a dependent handler
+over a platform-backed effect sharing with no `local` anywhere.
 
 **Servant sibling calls: bare in send members, `@self` as the disambiguator
 (user decision 2026-09-19, built the same day).** Found while explaining the
@@ -12912,7 +13010,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1191)
+## Test inventory (all green: 1204)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -12920,7 +13018,12 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 670 - 7 module-visibility tests
+- `salvo-core`: 681 - 16 shareable/monitor tests (`tests/monitor_tests.rs`
+  [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
+  2026-09-20 ten — classification both ways, the call-site rule both ways, the
+  opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
+  generic-monitor acceptance, the lexical capture cut, the local-dep-binding
+  refusal, and the `Pinger's lock → Ponger's lock` cycle report) + 7 module-visibility tests
   (`tests/export_tests.rs` [mod-export]: an exported declaration crossing while
   a private one does not — its own module reaching both — the private-name
   diagnostic naming the module and the fix, that name *not* being offered as an
@@ -13798,7 +13901,8 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 219 - including sixteen [rs-actor] tests (the first
+- `salvo-backend-rust`: 221 - including the shareable interceptor chain and the
+  generic handle-dep handler ([use-local], 2026-09-20), and sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
   asserted on the generated text; a **dependent spawn** compiled and run —
@@ -14024,6 +14128,32 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A generated impl must live under the same gate as its trait.** The
+  monitor stub emitted `impl __Has_E for __Mon_E` unconditionally while
+  `__Has_E` is declared only when the program fuses — so every non-fusion
+  Rust program failed rustc with a dangling trait reference (2026-09-20;
+  115 of the crate's tests at once). The mass of failures *was* the clue:
+  one systemic cause, not many respells. When adding a companion impl to a
+  per-effect stub, grep for the gate its trait sits behind.
+- **A classifier and the predicate it fronts must be one source of truth.**
+  `classify_shareable_use` accepted deps that `handler_handle_deps` pins to
+  the fusion form (actor-effect, generic-instance) — a Monitor
+  classification whose emission form did not exist. And two whole *kinds*
+  had no classification arm at all: a handler of an actor-effect face bound
+  with `use` (inline — its `__Lock_E` cannot exist), and a platform handler
+  (host-side state a bare seam-clone would fork; resolved by the
+  assumed-thread-safe decision plus Rust's lock-adapter sharing,
+  [rs-platform-handler]). Each surfaced as a different backend failure
+  (2026-09-20). When classification and emission split across crates, put
+  the blockers next to the shared predicate and test the agreement.
+- **Fn-type effects being call-only is load-bearing for std.** A lambda's
+  availabilities enter local, so anything a lambda calls must accept a
+  local binding — which forces every std effect-forwarder (`println`, the
+  `Fs` surface) onto `[local E]`, and will force the same on any future
+  forwarding helper. The diagnostic's own remedy text ("declare `[local E]`
+  on `println` if it only calls it") is the design speaking; follow it
+  rather than respelling the caller (2026-09-20).
 
 - **Indentation inside a Rust string literal holding Salvo is *Salvo's*.** When
   sweeping the test suites' inline std stubs for `export` (2026-09-18), two

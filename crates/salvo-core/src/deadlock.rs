@@ -193,18 +193,50 @@ fn build(
     // occupancy edge can point at. Over types, not instances — a program
     // that binds `SystemRandom` everywhere still gets the edge if a mixed
     // `CyclicRandom` exists, the same trade the whole graph makes.
+    //
+    // [use-local] [monitor-handler] And, since shareable-by-default (user
+    // decision 2026-09-20, option (b): waits under a lock are priced, not
+    // refused), the **shareable plain handlers worth a node of their own**:
+    // a plain-face, no-send-member handler that declares dependencies or
+    // waits. Its callers run its members on their own threads — under the
+    // lock when it is stateful — so what its members can wait on becomes an
+    // edge, and a handler depending on its effect may park in it (an
+    // occupancy edge in). A pure monitor (no deps, no waits) adds nothing
+    // and gets no node.
     let mut mixed_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for ast in program.modules.iter() {
+    let mut monitor_like: Vec<(usize, &ast::HandlerDecl)> = Vec::new();
+    let mut monitor_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (file_idx, ast) in program.modules.iter().enumerate() {
         for item in &ast.items {
             let Item::Handler(h) = item else { continue };
-            if !h.fns.iter().any(|f| f.is_send) {
-                continue;
-            }
             let plain_faces = !h.of.is_empty()
                 && h.of
                     .iter()
                     .all(|of| base_name(of).is_some_and(is_plain));
             if !plain_faces {
+                continue;
+            }
+            if !h.fns.iter().any(|f| f.is_send) {
+                let has_deps = h
+                    .effects
+                    .iter()
+                    .flatten()
+                    .any(|e| matches!(e, EffectRef::Effect(_) | EffectRef::LocalEffect(_)));
+                let waits = out
+                    .waitfor_sites
+                    .iter()
+                    .any(|(handler, _)| *handler == h.name.name);
+                if has_deps || waits {
+                    monitor_like.push((file_idx, h));
+                    for of in &h.of {
+                        if let Some(n) = base_name(of) {
+                            monitor_of
+                                .entry(n.to_string())
+                                .or_default()
+                                .push(h.name.name.clone());
+                        }
+                    }
+                }
                 continue;
             }
             for of in &h.of {
@@ -341,12 +373,22 @@ fn build(
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
             for dep in h.effects.iter().flatten() {
-                let EffectRef::Effect(r) = dep else { continue };
+                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = dep else { continue };
                 let name = r.name.name.as_str();
                 if !is_actor(name) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
                         for mh in mixed_handlers {
                             occupancies.push((servant_node(mh), file_idx, r.span));
+                        }
+                    }
+                    // [use-local] [monitor-handler] A dep on a plain effect
+                    // with wait-capable shareable handlers may park inside
+                    // one — through its lock when it is stateful — so the
+                    // edge points at the handler's own node (option (b),
+                    // user decision 2026-09-20).
+                    if let Some(monitors) = monitor_of.get(name) {
+                        for mh in monitors {
+                            occupancies.push((monitor_node(mh), file_idx, r.span));
                         }
                     }
                     continue;
@@ -418,6 +460,85 @@ fn build(
                             slot.insert(target.clone(), edge.clone());
                         }
                     }
+                }
+            }
+        }
+    }
+    // [use-local] [monitor-handler] The shareable plain handlers worth a
+    // node (option (b), user decision 2026-09-20): occupancy edges out to
+    // whatever their members can park in — the mixed servants and priced
+    // monitors of their dependency effects — plus actor-dep sends and task
+    // sends, Block-kind when the handler itself waits. The in-edges are the
+    // dependents' business (every loop above already points occupancy edges
+    // at `monitor_of` nodes). Interception is skipped like an actor's
+    // own-face dependency: it binds strictly outward, so it closes no cycle.
+    for (file_idx, h) in monitor_like {
+        let from = monitor_node(&h.name.name);
+        let own_faces: Vec<&str> = h.of.iter().filter_map(base_name).collect();
+        let blocks = waits_of.get(h.name.name.as_str()).copied();
+        let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
+        let mut targets: Vec<(String, usize, Span)> = Vec::new();
+        for dep in h.effects.iter().flatten() {
+            let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = dep else { continue };
+            let name = r.name.name.as_str();
+            if own_faces.contains(&name) {
+                continue;
+            }
+            if !is_actor(name) {
+                if let Some(mixed_handlers) = mixed_of.get(name) {
+                    for mh in mixed_handlers {
+                        occupancies.push((servant_node(mh), file_idx, r.span));
+                    }
+                }
+                if let Some(monitors) = monitor_of.get(name) {
+                    for mh in monitors {
+                        if *mh != h.name.name {
+                            occupancies.push((monitor_node(mh), file_idx, r.span));
+                        }
+                    }
+                }
+                continue;
+            }
+            targets.push((name.to_string(), file_idx, r.span));
+        }
+        for task in tasks_reached(out, &h.name.name) {
+            for (owner, target, (file, span)) in &out.task_sends {
+                if *owner == task && is_actor(target) {
+                    targets.push((target.clone(), *file, *span));
+                }
+            }
+        }
+        for (target, file, span) in occupancies {
+            let edge = Edge {
+                kind: EdgeKind::Occupancy,
+                handler: h.name.name.clone(),
+                file,
+                span,
+            };
+            let slot = graph.entry(from.clone()).or_default();
+            match slot.get(&target) {
+                Some(existing) if existing.kind <= edge.kind => {}
+                _ => {
+                    slot.insert(target, edge);
+                }
+            }
+        }
+        for (target, file, span) in targets {
+            let (kind, file, span) = match blocks {
+                Some((bfile, bspan)) => (EdgeKind::Block, bfile, bspan),
+                None => (EdgeKind::BackPressure, file, span),
+            };
+            let edge = Edge {
+                kind,
+                handler: h.name.name.clone(),
+                file,
+                span,
+            };
+            let slot = graph.entry(from.clone()).or_default();
+            match slot.get(&target) {
+                Some(existing) if existing.kind <= edge.kind => {}
+                _ => {
+                    slot.insert(target, edge);
                 }
             }
         }
@@ -591,6 +712,14 @@ fn report(
 /// printed path and cannot collide with a protocol's.
 fn servant_node(handler: &str) -> String {
     format!("{handler}'s servant")
+}
+
+/// [use-local] [monitor-handler] The graph node of a shareable plain
+/// handler worth pricing (deps or waits — option (b), user decision
+/// 2026-09-20): its members run on the callers' threads, under the lock
+/// when it is stateful, so a wait inside stalls every caller behind it.
+fn monitor_node(handler: &str) -> String {
+    format!("{handler}'s lock")
 }
 
 /// The base name of a written type, for a handler's `of` clause.

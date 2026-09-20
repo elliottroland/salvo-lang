@@ -212,6 +212,7 @@ impl<__D0: Timer + Send + 'static> crate::scheduler::SalvoActor for __Actor_Sess
     }
 }
 
+#[derive(Clone)]
 pub struct TestTicker {
     timer: usize,
 }
@@ -387,10 +388,10 @@ pub fn main() {
     println(&mut __fx, &(format!("budget {}, doubled {}, in millis {}", to_str__3(&budget), to_str__3(&times(&budget, 2i64)), to_millis(&budget))));
     let mut stamp = epoch_milli(1700000000000i64);
     println(&mut __fx, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
-    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: DefaultClock::new() };
+    let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: crate::time::__Lock_Clock::new(DefaultClock::new()) };
     let mut __fx3 = __Fx_main_3 { __outer: &mut __fx2, __h: DefaultTicker::new() };
     { let __a1 = &(format!("wall clock is set: {}", to_epoch_second(&(__Has_Clock::__get_Clock(&mut __fx3).now())) > ((1600000000) as i64))); println(&mut __fx3, __a1) };
-    let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: SteppingTicker::new(millis(500i64)) };
+    let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: crate::time::__Lock_Ticker::new(SteppingTicker::new(millis(500i64))) };
     let mut started = __Has_Ticker::__get_Ticker(&mut __fx4).tick();
     { let __a2 = &(format!("overdue after one more read: {}", overdue(&mut __fx4, &started, &budget))); println(&mut __fx4, __a2) };
     { let __a3 = &(format!("overdue after three: {} {} {}", overdue(&mut __fx4, &started, &budget), overdue(&mut __fx4, &started, &budget), overdue(&mut __fx4, &started, &budget))); println(&mut __fx4, __a3) };
