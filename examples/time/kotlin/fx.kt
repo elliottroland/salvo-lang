@@ -22,18 +22,38 @@ interface __Has_Clock {
     val __fx_Clock: Clock
 }
 
+class __One_Clock(private val __e: Clock) : __Has_Clock {
+    override val __fx_Clock: Clock get() = __e
+}
+
 interface __Has_Console {
     val __fx_Console: Console
+}
+
+class __One_Console(private val __e: Console) : __Has_Console {
+    override val __fx_Console: Console get() = __e
 }
 
 interface __Has_Fs {
     val __fx_Fs: Fs
 }
 
+class __One_Fs(private val __e: Fs) : __Has_Fs {
+    override val __fx_Fs: Fs get() = __e
+}
+
 interface __Has_Ticker {
     val __fx_Ticker: Ticker
 }
 
+class __One_Ticker(private val __e: Ticker) : __Has_Ticker {
+    override val __fx_Ticker: Ticker get() = __e
+}
+
 interface __Has_Timer {
     val __fx_Timer: Timer
+}
+
+class __One_Timer(private val __e: Timer) : __Has_Timer {
+    override val __fx_Timer: Timer get() = __e
 }

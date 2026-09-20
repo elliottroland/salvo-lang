@@ -111,10 +111,26 @@ handlers are assumed thread-safe and classify bare. See [use-local],
 [monitor-handler], [effect-handler-deps] and the decision-log entry.
 What it leaves behind, each deliberate:
 
-- **Spawn-inheritance** (the arc's motivating goal, now unblocked): `spawn H
-  on pool(2)` synthesizing its dep clause from scope — a modular checker
-  feature now that `[E]` means shareable. With it, the v1 lexical cut goes:
-  a signature-supplied `[E]` becomes capturable into an owned handle.
+- **Spawn-inheritance** — ✅ **built 2026-09-20** (the same session it was
+  decided; the record is COMPLETED.md's log): the `with` clause on `use` and
+  `spawn` (superseding the never-built `using` rename), spawn-dep synthesis
+  from the spawning scope, and the lexical-cut lift via one hidden fused
+  handle-bundle parameter (`__Hs_N`, Rust-only, admitted only by
+  `use`/`spawn` in the effect list). `examples/effects` is annotation-free
+  again. See [with-clause], [spawn-inherit], [rs-handle-bundle]. What it
+  leaves behind:
+  - **A `with` item may not have dependencies of its own** — a clause item
+    is a private instance with no scope to resolve them from, so the remedy
+    today is to register it with `use` first. On the *`use`* side the lift is
+    natural (the clause is evaluated in a scope that could resolve them, and
+    the handle machinery is recursive); on the spawn side it stays refused.
+  - **A `with` clause needs the handle form**: a handler whose dependencies
+    take the fusion form ([use-local]'s `local`/actor-effect/generic-instance
+    deps) threads them per call from the scope's fused value, which has no
+    slot for a private instance. Refused by name.
+  - **`main`'s platform-effect parameters cannot be captured** as handles
+    (the host owns those instances). Folded into the platform-handler
+    design round below.
 - **`local` inference**: the checker writing `local` for you, lifting the
   virality down local-trafficking call chains (the deduction pattern:
   written validates, unwritten infers).
@@ -512,7 +528,7 @@ Found while building step 2; none blocks step 3.
   *carries* `[waitfor]`, since a host thread is a dedicated thread, so it type
   checks like everything else instead of being runtime-checked) and an *async*
   bridge (the host's native future, completed by a token) — plus **handler
-  wiring at the export**, for which the spawn-site `use` clause is the existing
+  wiring at the export**, for which the spawn's `with` clause is the existing
   spelling. Nothing in the kernel forecloses any of it.
 
 ### `on_idle` — leftovers (2026-09-18)
@@ -1723,7 +1739,7 @@ colouring — the 2026-09-04 record honoured by making the question moot).
 **First-pass grammar (frozen)**: `send fn` members with explicit `Reply<T>`
 parameters (linear, statically one-shot); `replyto k(captures)` /
 `replyto! k(captures)` (the gate: bounded selective receive, one outstanding
-per actor); `r.send(v)` discharges; `spawn H(args) use Handler(...), addr
+per actor); `r.send(v)` discharges; `spawn H(args) with Handler(...), addr
 on pool(n)`; lowercase `[use, spawn]`; `use addr`; `waitfor` as main's
 explicit bridge, and **the program ends when `main` returns**. Deadlock
 baseline: the effect-graph cycle check — **built 2026-09-16**, with gate cycles
@@ -1956,7 +1972,7 @@ scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
 The cumbersome three-clause spawn line is gone: **the mailbox moved to the
 handler** (`mailbox { capacity: 16 }`, a slot whose braces are a `Mailbox`
 struct literal with the type elided), so a spawn now reads
-`spawn H(args) use deps on pool(2)` — what to run, what it depends on, where.
+`spawn H(args) with deps on pool(2)` — what to run, what it depends on, where.
 The record, the options considered and what the survey of *other* actor
 parameters settled (mailbox shape belongs to the handler, placement to the
 spawn site) are in COMPLETED.md's log; the rules are [actor-mailbox] and
@@ -2326,16 +2342,9 @@ blocking, and several are "revisit only if a customer appears".
   matrix size itself — trimming compile-and-run cases whose behavior the
   goldens already pin.
 
-- **The spawn's `use` clause renames to `using`** (user decision 2026-09-19,
-  unscheduled): `spawn H(args) using D1(), addr on POOL`. Two reasons, one
-  present and one anticipated: the clause and the `use` *statement* are
-  different constructs sharing a word, which is what let a bare spawn swallow
-  a next-line `use` statement until the same-line guard closed it (defect,
-  2026-09-19) — and the user wants **multi-line spawn statements** eventually,
-  where a same-line rule stops being available and `use` becomes genuinely
-  ambiguous. `using` is the clause's own word; the statement keeps `use`.
-  A sweep when done: parser, every spec snippet, every example and test
-  source. No compatibility shim, per the standing invariant.
+- ~~The spawn's `with` clause renames to `using`~~ — superseded 2026-09-20:
+  the clause word is **`with`**, on both `use` and `spawn`, landing with the
+  spawn-inheritance arc (the decision round is in COMPLETED.md's log).
 - **`const` bindings** (user intent, stated 2026-09-19 while refining the
   shareable-handler taxonomy): a binding form that forbids reassignment.
   Announced, not designed — no syntax round yet. Its first customer is

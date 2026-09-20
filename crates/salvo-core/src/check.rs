@@ -410,6 +410,14 @@ pub struct Checked {
     /// instance* — which is what a generic dependency would need, and both
     /// backends refuse those today.
     pub use_deps: HashMap<Key, Vec<Ty>>,
+    /// [with-clause] Which written `with` item satisfied which declared
+    /// dependency of a `use`, in the handler's declaration order (keyed by
+    /// the `use` statement span): `Some(i)` for the clause item at written
+    /// index `i`, `None` for a dependency resolved from the scope. Present
+    /// only when the clause supplied at least one — a partial clause is the
+    /// rule (user decision 2026-09-20), so both cases coexist in one list.
+    /// Parallel to the `use_deps`/`handle_captures` entry for the same span.
+    pub use_with_items: HashMap<Key, Vec<Option<usize>>>,
     /// [actor-spawn-expr] The effect instance each `spawn` expression's child
     /// serves, keyed by the spawn's span — which is also the type of its
     /// value, an `Addr<E>`. The emitters' entry point for building an actor
@@ -418,7 +426,7 @@ pub struct Checked {
     /// faces, in declaration order — which is also the order of the addrs the
     /// spawn's tuple answers.
     pub spawn_effects: HashMap<Key, Vec<Ty>>,
-    /// [actor-spawn-expr] The effect instances a spawn's `use` clause
+    /// [actor-spawn-expr] The effect instances a spawn's `with` clause
     /// supplies for the child's dependencies, in the handler's declaration
     /// order (keyed by the spawn's span). Absent when the handler declares
     /// none. The clause items themselves stay in the AST; this records what
@@ -433,7 +441,11 @@ pub struct Checked {
     /// the matching happens, so recording it here is what keeps both
     /// emitters from re-deriving it (and from disagreeing about it).
     /// Parallel to `spawn_deps`: same length, same order.
-    pub spawn_dep_items: HashMap<Key, Vec<usize>>,
+    /// [spawn-inherit] `None` marks a dependency **synthesized from the
+    /// spawning scope** rather than written (user decision 2026-09-20): the
+    /// emitters then supply the scope's handle where a written item would
+    /// have been constructed.
+    pub spawn_dep_items: HashMap<Key, Vec<Option<usize>>>,
     /// [actor-replyto] The enclosing handler's member each `replyto`
     /// delivers to, keyed by the `replyto` span. The name, because that is
     /// what identifies a continuation target; an overloaded send member is
@@ -677,6 +689,25 @@ pub struct Checked {
     /// the caller's trailing arguments — so neither emitter needs to know
     /// that groups exist.
     pub implicit_params: HashMap<FnKey, Vec<ImplicitParam>>,
+    /// [spawn-inherit] The **handle requirements** of each fn: the
+    /// signature-supplied effects whose *handles* its body needs, because a
+    /// construction inside it captures them at construction
+    /// ([effect-handler-deps]'s owned-handle form) — directly, or through a
+    /// fn it calls. In declaration order of the fn's own effect list, so the
+    /// bundle's field order is stable and a caller can build one from its
+    /// own.
+    ///
+    /// Only fns whose effect list carries `use` or `spawn` can have an
+    /// entry (user decision 2026-09-20: the visible capability is what
+    /// admits the hidden parameter), and only the Rust backend reads it — a
+    /// JVM reference is already a handle [kt-monitor], so the Kotlin
+    /// emission is unchanged.
+    pub handle_requirements: HashMap<FnKey, Vec<Ty>>,
+    /// [spawn-inherit] Static call edges between declared fns, as
+    /// (caller, callee): what `handle_requirements`' propagation walks.
+    /// Recorded where a call's callee resolves to a declaration, so it
+    /// covers exactly the calls whose requirements a caller must satisfy.
+    pub call_edges: Vec<(FnKey, FnKey)>,
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
@@ -893,6 +924,7 @@ pub fn check_program<'p>(
             && claims == prev_claims
             && mutations == prev_mutations;
         if stable {
+            propagate_handle_requirements(&mut out);
             return out;
         }
         if round >= MAX_ROUNDS {
@@ -920,12 +952,57 @@ pub fn check_program<'p>(
                     ));
                 }
             }
+            propagate_handle_requirements(&mut out);
             return out;
         }
         inferred = std::mem::take(&mut out.deductions);
         prev_candidates = candidates.clone();
         prev_claims = claims.clone();
         prev_mutations = mutations.clone();
+    }
+}
+
+/// [spawn-inherit] Propagate handle requirements up the call graph to a
+/// fixpoint: a fn requires the handle of a signature-supplied effect when it
+/// captures one itself (recorded while checking its body) **or** when it
+/// calls a fn that requires one for an effect this fn supplies from its own
+/// signature. The caller's own `fn_effects` is the gate, which is what keeps
+/// the requirement off a fn that binds the effect locally — and the `use`
+/// capability rides along for free, since a requiring callee declares `use`
+/// and the existing capability check already forces its callers to.
+///
+/// The order within an entry follows the fn's declared effect list, so the
+/// bundle a caller builds and the one a callee expects agree by construction.
+fn propagate_handle_requirements(out: &mut Checked) {
+    loop {
+        let mut grew = false;
+        for (caller, callee) in out.call_edges.clone() {
+            let Some(needs) = out.handle_requirements.get(&callee).cloned() else {
+                continue;
+            };
+            let Some(supplies) = out.fn_effects.get(&caller).cloned() else {
+                continue;
+            };
+            for want in needs {
+                if !supplies.contains(&want) {
+                    continue;
+                }
+                let entry = out.handle_requirements.entry(caller).or_default();
+                if !entry.contains(&want) {
+                    entry.push(want);
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    // Declaration order per fn, so both sides of the hidden parameter agree.
+    for (key, needs) in out.handle_requirements.iter_mut() {
+        if let Some(order) = out.fn_effects.get(key) {
+            needs.sort_by_key(|ty| order.iter().position(|e| e == ty).unwrap_or(usize::MAX));
+        }
     }
 }
 
@@ -5257,7 +5334,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the current scope. A registration may **shadow** an earlier one for
     /// the same instance — innermost wins [use-no-dup] — which is what makes
     /// interception writable [effect-intercept].
-    fn check_use(&mut self, handler: &'p Expr, local: bool, span: Span) {
+    fn check_use(
+        &mut self,
+        handler: &'p Expr,
+        local: bool,
+        with_items: &'p [Expr],
+        span: Span,
+    ) {
         // [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user
         // decision 2026-09-19): the parser wrapped the construction in a
         // spawn expression, so checking the expression *is* the spawn, and
@@ -5265,6 +5348,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // answers a tuple, which one binding cannot split — spawn it and
         // bind the faces yourself.
         if let Expr::Spawn { .. } = handler {
+            // [with-clause] The parser gave the clause to the spawn itself
+            // (the instance is the child's), so nothing is left here.
             let ty = self.check_expr(handler, None);
             if matches!(ty, Ty::Tuple(_)) {
                 self.error(
@@ -5305,6 +5390,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                          is a handle — a handle is shareable by construction, so \
                          bind it plain: `use` it without `local`",
                     );
+                }
+                // [with-clause] A handle is a finished instance: its
+                // dependencies were supplied where it was built.
+                for item in with_items {
+                    self.error(
+                        item.span(),
+                        "`with` supplies a handler's dependencies at construction, \
+                         and this `use` binds an existing handle — its dependencies \
+                         were settled where it was built: drop the clause",
+                    );
+                    self.check_expr(item, None);
                 }
                 self.check_use_addr(handler, span);
                 return;
@@ -5391,7 +5487,97 @@ impl<'p, 'r> Checker<'p, 'r> {
             UseKind::Local
         };
         self.out.use_kinds.insert(self.key(span), kind);
-        self.finish_use(id, concrete, deps, kind, span);
+        self.finish_use(id, concrete, deps, kind, with_items, span);
+    }
+
+    /// [with-clause] One item of a `use`'s `with` clause: the effect
+    /// instance it supplies. A handler *name or construction* is a **private
+    /// instance** — built here, owned by the handler being registered,
+    /// unshared with the scope (user decision 2026-09-20) — and an `Addr`
+    /// is an existing handle. The same two shapes a spawn's clause takes,
+    /// and the same two `use` itself binds, which is what makes a dependency
+    /// swappable between a private handler and a shared one without
+    /// touching the handler that depends on it.
+    fn check_with_item(&mut self, item: &'p Expr, handle_deps: bool) -> Option<Ty> {
+        let is_handler = match item {
+            Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
+            Expr::Call { callee, .. } => match callee.as_ref() {
+                Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
+                _ => false,
+            },
+            _ => false,
+        };
+        if !is_handler {
+            let ty = self.check_expr(item, None);
+            return match addr_effect(&ty) {
+                Some(effect) => Some(effect),
+                None if ty.is_unknown() => None,
+                None => {
+                    self.error(
+                        item.span(),
+                        format!(
+                            "a `with` clause supplies handlers: write a handler \
+                             construction (`SomeHandler(...)`) or an `{ADDR_TYPE}` of \
+                             the effect a shared handler already serves, not a `{ty}`"
+                        ),
+                    );
+                    None
+                }
+            };
+        }
+        let (id, args, type_args) = self.handler_construction(item, "with")?;
+        let (effects, deps) =
+            self.check_handler_construction(id, args, type_args, "with", item.span())?;
+        let effect = effects.first().cloned().unwrap_or(Ty::Unknown);
+        // [effect-handler-multi] A multi-face handler in the clause would
+        // supply two dependencies from one private instance, and the clause
+        // builds one instance per item — so the shape has nowhere to put the
+        // second face. Bind it with its own `use` and name the addr.
+        if effects.len() > 1 {
+            let faces: Vec<String> = effects.iter().map(|e| e.to_string()).collect();
+            self.error(
+                item.span(),
+                format!(
+                    "handler `{}` implements several effects ({}), so it cannot be \
+                     constructed in a `with` clause: the clause builds one private \
+                     instance per item — bind it with its own `use` (or spawn it) and \
+                     supply an `{ADDR_TYPE}` per face",
+                    id.name,
+                    faces.join(", ")
+                ),
+            );
+        }
+        // A private instance's *own* dependencies would have to resolve
+        // somewhere, and the clause is not a scope: refused where written.
+        for dep in &deps {
+            let dep = &dep.ty;
+            self.error(
+                item.span(),
+                format!(
+                    "handler `{}` depends on effect `{dep}`, so it cannot be \
+                     constructed in a `with` clause: a clause item is a private \
+                     instance with no scope to resolve its own dependencies — \
+                     register it with `use` before this one instead",
+                    id.name
+                ),
+            );
+        }
+        // The fusion form threads dependencies per call from the enclosing
+        // scope's fused value; a private instance has no slot there yet.
+        // Refused rather than emitted wrong ([backend-never-wrong]); the
+        // handle-capturing form (every dependency the shareable default) is
+        // where a `with` clause lands today.
+        if !handle_deps {
+            self.error(
+                item.span(),
+                "a `with` clause on a `use` needs the handler's dependencies to be \
+                 the shareable default (`[E]`), so they are captured as handles: \
+                 this handler has a `local`, actor-effect or generic-instance \
+                 dependency, which threads through the scope's fused value instead \
+                 — register the dependency with `use` before it",
+            );
+        }
+        Some(effect)
     }
 
     /// [use-local] [effect-handler-deps] The shared dependency-form
@@ -5403,6 +5589,181 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .get(name)
                 .is_some_and(|e| e.is_actor)
         })
+    }
+
+    /// [spawn-inherit] A declared dependency the `with` clause did not
+    /// cover, resolved from the **spawning scope** (user decision
+    /// 2026-09-20): the availability is captured as an owned handle and
+    /// crosses the seam with the child, which is sound exactly because a bare
+    /// `[E]` now guarantees shareability [effect-local]. Answers the resolved
+    /// instance, or `None` after reporting why it could not be synthesized.
+    ///
+    /// Three refusals, each named: a **`use local`** binding (no handle to
+    /// capture — bind it shareable or supply it with `with`), an
+    /// **ambiguity** between compatible instances (a guess is not the
+    /// checker's to make), and **nothing in scope** (the old message, with
+    /// both remedies now).
+    fn synthesized_spawn_dep(
+        &mut self,
+        want: &Ty,
+        req_local: bool,
+        visible: &[EffectAvail],
+        id: &'p Ident,
+        span: Span,
+    ) -> Option<Ty> {
+        let exact = visible.iter().find(|c| c.ty == *want).cloned();
+        let found = match exact {
+            Some(avail) => Some(avail),
+            None => {
+                let compatible: Vec<&EffectAvail> = visible
+                    .iter()
+                    .filter(|c| unify(want, &c.ty, &mut HashMap::new()))
+                    .collect();
+                match compatible.len() {
+                    1 => Some(compatible[0].clone()),
+                    0 => None,
+                    _ => {
+                        self.error(
+                            span,
+                            format!(
+                                "handler `{}` depends on effect `{want}`, and this \
+                                 scope has several instances it could mean ({}): name \
+                                 the one you want with `with`",
+                                id.name,
+                                compatible
+                                    .iter()
+                                    .map(|c| c.ty.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                        );
+                        return None;
+                    }
+                }
+            }
+        };
+        let Some(avail) = found else {
+            self.error(
+                span,
+                format!(
+                    "handler `{}` depends on effect `{want}`, which this spawn does \
+                     not supply and this scope has no handler for: bind one before \
+                     the spawn (it is then inherited), or supply it in the clause \
+                     (`spawn {}(...) with SomeHandler()`)",
+                    id.name, id.name
+                ),
+            );
+            return None;
+        };
+        // [effect-local] A scope-local binding cannot cross the seam: the
+        // child would hold a handle to something whose whole point is that it
+        // is not shareable. For an **actor** effect the local binding is an
+        // inline `use H()` (the historical escape hatch), and its shareable
+        // form is the addr a `spawn` answers — so the remedy differs.
+        if avail.local {
+            let actor = matches!(want.strip_quals(), Ty::Named { name, .. }
+                if self.scope.effects.get(name.as_str()).is_some_and(|e| e.is_actor));
+            let remedy = if actor {
+                format!(
+                    "spawn the handler of `{want}` and bind its addr (`let a = spawn \
+                     H(...) on pool(1)` then `use a`), or supply the child its own \
+                     with `with SomeHandler()`"
+                )
+            } else {
+                format!(
+                    "bind `{want}` shareable, or supply the child its own with \
+                     `with SomeHandler()`"
+                )
+            };
+            self.error(
+                span,
+                format!(
+                    "handler `{}` inherits `{want}` from this scope, and the binding \
+                     here is scope-local: a spawned handler holds its dependencies \
+                     across a seam, which a scope-local binding cannot cross — \
+                     {remedy}",
+                    id.name
+                ),
+            );
+            return None;
+        }
+        // A signature-supplied availability needs its handle threaded in, the
+        // same requirement a `use` capture records [spawn-inherit].
+        if avail.declared {
+            if req_local {
+                // A `local E` dependency is not captured as a handle, so a
+                // signature-supplied availability cannot serve it.
+                self.error(
+                    span,
+                    format!(
+                        "handler `{}` declares `local {want}`, which accepts only a \
+                         scope-local binding — a spawned handler cannot inherit one: \
+                         declare the dependency `{want}` (shareable) instead",
+                        id.name
+                    ),
+                );
+                return None;
+            }
+            self.require_handle(&avail.ty, span);
+        }
+        Some(avail.ty)
+    }
+
+    /// [spawn-inherit] Record that the function being checked needs the
+    /// **handle** of a signature-supplied effect: something in its body
+    /// captures `want` at construction, so the handle has to arrive from the
+    /// caller (the hidden fused bundle parameter — user decision 2026-09-20,
+    /// Rust-only).
+    ///
+    /// Two shapes cannot answer, and each is an error here rather than a
+    /// backend surprise: a **platform effect** (the host owns that instance
+    /// and hands it to `main` as a borrow — there is nothing to mint, and the
+    /// entry point's host-visible signature is not this arc's to change),
+    /// and a **lambda** body (a fn value's effects are call-only, so no
+    /// caller could supply one).
+    fn require_handle(&mut self, want: &Ty, span: Span) {
+        if self.in_lambda() {
+            self.error(
+                span,
+                format!(
+                    "capturing a handle for `{want}` needs the enclosing function's \
+                     own `use` capability, and this is a lambda: a function value's \
+                     effects are call-only, so no caller can supply the handle — \
+                     register the handler in the enclosing function"
+                ),
+            );
+            return;
+        }
+        if self.platform_effect_ty(want) {
+            self.error(
+                span,
+                format!(
+                    "`{want}` is a platform effect, whose instance the host owns and \
+                     hands to `main` — there is no handle to capture: put a Salvo \
+                     handler of an ordinary effect over it (the `DefaultFs [RawFs]` \
+                     shape), or declare the dependency `local {want}`"
+                ),
+            );
+            return;
+        }
+        let Some(key) = self.own_fn else { return };
+        let entry = self.out.handle_requirements.entry(key).or_default();
+        if !entry.contains(want) {
+            entry.push(want.clone());
+        }
+    }
+
+    /// Whether an effect instance is a **platform effect** — the host's
+    /// rather than Salvo's [platform-effect].
+    fn platform_effect_ty(&self, ty: &Ty) -> bool {
+        match ty.strip_quals() {
+            Ty::Named { name, .. } => self
+                .scope
+                .effects
+                .get(name.as_str())
+                .is_some_and(|e| e.platform),
+            _ => false,
+        }
     }
 
     /// [use-local] [monitor-handler] Whether a bare `use` of this plain
@@ -5794,6 +6155,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         concrete: Vec<Ty>,
         deps: Vec<EffectAvail>,
         kind: UseKind,
+        with_items: &'p [Expr],
         span: Span,
     ) {
         // [use-no-dup] [effect-intercept] A `use` may *shadow* an earlier
@@ -5816,10 +6178,44 @@ impl<'p, 'r> Checker<'p, 'r> {
             .copied()
             .is_some_and(|decl| self.handler_handle_deps(decl));
         let mut resolved_deps: Vec<Ty> = Vec::new();
+        // [with-clause] The written clause items, typed once, each carrying
+        // the index the program wrote it at: the matching below drains them,
+        // so a matched dep remembers *which* item satisfied it and the
+        // emitters need not re-derive the pairing (`spawn_dep_items`' rule,
+        // for the `use` side).
+        let mut supplied: Vec<(Ty, Span, usize)> = Vec::new();
+        for (at, item) in with_items.iter().enumerate() {
+            if let Some(eff) = self.check_with_item(item, handle_deps) {
+                supplied.push((eff, item.span(), at));
+            }
+        }
+        // One entry per declared dependency, in declaration order: the
+        // clause item that satisfied it, or `None` for a scope-resolved one.
+        let mut items: Vec<Option<usize>> = Vec::new();
         let visible = self.visible_avail();
         for want in &deps {
             let req_local = want.local;
             let want = want.ty.clone();
+            // [with-clause] A written item wins for the dep it matches —
+            // partial clauses are the rule (user decision 2026-09-20), so
+            // the rest still resolve from scope. The self-dependency may be
+            // supplied too ([effect-intercept]'s written exception): an
+            // interceptor then wraps the clause's private instance instead
+            // of the scope's registration.
+            let from_clause = supplied
+                .iter()
+                .position(|(eff, _, _)| *eff == want)
+                .or_else(|| {
+                    supplied
+                        .iter()
+                        .position(|(eff, _, _)| unify(&want, eff, &mut HashMap::new()))
+                });
+            if let Some(i) = from_clause {
+                let (eff, _, at) = supplied.remove(i);
+                resolved_deps.push(eff);
+                items.push(Some(at));
+                continue;
+            }
             let found = visible
                 .iter()
                 .find(|c| c.ty == want)
@@ -5851,25 +6247,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                             ),
                         );
                     }
-                    // [effect-local] The v1 lexical cut: a handle is
-                    // synthesized from the *value* of a binding in this
-                    // function, which a signature-declared `[E]` does not
-                    // provide yet. Spawn-inheritance (ROADMAP) is the lift.
+                    // [spawn-inherit] A capture over a **signature-supplied**
+                    // effect is legal since 2026-09-20 (the v1 lexical cut is
+                    // lifted): the handle is not minted from a binding in
+                    // this function — there is none — but threaded in by the
+                    // caller, recorded here as this fn's handle requirement
+                    // and propagated to its callers.
                     if handle_deps && !req_local && avail.declared && !avail.local {
-                        self.error(
-                            span,
-                            format!(
-                                "handler `{}` captures a handle for `{want}` at \
-                                 construction, and the `{want}` here comes from the \
-                                 enclosing signature rather than a `use` in this \
-                                 function: bind it here (`use` a handler or a handle \
-                                 first) — threading a signature-supplied effect into \
-                                 a captured handle arrives with spawn-inheritance",
-                                id.name
-                            ),
-                        );
+                        self.require_handle(&want, span);
                     }
                     resolved_deps.push(avail.ty);
+                    items.push(None);
                 }
                 // [effect-intercept] A self-dependency binds *outward*, so
                 // "nothing in scope" means there is nothing to intercept —
@@ -5881,8 +6269,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "handler `{}` intercepts `{want}` — it depends on the effect \
                          it implements — but no handler for `{want}` is registered \
-                         before this `use`: an intercepting handler wraps the \
-                         instance already in scope",
+                         before this `use`, and the `with` clause does not supply \
+                         one: an intercepting handler wraps the instance already in \
+                         scope, or the one you name with `with`",
                         id.name
                     ),
                 ),
@@ -5890,11 +6279,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span,
                     format!(
                         "handler `{}` depends on effect `{want}`, which has no \
-                         handler in scope here: register one before it",
+                         handler in scope here: register one before it, or supply it \
+                         with `with {want}Handler(...)`",
                         id.name
                     ),
                 ),
             }
+        }
+        // [with-clause] Anything left over was supplied for nothing — worth
+        // naming, since the reader believes it is being used.
+        for (eff, sp, _) in &supplied {
+            self.error(
+                *sp,
+                format!(
+                    "handler `{}` does not depend on effect `{eff}`, so supplying it \
+                     with `with` has no effect",
+                    id.name
+                ),
+            );
         }
         if !resolved_deps.is_empty() {
             if handle_deps {
@@ -5903,6 +6305,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .insert(self.key(span), resolved_deps.clone());
             }
             self.out.use_deps.insert(self.key(span), resolved_deps);
+            if items.iter().any(|i| i.is_some()) {
+                self.out.use_with_items.insert(self.key(span), items);
+            }
         }
         // [effect-handler-multi] Every face is registered, in declaration
         // order: one instance, one binding per effect it implements, so a
@@ -9732,7 +10137,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::none()
     }
 
-    /// [actor-spawn-expr] `spawn H(args) use D(...), addr on POOL` — the
+    /// [actor-spawn-expr] `spawn H(args) with D(...), addr on POOL` — the
     /// asynchronous binding of a handler. Almost every rule here is a rule
     /// `use` already has, moved to the spawn site: the same handler
     /// construction, the same dependency resolution, the same
@@ -9845,7 +10250,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "`{}` is shared as a monitor, and a monitor's \
                              dependencies come from the enclosing scope at the \
-                             spawn — not from a `use` clause: bind the dependency \
+                             spawn — not from a `with` clause: bind the dependency \
                              with `use` before this spawn and drop the clause",
                             id.name
                         ),
@@ -9911,8 +10316,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let mut resolved: Vec<Ty> = Vec::new();
-        let mut items: Vec<usize> = Vec::new();
+        let mut items: Vec<Option<usize>> = Vec::new();
+        let visible = self.visible_avail();
         for want in &declared {
+            let req_local = want.local;
             let want = &want.ty;
             let found = supplied
                 .iter()
@@ -9926,18 +10333,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Some(i) => {
                     let (eff, _, at) = supplied.remove(i);
                     resolved.push(eff);
-                    items.push(at);
+                    items.push(Some(at));
                 }
-                None => self.error(
-                    span,
-                    format!(
-                        "handler `{}` depends on effect `{want}`, which this spawn does \
-                         not supply: a spawned handler's dependencies come from its own \
-                         `use` clause (`spawn {}(...) use SomeHandler() on \
-                         pool(1)`), never from the spawning scope",
-                        id.name, id.name
-                    ),
-                ),
+                // [spawn-inherit] **Synthesis** (user decision 2026-09-20):
+                // a declared dependency the clause does not cover is
+                // resolved from the *spawning scope* — the modular feature
+                // `[E]`-means-shareable bought, since an availability the
+                // signature guarantees is shareable can be captured as a
+                // handle and cross the seam. Only shareable availabilities
+                // qualify: a `use local` binding cannot yield a handle, and
+                // an ambiguity between two compatible instances is an error
+                // rather than a guess.
+                None => match self.synthesized_spawn_dep(want, req_local, &visible, id, span) {
+                    Some(ty) => {
+                        resolved.push(ty);
+                        items.push(None);
+                    }
+                    None => {}
+                },
             }
         }
         // Anything left over was supplied for nothing — a mistake worth
@@ -9955,8 +10368,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !resolved.is_empty() {
             self.out.spawn_deps.insert(self.key(span), resolved);
             self.out.spawn_dep_items.insert(self.key(span), items);
-        }
-        self.out.spawn_effects.insert(self.key(span), effects.clone());
+        }        self.out.spawn_effects.insert(self.key(span), effects.clone());
         // [effect-handler-multi] One addr per implemented effect: a single face
         // answers the bare `Addr<E>` it always did, and several answer a tuple
         // in declaration order — which is how least authority falls out of the
@@ -10509,7 +10921,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [actor-spawn-expr] One item of a spawn's `use` clause: a handler
+    /// [actor-spawn-expr] One item of a spawn's `with` clause: a handler
     /// construction, whose effect is what it implements, or a value of type
     /// `Addr<E>`, whose effect is `E`. Answers the effect it supplies.
     fn check_spawn_dep(&mut self, item: &'p Expr) -> Option<Ty> {
@@ -10544,7 +10956,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     item.span(),
                     format!(
                         "handler `{}` implements several effects ({}), so it cannot be \
-                         constructed in a spawn's `use` clause: the child would own it, \
+                         constructed in a spawn's `with` clause: the child would own it, \
                          and one instance cannot be two of its dependencies — spawn it \
                          separately and pass an `{ADDR_TYPE}` per face",
                         id.name,
@@ -10558,7 +10970,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     item.span(),
                     format!(
                         "handler `{}` depends on effect `{dep}`, so it cannot be \
-                         constructed in a spawn's `use` clause: give the child a \
+                         constructed in a spawn's `with` clause: give the child a \
                          `{ADDR_TYPE}` of an actor serving `{effect}` instead, or \
                          construct it inside the child with `use`",
                         id.name
@@ -10575,7 +10987,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(
                     item.span(),
                     format!(
-                        "a spawn's `use` clause supplies handlers: write a handler \
+                        "a spawn's `with` clause supplies handlers: write a handler \
                          construction (`SomeHandler(...)`) or a `{ADDR_TYPE}` of the \
                          effect an actor already serves, not a `{ty}`"
                     ),
@@ -13259,12 +13671,12 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         // argument that crosses to the child may itself assign.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             collect_assigned_expr(handler, out);
-            for handler in uses {
+            for handler in with_items {
                 collect_assigned_expr(handler, out);
             }
             if let Some(pool) = pool {
@@ -13489,12 +13901,12 @@ fn expr_mentions(expr: &Expr, name: &str) -> bool {
         // it, so this must see through every clause.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             expr_mentions(handler, name)
-                || uses.iter().any(|h| expr_mentions(h, name))
+                || with_items.iter().any(|h| expr_mentions(h, name))
                 || pool.as_ref().is_some_and(|p| expr_mentions(p, name))
         }
         // [actor-replyto] A capture is a value the continuation takes.
@@ -14147,7 +14559,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::Nothing
             }
-            Stmt::Use { handler, local, span } => {
+            Stmt::Use {
+                handler,
+                local,
+                with_items,
+                span,
+            } => {
                 // [use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
                     self.error(
@@ -14155,7 +14572,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`use` requires the `use` effect in the function's effect list",
                     );
                 }
-                self.check_use(handler, *local, *span);
+                self.check_use(handler, *local, with_items, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => {
@@ -15311,10 +15728,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // value is the child's `Addr<E>`.
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 span,
-            } => self.check_spawn(handler, uses, pool.as_deref(), *span),
+            } => self.check_spawn(handler, with_items, pool.as_deref(), *span),
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
             // member is [effect-not-data]. Reached only when one is written
@@ -19720,6 +20137,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         let mut resolved: Vec<Ty> = Vec::new();
+        // [spawn-inherit] The call edge, for the handle-requirement
+        // propagation: a callee needing a handle for a signature-supplied
+        // effect makes its callers need one too, where they supply that
+        // effect from *their* signatures in turn.
+        if let (Some(caller), Some(callee)) = (self.own_fn, self.fn_key_of_decl(decl)) {
+            if caller != callee && !self.out.call_edges.contains(&(caller, callee)) {
+                self.out.call_edges.push((caller, callee));
+            }
+        }
         // [actor-spawn-effect] The `spawn` capability **propagates like any
         // other effect**: `pool` and `watch` declare it, and std's own
         // documentation says declaring it is "what makes creating one a

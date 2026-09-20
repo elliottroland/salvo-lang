@@ -434,7 +434,7 @@ fn main() [use] -> None {
     assert!(errs.is_empty(), "both faces are bound by one `use`: {errs:?}");
 }
 
-/// A multi-face handler **constructed in a spawn's `use` clause** is refused:
+/// A multi-face handler **constructed in a spawn's `with` clause** is refused:
 /// the child owns what a clause builds, and one instance cannot be two of its
 /// dependencies. Two addrs of the same actor are the shape that works.
 #[test]
@@ -466,14 +466,14 @@ handler Working() [Tally] of Worker {
 }
 
 fn main() [spawn] -> None {
-    let w = spawn Working() use Counting() on pool(1)
+    let w = spawn Working() with Counting() on pool(1)
     discard(w)
 }
 "#,
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("implements several effects") && m.contains("spawn's `use` clause")),
+            .any(|m| m.contains("implements several effects") && m.contains("spawn's `with` clause")),
         "expected the clause-construction refusal: {errs:?}"
     );
 }

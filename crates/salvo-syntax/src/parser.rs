@@ -2339,6 +2339,10 @@ impl<'s> Parser<'s> {
                     false
                 };
                 let handler = self.parse_expr()?;
+                // [with-clause] The dependency clause, on the statement as
+                // on the spawn (user decision 2026-09-20): the instances to
+                // supply instead of the scope's resolution.
+                let with_items = self.parse_with_clause()?;
                 // [actor-use-addr] `use H(args) on POOL` — the sugar for
                 // `let __a = spawn H(args) on POOL` then `use __a` (SH-7,
                 // user decision 2026-09-19): the dominant case, one shared
@@ -2359,16 +2363,33 @@ impl<'s> Parser<'s> {
                             span,
                         );
                     }
+                    // The clause belongs to the *spawn* here: the sugar's
+                    // instance is the child's, so its dependencies are
+                    // supplied where the child is built.
                     let handler = Expr::Spawn {
                         handler: Box::new(handler),
-                        uses: Vec::new(),
+                        with_items,
                         pool: Some(Box::new(pool)),
                         span: spawn_span,
                     };
-                    return Some(Stmt::Use { handler, local: false, span });
+                    return Some(Stmt::Use {
+                        handler,
+                        local: false,
+                        with_items: Vec::new(),
+                        span,
+                    });
                 }
-                let span = start.to(handler.span());
-                Some(Stmt::Use { handler, local, span })
+                let end = with_items
+                    .last()
+                    .map(|i| i.span())
+                    .unwrap_or_else(|| handler.span());
+                let span = start.to(end);
+                Some(Stmt::Use {
+                    handler,
+                    local,
+                    with_items,
+                    span,
+                })
             }
             _ => {
                 let expr = self.parse_expr()?;
@@ -3677,7 +3698,7 @@ impl<'s> Parser<'s> {
         Some(Expr::Try { body, span })
     }
 
-    /// [actor-spawn-expr] `spawn H(args) use D1(...), addr on POOL` — the
+    /// [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` — the
     /// asynchronous binding of a handler. Both clauses are optional: a
     /// handler with no dependencies needs no `use`, and an omitted `on` means
     /// the pool current at the spawn [main-pool] — which in `main` is the
@@ -3689,25 +3710,7 @@ impl<'s> Parser<'s> {
     fn parse_spawn(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `spawn`
         let handler = self.parse_expr()?;
-        // The spawn-site `use` clause: what the child's declared
-        // dependencies are bound to [effect-handler-deps]. Each item is a
-        // handler construction or an `Addr` value — the parser keeps both as
-        // expressions, as the `use` *statement* does, and the checker tells
-        // them apart. Same line as the spawn, like the `on` clause below:
-        // without the guard, a bare spawn followed by a `use` *statement*
-        // (`let rng = spawn CyclicRandom(1)` then `use rng`) swallowed the
-        // next line as its clause (defect found 2026-09-19 building the
-        // monitor spawn, whose natural shape is exactly that pair).
-        let mut uses = Vec::new();
-        if self.at(&TokenKind::KwUse) && self.same_line() {
-            self.bump();
-            loop {
-                uses.push(self.parse_expr()?);
-                if self.eat(&TokenKind::Comma).is_none() {
-                    break;
-                }
-            }
-        }
+        let with_items = self.parse_with_clause()?;
         let mut end = handler.span();
         let mut pool = None;
         if self.at_word("on") && self.same_line() {
@@ -3715,15 +3718,62 @@ impl<'s> Parser<'s> {
             let expr = self.parse_expr()?;
             end = expr.span();
             pool = Some(Box::new(expr));
-        } else if let Some(last) = uses.last() {
+        } else if let Some(last) = with_items.last() {
             end = last.span();
         }
         Some(Expr::Spawn {
             handler: Box::new(handler),
-            uses,
+            with_items,
             pool,
             span: start.to(end),
         })
+    }
+
+    /// [with-clause] The `with` clause of a `use` or `spawn`: the dependency
+    /// instances to supply instead of the scope's resolution
+    /// ([spawn-inherit]), as a comma-separated list of handler constructions
+    /// and `Addr` values — the parser keeps both as expressions, as the
+    /// `use` *statement* does, and the checker tells them apart.
+    ///
+    /// Same line as its binding form, like the `on` clause: without the
+    /// guard a bare spawn followed by a `use` *statement* swallowed the next
+    /// line as its clause (the defect that retired the clause's original
+    /// `use` spelling — 2026-09-19, and the reason the word is now `with`,
+    /// user decision 2026-09-20). `with` is a keyword already — the
+    /// qualifier-compatibility clause uses it (`qualifier Q of T with A`) —
+    /// and the two positions cannot be confused: one follows a qualifier's
+    /// `of` type, the other a `use`/`spawn` handler expression.
+    fn parse_with_clause(&mut self) -> Option<Vec<Expr>> {
+        let mut items = Vec::new();
+        // The clause's old spelling is a plain parse error naming the new
+        // one (no dual-accepting grammar — the standing invariant).
+        if self.at(&TokenKind::KwUse) && self.same_line() {
+            let span = self.peek().span;
+            self.error(
+                "the dependency clause of a `use`/`spawn` is spelled `with` now \
+                 (`spawn H(args) with D(), addr on POOL`): `use` is the statement's \
+                 word",
+                span,
+            );
+            self.bump();
+            loop {
+                items.push(self.parse_expr()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            return Some(items);
+        }
+        if self.at(&TokenKind::KwWith) && self.same_line() {
+            self.bump();
+            loop {
+                items.push(self.parse_expr()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        Some(items)
     }
 
     /// [actor-replyto] `replyto k(captures)` — mint a parked one-shot

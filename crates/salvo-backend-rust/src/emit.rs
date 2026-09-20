@@ -1106,6 +1106,13 @@ struct Emitter<'p> {
     /// these get an eager handle variable. Computed per file from
     /// `Checked::handle_captures`.
     captured_effects: HashSet<String>,
+    /// [spawn-inherit] [rs-handle-bundle] Generated handle-bundle structs by
+    /// *shape* (the rendered field list), so two fns needing the same handle
+    /// set share one struct — the `__Fx_N` dedup rule, for handles.
+    handle_bundles: HashMap<String, String>,
+    /// [spawn-inherit] Where the current fn reads each required handle:
+    /// rendered effect type → the place inside its bundle parameter.
+    handle_fields: HashMap<String, String>,
     /// Parameter names reassigned in the body (they get a `mut` binder).
     mutated: HashSet<String>,
     generics: HashSet<String>,
@@ -1361,6 +1368,8 @@ impl<'p> Emitter<'p> {
             effect_env: Vec::new(),
             bindings: HashMap::new(),
             captured_effects: HashSet::new(),
+            handle_bundles: HashMap::new(),
+            handle_fields: HashMap::new(),
             mutated: HashSet::new(),
             generics: HashSet::new(),
             loop_results: Vec::new(),
@@ -1700,13 +1709,29 @@ impl<'p> Emitter<'p> {
     fn emit_module(&mut self, module: &Module) -> String {
         // [use-local] What this file's constructions capture, so bind sites
         // know to mint an eager handle.
-        let captured: Vec<Ty> = self
+        // [spawn-inherit] A spawn's **synthesized** dependencies capture the
+        // same way — the child holds the scope's handle — so the pre-scan
+        // reads both tables; `spawn_dep_items` says which entries of
+        // `spawn_deps` were inherited rather than written.
+        let mut captured: Vec<Ty> = self
             .checked
             .handle_captures
             .iter()
             .filter(|((f, _), _)| *f == self.file_idx)
             .flat_map(|(_, tys)| tys.iter().cloned())
             .collect();
+        for (key, tys) in &self.checked.spawn_deps {
+            if key.0 != self.file_idx {
+                continue;
+            }
+            let items = self.checked.spawn_dep_items.get(key);
+            for (i, ty) in tys.iter().enumerate() {
+                let inherited = items.map_or(true, |items| items.get(i) == Some(&None));
+                if inherited {
+                    captured.push(ty.clone());
+                }
+            }
+        }
         self.captured_effects = captured.iter().map(|t| self.rust_ty(t)).collect();
         let mut body = String::new();
         for item in &module.items {
@@ -3611,6 +3636,151 @@ impl<'p> Emitter<'p> {
         self.emit_fn_inner(f, FnStyle::TopLevel, 0)
     }
 
+    /// [spawn-inherit] [rs-handle-bundle] The hidden handle-bundle parameter
+    /// of `f`, when the checker recorded handle requirements for it: a
+    /// generated struct with one `__Mon_E` field per required effect, in the
+    /// fn's declared effect order, deduped per *shape* exactly as the `__Fx_N`
+    /// fusions are — so two fns needing the same handle set share one struct
+    /// and a caller can forward its own bundle unchanged.
+    ///
+    /// One parameter however many handles (user modification, 2026-09-20).
+    /// Registers the fields in `handle_fields` so a capture inside the body
+    /// reads `__hs.<field>` where a lexically-bound one reads its eager
+    /// handle variable.
+    fn handle_bundle_param(&mut self, f: &FnDecl) -> Option<String> {
+        let key = self.key_of_fn(f)?;
+        let needs = self.checked.handle_requirements.get(&key)?.clone();
+        if needs.is_empty() {
+            return None;
+        }
+        let mut fields: Vec<(String, String)> = Vec::new();
+        for ty in &needs {
+            let rendered = self.rust_ty(ty);
+            let (base, args) = self.ty_effect_parts(ty);
+            let mon = self.effect_path(&base, &monitor_struct_name(&base));
+            let handle_ty = if args.is_empty() {
+                mon
+            } else {
+                format!("{mon}<{}>", args.join(", "))
+            };
+            fields.push((effect_param_name(&rendered), handle_ty));
+        }
+        let shape: Vec<String> = fields
+            .iter()
+            .map(|(n, t)| format!("{n}: {t}"))
+            .collect();
+        let shape_key = shape.join(", ");
+        let name = match self.handle_bundles.get(&shape_key) {
+            Some(name) => name.clone(),
+            None => {
+                let name = format!("__Hs_{}", self.handle_bundles.len() + 1);
+                self.handle_bundles.insert(shape_key, name.clone());
+                self.generated_items.push(format!(
+                    "\npub struct {name} {{\n{}}}\n",
+                    fields
+                        .iter()
+                        .map(|(n, t)| format!("    pub {n}: {t},\n"))
+                        .collect::<String>()
+                ));
+                name
+            }
+        };
+        let var = self.unique_name("__hs".to_string());
+        self.handle_fields = needs
+            .iter()
+            .zip(fields.iter())
+            .map(|(ty, (field, _))| (self.rust_ty(ty), format!("{var}.{field}")))
+            .collect();
+        self.bindings.insert(var.clone(), BindKind::Ref);
+        Some(format!("{var}: &{name}"))
+    }
+
+    /// [spawn-inherit] [rs-handle-bundle] The bundle argument a call site
+    /// passes: the callee's required handles, taken from this frame's own
+    /// bundle where the effect is signature-supplied here too, and from the
+    /// binding's eager handle variable where it is bound in this function.
+    /// `None` when the callee needs none.
+    fn handle_bundle_arg(&mut self, callee: salvo_core::FnKey) -> Option<String> {
+        let needs = self.checked.handle_requirements.get(&callee)?.clone();
+        if needs.is_empty() {
+            return None;
+        }
+        let mut fields: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        for ty in &needs {
+            let rendered = self.rust_ty(ty);
+            let field = effect_param_name(&rendered);
+            // A handle this frame already holds — either its own bundle
+            // field, or the eager handle variable a binding here minted.
+            let source = self
+                .handle_fields
+                .get(&rendered)
+                .cloned()
+                .map(|place| format!("{place}.clone()"))
+                .or_else(|| {
+                    self.effect_entry_by_ty(ty)
+                        .and_then(|e| e.handle_var.clone())
+                        .map(|hv| format!("{hv}.clone()"))
+                });
+            match source {
+                Some(code) => {
+                    fields.push(format!("{field}: {code}"));
+                    names.push(format!("{field}: {}", self.handle_type_of(ty)));
+                }
+                None => {
+                    self.error(format!(
+                        "internal: no handle in scope for `{rendered}`, which the \
+                         callee captures at construction"
+                    ));
+                    fields.push(format!("{field}: todo!()"));
+                    names.push(format!("{field}: {}", self.handle_type_of(ty)));
+                }
+            }
+        }
+        let shape_key = names.join(", ");
+        let name = match self.handle_bundles.get(&shape_key) {
+            Some(name) => name.clone(),
+            None => {
+                // The callee's own emission mints the struct; a call emitted
+                // first registers the same shape under the same key.
+                let name = format!("__Hs_{}", self.handle_bundles.len() + 1);
+                self.handle_bundles.insert(shape_key, name.clone());
+                let mut decl = String::new();
+                for ty in &needs {
+                    let rendered = self.rust_ty(ty);
+                    let handle_ty = self.handle_type_of(ty);
+                    decl.push_str(&format!(
+                        "    pub {}: {handle_ty},\n",
+                        effect_param_name(&rendered)
+                    ));
+                }
+                self.generated_items
+                    .push(format!("\npub struct {name} {{\n{decl}}}\n"));
+                name
+            }
+        };
+        Some(format!("&{name} {{ {} }}", fields.join(", ")))
+    }
+
+    /// [spawn-inherit] [rs-handle-bundle] Where this frame reads the handle
+    /// of `ty`, if it has one: a field of its own hidden bundle parameter.
+    fn handle_place(&mut self, ty: &Ty) -> Option<String> {
+        let rendered = self.rust_ty(ty);
+        self.handle_fields.get(&rendered).cloned()
+    }
+
+    /// [rs-handle-bundle] The rendered handle type of an effect instance:
+    /// the effect's `__Mon_E`, at its instantiation.
+    fn handle_type_of(&mut self, ty: &Ty) -> String {
+        let (base, args) = self.ty_effect_parts(ty);
+        let mon = self.effect_path(&base, &monitor_struct_name(&base));
+        if args.is_empty() {
+            mon
+        } else {
+            format!("{mon}<{}>", args.join(", "))
+        }
+    }
+
     /// [qual-overload] The emitted name of a qualifier member. Rust has no
     /// overloading, and qualifiers are erased [qual-erasure], so two
     /// same-named qualifiers over different subjects would both emit
@@ -3774,6 +3944,9 @@ impl<'p> Emitter<'p> {
         let saved_generics = self.enter_generics(&f.generics);
         let saved_env = std::mem::take(&mut self.effect_env);
         let saved_bindings = std::mem::take(&mut self.bindings);
+        // [spawn-inherit] The handle-bundle places are this fn's own: a
+        // sibling's bundle field is not in scope here.
+        let saved_handle_fields = std::mem::take(&mut self.handle_fields);
         self.borrowed_arm_locals.clear();
         let saved_mutated = std::mem::take(&mut self.mutated);
         let saved_derived = self.derived_return_fn;
@@ -4023,6 +4196,17 @@ impl<'p> Emitter<'p> {
                     }
                     self.bindings.insert(var.clone(), BindKind::RefMut);
                     params.push(format!("{var}: &mut __Fx"));
+                }
+                // [spawn-inherit] [rs-handle-bundle] The hidden handle
+                // parameter: one fused bundle carrying a handle per
+                // signature-supplied effect this fn (or something it calls)
+                // captures at construction. Emitted only where the checker
+                // recorded a requirement — which it only does for a fn whose
+                // effect list carries `use`/`spawn` (user decision
+                // 2026-09-20), so the hidden parameter is predictable from
+                // the visible signature.
+                if let Some(bundle) = self.handle_bundle_param(f) {
+                    params.push(bundle);
                 }
             } else {
                 for (ty, rendered) in effects {
@@ -4463,6 +4647,7 @@ impl<'p> Emitter<'p> {
             self.generics = saved_generics;
             self.effect_env = saved_env;
             self.bindings = saved_bindings;
+            self.handle_fields = saved_handle_fields;
             self.mutated = saved_mutated;
             self.implicits = saved_implicits;
             self.in_iterator_fn = saved_in_iterator;
@@ -4504,6 +4689,7 @@ impl<'p> Emitter<'p> {
         self.generics = saved_generics;
         self.effect_env = saved_env;
         self.bindings = saved_bindings;
+        self.handle_fields = saved_handle_fields;
         self.mutated = saved_mutated;
         self.implicits = saved_implicits;
         self.in_iterator_fn = saved_in_iterator;
@@ -5792,7 +5978,12 @@ impl<'p> Emitter<'p> {
                 let splices = self.exit_splice_code(indent, true);
                 format!("{splices}{pad}continue;\n")
             }
-            Stmt::Use { handler, local, span } => self.emit_use(handler, *local, *span, indent),
+            Stmt::Use {
+                handler,
+                local,
+                with_items,
+                span,
+            } => self.emit_use(handler, *local, with_items, *span, indent),
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent, ctx),
         }
     }
@@ -6568,7 +6759,7 @@ impl<'p> Emitter<'p> {
     }
 
     /// [actor-spawn-expr] [rs-actor] The child's flat provider, built from
-    /// the spawn's `use` clause: `__Prov_H { __d0: <instance>, … }`, its
+    /// the spawn's `with` clause: `__Prov_H { __d0: <instance>, … }`, its
     /// fields in the handler's *declaration* order while the clause items are
     /// in the order the program wrote them. The checker's `spawn_dep_items`
     /// is the map between the two.
@@ -6590,16 +6781,43 @@ impl<'p> Emitter<'p> {
                 return None;
             }
         };
+        // [spawn-inherit] The instances the child's provider holds: a
+        // written clause item is constructed here, and a **synthesized**
+        // dependency (`None`) is the spawning scope's own handle, cloned —
+        // the child then holds the same shared instance the parent does.
+        let resolved = self
+            .checked
+            .spawn_deps
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
         let mut fields: Vec<String> = Vec::new();
         for (i, at) in items.iter().enumerate() {
-            let Some(item) = uses.get(*at) else {
-                self.error(format!(
-                    "internal: spawning `{handler_name}` names clause item {at}, which \
-                     the form does not have"
-                ));
-                return None;
+            let instance = match at {
+                Some(at) => {
+                    let Some(item) = uses.get(*at) else {
+                        self.error(format!(
+                            "internal: spawning `{handler_name}` names clause item \
+                             {at}, which the form does not have"
+                        ));
+                        return None;
+                    };
+                    self.spawn_dep_instance(item, &deps[i])?
+                }
+                None => {
+                    let Some(ty) = resolved.get(i).cloned() else {
+                        self.error(format!(
+                            "internal: spawning `{handler_name}` inherits dependency \
+                             {i} with no resolved instance"
+                        ));
+                        return None;
+                    };
+                    match self.inherited_dep_handle(&ty) {
+                        Some(code) => code,
+                        None => return None,
+                    }
+                }
             };
-            let instance = self.spawn_dep_instance(item, &deps[i])?;
             fields.push(format!("__d{i}: {instance}"));
         }
         Some(format!(
@@ -6607,6 +6825,27 @@ impl<'p> Emitter<'p> {
             prov_struct_name(handler_name),
             fields.join(", ")
         ))
+    }
+
+    /// [spawn-inherit] A **synthesized** dependency's instance: the handle
+    /// this frame holds for that effect — an eager handle variable a binding
+    /// minted, or a field of this fn's own handle bundle
+    /// ([rs-handle-bundle]) — cloned into the child, so parent and child
+    /// share one instance.
+    fn inherited_dep_handle(&mut self, ty: &Ty) -> Option<String> {
+        if let Some(hv) = self
+            .effect_entry_by_ty(ty)
+            .and_then(|e| e.handle_var.clone())
+        {
+            return Some(format!("{hv}.clone()"));
+        }
+        if let Some(place) = self.handle_place(ty) {
+            return Some(format!("{place}.clone()"));
+        }
+        self.error(format!(
+            "internal: no handle in scope for inherited dependency `{ty}`"
+        ));
+        None
     }
 
     /// [actor-spawn-expr] One clause item as the expression that *makes* an
@@ -6906,7 +7145,14 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    fn emit_use(&mut self, handler: &Expr, local: bool, span: Span, indent: usize) -> String {
+    fn emit_use(
+        &mut self,
+        handler: &Expr,
+        local: bool,
+        with_items: &[Expr],
+        span: Span,
+        indent: usize,
+    ) -> String {
         let _ = local; // classification travels in `use_kinds` [use-local]
         let pad = "    ".repeat(indent);
         // [actor-use-addr] `use addr` binds the effect to a **forwarding stub**
@@ -7071,24 +7317,66 @@ impl<'p> Emitter<'p> {
             }
             _ => String::new(),
         };
-        for dep in &captures {
+        // [with-clause] Which captured dependency came from a written item
+        // (a private instance, built here) rather than from the scope.
+        let clause_of = self
+            .checked
+            .use_with_items
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        for (i, dep) in captures.iter().enumerate() {
+            // [with-clause] A written item is a **private instance**: it is
+            // constructed at this site and boxed into the effect's handle,
+            // exactly as a binding's eager handle is — so the handler's
+            // field type is unchanged and nothing downstream learns where
+            // the instance came from.
+            if let Some(Some(at)) = clause_of.get(i) {
+                match with_items.get(*at) {
+                    Some(item) => {
+                        arg_code.push(self.with_item_handle(item, dep));
+                        continue;
+                    }
+                    None => {
+                        self.error(format!(
+                            "internal: the `with` clause has no item {at} for \
+                             captured dependency `{dep}`"
+                        ));
+                        arg_code.push("todo!()".to_string());
+                        continue;
+                    }
+                }
+            }
             match self.effect_entry_by_ty(dep) {
                 Some(entry) => match &entry.handle_var {
                     Some(hv) => arg_code.push(format!("{hv}.clone()")),
                     None => {
+                        // [spawn-inherit] No eager handle here means the
+                        // effect is **signature-supplied**: the handle came
+                        // in through this fn's hidden bundle parameter.
+                        match self.handle_place(dep) {
+                            Some(place) => arg_code.push(format!("{place}.clone()")),
+                            None => {
+                                self.error(format!(
+                                    "internal: the binding for captured dependency \
+                                     `{dep}` has no handle variable and this fn has \
+                                     no handle for it"
+                                ));
+                                arg_code.push("todo!()".to_string());
+                            }
+                        }
+                    }
+                },
+                None => match self.handle_place(dep) {
+                    Some(place) => arg_code.push(format!("{place}.clone()")),
+                    None => {
                         self.error(format!(
-                            "internal: the binding for captured dependency `{dep}` \
-                             has no handle variable"
+                            "internal: no binding in scope for captured dependency \
+                             `{dep}`"
                         ));
                         arg_code.push("todo!()".to_string());
                     }
                 },
-                None => {
-                    self.error(format!(
-                        "internal: no binding in scope for captured dependency `{dep}`"
-                    ));
-                    arg_code.push("todo!()".to_string());
-                }
             }
         }
         // The construction, wrapped for a monitor binding ([use-local]
@@ -7182,10 +7470,50 @@ impl<'p> Emitter<'p> {
         format!("{prelude}{pad}let mut {var} = {ctor};\n")
     }
 
+    /// [with-clause] [rs-monitor] A written `with` item as the **handle** the
+    /// depending handler captures: a handler construction becomes a private
+    /// instance boxed into the effect's `__Mon_E` (the same shape a binding's
+    /// eager handle takes, so the field type is unchanged), and an `Addr`
+    /// value is already a handle and passes through as itself.
+    fn with_item_handle(&mut self, item: &Expr, dep: &Ty) -> String {
+        let named = match item {
+            Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => Some((id.name.clone(), args.iter().collect())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((name, args)) = named {
+            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+                let arg_code: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+                let ctor = self.handler_ctor_path(&name, decl);
+                let inner = format!("{ctor}::new({})", arg_code.join(", "));
+                let Ty::Named { name: effect, .. } = dep.strip_quals() else {
+                    self.error(format!(
+                        "internal: the `with` item for `{dep}` supplies no named effect"
+                    ));
+                    return "todo!()".to_string();
+                };
+                let effect = effect.clone();
+                let mon = self.effect_path(&effect, &monitor_struct_name(&effect));
+                let mon_args = self.effect_instance_turbofish(dep);
+                // A private instance is stateful as often as not, and the
+                // handle must own it: the lock adapter is what gives a
+                // captured instance shared ownership on this backend, exactly
+                // as it does for a monitor binding ([rs-platform-handler]
+                // records the same mechanics for a host struct).
+                let lock = self.effect_path(&effect, &lock_struct_name(&effect));
+                return format!("{mon}{mon_args}::new(Box::new({lock}::new({inner})))");
+            }
+        }
+        // Not a handler name, so it is an addr — already a handle.
+        self.emit_owned(item)
+    }
+
     /// [use-local] [effect-handler-deps] The shared dependency-form
     /// predicate, with the symbol table answering the face kind.
-    fn handler_is_handle_dep(&self, decl: &HandlerDecl) -> bool {
-        salvo_core::handler_handle_deps(decl, |name| {
+    fn handler_is_handle_dep(&self, decl: &HandlerDecl) -> bool {        salvo_core::handler_handle_deps(decl, |name| {
             self.symbols
                 .effects
                 .get(name)
@@ -9083,10 +9411,10 @@ impl<'p> Emitter<'p> {
             // and hand it to the scheduler. Its value is the addr.
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, pool.as_deref(), *span),
+            } => self.emit_spawn(handler, with_items, pool.as_deref(), *span),
             // [actor-waitfor] `main`'s bridge, as a block expression: mint a
             // waiter token, run the block that sends it somewhere, then block
             // this thread until the answer arrives.
@@ -12420,6 +12748,17 @@ impl<'p> Emitter<'p> {
             all.dedup();
             all.truncate(1);
         }
+        // [spawn-inherit] [rs-handle-bundle] The callee's hidden handle
+        // bundle, right after the fused effect value: built from the handles
+        // this frame holds — its own bundle's fields, or the eager handle
+        // variables its bindings minted.
+        if self.fusion {
+            if let Some(key) = key {
+                if let Some(bundle) = self.handle_bundle_arg(key) {
+                    all.push(bundle);
+                }
+            }
+        }
         // [yield-proj] Which implicit `next`s filled here emit a *borrow*
         // (`Emitted (proj T)`): the checker's element type has the borrow
         // stripped, so the type argument the combinator is instantiated at
@@ -13516,12 +13855,12 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // captures and bridge block are ordinary code.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             collect_mutated_expr(handler, out);
-            for handler in uses {
+            for handler in with_items {
                 collect_mutated_expr(handler, out);
             }
             if let Some(pool) = pool {
@@ -13738,12 +14077,12 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
         // expressions, which may declare inside a nested body.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             collect_declared_expr(handler, out);
-            for handler in uses {
+            for handler in with_items {
                 collect_declared_expr(handler, out);
             }
             if let Some(pool) = pool {

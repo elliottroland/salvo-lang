@@ -23,10 +23,22 @@ interface __Has_Console {
     val __fx_Console: Console
 }
 
+class __One_Console(private val __e: Console) : __Has_Console {
+    override val __fx_Console: Console get() = __e
+}
+
 interface __Has_Fs {
     val __fx_Fs: Fs
 }
 
+class __One_Fs(private val __e: Fs) : __Has_Fs {
+    override val __fx_Fs: Fs get() = __e
+}
+
 interface __Has_RawFs {
     val __fx_RawFs: RawFs
+}
+
+class __One_RawFs(private val __e: RawFs) : __Has_RawFs {
+    override val __fx_RawFs: RawFs get() = __e
 }

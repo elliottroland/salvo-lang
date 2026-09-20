@@ -2146,11 +2146,12 @@ Conventions:
       no generated trait names the handler's generics — the cut that still
       stands for the fusion form).
       * The handle is minted off a **binding in the same function**
-        ([use-local]'s eager handle). An effect arriving through the
-        enclosing *signature* has no binding value, so the capture is an
-        error pointing at spawn-inheritance as the lift (the v1 lexical
-        cut); a `use local` dep binding is refused too (a local binding
-        cannot yield an owned handle).
+        ([use-local]'s eager handle) **or threaded in by the caller** when
+        the effect arrives through the enclosing *signature*
+        ([spawn-inherit]'s lift, 2026-09-20: a recorded handle requirement,
+        propagated up the call graph, lowered as [rs-handle-bundle]). A
+        `use local` dep binding is still refused — a local binding cannot
+        yield an owned handle.
     * **Fusion** ([rs-effect-fusion], [kt-effect-fusion]) for every other
       dep-bearing handler — which therefore binds `use local` only. Since
       2026-09-14 in the **Has-accessor** shape on both backends (user
@@ -2167,6 +2168,88 @@ Conventions:
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
   call site, recorded per-call (`call_effects`) in declaration order.
+* [with-clause] **`with` supplies specific dependency instances** to a `use`
+  or a `spawn` (user decision 2026-09-20, superseding the never-built `using`
+  rename of 2026-09-19 — and the clause's original `use` spelling, which
+  shared a word with the statement and let a bare spawn swallow a following
+  `use` line): `use H(args) with D(), addr` and
+  `spawn H(args) with D(), addr on POOL`.
+  * Each item is a handler **construction** or an `Addr`. A construction is a
+    **private instance**: built at the clause, owned by the handler (or the
+    child) being registered, unshared with the scope — which is what makes
+    "give *this* one its own" writable without a second scope.
+  * **Partial clauses are the rule**: an item wins for the dependency it
+    matches, and every dependency the clause does not cover resolves from the
+    scope ([spawn-inherit] for a spawn, the ordinary availability rule for a
+    `use`). Matching is by effect instance, exact before unifying, so the
+    *written* order and the handler's *declaration* order may differ freely
+    (recorded in `use_with_items` / `spawn_dep_items` for the emitters).
+  * **The self-dependency may be supplied**, which is [effect-intercept]'s one
+    written exception: `use Loud with Formal()` wraps the clause's private
+    instance instead of the registration already in scope. Acyclicity is
+    untouched — a fresh construction cannot point back at the handler being
+    registered.
+  * **`use local H with …` is legal**: the clause chooses *which instance*,
+    which is orthogonal to the binding's locality.
+  * Refused, each by name: an item the handler does not depend on (supplied
+    for nothing); a **multi-face** handler as an item (the clause builds one
+    instance per item, so the second face has nowhere to go — bind it with
+    its own `use` and name the addr); an item with **dependencies of its
+    own** (a clause item has no scope to resolve them from — register it
+    before this one instead); a `with` on a `use` of an **existing handle**
+    (its dependencies were settled where it was built); and a `with` on a
+    handler whose dependencies take the **fusion** form ([use-local]'s
+    `local`/actor/generic-instance deps), which threads per call from the
+    scope's fused value and has no slot for a private instance — both
+    remaining cuts are recorded in ROADMAP.
+  * `with` is a keyword already — the qualifier-compatibility clause spells
+    it (`qualifier Q of T with A`) — and the two positions cannot be
+    confused: one follows a qualifier's `of` type, the other a `use`/`spawn`
+    handler expression. Same-line, like every trailing clause.
+* [spawn-inherit] **A spawned handler inherits the spawning scope's
+  dependencies** (user decision 2026-09-20; the arc the shareable-by-default
+  round was built for). A declared dependency the `with` clause does not
+  cover is resolved from the scope's availabilities and captured as an owned
+  handle that travels with the child — which is sound *modularly*, with no
+  whole-program analysis and no runtime check, exactly because a bare `[E]`
+  now guarantees shareability [effect-local]. The old rule ("dependencies
+  come from the clause, never from the spawning scope") is gone; the clause
+  is for overriding [with-clause].
+  * **Only a shareable availability can be inherited**: a `use local`
+    binding exists precisely so that it does not cross a seam, and the
+    refusal names the remedy — bind it shareable, or supply the child its
+    own with `with`. For an **actor** effect the local binding is an inline
+    `use H()`, so the remedy is instead "spawn it and bind the addr".
+  * **Ambiguity is an error, not a guess**: two instances in scope that
+    could both satisfy the dependency (a generic effect with an unpinned
+    instantiation) is reported, naming `with` as how the program says which.
+    An exactly matching instance always wins, so this only fires where
+    unification is doing the work.
+  * **Nothing in scope** stays an error, now naming both remedies (bind one
+    before the spawn — it is then inherited — or supply it in the clause).
+  * **A `local E` dependency cannot be inherited**: it accepts only a
+    scope-local binding, which a child cannot hold. Declare the dependency
+    shareable instead.
+  * **The v1 lexical cut is lifted with it.** A capture used to require the
+    dependency to come from a `use` *in the same function*; an effect
+    arriving through the enclosing **signature** now works too, with the
+    handle threaded in by the caller: the checker records a **handle
+    requirement** per fn (`handle_requirements`) and propagates it up the
+    call graph to a fixpoint, gated on the caller supplying that effect from
+    its own signature in turn. Only a fn whose effect list carries `use` or
+    `spawn` can have one (user decision: the visible capability is what
+    admits the hidden parameter), and the lowering is [rs-handle-bundle] —
+    one hidden fused parameter on Rust, nothing at all on Kotlin, where an
+    object reference already *is* a handle [kt-monitor].
+  * Two shapes cannot answer and are errors: a **platform effect** (the host
+    owns that instance and hands it to `main` as a borrow — there is nothing
+    to mint; the remedy is a Salvo handler over it, the `DefaultFs [RawFs]`
+    shape, or a `local` dependency — that surface gets its own design round,
+    ROADMAP), and a **lambda** body (a fn value's effects are call-only, so
+    no caller could supply a handle).
+  * **The deadlock graph is unchanged**: it prices a handler's dependencies
+    from its *declaration*, so an inherited dependency carries exactly the
+    edges a written one did [actor-deadlock-cycle].
 * [effect-local] **`local E` in an effect list accepts a scope-local
   binding of `E` and disclaims seam rights** (user decision 2026-09-20);
   the bare `[E]` default now means *shareable `E`* — the fn may pass it
@@ -2281,11 +2364,17 @@ Conventions:
     well-founded, so no cycle can be constructed in any order — the
     argument [effect-handler-deps] already rests on, with the outward
     binding as its self-dependency clause.
-  * With **nothing** registered for that effect before the `use`, there is
-    nothing to intercept: the registration is an error in interception's
-    own words ("handler `H` intercepts `E` … an intercepting handler wraps
-    the instance already in scope"), which is the self-dependency case of
-    [effect-handler-deps]'s "register one before it".
+  * With **nothing** registered for that effect before the `use`, and no
+    `with` item supplying one, there is nothing to intercept: the
+    registration is an error in interception's own words ("handler `H`
+    intercepts `E` … an intercepting handler wraps the instance already in
+    scope, or the one you name with `with`"), which is the self-dependency
+    case of [effect-handler-deps]'s "register one before it".
+  * **`with` may aim the interception** [with-clause]: `use Loud with
+    Formal()` wraps that private instance instead of the scope's
+    registration — the one written exception to "binds strictly outward",
+    and acyclicity is untouched since a fresh construction cannot point
+    back.
   * Inside the handler's members the effect resolves to the **dependency**,
     never to the handler itself — a member call is an outward call, so
     nothing recurses. This is the ordinary [effect-handler-deps] rule; it
@@ -2872,16 +2961,18 @@ LANGUAGE.md remains the source of truth for everything that does.
     (`mailbox: Int = 3`), and only a brace after the word makes the slot.
   * **No spawn-site override**, deliberately: exposing the bound as a
     constructor parameter *is* the override, and it needs no grammar.
-* [actor-spawn-expr] `spawn H(args) use D1(...), addr on POOL` is the
+* [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` is the
   asynchronous binding, and its value is the child's `Addr`. Read left to
   right: what to run, what it depends on, where it runs — the queue depth is
   the handler's [actor-mailbox].
-  * The **`use` clause is optional** and supplies the child's declared
-    dependencies [effect-handler-deps]; each item is a handler
-    *construction* or an `Addr` (the same effect backed by an actor),
-    which is what lets an actor and a local handler swap without touching
-    the consuming code. Arguments evaluate in the parent and cross the
-    seam; construction happens on the child.
+  * The **`with` clause is optional** and supplies the child's declared
+    dependencies [with-clause]; each item is a handler *construction* (a
+    private instance, built on the child) or an `Addr` (the same effect
+    backed by an actor or a shared handler), which is what lets an actor and
+    a local handler swap without touching the consuming code. Arguments
+    evaluate in the parent and cross the seam; construction happens on the
+    child. What the clause does *not* cover is **inherited from the
+    spawning scope** [spawn-inherit], so the clause is for overriding.
   * **The mailbox is not a clause here.** It was `capacity N` until
     2026-09-16, on the argument that a bound is a property of *this instance*;
     the counter-argument won (user decision): the author who knows the
@@ -2904,24 +2995,25 @@ LANGUAGE.md remains the source of truth for everything that does.
     is still callable. A handler construction is **not a value** — only
     `use` and `spawn` may write one — which is why this is a form with
     clause keywords rather than a call with named arguments.
-  * **A spawn is a `use` whose dependencies come from its own clause.** The
-    construction is checked identically (arguments typed and *stored*, so a
-    bare name moves; generics inferred from the arguments and any written
-    type list; the constructor's implicits filled), and what differs is only
-    where the dependencies come from — which is what "handlers never cross,
-    construction does" means in practice. Consequences, each an error:
-    supplying a dependency the handler does not declare; leaving one
-    unsupplied (the diagnostic says the clause is where it belongs, never the
-    spawning scope); and constructing a clause item that has dependencies *of
-    its own*, since there is no scope on the child to resolve those from — a
+  * **A spawn is a `use` that runs its handler elsewhere.** The construction
+    is checked identically (arguments typed and *stored*, so a bare name
+    moves; generics inferred from the arguments and any written type list;
+    the constructor's implicits filled), and since 2026-09-20 its
+    dependencies resolve the same way too — from the clause where one is
+    written, from the scope otherwise [spawn-inherit]. What still differs is
+    that the instance runs on the other side of a seam, which is what
+    "handlers never cross, construction does" means in practice.
+    Consequences, each an error: supplying a dependency the handler does not
+    declare, and constructing a clause item that has dependencies *of its
+    own*, since there is no scope on the child to resolve those from — an
     `Addr` of an actor already serving the effect is the remedy.
   * **Two orders, and they differ routinely**: the *handler's declaration*
     order is what the child's dependency slots are in, and the *written*
     clause order is what the program says. The checker matches the two while
     resolving the clause and records the matching, so both backends build
     the child's environment in declaration order without re-deriving it
-    (and without disagreeing about it) — `use tally, Recording()` and
-    `use Recording(), tally` are one program.
+    (and without disagreeing about it) — `with tally, Recording()` and
+    `with Recording(), tally` are one program.
   * `on` must be a `Pool`; the mailbox is typed where it is declared. A
     `Dedicated Pool` placement is additionally **consumed** by the clause
     [waitfor-dedicated].
@@ -3712,7 +3804,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     Two rules already in force shape it, and neither is negotiable here. The
     timer arrives as an **`Addr<Timer>` constructor parameter**, not as a
     handler dependency, because a handler that itself depends on an effect
-    cannot be *constructed* in a spawn's `use` clause — there is no scope on the
+    cannot be *constructed* in a spawn's `with` clause — there is no scope on the
     child to resolve that dependency from, so an addr is what crosses
     [actor-spawn-expr]. And the wait
     makes the handler carry `[waitfor]`, which propagates to whatever binds it,

@@ -777,7 +777,15 @@ pub enum Stmt {
     /// [use-local] `use local HandlerExpr(...)` binds it **scope-local**
     /// (lock-free, unshareable) instead of shareable-by-default (user
     /// decision 2026-09-20).
-    Use { handler: Expr, local: bool, span: Span },
+    /// [with-clause] `use H(...) with D(), addr` supplies `H`'s declared
+    /// dependencies from the clause instead of from the scope — private
+    /// instances, the self-dependency included (user decision 2026-09-20).
+    Use {
+        handler: Expr,
+        local: bool,
+        with_items: Vec<Expr>,
+        span: Span,
+    },
     /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)` inside a block:
     /// in force from this line to the end of the enclosing scope.
     Rename(RenameDecl),
@@ -1017,7 +1025,7 @@ pub enum Expr {
     /// the handler the code is written in. Legal only as a call's callee, and
     /// only inside a handler member — both the checker's rules.
     SelfScoped { name: Ident, span: Span },
-    /// [actor-spawn-expr] `spawn Counting(0) use ScriptedDb(f), ddb
+    /// [actor-spawn-expr] `spawn Counting(0) with ScriptedDb(f), ddb
     /// on pool(2)` — bind a handler *asynchronously*: the actor. Read left to
     /// right: what to run, what it depends on, where it runs. Its value is the
     /// child's `Addr`.
@@ -1035,11 +1043,14 @@ pub enum Expr {
         /// arguments, the shape `use` takes, because a handler is not a
         /// value and only `use`/`spawn` may construct one.
         handler: Box<Expr>,
-        /// The spawn-site `use` clause, empty when it is absent: handler
+        /// [with-clause] The `with` clause, empty when it is absent: handler
         /// constructions *or* `Addr` values, supplying the child's declared
-        /// dependencies [effect-handler-deps]. Arguments evaluate in the
+        /// dependencies [effect-handler-deps] instead of the spawning
+        /// scope's resolution [spawn-inherit]. Arguments evaluate in the
         /// parent and cross the seam; construction happens on the child.
-        uses: Vec<Expr>,
+        /// Spelled `with` since 2026-09-20 (user decision, superseding the
+        /// clause's original `use`, which shared a word with the statement).
+        with_items: Vec<Expr>,
 
         /// `on POOL` — an ordinary expression. `pool(n)` is a function, not
         /// syntax.

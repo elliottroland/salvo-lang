@@ -99,7 +99,7 @@ handler Sessions() [Timer] of Session {
 //
 // The timer arrives as a plain `Addr<Timer>` constructor parameter rather than
 // as a handler dependency, because a handler with dependencies of its own cannot
-// be *constructed* in a spawn's `use` clause: there is no scope on the child to
+// be *constructed* in a spawn's `with` clause: there is no scope on the child to
 // resolve them from, so an addr is what crosses.
 handler TestTicker(timer: Addr<Timer>) of Ticker {
     fn tick() -> Tick {
@@ -180,7 +180,7 @@ fn main() [use, spawn] -> None {
     // timer and *cannot* reach `advance`.
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
-    let sessions = spawn Sessions() use timer on p
+    let sessions = spawn Sessions() with timer on p
 
     // `advance` is a message like any other, so it races the `after` the code
     // under test is about to register. `on_idle` is the fix: it fires when
@@ -204,7 +204,7 @@ fn main() [use, spawn] -> None {
     // placement is owed. The `on thread()` here is a *choice* — a thread of
     // its own, which the `on` clause consumes (`thread()` answers a
     // `Dedicated Pool`, and linearity gives it exactly one occupant).
-    let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
+    let sleeper = spawn Napping() with timer, TestTicker(timer) on thread()
     let napped = waitfor answer: Reply<Str> {
         sleeper.nap(seconds(2), answer)
         waitfor settled: Reply<Idle> {

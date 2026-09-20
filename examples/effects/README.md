@@ -47,13 +47,13 @@ shows both prefixes in that order.
 
 Notice *where* the dependencies surface. `interception` is the function that
 registers `Stamped`, so `interception` is what needs a `Clock` in scope; the
-function actually calling `log` declares `[local Logger]` and knows nothing
-about any of it. Wiring lives at the composition site, not along the call
-path. The `local` spelling is this section's other lesson: a plain `use`
-binds **shareable by default** — capturing its dependencies as owned handles,
-which needs a binding in the same function — so wiring that works over
-signature-supplied effects opts out with `use local`, and a `local E` in an
-effect list accepts such a scope-local binding.
+function actually calling `log` declares `[Logger]` and knows nothing about
+any of it. Wiring lives at the composition site, not along the call path —
+and nothing in this section writes `local`, which is the point of
+spawn-inheritance: a plain `use` captures its dependencies as owned handles,
+and those handles may come from the enclosing *signature* as well as from a
+binding in the same function, so wiring code can receive the effects it
+wires.
 
 **5 — shadowing is not wrapping.** A `use` for an effect already in scope takes
 over for the rest of the block, and what it shadowed comes back at the closing
@@ -93,16 +93,23 @@ between.
 Worth a look, because effects are the feature whose lowering is least obvious:
 
 - **Kotlin** (`kotlin/main.kt`): effects become interfaces, handlers classes. A
-  handler's dependencies arrive as one small object it stores
-  (`class Stamped<__Fx>(private val __fx: __Fx)`), built where the handler is
-  registered — `Stamped(__Fx_1(__fx.__fx_Clock, __fx.__fx_Logger))` is the
-  outward binding, made of nothing but object references, and the member bodies
-  read it rather than rebuilding anything per call.
-- **Rust** (`rust/main.rs`): effects become traits, and because a `&mut` cannot
-  be in two places, each `use` builds a small generated *fusion* struct that
-  owns the new handler and chains to the previous one through `__outer`. A fn
-  needing effects takes one generic fused parameter bounded by generated
-  accessor traits (`__Has_Logger`), never by the effect traits — which is why
+  dependent handler captures its dependencies as **owned handles at
+  construction** — `class Stamped(private val __dep_Logger: __Has_Logger,
+  private val __dep_Clock: __Has_Clock)` — built where the handler is
+  registered, out of nothing but object references, and the member bodies read
+  those fields rather than rebuilding anything per call. On the JVM a
+  reference *is* a handle, so that is the whole mechanism.
+- **Rust** (`rust/main.rs`): the same capture needs a real handle type
+  (`__Mon_Logger`, an `Arc`-backed clone-box), so a function that registers a
+  dependent handler over effects *it* received takes one extra hidden
+  parameter — `interception(__fx: &mut __Fx, __hs: &__Hs_1)`, a small
+  generated bundle of the handles it has to pass on. Its caller builds the
+  bundle from the handles its own `use` sites minted. Beyond that, effects
+  become traits, and because a `&mut` cannot be in two places, each `use`
+  builds a small generated *fusion* struct that owns the new handler and
+  chains to the previous one through `__outer`. A fn needing effects takes one
+  generic fused parameter bounded by generated accessor traits
+  (`__Has_Logger`), never by the effect traits — which is why
   two effects sharing a member name can never collide there. An intercepting
   fusion carries exactly one `__Has_Logger` impl, its own, while the handler it
   wraps stays reachable through `__outer`: that is section 4's outward binding,

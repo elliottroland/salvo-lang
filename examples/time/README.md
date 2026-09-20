@@ -103,7 +103,7 @@ requires the actor to run on a thread of its own. `thread()` answers a
 handed to two occupants; a wait can therefore only ever occupy its own. And the
 timer reaches `TestTicker` as a plain `Addr<Timer>` *constructor parameter*
 rather than as a handler dependency, because a handler with dependencies of its
-own cannot be **constructed** in a spawn's `use` clause — there is no scope on
+own cannot be **constructed** in a spawn's `with` clause — there is no scope on
 the child to resolve them from, so an addr is what crosses.
 
 ## The order to reach for these

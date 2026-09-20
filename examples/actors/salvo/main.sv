@@ -195,9 +195,9 @@ fn main() [use, spawn] {
     println("1. counter total is ${sum}")
 
     // 3 — an actor that depends on another actor. The dependency arrives as
-    // an addr in the spawn's `use` clause; a construction (`use Counting()`)
+    // an addr in the spawn's `with` clause; a construction (`use Counting()`)
     // would have been the same act.
-    let ledger = spawn Bookkeeping() use counter on workers
+    let ledger = spawn Bookkeeping() with counter on workers
     let line = waitfor out: Reply<Str> {
         ledger.report("counter", out)
     }

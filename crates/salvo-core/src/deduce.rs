@@ -1106,12 +1106,12 @@ impl<'p> Walk<'_, 'p> {
             // checker slice, which is what types these forms at all).
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 ..
             } => {
                 self.expr(handler);
-                for handler in uses {
+                for handler in with_items {
                     self.expr(handler);
                 }
                 if let Some(pool) = pool {

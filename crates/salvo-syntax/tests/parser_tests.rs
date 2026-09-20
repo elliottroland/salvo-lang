@@ -1635,7 +1635,7 @@ fn use_them(m: Mailer) -> Int {
 
 /// [actor-spawn-expr] [actor-replyto] [actor-waitfor] The asynchronous
 /// surface's *expression* forms, in one program that uses every clause:
-/// `spawn` with a spawn-site `use` clause and an `on` pool (the mailbox is the
+/// `spawn` with a spawn's `with` clause and an `on` pool (the mailbox is the
 /// handler's slot [actor-mailbox]); `replyto` and its gated `replyto!`; and
 /// `waitfor`, `main`'s bridge.
 #[test]
@@ -1668,7 +1668,7 @@ handler Counting() of Counter {
 
 fn main() [use, spawn] {
     let counter = spawn Counting() on pool(2)
-    let audited = spawn Counting() use counter, Counting() on pool(1)
+    let audited = spawn Counting() with counter, Counting() on pool(1)
     use counter
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
@@ -1738,7 +1738,7 @@ fn main() [use, spawn] {
     match values[0] {
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
@@ -1746,7 +1746,7 @@ fn main() [use, spawn] {
                 matches!(handler.as_ref(), Expr::Call { .. }),
                 "the handler construction is a call: {handler:?}"
             );
-            assert!(uses.is_empty(), "no `use` clause was written");
+            assert!(with_items.is_empty(), "no `with` clause was written");
             assert!(
                 matches!(pool.as_deref(), Some(Expr::Call { .. })),
                 "`on pool(2)` is an ordinary call: {pool:?}"
@@ -1755,19 +1755,23 @@ fn main() [use, spawn] {
         other => panic!("expected a spawn, got {other:?}"),
     }
 
-    // The `use` clause takes both an `Addr` value and a handler construction.
+    // The `with` clause takes both an `Addr` value and a handler construction.
     match values[1] {
-        Expr::Spawn { uses, .. } => {
-            assert_eq!(uses.len(), 2, "two dependencies were supplied: {uses:?}");
-            assert!(
-                matches!(&uses[0], Expr::Ident(id) if id.name == "counter"),
-                "the first is an Addr value: {:?}",
-                uses[0]
+        Expr::Spawn { with_items, .. } => {
+            assert_eq!(
+                with_items.len(),
+                2,
+                "two dependencies were supplied: {with_items:?}"
             );
             assert!(
-                matches!(&uses[1], Expr::Call { .. }),
+                matches!(&with_items[0], Expr::Ident(id) if id.name == "counter"),
+                "the first is an Addr value: {:?}",
+                with_items[0]
+            );
+            assert!(
+                matches!(&with_items[1], Expr::Call { .. }),
                 "the second is a handler construction: {:?}",
-                uses[1]
+                with_items[1]
             );
         }
         other => panic!("expected a spawn, got {other:?}"),
@@ -1934,7 +1938,7 @@ fn main() [use] -> Int {
     assert!(errors.is_empty(), "`capacity` is not reserved: {errors:?}");
 }
 
-/// A spawn's `use` clause is same-line, like its `on` clause: without the
+/// A spawn's `with` clause is same-line, like its `on` clause: without the
 /// guard, a bare spawn followed by a `use` **statement** swallowed the next
 /// line as its dependency clause (defect found and closed 2026-09-19 — the
 /// pair is the monitor spawn's natural shape [monitor-handler]).
@@ -1961,8 +1965,11 @@ fn main() [use, spawn] {
     assert_eq!(stmts.len(), 2, "the `use` is its own statement: {stmts:?}");
     match &stmts[0] {
         salvo_syntax::ast::Stmt::Let { value, .. } => match value {
-            salvo_syntax::ast::Expr::Spawn { uses, .. } => {
-                assert!(uses.is_empty(), "the spawn has no clause: {uses:?}")
+            salvo_syntax::ast::Expr::Spawn { with_items, .. } => {
+                assert!(
+                    with_items.is_empty(),
+                    "the spawn has no clause: {with_items:?}"
+                )
             }
             other => panic!("expected a spawn, got {other:?}"),
         },
@@ -1977,7 +1984,7 @@ fn main() [use, spawn] {
     // The clause itself still parses when written where it belongs.
     let with_clause = "\
 fn main() [use, spawn] {
-    let child = spawn Child() use rng,
+    let child = spawn Child() with rng,
         Printing()
 }
 ";

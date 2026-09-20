@@ -276,12 +276,12 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         // being reported as unused because it is only spawned.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             expr_names(handler, used);
-            for handler in uses {
+            for handler in with_items {
                 expr_names(handler, used);
             }
             if let Some(pool) = pool {

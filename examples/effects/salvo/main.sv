@@ -103,11 +103,12 @@ handler QuietLogger of Logger {
 // clock for the timestamp and the wrapped logger to hand the line to. The
 // list reads like a fn's, and means the same thing — "this needs these to
 // run" — with the compiler supplying them where the handler is registered.
-// `local` because the registration below sits in a fn that *received* these
-// effects through its signature: a plain `use` captures its dependencies as
-// owned handles, which needs a binding in the same function, so wiring that
-// works over signature-supplied effects stays scope-local and says so.
-handler Stamped [local Logger, local Clock] of Logger {
+// Nothing here says `local`: a plain `use` captures its dependencies as owned
+// handles, and since spawn-inheritance those handles may come from the
+// *enclosing signature* as well as from a binding — which is what lets the
+// wiring live in `interception` below, a function that only receives the
+// effects it wires.
+handler Stamped [Logger, Clock] of Logger {
     fn log(message: Str) -> None => message {
         log("[t=${now()}] ${message}")
     }
@@ -115,7 +116,7 @@ handler Stamped [local Logger, local Clock] of Logger {
 
 // A second one, with state of its own. Interceptors stack: registering this
 // over `Stamped` numbers the line the stamping logger will then print.
-handler Numbered [local Logger] of Logger {
+handler Numbered [Logger] of Logger {
     seen: Int = 0
 
     fn log(message: Str) -> None => message {
@@ -126,18 +127,18 @@ handler Numbered [local Logger] of Logger {
 
 // The function doing the work knows none of this. It declares `[Logger]`, and
 // what that means is decided entirely by the `use` above it.
-fn work(step: Str) [local Logger] -> None => step {
+fn work(step: Str) [Logger] -> None => step {
     log(step)
 }
 
 // Note where the *dependencies* appear: `interception` registers `Stamped`,
 // so `interception` is what needs a `Clock` available — its callers do not.
 // Composition is where the wiring lives.
-fn interception() [local Logger, local Clock, use] -> None {
+fn interception() [Logger, Clock, use] -> None {
     work("4. plain")
-    use local Stamped
+    use Stamped
     work("4. stamped")
-    use local Numbered
+    use Numbered
     work("4. numbered, then stamped")
     work("4. and again")
 }

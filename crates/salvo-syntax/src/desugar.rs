@@ -960,12 +960,12 @@ impl Rewrite {
             // an `iter fn` subject read inside one rewrites like any other.
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 ..
             } => {
                 self.expr(handler);
-                for handler in uses {
+                for handler in with_items {
                     self.expr(handler);
                 }
                 if let Some(pool) = pool {
@@ -1137,12 +1137,12 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             // asynchronous forms hold ordinary expressions and blocks.
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 ..
             } => {
                 walk_expr(handler, reserved, out);
-                for handler in uses {
+                for handler in with_items {
                     walk_expr(handler, reserved, out);
                 }
                 if let Some(pool) = pool {

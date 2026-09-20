@@ -108,7 +108,7 @@ fn main() [use, spawn] {
     let rng = spawn CyclicRandom(12345)
     use rng
     let first = next()
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -509,13 +509,14 @@ fn main() [use] {
     assert!(errs.is_empty(), "expected a clean program: {errs:?}");
 }
 
-/// [use-local] [effect-handler-deps] The v1 lexical cut: a shareable
-/// construction captures a dependency handle off a binding *in this
-/// function* — an effect that arrives through the enclosing signature has
-/// no binding value to mint one from, and the error points at
-/// spawn-inheritance as the lift.
+/// [spawn-inherit] The v1 lexical cut is **lifted** (user decision
+/// 2026-09-20): a shareable construction may capture a handle for an effect
+/// that arrived through the enclosing *signature* — the handle threads in
+/// from the caller (one hidden fused bundle parameter on Rust; a JVM
+/// reference already is one). This is the shape the effects example wanted:
+/// interception wiring in a fn that received the effects it wires.
 #[test]
-fn a_signature_supplied_dependency_cannot_be_captured() {
+fn a_signature_supplied_dependency_can_be_captured() {
     let errs = errors(
         "\
 effect Beacon {
@@ -530,6 +531,8 @@ handler Relaying [Random] of Beacon {
 
 fn wire() [Random, use] {
     use Relaying()
+    let lit = shine()
+    let sink = lit
 }
 
 fn main() [use] {
@@ -538,10 +541,43 @@ fn main() [use] {
 }
 ",
     );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
+}
+
+/// [spawn-inherit] A **platform effect** keeps a targeted refusal: the host
+/// owns that instance and hands it to `main` as a borrow, so there is no
+/// handle to mint — the remedy is the `DefaultFs [RawFs]` shape, or a
+/// `local` dependency (user decision 2026-09-20; that surface gets its own
+/// design round).
+#[test]
+fn a_platform_effect_cannot_be_captured_as_a_handle() {
+    let errs = errors(
+        "\
+platform effect Host {
+    fn tick() -> Int
+}
+
+effect Beacon {
+    fn shine() -> Int
+}
+
+handler Relaying [Host] of Beacon {
+    fn shine() -> Int {
+        return tick()
+    }
+}
+
+fn wire() [Host, use] {
+    use Relaying()
+    let lit = shine()
+    let sink = lit
+}
+",
+    );
     assert!(
-        errs.iter().any(|m| m.contains("captures a handle for `Random`")
-            && m.contains("enclosing signature")),
-        "expected the lexical-capture refusal: {errs:?}"
+        errs.iter().any(|m| m.contains("is a platform effect")
+            && m.contains("no handle to capture")),
+        "expected the platform-effect refusal: {errs:?}"
     );
 }
 
@@ -629,5 +665,163 @@ fn main() [use] {
             && m.contains("Ponger's lock")
             && m.contains("wait for each other through a shared handler")),
         "expected the lock cycle reported by name: {errs:?}"
+    );
+}
+
+// ===== spawn-inheritance and the `with` clause (2026-09-20) =====
+
+/// [spawn-inherit] [with-clause] A **partial** clause (user decision
+/// 2026-09-20): a written item satisfies the dependency it matches, and the
+/// rest still inherit from the scope. One child, two dependencies, one of
+/// each.
+#[test]
+fn a_partial_with_clause_inherits_the_rest() {
+    let errs = errors(
+        "\
+effect Beacon {
+    fn shine() -> Int
+}
+
+handler Shining of Beacon {
+    fn shine() -> Int { return 1 }
+}
+
+actor effect Asker {
+    send fn ask(out: Reply<Int>) => !out
+}
+
+handler Asking() [Random, Beacon] of Asker {
+    mailbox { capacity: 4 }
+
+    send fn ask(out: Reply<Int>) {
+        send(out, next() + shine())
+    }
+}
+
+fn main() [use, spawn] {
+    use CyclicRandom(7)
+    let a = spawn Asking() with Shining() on pool(1)
+}
+",
+    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
+}
+
+/// [spawn-inherit] Two compatible instances in scope is an **ambiguity**, not
+/// a guess: the clause is how the program says which one.
+#[test]
+fn an_ambiguous_inherited_dependency_is_refused() {
+    let errs = errors(
+        "\
+effect Store<T> {
+    fn keep(value: T) -> Int => value
+}
+
+handler Keeping<T> of Store<T> {
+    fn keep(value: T) -> Int => value { return 1 }
+}
+
+actor effect Asker {
+    send fn ask(out: Reply<Int>) => !out
+}
+
+handler Asking<T>() [Store<T>] of Asker {
+    mailbox { capacity: 4 }
+
+    send fn ask(out: Reply<Int>) {
+        send(out, 0)
+    }
+}
+
+fn main() [use, spawn] {
+    use Keeping<Int>()
+    use Keeping<Str>()
+    let a = spawn Asking() on pool(1)
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("several instances it could mean")
+            && m.contains("name the one you want with `with`")),
+        "expected the ambiguity refusal: {errs:?}"
+    );
+}
+
+/// [with-clause] A `with` item is a **private instance** (user decision
+/// 2026-09-20), and it may supply the **self-dependency**: an interceptor
+/// then wraps the instance the clause names instead of the one in scope.
+#[test]
+fn a_with_clause_supplies_a_private_instance_and_may_override_the_self_dep() {
+    let errs = errors(
+        "\
+effect Greeter {
+    fn greet(name: Str) -> Str => name
+}
+
+handler Plain of Greeter {
+    fn greet(name: Str) -> Str => name { return \"plain\" }
+}
+
+handler Formal of Greeter {
+    fn greet(name: Str) -> Str => name { return \"formal\" }
+}
+
+handler Loud [Greeter] of Greeter {
+    fn greet(name: Str) -> Str => name {
+        return greet(name)
+    }
+}
+
+fn main() [use] {
+    use Plain
+    use Loud with Formal()
+    let said = greet(\"x\")
+    let sink = said
+}
+",
+    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
+}
+
+/// [with-clause] An item the handler does not depend on is a mistake, and a
+/// clause item with dependencies *of its own* has no scope to resolve them —
+/// both named where they are written.
+#[test]
+fn a_with_clause_refuses_a_useless_or_dependent_item() {
+    let errs = errors(
+        "\
+effect Beacon {
+    fn shine() -> Int
+}
+
+handler Shining of Beacon {
+    fn shine() -> Int { return 1 }
+}
+
+handler Relaying [Random] of Beacon {
+    fn shine() -> Int { return next() }
+}
+
+handler Watching [Beacon] of Beacon {
+    fn shine() -> Int { return shine() }
+}
+
+fn main() [use] {
+    use CyclicRandom(7)
+    use Shining
+    use Watching with Relaying(), Shining()
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("cannot be constructed in a `with` clause")
+                && m.contains("no scope to resolve its own dependencies")),
+        "expected the dependent-item refusal: {errs:?}"
+    );
+    assert!(
+        errs.iter()
+            .any(|m| m.contains("does not depend on effect") && m.contains("with`")),
+        "expected the useless-item refusal: {errs:?}"
     );
 }

@@ -2148,6 +2148,127 @@ fn rustc_compiles_and_runs_a_shareable_interceptor_chain() {
     run_rust_files(&files, "shareable-chain", SHAREABLE_CHAIN_OUTPUT);
 }
 
+// ===== spawn-inheritance and the `with` clause [spawn-inherit] =====
+// The arc's shape, with nothing written where nothing needs to be: the
+// interception wiring lives in a fn that *received* the effects it wires (the
+// lexical cut is lifted — Rust threads the handles in one hidden bundle), a
+// spawned actor inherits its dependency from the spawning scope with no
+// clause at all, and a `with` clause overrides one — a private instance,
+// including for the self-dependency.
+
+const SPAWN_INHERIT_DEMO: &str = r#"
+effect Clock {
+    fn now() -> Int
+}
+
+handler TickingClock of Clock {
+    t: Int = 0
+    fn now() -> Int { t = t + 1 return t }
+}
+
+effect Logger {
+    fn log(m: Str) -> None => m
+}
+
+handler PlainLogger [Console] of Logger {
+    fn log(m: Str) -> None => m { println("log: ${m}") }
+}
+
+handler Stamped [Logger, Clock] of Logger {
+    fn log(m: Str) -> None => m {
+        log("[t=${now()}] ${m}")
+    }
+}
+
+handler FixedClock of Clock {
+    fn now() -> Int { return 99 }
+}
+
+actor effect Reporter {
+    send fn report(what: Str, done: Reply<Int>) => !what, !done
+}
+
+handler Reporting() [Logger] of Reporter {
+    mailbox { capacity: 4 }
+
+    send fn report(what: Str, done: Reply<Int>) {
+        log("reported ${what}")
+        done.send(1)
+    }
+}
+
+fn work(step: Str) [Logger] -> None => step {
+    log(step)
+}
+
+fn interception() [Logger, Clock, use] -> None {
+    work("plain")
+    use Stamped
+    work("stamped")
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole
+    use TickingClock()
+    use PlainLogger()
+    interception()
+    let r = spawn Reporting() on pool(1)
+    let acked = waitfor done: Reply<Int> {
+        r.report("inherited", done)
+    }
+    let sink = acked
+    use Stamped with FixedClock()
+    work("overridden")
+}
+"#;
+
+const SPAWN_INHERIT_OUTPUT: &str =
+    "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
+
+/// [spawn-inherit] [with-clause] [rs-handle-bundle] The arc end to end:
+/// a signature-supplied effect captured into a handler (the hidden `__Hs_N`
+/// bundle), a spawn inheriting its dependency from the scope, and a `with`
+/// clause overriding the self-dependency with a private instance.
+/// Byte-identical stdout on Kotlin.
+#[test]
+fn rustc_compiles_and_runs_spawn_inheritance() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SPAWN_INHERIT_DEMO)]);
+    run_rust_files(&files, "spawn-inherit", SPAWN_INHERIT_OUTPUT);
+}
+
+/// [rs-handle-bundle] The shapes the lift needs: one hidden bundle parameter
+/// after the fused value, built at the call site from the caller's own eager
+/// handles, and read as fields at the capture.
+#[test]
+fn a_handle_bundle_threads_signature_supplied_effects() {
+    let files = generate(&[("main.sv", SPAWN_INHERIT_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.ends_with("main.rs"))
+        .unwrap();
+    let c = &main.content;
+    assert!(
+        c.contains("pub fn interception<__Fx: __Has_Logger + __Has_Clock>(__fx: &mut __Fx, __hs: &__Hs_1)"),
+        "expected one hidden bundle parameter after the fused value:\n{c}"
+    );
+    assert!(
+        c.contains("pub struct __Hs_1 {") && c.contains("pub logger: crate::__Mon_Logger,"),
+        "expected the generated bundle struct with a handle per effect:\n{c}"
+    );
+    assert!(
+        c.contains("Stamped::new(__hs.logger.clone(), __hs.clock.clone())"),
+        "the capture must read the bundle's fields:\n{c}"
+    );
+    assert!(
+        c.contains("interception(&mut __fx3, &__Hs_1 {"),
+        "the caller must build the bundle from its own handles:\n{c}"
+    );
+}
+
 /// [use-local] [effect-handler-deps] A **generic** dependent handler works
 /// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
 /// no generated trait has to name the handler's generics — the cut that
@@ -8947,7 +9068,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -9062,7 +9183,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -9310,7 +9431,7 @@ fn a_mixed_handler_lowers_to_a_servant_and_a_facade() {
 }
 
 /// [actor-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
-/// declares `[Log, Tally]` and the spawn's `use` clause supplies one of each
+/// declares `[Log, Tally]` and the spawn's `with` clause supplies one of each
 /// kind — `Recording()` as a **construction**, built on the child, and `tally`
 /// as an **`Addr`**, bound to a forwarding stub. That is the binding swap
 /// executed: `Counting` is compiled once and neither of its member bodies can
@@ -9382,7 +9503,7 @@ handler Counting() [Log, Tally] of Counter {
 fn main() [use, spawn] {
     use StdOutConsole()
     let tally = spawn Summing() on pool(1)
-    let counter = spawn Counting() use Recording(), tally on pool(1)
+    let counter = spawn Counting() with Recording(), tally on pool(1)
     counter.bump(2)
     counter.bump(3)
     let last = waitfor out: Reply<Str> {
@@ -9538,7 +9659,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(2)
     let rows = spawn Rows() on p
-    let fetcher = spawn Fetching() use rows on p
+    let fetcher = spawn Fetching() with rows on p
     let answer = waitfor out: Reply<Str> {
         fetcher.fetch(7, out)
     }
@@ -9598,7 +9719,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(3)
     let echo = spawn Echoing() on p
-    let tracer = spawn Tracing() use echo on p
+    let tracer = spawn Tracing() with echo on p
     tracer.start()
     tracer.note("late")
     let got = waitfor out: Reply<Str> {
@@ -10223,7 +10344,7 @@ handler Asking() [Db] of Ask {
 
 fn main() [use, spawn] {
     let rows = spawn Rows() on pool(1)
-    let a = spawn Asking() use rows on pool(1)
+    let a = spawn Asking() with rows on pool(1)
     a.go(1)
 }
 "#;
@@ -10338,7 +10459,7 @@ fn main() [use, spawn] {
 
     let timer = spawn Timing(1000) on pool(1)
     // `thread()` is consumed here: one thread, one occupant.
-    let clock = spawn Clocking() use timer on thread()
+    let clock = spawn Clocking() with timer on thread()
     let now = waitfor out: Reply<Int> {
         clock.now(out)
     }
@@ -10776,7 +10897,7 @@ fn main() [use, spawn] -> None {
     use StdOutConsole()
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() use timer on p
+    let sleeper = spawn Napping() with timer on p
     let answer = waitfor result: Reply<Str> {
         sleeper.nap(seconds(2), result)
         waitfor settled: Reply<Idle> {
@@ -10832,7 +10953,7 @@ handler SteppingTicker(step: Duration) of Ticker {
 
 // The unified test clock: a reading is a deadline of zero, so the answer is the
 // timer's own virtual now. The timer arrives as a value, not a dependency — a
-// handler with dependencies of its own cannot be built in a spawn `use` clause.
+// handler with dependencies of its own cannot be built in a spawn `with` clause.
 handler TestTicker(timer: Addr<Timer>) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
@@ -10868,7 +10989,7 @@ fn main() [use, spawn] -> None {
 
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
+    let sleeper = spawn Napping() with timer, TestTicker(timer) on thread()
     let napped = waitfor answer: Reply<Str> {
         sleeper.nap(seconds(2), answer)
         waitfor settled: Reply<Idle> {

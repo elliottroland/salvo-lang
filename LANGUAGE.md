@@ -495,7 +495,7 @@ let p: Old Surname Person | None = check_old_surname(person)
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
-Note that `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in the linear types section).
+Note that on a qualifier declaration `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in the linear types section). The same word appears in one other place, where it cannot be confused with this one: after a `use` or `spawn`, `with` names the dependency instances to supply (see "Inheriting the scope, and overriding it with `with`").
 
 ### Auto-qualifiers and `Mut`
 
@@ -1625,7 +1625,7 @@ fn main() [use, spawn] {
     let rng = spawn CyclicRandom(12345)   // one shared instance, no `on` —
     use rng                               // a monitor runs on its callers' threads
     let n = next()                        // lock, advance, unlock
-    let child = spawn Worker() use rng    // the same instance, from another thread
+    let child = spawn Worker() with rng    // the same instance, from another thread
 }
 ```
 
@@ -1643,7 +1643,47 @@ That is what `[E]` now means: **a shareable `E`** — the function may pass it a
 - **`[local E]`** in an effect list accepts a scope-local binding and disclaims seam rights for `E`. The call-site rule: a `use local` binding satisfies only `[local E]` requirements; a shareable binding satisfies both, since `local` is the weaker claim. The annotation is viral down call chains that traffic in local bindings — an accepted cost, to be lifted later by inference — and std's own effect-forwarding functions (`println`, the `Fs` surface, `elapsed`) declare `[local E]`, being pure forwarders that never cross a seam.
 - A **fn type's** effects are always call-only — a function value cannot spawn — so writing `local` there is refused as redundant, and a lambda's availabilities are local: a function called from inside a lambda declares `[local E]`.
 
-A dependent handler bound shareable captures its dependencies as owned handles **at construction, from bindings in the same function**. An effect that arrives through the enclosing signature has no binding value to mint a handle from, so registering such a handler there is an error pointing at the two current remedies (bind it in this function, or go `use local`) — threading a signature-supplied effect into a captured handle arrives with spawn-inheritance. A `platform handler` is **assumed thread-safe by its design** (user decision 2026-09-20): it classifies bare, so nothing that depends on a platform-backed effect ever writes `local` — `DefaultFs [RawFs]` stays annotation-free, as does the production interceptor chain, which was the point of lifting monitor dependencies. The assumption is unvalidated for now; a way for a host to state (and the compiler to check) its thread-safety is future work.
+A dependent handler bound shareable captures its dependencies as owned handles **at construction** — from a binding in the same function, or from an effect the function received through its own signature, in which case the handle is threaded in by the caller (see the next section). A `platform handler` is **assumed thread-safe by its design** (user decision 2026-09-20): it classifies bare, so nothing that depends on a platform-backed effect ever writes `local` — `DefaultFs [RawFs]` stays annotation-free, as does the production interceptor chain, which was the point of lifting monitor dependencies. The assumption is unvalidated for now; a way for a host to state (and the compiler to check) its thread-safety is future work.
+
+### Inheriting the scope, and overriding it with `with`
+
+A spawned handler **inherits its dependencies from the spawning scope** (user decision 2026-09-20). A handler declares what it needs, the spawn says where it runs, and the wiring in between is the compiler's:
+
+```
+handler Drawing() [Random] of Drawer { … }
+
+fn main() [use, spawn] {
+    use CyclicRandom(7)                   // one shared instance
+    let d = spawn Drawing() on pool(1)    // …inherited, with nothing written
+}
+```
+
+This is what the shareable-by-default round bought. A bare `[Random]` guarantees a shareable instance, so the scope's registration can be captured as a handle and travel with the child — checked one function at a time, with no whole-program analysis and no runtime check. Before it, every dependency had to be written at every spawn.
+
+Only a shareable binding can be inherited: a `use local` one exists precisely so that it does not cross a seam, and the error names the remedy (bind it shareable, or give the child its own). Two candidate instances in scope is an ambiguity the compiler will not guess at, and nothing in scope is still an error — now naming both ways to fix it.
+
+Where the scope's instance is *not* what a handler should get, **`with` names what it should**:
+
+```
+use Plain
+use Loud with Formal()        // Loud wraps this fresh Formal, not the Plain in scope
+let d = spawn Drawing() with FixedRandom() on pool(1)
+```
+
+A `with` item is a **private instance**: constructed at the clause, owned by the handler or child it is given to, shared with nothing. The clause is *partial* — items satisfy the dependencies they match, and the rest still inherit — and it may supply the self-dependency, which is the one case where an interceptor wraps something other than what it shadows. It works on both binding forms, and `use local H with …` is fine too: the clause chooses which instance, which has nothing to do with locality.
+
+The same lift applies to `use` inside a function that *received* the effects it wires:
+
+```
+fn interception() [Logger, Clock, use] -> None {
+    use Stamped                 // captures handles for Logger and Clock —
+    work("stamped")             // both arrived through this signature
+}
+```
+
+Nothing in that function says `local`. On the Kotlin backend an object reference already is a handle, so this costs nothing; on the Rust backend the caller passes one extra hidden parameter — a small bundle of the handles the callee has to capture — and only on call chains that actually capture one. A function may only have such a parameter if its effect list carries `use` or `spawn`, so the possibility is visible in the signature even though the parameter is not.
+
+One shape still refuses: a **platform effect** cannot be captured this way, because the host owns that instance and hands it to `main` as a borrow — there is no handle to make. Put an ordinary Salvo handler over it (`DefaultFs [RawFs]` is exactly this) or declare the dependency `local`.
 
 
 ### Mixed handlers — a servant behind a plain effect
@@ -2888,7 +2928,7 @@ Because every clock is an effect, a test replaces it — and `ManualTime` is the
 
 ```
 let (timer, ctl) = spawn ManualTime() on p
-let sessions = spawn Sessions() use timer on p
+let sessions = spawn Sessions() with timer on p
 
 sessions.open(order, answer)
 waitfor settled: Reply<Idle> { on_idle(p, settled) }   // let it register first
@@ -2916,7 +2956,7 @@ handler TestTicker(timer: Addr<Timer>) of Ticker {
 }
 ```
 
-One virtual clock is then behind both, so a measurement taken across a two-second virtual nap is exactly two seconds. Two existing rules shape this handler and are worth reading off it. The timer arrives as a **value** — an `Addr<Timer>` constructor parameter — because a handler with dependencies of its own cannot be *constructed* in a spawn's `use` clause: there is no scope on the child to resolve them from. And the wait is declared nowhere: occupancy is inferred, the wait serves its pool while it waits, and the deadlock graph prices any cycle it could close. The round trip per reading is why this is the posture of last resort rather than the default.
+One virtual clock is then behind both, so a measurement taken across a two-second virtual nap is exactly two seconds. Two existing rules shape this handler and are worth reading off it. The timer arrives as a **value** — an `Addr<Timer>` constructor parameter — because a handler with dependencies of its own cannot be *constructed* in a spawn's `with` clause: there is no scope on the child to resolve them from. And the wait is declared nowhere: occupancy is inferred, the wait serves its pool while it waits, and the deadlock graph prices any cycle it could close. The round trip per reading is why this is the posture of last resort rather than the default.
 
 ## Specific backend details
 

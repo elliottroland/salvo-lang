@@ -463,7 +463,7 @@ handler Drawing() [Random] of Drawer {
 
 fn main() [use, spawn] {
     let rng = spawn CyclicRandom(1)
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let _drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }

@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1204 tests, complete: the toolchain tests are
+cargo test                  # 1212 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,107 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Spawn-inheritance, built (user decisions 2026-09-20, evening session; the
+whole arc landed the same session).** The arc the shareable-by-default work
+was for. The calls, each presented with options and trade-offs first:
+
+- **The clause word is `with`, on both binding forms** — superseding the
+  never-built `using` rename (user decision 2026-09-19): `spawn H(args)
+  with D1(), addr on POOL` and `use H(args) with D()`. The clause supplies
+  *specific dependency instances* instead of the scope's resolution. Its
+  semantics, each the user's call: a `with` construction is a **private
+  instance** (owned by the handler/child, unshared with the scope); the
+  **self-dependency may be supplied** (`use Loud with Formal()` aims an
+  interceptor at a fresh instance instead of the scope's — "binds strictly
+  outward" gains a written exception, and acyclicity is untouched since a
+  fresh construction cannot point back); and **`use local H with …` is
+  legal** (the clause picks instances, orthogonal to locality). `with` is
+  free since the `with` → `canbe` rename; it stays contextual.
+- **Spawn-dep synthesis, partial clauses** (D1): a spawn's declared deps not
+  covered by written `with` items resolve from the spawning scope's
+  *shareable* availabilities, captured as owned handles exactly as a
+  monitor's deps are. A `use local` binding does not satisfy one (error
+  naming it); two compatible instances are an ambiguity error; nothing in
+  scope stays an error naming both remedies. Written items win for the deps
+  they match.
+- **The lexical-cut lift rides mechanism A plus a fusion** (user
+  modification): handle requirements thread as **one hidden parameter** —
+  a generated per-shape bundle struct (`__Hs_N { logger: __Mon_Logger, … }`,
+  deduped like `__Fx_N`), Rust-only (a JVM reference is already a handle).
+  Chosen over B1 (a handle accessor on `__Has_E` — killed by `use local`
+  sharing fusion shapes: no honest impl for a local-backed fusion) and B2
+  (a separate `__HasHandle_E` trait — A's propagation table spelled as
+  bounds, plus per-fusion impl surface). The user's bound, written into the
+  rule: the bundle may only appear on fns whose effect list carries `use`
+  or `spawn`, so the hidden parameter is predictable from the visible
+  signature. `main`'s **platform-effect** parameters keep a targeted error
+  (host-owned `&mut dyn` instances have no handle to mint; that surface
+  needs its own design round later — user decision).
+- **The effects example returns to bare spellings** (D4): the interception
+  section's `local`s were the cut's cost, and the lift is the payoff.
+
+What it took, in four slices:
+
+- **The `with` clause** (slice 1): one `parse_with_clause` shared by
+  `parse_spawn` and the `use` statement. `with` turned out to be a *keyword
+  already* — the qualifier-compatibility clause spells it (`qualifier Q of T
+  with A`, the site the `with` → `canbe` rename deliberately spared) — so the
+  guard is the token plus same-line, not `at_word`; the two positions cannot
+  be confused. AST: `Expr::Spawn.uses` → `with_items`, and `Stmt::Use` gained
+  the field. The checker's `check_with_item` validates an item (private
+  instance; multi-face refused; an item with dependencies of its own refused;
+  a fusion-form handler refused — both remaining cuts recorded in ROADMAP),
+  and `finish_use` matches items against declared deps before falling back to
+  the scope, recording the pairing in `use_with_items`. Emission: Rust boxes
+  a private instance into the effect's handle
+  (`__Mon_E::new(Box::new(__Lock_E::new(D::new(…))))`); Kotlin needed a
+  **one-instance adapter** (`class __One_E(private val __e: E) : __Has_E`,
+  beside each accessor interface in `fx.kt`) because a handle-dep constructor
+  parameter is typed as `__Has_E`, not as the effect.
+- **The lexical-cut lift** (slice 2): `Checked::handle_requirements` per fn,
+  `call_edges` recorded where a callee resolves, and
+  `propagate_handle_requirements` — a fixpoint gated on the caller supplying
+  that effect from *its* signature, which is what keeps the requirement off a
+  fn that binds the effect locally, and makes the `use`/`spawn` bound hold by
+  itself (a requiring callee declares `use`, and the existing capability check
+  already forces its callers to). Rust grew [rs-handle-bundle]: `__Hs_N`
+  structs deduped per shape, one hidden parameter after the fused `__fx`,
+  built at call sites from the frame's own bundle fields or eager handle
+  variables. Kotlin changed **not at all**. `require_handle` refuses a
+  platform effect and a lambda, each by name.
+- **Synthesis** (slice 3): `synthesized_spawn_dep` resolves an uncovered
+  dependency from `visible_avail()`, with the three refusals the decision
+  asked for — and a **actor-specific remedy** for a local binding ("spawn the
+  handler of `E` and bind its addr"), since for an actor effect the local
+  binding is an inline `use H()`. `spawn_dep_items` became
+  `Vec<Option<usize>>` (`None` = inherited); Rust's provider takes the
+  scope's handle through `inherited_dep_handle`, Kotlin's carrier looks the
+  instance up by effect type. The Rust emitter's eager-handle pre-scan had to
+  learn about `spawn_deps` too, or an inherited dependency had no handle to
+  clone.
+- **The payoff** (slice 4): `examples/effects` is annotation-free again — the
+  interception section back to `[Logger, Clock]` and `use Stamped`, with the
+  prose teaching inheritance instead of the cut — and its output is unchanged
+  on both backends, which is the claim that matters.
+
+Found while building: the sweep that renamed the clause used `\s+` in a regex
+and **crossed newlines**, joining a deliberate `let rng = spawn CyclicRandom(1)`
+and a following `use rng` statement into one — in nine places, including the
+test whose whole point is that the two lines stay separate. Reverted by
+pattern and re-swept anchored to a single line (gotcha recorded).
+
+Tests: **1212 (+8)** — six checker tests (a spawn inheriting the scope, clean;
+the scope-local refusal with its actor-specific remedy; a partial clause; the
+ambiguity refusal; a `with` supplying a private instance *and* overriding the
+self-dependency; the useless-item and dependent-item refusals), a rustc
+compile-and-run of the whole arc in one program — signature-supplied capture,
+an actor inheriting with no clause, a `with` override — with its kotlinc twin
+printing the same four lines, and a shape test pinning the `__Hs_N` parameter,
+struct, field read and call-site construction. Two tests were *replaced*
+rather than added, their premises being what the arc removed:
+`a_spawned_handler_cannot_inherit_the_spawning_scope` and
+`a_signature_supplied_dependency_cannot_be_captured`.
 
 **Shareable by default (user decisions 2026-09-20, built across two sessions
 the same day).** The arc the 2026-09-19/20 design conversation scheduled,
@@ -1307,7 +1408,7 @@ What it took, and what it turned up:
   mixed handler, still being designed); a face may be named **once**; and a
   **bodyless** handler (`intrinsic`/`platform`) wears one face, since one host
   class implements one generated interface. Plus one shape-level refusal: a
-  multi-face handler may not be *constructed* in a spawn's `use` clause — the
+  multi-face handler may not be *constructed* in a spawn's `with` clause — the
   child owns what a clause builds, and one instance cannot be two of its
   dependencies (two addrs of the same actor are the shape that works).
 - **Verified on both backends with identical output**: a compile-and-run case
@@ -2599,7 +2700,7 @@ trailing-token convention the sugar tower's `-> T` will use, so
 (2) **Only a `send fn` is reachable through an addr**, because a member that
 answers would have to park its caller — which is exactly the call-sugar pass's
 named question, so refusing now commits to nothing. (3) **A dependency
-*constructed* in a spawn's `use` clause may not have dependencies of its own**:
+*constructed* in a spawn's `with` clause may not have dependencies of its own**:
 there is no scope on the child to resolve them from, and the remedy the
 diagnostic names is an addr of a process already serving the effect.
 
@@ -2679,7 +2780,7 @@ LANGUAGE_SPEC.md under [actor-spawn-expr] and [actor-send-fn].
 (2026-09-15).** The declaration forms, then the expression forms — both
 **contextual**, so phase 5 reserved *not one word*. What checks: `send fn`
 members of effects and handlers [actor-send-fn] and `[spawn]` in effect lists
-[actor-spawn-effect]. What parses and is then refused: `spawn H(args) use …
+[actor-spawn-effect]. What parses and is then refused: `spawn H(args) with …
 capacity N on POOL` [actor-spawn-expr], `replyto k(c)` / `replyto! k(c)`
 [actor-replyto], `waitfor out: Reply<T> { … }` [actor-waitfor], and `use addr`
 [actor-use-addr] — the last needing no syntax at all, since the `use`
@@ -2830,9 +2931,8 @@ working-document template these follow). The shortest honest summary:
   2026-09-04 record by making the question moot.
 - **First-pass surface (grammar frozen)**: `send fn` members with explicit
   `Reply<T>` parameters; `replyto`/`replyto!`; `r.send(v)` discharges (no
-  `fulfil` verb — consumption says it); `Addr<T>`; `spawn H(args) use
-  Handler(...), addr, ... on pool(n)` (dependencies as constructor params or
-  spawn-site `use` clause — handlers never cross, *construction* crosses; no
+  `fulfil` verb — consumption says it); `Addr<T>`; `spawn H(args) with   Handler(...), addr, ... on pool(n)` (dependencies as constructor params or
+  spawn's `with` clause — handlers never cross, *construction* crosses; no
   `fork`); lowercase `[use, spawn]`; `use addr` binds an effect to a
   forwarding stub; **`waitfor`** is main's explicit blocking bridge and the
   program ends when `main` returns (no run-to-quiescence ambience).
@@ -8097,7 +8197,7 @@ Each was reproduced before it was fixed, and the repro is kept: it is the
 argument for the rule that closed it. Defects still open are in
 [ROADMAP.md](ROADMAP.md).
 
-### ~~A spawn's `use` clause swallows a `use` statement on the next line~~ — found and closed 2026-09-19
+### ~~A spawn's `with` clause swallows a `use` statement on the next line~~ — found and closed 2026-09-19
 
 **Was reproduced** while building the monitor spawn (SH-3), whose natural
 shape is the pair that triggers it:
@@ -8116,7 +8216,7 @@ HEAD before the fix, with a plain actor spawn — the defect predates monitors
 and was never noticed because actor spawns usually carry a clause or an `on`.
 
 **Root cause**: `parse_spawn` guarded the `on` clause with `same_line()` but
-not the `use` clause. **Fix**: the same guard — a spawn's `use` clause must
+not the `use` clause. **Fix**: the same guard — a spawn's `with` clause must
 begin on the spawn's line (continuation past a comma still legal), which is
 also `replyto`'s documented rule for its `on`. One parser test pins both
 halves.
@@ -13010,7 +13110,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1204)
+## Test inventory (all green: 1212)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13018,7 +13118,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 681 - 16 shareable/monitor tests (`tests/monitor_tests.rs`
+- `salvo-core`: 688 - 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
   [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
   2026-09-20 ten — classification both ways, the call-site rule both ways, the
   opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
@@ -13901,7 +14001,8 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 221 - including the shareable interceptor chain and the
+- `salvo-backend-rust`: 223 - including spawn-inheritance end to end and the
+  handle-bundle shapes ([spawn-inherit], [rs-handle-bundle]), the shareable interceptor chain and the
   generic handle-dep handler ([use-local], 2026-09-20), and sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin
   backend prints; the message enum, process body and mounted scheduler
@@ -14129,6 +14230,15 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A bulk-rename regex with `\s+` crosses newlines.** Renaming the
+  spawn-dependency clause (`spawn H() use D` → `with D`, 2026-09-20) matched
+  across a line break and joined a deliberate two-statement pair —
+  `let rng = spawn CyclicRandom(1)` followed by `use rng` — into a single
+  spawn with a clause, in nine places including the very test whose point is
+  that the two lines stay separate. The suite caught it, but the corruption
+  read as plausible Salvo. Anchor such sweeps to one line (`[^\S\n]+`, or
+  match the whole line), and diff the *removed* lines, not just the added
+  ones, before trusting the result.
 - **A generated impl must live under the same gate as its trait.** The
   monitor stub emitted `impl __Has_E for __Mon_E` unconditionally while
   `__Has_E` is declared only when the program fuses — so every non-fusion

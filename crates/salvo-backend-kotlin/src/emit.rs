@@ -206,6 +206,16 @@ pub fn emit_program_reporting(
             content.push_str(&format!(
                 "\ninterface {iface} {{\n    val {prop}: {rendered}\n}}\n"
             ));
+            // [with-clause] The one-instance adapter: a `with` clause's
+            // **private instance** satisfies a handle-dep constructor
+            // parameter through this, since that parameter is typed as the
+            // accessor interface (stable per-effect identity) rather than as
+            // the effect. One tiny class per effect, inert where unused.
+            content.push_str(&format!(
+                "\nclass __One_{}(private val __e: {rendered}) : {iface} {{\n    \
+                 override val {prop}: {rendered} get() = __e\n}}\n",
+                sanitize_instance(rendered)
+            ));
         }
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("fx.kt"),
@@ -3588,7 +3598,12 @@ impl<'p> Emitter<'p> {
                 }
             }
             Stmt::Continue { .. } => format!("{pad}continue\n"),
-            Stmt::Use { handler, local, span } => self.emit_use(handler, *local, *span, indent),
+            Stmt::Use {
+                handler,
+                local,
+                with_items,
+                span,
+            } => self.emit_use(handler, *local, with_items, *span, indent),
             Stmt::Expr(expr) => self.emit_expr_stmt(expr, indent),
         }
     }
@@ -3896,16 +3911,24 @@ impl<'p> Emitter<'p> {
                 return None;
             }
         };
+        // [spawn-inherit] A written clause item is constructed here; a
+        // **synthesized** dependency (`None`) is the spawning scope's own
+        // instance — a JVM reference, so the child shares it by holding it.
         let mut instances: Vec<String> = Vec::new();
         for (i, at) in items.iter().enumerate() {
-            let Some(item) = uses.get(*at) else {
-                self.error(format!(
-                    "internal: spawning `{handler_name}` names clause item {at}, which \
-                     the form does not have"
-                ));
-                return None;
-            };
-            instances.push(self.spawn_dep_instance(item, &deps[i]));
+            match at {
+                Some(at) => {
+                    let Some(item) = uses.get(*at) else {
+                        self.error(format!(
+                            "internal: spawning `{handler_name}` names clause item \
+                             {at}, which the form does not have"
+                        ));
+                        return None;
+                    };
+                    instances.push(self.spawn_dep_instance(item, &deps[i]));
+                }
+                None => instances.push(self.lookup_effect_handler_by_type(&deps[i])),
+            }
         }
         let (class, _props, order) = self.emit_fx_class(deps);
         let ordered: Vec<String> = order.iter().map(|i| instances[*i].clone()).collect();
@@ -4051,6 +4074,31 @@ impl<'p> Emitter<'p> {
 
     /// [use-local] [effect-handler-deps] The shared dependency-form
     /// predicate, with the symbol table answering the face kind.
+    /// [with-clause] A written `with` item as the instance the depending
+    /// handler stores: a handler construction is a **private instance** built
+    /// here, and an `Addr` value is already a handle. On the JVM a reference
+    /// *is* the handle, so neither needs wrapping — which is why this side
+    /// needs no lock machinery where Rust's does
+    /// ([rs-platform-handler] records the same asymmetry).
+    fn with_item_instance(&mut self, item: &Expr) -> String {
+        let named = match item {
+            Expr::Ident(id) => Some((id.name.clone(), Vec::new())),
+            Expr::Call { callee, args, .. } => match callee.as_ref() {
+                Expr::Ident(id) => Some((id.name.clone(), args.iter().collect())),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some((name, args)) = named {
+            if let Some(decl) = self.symbols.handlers.get(name.as_str()).copied() {
+                let arg_code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                let ctor = self.handler_ctor_name(&name, decl);
+                return format!("{ctor}({})", arg_code.join(", "));
+            }
+        }
+        self.emit_expr(item)
+    }
+
     fn handler_is_handle_dep(&self, decl: &HandlerDecl) -> bool {
         salvo_core::handler_handle_deps(decl, |name| {
             self.symbols
@@ -4202,7 +4250,14 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    fn emit_use(&mut self, handler: &Expr, local: bool, span: Span, indent: usize) -> String {
+    fn emit_use(
+        &mut self,
+        handler: &Expr,
+        local: bool,
+        with_items: &[Expr],
+        span: Span,
+        indent: usize,
+    ) -> String {
         let _ = local; // classification travels in `use_kinds` [use-local]
         // [actor-use-addr] `use addr` binds the effect to a **forwarding stub**
         // over the addr: `__Stub_E(addr)` is an ordinary instance of the effect
@@ -4313,7 +4368,41 @@ impl<'p> Emitter<'p> {
         let mut dep_class: Option<String> = None;
         if !dep_effects.is_empty() {
             if self.handler_is_handle_dep(decl) {
-                for dep in &dep_effects {
+                // [with-clause] A written item is a **private instance**,
+                // constructed here; JVM references are the handles, so the
+                // constructor argument is simply that construction.
+                let clause_of = self
+                    .checked
+                    .use_with_items
+                    .get(&(self.file_idx, span))
+                    .cloned()
+                    .unwrap_or_default();
+                for (i, dep) in dep_effects.iter().enumerate() {
+                    if let Some(Some(at)) = clause_of.get(i) {
+                        match with_items.get(*at) {
+                            Some(item) => {
+                                let code = self.with_item_instance(item);
+                                // [with-clause] The parameter is typed as the
+                                // dep's accessor interface, so a private
+                                // instance goes through the one-instance
+                                // adapter emitted beside it.
+                                let wrapped =
+                                    format!("__One_{}({code})", sanitize_instance(dep));
+                                // Registers the interface (and its adapter).
+                                let _ = self.has_iface(dep);
+                                ctor_args.push(wrapped);
+                                continue;
+                            }
+                            None => {
+                                self.error(format!(
+                                    "internal: the `with` clause has no item {at} for \
+                                     dependency `{dep}`"
+                                ));
+                                ctor_args.push("TODO()".to_string());
+                                continue;
+                            }
+                        }
+                    }
                     let arg = self.thread_effect_fused_by_type(dep);
                     ctor_args.push(arg);
                 }
@@ -5673,10 +5762,10 @@ impl<'p> Emitter<'p> {
             // value is the addr.
             Expr::Spawn {
                 handler,
-                uses,
+                with_items,
                 pool,
                 span,
-            } => self.emit_spawn(handler, uses, pool.as_deref(), *span),
+            } => self.emit_spawn(handler, with_items, pool.as_deref(), *span),
             // [actor-waitfor] `main`'s bridge, as a `run { }` expression.
             Expr::WaitFor {
                 binding,
@@ -8363,12 +8452,12 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // captures and bridge block are ordinary code.
         Expr::Spawn {
             handler,
-            uses,
+            with_items,
             pool,
             ..
         } => {
             collect_mutated_expr(handler, out);
-            for handler in uses {
+            for handler in with_items {
                 collect_mutated_expr(handler, out);
             }
             if let Some(pool) = pool {

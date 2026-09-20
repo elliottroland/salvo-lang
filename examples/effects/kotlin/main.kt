@@ -53,19 +53,19 @@ class QuietLogger : Logger {
     }
 }
 
-class Stamped<__Fx>(private val __fx: __Fx) : Logger where __Fx : __Has_Logger, __Fx : __Has_Clock {
+class Stamped(private val __dep_Logger: __Has_Logger, private val __dep_Clock: __Has_Clock) : Logger {
 
     override fun log(message: String) {
-        __fx.__fx_Logger.log("[t=${__fx.__fx_Clock.now()}] $message")
+        __dep_Logger.__fx_Logger.log("[t=${__dep_Clock.__fx_Clock.now()}] $message")
     }
 }
 
-class Numbered<__Fx>(private val __fx: __Fx) : Logger where __Fx : __Has_Logger {
+class Numbered(private val __dep_Logger: __Has_Logger) : Logger {
     private var seen: Int = 0
 
     override fun log(message: String) {
         seen = seen + 1
-        __fx.__fx_Logger.log("#$seen $message")
+        __dep_Logger.__fx_Logger.log("#$seen $message")
     }
 }
 
@@ -75,9 +75,9 @@ fun<__Fx> work(__fx: __Fx, step: String) where __Fx : __Has_Logger {
 
 fun<__Fx> interception(__fx: __Fx) where __Fx : __Has_Logger, __Fx : __Has_Clock {
     work(__fx, "4. plain")
-    val __fx2 = __Fx_1(__fx.__fx_Clock, Stamped(__Fx_1(__fx.__fx_Clock, __fx.__fx_Logger)))
+    val __fx2 = __Fx_1(__fx.__fx_Clock, Stamped(__fx, __fx))
     work(__fx2, "4. stamped")
-    val __fx3 = __Fx_1(__fx2.__fx_Clock, Numbered(__Fx_2(__fx2.__fx_Logger)))
+    val __fx3 = __Fx_1(__fx2.__fx_Clock, __Mon_Logger(Numbered(__fx2)))
     work(__fx3, "4. numbered, then stamped")
     work(__fx3, "4. and again")
 }

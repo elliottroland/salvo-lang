@@ -2122,6 +2122,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_a_shareable_interceptor_chain,
+    kotlinc_compiles_and_runs_spawn_inheritance,
     kotlinc_compiles_and_runs_a_generic_handler_with_a_handle_dep,
     kotlinc_compiles_and_runs_handler_deps_in_anger,
     kotlinc_compiles_and_runs_handler_deps_chain,
@@ -4463,6 +4464,92 @@ fn kotlinc_compiles_and_runs_a_shareable_interceptor_chain() -> KotlinCase {
         "shareable-chain",
         "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n",
     )
+}
+
+// ===== spawn-inheritance and the `with` clause [spawn-inherit] =====
+// The arc's shape, shared verbatim with the Rust backend (whose test also
+// pins the hidden handle bundle that side needs; here a JVM reference already
+// is a handle, so nothing extra is emitted).
+
+const SPAWN_INHERIT_DEMO: &str = r#"
+effect Clock {
+    fn now() -> Int
+}
+
+handler TickingClock of Clock {
+    t: Int = 0
+    fn now() -> Int { t = t + 1 return t }
+}
+
+effect Logger {
+    fn log(m: Str) -> None => m
+}
+
+handler PlainLogger [Console] of Logger {
+    fn log(m: Str) -> None => m { println("log: ${m}") }
+}
+
+handler Stamped [Logger, Clock] of Logger {
+    fn log(m: Str) -> None => m {
+        log("[t=${now()}] ${m}")
+    }
+}
+
+handler FixedClock of Clock {
+    fn now() -> Int { return 99 }
+}
+
+actor effect Reporter {
+    send fn report(what: Str, done: Reply<Int>) => !what, !done
+}
+
+handler Reporting() [Logger] of Reporter {
+    mailbox { capacity: 4 }
+
+    send fn report(what: Str, done: Reply<Int>) {
+        log("reported ${what}")
+        done.send(1)
+    }
+}
+
+fn work(step: Str) [Logger] -> None => step {
+    log(step)
+}
+
+fn interception() [Logger, Clock, use] -> None {
+    work("plain")
+    use Stamped
+    work("stamped")
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole
+    use TickingClock()
+    use PlainLogger()
+    interception()
+    let r = spawn Reporting() on pool(1)
+    let acked = waitfor done: Reply<Int> {
+        r.report("inherited", done)
+    }
+    let sink = acked
+    use Stamped with FixedClock()
+    work("overridden")
+}
+"#;
+
+const SPAWN_INHERIT_OUTPUT: &str =
+    "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
+
+/// [spawn-inherit] [with-clause] The arc end to end: interception wiring in a
+/// fn that received the effects it wires, a spawn inheriting its dependency
+/// from the scope with no clause, and a `with` clause overriding one with a
+/// private instance. Byte-identical stdout on Rust.
+fn kotlinc_compiles_and_runs_spawn_inheritance() -> KotlinCase {
+    let program = build_program(&[("main.sv", SPAWN_INHERIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "spawn-inherit", SPAWN_INHERIT_OUTPUT)
 }
 
 /// [use-local] [effect-handler-deps] A **generic** dependent handler works
@@ -9435,7 +9522,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -9532,7 +9619,7 @@ fn main() [use, spawn] -> None {
     let rng = spawn CyclicRandom(12345)
     use rng
     println("main drew ${next()}")
-    let drawer = spawn Drawing() use rng
+    let drawer = spawn Drawing() with rng
     let drawn = waitfor got: Reply<Int> {
         drawer.draw(got)
     }
@@ -9799,7 +9886,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(2)
     let rows = spawn Rows() on p
-    let fetcher = spawn Fetching() use rows on p
+    let fetcher = spawn Fetching() with rows on p
     let answer = waitfor out: Reply<Str> {
         fetcher.fetch(7, out)
     }
@@ -9856,7 +9943,7 @@ fn main() [use, spawn] {
     use StdOutConsole()
     let p = pool(3)
     let echo = spawn Echoing() on p
-    let tracer = spawn Tracing() use echo on p
+    let tracer = spawn Tracing() with echo on p
     tracer.start()
     tracer.note("late")
     let got = waitfor out: Reply<Str> {
@@ -10123,7 +10210,7 @@ fn main() [use, spawn] {
 
     let timer = spawn Timing(1000) on pool(1)
     // `thread()` is consumed here: one thread, one occupant.
-    let clock = spawn Clocking() use timer on thread()
+    let clock = spawn Clocking() with timer on thread()
     let now = waitfor out: Reply<Int> {
         clock.now(out)
     }
@@ -10651,7 +10738,7 @@ handler Counting() [Log, Tally] of Counter {
 fn main() [use, spawn] {
     use StdOutConsole()
     let tally = spawn Summing() on pool(1)
-    let counter = spawn Counting() use Recording(), tally on pool(1)
+    let counter = spawn Counting() with Recording(), tally on pool(1)
     counter.bump(2)
     counter.bump(3)
     let last = waitfor out: Reply<Str> {
@@ -11026,7 +11113,7 @@ fn main() [use, spawn] -> None {
     use StdOutConsole()
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() use timer on p
+    let sleeper = spawn Napping() with timer on p
     let answer = waitfor result: Reply<Str> {
         sleeper.nap(seconds(2), result)
         waitfor settled: Reply<Idle> {
@@ -11077,7 +11164,7 @@ handler SteppingTicker(step: Duration) of Ticker {
 
 // The unified test clock: a reading is a deadline of zero, so the answer is the
 // timer's own virtual now. The timer arrives as a value, not a dependency — a
-// handler with dependencies of its own cannot be built in a spawn `use` clause.
+// handler with dependencies of its own cannot be built in a spawn `with` clause.
 handler TestTicker(timer: Addr<Timer>) of Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
@@ -11113,7 +11200,7 @@ fn main() [use, spawn] -> None {
 
     let p = pool(1)
     let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() use timer, TestTicker(timer) on thread()
+    let sleeper = spawn Napping() with timer, TestTicker(timer) on thread()
     let napped = waitfor answer: Reply<Str> {
         sleeper.nap(seconds(2), answer)
         waitfor settled: Reply<Idle> {

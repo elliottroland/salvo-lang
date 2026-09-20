@@ -18,26 +18,54 @@ interface __Has_Audit {
     val __fx_Audit: Audit
 }
 
+class __One_Audit(private val __e: Audit) : __Has_Audit {
+    override val __fx_Audit: Audit get() = __e
+}
+
 interface __Has_Clock {
     val __fx_Clock: Clock
+}
+
+class __One_Clock(private val __e: Clock) : __Has_Clock {
+    override val __fx_Clock: Clock get() = __e
 }
 
 interface __Has_Console {
     val __fx_Console: Console
 }
 
+class __One_Console(private val __e: Console) : __Has_Console {
+    override val __fx_Console: Console get() = __e
+}
+
 interface __Has_Logger {
     val __fx_Logger: Logger
+}
+
+class __One_Logger(private val __e: Logger) : __Has_Logger {
+    override val __fx_Logger: Logger get() = __e
 }
 
 interface __Has_Metrics {
     val __fx_Metrics: Metrics
 }
 
+class __One_Metrics(private val __e: Metrics) : __Has_Metrics {
+    override val __fx_Metrics: Metrics get() = __e
+}
+
 interface __Has_Setting_Int {
     val __fx_Setting_Int: Setting<Int>
 }
 
+class __One_Setting_Int(private val __e: Setting<Int>) : __Has_Setting_Int {
+    override val __fx_Setting_Int: Setting<Int> get() = __e
+}
+
 interface __Has_Setting_String {
     val __fx_Setting_String: Setting<String>
+}
+
+class __One_Setting_String(private val __e: Setting<String>) : __Has_Setting_String {
+    override val __fx_Setting_String: Setting<String> get() = __e
 }

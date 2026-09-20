@@ -6,7 +6,7 @@
 // the backend's business and never Salvo's.
 //
 // The forms that use them are language syntax rather than functions, because
-// a handler is not a value: `spawn H(args) use D(...) on POOL`
+// a handler is not a value: `spawn H(args) with D(...) on POOL`
 // mints an [Addr], `replyto k(captures)` mints a [Reply], and `waitfor` is
 // any frame's bridge into both — no declaration needed: a wait serves its
 // pool while it waits. See LANGUAGE_SPEC.md's "Actors".

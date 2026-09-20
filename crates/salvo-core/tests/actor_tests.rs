@@ -147,7 +147,7 @@ fn the_first_pass_surface_checks_clean() {
         "\
 fn main() [use, spawn] {
     let logger = spawn Printing() on pool(1)
-    let counter = spawn Counting() use logger on pool(2)
+    let counter = spawn Counting() with logger on pool(2)
     counter.bump(2)
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
@@ -181,12 +181,31 @@ fn start() [use] -> Int {
     );
 }
 
-/// A handler's dependencies come from the spawn's own `use` clause, never
-/// from the spawning scope — the rule that makes "handlers never cross into a
-/// process, construction does" checkable. The diagnostic says where they do
-/// come from.
+/// [spawn-inherit] A spawned handler **inherits** what the spawning scope
+/// has (user decision 2026-09-20, the arc this whole design was for): a
+/// declared dependency the `with` clause does not cover resolves from the
+/// scope and travels as a handle. The clause is now for *overriding*, not for
+/// satisfying.
 #[test]
-fn a_spawned_handler_cannot_inherit_the_spawning_scope() {
+fn a_spawned_handler_inherits_the_spawning_scope() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let printer = spawn Printing() on pool(1)
+    use printer
+    let counter = spawn Counting() on pool(1)
+}
+",
+    );
+    assert!(errs.is_empty(), "expected a clean program: {errs:?}");
+}
+
+/// [spawn-inherit] [effect-local] What a spawn cannot inherit: a
+/// **scope-local** binding, which exists precisely so that it does not cross
+/// a seam. For an actor effect the local binding is an inline `use H()`, so
+/// the diagnostic names *that* remedy — spawn it and bind the addr.
+#[test]
+fn a_spawn_cannot_inherit_a_scope_local_binding() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
@@ -197,11 +216,13 @@ fn main() [use, spawn] {
     );
     let diag = errs
         .iter()
-        .find(|m| m.contains("depends on effect `Log`"))
-        .unwrap_or_else(|| panic!("expected the missing-dependency error: {errs:?}"));
+        .find(|m| m.contains("inherits `Log` from this scope"))
+        .unwrap_or_else(|| panic!("expected the local-binding refusal: {errs:?}"));
     assert!(
-        diag.contains("`use` clause") && diag.contains("never from the spawning scope"),
-        "the diagnostic must name the remedy: {diag}"
+        diag.contains("scope-local binding cannot cross")
+            && diag.contains("spawn the handler of `Log`")
+            && diag.contains("`with SomeHandler()`"),
+        "the diagnostic must name both remedies: {diag}"
     );
 }
 
@@ -212,7 +233,7 @@ fn a_spawn_cannot_supply_an_unused_dependency() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Printing() use Printing() on pool(1)
+    let counter = spawn Printing() with Printing() on pool(1)
 }
 ",
     );
@@ -231,13 +252,13 @@ fn a_clause_construction_cannot_have_dependencies_of_its_own() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Counting() on pool(1)
+    let c = spawn Counting() with Counting() on pool(1)
 }
 ",
     );
     assert!(
         errs.iter()
-            .any(|m| m.contains("cannot be constructed in a spawn's `use` clause")),
+            .any(|m| m.contains("cannot be constructed in a spawn's `with` clause")),
         "expected the nested-dependency refusal: {errs:?}"
     );
 }
@@ -280,7 +301,7 @@ fn a_spawn_answers_a_addr_of_the_handlers_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c: Int = spawn Counting() use Printing() on pool(1)
+    let c: Int = spawn Counting() with Printing() on pool(1)
 }
 ",
     );
@@ -300,7 +321,7 @@ fn a_addr_call_resolves_against_the_served_effect() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     counter.wind_down()
 }
 ",
@@ -317,7 +338,7 @@ fn a_addr_call_checks_its_arguments() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     counter.bump(\"two\")
 }
 ",
@@ -337,7 +358,7 @@ fn use_addr_binds_the_effect_and_keeps_the_addr() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     use counter
     bump(1)
     counter.bump(2)
@@ -530,7 +551,7 @@ fn a_wait_needs_no_capability_anywhere() {
     let errs = errors(
         "\
 fn helper() [use, spawn] -> Int {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     return waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -567,8 +588,8 @@ handler Slow() [Counter] of Log {
         let errs = errors(&format!(
             "{WAITING}
 fn main() [use, spawn] {{
-    let counter = spawn Counting() use Printing() on pool(1)
-    let slow = spawn Slow() use counter {placement}
+    let counter = spawn Counting() with Printing() on pool(1)
+    let slow = spawn Slow() with counter {placement}
 }}
 "
         ));
@@ -676,7 +697,7 @@ fn a_spawn_may_omit_its_pool() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing()
+    let counter = spawn Counting() with Printing()
     counter.bump(2)
     let sum = waitfor out: Reply<Int> {
         counter.total(out)
@@ -734,7 +755,7 @@ fn a_waitfor_answers_its_tokens_payload() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     let sum: Str = waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -763,7 +784,7 @@ struct Registry {
 }
 
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     let r = Registry { counter: counter }
     r.counter.bump(1)
     let many: Addr<Counter>[] = array_of(r.counter)
@@ -799,7 +820,7 @@ fn main() [use, spawn] {
     let waited = errors(
         "\
 fn main() [use, spawn] {
-    let counter = spawn Counting() use Printing() on pool(1)
+    let counter = spawn Counting() with Printing() on pool(1)
     let f = () -> waitfor out: Reply<Int> {
         counter.total(out)
     }
@@ -1293,7 +1314,7 @@ handler Asking() [Counter] of Waiting {
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() on pool(1)
+    let c = spawn Counting() with Printing() on pool(1)
     use c
     use Asking()
     ask()
@@ -1328,8 +1349,8 @@ handler Asking() [Counter] of Waiting {
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() on pool(1)
-    let a = spawn Asking() use c on pool(1)
+    let c = spawn Counting() with Printing() on pool(1)
+    let a = spawn Asking() with c on pool(1)
     a.ask()
 }
 ",
@@ -1361,8 +1382,8 @@ handler Asking() [Counter] of Waiting {
 }
 
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() on pool(1)
-    let a = spawn Asking() use c on pool(1)
+    let c = spawn Counting() with Printing() on pool(1)
+    let a = spawn Asking() with c on pool(1)
     a.ask()
 }
 ",
@@ -1385,7 +1406,7 @@ fn watch_takes_an_addr_and_a_reply_token() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() on pool(1)
+    let c = spawn Counting() with Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         watch(c, out)
     }
@@ -1405,7 +1426,7 @@ fn a_watch_token_that_is_never_registered_leaks() {
     let errs = errors(
         "\
 fn main() [use, spawn] {
-    let c = spawn Counting() use Printing() on pool(1)
+    let c = spawn Counting() with Printing() on pool(1)
     let e = waitfor out: Reply<Exit> {
         discard(c)
     }

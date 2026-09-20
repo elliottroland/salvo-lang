@@ -543,6 +543,7 @@ Module {
                                     span: 399..425,
                                 },
                                 local: false,
+                                with_items: [],
                                 span: 395..425,
                             },
                             Let {

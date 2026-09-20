@@ -1046,6 +1046,17 @@ where Rust had to build the fusion to get the same programs running
     identity, unlike the per-file `__Fx_N` classes); the `use` site passes
     its fused carrier, and member environment entries read `__dep_e`
     properties so fn-typed calls thread.
+    * [with-clause] A **private instance** from a `with` clause is not a
+      carrier, so it goes through the **one-instance adapter** emitted beside
+      each accessor interface in `fx.kt`:
+      `class __One_E(private val __e: E) : __Has_E { override val __fx_E get() = __e }`,
+      used as `Stamped(__One_Greeter(Formal()), …)`. One tiny class per
+      effect, inert where unused.
+    * [spawn-inherit] A capture over a **signature-supplied** effect needs
+      nothing extra here: the carrier's property *is* the handle, so the
+      Kotlin emission was unchanged by the lift that gave Rust its hidden
+      bundle parameter [rs-handle-bundle]. Likewise a spawn's inherited
+      dependency is the scope's own instance, looked up by effect type.
   * **`use addr` binds the value itself**; a plain-effect addr in a spawn's
     dependency clause passes through as itself, where an actor addr gets the
     `__Stub_E` send wrapper.

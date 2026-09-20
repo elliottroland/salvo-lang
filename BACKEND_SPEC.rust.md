@@ -1199,6 +1199,53 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     `crate::platform_<N>::<E>Host`. `module_mod_names` is shared with
     `emit_program` so the skeleton and the mounting cannot disagree on a
     name.
+* [rs-handle-bundle] [spawn-inherit] **The hidden handle bundle**: how a
+  capture over a *signature-supplied* effect gets its handle (user decision
+  2026-09-20 — mechanism A plus a fusion, one parameter however many
+  handles). Where the effect is bound in the same function, the eager handle
+  variable answers ([rs-monitor]); where it arrived through the signature,
+  the fused `__Fx` carries only a `&mut dyn E` — a borrow no clone-box can be
+  made from — so the handle is threaded in as an extra parameter:
+
+  ```rust
+  pub struct __Hs_1 {              // generated per handle-set shape
+      pub logger: __Mon_Logger,
+      pub clock: __Mon_Clock,
+  }
+
+  pub fn interception<__Fx: __Has_Logger + __Has_Clock>(
+      __fx: &mut __Fx,
+      __hs: &__Hs_1,               // one hidden parameter, after the fusion
+  ) {
+      let mut __bind = Stamped::new(__hs.logger.clone(), __hs.clock.clone());
+      …
+  }
+
+  // the caller builds it from the handles it holds
+  interception(&mut __fx3, &__Hs_1 { logger: __handle3.clone(), clock: __handle2.clone() });
+  ```
+
+  * **Deduped per shape**, exactly as the `__Fx_N` fusions are: two fns
+    needing the same handle set share one struct, so a frame can forward its
+    own bundle unchanged (`interception(__fx, __hs)`) where the shapes agree.
+  * **The checker decides who needs one** (`Checked::handle_requirements`,
+    propagated to a fixpoint over `call_edges`), so the parameter appears on
+    exactly the chains that capture — and only on fns whose effect list
+    carries `use`/`spawn`, which is what makes the hidden parameter
+    predictable from the visible signature [spawn-inherit].
+  * **`handle_fields` is per fn**: the places (`__hs.logger`) are saved and
+    restored around each body, since a sibling's bundle field is not in
+    scope. Getting that wrong emits a neighbouring fn's parameter name into
+    `main` — found immediately, but silently plausible.
+  * **A spawn's inherited dependency uses the same two sources**: the child's
+    generated provider (`__Prov_H`) takes the scope's handle, cloned, from
+    the eager variable or the bundle field, so parent and child hold one
+    shared instance [spawn-inherit].
+  * Kotlin needs **none of this** — an object reference already is a handle,
+    so a handle-dep constructor parameter takes the carrier itself
+    [kt-monitor]; the asymmetry is the same one [rs-platform-handler]
+    records.
+
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`
