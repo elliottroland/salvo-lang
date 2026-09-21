@@ -199,14 +199,15 @@ order, because each one clears the ground for the next:
    dead** — the spelling `^Ok?.map(…)` follows from step 5 if it is ever wanted.
    Deferring it also retires the nest-versus-flatten question in OPTIONALS.md
    `Q-4`, since nothing re-tags.
-5. **Qualifier picks** — ✅ **first slice done 2026-09-21** ([pick];
-   COMPLETED.md's log): one pick, one matched arm, one left, on a subject that
-   may be a call. **What is left is one lift**, and it unblocks three shapes at
-   once: the **arm-mapping re-wrap** ([let-infer]) for a value spanning fewer
-   arms than its storage. With it come step 3's multi-arm lift
-   (`is ^Ok value` over two `Ok` arms), multi-arm picks, and **pick chains**
-   (`r ^Ok?: Err?: err(_)`), which are unparsed as well as unemitted so far.
-   Original shape, for reference: Each pick names arms that
+5. **Qualifier picks** — ✅ **done 2026-09-21** ([pick], [rewrap];
+   COMPLETED.md's log), including the **arm-mapping re-wrap** that step 3's
+   multi-arm lift also waited on: either side of a pick may span several arms.
+   **What is left is pick chains** (`r ^Ok?: Err?: err(_)`) — no longer a
+   re-wrap problem but a structural one: `Elvis` holds one optional pick, and a
+   chain needs a *list*, with the checker consuming arms pick by pick and the
+   emitters emitting an `if`/`else if` chain. Pure convenience: the same program
+   is expressible today with a `when` on the right-hand side. Original shape,
+   for reference: Each pick names arms that
    *pass through* as the expression's value, `^` decides whether the picked arm
    keeps its tag, and only the final `?:` has a right-hand side, evaluated with
    `_` bound to whatever no pick claimed:

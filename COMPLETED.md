@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1236 tests, complete: the toolchain tests are
+cargo test                  # 1237 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,51 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The arm-mapping re-wrap: sub-union values (2026-09-21).** The single lift the
+`?` family round left behind, and it unblocked two of the three shapes waiting on
+it. [rewrap].
+
+A union's runtime form is positional with qualifiers erased, so a value spanning
+*fewer* arms than its storage is not a payload read but a translation between two
+representations: `Err Str | Thrown Str` out of an `Ok Int | Err Str | Thrown Str`
+means mapping storage arm 1 to target arm 0, arm 2 to arm 1, and arm 0 to an
+unreachable. **Both backends already emitted exactly that** for an annotated slot
+([let-infer]'s `Rewrap`), so the work was reaching it from sites that have no
+slot: the mapping was factored out of the coercion handler (Kotlin needed the
+extraction; Rust already had `emit_rewrap`) and called from three places, with the
+source and target types recorded by the checker.
+
+Now built: **a multi-arm lift binding** (`o is ^Ok value` where two arms carry
+`Ok`) and **a pick whose either side spans several arms** — including the shape
+from the user's original sketch, `attempt(t) ^Ok?: return _` over a three-arm
+result, where `_` is the two-arm remainder.
+
+Three things it needed that the plan did not predict:
+
+- **The source arms must be recorded *as the lift leaves them*.** The mapping
+  pairs arms by type *equality*, and a lifted arm's type is the arm without its
+  qualifier, so `Ok Int | Ok Str | Err Str` is recorded as
+  `Int | Str | Err Str`. Recording the raw storage matched nothing and emitted a
+  mapping whose every arm was `unreachable!()` — which compiled, and would have
+  panicked at runtime. Found by running it.
+- **`_`'s mapping never lifts**, so it needs its own source type: the unpicked
+  arms keep their tags. Hence two side tables rather than one.
+- **The mapping consumes its input**, so it takes an owned copy — the subject is
+  still readable afterwards ([elvis-guard], and the arms the right side reads).
+  The coercion path had always cloned (`match a.clone() { … }`); passing the bare
+  storage was an E0382.
+
+Tests: the two former deferral tests rewritten as behaviour tests (a clean
+multi-arm lift; a pick spanning several arms on *either* side), plus
+`rustc_compiles_and_runs_a_sub_union_rewrap` and its Kotlin twin over six lines
+of output covering both shapes and all their arms. 1236 → 1237.
+
+**What is left: pick chains** (`r ^Ok?: Err?: err(_)`). Not a re-wrap problem any
+more — it is a structural one: `Elvis` holds `pick: Option<ElvisPick>`, and a
+chain needs `picks: Vec<…>` with the checker consuming arms pick by pick and the
+emitters emitting an `if`/`else if` chain. The re-wrap it would have needed is now
+in place.
 
 **`waitfor` infers its binder's type (user decision 2026-09-21).** The last item
 of the `?` family round, and the one that started as a placeholder: the user's
@@ -13539,7 +13584,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1236)
+## Test inventory (all green: 1237)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

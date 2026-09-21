@@ -5065,6 +5065,23 @@ impl<'p> Emitter<'p> {
             // coercion table's business [str-drop-mut]. Without this the
             // `is`-binding path built a cast to the check's terms — `list as
             // Mut`, which names no Kotlin type.
+            // [rewrap] A multi-arm lift binds a *sub-union*: built by mapping
+            // arm to arm, not by reading one payload.
+            if let Some(from) = self
+                .checked
+                .rewrap_from
+                .get(&(self.file_idx, binding.span))
+                .cloned()
+            {
+                if let Some(to) = self.ty_of(binding.span).cloned() {
+                    let code = self.emit_rewrap(subj.clone(), &from, &to);
+                    out.push_str(&format!(
+                        "{pad}val {} = {code}\n",
+                        kt_ident(&binding.name)
+                    ));
+                    continue;
+                }
+            }
             if lift && self.is_test_of(is_span).is_none() {
                 out.push_str(&format!(
                     "{pad}val {} = {subj}\n",
@@ -5356,7 +5373,42 @@ impl<'p> Emitter<'p> {
                     .collect();
                 format!("U{n}_{}<{}>({code})", arm + 1, args.join(", "))
             }
-            Coercion::Rewrap { from, to } => {
+            Coercion::Rewrap { from, to } => self.emit_rewrap(code, &from, &to),
+        }
+    }
+
+    /// [pick] The payload of a single matched arm, at its own type: the shape
+    /// the `is`-binding path emits, factored out so a qualifier pick can use it
+    /// for both the picked and the unpicked side.
+    fn emit_arm_payload(
+        &mut self,
+        subject: &Expr,
+        test: Option<&UnionTest>,
+        ty: Option<&Ty>,
+    ) -> String {
+        let subj = self.emit_place_storage(subject);
+        match test {
+            Some(t) if t.size >= 2 => {
+                let kt = ty
+                    .map(|t| self.emit_ty(t))
+                    .unwrap_or_else(|| "Any".to_string());
+                let access = if t.nullable { "?" } else { "" };
+                self.note_payload_cast();
+                format!("{subj}{access}.value as {kt}")
+            }
+            // A `T?` representation, or a single-arm union: the value is the
+            // storage itself once the test has passed.
+            _ => format!("{subj}!!"),
+        }
+    }
+
+    /// [let-infer] [rewrap] Maps a value from one union representation to
+    /// another: each source arm to the target arm of the same type, and an arm
+    /// the target does not have to an unreachable. Factored out of the `Rewrap`
+    /// coercion so the sites that produce a **sub-union value with no slot of
+    /// its own** can call it — a multi-arm lift binding, and a pick's picked or
+    /// unpicked side [qual-lift] [pick].
+    fn emit_rewrap(&mut self, code: String, from: &Ty, to: &Ty) -> String {
                 let from_arms: Vec<Ty> = from.value_arms().into_iter().cloned().collect();
                 let to_arms: Vec<Ty> = to.value_arms().into_iter().cloned().collect();
                 let n = from_arms.len();
@@ -5396,33 +5448,6 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 format!("{code}.let {{ when (it) {{ {branches}}} }}")
-            }
-        }
-    }
-
-    /// [pick] The payload of a single matched arm, at its own type: the shape
-    /// the `is`-binding path emits, factored out so a qualifier pick can use it
-    /// for both the picked and the unpicked side.
-    fn emit_arm_payload(
-        &mut self,
-        subject: &Expr,
-        test: Option<&UnionTest>,
-        ty: Option<&Ty>,
-    ) -> String {
-        let subj = self.emit_place_storage(subject);
-        match test {
-            Some(t) if t.size >= 2 => {
-                let kt = ty
-                    .map(|t| self.emit_ty(t))
-                    .unwrap_or_else(|| "Any".to_string());
-                let access = if t.nullable { "?" } else { "" };
-                self.note_payload_cast();
-                format!("{subj}{access}.value as {kt}")
-            }
-            // A `T?` representation, or a single-arm union: the value is the
-            // storage itself once the test has passed.
-            _ => format!("{subj}!!"),
-        }
     }
 
     fn emit_union_test(&mut self, subj: &str, test: &UnionTest) -> String {
@@ -5592,14 +5617,34 @@ impl<'p> Emitter<'p> {
                     None => "true".to_string(),
                 };
                 let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
-                let body = self.emit_arm_payload(subject, test.as_ref(), picked.as_ref());
+                // [rewrap] A side spanning several arms is a *sub-union*: mapped
+                // arm to arm out of the storage, not read as one payload.
+                let body = match (
+                    self.checked.rewrap_from.get(&(self.file_idx, *span)).cloned(),
+                    picked.clone(),
+                ) {
+                    (Some(from), Some(to)) => {
+                        let storage = self.emit_place_storage(subject);
+                        self.emit_rewrap(storage, &from, &to)
+                    }
+                    _ => self.emit_arm_payload(subject, test.as_ref(), picked.as_ref()),
+                };
                 let left = self.checked.pick_left.get(&(self.file_idx, *span)).cloned();
                 let else_test = self
                     .checked
                     .pick_else_tests
                     .get(&(self.file_idx, *span))
                     .cloned();
-                let else_read = self.emit_arm_payload(subject, else_test.as_ref(), left.as_ref());
+                let else_read = match (
+                    self.checked.pick_left_from.get(&(self.file_idx, *span)).cloned(),
+                    left.clone(),
+                ) {
+                    (Some(from), Some(to)) => {
+                        let storage = self.emit_place_storage(subject);
+                        self.emit_rewrap(storage, &from, &to)
+                    }
+                    _ => self.emit_arm_payload(subject, else_test.as_ref(), left.as_ref()),
+                };
                 let saved = self.placeholder_code.replace(else_read);
                 let r = self.emit_expr(rhs);
                 self.placeholder_code = saved;

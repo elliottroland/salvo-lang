@@ -595,6 +595,17 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
+    /// [rewrap] The source union for a pick's **unpicked** side, when it spans
+    /// several arms. Separate from `rewrap_from` because `_` never lifts: the
+    /// unpicked arms keep their tags [pick].
+    pub pick_left_from: HashMap<Key, Ty>,
+    /// [rewrap] Where a **sub-union value** is produced out of a wider storage,
+    /// the storage type it comes from — keyed by the site the emitters build the
+    /// value at (a lift binding, a pick's picked or unpicked side). With the
+    /// target type, which each site already records, this is the arm mapping
+    /// [let-infer]'s `Rewrap` coercion performs; these sites need it without
+    /// having a slot to hang a coercion on.
+    pub rewrap_from: HashMap<Key, Ty>,
     /// [pick] The unpicked arm's **test** at each qualifier pick — how the
     /// emitters reach `_`'s payload out of the subject.
     pub pick_else_tests: HashMap<Key, UnionTest>,
@@ -14411,37 +14422,74 @@ impl<'p, 'r> Checker<'p, 'r> {
             let _ = self.check_expr(rhs, None);
             return Ty::Unknown;
         }
-        if matched.len() > 1 || remaining.len() > 1 {
-            self.error(
-                span,
-                format!(
-                    "a pick over `{subj_ty}` would span several arms ({} picked, \
-                     {} left), which is not emitted yet: the value needs an \
-                     arm-mapping re-wrap. Use `when` for that shape",
-                    matched.len(),
-                    remaining.len()
-                ),
-            );
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        // The picked value: the arm, lifted when the pick said `^`.
-        let arm = matched[0].clone();
-        let picked = if pick.lift {
-            match strip_quals_named(&arm, &pat.quals) {
-                Some(t) => t,
-                None => {
-                    self.error(
-                        span,
-                        format!("`{names}` cannot be lifted off `{arm}`"),
-                    );
-                    return Ty::Unknown;
-                }
+        // [rewrap] Either side may span several arms. A multi-arm side is a
+        // *sub-union* of the storage, built by mapping arm to arm rather than by
+        // reading one payload — the same mapping [let-infer]'s `Rewrap` performs
+        // for an annotated slot, recorded here because these values have no slot.
+        let multi_picked = matched.len() > 1;
+        let multi_left = remaining.len() > 1;
+        // The picked value: the arms, lifted when the pick said `^`.
+        let lift_arm = |c: &mut Self, arm: &Ty| -> Option<Ty> {
+            if pick.lift {
+                strip_quals_named(arm, &pat.quals).or_else(|| {
+                    c.error(span, format!("`{names}` cannot be lifted off `{arm}`"));
+                    None
+                })
+            } else {
+                Some(arm.clone())
             }
-        } else {
-            arm.clone()
         };
-        let left = remaining[0].clone();
+        let mut picked_arms = Vec::new();
+        for arm in &matched {
+            match lift_arm(self, arm) {
+                Some(t) => picked_arms.push(t),
+                None => return Ty::Unknown,
+            }
+        }
+        let arm = matched[0].clone();
+        let picked = if picked_arms.len() == 1 {
+            picked_arms.remove(0)
+        } else {
+            self.mk_union(picked_arms)
+        };
+        let left = if remaining.len() == 1 {
+            remaining[0].clone()
+        } else {
+            self.mk_union(remaining.clone())
+        };
+        // The source unions for the two mappings, with the lift applied where it
+        // applies: the mapping pairs arms by type equality, and a lifted arm's
+        // type is the arm without its qualifier. Positions stay the storage's.
+        if multi_picked || multi_left {
+            let lifted_source: Vec<Ty> = match &subj_ty {
+                Ty::Union(arms) => arms
+                    .iter()
+                    .map(|a| {
+                        if self.arm_matches(a, &pat) && pick.lift {
+                            strip_quals_named(a, &pat.quals).unwrap_or_else(|| a.clone())
+                        } else {
+                            a.clone()
+                        }
+                    })
+                    .collect(),
+                other => vec![other.clone()],
+            };
+            if multi_picked {
+                self.out
+                    .rewrap_from
+                    .insert(self.key(span), Ty::Union(lifted_source.clone()));
+            }
+            if multi_left {
+                // `_`'s mapping never lifts: the unpicked arms keep their tags.
+                let left_source: Vec<Ty> = match &subj_ty {
+                    Ty::Union(arms) => arms.to_vec(),
+                    other => vec![other.clone()],
+                };
+                self.out
+                    .pick_left_from
+                    .insert(self.key(span), Ty::Union(left_source));
+            }
+        }
         // The arm tests the emitters need: which arm is picked, and what the
         // other one reads as. Expressed in [union-arm-identity]'s indices.
         if let Some(test) = self.union_test_for(&subj_ty, &pat) {
@@ -14451,12 +14499,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         // subject at *its* arm index, and only the checker knows the union's
         // positional identity [union-arm-identity].
         let value_arms = subj_ty.value_arms();
-        if let Some(idx) = value_arms.iter().position(|a| **a == left) {
+        // Every unpicked arm's index, not just one: `_` may span several.
+        let left_idx: Vec<usize> = value_arms
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| remaining.iter().any(|r| r == **a))
+            .map(|(i, _)| i)
+            .collect();
+        if !left_idx.is_empty() {
             self.out.pick_else_tests.insert(
                 self.key(span),
                 UnionTest {
                     size: value_arms.len(),
-                    arms: vec![idx],
+                    arms: left_idx,
                     nullable: subj_ty.has_none_arm(),
                     match_none: false,
                 },
@@ -14550,28 +14605,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .cloned()
                     .partition(|arm| self.arm_matches(arm, &pat));
                 multi_arm = m.len() > 1;
-                if m.len() > 1 && binding.is_some() {
-                    // [qual-lift] The binding is where a multi-arm lift *will*
-                    // live (user decision 2026-09-21), and the checker side is
-                    // built: the arms are lifted, nothing narrows, the binding
-                    // takes their union. What is not built is the **emission** —
-                    // the lifted value is a value of a *smaller* union than the
-                    // storage, so it needs the arm-mapping re-wrap [let-infer]
-                    // rather than a payload read. Refused until that lands,
-                    // rather than emitted wrong [backend-never-wrong].
-                    self.error(
-                        span,
-                        format!(
-                            "lifting several arms of `{subj_ty}` at once is not \
-                             emitted yet: the bound value spans {} arms, which \
-                             needs a re-wrap. Check one arm at a time \
-                             (`is ^{} Int`-style) for now",
-                            m.len(),
-                            pat.quals.join(" ^")
-                        ),
-                    );
-                    return unchanged;
-                }
                 if m.len() > 1 && binding.is_none() {
                     // [qual-lift] Each arm peels a *different* wrapper
                     // position, so re-reading the subject cannot stand for all
@@ -14655,6 +14688,34 @@ impl<'p, 'r> Checker<'p, 'r> {
         let binding = binding.map(|b| {
             let bty = matched.clone();
             self.out.expr_ty.insert(self.key(b.span), bty.clone());
+            // [rewrap] A **multi-arm** lift binds a value of a *smaller* union
+            // than the storage, so it is not a payload read: the emitters map
+            // arm to arm. Recorded against the binding, which is where they
+            // build it.
+            if multi_arm {
+                // The arms are recorded **as the lift leaves them**: the mapping
+                // pairs source to target by type *equality*, and a lifted arm's
+                // type is the arm without the qualifier. Positions are the
+                // storage's own, since qualifiers erase — so `Ok Int | Ok Str |
+                // Err Str` is recorded as `Int | Str | Err Str`, which maps arm
+                // 0 to 0, arm 1 to 1, and arm 2 to unreachable.
+                let lifted_arms: Vec<Ty> = match &subj_ty {
+                    Ty::Union(arms) => arms
+                        .iter()
+                        .map(|arm| {
+                            if self.arm_matches(arm, &pat) {
+                                strip_quals_named(arm, &pat.quals).unwrap_or_else(|| arm.clone())
+                            } else {
+                                arm.clone()
+                            }
+                        })
+                        .collect(),
+                    other => vec![other.clone()],
+                };
+                self.out
+                    .rewrap_from
+                    .insert(self.key(b.span), Ty::Union(lifted_arms));
+            }
             if self.ty_own_linear(&bty) {
                 self.out.linear_moves.insert(self.key(b.span));
             }

@@ -201,18 +201,26 @@ fn a_pick_must_match_something_and_leave_something() {
     );
 }
 
-/// [pick] First slice: one matched arm, one left. A pick spanning several arms
-/// needs the arm-mapping re-wrap [let-infer] — the same one step 3's multi-arm
-/// lift waits on — so it is refused by name rather than emitted wrong.
+/// [pick] [rewrap] **Either side may span several arms.** A multi-arm side is a
+/// sub-union of the storage, produced by mapping arm to arm — the mapping
+/// [let-infer]'s `Rewrap` already performed for an annotated slot, now reached
+/// from a site that has no slot. Both directions here: two arms *picked*, and two
+/// arms left to `_`.
 #[test]
-fn a_multi_arm_pick_is_refused_for_now() {
-    let errs = errors(
-        "fn f(r: Ok Int | Err Str | Err Int) [] -> Int {\n    return r ^Ok?: 0\n}\n",
+fn a_pick_may_span_several_arms_on_either_side() {
+    let picked = errors(
+        "fn f(r: Ok Int | Ok Str | Err Str) [] -> Int | Str | Bool {\n\
+         \x20   return r ^Ok?: true\n\
+         }\n",
     );
-    assert!(
-        errs.iter().any(|e| e.contains("not emitted yet") || e.contains("several arms")),
-        "expected the multi-arm deferral, got: {errs:?}"
+    assert!(picked.is_empty(), "expected a clean multi-arm pick, got: {picked:?}");
+    let left = errors(
+        "fn f(r: Ok Int | Err Str | Err Int) [] -> Err Str | Err Int {\n\
+         \x20   let n: Int = r ^Ok?: return _\n\
+         \x20   return err(n)\n\
+         }\n",
     );
+    assert!(left.is_empty(), "expected a clean multi-arm `_`, got: {left:?}");
 }
 
 /// [elvis-guard] A `?:` whose right side **leaves** has proved its subject was

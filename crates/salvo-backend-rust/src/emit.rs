@@ -8270,6 +8270,29 @@ impl<'p> Emitter<'p> {
             // lifted value *is* the value. Without this the narrowed-read path
             // assumed an `Option` in front of it and emitted
             // `list.as_ref().unwrap().clone()` for a plain `&mut Vec`.
+            // [rewrap] A multi-arm lift binds a *sub-union*, so the value is
+            // built by mapping arm to arm rather than by reading one payload.
+            if let Some(from) = self
+                .checked
+                .rewrap_from
+                .get(&(self.file_idx, binding.span))
+                .cloned()
+            {
+                if let Some(to) = self.ty_of(binding.span).cloned() {
+                    // The mapping *consumes* its input, and the subject is
+                    // still readable afterwards ([elvis-guard] and the arms
+                    // below), so it takes an owned copy — which is what the
+                    // coercion path has always done (`match a.clone() { … }`).
+                    let storage = format!("{}.clone()", self.place_storage(subject));
+                    let code = self.emit_rewrap(storage, &from, &to);
+                    out.push_str(&format!(
+                        "{pad}let mut {} = {code};\n",
+                        rs_ident(&binding.name)
+                    ));
+                    self.bindings.insert(binding.name.clone(), BindKind::Owned);
+                    continue;
+                }
+            }
             if lift && self.is_test_of(is_span).is_none() {
                 let code = self.emit_place(subject);
                 out.push_str(&format!(
@@ -9411,14 +9434,34 @@ impl<'p> Emitter<'p> {
                     None => "true".to_string(),
                 };
                 let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
-                let body = self.emit_narrowed_read(subject, picked.as_ref(), test);
+                // [rewrap] A side spanning several arms is a *sub-union*: mapped
+                // arm to arm out of the storage, not read as one payload.
+                let body = match (
+                    self.checked.rewrap_from.get(&(self.file_idx, *span)).cloned(),
+                    picked.clone(),
+                ) {
+                    (Some(from), Some(to)) => {
+                        let storage = format!("{}.clone()", self.place_storage(subject));
+                        self.emit_rewrap(storage, &from, &to)
+                    }
+                    _ => self.emit_narrowed_read(subject, picked.as_ref(), test),
+                };
                 let left = self.checked.pick_left.get(&(self.file_idx, *span)).cloned();
                 let else_test = self
                     .checked
                     .pick_else_tests
                     .get(&(self.file_idx, *span))
                     .cloned();
-                let else_read = self.emit_narrowed_read(subject, left.as_ref(), else_test);
+                let else_read = match (
+                    self.checked.pick_left_from.get(&(self.file_idx, *span)).cloned(),
+                    left.clone(),
+                ) {
+                    (Some(from), Some(to)) => {
+                        let storage = format!("{}.clone()", self.place_storage(subject));
+                        self.emit_rewrap(storage, &from, &to)
+                    }
+                    _ => self.emit_narrowed_read(subject, left.as_ref(), else_test),
+                };
                 let saved = self.placeholder_code.replace(else_read);
                 let r = self.emit_expr(rhs);
                 self.placeholder_code = saved;

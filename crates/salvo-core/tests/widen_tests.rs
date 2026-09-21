@@ -262,16 +262,10 @@ fn a_lift_takes_a_binding_and_a_multi_arm_lift_needs_one() {
          }}\n\
          }}\n"
     ));
-    // The checker side of a multi-arm lift is built (the arms lift, nothing
-    // narrows, the binding takes their union); the *emission* is not — a value
-    // spanning fewer arms than its storage needs the arm-mapping re-wrap
-    // [let-infer] — so it is refused by name rather than emitted wrong.
-    assert!(
-        bound
-            .iter()
-            .any(|e| e.contains("not emitted yet") && e.contains("2 arms")),
-        "expected the multi-arm deferral, got: {bound:?}"
-    );
+    // [rewrap] A multi-arm lift is built end to end since 2026-09-21: the bound
+    // value spans fewer arms than the storage, so it is produced by mapping arm
+    // to arm — the same mapping an annotated `let` gets [let-infer].
+    assert!(bound.is_empty(), "expected a clean multi-arm lift, got: {bound:?}");
 
     let unbound = errors(&format!(
         "{PRELUDE}\n\

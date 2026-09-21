@@ -258,11 +258,10 @@ Conventions:
     *everything* leaves the right side dead. Both are errors, the same "dead
     scaffolding" refusal a throw-free `try` gets [try]. A pick naming a *type*
     rather than a qualifier is an error too.
-  * **First slice: one matched arm, one left.** A pick spanning several arms on
-    either side needs the arm-mapping re-wrap [let-infer] — the same one step
-    3's multi-arm lift waits on — so it is refused by name rather than emitted
-    wrong [backend-never-wrong]. That single lift unblocks three deferred
-    shapes at once: the multi-arm lift, the multi-arm pick, and pick chains.
+  * **Either side may span several arms** (2026-09-21): a multi-arm side is a
+    *sub-union* of the storage, produced by the arm mapping [rewrap]. So
+    `attempt(t) ^Ok?: return _` works over `Ok Int | Err Str | Thrown Str`,
+    where `_` is the two-arm `Err Str | Thrown Str`.
 * [safe-call] `receiver?.member` / `receiver?.member(args)` reaches a field or
   a dot-notation function on the **non-`None`** side of an optional (user
   decision 2026-09-21, step 4). The result is the member's own type **plus
@@ -304,6 +303,22 @@ Conventions:
     subject, not moved out of it, since the subject is still live below. A place
     subject is therefore not hoisted into a temporary at all — reading one twice
     is free [loop-while-is] — while any other subject is, once.
+* [rewrap] A value spanning **fewer arms than its storage** is produced by
+  mapping arm to arm: each source arm to the target arm of the same type, and a
+  source arm the target does not have to an unreachable. This is what
+  [let-infer]'s `Rewrap` coercion has always emitted for an annotated slot
+  (`let b: Str | Int = a` out of a `Str | Int | Bool`); since 2026-09-21 the
+  sites that produce such a value **with no slot** reach the same mapping:
+  * a **multi-arm lift binding** [qual-lift], whose source arms are recorded
+    *lifted* — the mapping pairs arms by type equality, and a lifted arm's type
+    is the arm without its qualifier, while positions stay the storage's since
+    qualifiers erase;
+  * a **pick's picked side**, same treatment;
+  * a **pick's unpicked side** (`_`), whose source arms keep their tags, because
+    `_` never lifts [pick].
+  * The mapping **consumes** its input, so it takes an owned copy: the subject is
+    still readable after the form ([elvis-guard], and the arms the right side
+    reads). Kotlin needs no copy, its values being references.
 * [placeholder] `_` reads as **the value the enclosing construct left
   unnamed**, and **no construct binds one yet** (user decision 2026-09-21): a
   plain `?:` leaves `None`, which the program can already write, so a
@@ -1219,12 +1234,11 @@ Conventions:
   * **Several arms at once** is what the binding is for: the lifted value is
     *produced*, so it can span two arms where a re-read of the subject cannot,
     and with a binding nothing narrows — the subject keeps its declared type
-    and the lifted union lives in the name. The **checker** implements this;
-    the **emission is deferred** (the bound value spans fewer arms than its
-    storage, so it needs the arm-mapping re-wrap [let-infer]), so a multi-arm
-    lift with a binding is refused by name rather than emitted wrong
-    [backend-never-wrong]. Without a binding it stays refused for the original
-    reason: one re-read cannot stand for two wrapper positions.
+    and the lifted union lives in the name. Built end to end (2026-09-21): the
+    bound value spans fewer arms than its storage, so it is produced by the
+    arm mapping [rewrap] rather than by a payload read. **Without** a binding
+    it stays refused for the original reason: one re-read cannot stand for two
+    wrapper positions.
   * A `when` **branch head** takes the same form: `is ^Qual...` alongside
     `is ...`, the same arm test with the subject reading lifted inside the
     branch. That

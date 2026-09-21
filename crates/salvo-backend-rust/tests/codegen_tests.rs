@@ -5946,6 +5946,88 @@ fn rustc_compiles_and_runs_a_qualifier_pick() {
     run_rust_files(&files, "pick", PICK_OUTPUT);
 }
 
+/// [rewrap] A value spanning **fewer arms than its storage** is produced by
+/// mapping arm to arm, which is what the three shapes deferred out of the `?`
+/// family all needed. Two of them are here:
+///
+/// - a **multi-arm lift binding**: `o is ^Ok value` where two arms carry `Ok`,
+///   so `value` is an `Int | Str` out of a three-arm union;
+/// - a **pick whose unpicked side spans two arms**: `_` is `Err Str | Thrown Str`
+///   out of the same three-arm storage — the shape from the original sketch.
+///
+/// The mapping itself is the one an annotated `let` has always emitted
+/// [let-infer]; what was missing was reaching it from a site with no slot.
+const REWRAP_DEMO: &str = r#"
+fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
+    if n == 0 {
+        return err("zero")
+    }
+    if n > 0 {
+        return ok(n)
+    }
+    return ok("negative")
+}
+
+fn attempt(text: Str) -> Ok Int | Err Str | Thrown Str {
+    if size(text) == 0 {
+        return err("empty")
+    }
+    if size(text) > 5 {
+        return thrown("too long")
+    }
+    return ok(size(text))
+}
+
+fn show(n: Int) [Console] -> None {
+    let o = classify(n)
+    if o is ^Ok value {
+        when value {
+            is Int { println("int ${value}") }
+            is Str { println("str ${value}") }
+        }
+    }
+    if o is Err {
+        println("err ${o}")
+    }
+}
+
+fn run(text: Str) -> Err Str | Thrown Str {
+    let n: Int = attempt(text) ^Ok?: return _
+    return err("len ${n}")
+}
+
+fn report(text: Str) [Console] -> None {
+    let r = run(text)
+    when r {
+        is Err { println("err ${r}") }
+        is Thrown { println("thrown ${r}") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show(3)
+    show(-1)
+    show(0)
+    report("abc")
+    report("")
+    report("abcdefgh")
+}
+"#;
+
+const REWRAP_OUTPUT: &str =
+    "int 3\nstr negative\nerr zero\nerr len 3\nerr empty\nthrown too long\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_sub_union_rewrap() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", REWRAP_DEMO)]);
+    run_rust_files(&files, "rewrap", REWRAP_OUTPUT);
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_group_over_plain_arms() {    if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
