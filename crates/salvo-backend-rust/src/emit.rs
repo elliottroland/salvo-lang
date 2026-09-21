@@ -1101,6 +1101,10 @@ struct Emitter<'p> {
     effect_env: Vec<EffectEntry>,
     /// How each name in the current fn is bound [rs-borrows].
     bindings: HashMap<String, BindKind>,
+    /// [placeholder] The code `_` renders as: the unpicked arm's read, set while
+    /// a qualifier pick's right-hand side is emitted [pick].
+    placeholder_code: Option<String>,
+    pick_vars: usize,
     /// [use-local] The effect instances (rendered) that some construction
     /// in the current file captures as dependency handles — the bindings of
     /// these get an eager handle variable. Computed per file from
@@ -1367,6 +1371,8 @@ impl<'p> Emitter<'p> {
             ret_is_unit: false,
             effect_env: Vec::new(),
             bindings: HashMap::new(),
+            placeholder_code: None,
+            pick_vars: 0,
             captured_effects: HashSet::new(),
             handle_bundles: HashMap::new(),
             handle_fields: HashMap::new(),
@@ -9349,13 +9355,68 @@ impl<'p> Emitter<'p> {
             // runs only on `None`. A `match` rather than `unwrap_or_else`
             // precisely because the right side may be an escape — a `return`
             // inside a closure would return from the closure [expr-escape].
+            Expr::Elvis {
+                subject,
+                pick: Some(_),
+                rhs,
+                span,
+            } => {
+                // [pick] The arm test the checker recorded, the picked payload
+                // read, and the unpicked payload for `_` — all three are the
+                // narrowed-read machinery `is` already uses, so the pick adds
+                // only the conditional.
+                // The subject is evaluated **once**, into a temporary: unlike
+                // `?.` it need not be a place, since the picked value and `_`
+                // both read out of the temporary. A block expression is what
+                // gives it somewhere to live.
+                // [is-bind-once] The subject is evaluated **once**, into a
+                // temporary registered the way a hoisted `is` subject is — so
+                // `place_storage` reaches the temporary from every read inside
+                // the form, and the picked value and `_` share one evaluation.
+                // Unlike `?.` the subject need not be a place: the temporary is
+                // where it lives.
+                let tmp = self.fresh_pick_var();
+                let subj_code = self.emit_expr(subject);
+                let saved_subject = self
+                    .is_temps
+                    .insert((self.file_idx, subject.span()), tmp.clone());
+                let test = self.is_test_of(*span).cloned();
+                let cond = match &test {
+                    Some(t) => self.emit_union_test(&tmp, t),
+                    None => "true".to_string(),
+                };
+                let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
+                let body = self.emit_narrowed_read(subject, picked.as_ref(), test);
+                let left = self.checked.pick_left.get(&(self.file_idx, *span)).cloned();
+                let else_test = self
+                    .checked
+                    .pick_else_tests
+                    .get(&(self.file_idx, *span))
+                    .cloned();
+                let else_read = self.emit_narrowed_read(subject, left.as_ref(), else_test);
+                let saved = self.placeholder_code.replace(else_read);
+                let r = self.emit_expr(rhs);
+                self.placeholder_code = saved;
+                match saved_subject {
+                    Some(prev) => {
+                        self.is_temps.insert((self.file_idx, subject.span()), prev);
+                    }
+                    None => {
+                        self.is_temps.remove(&(self.file_idx, subject.span()));
+                    }
+                }
+                format!("{{ let {tmp} = {subj_code}; if {cond} {{ {body} }} else {{ {r} }} }}")
+            }
             Expr::Elvis { subject, rhs, .. } => {
                 let s = self.emit_expr(subject);
                 let r = self.emit_expr(rhs);
                 format!("match {s} {{ Some(__v) => __v, None => {r} }}")
             }
-            // [placeholder] The `None` side of the subject.
-            Expr::Placeholder { .. } => "None".to_string(),
+            // [placeholder] The unpicked arm, read out of the subject.
+            Expr::Placeholder { .. } => self
+                .placeholder_code
+                .clone()
+                .unwrap_or_else(|| "None".to_string()),
             // [expr-escape] An escape *nested inside* an expression — the
             // form statement position never produces, since `emit_stmt` takes
             // those. Rust has the same three as expressions, so the rendering
@@ -9953,6 +10014,11 @@ impl<'p> Emitter<'p> {
 
     /// The runtime test for an `is` check against a union representation
     /// [rs-union-enums] [union-arm-identity].
+    fn fresh_pick_var(&mut self) -> String {
+        self.pick_vars += 1;
+        format!("__pick{}", self.pick_vars)
+    }
+
     fn emit_union_test(&mut self, subj: &str, test: &UnionTest) -> String {
         if test.match_none {
             return format!("{subj}.is_none()");

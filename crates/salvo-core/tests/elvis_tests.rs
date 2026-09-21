@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> T as Ok {\n    return value\n}\nexport fn err<T>(value: T) [] -> T as Err {\n    return value\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -89,16 +89,17 @@ fn an_elvis_needs_an_optional_subject() {
     );
 }
 
-/// [placeholder] `_` binds nowhere yet (user decision 2026-09-21): a plain `?:`
-/// leaves `None`, which the program can already write, so the placeholder earns
-/// its keep only where a *qualifier* is picked and the unpicked side carries a
-/// tag (step 5). Until then reading it is an error rather than a silent
+/// [placeholder] `_` is the **unpicked** side of a qualifier pick [pick], so it
+/// reads only in the right-hand side of one. A plain `?:` leaves `None`, which
+/// the program can already write, so there it would name a value that has a
+/// name — and outside either, reading `_` is an error rather than a silent
 /// `Unknown`.
 #[test]
 fn a_placeholder_outside_an_elvis_is_an_error() {
     let errs = errors("fn f() [] -> Str {\n    return _\n}\n");
     assert!(
-        errs.iter().any(|e| e.contains("`_` is the value a construct left unnamed")),
+        errs.iter()
+            .any(|e| e.contains("unpicked") && e.contains("qualifier pick")),
         "expected the stray-placeholder error, got: {errs:?}"
     );
 }
@@ -155,5 +156,61 @@ fn a_safe_call_receiver_must_be_a_place() {
         errs.iter()
             .any(|e| e.contains("`?.` receiver must be a variable") && e.contains("bind the value")),
         "expected the place refusal, got: {errs:?}"
+    );
+}
+
+/// [pick] The two picks: `^Ok` **lifts** the tag (the value is a plain `Int`)
+/// and `Ok` keeps it (an `Ok Int`). `_` on the right is the unpicked arm with
+/// its own tag — the one place the placeholder earns its keep, since `Err Str`
+/// has no other spelling there.
+#[test]
+fn a_qualifier_pick_lifts_or_keeps() {
+    let errs = errors(
+        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
+         fn lifted(t: Str) [] -> Ok Int | Err Str {\n\
+         \x20   let n: Int = parse(t) ^Ok?: return _\n\
+         \x20   return ok(n)\n\
+         }\n\
+         fn kept(t: Str) [] -> Ok Int | Err Str {\n\
+         \x20   let n: Ok Int = parse(t) Ok?: return _\n\
+         \x20   return n\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected clean picks, got: {errs:?}");
+}
+
+/// [pick] A pick that matches nothing can never run; one that matches
+/// *everything* leaves the right-hand side dead. Both are the "dead
+/// scaffolding" refusal a throw-free `try` gets [try].
+#[test]
+fn a_pick_must_match_something_and_leave_something() {
+    let never = errors(
+        "fn f(r: Ok Int | Err Str) [] -> Int {\n    return r Str?: 0\n}\n",
+    );
+    assert!(
+        never.iter().any(|e| e.contains("can never match") || e.contains("names qualifiers")),
+        "expected the no-match refusal, got: {never:?}"
+    );
+    let all = errors(
+        "fn f(r: Ok Int | Ok Str) [] -> Int {\n    return r Ok?: 0\n}\n",
+    );
+    assert!(
+        all.iter()
+            .any(|e| e.contains("can never run") || e.contains("several arms")),
+        "expected the dead-right-side refusal, got: {all:?}"
+    );
+}
+
+/// [pick] First slice: one matched arm, one left. A pick spanning several arms
+/// needs the arm-mapping re-wrap [let-infer] — the same one step 3's multi-arm
+/// lift waits on — so it is refused by name rather than emitted wrong.
+#[test]
+fn a_multi_arm_pick_is_refused_for_now() {
+    let errs = errors(
+        "fn f(r: Ok Int | Err Str | Err Int) [] -> Int {\n    return r ^Ok?: 0\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("not emitted yet") || e.contains("several arms")),
+        "expected the multi-arm deferral, got: {errs:?}"
     );
 }

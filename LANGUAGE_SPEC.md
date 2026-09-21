@@ -237,6 +237,32 @@ Conventions:
     nullable [kt-elvis]; on Rust a `match` on the `Option` — a `match` rather
     than `unwrap_or_else` precisely because the right side may escape, and a
     `return` inside a closure would return from the closure [rs-elvis].
+* [pick] `subject Qual?: rhs` is the **qualifier form** of `?:` (user decision
+  2026-09-21, step 5): the named arm is *picked* — it becomes the expression's
+  value — and everything the pick did not claim goes to the right-hand side,
+  where `_` names it [placeholder].
+  * **`^Qual` lifts, `Qual` keeps.** `r ^Ok?: …` yields `T`, `r Ok?: …` yields
+    `Ok T`. The same `^Q` notation an `is` check uses [qual-lift], which is why
+    step 3 came first: one mark, two places.
+  * **`_` carries its tags** (user decision 2026-09-21): the unpicked arm reads
+    as `Err Str`, not `Str`, so the right side can route on it. There is no way
+    to strip a tag here — replacing one tag with another is an `if` or a `when`,
+    and `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`.
+  * **Only the last `?:` has a right-hand side**, so a chain of picks reads as
+    "these arms are answers too". *Not built yet*: a chain of more than one pick
+    (`r ^Ok?: Err?: err(_)`), which needs the multi-arm work below.
+  * **The subject is evaluated once**, into a temporary registered exactly as a
+    hoisted `is` subject is [is-bind-once] — so, unlike `?.`, the subject need
+    not be a place.
+  * **A pick that matches nothing** can never run; one that matches
+    *everything* leaves the right side dead. Both are errors, the same "dead
+    scaffolding" refusal a throw-free `try` gets [try]. A pick naming a *type*
+    rather than a qualifier is an error too.
+  * **First slice: one matched arm, one left.** A pick spanning several arms on
+    either side needs the arm-mapping re-wrap [let-infer] — the same one step
+    3's multi-arm lift waits on — so it is refused by name rather than emitted
+    wrong [backend-never-wrong]. That single lift unblocks three deferred
+    shapes at once: the multi-arm lift, the multi-arm pick, and pick chains.
 * [safe-call] `receiver?.member` / `receiver?.member(args)` reaches a field or
   a dot-notation function on the **non-`None`** side of an optional (user
   decision 2026-09-21, step 4). The result is the member's own type **plus

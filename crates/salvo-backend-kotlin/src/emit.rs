@@ -850,6 +850,11 @@ fn kt_ident(name: &str) -> String {
 }
 
 struct Emitter<'p> {
+    /// [placeholder] The code `_` renders as: the unpicked arm's read, set while
+    /// a qualifier pick's right-hand side is emitted [pick].
+    placeholder_code: Option<String>,
+    /// [pick] Counter for the temporaries a qualifier pick binds.
+    pick_vars: usize,
     symbols: &'p Symbols<'p>,
     checked: &'p Checked,
     program: &'p Program,
@@ -1034,6 +1039,8 @@ impl<'p> Emitter<'p> {
         file_name: &str,
     ) -> Self {
         Emitter {
+            placeholder_code: None,
+            pick_vars: 0,
             symbols,
             checked,
             program,
@@ -5376,6 +5383,31 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [pick] The payload of a single matched arm, at its own type: the shape
+    /// the `is`-binding path emits, factored out so a qualifier pick can use it
+    /// for both the picked and the unpicked side.
+    fn emit_arm_payload(
+        &mut self,
+        subject: &Expr,
+        test: Option<&UnionTest>,
+        ty: Option<&Ty>,
+    ) -> String {
+        let subj = self.emit_place_storage(subject);
+        match test {
+            Some(t) if t.size >= 2 => {
+                let kt = ty
+                    .map(|t| self.emit_ty(t))
+                    .unwrap_or_else(|| "Any".to_string());
+                let access = if t.nullable { "?" } else { "" };
+                self.note_payload_cast();
+                format!("{subj}{access}.value as {kt}")
+            }
+            // A `T?` representation, or a single-arm union: the value is the
+            // storage itself once the test has passed.
+            _ => format!("{subj}!!"),
+        }
+    }
+
     fn emit_union_test(&mut self, subj: &str, test: &UnionTest) -> String {
         if test.match_none {
             return format!("{subj} == null");
@@ -5516,14 +5548,64 @@ impl<'p> Emitter<'p> {
             // exactly when Salvo says `None`. So the lowering is direct, and a
             // `return` on the right is legal there for the same reason it is in
             // Salvo since step 2.
+            // [pick] The qualifier form: the arm test the checker recorded,
+            // the picked payload read, and the unpicked payload for `_` — the
+            // narrowed-read machinery `is` already uses, with a conditional
+            // around it. Kotlin's own `?:` cannot serve here: the test is an arm
+            // test, not a null test.
+            Expr::Elvis {
+                subject,
+                pick: Some(_),
+                rhs,
+                span,
+            } => {
+                // [is-bind-once] The subject is evaluated **once**, into a
+                // temporary registered the way a hoisted `is` subject is. `run`
+                // is inline, so a `return` on the right side still returns from
+                // the enclosing function [expr-escape].
+                self.pick_vars += 1;
+                let tmp = format!("__pick{}", self.pick_vars);
+                let subj_code = self.emit_expr(subject);
+                let saved_subject = self
+                    .is_temps
+                    .insert((self.file_idx, subject.span()), tmp.clone());
+                let test = self.is_test_of(*span).cloned();
+                let cond = match &test {
+                    Some(t) => self.emit_union_test(&tmp, t),
+                    None => "true".to_string(),
+                };
+                let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
+                let body = self.emit_arm_payload(subject, test.as_ref(), picked.as_ref());
+                let left = self.checked.pick_left.get(&(self.file_idx, *span)).cloned();
+                let else_test = self
+                    .checked
+                    .pick_else_tests
+                    .get(&(self.file_idx, *span))
+                    .cloned();
+                let else_read = self.emit_arm_payload(subject, else_test.as_ref(), left.as_ref());
+                let saved = self.placeholder_code.replace(else_read);
+                let r = self.emit_expr(rhs);
+                self.placeholder_code = saved;
+                match saved_subject {
+                    Some(prev) => {
+                        self.is_temps.insert((self.file_idx, subject.span()), prev);
+                    }
+                    None => {
+                        self.is_temps.remove(&(self.file_idx, subject.span()));
+                    }
+                }
+                format!("run {{ val {tmp} = {subj_code}; if ({cond}) {body} else {r} }}")
+            }
             Expr::Elvis { subject, rhs, .. } => {
                 let s = self.emit_expr(subject);
                 let r = self.emit_expr(rhs);
                 format!("({s} ?: {r})")
             }
-            // [placeholder] `_` inside an `?:` right-hand side is the `None`
-            // side, and `None` is Kotlin's `null`.
-            Expr::Placeholder { .. } => "null".to_string(),
+            // [placeholder] The unpicked arm, read out of the subject.
+            Expr::Placeholder { .. } => self
+                .placeholder_code
+                .clone()
+                .unwrap_or_else(|| "null".to_string()),
             // [expr-escape] An escape *nested inside* an expression — the form
             // statement position never produces, since `emit_stmt` takes those.
             // Kotlin has the same three as expressions, so the rendering is

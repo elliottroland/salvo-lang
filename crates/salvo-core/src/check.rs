@@ -595,6 +595,12 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
+    /// [pick] The unpicked arm's **test** at each qualifier pick — how the
+    /// emitters reach `_`'s payload out of the subject.
+    pub pick_else_tests: HashMap<Key, UnionTest>,
+    /// [pick] The **unpicked** arm at each qualifier pick — the type `_` reads
+    /// as on the right-hand side, tag and all. Keyed by the operator's span.
+    pub pick_left: HashMap<Key, Ty>,
     /// [safe-call] The `?.` spans whose member is **already optional**, so the
     /// result needs no second wrapper. Recorded because the inner access shares
     /// the operator's span, leaving the emitters nothing to read it off.
@@ -1062,6 +1068,7 @@ fn check_once<'p>(
             servant_reply_params: None,
             own_task: None,
             can_use: false,
+            placeholder_ty: None,
             can_spawn: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
@@ -1460,6 +1467,10 @@ struct Checker<'p, 'r> {
     servant_reply_params: Option<Vec<(String, bool)>>,
     /// Whether the current fn declared the special `use` effect.
     can_use: bool,
+    /// [placeholder] The type `_` reads as, when a construct has bound one — a
+    /// qualifier pick's unpicked arm [pick]. `None` elsewhere, which is what
+    /// keeps a stray `_` an error.
+    placeholder_ty: Option<Ty>,
     /// [actor-spawn-effect] Whether the current fn (or the handler whose
     /// member it is) declared the `spawn` capability — the gate a `spawn`
     /// expression checks.
@@ -14046,6 +14057,151 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
     /// than refined, so the subject reads without them inside the branch.
+    /// [pick] `subject Qual?: rhs` — the qualifier form of `?:`. The named arm
+    /// is **picked**: it becomes the expression's value, with its tag kept, or
+    /// lifted when the qualifier was written `^Qual` [qual-lift]. Everything the
+    /// pick did not claim goes to the right-hand side, where `_` names it
+    /// [placeholder] — which is the one place `_` earns its keep, since the
+    /// unpicked side carries a tag and so has no other spelling.
+    ///
+    /// First slice: **one pick, one matched arm, one remaining arm**. A pick
+    /// matching or leaving several arms needs the arm-mapping re-wrap
+    /// ([let-infer], the same one step 3's multi-arm lift waits on), so it is
+    /// refused by name rather than emitted wrong [backend-never-wrong].
+    fn check_pick(
+        &mut self,
+        subject: &'p Expr,
+        pick: &'p salvo_syntax::ast::ElvisPick,
+        rhs: &'p Expr,
+        span: Span,
+    ) -> Ty {
+        let subj_ty = self.check_expr(subject, None);
+        if subj_ty.is_unknown() {
+            // [type-unknown-lenient]
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        let pat = self.parse_check(&pick.quals);
+        if pat.unresolved {
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        if pat.base.is_some() || pat.is_none {
+            self.error(
+                span,
+                "a pick names qualifiers, not types: `x Ok?: r` picks the `Ok` \
+                 arm"
+                    .to_string(),
+            );
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        let Ty::Union(arms) = &subj_ty else {
+            self.error(
+                span,
+                format!(
+                    "`{}?:` needs a union on its left, but `{subj_ty}` is one type: \
+                     nothing can take the right-hand side",
+                    pick.quals
+                        .iter()
+                        .map(|q| q.name.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+            );
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        };
+        let (matched, remaining): (Vec<Ty>, Vec<Ty>) = arms
+            .iter()
+            .cloned()
+            .partition(|arm| self.arm_matches(arm, &pat));
+        let names = pat.quals.join(" ");
+        if matched.is_empty() {
+            self.error(
+                span,
+                format!("no arm of `{subj_ty}` carries `{names}`, so the pick can never match"),
+            );
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        if remaining.is_empty() {
+            self.error(
+                span,
+                format!(
+                    "`{names}` picks every arm of `{subj_ty}`, so the right-hand \
+                     side can never run"
+                ),
+            );
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        if matched.len() > 1 || remaining.len() > 1 {
+            self.error(
+                span,
+                format!(
+                    "a pick over `{subj_ty}` would span several arms ({} picked, \
+                     {} left), which is not emitted yet: the value needs an \
+                     arm-mapping re-wrap. Use `when` for that shape",
+                    matched.len(),
+                    remaining.len()
+                ),
+            );
+            let _ = self.check_expr(rhs, None);
+            return Ty::Unknown;
+        }
+        // The picked value: the arm, lifted when the pick said `^`.
+        let arm = matched[0].clone();
+        let picked = if pick.lift {
+            match strip_quals_named(&arm, &pat.quals) {
+                Some(t) => t,
+                None => {
+                    self.error(
+                        span,
+                        format!("`{names}` cannot be lifted off `{arm}`"),
+                    );
+                    return Ty::Unknown;
+                }
+            }
+        } else {
+            arm.clone()
+        };
+        let left = remaining[0].clone();
+        // The arm tests the emitters need: which arm is picked, and what the
+        // other one reads as. Expressed in [union-arm-identity]'s indices.
+        if let Some(test) = self.union_test_for(&subj_ty, &pat) {
+            self.out.is_tests.insert(self.key(span), test);
+        }
+        // The unpicked arm's test as well: the emitters read `_` out of the
+        // subject at *its* arm index, and only the checker knows the union's
+        // positional identity [union-arm-identity].
+        let value_arms = subj_ty.value_arms();
+        if let Some(idx) = value_arms.iter().position(|a| **a == left) {
+            self.out.pick_else_tests.insert(
+                self.key(span),
+                UnionTest {
+                    size: value_arms.len(),
+                    arms: vec![idx],
+                    nullable: subj_ty.has_none_arm(),
+                    match_none: false,
+                },
+            );
+        }
+        self.out.elvis_picks.insert(self.key(span), picked.clone());
+        self.out.pick_left.insert(self.key(span), left.clone());
+        // [placeholder] `_` is the unpicked arm, tag and all.
+        let saved = self.placeholder_ty.replace(left);
+        let rhs_ty = self.check_expr(rhs, None);
+        self.placeholder_ty = saved;
+        if matches!(rhs_ty, Ty::Never) {
+            return picked;
+        }
+        let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
+        let rhs_repr = self.repr_of(rhs, &rhs_ty);
+        self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
+        join
+    }
+
     fn widen_info(
         &mut self,
         subject: &'p Expr,
@@ -15696,7 +15852,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             // the expression's value is the subject's **non-`None` arms** when
             // it holds one, and `rhs` otherwise. Reserved for `T?` — a
             // qualifier is picked by naming it (step 5 of the sequence).
-            Expr::Elvis { subject, rhs, span } => {
+            Expr::Elvis {
+                subject,
+                pick: Some(pick),
+                rhs,
+                span,
+            } => self.check_pick(subject, pick, rhs, *span),
+            Expr::Elvis {
+                subject,
+                pick: None,
+                rhs,
+                span,
+            } => {
                 let subj_ty = self.check_expr(subject, None);
                 // A `T?` whose non-`None` side is what the caller asked for:
                 // pass the expectation down so a literal still adopts a width.
@@ -15843,16 +16010,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
-            Expr::Placeholder { span } => {
-                self.error(
-                    *span,
-                    "`_` is the value a construct left unnamed, and no construct \
-                     binds one yet: a plain `?:` leaves `None`, which is already \
-                     writable"
-                        .to_string(),
-                );
-                Ty::Unknown
-            }
+            Expr::Placeholder { span } => match self.placeholder_ty.clone() {
+                Some(ty) => ty,
+                None => {
+                    self.error(
+                        *span,
+                        "`_` is the **unpicked** side of a qualifier pick, so it \
+                         reads only in the right-hand side of one: a plain `?:` \
+                         leaves `None`, which is already writable"
+                            .to_string(),
+                    );
+                    Ty::Unknown
+                }
+            },
             // [expr-escape] The three escapes are expressions of type
             // `Never` (user decision 2026-09-21). The rules are unchanged
             // from when they were statements — only where they live is.

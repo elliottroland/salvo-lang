@@ -2770,17 +2770,78 @@ impl<'s> Parser<'s> {
     /// [expr-escape].
     fn parse_elvis(&mut self) -> Option<Expr> {
         let lhs = self.parse_additive()?;
-        if !matches!(self.kind(), TokenKind::QuestionColon) || !self.same_line() {
+        if !self.same_line() {
             return Some(lhs);
         }
-        self.bump();
+        // [pick] A qualifier may be named before the operator: `x Ok?: r`,
+        // `x ^Ok?: r`. Recognised by scanning ahead for the `?:` — an
+        // expression is never followed by a bare type name otherwise, and the
+        // two-token lookahead keeps that unambiguous.
+        let pick = self.peek_elvis_pick();
+        if pick.is_none() && !matches!(self.kind(), TokenKind::QuestionColon) {
+            return Some(lhs);
+        }
+        let pick = match pick {
+            Some(()) => {
+                let start = self.peek().span;
+                let lift = self.eat(&TokenKind::Caret).is_some();
+                let mut quals = vec![self.parse_type_ref()?];
+                let mut end = quals[0].span;
+                // Further qualifiers, each carrying its own `^` when lifted.
+                while !matches!(self.kind(), TokenKind::QuestionColon) {
+                    let marked = self.eat(&TokenKind::Caret).is_some();
+                    if marked != lift {
+                        self.error(
+                            "a pick either lifts every qualifier or none: mark \
+                             them all with `^`, or split the pick",
+                            self.peek().span,
+                        );
+                    }
+                    let r = self.parse_type_ref()?;
+                    end = r.span;
+                    quals.push(r);
+                }
+                Some(ElvisPick {
+                    quals,
+                    lift,
+                    span: start.to(end),
+                })
+            }
+            None => None,
+        };
+        self.expect(&TokenKind::QuestionColon)?;
         let rhs = self.parse_elvis()?;
         let span = lhs.span().to(rhs.span());
         Some(Expr::Elvis {
             subject: Box::new(lhs),
+            pick,
             rhs: Box::new(rhs),
             span,
         })
+    }
+
+    /// [pick] Whether a qualifier pick starts here: `[^]Name+` followed by
+    /// `?:`. Pure lookahead — nothing is consumed.
+    fn peek_elvis_pick(&self) -> Option<()> {
+        let mut i = 0usize;
+        if matches!(self.peek_at(i).kind, TokenKind::Caret) {
+            i += 1;
+        }
+        let mut names = 0usize;
+        loop {
+            match &self.peek_at(i).kind {
+                TokenKind::Ident(n) if n.chars().next().is_some_and(|c| c.is_uppercase()) => {
+                    i += 1;
+                    names += 1;
+                }
+                TokenKind::Caret if names > 0 => i += 1,
+                _ => break,
+            }
+        }
+        if names == 0 {
+            return None;
+        }
+        matches!(self.peek_at(i).kind, TokenKind::QuestionColon).then_some(())
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {

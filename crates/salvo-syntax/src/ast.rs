@@ -787,6 +787,17 @@ pub enum Stmt {
     Expr(Expr),
 }
 
+/// [pick] A qualifier named before an `?:`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ElvisPick {
+    /// The qualifiers naming the arms to pick.
+    pub quals: Vec<TypeRef>,
+    /// Every qualifier was `^`-marked, so the picked value reads **without**
+    /// them — `^Ok` gives `T` where `Ok` gives `Ok T` [qual-lift].
+    pub lift: bool,
+    pub span: Span,
+}
+
 /// Destructuring patterns for `let`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pattern {
@@ -1022,6 +1033,11 @@ pub enum Expr {
     /// Reserved for `T?`: a *qualifier* is picked by naming it (step 5).
     Elvis {
         subject: Box<Expr>,
+        /// [pick] The qualifier picked before the `?:`, if any: `x Ok?: r` picks
+        /// the `Ok` arm keeping its tag, `x ^Ok?: r` picks it and **lifts** the
+        /// tag (the same `^Q` notation an `is` check uses [qual-lift]). `None`
+        /// here is the plain `?:`, which picks the non-`None` arms [elvis].
+        pick: Option<ElvisPick>,
         rhs: Box<Expr>,
         span: Span,
     },

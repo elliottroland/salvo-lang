@@ -283,6 +283,25 @@ let shout: Str? = p.home?.city?.to_upper()
 let shown: Str = p.home?.city ?: "-"
 ```
 
+A qualifier is picked by naming it. `Ok?:` picks the `Ok` arm keeping its tag;
+`^Ok?:` picks it and lifts the tag, exactly as `is ^Ok` does:
+
+```
+fn doubled(text: Str) -> Ok Int | Err Str {
+    let n: Int = parse(text) ^Ok?: return _
+    return ok(n * 2)
+}
+```
+
+`_` is the **unpicked** side, tags and all — `Err Str` here, so the right side
+can hand it to something that expects an error. That is the one place the
+placeholder is needed: a plain `?:` leaves `None`, which is already writable.
+There is no way to strip a tag here, so turning a `Thrown` into an `Err` is a
+`when`.
+
+The subject is evaluated once, so it can be a call. A pick that matches no arm,
+or that matches every arm and leaves the right side unreachable, is an error.
+
 Because the result carries a `None` arm, each link re-tests and the chain reads
 left to right. The receiver has to be a variable or a field of one: the form
 reads it twice, once to ask and once to reach the member, so a call belongs in a

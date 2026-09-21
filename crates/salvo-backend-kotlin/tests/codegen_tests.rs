@@ -1131,6 +1131,58 @@ fn main() [use] {
 
 const SAFE_CALL_OUTPUT: &str = "city Bath\nnocity -\nzip BA1\nnozip -\ncall ADDY\n";
 
+/// [pick] Step 5: the qualifier form of `?:`. `^Ok?:` **lifts** the tag, so the
+/// picked value is a plain `Int`; `Ok?:` keeps it, so the value is an `Ok Int`
+/// that can be returned as-is. `_` on the right is the **unpicked** arm with its
+/// own tag, which is the one place the placeholder earns its keep — `Err Str` has
+/// no other spelling there.
+///
+/// The subject is a **call**, so it is evaluated once into a temporary
+/// [is-bind-once]: the test, the picked read and `_` all reach the same value.
+const PICK_DEMO: &str = r#"
+fn parse(text: Str) -> Ok Int | Err Str {
+    if size(text) == 0 {
+        return err("empty")
+    }
+    return ok(size(text))
+}
+
+fn doubled(text: Str) -> Ok Int | Err Str {
+    let n: Int = parse(text) ^Ok?: return _
+    return ok(n * 2)
+}
+
+fn kept(text: Str) -> Ok Int | Err Str {
+    let n: Ok Int = parse(text) Ok?: return _
+    return n
+}
+
+fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
+    when r {
+        is Ok { println("${label} ok ${r}") }
+        is Err { println("${label} err ${r}") }
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    show("doubled", doubled("abc"))
+    show("doubled", doubled(""))
+    show("kept", kept("abcd"))
+    show("kept", kept(""))
+}
+"#;
+
+const PICK_OUTPUT: &str = "doubled ok 6\ndoubled err empty\nkept ok 4\nkept err empty\n";
+
+fn kotlinc_compiles_and_runs_a_qualifier_pick() -> KotlinCase {
+    let program = build_program(&[("main.sv", PICK_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "pick", PICK_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_the_safe_call() -> KotlinCase {
     let program = build_program(&[("main.sv", SAFE_CALL_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -2388,6 +2440,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_the_elvis_operator,
     kotlinc_compiles_and_runs_the_safe_call,
+    kotlinc_compiles_and_runs_a_qualifier_pick,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

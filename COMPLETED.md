@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1226 tests, complete: the toolchain tests are
+cargo test                  # 1230 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,48 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Qualifier picks: `Qual?:` and `^Qual?:` (user decision 2026-09-21).** Step 5,
+the last of the sequence and the one the other four were for. [pick].
+
+`subject Qual?: rhs` picks the named arm; `^Qual` lifts its tag, `Qual` keeps it;
+`_` on the right is the unpicked arm **with its tags**, which is where the
+placeholder finally earns its keep — `Err Str` has no other spelling there.
+
+What the earlier steps bought, visible at last:
+
+- **Step 2** (escapes as expressions) is why `^Ok?: return _` parses with no
+  grammar exception.
+- **Step 3** (`is ^Q`) is why the lift needed no new notation: `^Q` means "Q,
+  lifted" in a pick exactly as in a check, and the *emission* of both picks is
+  identical, since qualifiers are erased and only the static type differs.
+- **Step 4** (`?:` for `T?`) is the same operator with no qualifier named, so the
+  two share a node and a precedence tier.
+
+Two things fell out of building it:
+
+- **The subject must be evaluated once**, and the mechanism already existed:
+  `is_temps`, the hoisted-subject registry [is-bind-once]. Registering the pick's
+  temporary there made every read inside the form reach it through
+  `place_storage`, so neither emitter needed new naming machinery. Before that,
+  the Kotlin output called `parse(text)` **three times** — in the test, the
+  picked read and `_`.
+- **Only the checker knows arm identity**, so it records both tests — the picked
+  arm's and the unpicked arm's. The first attempt had the emitters rebuild the
+  second from the subject's recorded representation, which for a *call* subject
+  is not recorded at all, and `_` silently fell back to reading the whole union.
+
+**First slice: one matched arm, one left.** A pick spanning several arms on
+either side, and a *chain* of picks (`r ^Ok?: Err?: err(_)`), both wait on the
+arm-mapping re-wrap [let-infer]. That one lift now unblocks three deferred
+shapes at once — the multi-arm lift from step 3, the multi-arm pick, and chains —
+which is the next thing to do here.
+
+Tests: three more in `elvis_tests.rs` (both picks clean, the no-match and
+dead-right-side refusals, the multi-arm deferral) and
+`rustc_compiles_and_runs_a_qualifier_pick` with its Kotlin twin over four shapes,
+both picks with the arm present and absent, on a **call** subject so the single
+evaluation is covered. 1226 → 1230.
 
 **`?.`, and `_` withdrawn from `?:` (user decisions 2026-09-21).** The other
 half of step 4, plus a simplification the user called while it was being built.
@@ -13419,7 +13461,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1226)
+## Test inventory (all green: 1230)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
