@@ -47,6 +47,17 @@ Conventions:
 
 ## Type mappings
 
+* [safe-call] [kt-safe-call] `receiver?.member` does **not** lower to Kotlin's
+  `?.`: Salvo's dot-notation is a free function call, so `xs?.size()` means
+  `size(xs)`, and Kotlin's operator would look for a method. It emits
+  `(if (recv != null) <inner> else null)` instead — the test reads the storage,
+  the inner access reads the smart-cast payload, and those are the two reads the
+  place requirement allows.
+* [elvis] [kt-elvis] `subject ?: rhs` lowers to **Kotlin's own `?:`**. The
+  `T?` representation is a Kotlin nullable, so the subject is `null` exactly
+  when Salvo says `None`, and the operator means the same thing including the
+  single evaluation. A `return` on the right is legal there for the same reason
+  it is in Salvo [expr-escape].
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
   their names, `Any`→`Any`, `Never`→**`Nothing`** — the JVM's bottom type keeps

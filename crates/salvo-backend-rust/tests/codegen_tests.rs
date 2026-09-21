@@ -5753,6 +5753,133 @@ fn rustc_compiles_and_runs_a_lift_binding() {
     run_rust_files(&files, "lift-binding", LIFT_BINDING_OUTPUT);
 }
 
+/// [elvis] [placeholder] Step 4: `?:` picks the non-`None` arms, and `_` on the
+/// right is the `None` side. The shapes here are the ones that emit differently:
+///
+/// - an escaping right side (`?: return None`), which is why step 2 came first;
+/// - a value right side, where the two sides must agree on a representation —
+///   a bare `Str` **wraps** into the subject's `Str | Int` union, exactly as an
+///   `if`'s branches converge;
+/// - precedence: `n ?: 0 > 3` is `(n ?: 0) > 3` and `n ?: 1 + 1` is
+///   `n ?: (1 + 1)`, Kotlin's tier;
+/// - right-associative chaining.
+const ELVIS_DEMO: &str = r#"
+struct Person {
+    name: Str,
+    nickname: Str? = None
+}
+
+fn shout(p: Person) -> Str? {
+    let nick: Str = p.nickname ?: return None
+    return "${nick}!"
+}
+
+fn greet(p: Person) -> Str {
+    let nick: Str = p.nickname ?: "friend"
+    return "hello ${nick}"
+}
+
+fn pick(n: Int) -> Str | Int | None {
+    if n == 0 {
+        return None
+    }
+    if n == 1 {
+        return "one"
+    }
+    return n
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let named = Person {name: "Ada", nickname: "Addy"}
+    let plain = Person {name: "Bob"}
+    let s = shout(named)
+    if s is Str {
+        println("shout ${s}")
+    }
+    if shout(plain) is None {
+        println("shout none")
+    }
+    println(greet(named))
+    println(greet(plain))
+
+    let v: Str | Int = pick(2) ?: "none"
+    when v {
+        is Str { println("str ${v}") }
+        is Int { println("int ${v}") }
+    }
+    let n: Int? = 5
+    if n ?: 0 > 3 {
+        println("bigger")
+    }
+    println("sum ${n ?: 1 + 1}")
+    let a: Int? = None
+    let b: Int? = 7
+    println("chain ${a ?: b ?: 0}")
+}
+"#;
+
+const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nint 2\nbigger\nsum 5\nchain 7\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_elvis_operator() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ELVIS_DEMO)]);
+    run_rust_files(&files, "elvis", ELVIS_OUTPUT);
+}
+
+/// [safe-call] Step 4's other half: `?.` reads a field or calls a dot-notation
+/// function on the non-`None` side, and the result carries a `None` arm of its
+/// own — so it composes with `?:` and re-tests at each link.
+///
+/// The four shapes are the ones that emit differently: a member whose type is
+/// plain (needs the wrapper on Rust) and one already optional (must **not** be
+/// wrapped twice — an E0308 rustc caught, which Kotlin never saw, having no
+/// wrapper to double), each with the receiver present and absent.
+const SAFE_CALL_DEMO: &str = r#"
+struct Address {
+    city: Str,
+    zip: Str? = None
+}
+
+struct Person {
+    name: Str,
+    address: Address? = None
+}
+
+fn show(label: Str, v: Str?) [Console] -> None {
+    let s: Str = v ?: "-"
+    println("${label} ${s}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let full = Person {name: "Ada", address: Address {city: "Bath", zip: "BA1"}}
+    let bare = Person {name: "Bob"}
+    show("city", full.address?.city)
+    show("nocity", bare.address?.city)
+    show("zip", full.address?.zip)
+    show("nozip", bare.address?.zip)
+    let nick: Str? = "addy"
+    show("call", nick?.to_upper())
+}
+"#;
+
+const SAFE_CALL_OUTPUT: &str = "city Bath\nnocity -\nzip BA1\nnozip -\ncall ADDY\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_safe_call() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SAFE_CALL_DEMO)]);
+    run_rust_files(&files, "safe-call", SAFE_CALL_OUTPUT);
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_group_over_plain_arms() {    if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");

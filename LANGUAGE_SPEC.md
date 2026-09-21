@@ -206,6 +206,79 @@ Conventions:
     keep the checker and emitters agreeing on the ident-unwrap predicate.
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
+* [elvis] `subject ?: rhs` **picks the non-`None` arms** of its subject (user
+  decision 2026-09-21, step 4 of the `?` family sequence): the expression is
+  that value when the subject has one, and `rhs` otherwise. Reserved for `T?` —
+  a *qualifier* is picked by naming it (step 5) — and it keys on the **presence
+  of a `None` arm**, not on the `?` spelling, so `Str | None` written longhand
+  works and `Str | Int | None` picks `Str | Int`.
+  * **Precedence is Kotlin's**: tighter than `is`/comparison/equality, looser
+    than additive, right-associative. `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3`;
+    `a ?: b + 1` is `a ?: (b + 1)`; `a ?: b ?: c` is `a ?: (b ?: c)`. Borrowed
+    with the spelling, so a reader who knows Kotlin's `?:` learns no new
+    binding.
+  * **The subject is evaluated once**, and the form needs no position
+    restriction (unlike a call subject in an `is` [loop-while-is]): the
+    temporary is internal to the lowering.
+  * **The right side is an ordinary expression**, which since [expr-escape]
+    includes `return`/`break`/`continue` — that is what step 2 was for. A
+    diverging right side contributes nothing to the type, so
+    `maybe_t() ?: return None` has the picked type exactly.
+  * **The two sides must agree on a representation**, as an `if`'s branches do:
+    the right side is coerced into the join, so a bare `Str` wraps into the
+    subject's `Str | Int`. A right side that *widens* the join past the
+    subject's own arms (`Int? ?: "none"`) is **refused for now**: the picked
+    value would need wrapping too and has no span of its own to hang a
+    coercion on. `when` says it today.
+  * A subject with no `None` arm is an error (nothing can take the right side,
+    the same refusal a throw-free `try` gets [try]); so is a subject that is
+    only `None`.
+  * Backends: Kotlin's own `?:`, since the `T?` representation *is* a Kotlin
+    nullable [kt-elvis]; on Rust a `match` on the `Option` — a `match` rather
+    than `unwrap_or_else` precisely because the right side may escape, and a
+    `return` inside a closure would return from the closure [rs-elvis].
+* [safe-call] `receiver?.member` / `receiver?.member(args)` reaches a field or
+  a dot-notation function on the **non-`None`** side of an optional (user
+  decision 2026-09-21, step 4). The result is the member's own type **plus
+  `None`**, so a chain re-tests at each link and composes with `?:`
+  (`p.home?.city ?: "-"`). Reserved for `T?`, like `?:`.
+  * **The member is typed by the ordinary path.** The node holds the equivalent
+    plain access (`Field`, or a `Call` whose callee is one), so field overrides,
+    overload resolution, effects and diagnostics are exactly those of
+    `member(receiver, args)`. `?.` adds the condition and the `None` arm, and
+    nothing else.
+  * **The receiver must be a place** — a variable or a field of one. The form
+    reads it twice, once to test and once to reach the member, which is the rule
+    (and the remedy: bind it with `let`) a call subject in an `is` already has
+    [loop-while-is].
+  * **A member that is already optional is not wrapped twice**: `p?.zip` on a
+    `Str?` field is `Str?`, because the result's `None` arms dedupe
+    [union-arm-identity]. Which of the two cases applied is recorded for the
+    emitters, since the inner access shares the operator's span.
+  * A receiver with no `None` arm is an error naming the remedy (drop the `?`);
+    so is one that is only `None`.
+  * Backends: Kotlin cannot use its own `?.`, because Salvo's dot-notation is a
+    *free function* call — `xs?.size()` is `size(xs)` guarded on `xs` — so it
+    emits a conditional whose arms are the narrowed read and `null`
+    [kt-safe-call]. Rust emits the same shape over the `Option`
+    [rs-safe-call].
+* [placeholder] `_` reads as **the value the enclosing construct left
+  unnamed**, and **no construct binds one yet** (user decision 2026-09-21): a
+  plain `?:` leaves `None`, which the program can already write, so a
+  placeholder there would name a value that has a name. It earns its keep where
+  a *qualifier* is picked and the unpicked side carries a tag (step 5), which is
+  where `x Ok?: err(_)` needs it.
+  * It is not a name: it cannot be declared, shadowed or captured. The word is
+    reserved, and appeared in no `.sv` source when it was.
+  * Reading it is an **error** until a construct binds it, not a silent
+    `Unknown`.
+  * Considered and rejected for now (user decision 2026-09-21): a general rule
+    covering other "single unnamed value" scopes. `waitfor` was the candidate
+    and it wants ordinary **binder inference** instead — `waitfor out { … }`
+    with the `Reply<T>` inferred from where `out` is used — so `_` stays one
+    piece of the `?:` form rather than a rule about scopes. Single-parameter
+    lambdas stay out too: `i -> f(i)` already says it, and Scala's placeholder
+    scoping is the cautionary case.
 * [type-none-unit] `None` is **one spelling for two things** — the absent
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),

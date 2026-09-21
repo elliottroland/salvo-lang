@@ -98,6 +98,11 @@ pub enum TokenKind {
     PipePipe, // ||
     AmpAmp,   // &&
     Question, // ?
+    /// [elvis] `?:` — the optional-or-else operator.
+    QuestionColon,
+    /// [safe-call] `?.` — a field read or dot-notation call on the non-`None`
+    /// side of an optional.
+    QuestionDot,
     Bang,     // !
     Eq,       // =
     EqEq,     // ==
@@ -227,6 +232,8 @@ impl TokenKind {
             TokenKind::PipePipe => "||",
             TokenKind::AmpAmp => "&&",
             TokenKind::Question => "?",
+            TokenKind::QuestionColon => "?:",
+            TokenKind::QuestionDot => "?.",
             TokenKind::Bang => "!",
             TokenKind::Eq => "=",
             TokenKind::EqEq => "==",

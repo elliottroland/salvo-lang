@@ -595,6 +595,19 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
+    /// [safe-call] The `?.` spans whose member is **already optional**, so the
+    /// result needs no second wrapper. Recorded because the inner access shares
+    /// the operator's span, leaving the emitters nothing to read it off.
+    pub safe_already_optional: HashSet<Key>,
+    /// [safe-call] The receiver type a `?.` stripped, keyed by the receiver's
+    /// span. Present only while the inner access is being typed; the checker
+    /// reads it back instead of re-typing the receiver, which is also what keeps
+    /// the receiver evaluated once.
+    pub safe_strip: HashMap<Key, Ty>,
+    /// [elvis] The **picked** type at each `?:` — the subject's non-`None`
+    /// arms. Keyed by the operator's span; the emitters read it to know what
+    /// the left branch yields.
+    pub elvis_picks: HashMap<Key, Ty>,
     /// Calls that may throw [throw], keyed by the call span: the `throw`
     /// operation itself and every call whose callee declares `[Throw<M>]`.
     /// The emitters need each one because the control transfer is *their*
@@ -11539,6 +11552,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return true;
         }
         match expr {
+            // [elvis] Neither side escapes by itself: a diverging right side
+            // is recognized by its recorded type, like any diverging call.
+            Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
             // [expr-escape] All three leave the enclosing block. `diverges`
             // above already answers for them off the recorded type; listed
             // here because this match is deliberately exhaustive, so a new
@@ -11634,6 +11650,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return true;
         }
         match expr {
+            Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
             Expr::Return { .. } => true,
@@ -13620,6 +13637,13 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
 /// diagnostic. A new variant must be classified, not defaulted.
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [elvis] Both sides may hold assignments (a block-valued branch).
+        Expr::Elvis { subject, rhs, .. } => {
+            collect_assigned_expr(subject, out);
+            collect_assigned_expr(rhs, out);
+        }
+        Expr::SafeField { inner, .. } => collect_assigned_expr(inner, out),
+        Expr::Placeholder { .. } => {}
         // [expr-escape] The escapes carry a value expression, which may hold
         // assignments of its own (a block-valued `if`, say).
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
@@ -13840,6 +13864,11 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
 fn expr_mentions(expr: &Expr, name: &str) -> bool {
     let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
+        Expr::Elvis { subject, rhs, .. } => {
+            expr_mentions(subject, name) || expr_mentions(rhs, name)
+        }
+        Expr::SafeField { inner, .. } => expr_mentions(inner, name),
+        Expr::Placeholder { .. } => false,
         // [expr-escape] `return x` mentions `x`.
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
             value.as_ref().is_some_and(|v| expr_mentions(v, name))
@@ -14833,6 +14862,17 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     // ================= expressions =================
     fn check_expr(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
+        // [safe-call] The receiver of a `?.` is typed **once**, by the
+        // `SafeField` arm, which records the type with its `None` stripped. The
+        // equivalent inner access then walks the same expression, and reads the
+        // stripped type back here rather than checking it again — which is what
+        // gives the single evaluation as well as the narrowing.
+        if let Some(stripped) = self.out.safe_strip.get(&self.key(expr.span())).cloned() {
+            self.out
+                .expr_ty
+                .insert(self.key(expr.span()), stripped.clone());
+            return stripped;
+        }
         let ty = self.check_expr_inner(expr, expected);
         self.out.expr_ty.insert(self.key(expr.span()), ty.clone());
         if let Some(exp) = expected {
@@ -15652,6 +15692,167 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
+            // [elvis] `subject ?: rhs`. The subject must have a `None` arm;
+            // the expression's value is the subject's **non-`None` arms** when
+            // it holds one, and `rhs` otherwise. Reserved for `T?` — a
+            // qualifier is picked by naming it (step 5 of the sequence).
+            Expr::Elvis { subject, rhs, span } => {
+                let subj_ty = self.check_expr(subject, None);
+                // A `T?` whose non-`None` side is what the caller asked for:
+                // pass the expectation down so a literal still adopts a width.
+                let picked = subj_ty.without_none();
+                if subj_ty.is_unknown() {
+                    // [type-unknown-lenient] One mistake, one diagnostic.
+                    let _ = self.check_expr(rhs, None);
+                    return Ty::Unknown;
+                }
+                if !subj_ty.has_none_arm() {
+                    self.error(
+                        *span,
+                        format!(
+                            "`?:` needs an optional on its left, but `{subj_ty}` has \
+                             no `None` arm: nothing can take the right-hand side"
+                        ),
+                    );
+                    let _ = self.check_expr(rhs, None);
+                    return picked;
+                }
+                if picked.is_none_ty() {
+                    self.error(
+                        *span,
+                        "`?:` on a plain `None` has nothing to pick: every value \
+                         takes the right-hand side"
+                            .to_string(),
+                    );
+                }
+                // [placeholder] No `_` here (user decision 2026-09-21): the
+                // side a plain `?:` does not pick is always `None`, and `None`
+                // is already writable — so the placeholder would name a value
+                // the program can spell. It earns its keep only where a
+                // *qualifier* is picked and the unpicked side carries a tag
+                // (step 5), so `_` stays an error until then.
+                let rhs_ty = self.check_expr(rhs, None);
+                self.out
+                    .elvis_picks
+                    .insert(self.key(*span), picked.clone());
+                // A diverging right side contributes nothing, exactly as a
+                // branch that escapes does [type-any-never].
+                if matches!(rhs_ty, Ty::Never) {
+                    return picked;
+                }
+                let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
+                // The two sides must agree on a *representation*, exactly as an
+                // `if`'s branches do: the right side is coerced into the join
+                // (a bare `Str` wraps into the subject's `Str | Int` union).
+                let rhs_repr = self.repr_of(rhs, &rhs_ty);
+                self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
+                // What is *not* supported yet: a right side that widens the
+                // join past the subject's own arms (`Int? ?: "none"`, joining
+                // `Int | Str`). There the **picked** value would need wrapping
+                // too, and the picked value has no span of its own to hang a
+                // coercion on — it is the subject's payload, materialized
+                // inside the lowering. Refused rather than mis-emitted
+                // [backend-never-wrong]; `when` says it today.
+                if join != picked {
+                    self.error(
+                        *span,
+                        format!(
+                            "the right side of `?:` has type `{rhs_ty}`, which is \
+                             not one of `{picked}`'s arms: a right side that \
+                             widens the result is not supported yet — use `when` \
+                             for that, or give the right side a type the left \
+                             side already has"
+                        ),
+                    );
+                }
+                join
+            }
+            // [safe-call] `base?.member` — the member is reached only when the
+            // base is not `None`, and the result carries a `None` arm of its
+            // own, so a chain re-tests at each link.
+            //
+            // The *equivalent ordinary access* is what gets typed (`inner`), so
+            // field overrides, overload resolution, effects and diagnostics are
+            // the ordinary ones. All this arm does is strip the `None` from the
+            // base first and put one back on the result.
+            Expr::SafeField { base, inner, span } => {
+                let base_ty = self.check_expr(base, None);
+                if base_ty.is_unknown() {
+                    // [type-unknown-lenient] One mistake, one diagnostic.
+                    return Ty::Unknown;
+                }
+                if !base_ty.has_none_arm() {
+                    self.error(
+                        *span,
+                        format!(
+                            "`?.` needs an optional receiver, but `{base_ty}` has no \
+                             `None` arm: drop the `?` and read it directly"
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                let stripped = base_ty.without_none();
+                if stripped.is_none_ty() {
+                    self.error(
+                        *span,
+                        "`?.` on a plain `None` reaches nothing".to_string(),
+                    );
+                    return Ty::Unknown;
+                }
+                // [loop-while-is] The receiver must be a **place**: the form
+                // reads it twice — once to test, once to reach the member — and
+                // the same rule already governs a call subject in an `is`, for
+                // the same reason. The remedy is the same too: bind it first.
+                if Place::of_expr(base).is_none() {
+                    self.error(
+                        *span,
+                        "a `?.` receiver must be a variable or a field of one: \
+                         the form reads it twice, so bind the value with `let` \
+                         first"
+                            .to_string(),
+                    );
+                    return Ty::Unknown;
+                }
+                // The base inside `inner` is the *same* expression, so the
+                // stripped type is recorded against its span and read back when
+                // `inner` walks it — one type, and the **narrowing** the
+                // emitters already know how to unwrap (a logical type with its
+                // `None` gone, over a storage type that still has it).
+                self.out
+                    .safe_strip
+                    .insert(self.key(base.span()), stripped.clone());
+                self.out.repr_ty.insert(self.key(base.span()), base_ty.clone());
+                let inner_ty = self.check_expr(inner, None);
+                self.out.safe_strip.remove(&self.key(base.span()));
+                if inner_ty.is_unknown() {
+                    return Ty::Unknown;
+                }
+                // The result is the member's own type, plus `None` for the path
+                // where the receiver was absent — so `p?.name` on a `Str` field
+                // is `Str?`, and a `Str?` field stays `Str?` (arms dedupe).
+                //
+                // Which of those two it was is recorded, because the Rust
+                // representation differs: a member that is *already* optional
+                // must not be wrapped a second time. The emitters cannot read
+                // it off the inner node's type — the inner access shares this
+                // expression's span by construction.
+                if inner_ty.has_none_arm() {
+                    self.out.safe_already_optional.insert(self.key(*span));
+                }
+                Ty::union_of(vec![inner_ty, Ty::named("None")])
+            }
+            // [placeholder] Outside an `?:` right-hand side there is no value
+            // for `_` to mean.
+            Expr::Placeholder { span } => {
+                self.error(
+                    *span,
+                    "`_` is the value a construct left unnamed, and no construct \
+                     binds one yet: a plain `?:` leaves `None`, which is already \
+                     writable"
+                        .to_string(),
+                );
+                Ty::Unknown
+            }
             // [expr-escape] The three escapes are expressions of type
             // `Never` (user decision 2026-09-21). The rules are unchanged
             // from when they were statements — only where they live is.

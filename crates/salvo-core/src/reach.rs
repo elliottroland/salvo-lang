@@ -260,6 +260,14 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
 
 fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
     match expr {
+        // [elvis] Names used on either side keep their modules reachable.
+        Expr::Elvis { subject, rhs, .. } => {
+            expr_names(subject, used);
+            expr_names(rhs, used);
+        }
+        // [safe-call] The inner access names the function [mod-used-only].
+        Expr::SafeField { inner, .. } => expr_names(inner, used),
+        Expr::Placeholder { .. } => {}
         Expr::Ident(id) => {
             used.insert(&id.name);
         }

@@ -957,6 +957,16 @@ impl Rewrite {
                 }
             }
             Expr::Continue { .. } => {}
+            // [elvis] Both sides are ordinary expressions.
+            Expr::Elvis { subject, rhs, .. } => {
+                self.expr(subject);
+                self.expr(rhs);
+            }
+            Expr::SafeField { base, inner, .. } => {
+                self.expr(base);
+                self.expr(inner);
+            }
+            Expr::Placeholder { .. } => {}
             // [actor-spawn-expr] Every clause is an ordinary expression, so
             // an `iter fn` subject read inside one rewrites like any other.
             Expr::Spawn {
@@ -1135,6 +1145,15 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::Continue { .. } => {}
+            Expr::Elvis { subject, rhs, .. } => {
+                walk_expr(subject, reserved, out);
+                walk_expr(rhs, reserved, out);
+            }
+            Expr::SafeField { base, inner, .. } => {
+                walk_expr(base, reserved, out);
+                walk_expr(inner, reserved, out);
+            }
+            Expr::Placeholder { .. } => {}
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] The
             // asynchronous forms hold ordinary expressions and blocks.
             Expr::Spawn {

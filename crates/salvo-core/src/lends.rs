@@ -279,6 +279,11 @@ impl<'p> Walk<'_, '_, 'p> {
     /// The parameters a *value* holds borrows of.
     fn lends_of_expr(&mut self, e: &Expr) -> Option<HashSet<usize>> {
         match e {
+            // [elvis] Neither side lends: the picked value is the optional's
+            // own payload, handed out by value.
+            Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => {
+                Some(HashSet::new())
+            }
             // A struct literal: `proj` fields take the roots of what they
             // store; owned fields that are themselves views take their lends.
             Expr::StructLit { ty, fields, .. } => {

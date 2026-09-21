@@ -9321,6 +9321,41 @@ impl<'p> Emitter<'p> {
     /// renderings — these all produce owned values).
     fn emit_raw_like(&mut self, expr: &Expr) -> String {
         match expr {
+            // [safe-call] [rs-safe-call] A `match` on the `Option`: the member is
+            // reached only on `Some`, and the result is `Some(..)`/`None` — so a
+            // chain re-tests at each link, as the type says.
+            Expr::SafeField { base, inner, span } => {
+                let subj = self.place_storage(base);
+                // A member whose own type is **already optional** needs no
+                // second wrapper: the result type dedupes its `None` arms
+                // ([union-arm-identity]), so `p?.zip` on a `Str?` field is a
+                // `Str?`, not an `Option<Option<String>>`. Wrapping regardless
+                // was an E0308 rustc caught — Kotlin never saw it, having no
+                // wrapper to double.
+                let already = self
+                    .checked
+                    .safe_already_optional
+                    .contains(&(self.file_idx, *span));
+                let body = self.emit_expr(inner);
+                if already {
+                    format!("if {subj}.is_some() {{ {body} }} else {{ None }}")
+                } else {
+                    format!("if {subj}.is_some() {{ Some({body}) }} else {{ None }}")
+                }
+            }
+            // [elvis] [rs-elvis] `subject ?: rhs` over the `T?` representation
+            // is a `match` on the `Option`: the subject is evaluated **once**,
+            // its payload becomes the expression's value, and the right side
+            // runs only on `None`. A `match` rather than `unwrap_or_else`
+            // precisely because the right side may be an escape — a `return`
+            // inside a closure would return from the closure [expr-escape].
+            Expr::Elvis { subject, rhs, .. } => {
+                let s = self.emit_expr(subject);
+                let r = self.emit_expr(rhs);
+                format!("match {s} {{ Some(__v) => __v, None => {r} }}")
+            }
+            // [placeholder] The `None` side of the subject.
+            Expr::Placeholder { .. } => "None".to_string(),
             // [expr-escape] An escape *nested inside* an expression — the
             // form statement position never produces, since `emit_stmt` takes
             // those. Rust has the same three as expressions, so the rendering
@@ -13941,6 +13976,13 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [elvis] Both sides may mutate.
+        Expr::Elvis { subject, rhs, .. } => {
+            collect_mutated_expr(subject, out);
+            collect_mutated_expr(rhs, out);
+        }
+        Expr::SafeField { inner, .. } => collect_mutated_expr(inner, out),
+        Expr::Placeholder { .. } => {}
         // [expr-escape] The escapes carry a value expression.
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
             if let Some(v) = value {
@@ -14149,6 +14191,12 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
 
 fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::Elvis { subject, rhs, .. } => {
+            collect_declared_expr(subject, out);
+            collect_declared_expr(rhs, out);
+        }
+        Expr::SafeField { inner, .. } => collect_declared_expr(inner, out),
+        Expr::Placeholder { .. } => {}
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
             if let Some(v) = value {
                 collect_declared_expr(v, out);
@@ -14394,6 +14442,8 @@ fn block_terminates(block: &Block) -> bool {
 
 fn expr_terminates(expr: &Expr) -> bool {
     match expr {
+        // [elvis] Neither side terminates the block by itself.
+        Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
         // [expr-escape] All three leave the block they are written in.
         Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => true,
         Expr::If {

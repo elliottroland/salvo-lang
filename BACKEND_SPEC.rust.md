@@ -51,6 +51,17 @@ Conventions:
 
 ## Type mappings
 
+* [safe-call] [rs-safe-call] `receiver?.member` emits
+  `if recv.is_some() { Some(<inner>) } else { None }`, with the inner access
+  reading the narrowed payload through the existing unwrap [rs-option]. The
+  `Some(..)` is **omitted** when the member is already optional, or the result
+  would be an `Option<Option<T>>` the declared type does not have — an E0308
+  rustc caught, which Kotlin never saw, having no wrapper to double.
+* [elvis] [rs-elvis] `subject ?: rhs` lowers to
+  `match <subject> { Some(__v) => __v, None => <rhs> }`. A `match` rather than
+  `unwrap_or_else` because the right side may be an **escape**: a `return`
+  inside a closure returns from the closure [expr-escape]. The `match` is also
+  what gives the single evaluation.
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
   `Char`→`char`, `Byte`→`u8`, `Never`→`!` (LANGUAGE.md's original

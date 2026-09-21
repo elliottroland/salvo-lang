@@ -5497,6 +5497,33 @@ impl<'p> Emitter<'p> {
 
     fn emit_expr_raw(&mut self, expr: &Expr) -> String {
         match expr {
+            // [safe-call] [kt-safe-call] Kotlin's `?.` cannot be used directly:
+            // Salvo's dot-notation is a *free function* call, so `xs?.size()` is
+            // `size(xs)` guarded on `xs`. The receiver is named once with `let`
+            // and the inner access emitted inside it, which is Kotlin's own idiom
+            // for the same thing (`xs?.let { … }`) and keeps the single
+            // evaluation.
+            Expr::SafeField { base, inner, .. } => {
+                // The receiver is a place [safe-call], so the test reads the
+                // storage and the member reads the narrowed payload — the two
+                // reads the checker allowed by requiring a place.
+                let subj = self.emit_place_storage(base);
+                let body = self.emit_expr(inner);
+                format!("(if ({subj} != null) {body} else null)")
+            }
+            // [elvis] [kt-elvis] Kotlin's own `?:` is this operator, because the
+            // `T?` representation is a Kotlin nullable: the subject is `null`
+            // exactly when Salvo says `None`. So the lowering is direct, and a
+            // `return` on the right is legal there for the same reason it is in
+            // Salvo since step 2.
+            Expr::Elvis { subject, rhs, .. } => {
+                let s = self.emit_expr(subject);
+                let r = self.emit_expr(rhs);
+                format!("({s} ?: {r})")
+            }
+            // [placeholder] `_` inside an `?:` right-hand side is the `None`
+            // side, and `None` is Kotlin's `null`.
+            Expr::Placeholder { .. } => "null".to_string(),
             // [expr-escape] An escape *nested inside* an expression — the form
             // statement position never produces, since `emit_stmt` takes those.
             // Kotlin has the same three as expressions, so the rendering is
@@ -8369,6 +8396,13 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [elvis] Both sides may mutate.
+        Expr::Elvis { subject, rhs, .. } => {
+            collect_mutated_expr(subject, out);
+            collect_mutated_expr(rhs, out);
+        }
+        Expr::SafeField { inner, .. } => collect_mutated_expr(inner, out),
+        Expr::Placeholder { .. } => {}
         // [expr-escape] The escapes carry a value expression.
         Expr::Return { value, .. } | Expr::Break { value, .. } => {
             if let Some(v) = value {

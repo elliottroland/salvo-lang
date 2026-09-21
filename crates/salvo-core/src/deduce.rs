@@ -942,6 +942,18 @@ impl<'p> Walk<'_, 'p> {
 
     fn expr(&mut self, e: &Expr) {
         match e {
+            // [elvis] The picked value leaves through the expression, so the
+            // subject is used the way a returned value is; the right side is
+            // an ordinary expression.
+            Expr::Elvis { subject, rhs, .. } => {
+                self.expr(subject);
+                self.expr(rhs);
+            }
+            // [safe-call] The equivalent ordinary access carries the
+            // deductions: the receiver and the arguments are used exactly as
+            // they would be without the `?`.
+            Expr::SafeField { inner, .. } => self.expr(inner),
+            Expr::Placeholder { .. } => {}
             Expr::Call {
                 callee, args, span, ..
             } => self.call(callee, args, *span),

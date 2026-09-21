@@ -247,6 +247,54 @@ An `elif` chain accumulates the same way, so two exiting branches leave the
 third arm. One branch exiting is not enough: if any branch can fall through,
 either path may have been taken and nothing is narrowed.
 
+`?:` is `!` with a path instead of a panic. It picks the non-`None` side of its
+subject, and its right side runs only when the subject is `None`:
+
+```
+fn greet(p: Person) -> Str {
+    let nick: Str = p.nickname ?: "friend"
+    return "hello ${nick}"
+}
+```
+
+The right side is an ordinary expression, so it can also *leave*, which is the
+shape that removes the most code:
+
+```
+fn shout(p: Person) -> Str? {
+    let nick: Str = p.nickname ?: return None
+    return "${nick}!"
+}
+```
+
+A right side that leaves contributes nothing to the type, so `nick` above is a
+plain `Str`.
+
+`?.` is the other half: it reaches a field, or a dot-notation function, on the
+non-`None` side, and hands back an optional of its own.
+
+```
+struct Address { city: Str, zip: Str? = None }
+struct Person  { home: Address? = None }
+
+let city: Str? = p.home?.city        // `Str` field, so `Str?`
+let zip: Str?  = p.home?.zip         // already `Str?`, so still `Str?`
+let shout: Str? = p.home?.city?.to_upper()
+let shown: Str = p.home?.city ?: "-"
+```
+
+Because the result carries a `None` arm, each link re-tests and the chain reads
+left to right. The receiver has to be a variable or a field of one: the form
+reads it twice, once to ask and once to reach the member, so a call belongs in a
+`let` first.
+
+The operator keys on a `None` arm rather than on the `?` spelling, so it works on
+any union with one: `Str | Int | None` picks `Str | Int`. Its precedence is
+Kotlin's — tighter than `is` and comparison, looser than arithmetic, and
+right-associative — so `count ?: 0 > 3` reads as `(count ?: 0) > 3` and
+`a ?: b ?: 0` tries each in turn. A subject with no `None` arm is an error:
+nothing could take the right side.
+
 When a value is known to be non-null but this can't be proven by the compiler, then you can use `!` to get the non-null value out or panic (equivalent to `unwrap` in Rust):
 
 ```

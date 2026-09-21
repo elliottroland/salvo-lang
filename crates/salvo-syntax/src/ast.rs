@@ -1013,6 +1013,43 @@ pub enum Expr {
     /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
     /// becomes the `Aborted M` arm.
     Try { body: Block, span: Span },
+    /// [elvis] `subject ?: rhs` — the **optional-or-else** operator (user
+    /// decision 2026-09-21, step 4 of the `?` family sequence). The subject
+    /// must have a `None` arm; the expression is the subject's non-`None` arms
+    /// when it has one of them, and `rhs` otherwise. `rhs` sees `_` bound to
+    /// the `None` side, so `x ?: return _` is the same as `x ?: return None`.
+    ///
+    /// Reserved for `T?`: a *qualifier* is picked by naming it (step 5).
+    Elvis {
+        subject: Box<Expr>,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    /// [safe-call] `subject?.name` / `subject?.name(args)` — a field read or a
+    /// dot-notation call on the **non-`None`** side of an optional (user
+    /// decision 2026-09-21, step 4). The result is the member's own type
+    /// re-unioned with `None`, so a chain re-tests at each link, as Kotlin's
+    /// does.
+    ///
+    /// Reserved for `T?`, like `?:`. Held as its own node rather than a flag on
+    /// `Field`/`Call` because the *whole* postfix step is conditional: the
+    /// member is not reached at all when the subject is `None`.
+    SafeField {
+        /// The receiver, held separately so the checker can strip its `None`
+        /// before `inner` is typed.
+        base: Box<Expr>,
+        /// The **equivalent ordinary access** over the same base: a `Field`, or
+        /// a `Call` whose callee is one. Holding it means the whole existing
+        /// path types and emits it — field overrides, overload resolution,
+        /// effects, diagnostics — with `?.` adding only the conditional and the
+        /// `None` arm of the result.
+        inner: Box<Expr>,
+        span: Span,
+    },
+    /// [placeholder] `_` — the value the enclosing construct left unnamed.
+    /// Legal only inside an `?:` right-hand side today, where it is the
+    /// `None` side of the subject.
+    Placeholder { span: Span },
     /// [expr-escape] `return expr?` — an **expression** of type `Never`
     /// (user decision 2026-09-21), not a statement. The three escapes are
     /// expressions so that a tail position can hold one without the grammar
@@ -1230,6 +1267,9 @@ impl Expr {
             | Expr::Return { span, .. }
             | Expr::Break { span, .. }
             | Expr::Continue { span, .. }
+            | Expr::Elvis { span, .. }
+            | Expr::Placeholder { span }
+            | Expr::SafeField { span, .. }
             | Expr::SelfScoped { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::ReplyTo { span, .. }

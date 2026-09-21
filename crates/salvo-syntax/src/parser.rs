@@ -2629,7 +2629,7 @@ impl<'s> Parser<'s> {
 
     /// Comparisons plus the `is` checks (same precedence tier).
     fn parse_comparison(&mut self) -> Option<Expr> {
-        let mut lhs = self.parse_additive()?;
+        let mut lhs = self.parse_elvis()?;
         loop {
             match self.kind() {
                 TokenKind::KwIs if self.same_line() => {
@@ -2757,6 +2757,30 @@ impl<'s> Parser<'s> {
             return None;
         }
         Some((refs, binding, lifted))
+    }
+
+    /// [elvis] `subject ?: rhs`, **right-associative**, sitting where Kotlin's
+    /// elvis sits: tighter than `is`/comparison/equality, looser than
+    /// additive. So `m[k] ?: 0 > 3` is `(m[k] ?: 0) > 3` and `a ?: b + 1` is
+    /// `a ?: (b + 1)`, and a reader who knows Kotlin's `?:` does not have to
+    /// learn a different binding.
+    ///
+    /// The right side is an ordinary expression — which since step 2 includes
+    /// `return`/`break`/`continue`, so `x ?: return _` needs no exception
+    /// [expr-escape].
+    fn parse_elvis(&mut self) -> Option<Expr> {
+        let lhs = self.parse_additive()?;
+        if !matches!(self.kind(), TokenKind::QuestionColon) || !self.same_line() {
+            return Some(lhs);
+        }
+        self.bump();
+        let rhs = self.parse_elvis()?;
+        let span = lhs.span().to(rhs.span());
+        Some(Expr::Elvis {
+            subject: Box::new(lhs),
+            rhs: Box::new(rhs),
+            span,
+        })
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {
@@ -2894,6 +2918,47 @@ impl<'s> Parser<'s> {
         let mut expr = self.parse_primary()?;
         loop {
             match self.kind() {
+                // [safe-call] `?.` reads a field or calls a dot-notation
+                // function on the non-`None` side. Same postfix tier as `.`, so
+                // it chains with everything else.
+                TokenKind::QuestionDot if self.same_line() => {
+                    self.bump();
+                    let field = self.ident()?;
+                    let (args, end) = if self.at(&TokenKind::LParen) {
+                        let (args, named, end) = self.parse_call_args()?;
+                        if let Some(first) = named.first() {
+                            self.error(
+                                "a `?.` call takes its arguments positionally",
+                                first.span,
+                            );
+                        }
+                        (Some(args), end)
+                    } else {
+                        (None, field.span)
+                    };
+                    let span = expr.span().to(end);
+                    let base = expr.clone();
+                    let access = Expr::Field {
+                        base: Box::new(expr),
+                        field,
+                        span,
+                    };
+                    let inner = match args {
+                        Some(args) => Expr::Call {
+                            callee: Box::new(access),
+                            type_args: Vec::new(),
+                            args,
+                            named: Vec::new(),
+                            span,
+                        },
+                        None => access,
+                    };
+                    expr = Expr::SafeField {
+                        base: Box::new(base),
+                        inner: Box::new(inner),
+                        span,
+                    };
+                }
                 TokenKind::Dot => {
                     self.bump();
                     // `t.0` — a tuple element by constant index
@@ -3195,6 +3260,16 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.kind().clone() {
+            // [placeholder] `_` is the value the enclosing construct left
+            // unnamed — today, the `None` side inside an `?:` right-hand side.
+            // A contextual keyword rather than a lexer token: `_` lexes as an
+            // identifier, it appears in no `.sv` source, and it cannot be
+            // *declared* (the checker refuses that), so reading it here is
+            // never ambiguous with a variable somebody named `_`.
+            TokenKind::Ident(name) if name == "_" => {
+                let span = self.bump().span;
+                Some(Expr::Placeholder { span })
+            }
             // [expr-escape] The three escapes are **expressions** of type
             // `Never` (user decision 2026-09-21), so a tail position can hold
             // one with no grammar exception — which is what `?:`'s right side

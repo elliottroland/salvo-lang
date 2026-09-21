@@ -186,7 +186,13 @@ order, because each one clears the ground for the next:
      `let`, so this is wiring a recorded coercion at the binding site, not new
      machinery.
 
-4. **`?:` and `?.` are reserved for `T?`.** `?:` keys on the *presence of a
+4. **`?:` and `?.` are reserved for `T?`** — ✅ **done 2026-09-21** ([elvis],
+   [safe-call], [placeholder]; COMPLETED.md's log). `_` was **withdrawn from a
+   plain `?:`** in the same round: the unpicked side is always `None`, which is
+   already writable. One thing it left behind: **a bare `return` in a `-> T?`
+   function is still an error**, so `return _`'s equivalence with `return` needs
+   bare `return` to mean `None` where the return type has a `None` arm. A
+   one-line checker change if wanted; the examples say `return None` today. `?:` keys on the *presence of a
    `None` arm* rather than the `?` spelling, and picks every non-`None` arm, so
    `Str | Int | None` gives `Str | Int` and `_` is `None` (making `return _` the
    same as a bare `return`). The qualifier form of `?.` is **deferred, not

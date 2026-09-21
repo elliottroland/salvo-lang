@@ -447,6 +447,18 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::MinusMinus
             }
+            // [elvis] [safe-call] `?:` and `?.` are one token each, and only
+            // when the characters are adjacent — a nullable type followed by a
+            // colon or a dot never occurs, and requiring adjacency keeps
+            // `x ? : y` from quietly meaning something.
+            ('?', Some(':')) => {
+                self.bump();
+                TokenKind::QuestionColon
+            }
+            ('?', Some('.')) => {
+                self.bump();
+                TokenKind::QuestionDot
+            }
             ('(', _) => TokenKind::LParen,
             (')', _) => TokenKind::RParen,
             ('{', _) => TokenKind::LBrace,

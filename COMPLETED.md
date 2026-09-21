@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1217 tests, complete: the toolchain tests are
+cargo test                  # 1226 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,87 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`?.`, and `_` withdrawn from `?:` (user decisions 2026-09-21).** The other
+half of step 4, plus a simplification the user called while it was being built.
+[safe-call], [kt-safe-call], [rs-safe-call]. **Step 4 is complete.**
+
+- **`_` is gone from a plain `?:`.** The user's point: the side a plain `?:`
+  does not pick is always `None`, and `None` is already writable, so the
+  placeholder named a value that has a name. It earns its keep only where a
+  *qualifier* is picked and the unpicked side carries a tag — step 5's
+  `x Ok?: err(_)`. The node and the reserved word stay; reading `_` is an error
+  until a construct binds one. **Note the premise does not quite hold yet**: a
+  bare `return` in a `-> T?` function is currently an error ("bare `return` in a
+  function returning `Str?`"), so the equivalence `return _` ≡ `return` needs
+  bare `return` to mean `None` where the return type admits one. Flagged to the
+  user; the examples say `return None` meanwhile.
+- **`?.` types through the ordinary path.** The node holds the *equivalent plain
+  access* — a `Field`, or a `Call` whose callee is one — so field overrides,
+  overload resolution, effects and diagnostics are exactly those of
+  `member(receiver, args)`, and `?.` contributes only the condition and the
+  `None` arm. That shape is what kept it small; the alternative was plumbing a
+  receiver-type override through the whole call path.
+- **The receiver must be a place**, because the form reads it twice (test, then
+  reach). That is [loop-while-is]'s rule for a call subject in an `is`, with the
+  same remedy, so it needed no new justification — and it is what let the
+  emitters drop any temp-naming machinery: the checker records the stripped type
+  as an ordinary **narrowing**, and both emitters' existing unwrap paths read it.
+- **Two representation bugs, both found by running rather than by the suite.**
+  On the elvis, a multi-arm subject's picked value carries the union's
+  representation while a bare right side does not (fixed with the same
+  `maybe_coerce` an `if` branch gets). On the safe call, a member that is
+  *already* optional must not be wrapped again, or Rust gets an
+  `Option<Option<T>>` — an E0308. **Kotlin saw neither**, having no wrapper to
+  double and no representation to converge, which is exactly why both backends
+  are run on every case.
+
+Tests: three more in `elvis_tests.rs` (the re-union, the non-optional refusal,
+the place refusal) and `rustc_compiles_and_runs_the_safe_call` with its Kotlin
+twin over five shapes — a plain member and an already-optional one, each with
+the receiver present and absent, plus a dot-notation call. 1222 → 1226.
+
+**`?:` and `_`, for `T?` (user decision 2026-09-21).** Step 4 of the `?` family
+sequence, and the first of the five that *adds* a form rather than renaming one.
+`subject ?: rhs` picks the non-`None` arms; `_` on the right is the `None` side.
+[elvis], [placeholder], [kt-elvis], [rs-elvis]. `?.` is the other half of step 4
+and is not built yet.
+
+Cheaper than expected in two places and more expensive in one:
+
+- **The lowerings are direct.** Kotlin's own `?:` *is* this operator, because
+  the `T?` representation is a Kotlin nullable. Rust is
+  `match s { Some(__v) => __v, None => rhs }` — a `match` rather than
+  `unwrap_or_else` precisely because the right side may be an escape, and a
+  `return` inside a closure returns from the closure.
+- **Step 2 paid off exactly as intended.** `?: return _` needed no grammar
+  exception: the right side is an ordinary expression and `return` is one.
+- **The expensive part was representation agreement.** The two sides must
+  converge the way an `if`'s branches do, and the first version did not: with a
+  multi-arm subject (`Str | Int | None`), the picked value has the union's
+  representation while a bare `Str` on the right does not, so Kotlin reported
+  `expected Union2<String, Int>, actual Any` and rustc an E0308. Fixed by
+  recording the same `maybe_coerce` an `if` branch gets. Found by running a
+  six-line program, not by the suite.
+
+**Refused for now, by name**: a right side that *widens* the join past the
+subject's own arms (`Int? ?: "none"`, joining `Int | Str`). There the **picked**
+value would need wrapping too, and it has no span of its own to hang a coercion
+on — it is the subject's payload, materialized inside the lowering. `when` says
+it today; the fix is a second side-table entry for the picked value's coercion.
+
+`_` is deliberately **not a name**: one `placeholder_ty` field on the checker,
+saved and restored around the right side, so it cannot be declared, shadowed or
+captured, and the innermost construct wins by construction. The general
+placeholder rule OPTIONALS.md proposed is *withdrawn* (user decision the same
+day): `waitfor` wants ordinary binder inference instead, so `_` stays one piece
+of the `?:` form.
+
+Tests: `crates/salvo-core/tests/elvis_tests.rs` (four — the two right-side
+shapes, the non-optional refusal, the stray `_`, the widening refusal) plus
+`rustc_compiles_and_runs_the_elvis_operator` and its Kotlin twin over one
+program covering both right-side shapes, the multi-arm subject, both precedence
+readings and right-associative chaining. 1217 → 1222.
 
 **`^ Q` is now `is ^Q`, and a lift takes a binding (user decisions
 2026-09-21).** Step 3 of the `?` family sequence. Widening stops being an
@@ -13338,7 +13419,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1217)
+## Test inventory (all green: 1226)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
