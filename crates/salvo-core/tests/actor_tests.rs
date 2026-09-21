@@ -2185,3 +2185,50 @@ handler Odd() of Log {
         "expected the missing-field error: {errs:?}"
     );
 }
+
+// ===== [waitfor-infer] The binder's type =====
+
+/// [waitfor-infer] The type may be omitted: the binder is passed to a send, and
+/// that member's `Reply<T>` parameter says what is being waited for (user
+/// decision 2026-09-21). Both spellings check, and the inferred one yields the
+/// same payload — the `bump(sum)` below only resolves if `sum` is an `Int`.
+#[test]
+fn a_waitfor_infers_its_binder_type() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let logger = spawn Printing() on pool(1)
+    let counter = spawn Counting() with logger on pool(2)
+    let sum = waitfor out {
+        counter.total(out)
+    }
+    use counter
+    bump(sum)
+}
+",
+    );
+    assert!(errs.is_empty(), "expected the inferred form to check: {errs:?}");
+}
+
+/// [waitfor-infer] Nothing to read it off: the block never passes the token to a
+/// `Reply<T>` parameter, so the type cannot be told — and the diagnostic names
+/// both remedies (write it out, or send the token).
+#[test]
+fn a_waitfor_with_no_send_cannot_be_inferred() {
+    let errs = errors(
+        "\
+fn main() [use, spawn] {
+    let logger = spawn Printing() on pool(1)
+    let counter = spawn Counting() with logger on pool(2)
+    let sum = waitfor out {
+        counter.bump(1)
+    }
+}
+",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot tell what `out` waits for") && e.contains("Write the type out")),
+        "expected the cannot-infer refusal, got: {errs:?}"
+    );
+}

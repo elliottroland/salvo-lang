@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1233 tests, complete: the toolchain tests are
+cargo test                  # 1236 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,50 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`waitfor` infers its binder's type (user decision 2026-09-21).** The last item
+of the `?` family round, and the one that started as a placeholder: the user's
+re-scoping replaced `waitfor { p.total(_) }` with ordinary inference —
+`waitfor out { p.total(out) }`, the binder still named. [waitfor-infer]. **With
+this, OPTIONALS.md is retired**; its decisions are in this log and its rules are
+in the specs.
+
+The mechanism is deliberately *not* overload resolution: the binder's type is
+what resolution would need as an input, so inference reads the **declared**
+parameter type at the position the binder occupies, across every overload and
+effect member of that name. One distinct `Reply<T>` is the answer, several is an
+error naming the written form, none is an error naming both remedies.
+
+Three things it had to learn, each found by running it:
+
+- **Effect members are not in `scope.fns`.** A `Reply<T>` parameter almost always
+  belongs to an `actor effect`'s member, so the search had to walk
+  `scope.effects` as well — the first version inferred nothing for every real
+  program.
+- **The selector callees are the common case**: `total@Counter(out)`,
+  `k@self(out)`, `f@core.x(out)`. Matching only `Ident` and `Field` callees
+  missed them.
+- **A `receiver.member(args)` call means two different things** and the syntax
+  cannot say which: dot-notation on a *value* makes the receiver the first
+  declared parameter [fn-dot], while the same shape on an `Addr` is a send whose
+  member declares only the message's own parameters. Both positions are now
+  tried; since only a `Reply<T>` position is accepted, the wrong guess
+  contributes nothing, and two that both hit are the ambiguity the rule already
+  reports. `examples/actors` was what caught this — the checked-in example uses
+  `counter.total(out)`, which the shifted index missed.
+
+The walk covers the forms that can contain a call, and a shape it does not reach
+gives the "cannot tell" diagnostic rather than a wrong answer — a safe failure
+mode with its remedy written in it.
+
+`examples/actors/salvo/main.sv` now uses the inferred form for its first wait,
+with the other three left written out, and its **generated output did not
+change** — the payload type is the same either way, so the example gained a
+demonstration for free.
+
+Tests: two in `actor_tests.rs` (the inferred form checks and yields the right
+payload; a block that sends nothing is refused by name), a parser test for the
+type-less form, and the existing written-type parser test updated. 1233 → 1236.
 
 **A guarding `?:` narrows its subject (user decision 2026-09-21).** OPTIONALS.md's
 `Q-6`, the one item in that document that had been neither decided nor built.
@@ -13495,7 +13539,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1233)
+## Test inventory (all green: 1236)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

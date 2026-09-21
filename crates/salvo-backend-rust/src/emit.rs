@@ -6908,7 +6908,7 @@ impl<'p> Emitter<'p> {
     fn emit_waitfor(
         &mut self,
         binding: &Ident,
-        ty: &Type,
+        ty: &Option<Type>,
         body: &Block,
         _span: Span,
     ) -> String {
@@ -6916,10 +6916,23 @@ impl<'p> Emitter<'p> {
         let indent = self.expr_indent;
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
+        // [waitfor-infer] The payload type: off the written `Reply<T>` when
+        // there is one, else the type the checker recorded for the whole
+        // expression — which *is* the payload, since that is what a `waitfor`
+        // yields [actor-waitfor].
         let payload = match ty {
-            Type::Named { base, .. } if base.name.name == "Reply" && base.args.len() == 1 => {
+            Some(Type::Named { base, .. })
+                if base.name.name == "Reply" && base.args.len() == 1 =>
+            {
                 self.emit_type(&base.args[0])
             }
+            None => match self.ty_of(_span).cloned() {
+                Some(t) => self.rust_ty(&t),
+                None => {
+                    self.error("`waitfor` binds a `Reply<T>`");
+                    return "todo!()".to_string();
+                }
+            },
             _ => {
                 self.error("`waitfor` binds a `Reply<T>`");
                 return "todo!()".to_string();

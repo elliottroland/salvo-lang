@@ -3201,6 +3201,26 @@ LANGUAGE.md remains the source of truth for everything that does.
   * Paired rule: **the program ends when `main` returns.** Anything still
     running dies with it; a program that means to serve says so by waiting
     on a shutdown token. There is no run-to-quiescence semantics.
+* [waitfor-infer] **The binder's type is optional** (user decision 2026-09-21):
+  `waitfor out { counter.total(out) }` reads it off the send the block makes, and
+  `waitfor out: Reply<Int> { … }` writes it out. The binder is always named —
+  there is no placeholder here (the `_` this started as was withdrawn; see
+  [placeholder]).
+  * **Read from the declared parameter**, not from overload resolution: the
+    binder's type is what resolution would need as an *input*, so inference takes
+    the declared type at the position the binder occupies, across every overload
+    and effect member of that name. One distinct `Reply<T>` is the answer.
+  * **Several is an error**, naming the written form — the user's call. **None**
+    is an error too, naming both remedies: write the type, or send the token.
+  * A `receiver.member(args)` call is tried at **two** positions, because the
+    syntax cannot say which it is: dot-notation on a value makes the receiver the
+    first declared parameter [fn-dot], while the same shape on an `Addr` is a
+    send whose member declares only the message's parameters. Only a `Reply<T>`
+    position is accepted, so the wrong guess contributes nothing, and two that
+    both hit are the ambiguity above.
+  * The walk covers the forms that can contain a call; a shape it does not reach
+    produces the "cannot tell" diagnostic rather than a wrong answer, and the
+    remedy is written there.
 * [waitfor-effect] **The `[waitfor]` capability is deleted** (SH-5(d), user
   decision 2026-09-19; it existed for two days — introduced 2026-09-17 with
   T-5(c), whose argument trail is in COMPLETED.md's log beside the

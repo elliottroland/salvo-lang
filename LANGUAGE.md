@@ -1803,7 +1803,7 @@ handler CyclicRandom(seed: Int) of Random {
     }
 
     fn next() -> Int {                       // the façade: the caller's thread
-        return waitfor got: Reply<Int> {
+        return waitfor got {                 // type read off `advance`'s parameter
             advance(got)                     // a send to its own servant
         }
     }
@@ -1815,6 +1815,12 @@ fn main() [use, spawn] {
     let n = next()                           // send, wait, answer — no [waitfor] anywhere
 }
 ```
+
+A `waitfor` names its token and infers the token's type from the send the block
+makes: `advance` declares `out: Reply<Int>`, so `got` is a `Reply<Int>` and the
+wait yields an `Int`. Write the type out — `waitfor got: Reply<Int> { … }` —
+where several members of that name would make it ambiguous, which is an error
+naming that remedy.
 
 State is **confined**: only send members touch it, so every access is a serialized activation, and a sync member that reads a field is refused by name — its environment is its own parameters, the constructor parameters, and sends to its own servant. Nothing here declares `waitfor`: a call occupying its thread until it returns is what a call is, and the façade's wait serves its pool while it waits. What a caller of `next()` can never learn is whether the `Random` in scope is a scope-local handler, a monitor, or three threads' shared servant — which is the point.
 

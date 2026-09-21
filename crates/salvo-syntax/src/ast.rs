@@ -1157,8 +1157,11 @@ pub enum Expr {
     WaitFor {
         /// The token's name inside the block.
         binding: Ident,
-        /// Its declared type, written out (`Reply<Int>`).
-        ty: Type,
+        /// [waitfor-infer] Its type, when written (`waitfor out: Reply<Int>`).
+        /// **Optional** since 2026-09-21: omitted, it is inferred from where the
+        /// binder is used in the block, and written out only where that is
+        /// ambiguous.
+        ty: Option<Type>,
         body: Block,
         span: Span,
     },

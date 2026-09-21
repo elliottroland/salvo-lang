@@ -3998,15 +3998,32 @@ impl<'p> Emitter<'p> {
     /// [actor-waitfor] `waitfor out: Reply<T> { … }` → a `run { }` expression:
     /// mint the waiter, run the block that sends the token somewhere, then
     /// block this thread for the answer and cast it.
-    fn emit_waitfor(&mut self, binding: &Ident, ty: &Type, body: &Block, _span: Span) -> String {
+    fn emit_waitfor(
+        &mut self,
+        binding: &Ident,
+        ty: &Option<Type>,
+        body: &Block,
+        _span: Span,
+    ) -> String {
         self.needs_scheduler = true;
         let indent = self.expr_indent;
         let pad = "    ".repeat(indent + 1);
         let close = "    ".repeat(indent);
+        // [waitfor-infer] Off the written `Reply<T>` when there is one, else the
+        // type the checker recorded for the expression — which *is* the payload.
         let payload = match ty {
-            Type::Named { base, .. } if base.name.name == "Reply" && base.args.len() == 1 => {
+            Some(Type::Named { base, .. })
+                if base.name.name == "Reply" && base.args.len() == 1 =>
+            {
                 self.emit_type(&base.args[0])
             }
+            None => match self.ty_of(_span).cloned() {
+                Some(t) => self.emit_ty(&t),
+                None => {
+                    self.error("`waitfor` binds a `Reply<T>`");
+                    return "TODO()".to_string();
+                }
+            },
             _ => {
                 self.error("`waitfor` binds a `Reply<T>`");
                 return "TODO()".to_string();

@@ -189,7 +189,11 @@ fn main() [use, spawn] {
     let counter = spawn Counting() on workers
     counter.bump(2)
     counter.bump(3)
-    let sum = waitfor out: Reply<Int> {
+    // [waitfor-infer] The binder's type is inferred from the send it is passed
+    // to — `total` declares `out: Reply<Int>`, so that is what this waits for.
+    // Write it out (`waitfor out: Reply<Int>`) where overloads make it
+    // ambiguous, as the next two do not need to.
+    let sum = waitfor out {
         counter.total(out)
     }
     println("1. counter total is ${sum}")

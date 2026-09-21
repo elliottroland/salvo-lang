@@ -243,13 +243,17 @@ Built alongside the five steps: **a guarding `?:` narrows its subject**
 ([elvis-guard], 2026-09-21) — OPTIONALS.md's `Q-6`, the last item in that
 document that was neither decided nor recorded elsewhere.
 
-Also agreed, and no longer part of this family: **`waitfor` does not get `_`**.
-What is wanted there is ordinary inference — `waitfor out { counter.total(out) }`
-with the `Reply<T>` inferred from where the binder is used, the binder still
-named. Ambiguity from overloads stays an error, with
-`waitfor out: Reply<Int> { … }` as the written-out remedy. That also collapses
-the general placeholder rule: `_` is one piece of the `?:` form, not a rule about
+Also agreed, and no longer part of this family: **`waitfor` does not get `_`** —
+✅ **built 2026-09-21** as ordinary binder inference ([waitfor-infer];
+COMPLETED.md's log). `waitfor out { counter.total(out) }` reads the `Reply<T>`
+off the send; ambiguity is an error naming the written form. That also collapsed
+the general placeholder rule: `_` is one piece of the pick, not a rule about
 scopes.
+
+**OPTIONALS.md is retired** (2026-09-21): every call in it was taken, the rules
+are in LANGUAGE_SPEC.md and the backend specs, and the decisions are in
+COMPLETED.md's log. What the round leaves open is the one lift under step 5
+above.
 
 The feature is **additive** — the long forms stay legal — so no
 backwards-compatibility sweep fires beyond steps 1 and 3, which are renames.

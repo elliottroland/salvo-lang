@@ -324,7 +324,11 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         // [actor-waitfor] Its block is ordinary code, and the token's
         // written type names `Reply` (and its payload) for real.
         Expr::WaitFor { ty, body, .. } => {
-            type_names(ty, used);
+            // [waitfor-infer] The type is optional; an inferred one names no
+            // module of its own beyond what the block already uses.
+            if let Some(ty) = ty {
+                type_names(ty, used);
+            }
             block_names(body, used);
         }
         // [qual-lift] The qualifier names are type references.

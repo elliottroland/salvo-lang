@@ -11385,10 +11385,101 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The token is an ordinary **linear** local, so "the block must consume
     /// it" needs no rule of its own: [linear-obligation] reports a leak at
     /// the block's end. The expression's value is the token's payload.
+    /// [waitfor-infer] The token's type, read off the block when it was not
+    /// written: the binder is passed to something, and that parameter says what
+    /// answer is being waited for.
+    ///
+    /// Deliberately *not* overload resolution: the binder's type is what
+    /// resolution would need as an input, so this reads the **declared**
+    /// parameter type at the position the binder occupies, over every overload
+    /// of that name. One distinct `Reply<T>` is the answer; several is the
+    /// ambiguity the user's decision made an error, with the written form as its
+    /// remedy; none means nothing in the block sends the token.
+    fn infer_waitfor_ty(&mut self, binding: &'p Ident, body: &'p Block, span: Span) -> Ty {
+        let mut sites: Vec<(&'p str, usize)> = Vec::new();
+        collect_binder_arg_sites(body, &binding.name, &mut sites);
+        let mut found: Vec<Ty> = Vec::new();
+        for (name, idx) in sites {
+            // Both surfaces a call can reach: ordinary functions, and **effect
+            // members** — which is where a `Reply<T>` parameter actually lives,
+            // since `total@Counter(out)` names an `actor effect`'s member
+            // [actor-effect] rather than a free fn.
+            let mut decls: Vec<&'p ast::FnDecl> = match self.scope.fns.get(name) {
+                Some(entries) => entries.iter().map(|e| e.decl).collect(),
+                None => Vec::new(),
+            };
+            for effect in self.scope.effects.values() {
+                for m in &effect.fns {
+                    if m.name.name == name {
+                        decls.push(m);
+                    }
+                }
+            }
+            if decls.is_empty() {
+                continue;
+            }
+            for decl in decls {
+                // Two candidate positions, because a `receiver.member(args)`
+                // call means different things in the two cases the syntax
+                // cannot tell apart: dot-notation on a *value* makes the
+                // receiver the first declared parameter [fn-dot], while the
+                // same shape on an **addr** is a send, whose member declares
+                // only the message's own parameters [actor-effect]. Only a
+                // `Reply<T>` position is accepted, so the wrong guess
+                // contributes nothing — and two that both hit are the
+                // ambiguity this reports anyway.
+                for pos in [idx, idx.saturating_sub(1)] {
+                    let Some(param) = decl.params.iter().filter(|p| !p.implicit).nth(pos) else {
+                        continue;
+                    };
+                    let ty = self.lower_type(&param.ty);
+                    let is_reply = matches!(
+                        &ty,
+                        Ty::Named { name, args } if name == REPLY_TYPE && args.len() == 1
+                    );
+                    if is_reply && !found.contains(&ty) {
+                        found.push(ty);
+                    }
+                }
+            }
+        }
+        match found.len() {
+            1 => found.remove(0),
+            0 => {
+                self.error(
+                    span,
+                    format!(
+                        "cannot tell what `{}` waits for: nothing in the block \
+                         passes it to a `{REPLY_TYPE}<T>` parameter. Write the \
+                         type out (`waitfor {}: {REPLY_TYPE}<Int> {{ … }}`) or \
+                         send the token somewhere",
+                        binding.name, binding.name
+                    ),
+                );
+                Ty::Unknown
+            }
+            _ => {
+                let shown: Vec<String> = found.iter().map(|t| t.to_string()).collect();
+                self.error(
+                    span,
+                    format!(
+                        "`{}` could wait for any of {}: write the type out \
+                         (`waitfor {}: {} {{ … }}`)",
+                        binding.name,
+                        shown.join(" or "),
+                        binding.name,
+                        shown[0]
+                    ),
+                );
+                Ty::Unknown
+            }
+        }
+    }
+
     fn check_waitfor(
         &mut self,
         binding: &'p Ident,
-        ty: &'p ast::Type,
+        ty: &'p Option<ast::Type>,
         body: &'p Block,
         span: Span,
     ) -> Ty {
@@ -11415,8 +11506,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .waitfor_sites
                 .push((h.name.name.clone(), self.key(span)));
         }
-        self.validate_type(ty);
-        let token = self.lower_type(ty);
+        let token = match ty {
+            Some(written) => {
+                self.validate_type(written);
+                self.lower_type(written)
+            }
+            None => self.infer_waitfor_ty(binding, body, span),
+        };
         let payload = match &token {
             Ty::Named { name, args } if name == REPLY_TYPE && args.len() == 1 => {
                 args[0].clone()
@@ -11424,7 +11520,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             other => {
                 if !other.is_unknown() {
                     self.error(
-                        ty.span(),
+                        ty.as_ref().map(|t| t.span()).unwrap_or(span),
                         format!(
                             "`waitfor` mints a reply token, so its binding is a \
                              `{REPLY_TYPE}<T>`, not a `{other}`"
@@ -13668,6 +13764,163 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
 /// assignments inside a new syntactic form silently, and the narrowing that
 /// should have been reset stays in place — a wrong-code bug, not a
 /// diagnostic. A new variant must be classified, not defaulted.
+/// [waitfor-infer] Where a binder is passed as a **positional argument**, as
+/// `(callee name, declared parameter index)` pairs.
+///
+/// A dot-notation call shifts the index by one: `counter.total(out)` is
+/// `total(counter, out)` [fn-dot], so `out` sits at declared index 1. Only
+/// direct arguments count — a binder wrapped in another expression says nothing
+/// about a `Reply<T>` parameter.
+fn collect_binder_arg_sites<'p>(
+    block: &'p Block,
+    name: &str,
+    out: &mut Vec<(&'p str, usize)>,
+) {
+    fn expr<'p>(e: &'p Expr, name: &str, out: &mut Vec<(&'p str, usize)>) {
+        if let Expr::Call { callee, args, .. } = e {
+            let (callee_name, shift) = match callee.as_ref() {
+                Expr::Ident(id) => (Some(id.name.as_str()), 0),
+                // Dot-notation: the receiver is the first declared parameter.
+                Expr::Field { field, .. } => (Some(field.name.as_str()), 1),
+                // The selectors name the same member: `total@Counter(out)`,
+                // `total@core.x(out)`, `k@self(out)` [effect-at]
+                // [fn-overload-at] [actor-self-send]. A selector with a
+                // receiver is dot-notation, so it shifts too.
+                Expr::EffectScoped { base, name, .. } | Expr::Scoped { base, name, .. } => (
+                    Some(name.name.as_str()),
+                    usize::from(base.is_some()),
+                ),
+                Expr::SelfScoped { name, .. } => (Some(name.name.as_str()), 0),
+                _ => (None, 0),
+            };
+            if let Some(callee_name) = callee_name {
+                for (i, a) in args.iter().enumerate() {
+                    if matches!(a, Expr::Ident(id) if id.name == name) {
+                        out.push((callee_name, i + shift));
+                    }
+                }
+            }
+        }
+        // Recurse into the forms that can *contain* a call. Anything not
+        // listed simply contributes no site, and the failure mode of a missed
+        // shape is the "cannot tell" diagnostic — which names the written form
+        // as its remedy — never a wrong inference.
+        match e {
+            Expr::Call { callee, args, .. } => {
+                expr(callee, name, out);
+                for a in args {
+                    expr(a, name, out);
+                }
+            }
+            Expr::Field { base, .. }
+            | Expr::TupleIndex { base, .. }
+            | Expr::NonNull { operand: base, .. }
+            | Expr::Unary { operand: base, .. }
+            | Expr::IncDec { operand: base, .. }
+            | Expr::Spread { operand: base, .. }
+            | Expr::Is { subject: base, .. }
+            | Expr::Widen { subject: base, .. }
+            | Expr::SafeField { base, .. } => expr(base, name, out),
+            Expr::Binary { lhs, rhs, .. } => {
+                expr(lhs, name, out);
+                expr(rhs, name, out);
+            }
+            Expr::Elvis { subject, rhs, .. } => {
+                expr(subject, name, out);
+                expr(rhs, name, out);
+            }
+            Expr::Index { base, index, .. } => {
+                expr(base, name, out);
+                expr(index, name, out);
+            }
+            Expr::Tuple { elems, .. }
+            | Expr::ArrayLit { elems, .. }
+            | Expr::SetLit { elems, .. } => {
+                for el in elems {
+                    expr(el, name, out);
+                }
+            }
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (c, b) in branches {
+                    expr(c, name, out);
+                    block_walk(b, name, out);
+                }
+                if let Some(b) = else_block {
+                    block_walk(b, name, out);
+                }
+            }
+            Expr::When {
+                subject, branches, ..
+            } => {
+                expr(subject, name, out);
+                for br in branches {
+                    block_walk(&br.body, name, out);
+                }
+            }
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (c, b) in branches {
+                    expr(c, name, out);
+                    block_walk(b, name, out);
+                }
+                block_walk(else_block, name, out);
+            }
+            Expr::While { cond, body, .. } => {
+                expr(cond, name, out);
+                block_walk(body, name, out);
+            }
+            Expr::For {
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
+                expr(iterable, name, out);
+                block_walk(body, name, out);
+                if let Some(b) = else_block {
+                    block_walk(b, name, out);
+                }
+            }
+            Expr::Try { body, .. } | Expr::WaitFor { body, .. } => {
+                block_walk(body, name, out)
+            }
+            Expr::Return { value, .. } | Expr::Break { value, .. } => {
+                if let Some(v) = value {
+                    expr(v, name, out);
+                }
+            }
+            Expr::ReplyTo { captures, .. } => {
+                for c in captures {
+                    expr(c, name, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn block_walk<'p>(b: &'p Block, name: &str, out: &mut Vec<(&'p str, usize)>) {
+        for stmt in &b.stmts {
+            match stmt {
+                Stmt::Let { value, .. } => expr(value, name, out),
+                Stmt::Assign { target, value, .. } => {
+                    expr(target, name, out);
+                    expr(value, name, out);
+                }
+                Stmt::Use { handler, .. } => expr(handler, name, out),
+                Stmt::Expr(e) => expr(e, name, out),
+                Stmt::Rename(_) => {}
+            }
+        }
+    }
+    block_walk(block, name, out);
+}
+
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
         // [elvis] Both sides may hold assignments (a block-valued branch).

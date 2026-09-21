@@ -3433,12 +3433,16 @@ impl<'s> Parser<'s> {
                 {
                     return self.parse_replyto();
                 }
-                // [actor-waitfor] `waitfor out: Reply<T> { ... }` — a name
-                // and a `:` follow, which no call of a fn named `waitfor`
-                // can look like.
+                // [actor-waitfor] [waitfor-infer] `waitfor out { … }`, or
+                // `waitfor out: Reply<T> { … }` with the type written. A name
+                // followed by a `:` or a `{` is the tell, and neither can be a
+                // call of a fn named `waitfor`: an argument list opens with `(`.
                 if self.at_word("waitfor")
                     && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
-                    && matches!(self.peek_at(2).kind, TokenKind::Colon)
+                    && matches!(
+                        self.peek_at(2).kind,
+                        TokenKind::Colon | TokenKind::LBrace
+                    )
                 {
                     return self.parse_waitfor();
                 }
@@ -3985,13 +3989,19 @@ impl<'s> Parser<'s> {
     fn parse_waitfor(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `waitfor`
         let binding = self.ident()?;
-        self.expect(&TokenKind::Colon)?;
-        let ty = self.parse_type()?;
+        // [waitfor-infer] The type is optional: `waitfor out { p.total(out) }`
+        // reads it off the send the block makes (user decision 2026-09-21).
+        let ty = if self.eat(&TokenKind::Colon).is_some() {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
         if !self.at(&TokenKind::LBrace) {
             let span = self.peek().span;
             self.error(
-                "`waitfor` takes a block that sends the token somewhere: \
-                 `waitfor out: Reply<Int> { p.total(out) }`",
+                "`waitfor` takes a binder and a block that sends the token \
+                 somewhere: `waitfor out { p.total(out) }`, or \
+                 `waitfor out: Reply<Int> { … }` to write the type out",
                 span,
             );
             return None;

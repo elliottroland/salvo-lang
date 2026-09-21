@@ -1780,6 +1780,8 @@ fn main() [use, spawn] {
     match values[2] {
         Expr::WaitFor { binding, ty, .. } => {
             assert_eq!(binding.name, "out");
+            // [waitfor-infer] The type is optional; written here.
+            let ty = ty.as_ref().expect("a written type");
             assert_eq!(format!("{ty}"), "Reply<Int>");
         }
         other => panic!("expected a waitfor, got {other:?}"),
@@ -2241,4 +2243,33 @@ handler H() of E {
         vec!["d:false".to_string(), "out:true".to_string()],
         "the second entry is the deferral"
     );
+}
+
+/// [waitfor-infer] The type may be **omitted**: `waitfor out { … }` parses, and
+/// the binder is still bound (user decision 2026-09-21). A name followed by `{`
+/// is the tell — a call of a fn named `waitfor` would open with `(`.
+#[test]
+fn a_waitfor_without_a_written_type_parses() {
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "fn main() [use] {\n    let sum = waitfor out { total(out) }\n}\n",
+    );
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "unexpected parse errors: {errors:?}");
+    let mut found = false;
+    for item in &module.items {
+        if let salvo_syntax::ast::Item::Fn(f) = item {
+            for stmt in &f.body.as_ref().expect("a body").stmts {
+                if let salvo_syntax::ast::Stmt::Let {
+                    value: salvo_syntax::ast::Expr::WaitFor { binding, ty, .. },
+                    ..
+                } = stmt
+                {
+                    assert_eq!(binding.name, "out");
+                    assert!(ty.is_none(), "expected an inferred type");
+                    found = true;
+                }
+            }
+        }
+    }
+    assert!(found, "expected a waitfor");
 }
