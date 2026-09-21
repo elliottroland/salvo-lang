@@ -100,6 +100,46 @@ pub fn fn_call(
         // meaning 255 on both backends.
         ("to_byte", Some("Int")) => format!("((({}) as i32) as u8)", a(0)),
         ("to_int", Some("Byte")) => format!("(({}) as i32)", a(0)),
+        // core.compare ---------------------------------------------------
+        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
+        //
+        // `Ord::cmp` answers an `Ordering`, which is a fieldless `#[repr(i8)]`
+        // enum whose discriminants are exactly the sign convention Salvo's
+        // `cmp` answers (-1/0/1), so the cast *is* the lowering. It is written
+        // as a path call rather than a method call so it works whether the
+        // argument arrives as a value or as a borrow: `&T` has its own `Ord`
+        // that delegates to `T`'s [rs-borrows].
+        //
+        // A `Str` is compared as `str` — byte-wise UTF-8, which is code-point
+        // order, matching what the Kotlin backend has to arrange by hand
+        // [kt-ordered].
+        ("cmp", Some("Str")) => {
+            format!("(Ord::cmp(&{}[..], &{}[..]) as i32)", a(0), a(1))
+        }
+        ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
+            format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))
+        }
+        ("eq", Some("Str")) => format!("(&{}[..] == &{}[..])", a(0), a(1)),
+        ("eq", Some("Int" | "Long" | "Double" | "Float" | "Byte" | "Char" | "Bool")) => {
+            format!("(({}) == ({}))", a(0), a(1))
+        }
+        // [cmp-hash-values] The host's own digest, which is `DefaultHasher`
+        // here and `hashCode()` on Kotlin: the values differ between the
+        // backends by design, and only the agreement with `eq` is promised.
+        // A block expression keeps the hasher local, so a `hash` nested inside
+        // another one is still one hasher per call.
+        ("hash", Some("Str")) => format!(
+            "{{ let mut __h = std::hash::DefaultHasher::new(); \
+             std::hash::Hash::hash(&{}[..], &mut __h); \
+             (std::hash::Hasher::finish(&__h) as i64) }}",
+            a(0)
+        ),
+        ("hash", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => format!(
+            "{{ let mut __h = std::hash::DefaultHasher::new(); \
+             std::hash::Hash::hash(&({}), &mut __h); \
+             (std::hash::Hasher::finish(&__h) as i64) }}",
+            a(0)
+        ),
         // core.actor ---------------------------------------------------
         // [actor-replyto] [rs-actor] Answering a request: the token is
         // consumed, and the payload crosses the seam as the runtime's untyped

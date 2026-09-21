@@ -89,11 +89,21 @@ fn snapshot_std_console() {
 }
 
 /// [implicit-group] [iter-protocol] The `params` group `for` and every
-/// combinator read: the one place std declares a group, and — with `seq.sv` —
-/// the two places a fn signature carries `?Group<...>`.
+/// combinator read: with `compare.sv` one of the two places std declares
+/// groups, and — with `seq.sv` — the two places a fn signature carries
+/// `?Group<...>`.
 #[test]
 fn snapshot_std_iterator() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("iterator.sv")));
+}
+
+/// [cmp-groups] The three capability groups and the canonical implementations
+/// for the intrinsic types: `params` declarations beside `intrinsic fn`
+/// overloads of one name, which is the shape the whole ordering round is built
+/// on.
+#[test]
+fn snapshot_std_compare() {
+    insta::assert_debug_snapshot!(parse_clean(&std_core("compare.sv")));
 }
 
 #[test]

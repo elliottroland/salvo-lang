@@ -940,6 +940,16 @@ where Rust had to build the fusion to get the same programs running
   * It is emitted when a module declares a `canbe ordered` struct or builds
     a sorted collection, and the sorted constructors pass it as an explicit
     `Comparator` rather than relying on natural ordering.
+  * [kt-cmp-groups] [cmp-groups] The canonical `cmp(Str, Str)` reaches it too,
+    and for the same reason — so the file is also emitted when that overload
+    is called *or* passed as an implicit's adapter, which is the one way a
+    program can reach a lowering without a call site of its own
+    [implicit-intrinsic]. The rest of the canonicals are native: `cmp` at
+    `Int`/`Long`/`Byte`/`Char`/`Bool` is `compareTo` (each is `Comparable`
+    here, `Byte` as a `UByte`), `eq` is `==`, and `hash` is
+    `hashCode().toLong()`.
+    * [cmp-hash-values] That last one is this host's digest and not Rust's,
+      deliberately: only the agreement with `eq` crosses the backends.
 * [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
   `internal val __mailboxCapacity: Int`, initialised from the slot's expression
   where a constructor parameter is in scope for free. The spawn reads it off the

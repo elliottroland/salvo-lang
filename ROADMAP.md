@@ -255,8 +255,17 @@ fn **at construction, as a type argument with static identity**
 zero-sized markers on Rust; `canbe ordered`/`canbe hashed` are deleted.
 **All calls are made** (2026-09-21, formal adoption included; the hash
 question dissolved — backend-native hashing, divergence accepted, see
-"Value-level backend parity" below): the round is **ready to build** from
-ORDERING.md's plan, gated on the concurrent test-time session finishing.
+"Value-level backend parity" below), and **the build has started**:
+**step 1 landed 2026-09-21** (the three groups and the canonical
+implementations for the intrinsic types are in `std/core/compare.sv`;
+COMPLETED.md's log entry has what it took, including the
+[rs-fn-param-convention] fix it forced). What remains, from ORDERING.md's
+plan: step 2 (operators through the groups, dropping `op_lenient`'s
+`Ty::Var`), step 3 (`default` obligations, `@`-scoped canonicals, deleting
+`canbe ordered`/`canbe hashed` and its sweep), step 4 (the equality
+sweep), step 5 (fn-valued type arguments — the heap's unblock and the
+largest piece), step 6 (the spec rewrite of [col-equality],
+[col-hashed-ordered], [op-order]).
 A noted follow-on, separately decided when
 raised: migrating qualifier bodies' `fn qualifies` to the same `@`-scoped
 shape (`fn qualifies@Positive`); handler members stay put — they interact

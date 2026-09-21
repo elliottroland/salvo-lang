@@ -490,7 +490,7 @@ pub fn audit_and_measure<__Fx: __Has_Audit + __Has_Metrics>(__fx: &mut __Fx, wha
 }
 
 pub trait Setting<T> {
-    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T;
+    fn setting(&mut self, copy: &mut dyn FnMut(&T) -> T) -> T;
 }
 
 pub trait __Has_Setting<T> {
@@ -524,7 +524,7 @@ impl<T: 'static> __Mon_Setting<T> {
 }
 
 impl<T: 'static> Setting<T> for __Mon_Setting<T> {
-    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T {
+    fn setting(&mut self, copy: &mut dyn FnMut(&T) -> T) -> T {
         self.inner.setting(copy)
     }
 }
@@ -546,7 +546,7 @@ impl<H> __Lock_Setting<H> {
 }
 
 impl<T: 'static, H: Setting<T> + Send> Setting<T> for __Lock_Setting<H> {
-    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T {
+    fn setting(&mut self, copy: &mut dyn FnMut(&T) -> T) -> T {
         self.inner.lock().unwrap().setting(copy)
     }
 }
@@ -572,8 +572,8 @@ impl<T: Clone + 'static> Fixed<T> {
 
 impl<T: Clone + 'static> Setting<T> for Fixed<T> {
 
-    fn setting(&mut self, copy: &mut dyn FnMut(T) -> T) -> T {
-        return copy(self.value.clone());
+    fn setting(&mut self, copy: &mut dyn FnMut(&T) -> T) -> T {
+        return copy(&self.value);
     }
 }
 

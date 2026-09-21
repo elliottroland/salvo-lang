@@ -38,10 +38,10 @@ pub fn map_to<D: Clone, It: Clone, T: Clone, U: Clone>(mut dest: D, it: &mut It,
     return dest;
 }
 
-pub fn filter_to<D: Clone, It: Clone, T: Clone>(mut dest: D, it: &mut It, keep: &mut impl FnMut(&T) -> bool, add: &mut dyn FnMut(&mut D, T), copy: &mut dyn FnMut(T) -> T, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
+pub fn filter_to<D: Clone, It: Clone, T: Clone>(mut dest: D, it: &mut It, keep: &mut impl FnMut(&T) -> bool, add: &mut dyn FnMut(&mut D, T), copy: &mut dyn FnMut(&T) -> T, next: &mut dyn FnMut(&mut It) -> Union2<T, Finished>) -> D {
     while let Union2::U1(mut x) = next(it) {
         if keep(&x) {
-            add(&mut dest, copy(x));
+            add(&mut dest, copy(&x));
         }
     }
     return dest;

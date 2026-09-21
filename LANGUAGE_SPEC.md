@@ -2645,6 +2645,65 @@ Conventions:
     pushes); an emitter whose `use` *rewrites* the entries already in scope
     saves and restores the whole environment instead.
 
+### Comparison, equality and hashing (std, `core.compare`)
+
+* [cmp-groups] The three capabilities are **params groups**, not traits (user
+  decisions 2026-09-21, the ordering round): `core.compare` declares
+  `Ordered<T> { fn cmp(a: T, b: T) -> Int }`,
+  `Eq<T> { fn eq(a: T, b: T) -> Bool }` and
+  `Hashed<T> { fn hash(value: T) -> Long }`. Having a capability is "a fn of
+  that shape is in scope" and nothing more — so a type joins in by *declaring
+  a function*, a generic fn asks for one with `?Ordered<T>`
+  [implicit-group], the call site resolves it [implicit-resolve], and neither
+  backend learns that any of this exists [group-not-a-value].
+  * **The contracts are trusted, not checked**: `cmp` is a total order whose
+    zero agrees with `eq`; `eq` is an equivalence; `hash` agrees with `eq`
+    ([cmp-hash-values]). What *is* checked is the ordinary thing — a call
+    resolves to exactly one visible overload, or says so.
+  * **The canonical implementations for the intrinsic types are `intrinsic`
+    overloads** [intrinsic-fn], one per type: `cmp` for `Int`, `Long`, `Byte`,
+    `Char`, `Bool` and `Str`; `eq` for those plus `Double` and `Float`; `hash`
+    for the ones `cmp` covers. So `Double`/`Float` compare for equality and
+    have no ordering and no hash — `NaN` ties with nothing, so no total order
+    exists and a float key would hash unpredictably, which is the same
+    reasoning [col-sorted] and [col-hashed-ordered] already apply.
+  * **`Str` compares by code point** on both backends, the contract
+    [col-sorted] already owed: Rust's `str: Ord` is byte-wise UTF-8 (which
+    *is* code-point order), while the JVM's `String.compareTo` is code-unit
+    order and is corrected in the lowering [kt-ordered].
+  * A **type of your own** joins a capability by declaring the fn
+    (`fn cmp(a: Person, b: Person) -> Int`), reached by bare call or by
+    dot-notation [fn-dot] like any overload. The obligation form
+    `struct Point : Ordered<self>` checks at the declaration that one exists
+    [group-obligation] [group-self] — it designates nothing and adds no scope.
+  * A **generic** fn reaches the capability only by asking: nothing about an
+    opaque `T` is knowable [call-resolve], so `?Ordered<T>` (or an individually
+    declared `?cmp`) is what makes `cmp(a, b)` legal there, and it forwards by
+    name and type through further calls [implicit-forward]. A group's member
+    *keeps* its parameters (no deduction clause keeps everything
+    [fn-contract]), which is what lets a body compare two values and still own
+    them.
+  * **Not yet the operators.** `<`/`==` still resolve as [op-order] and
+    [col-equality] describe; routing them through these groups (and with it
+    opt-in equality, the `default` generator, `@`-scoped canonicals and
+    ordering-carrying types) is the rest of the round — see ROADMAP.md
+    "Ordering, equality and hashing".
+* [cmp-hash-values] A hash value holds **within one execution and nowhere
+  else** (user decision 2026-09-21). Each backend hashes with its host's own
+  algorithm — `hashCode()` on Kotlin, `DefaultHasher` on Rust — so the same
+  value digests differently on the two targets, deliberately, on the analogy
+  of the two backends' random numbers: the shape and the guarantees are
+  identical, the values are not.
+  * What is promised: `eq(a, b)` implies `hash(a) == hash(b)`, within one
+    execution. Not promised: the converse (a collision is ordinary), stability
+    across runs (a seeded hasher is within contract), or anything across
+    backends.
+  * So a program must not print, persist or transmit a hash value and expect
+    it to mean anything elsewhere — an example's `expected.txt` cannot contain
+    one, which is the posture `random` already has. A future reversal
+    (language-defined algorithms for hash *and* random together) is recorded
+    in ROADMAP.md, unscheduled.
+
 ### The filesystem (std, `core.fs` + `core.hostfs`)
 
 * [fs-surface] `core.fs` declares the **surface**: `linear struct FsError`

@@ -827,6 +827,33 @@ the blanket rule:
     compiled, because rustc inferred the parameter from the bound. The
     convention is computed by one function mirroring the `Type::Fn` arm of
     `emit_type`.
+  * **An implicit parameter's position follows the same rule** (fixed
+    2026-09-21, the ordering round's step 1). A kept non-`Mut` position whose
+    type is not a Copy scalar renders `&T`: `?Ordered<T>` is
+    `&mut dyn FnMut(&T, &T) -> i32`, the body's `cmp(a, b)` passes `&a, &b`,
+    and the adapter that fills the position bridges to the resolved fn's own
+    mode (cloning out of the borrow where that fn owns its parameter, which is
+    free for a scalar). Until then an implicit's kept position was by value —
+    a *move* of what the contract says is kept [fn-contract], so a generic fn
+    that compared two values and then used one of them did not compile
+    (`E0382`), and the whole comparison capability was unusable over anything
+    but a Copy scalar. The same bridging applies to a value written at the
+    call site [implicit-override]: a named fn gets the adapter, a lambda binds
+    its parameters under the position's convention.
+* [rs-cmp-groups] [cmp-groups] The canonical comparison/equality/hashing
+  implementations are the host's own operations. `cmp` is
+  `Ord::cmp(&a, &b) as i32` — `Ordering` is a fieldless `#[repr(i8)]` enum
+  whose discriminants *are* the sign convention Salvo's `cmp` answers, so the
+  cast is the whole lowering — written as a path call rather than a method
+  call so it works whether the argument arrives owned or borrowed (`&T` has
+  its own `Ord`, delegating to `T`'s). `eq` is `==`. A `Str` is compared and
+  hashed as `str` (`&s[..]`), which is byte-wise UTF-8 and therefore
+  code-point order [kt-ordered] — no runtime helper needed on this side.
+  * [cmp-hash-values] `hash` is a block expression holding its own
+    `std::hash::DefaultHasher`: `{ let mut __h = …; Hash::hash(&v, &mut __h);
+    Hasher::finish(&__h) as i64 }`. One hasher per call, so a `hash` nested
+    inside another one is still well-defined, and the value is this host's —
+    Kotlin's `hashCode()` answers something else by design.
 
 ## Effects [rs-effects]
 

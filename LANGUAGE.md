@@ -1233,6 +1233,75 @@ It is an ordinary `params` group otherwise — declared in std, spreadable
 with `?`. (Linearity used to be the second designated group; it is a
 declaration modifier now, `linear struct` — see [Linearity](#linearity).)
 
+### Comparison, equality and hashing
+
+Three capabilities are declared exactly this way, in `core.compare`:
+
+```
+params Ordered<T> { fn cmp(a: T, b: T) -> Int }
+params Eq<T>      { fn eq(a: T, b: T) -> Bool }
+params Hashed<T>  { fn hash(value: T) -> Long }
+```
+
+So "orderable" is not a property of a type — it is *an ordering being in
+scope*. `cmp` answers a negative number when `a` sorts first, zero when the two
+tie and a positive number otherwise; `eq` decides equality; `hash` digests.
+Each is an ordinary overloadable function, which is the whole mechanism: no
+trait, no interface value, nothing either backend knows about.
+
+The intrinsic types come with theirs — `cmp` for `Int`, `Long`, `Byte`, `Char`,
+`Bool` and `Str`, `eq` for those plus `Double` and `Float`, `hash` for the ones
+`cmp` covers:
+
+```
+let order = cmp("ab", "b")      // negative: strings compare by code point
+let yes = eq(1.5, 1.5)          // true
+```
+
+`Double` and `Float` have an `eq` and no `cmp`: `NaN` ties with nothing, so
+there is no total order to promise — the same reason a sorted collection of
+them is refused.
+
+A type of your own joins in by declaring the function:
+
+```
+struct Person { name: Str, age: Int }
+
+fn cmp(a: Person, b: Person) -> Int {
+    return cmp(a.age, b.age)
+}
+```
+
+and can promise it at the declaration, `struct Person : Ordered<self>`, which
+checks there that a matching `cmp` exists rather than failing at some distant
+use.
+
+A *generic* function has to ask, because nothing about an opaque `T` is
+knowable:
+
+```
+fn min_of<T>(a: T, b: T, ?Ordered<T>) -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+let smaller = min_of("pear", "apple")   // the call site supplies `cmp`
+```
+
+The group spread is what makes `cmp(a, b)` legal inside, the call site fills it
+with the canonical overload for the type it instantiates, and a function that
+forwards to another needing the same capability declares it too — the colouring
+implicit parameters already have.
+
+**A hash value means something within one execution and nowhere else.** Each
+backend hashes with its host's own algorithm, so the same value digests
+differently on Kotlin and on Rust — deliberately, the way the two backends
+generate different random numbers. What holds everywhere is that equal values
+hash equal. So a hash is a bucket, not data: do not print it, persist it, or
+compare it across runs.
+
 ### Variadic arguments
 
 Functions support variadic arguments. These get interpreted as an Array of the relevant type:

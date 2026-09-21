@@ -5518,15 +5518,20 @@ impl<'p> Emitter<'p> {
                     // No contract means "keeps everything" [fn-contract].
                     None => (true, p.quals().iter().any(|q| q.name == "Mut"), false),
                 };
-                // Only a kept **`Mut`** position changes: you cannot mutate
-                // what you were handed by value. Every other position keeps
-                // the by-value convention implicits have always had — making
-                // them all borrow would be more uniform and would touch every
-                // existing `?Iterable`/`?cmp` call site, which is a change of
-                // its own rather than a fix for this one.
-                // [rs-proj-lends] Except a *lent* position (`[c: proj]`): the
-                // result holds a borrow of it, which a by-value parameter
-                // could not outlive (E0515), so it arrives as `&T`.
+                // A kept **`Mut`** position borrows mutably — you cannot
+                // mutate what you were handed by value — and every other kept
+                // position borrows too unless its type is a Copy scalar, which
+                // is the convention a *written* fn type has always rendered
+                // ([rs-fn-param-convention]: `f: (T) -> U` is `FnMut(&T)`).
+                // Implicits used to be by-value here, which made a kept
+                // position a *move* on this backend: `min_of<T>(a: T, b: T,
+                // ?Ordered<T>)` calling `cmp(a, b)` and then returning `a`
+                // was E0382, so the comparison capability was unusable over
+                // anything but a Copy scalar (fixed 2026-09-21, the ordering
+                // round's step 1).
+                // [rs-proj-lends] A *lent* position (`[c: proj]`) is `&T` for
+                // its own reason: the result holds a borrow of it, which a
+                // by-value parameter could not outlive (E0515).
                 if kept && mutable {
                     format!("&mut {base}")
                 } else if kept && lent {
@@ -5540,6 +5545,8 @@ impl<'p> Emitter<'p> {
                         self.lent_position_params.push(n);
                     }
                     format!("&'c {base}")
+                } else if kept && !Self::is_copy_ty(p) {
+                    format!("&{base}")
                 } else {
                     base
                 }
@@ -11991,11 +11998,12 @@ impl<'p> Emitter<'p> {
                     _ => Vec::new(),
                 })
                 .unwrap_or_default();
+            // [rs-fn-param-convention] A kept non-`Mut` position is `&T`
+            // unless its type is a Copy scalar — the same convention a written
+            // fn type renders, and since 2026-09-21 the one implicits use too
+            // (a *kept* position must not move what it was handed).
             // [copy-implicit] A handler's *constructor* implicit is a written
-            // fn-typed parameter, so it follows [rs-fn-param-convention]: a
-            // kept non-`Mut` position is `&T` (Copy scalars by value). A fn's
-            // own implicit keeps the by-value convention implicits have.
-            let is_ctor_implicit = matches!(self.bindings.get(name), Some(BindKind::SelfField));
+            // fn-typed parameter, so it has always followed that rule.
             // [rs-proj-lends] A *lent* position (`[c: proj]`) is `&T` on any
             // implicit: the result holds a borrow of it.
             let kept_ref: Vec<bool> = self
@@ -12010,9 +12018,6 @@ impl<'p> Emitter<'p> {
                             let entry = contract.as_ref().and_then(|c| c.get(k));
                             if entry.is_some_and(|e| e.kept && e.lent) {
                                 return true;
-                            }
-                            if !is_ctor_implicit {
-                                return false;
                             }
                             let kept = entry.is_none_or(|e| e.kept && !e.mutable);
                             kept && !params.get(k).is_some_and(Self::is_copy_ty)
@@ -12753,24 +12758,99 @@ impl<'p> Emitter<'p> {
     /// closure, so it is wrapped like any named fn passed by value
     /// [fn-contract]; anything else (a lambda, a fn-typed local) is borrowed
     /// as it stands.
-    fn implicit_value(&mut self, value: &Expr, arity: usize) -> String {
+    ///
+    /// `handed` is how the *position* passes each parameter on
+    /// ([rs-fn-param-convention]: `Some(true)` for `&mut T`, `Some(false)` for
+    /// `&T`, `None` for by value), which is what the adapter has to bridge to
+    /// the written fn's own convention — and what a *lambda* argument binds
+    /// its parameters under, exactly as in a written fn-typed position.
+    fn implicit_value(&mut self, value: &Expr, arity: usize, handed: &[Option<bool>]) -> String {
         if let Expr::Ident(id) = value {
             let is_local = self.bindings.contains_key(id.name.as_str());
             if !is_local {
-                if let Some(decl) = self
-                    .checked
-                    .fn_refs
-                    .get(&(self.file_idx, id.span))
-                    .and_then(|k| self.fn_by_key(*k))
-                {
-                    let target = self.rust_fn_name(decl);
-                    let ps: Vec<String> = (0..arity).map(|i| format!("__i{i}")).collect();
-                    return format!("&mut |{}| {target}({})", ps.join(", "), ps.join(", "));
+                if let Some(key) = self.checked.fn_refs.get(&(self.file_idx, id.span)).copied() {
+                    if let Some(decl) = self.fn_by_key(key) {
+                        let target = self.rust_fn_name(decl);
+                        let fixed: Vec<Param> = decl
+                            .params
+                            .iter()
+                            .filter(|p| !p.implicit)
+                            .cloned()
+                            .collect();
+                        let ps: Vec<String> = (0..arity).map(|i| format!("__i{i}")).collect();
+                        let args: Vec<String> = ps
+                            .iter()
+                            .enumerate()
+                            .map(|(i, code)| match fixed.get(i) {
+                                Some(p) => {
+                                    let h = handed.get(i).copied().flatten();
+                                    self.adapter_arg(Some(key), p, h, code, &decl.name.name)
+                                }
+                                None => code.clone(),
+                            })
+                            .collect();
+                        return format!(
+                            "&mut |{}| {target}({})",
+                            ps.join(", "),
+                            args.join(", ")
+                        );
+                    }
                 }
             }
         }
+        // [rs-fn-param-convention] A lambda written for the position binds its
+        // parameters the way the position renders them — the same rule a
+        // lambda in a *written* fn-typed parameter follows, and the reason an
+        // annotated `add = (a: Int, b: Int) -> a * b` no longer collides with
+        // a `FnMut(&T, &T)` position (`E0631`).
+        if matches!(value, Expr::Lambda { .. }) && handed.iter().any(|h| h.is_some()) {
+            self.pending_lambda_conv = Some(
+                handed
+                    .iter()
+                    .map(|h| match h {
+                        Some(true) => BindKind::RefMut,
+                        Some(false) => BindKind::Ref,
+                        None => BindKind::Owned,
+                    })
+                    .collect(),
+            );
+        }
         let code = self.emit_owned(value);
         format!("&mut ({code})")
+    }
+
+    /// [rs-fn-param-convention] One argument of an adapter closure that wraps
+    /// a named fn into an implicit position: the position handed the parameter
+    /// over under its own convention (`handed` — `Some(true)` for `&mut T`,
+    /// `Some(false)` for `&T`), the callee wants the mode its own declaration
+    /// gives, and this bridges the two.
+    fn adapter_arg(
+        &mut self,
+        key: Option<salvo_core::FnKey>,
+        p: &Param,
+        handed: Option<bool>,
+        code: &str,
+        callee: &str,
+    ) -> String {
+        let already_mut = handed == Some(true);
+        let already_ref = handed == Some(false);
+        match self.param_mode(key, p) {
+            ParamMode::Owned if already_mut || already_ref => format!("({code}).clone()"),
+            ParamMode::Owned => code.to_string(),
+            // `&mut T` coerces to `&T`; a borrowed position is `&T` already.
+            ParamMode::Ref if already_mut || already_ref => code.to_string(),
+            ParamMode::Ref => format!("&{code}"),
+            ParamMode::RefMut if already_mut => code.to_string(),
+            ParamMode::RefMut if already_ref => {
+                self.error(format!(
+                    "`{callee}` mutates `{}`, but the position lends it (`proj`): \
+                     a lent argument is read-only",
+                    p.name.name
+                ));
+                code.to_string()
+            }
+            ParamMode::RefMut => format!("&mut {code}"),
+        }
     }
 
     /// [implicit-intrinsic] The body of the adapter closure an `intrinsic
@@ -12855,10 +12935,14 @@ impl<'p> Emitter<'p> {
                                 .map(|(i, pt)| match contract.as_ref().and_then(|c| c.get(i)) {
                                     Some(e) if e.kept && e.mutable => Some(true),
                                     Some(e) if e.kept && e.lent => Some(false),
+                                    // [rs-fn-param-convention] A kept
+                                    // non-Copy position arrives as `&T`.
+                                    Some(e) if e.kept && !Self::is_copy_ty(pt) => Some(false),
                                     Some(_) => None,
                                     None if pt.quals().iter().any(|q| q.name == "Mut") => {
                                         Some(true)
                                     }
+                                    None if !Self::is_copy_ty(pt) => Some(false),
                                     None => None,
                                 })
                                 .collect(),
@@ -12873,7 +12957,11 @@ impl<'p> Emitter<'p> {
             match arg {
                 salvo_core::ImplicitArg::Given { name, arity } => {
                     match named.iter().find(|a| a.name.name == *name) {
-                        Some(a) => out.push(self.implicit_value(&a.value, *arity)),
+                        Some(a) => {
+                            let handed =
+                                position_refmut.get(name).cloned().unwrap_or_default();
+                            out.push(self.implicit_value(&a.value, *arity, &handed))
+                        }
                         None => {
                             self.error(format!(
                                 "internal: no value for implicit parameter `{name}`"
@@ -12998,39 +13086,19 @@ impl<'p> Emitter<'p> {
                                         let p = (*p).clone();
                                         // The position may already have
                                         // handed this parameter over as
-                                        // `&mut`.
+                                        // `&mut` or as `&T`.
                                         let handed = position_refmut
                                             .get(name)
                                             .and_then(|m| m.get(i))
                                             .copied()
                                             .flatten();
-                                        let already_mut = handed == Some(true);
-                                        let already_ref = handed == Some(false);
-                                        match self.param_mode(Some(*key), &p) {
-                                            ParamMode::Owned if already_mut || already_ref => {
-                                                format!("({}).clone()", params[i])
-                                            }
-                                            ParamMode::Owned => params[i].clone(),
-                                            // `&mut T` coerces to `&T`; a lent
-                                            // position is `&T` already.
-                                            ParamMode::Ref if already_mut || already_ref => {
-                                                params[i].clone()
-                                            }
-                                            ParamMode::Ref => format!("&{}", params[i]),
-                                            ParamMode::RefMut if already_mut => params[i].clone(),
-                                            ParamMode::RefMut if already_ref => {
-                                                self.error(format!(
-                                                    "`{}` mutates `{}`, but the position \
-                                                     lends it (`proj`): a lent argument is \
-                                                     read-only",
-                                                    decl.name.name, p.name.name
-                                                ));
-                                                params[i].clone()
-                                            }
-                                            ParamMode::RefMut => {
-                                                format!("&mut {}", params[i])
-                                            }
-                                        }
+                                        self.adapter_arg(
+                                            Some(*key),
+                                            &p,
+                                            handed,
+                                            &params[i],
+                                            &decl.name.name,
+                                        )
                                     })
                                     .collect();
                                 let call = format!("{target}({})", args.join(", "));

@@ -52,6 +52,33 @@ pub fn fn_call(
         // into 0..255 exactly as `as i32` does.
         ("to_byte", Some("Int")) => format!("({}).toUByte()", a(0)),
         ("to_int", Some("Byte")) => format!("({}).toInt()", a(0)),
+        // core.compare ---------------------------------------------------
+        // [cmp-groups] The canonical `cmp`/`eq`/`hash` at each intrinsic type.
+        //
+        // Every one of these is `Comparable` on the JVM *except* `Str`, whose
+        // `compareTo` is UTF-16 code-unit order where Salvo's `Str` order is
+        // code point [kt-ordered] — so the string case goes through the same
+        // runtime helper the sorted collections use, and the rest compare
+        // natively.
+        ("cmp", Some("Str")) => format!("salvo.__salvoCompare({}, {})", a(0), a(1)),
+        ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
+            format!("({}).compareTo({})", a(0), a(1))
+        }
+        // Structural equality on every intrinsic type: Kotlin's `==` is
+        // `equals`, which is value equality for the boxed primitives and for
+        // `String`. The float widths are IEEE here as they are on Rust
+        // (`NaN != NaN`) because `Double == Double` on *primitive* operands
+        // compiles to a numeric comparison — the boxing hazard
+        // [kt-float-eq] fixes lives in generated `equals` methods, not here.
+        ("eq", Some("Int" | "Long" | "Double" | "Float" | "Byte" | "Char" | "Bool" | "Str")) => {
+            format!("(({}) == ({}))", a(0), a(1))
+        }
+        // [cmp-hash-values] The host's own digest, widened to the `Long` the
+        // signature answers. Values differ from Rust's by design; what holds
+        // on both is that equal values hash equal.
+        ("hash", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
+            format!("({}).hashCode().toLong()", a(0))
+        }
         // core.actor ---------------------------------------------------
         // [actor-replyto] [kt-actor] Answering a request: the token is
         // consumed and the payload crosses the seam as the runtime's `Any?`.

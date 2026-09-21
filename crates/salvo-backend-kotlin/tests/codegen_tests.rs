@@ -2489,6 +2489,88 @@ export fn main() [use] {
      refs xyz\n")
 }
 
+/// [cmp-groups] Comparison, equality and hashing as **params groups** — the
+/// ordering round's foundation (user decisions 2026-09-21).
+///
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_the_comparison_groups`. That equality is the
+/// assertion, and `Str` is where it costs this backend something: `cmp(Str,
+/// Str)` goes through the runtime comparator rather than `String.compareTo`,
+/// which is UTF-16 code-unit order where Salvo's `Str` order is code point
+/// [kt-ordered].
+///
+/// [cmp-hash-values] No hash **value** is printed: each backend hashes with
+/// its host's own algorithm (`hashCode()` here, `DefaultHasher` there), so the
+/// values differ by design and only the agreement with `eq` is asserted.
+fn kotlinc_compiles_and_runs_the_comparison_groups() -> KotlinCase {
+    let src = r#"
+// [cmp-groups] The three capabilities, asked for by name. Nothing about a `T`
+// is knowable, so an ordering arrives as an implicit parameter — and the call
+// site fills it with the canonical overload for the type it instantiates.
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn same<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
+    return eq(a, b)
+}
+
+// [cmp-hash-values] A hash value is never printed: it differs between the
+// backends by design. What holds on both is that equal values hash equal —
+// which is what this answers.
+fn digest_agrees<T>(a: T, b: T, ?Eq<T>, ?Hashed<T>) [] -> Bool => a, b {
+    if eq(a, b) {
+        return hash(a) == hash(b)
+    }
+    return true
+}
+
+fn sign(n: Int) [] -> Str {
+    if n < 0 { return "<" }
+    if n > 0 { return ">" }
+    return "="
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let ab = "ab"
+    let b = "b"
+    let same_ab = "ab"
+    // The canonical `cmp` at each intrinsic type, called directly.
+    println("int ${sign(cmp(1, 2))}${sign(cmp(2, 2))}${sign(cmp(3, 2))}")
+    println("long ${sign(cmp(to_long(9), to_long(4)))}")
+    println("byte ${sign(cmp(to_byte(200), to_byte(3)))}")
+    println("char ${sign(cmp('a', 'b'))}")
+    println("bool ${sign(cmp(false, true))}")
+    // `Str` compares by **code point**, which is what the Kotlin backend has
+    // to arrange deliberately: "ab" < "b" because 'a' < 'b'.
+    println("str ${sign(cmp(ab, b))}${sign(cmp(b, b))}${sign(cmp(b, ab))}")
+    // Equality covers the float widths, where no total order exists.
+    println("eq ${eq(1, 1)} ${eq(1.5, 2.5)} ${eq(to_float(1.0), to_float(1.0))} ${eq(ab, b)}")
+    println("same ${same(7, 7)} ${same(ab, b)} ${same(ab, same_ab)}")
+    println("digest ${digest_agrees(ab, same_ab)} ${digest_agrees(3, 3)}")
+    // `min_of` answers one of its arguments, so it **moves** them: the
+    // deduction is inferred from the body [deduce-infer], and these two are
+    // the last use of their values.
+    println("min ${min_of(4, 2)} ${min_of(ab, b)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "compare-groups",
+        "int <=>\nlong >\nbyte >\nchar <\nbool <\nstr <=>\n\
+         eq true false true false\nsame true false true\n\
+         digest true true\nmin 2 ab\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
@@ -2572,6 +2654,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_list_claims,
     kotlinc_compiles_and_runs_mixed_spread,
     kotlinc_compiles_and_runs_user_variadics,
+    kotlinc_compiles_and_runs_the_comparison_groups,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_a_shareable_interceptor_chain,

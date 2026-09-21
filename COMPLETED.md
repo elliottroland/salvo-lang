@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1237 tests, complete: the toolchain tests are
+cargo test                  # 1251 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,69 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Ordering round, step 1 — the three capability groups exist (2026-09-21,
+night).** The first installment of ORDERING.md's build plan, and it is
+deliberately additive: nothing about the operators changed yet, so this landed
+without touching a single existing program. `std/core/compare.sv` declares
+`params Ordered<T>` (`cmp -> Int`), `params Eq<T>` (`eq -> Bool`) and
+`params Hashed<T>` (`hash -> Long`), plus the canonical implementations for the
+intrinsic types as `intrinsic fn` overloads: `cmp` for
+`Int`/`Long`/`Byte`/`Char`/`Bool`/`Str`, `eq` for those plus `Double`/`Float`
+(equality is meaningful where a total order is not), `hash` for the ones `cmp`
+covers. [cmp-groups] [cmp-hash-values].
+
+- **It needed no new mechanism.** A capability is a `params` group, so the
+  existing machinery does all the work: [implicit-resolve] picks the canonical
+  overload for the type a call instantiates, [implicit-forward] colours a
+  generic fn that needs one, [group-obligation] checks `struct Point :
+  Ordered<self>` at the declaration. That was the bet the design made, and
+  building it is the evidence: ten checker tests, no checker changes.
+- **Lowerings.** Rust: `Ord::cmp(&a, &b) as i32` — `Ordering` is a fieldless
+  `#[repr(i8)]` enum whose discriminants *are* Salvo's sign convention, so the
+  cast is the lowering — `==` for `eq`, and a block expression holding its own
+  `std::hash::DefaultHasher` for `hash`; `Str` goes through `&s[..]`, whose
+  byte-wise UTF-8 order *is* code-point order. Kotlin: `compareTo`, `==` and
+  `hashCode().toLong()`, except `cmp(Str, Str)`, which routes through the
+  existing `__salvoCompare` because `String.compareTo` is UTF-16 code-unit
+  order [kt-ordered]. The `compare.kt` runtime file is now also emitted when
+  that overload is only ever passed as an **adapter** — an
+  [implicit-intrinsic] value is the one way to reach a lowering with no call
+  site of its own, and the older sorted-collection entries have the same latent
+  hole where an adapter is the only use.
+- **[cmp-hash-values] hash values diverge per backend, by decision**, so the
+  e2e program prints none: it asserts the *agreement* with `eq` instead
+  (`eq(a, b)` ⇒ `hash(a) == hash(b)`), the same posture `random` has.
+- **The one real fix it forced: [rs-fn-param-convention] for implicits.** An
+  implicit's *kept* position rendered by value on Rust (`FnMut(T, T)`), which
+  makes a kept position a **move** — so `min_of<T>(a: T, b: T, ?Ordered<T>)`
+  calling `cmp(a, b)` and then answering `a` was `E0382`, and the whole
+  comparison capability was unusable over anything but a Copy scalar. The
+  emitter's own comment had recorded this as "a change of its own rather than a
+  fix for this one" (written when only a kept-`Mut` position was fixed); the
+  ordering round is what made it load-bearing. Kept non-`Mut` non-Copy
+  positions now render `&T` — the convention *written* fn types have always
+  used — with the adapter bridging to the resolved fn's mode (cloning out of
+  the borrow where that fn owns its parameter, free for a scalar), and the same
+  bridging extended to a value written at the call site [implicit-override]
+  (a named fn gets the adapter; a lambda binds under the position's
+  convention). Blast radius, which is the interesting part: **five golden
+  snapshots and one assertion**, all of them std's `filter_to` rendering
+  `copy: &mut dyn FnMut(&T) -> T` and calling `copy(&x)` — plus one *fewer*
+  clone in `examples/effects` (`copy(self.value.clone())` → `copy(&self.value)`).
+  Nothing else in std or the examples had a kept non-Copy implicit position.
+- **Tests**: `crates/salvo-core/tests/compare_tests.rs` (10, over resolution,
+  forwarding, composition of two spreads, a struct joining by declaring a fn,
+  the obligation form, and the refusals — no `cmp` for `Double`, none for a
+  struct that declares none, none inside a generic that asks for nothing); a
+  parser snapshot for the new std module; and one e2e program, *verbatim
+  identical* on both backends, covering every canonical at every intrinsic type
+  plus the capability through a group spread at a `Str` (which is the case the
+  convention fix exists for).
+- **Not in this step** (ORDERING.md's later ones): operators through the
+  groups, `default` obligations, `@`-scoped canonicals, the equality sweep,
+  fn-valued type arguments. `canbe ordered`/`canbe hashed` still exist and
+  still mean what they meant.
 
 **The debug-object pruner now keeps exactly what debug maps reference
 (2026-09-21, late evening).** Found while answering "did we fix the
@@ -13694,7 +13757,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1237)
+## Test inventory (all green: 1251)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13702,7 +13765,14 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 688 - 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
+- `salvo-core`: 698 - 10 comparison-capability tests (`tests/compare_tests.rs`
+  [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
+  resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
+  filled by resolution, two spreads composing in one signature, the capability
+  forwarding into a fn that declares `?cmp` individually, a struct joining by
+  declaring the fn, `: Ordered<self>`/`: Eq<self>` checked at the struct, and
+  the three refusals — a generic that asks for nothing, `cmp` at `Double`,
+  `cmp` at a struct that declares none) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
   [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
   2026-09-20 ten — classification both ways, the call-site rule both ways, the
   opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
@@ -14311,7 +14381,9 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 97 (four [mod-export] parser tests — the flag set only on
+- `salvo-syntax`: 98 (one std snapshot for `core.compare` [cmp-groups] — three
+  `params` groups beside the `intrinsic fn` overloads that implement them for
+  the intrinsic types; four [mod-export] parser tests — the flag set only on
   the declaration it precedes, `export` staying an ordinary name for a variable
   or field, the deduction-terminator regression over all four contextual
   modifiers, and the three non-declaration refusals; three parser tests for the scope selector and
@@ -14383,7 +14455,9 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 (130 registered cases — the 2026-09-20 `narrow-mut-arm`
+- `salvo-backend-kotlin`: 113 (131 registered cases, the newest being
+  `compare-groups` [cmp-groups], whose source and expected stdout are verbatim
+  the Rust backend's — the 2026-09-20 `narrow-mut-arm`
   case asserts the *same* expected string as the Rust backend's, which is what
   makes that fix's parity claim a test) - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
@@ -14587,7 +14661,11 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 226 - including the three 2026-09-20 [rs-narrow-mut]
+- `salvo-backend-rust`: 228 - including the two [cmp-groups] tests (the
+  comparison groups compiled and run to the stdout the Kotlin backend prints,
+  and the host lowerings read off the generated source: `Ord::cmp(&a, &b) as
+  i32`, `str` comparison for `Str`, `DefaultHasher` for `hash`, and the
+  `FnMut(&T, &T)` position [rs-fn-param-convention]), the three 2026-09-20 [rs-narrow-mut]
   tests (the seven-shape mutation-through-a-narrowed-`Mut`-arm program compiled
   and run, the same read off the generated source with the two
   clone-then-mutate spellings asserted *absent*, and the borrowed-parameter
