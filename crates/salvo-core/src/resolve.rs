@@ -593,7 +593,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
             let items = &by_module[*module];
-            let mut seen: HashMap<(&str, Vec<String>), Span> = HashMap::new();
+            // The span it was first declared at, and whether that one was
+            // *generated* [cmp-default].
+            let mut seen: HashMap<(&str, Vec<String>), (Span, bool)> = HashMap::new();
             for (key, f) in &items.fns {
                 let mut generics: Vec<&str> =
                     f.generics.iter().map(|g| g.name.as_str()).collect();
@@ -603,11 +605,25 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     }
                 }
                 let sig = crate::refine::param_type_signature(&f.params, &generics);
-                if seen.contains_key(&(f.name.name.as_str(), sig.clone())) {
+                if let Some((_, other_structural)) =
+                    seen.get(&(f.name.name.as_str(), sig.clone()))
+                {
                     let shown = sig.join(", ");
-                    errors.push(FileDiagnostic::error(
-                        key.file,
-                        f.name.span,
+                    // [cmp-default] One of the two is *generated*: the remedy is
+                    // the `default` clause, not the fn. A `default` obligation
+                    // and a hand-written member of the same shape are the
+                    // ordinary duplicate — nothing at a bare call site could
+                    // tell them apart — with a message that names the half the
+                    // author can delete.
+                    let msg = if f.structural || *other_structural {
+                        format!(
+                            "`{}({shown})` is declared twice in module `{module}`: a \
+                             `default` obligation generates it, and this file also \
+                             declares it by hand. Keep one — remove `default` from the \
+                             struct, or delete the hand-written fn [cmp-default]",
+                            f.name.name
+                        )
+                    } else {
                         format!(
                             "duplicate fn `{}({shown})` in module `{module}`: an \
                              overload set is distinguished by parameter *types*, \
@@ -615,11 +631,16 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                              and return types take no part in choosing an \
                              overload [fn-overload-rank]",
                             f.name.name
-                        ),
+                        )
+                    };
+                    errors.push(FileDiagnostic::error(
+                        key.file,
+                        f.name.span,
+                        msg,
                     ));
                     continue;
                 }
-                seen.insert((f.name.name.as_str(), sig), f.name.span);
+                seen.insert((f.name.name.as_str(), sig), (f.name.span, f.structural));
             }
         }
     }

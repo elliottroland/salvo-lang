@@ -92,6 +92,11 @@ pub fn expand_iter_fns_with(
     module: &mut Module,
     extern_structs: &[StructDecl],
 ) -> Vec<Diagnostic> {
+    // [cmp-default] The other desugaring, run here because this is the one
+    // entry point every consumer of a parsed module already calls — so no path
+    // can forget it. It needs no declarations but the module's own: a `default`
+    // obligation and the type it is written on are the same declaration.
+    expand_default_obligations(module);
     let mut diags = Vec::new();
     // The subject's own declaration: that is what makes a *per-field*
     // snapshot possible, since a generated field needs the field's written
@@ -461,20 +466,23 @@ fn expand(
         name: pass_name.clone(),
         generic_canbe: Vec::new(),
         generics: f.generics.clone(),
-        obligations: vec![TypeRef {
-            name: Ident {
-                name: "Yield".to_string(),
-                span: struct_span,
-            },
-            args: vec![
-                Type::Named {
-                    qualifiers: vec![],
-                    base: type_ref("self", span),
+        obligations: vec![Obligation {
+            default: false,
+            group: TypeRef {
+                name: Ident {
+                    name: "Yield".to_string(),
+                    span: struct_span,
                 },
-                elem.clone(),
-            ],
-            from: Vec::new(),
-            span,
+                args: vec![
+                    Type::Named {
+                        qualifiers: vec![],
+                        base: type_ref("self", span),
+                    },
+                    elem.clone(),
+                ],
+                from: Vec::new(),
+                span,
+            },
         }],
         auto_qualifiers: vec![type_ref("Mut", struct_span)],
         fields,
@@ -564,6 +572,7 @@ fn expand(
             span: iter_span,
         },
         scoped_to: None,
+        structural: false,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: None,
@@ -631,6 +640,7 @@ fn expand(
         // [cmp-canonical] An `iter fn` is never `@`-scoped: the form declares
         // a pass, and the generated halves inherit its plain name.
         scoped_to: None,
+        structural: false,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),
@@ -1323,5 +1333,167 @@ fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
             rename_proj_source(elem, old, new)
         }
         Type::Fn { .. } => {}
+    }
+}
+
+// ===== [cmp-default] `default` obligations =====
+
+/// The capability groups the compiler has a generator for, and the member each
+/// one contributes. `Ordered` and `Hashed` **bring `eq` with them** (user
+/// decision 2026-09-21): everything generated is structural, so consistency
+/// between `cmp`, `eq` and `hash` is by construction rather than by trust —
+/// which is exactly what a hand-written implementation cannot promise, and why
+/// hand-written ones are declared piece by piece.
+const DEFAULTABLE: [(&str, &[&str]); 3] = [
+    ("Ordered", &["cmp", "eq"]),
+    ("Eq", &["eq"]),
+    ("Hashed", &["hash", "eq"]),
+];
+
+/// [cmp-default] Expands every `: default Group<self>` into the **canonical**
+/// implementations it promises: one `@`-scoped fn per member [cmp-canonical],
+/// bodyless and marked `structural`, which each backend lowers to the host's
+/// own derived comparison, equality or hash.
+///
+/// Done here, beside the `iter fn` expansion and for the same three reasons:
+/// nothing downstream learns the form exists (the generated fns are ordinary
+/// overloads, so resolution, implicit filling, the canonical rules and the
+/// duplicate check all apply unchanged), a hand-written member colliding with a
+/// generated one *is* the ordinary duplicate error, and the emitters need no
+/// notion of a `default` clause — only of a structural fn.
+///
+/// A `default` on a group with no generator generates nothing; the checker
+/// reports it, naming the three that have one.
+pub fn expand_default_obligations(module: &mut Module) {
+    let mut generated: Vec<Item> = Vec::new();
+    for item in &module.items {
+        let Item::Struct(s) = item else { continue };
+        let mut members: Vec<&str> = Vec::new();
+        for ob in &s.obligations {
+            if !ob.default {
+                continue;
+            }
+            // `self` is what the generator writes the signature over; a
+            // `default` naming someone else's type is the checker's error.
+            if !ob
+                .group
+                .args
+                .iter()
+                .all(|a| matches!(a, Type::Named { base, .. } if base.name.name == "self"))
+            {
+                continue;
+            }
+            if let Some((_, ms)) = DEFAULTABLE.iter().find(|(g, _)| *g == ob.group.name.name) {
+                for m in *ms {
+                    if !members.contains(m) {
+                        members.push(m);
+                    }
+                }
+            }
+        }
+        for member in members {
+            generated.push(Item::Fn(structural_member(s, member)));
+        }
+    }
+    module.items.extend(generated);
+}
+
+/// One generated canonical: `fn cmp@Point(a: Point, b: Point) [] -> Int => a, b`.
+///
+/// Spans point at the struct's own name, so a duplicate or an ineligible field
+/// is reported where the `default` was written rather than at an invisible
+/// declaration.
+fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
+    let span = s.name.span;
+    let self_ty = Type::Named {
+        qualifiers: vec![],
+        base: TypeRef {
+            name: s.name.clone(),
+            args: s
+                .generics
+                .iter()
+                .map(|g| Type::Named {
+                    qualifiers: vec![],
+                    base: type_ref(&g.name, span),
+                })
+                .collect(),
+            from: Vec::new(),
+            span,
+        },
+    };
+    let param = |name: &str| Param {
+        name: Ident {
+            name: name.to_string(),
+            span,
+        },
+        ty: self_ty.clone(),
+        variadic: false,
+        implicit: false,
+        span,
+    };
+    let keep = |name: &str| Deduction {
+        target: DeductionTarget::Param {
+            name: Ident {
+                name: name.to_string(),
+                span,
+            },
+            path: Vec::new(),
+        },
+        kind: DeductionKind::KeepAll,
+        span,
+    };
+    // Every member *keeps* its parameters: comparing or hashing a value reads
+    // it [fn-contract], which is also the contract the group's member declares.
+    let (params, deductions, ret) = match member {
+        "hash" => (
+            vec![param("value")],
+            vec![keep("value")],
+            Some("Long"),
+        ),
+        "eq" => (
+            vec![param("a"), param("b")],
+            vec![keep("a"), keep("b")],
+            Some("Bool"),
+        ),
+        _ => (
+            vec![param("a"), param("b")],
+            vec![keep("a"), keep("b")],
+            Some("Int"),
+        ),
+    };
+    FnDecl {
+        docs: vec![format!(
+            "The structural `{member}` for [{}], generated from its `default` \
+             obligation [cmp-default].",
+            s.name.name
+        )],
+        // [mod-export] A generated canonical carries the struct's own
+        // visibility, which is also what [cmp-canonical]'s export-match rule
+        // demands of a hand-written one.
+        exported: s.exported,
+        intrinsic: false,
+        is_iter: false,
+        is_send: false,
+        iter_state: vec![],
+        name: Ident {
+            name: member.to_string(),
+            span,
+        },
+        scoped_to: Some(s.name.clone()),
+        structural: true,
+        generics: s.generics.clone(),
+        generic_canbe: Vec::new(),
+        derived_return: None,
+        params,
+        implicit_groups: vec![],
+        effects: Some(vec![]),
+        deductions: Some(deductions),
+        return_type: ret.map(|r| Type::Named {
+            qualifiers: vec![],
+            base: type_ref(r, span),
+        }),
+        constructs: None,
+        body: None,
+        span,
     }
 }

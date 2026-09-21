@@ -84,6 +84,7 @@ Module {
                     span: 1576..1583,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -199,6 +200,7 @@ Module {
                     span: 1687..1695,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -312,6 +314,7 @@ Module {
                             span: 3119..3123,
                         },
                         scoped_to: None,
+                        structural: false,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,

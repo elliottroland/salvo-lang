@@ -691,3 +691,203 @@ fn a_declaration_selector_must_name_a_type() {
         "expected the casing rule to be named, got: {errs:?}"
     );
 }
+
+// ===== [cmp-default] the generated structural implementations =====
+
+/// `: default Ordered<self>` writes the members: `cmp` resolves at the type,
+/// fills a `?Ordered<T>` position, and is reached by the canonical selector
+/// like a hand-written one [cmp-canonical].
+#[test]
+fn a_default_obligation_generates_the_members() {
+    let errs = errors(
+        r#"
+struct Point : default Ordered<self>, default Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn go(p: Point, q: Point) [] -> Bool => p, q {
+    let order = cmp(p, q)
+    let same = eq(p, q)
+    let digest = hash(p)
+    let selected = cmp@Point(p, q)
+    return eq(order, selected)
+}
+
+// `min_of` answers one of its arguments, so it **moves** them [deduce-infer]:
+// filling its `?cmp` with the canonical is the point here.
+fn smaller(p: Point, q: Point) [] -> Point => !p, !q {
+    return min_of(p, q, cmp = cmp@Point)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// Decision 7: **the `default` forms bring `eq` with them** — everything
+/// generated is structural, so consistency between `cmp`, `eq` and `hash` is by
+/// construction. A struct that asks only for ordering can still be compared for
+/// equality.
+#[test]
+fn the_default_forms_bring_eq_with_them() {
+    let errs = errors(
+        r#"
+struct Point : default Ordered<self> {
+    x: Int
+}
+
+fn same(a: Point, b: Point) [] -> Bool => a, b {
+    return eq(a, b)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-default] `default` is legal only where the compiler has a generator: on
+/// any other group the word would promise an implementation nothing provides.
+#[test]
+fn default_is_refused_on_a_group_with_no_generator() {
+    let errs = errors(
+        r#"
+params Step<It, T> {
+    fn advance(it: Mut It) -> T
+}
+
+struct Counter : default Step<self, Int> canbe Mut {
+    at: Int
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`Ordered`, `Eq` and `Hashed`")),
+        "expected the whitelist to be named, got: {errs:?}"
+    );
+}
+
+/// The generator writes the signature over the declaring type, so the argument
+/// is `self` [group-self].
+#[test]
+fn a_default_obligation_takes_self() {
+    let errs = errors(
+        r#"
+struct Point : default Ordered<Int> {
+    x: Int
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("its argument is `self`")),
+        "expected the `self` rule to be named, got: {errs:?}"
+    );
+}
+
+/// [cmp-default] `default` inherits today's validation, because it inherits
+/// today's lowering: a float field has no hash the two backends agree on, and a
+/// mutable struct cannot be a key. Both are reported at the clause.
+#[test]
+fn a_default_obligation_validates_the_fields() {
+    let float_field = errors(
+        r#"
+struct Sample : default Hashed<self> {
+    at: Double
+}
+"#,
+    );
+    assert!(
+        float_field
+            .iter()
+            .any(|e| e.contains("default Hashed<self>") && e.contains("not hashed")),
+        "expected the float field to be refused, got: {float_field:?}"
+    );
+
+    let mutable = errors(
+        r#"
+struct Counter : default Ordered<self> canbe Mut {
+    at: Int
+}
+"#,
+    );
+    assert!(
+        mutable
+            .iter()
+            .any(|e| e.contains("default Ordered<self>") && e.contains("canbe Mut")),
+        "expected the mutable struct to be refused, got: {mutable:?}"
+    );
+}
+
+/// A hand-written member of the same shape beside a generated one is the
+/// ordinary duplicate, with the message naming the half to delete.
+#[test]
+fn a_hand_written_member_beside_a_generated_one_is_a_duplicate() {
+    let errs = errors(
+        r#"
+struct Point : default Eq<self> {
+    x: Int
+}
+
+fn eq@Point(a: Point, b: Point) [] -> Bool => a, b {
+    return eq(a.x, b.x)
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("is declared twice") && e.contains("remove `default`")),
+        "expected the duplicate to name both remedies, got: {errs:?}"
+    );
+}
+
+/// A generic struct's generated members are generic too, over the struct's own
+/// parameters — and a type variable is not checked at the declaration
+/// [col-hashed-ordered], so generic code over keyed collections stays writable.
+#[test]
+fn a_generic_struct_generates_generic_members() {
+    let errs = errors(
+        r#"
+struct Box<T> : default Eq<self> {
+    item: T
+}
+
+fn same(a: Box<Int>, b: Box<Int>) [] -> Bool => a, b {
+    return eq(a, b)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// The obligation is still checked at the struct [group-obligation]: `default`
+/// satisfies it by generating, and a bare `Eq<self>` with nothing to satisfy it
+/// still fails — the two spellings answer the same question.
+#[test]
+fn default_satisfies_the_obligation_it_is_written_on() {
+    let generated = errors(
+        r#"
+struct Point : default Eq<self> {
+    x: Int
+}
+"#,
+    );
+    assert!(generated.is_empty(), "unexpected errors: {generated:?}");
+
+    let bare = errors(
+        r#"
+struct Point : Eq<self> {
+    x: Int
+}
+"#,
+    );
+    assert!(
+        bare.iter().any(|e| e.contains("eq")),
+        "expected the unmet obligation to name `eq`, got: {bare:?}"
+    );
+}

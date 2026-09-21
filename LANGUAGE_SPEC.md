@@ -2741,6 +2741,39 @@ Conventions:
     declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so the
     same-file rule could not hold — and `core.*` is implicitly visible
     everywhere, which is the property `@`-scoping exists to provide.
+* [cmp-default] **`default` on an obligation generates the structural
+  implementation**: `struct Point : default Ordered<self>, default Hashed<self>`
+  writes `cmp@Point`, `hash@Point` and `eq@Point` [cmp-canonical] (user decision
+  2026-09-21). One token where a hand-written bundle would be three functions of
+  boilerplate, and the reason `canbe ordered`/`canbe hashed` can be deleted.
+  * **Only where the compiler has a generator**: `Ordered`, `Eq`, `Hashed`.
+    `default` on any other group is an error naming those three — the word would
+    otherwise promise an implementation nothing provides. The argument must be
+    `self` [group-self]: the generator writes the signature over the declaring
+    type.
+  * **The `default` forms bring `eq` with them** (decision 7): `default Ordered`
+    and `default Hashed` generate `eq` too. Everything generated is structural,
+    so `cmp(a, b) == 0`, `eq(a, b)` and equal hashes agree *by construction* —
+    which is exactly what a hand-written pair cannot promise, and why
+    hand-written implementations are declared piece by piece instead.
+  * **Generated members are `@`-scoped canonicals** and carry the struct's own
+    `export` — which is also what [cmp-canonical] demands of a hand-written one.
+    They satisfy the obligation they were generated from, so the clause is both
+    the request and the promise.
+  * **A hand-written member of the same shape beside a generated one is the
+    ordinary duplicate** [fn-overload-duplicate], with a message naming the two
+    remedies (remove `default`, or delete the fn). A bare obligation with no
+    implementation gets the reverse hint.
+  * **`default` inherits today's validation**, because it inherits today's
+    lowering (decision 4): the struct may not be `canbe Mut`, and every field
+    must be hashable/orderable — the `canbe hashed`/`canbe ordered` rules of
+    [col-hashed-ordered], reported at the clause. A type variable is not checked
+    at the declaration; the instantiation is where the key rule bites.
+  * **Lowering is by author, not by spelling**: a `default` member *is* the
+    host's derived operation (`#[derive(PartialOrd, Ord)]` / `Hash` on Rust, the
+    generated `compareTo` and the data class's `equals`/`hashCode` on Kotlin), so
+    the generated member and the type's own ordering cannot disagree. A
+    hand-written implementation is an ordinary Salvo fn and travels its own path.
 * [cmp-hash-values] A hash value holds **within one execution and nowhere
   else** (user decision 2026-09-21). Each backend hashes with its host's own
   algorithm — `hashCode()` on Kotlin, `DefaultHasher` on Rust — so the same

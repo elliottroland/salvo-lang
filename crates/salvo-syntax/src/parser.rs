@@ -817,7 +817,23 @@ impl<'s> Parser<'s> {
         let mut obligations = Vec::new();
         if self.eat(&TokenKind::Colon).is_some() {
             loop {
-                obligations.push(self.parse_type_ref()?);
+                // [cmp-default] `: default Ordered<self>` — the compiler writes
+                // the structural implementation. Contextual, like `iter fn`
+                // (`default` is not a reserved word): inside an obligation
+                // clause a bare `default` followed by a capitalized name can
+                // only be this.
+                let is_default = self.at_word("default")
+                    && matches!(
+                        &self.peek_at(1).kind,
+                        TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())
+                    );
+                if is_default {
+                    self.bump();
+                }
+                obligations.push(Obligation {
+                    default: is_default,
+                    group: self.parse_type_ref()?,
+                });
                 if self.eat(&TokenKind::Comma).is_none() {
                     break;
                 }
@@ -1464,6 +1480,7 @@ impl<'s> Parser<'s> {
             iter_state,
             name,
             scoped_to,
+            structural: false,
             generics,
             generic_canbe,
             params,

@@ -2634,6 +2634,74 @@ fn main() [use] {
     )
 }
 
+/// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
+/// structural implementations and lowers them to what this backend already
+/// emits for `canbe ordered` — `compareTo` through the runtime comparator, the
+/// data class's `equals`, and `hashCode()`.
+///
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_default_obligations`, which is the assertion: the
+/// two hosts derive the same order from the same field declaration order.
+fn kotlinc_compiles_and_runs_default_obligations() -> KotlinCase {
+    let src = r#"
+// Ordering is lexicographic by field declaration order, which is the language's
+// rule on both backends.
+struct Point : default Ordered<self>, default Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+// `default Eq` alone: equality without an order.
+struct Tag : default Eq<self> {
+    label: Str
+}
+
+// A generic struct's generated members are generic too.
+struct Box<T> : default Eq<self> {
+    item: T
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn sign(n: Int) [] -> Str {
+    if n < 0 { return "<" }
+    if n > 0 { return ">" }
+    return "="
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 9 }
+    let r = Point { x: 1, y: 2 }
+    println("cmp ${sign(cmp(p, q))}${sign(cmp(p, r))}${sign(cmp(q, p))}")
+    println("eq ${eq(p, q)} ${eq(p, r)}")
+    // [cmp-hash-values] The agreement with `eq`, never the value.
+    println("hash agrees ${eq(hash(p), hash(r))}")
+    let tags = eq(Tag { label: "a" }, Tag { label: "a" })
+    let boxes = eq(Box<Int> { item: 1 }, Box<Int> { item: 2 })
+    println("others ${tags} ${boxes}")
+    // The capability through an implicit, filled with the generated canonical.
+    let smaller = min_of(p, q)
+    println("smaller ${smaller.y}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "default-obligations",
+        "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
@@ -2719,6 +2787,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_the_comparison_groups,
     kotlinc_compiles_and_runs_a_canonical_implementation,
+    kotlinc_compiles_and_runs_default_obligations,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_a_shareable_interceptor_chain,

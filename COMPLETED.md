@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1261 tests, complete: the toolchain tests are
+cargo test                  # 1271 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,47 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Ordering round, step 3b — `default` obligations generate the structural
+implementations (2026-09-21, night).** `struct Point : default Ordered<self>,
+default Hashed<self>` [cmp-default] writes `cmp@Point`, `hash@Point` *and*
+`eq@Point` — decision 7's "the `default` forms bring `eq` with them", which is
+what makes the generated bundle consistent by construction where a hand-written
+pair could only be trusted.
+
+- **The generation is a desugaring, not a checker feature**, beside the
+  `iter fn` expansion and for the same reasons: the generated members are
+  ordinary `@`-scoped overloads in the module's item list, so resolution,
+  implicit filling, [cmp-canonical]'s rules, `export` inheritance and the
+  *duplicate* check all apply with no new machinery. A hand-written member of the
+  same shape beside a generated one is therefore the ordinary
+  [fn-overload-duplicate] error — with a message naming the half to delete,
+  which is the one thing the generic wording could not say.
+- **Marked `structural` on the `FnDecl`**, bodyless: each backend emits a real
+  function whose body is the host's *derived* operation (decision 4, lowering
+  split by author). Rust gets `(Ord::cmp(a, b) as i32)` over
+  `#[derive(PartialOrd, Ord)]`, `a == b`, and a `DefaultHasher` block; Kotlin
+  gets `__salvoCompare(a, b)` over the struct's generated `compareTo`, `a == b`
+  and `hashCode().toLong()`. Because both stand on what `canbe ordered`/`canbe
+  hashed` already emit, the generated member and the type's own ordering cannot
+  disagree — and the same derives are now requested by either spelling, which is
+  what lets the next step delete the `canbe` pair.
+- **`default` inherits today's validation**: not `canbe Mut`, every field
+  hashable/orderable, reported *at the clause* (`default Hashed<self>` names
+  itself in the message, so the two spellings read the same). Plus two rules of
+  its own: the whitelist (`Ordered`, `Eq`, `Hashed` — anything else is an error
+  naming them) and the `self` argument.
+- **One real bug caught by its own e2e case**: three `default Eq` structs in one
+  program all emitted Rust `eq`, because overload *mangling* filtered to
+  body-bearing fns. Both backends' `rust_fn_name`/`kotlin_fn_name` now count a
+  structural fn as an overload — which it is.
+- **Tests**: 8 more in `compare_tests.rs` (generation and its use through an
+  implicit; `eq` riding along; the whitelist; the `self` rule; the float-field
+  and `canbe Mut` refusals; the duplicate; a generic struct; and `default`
+  satisfying the obligation it is written on beside a bare one that fails), one
+  codegen assertion on the derives, and one e2e program on both backends
+  covering `default Ordered`+`default Hashed`, `default Eq` alone, and a generic
+  struct.
 
 **Ordering round, step 3a — `@`-scoped canonical implementations (2026-09-21,
 night).** `fn cmp@Person(a: Person, b: Person) -> Int` [cmp-canonical]: the
@@ -13805,7 +13846,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1261)
+## Test inventory (all green: 1271)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13813,7 +13854,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 707 - 19 comparison-capability tests (`tests/compare_tests.rs`
+- `salvo-core`: 715 - 27 comparison-capability tests (`tests/compare_tests.rs`
   [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
   resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
   filled by resolution, two spreads composing in one signature, the capability
@@ -13824,7 +13865,11 @@ cache, with per-test timings.
   (the `@`-scoped canonical as an ordinary overload, both selector spellings,
   imported with its type, the same-file and export-match refusals, ambiguity on
   every rung explicit *and* implicit, the selector as the remedy, an unrelated
-  overload staying unambiguous, and the lowercase-after-`@` parse error) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
+  overload staying unambiguous, and the lowercase-after-`@` parse error) and the
+  eight [cmp-default] ones (generation and its use through an implicit, `eq`
+  riding along with `Ordered`, the whitelist, the `self` rule, the float-field
+  and `canbe Mut` refusals, the hand-written duplicate, a generic struct, and
+  `default` satisfying its own obligation) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
   [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
   2026-09-20 ten — classification both ways, the call-site rule both ways, the
   opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
@@ -14507,7 +14552,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 (132 registered cases, the newest being
+- `salvo-backend-kotlin`: 113 (133 registered cases, the newest being
   `compare-groups` [cmp-groups], whose source and expected stdout are verbatim
   the Rust backend's — the 2026-09-20 `narrow-mut-arm`
   case asserts the *same* expected string as the Rust backend's, which is what
@@ -14713,8 +14758,8 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 229 - including the two [cmp-groups] tests and the
-  two-module [cmp-canonical] one (the
+- `salvo-backend-rust`: 231 - including the two [cmp-groups] tests, the
+  two-module [cmp-canonical] one and the two [cmp-default] ones (the
   comparison groups compiled and run to the stdout the Kotlin backend prints,
   and the host lowerings read off the generated source: `Ord::cmp(&a, &b) as
   i32`, `str` comparison for `Str`, `DefaultHasher` for `hash`, and the

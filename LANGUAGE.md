@@ -1295,6 +1295,29 @@ A type can also promise the capability at its declaration,
 `struct Person : Ordered<self>`, which checks there that a matching `cmp`
 exists rather than failing at some distant use.
 
+For the everyday case — compare the fields, in order — you do not write the
+functions at all. `default` on the obligation asks the compiler for them:
+
+```
+struct Point : default Ordered<self>, default Hashed<self> {
+    x: Int,
+    y: Int
+}
+```
+
+That generates `cmp@Point`, `hash@Point` and `eq@Point`: ordering is
+lexicographic by field declaration order (so field order is significant), and
+`eq` comes along with either form, because everything generated is structural
+and therefore consistent by construction. `default` works on the three groups
+the compiler has a generator for — `Ordered`, `Eq`, `Hashed` — and says so if you
+write it on another. A field it cannot compare (a `Double`, a function) is an
+error at the clause, where the mistake is, not at a distant `SortedSet<Point>`;
+so is a `canbe Mut` struct, which could change while a collection holds it.
+
+Writing a member by hand *and* asking for it with `default` is a duplicate: keep
+one. Mixing is fine the other way round — a hand-written `cmp@Point` with no
+`default` is simply the canonical.
+
 A *generic* function has to ask, because nothing about an opaque `T` is
 knowable:
 

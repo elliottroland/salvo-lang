@@ -212,7 +212,7 @@ pub struct StructDecl {
     /// `canbe`. Each member of each named group must have a matching
     /// visible fn, with `self` in the argument list standing for this type —
     /// checked at this declaration, not at a use site.
-    pub obligations: Vec<TypeRef>,
+    pub obligations: Vec<Obligation>,
     /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
@@ -224,6 +224,21 @@ pub struct StructDecl {
     /// fields.
     pub linear: bool,
     pub span: Span,
+}
+
+/// One entry of a struct's obligation clause [group-obligation].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Obligation {
+    /// [cmp-default] `: default Ordered<self>` — the compiler **generates** the
+    /// structural implementation of every member, `@`-scoped to this type
+    /// (user decision 2026-09-21). Legal only on the groups it has a generator
+    /// for (`Ordered`, `Eq`, `Hashed`); anywhere else it is an error naming
+    /// those, since the word would otherwise promise something no code
+    /// provides.
+    pub default: bool,
+    /// The group and its type arguments, `self` standing for the declaring
+    /// type [group-self].
+    pub group: TypeRef,
 }
 
 /// A struct field, optionally with a default value.
@@ -459,6 +474,13 @@ pub struct FnDecl {
     /// extended from modules and effects to types — on both sides, since
     /// `cmp = cmp@Person` is how a call names one explicitly.
     pub scoped_to: Option<Ident>,
+    /// [cmp-default] **Generated** by a `default` obligation: the structural
+    /// implementation of a capability member for the type it is `@`-scoped to.
+    /// It has no body — each backend lowers it to the host's own derived
+    /// comparison, equality or hash (user decision 2026-09-21, the
+    /// lowering-split-by-author rule), which is also what keeps the `default`
+    /// forms consistent with each other by construction.
+    pub structural: bool,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,

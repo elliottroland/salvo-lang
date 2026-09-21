@@ -5244,6 +5244,100 @@ fn rustc_compiles_and_runs_a_canonical_implementation() {
     run_rust_files(&files, "canonical_impl", CANONICAL_OUTPUT);
 }
 
+/// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
+/// structural implementations, `@`-scoped to the type, and lowers them to the
+/// derive today's `canbe ordered`/`canbe hashed` already emit — so the generated
+/// member and the type's own `Ord`/`Hash` cannot disagree (user decision
+/// 2026-09-21, lowering split by author).
+///
+/// Source and expected stdout are **verbatim** the Kotlin backend's
+/// `kotlinc_compiles_and_runs_default_obligations`.
+pub const DEFAULT_DEMO: &str = r#"
+// Ordering is lexicographic by field declaration order, which is the language's
+// rule on both backends.
+struct Point : default Ordered<self>, default Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+// `default Eq` alone: equality without an order.
+struct Tag : default Eq<self> {
+    label: Str
+}
+
+// A generic struct's generated members are generic too.
+struct Box<T> : default Eq<self> {
+    item: T
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn sign(n: Int) [] -> Str {
+    if n < 0 { return "<" }
+    if n > 0 { return ">" }
+    return "="
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 9 }
+    let r = Point { x: 1, y: 2 }
+    println("cmp ${sign(cmp(p, q))}${sign(cmp(p, r))}${sign(cmp(q, p))}")
+    println("eq ${eq(p, q)} ${eq(p, r)}")
+    // [cmp-hash-values] The agreement with `eq`, never the value.
+    println("hash agrees ${eq(hash(p), hash(r))}")
+    let tags = eq(Tag { label: "a" }, Tag { label: "a" })
+    let boxes = eq(Box<Int> { item: 1 }, Box<Int> { item: 2 })
+    println("others ${tags} ${boxes}")
+    // The capability through an implicit, filled with the generated canonical.
+    let smaller = min_of(p, q)
+    println("smaller ${smaller.y}")
+}
+"#;
+
+pub const DEFAULT_OUTPUT: &str =
+    "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n";
+
+/// The lowering: the generated member stands on the derive, and the derive is
+/// what the `default` clause asks for.
+#[test]
+fn default_obligations_lower_to_the_hosts_derives() {
+    let files = generate(&[("main.sv", DEFAULT_DEMO)]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    for expected in [
+        // `default Ordered` + `default Hashed` ask for exactly the derives
+        // `canbe ordered`/`canbe hashed` ask for.
+        "#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]\npub struct Point",
+        // The generated members are ordinary Rust fns over the derive.
+        "(Ord::cmp(a, b) as i32)",
+        "std::hash::DefaultHasher::new()",
+        // A generic struct's member carries the bound its derive carries.
+        "pub fn eq__",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+#[test]
+fn rustc_compiles_and_runs_default_obligations() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", DEFAULT_DEMO)]);
+    run_rust_files(&files, "default_obligations", DEFAULT_OUTPUT);
+}
+
 /// [rs-fn-field] A **composed pass, hand-written**: it stores both its source
 /// and its callback. Storing a function in a struct field used to be a Rust
 /// codegen error while Kotlin accepted it (a live backend divergence, recorded

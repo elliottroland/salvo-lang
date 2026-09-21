@@ -2316,7 +2316,40 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let scope = self.scope;
-        for (i, ob) in s.obligations.iter().enumerate() {
+        for (i, entry) in s.obligations.iter().enumerate() {
+            let ob = &entry.group;
+            // [cmp-default] `default` is legal only where the compiler has a
+            // generator. Elsewhere the word would promise an implementation
+            // nothing provides, so it is an error naming the three groups that
+            // have one (user decision 2026-09-21).
+            if entry.default {
+                if !matches!(ob.name.name.as_str(), "Ordered" | "Eq" | "Hashed") {
+                    self.error(
+                        ob.span,
+                        format!(
+                            "`default` generates an implementation, and the compiler has \
+                             one only for `Ordered`, `Eq` and `Hashed` — not for `{}`. \
+                             Drop `default` and declare the members [cmp-default]",
+                            ob.name.name
+                        ),
+                    );
+                    continue;
+                }
+                // The generator writes the signature over *this* type, so the
+                // argument has to be `self` [group-self].
+                if !ob.args.iter().all(is_self_ref) {
+                    self.error(
+                        ob.span,
+                        format!(
+                            "`default {}` generates the implementation for the type it \
+                             is written on, so its argument is `self`: write \
+                             `: default {}<self>` [cmp-default]",
+                            ob.name.name, ob.name.name
+                        ),
+                    );
+                    continue;
+                }
+            }
             // [linear-group] The pre-2026-09-12 spelling, caught before the
             // unknown-group error would puzzle: linearity is a declaration
             // modifier now.
@@ -2332,7 +2365,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The same group twice is a mistake, not an emphasis.
             if s.obligations[..i]
                 .iter()
-                .any(|p| p.name.name == ob.name.name)
+                .any(|p| p.group.name.name == ob.name.name)
             {
                 self.error(
                     ob.span,
@@ -8561,17 +8594,46 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// field must itself be hashable/orderable.
     fn check_key_optins(&mut self, s: &'p ast::StructDecl) {
         let mutable = s.auto_qualifiers.iter().any(|q| q.name.name == "Mut");
+        // [cmp-default] The two spellings validate alike, because they lower
+        // alike: a `default` obligation's generated member is defined in terms
+        // of the very derive `canbe` asks for (user decision 2026-09-21 —
+        // `default` inherits today's validation *and* today's lowering). So a
+        // float field is refused at the `default`, where it is easy to see,
+        // rather than at a distant `SortedSet<Point>`.
+        let mut claims: Vec<(&str, bool, Span, String)> = Vec::new();
         for q in &s.auto_qualifiers {
-            let (claim, ordered) = match q.name.name.as_str() {
-                "hashed" => ("hashed", false),
-                "ordered" => ("ordered", true),
-                _ => continue,
-            };
+            match q.name.name.as_str() {
+                "hashed" => claims.push(("hashed", false, q.span, format!("canbe hashed"))),
+                "ordered" => claims.push(("ordered", true, q.span, format!("canbe ordered"))),
+                _ => {}
+            }
+        }
+        for ob in &s.obligations {
+            if !ob.default {
+                continue;
+            }
+            match ob.group.name.name.as_str() {
+                "Hashed" => claims.push((
+                    "hashed",
+                    false,
+                    ob.group.span,
+                    "default Hashed<self>".to_string(),
+                )),
+                "Ordered" => claims.push((
+                    "ordered",
+                    true,
+                    ob.group.span,
+                    "default Ordered<self>".to_string(),
+                )),
+                _ => {}
+            }
+        }
+        for (claim, ordered, span, written) in claims {
             if mutable {
                 self.error(
-                    q.span,
+                    span,
                     format!(
-                        "`{}` cannot be `canbe {claim}`: it is also `canbe Mut`, \
+                        "`{}` cannot be `{written}`: it is also `canbe Mut`, \
                          and a value that can change while a collection holds \
                          it would corrupt the collection's order or lookup. \
                          Only an immutable struct can be a key",
@@ -8592,7 +8654,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         field.ty.span(),
                         format!(
-                            "`{}` cannot be `canbe {claim}`: its field `{}` is \
+                            "`{}` cannot be `{written}`: its field `{}` is \
                              not {claim} — {reason}",
                             s.name.name, field.name.name
                         ),
@@ -17166,7 +17228,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         };
         let decl: &'p StructDecl = self.scope.structs.get(name.as_str()).copied()?;
-        let ob = decl.obligations.iter().find(|o| o.name.name == "Yield")?;
+        let ob = decl
+            .obligations
+            .iter()
+            .map(|o| &o.group)
+            .find(|g| g.name.name == "Yield")?;
         Some((decl, ob))
     }
 

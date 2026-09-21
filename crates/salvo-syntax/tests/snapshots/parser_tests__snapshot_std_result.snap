@@ -100,6 +100,7 @@ Module {
                     span: 1100..1102,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -215,6 +216,7 @@ Module {
                     span: 1244..1247,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",

@@ -17,6 +17,7 @@ Module {
                     span: 3..6,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -229,6 +230,7 @@ Module {
                     span: 171..174,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -447,6 +449,7 @@ Module {
                     span: 345..354,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "S",
@@ -726,6 +729,7 @@ Module {
                     span: 532..541,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -813,6 +817,7 @@ Module {
                     span: 587..599,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1110,6 +1115,7 @@ Module {
                     span: 979..984,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1254,39 +1260,42 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 obligations: [
-                    TypeRef {
-                        name: Ident {
-                            name: "Yield",
-                            span: 1068..1069,
-                        },
-                        args: [
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "self",
+                    Obligation {
+                        default: false,
+                        group: TypeRef {
+                            name: Ident {
+                                name: "Yield",
+                                span: 1068..1069,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "self",
+                                            span: 1071..1075,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 1071..1075,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 1071..1075,
                                 },
-                            },
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "Int",
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Int",
+                                            span: 1101..1104,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 1101..1104,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 1101..1104,
                                 },
-                            },
-                        ],
-                        from: [],
-                        span: 1071..1075,
+                            ],
+                            from: [],
+                            span: 1071..1075,
+                        },
                     },
                 ],
                 auto_qualifiers: [
@@ -1363,6 +1372,7 @@ Module {
                     span: 1069..1070,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1536,6 +1546,7 @@ Module {
                     span: 1071..1075,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -1830,39 +1841,42 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 obligations: [
-                    TypeRef {
-                        name: Ident {
-                            name: "Yield",
-                            span: 1363..1368,
-                        },
-                        args: [
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "self",
+                    Obligation {
+                        default: false,
+                        group: TypeRef {
+                            name: Ident {
+                                name: "Yield",
+                                span: 1363..1368,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "self",
+                                            span: 1369..1373,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 1369..1373,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 1369..1373,
                                 },
-                            },
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "Int",
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Int",
+                                            span: 1375..1378,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 1375..1378,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 1375..1378,
                                 },
-                            },
-                        ],
-                        from: [],
-                        span: 1363..1379,
+                            ],
+                            from: [],
+                            span: 1363..1379,
+                        },
                     },
                 ],
                 auto_qualifiers: [
@@ -1916,6 +1930,7 @@ Module {
                     span: 1410..1419,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2044,6 +2059,7 @@ Module {
                     span: 1492..1496,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2330,6 +2346,7 @@ Module {
                     span: 1679..1685,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -2533,6 +2550,7 @@ Module {
                     span: 1843..1855,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -2698,6 +2716,7 @@ Module {
                     span: 1937..1944,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -2782,6 +2801,7 @@ Module {
                     span: 1979..1997,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -2991,6 +3011,7 @@ Module {
                     span: 2140..2153,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -3195,6 +3216,7 @@ Module {
                     span: 2431..2437,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -3378,6 +3400,7 @@ Module {
                     span: 2532..2538,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -3579,6 +3602,7 @@ Module {
                             span: 2790..2793,
                         },
                         scoped_to: None,
+                        structural: false,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -3659,6 +3683,7 @@ Module {
                             span: 2818..2822,
                         },
                         scoped_to: None,
+                        structural: false,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -3706,6 +3731,7 @@ Module {
                     span: 3095..3100,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -3920,6 +3946,7 @@ Module {
                     span: 3233..3240,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -4104,6 +4131,7 @@ Module {
                     span: 3415..3421,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,

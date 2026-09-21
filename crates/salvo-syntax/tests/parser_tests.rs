@@ -295,10 +295,16 @@ fn a_struct_declares_obligations_before_canbe() {
     let salvo_syntax::ast::Item::Struct(s) = &module.items[0] else {
         panic!("expected a struct item");
     };
-    let names: Vec<&str> = s.obligations.iter().map(|o| o.name.name.as_str()).collect();
+    let names: Vec<&str> = s
+        .obligations
+        .iter()
+        .map(|o| o.group.name.name.as_str())
+        .collect();
     assert_eq!(names, vec!["Linear", "Yield"]);
-    assert!(s.obligations[0].args.is_empty());
-    assert_eq!(s.obligations[1].args.len(), 1);
+    assert!(s.obligations[0].group.args.is_empty());
+    assert_eq!(s.obligations[1].group.args.len(), 1);
+    // [cmp-default] Neither entry wrote `default`.
+    assert!(s.obligations.iter().all(|o| !o.default));
     let quals: Vec<&str> = s.auto_qualifiers.iter().map(|q| q.name.name.as_str()).collect();
     assert_eq!(quals, vec!["Mut"]);
     // The group member's `Self` is a plain named type to the parser.

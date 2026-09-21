@@ -56,39 +56,42 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 obligations: [
-                    TypeRef {
-                        name: Ident {
-                            name: "Yield",
-                            span: 41..42,
-                        },
-                        args: [
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "self",
+                    Obligation {
+                        default: false,
+                        group: TypeRef {
+                            name: Ident {
+                                name: "Yield",
+                                span: 41..42,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "self",
+                                            span: 44..48,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 44..48,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 44..48,
                                 },
-                            },
-                            Named {
-                                qualifiers: [],
-                                base: TypeRef {
-                                    name: Ident {
-                                        name: "Int",
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Int",
+                                            span: 74..77,
+                                        },
+                                        args: [],
+                                        from: [],
                                         span: 74..77,
                                     },
-                                    args: [],
-                                    from: [],
-                                    span: 74..77,
                                 },
-                            },
-                        ],
-                        from: [],
-                        span: 44..48,
+                            ],
+                            from: [],
+                            span: 44..48,
+                        },
                     },
                 ],
                 auto_qualifiers: [
@@ -144,6 +147,7 @@ Module {
                     span: 42..43,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -295,6 +299,7 @@ Module {
                     span: 44..48,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,

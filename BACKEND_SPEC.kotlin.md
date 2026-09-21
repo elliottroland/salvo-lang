@@ -950,6 +950,14 @@ where Rust had to build the fusion to get the same programs running
     `hashCode().toLong()`.
     * [cmp-hash-values] That last one is this host's digest and not Rust's,
       deliberately: only the agreement with `eq` crosses the backends.
+  * [cmp-default] A member **generated** by a `default` obligation is emitted as
+    an ordinary Kotlin fn over what this backend already produces for the
+    `canbe` opt-ins: `fun cmp__n(a: Point, b: Point): Int =
+    salvo.__salvoCompare(a, b)` (landing on the struct's generated `compareTo`,
+    which `default Ordered<self>` is what asks for), `a == b` for `eq` (the data
+    class's `equals`, float-aware where a field needs it [kt-float-eq]), and
+    `value.hashCode().toLong()` for `hash`. A generic struct's member is generic;
+    no bounds are needed here, since `__salvoCompare` takes `Any?`.
 * [kt-mailbox] [actor-mailbox] **The mailbox bound is a generated property**,
   `internal val __mailboxCapacity: Int`, initialised from the slot's expression
   where a constructor parameter is in scope for free. The spawn reads it off the

@@ -849,6 +849,16 @@ the blanket rule:
   its own `Ord`, delegating to `T`'s). `eq` is `==`. A `Str` is compared and
   hashed as `str` (`&s[..]`), which is byte-wise UTF-8 and therefore
   code-point order [kt-ordered] — no runtime helper needed on this side.
+  * [cmp-default] A member **generated** by a `default` obligation is emitted as
+    an ordinary Rust fn over the *derive*: `pub fn cmp__n(a: &Point, b: &Point)
+    -> i32 { (Ord::cmp(a, b) as i32) }`, with `#[derive(PartialOrd, Ord)]` /
+    `Hash` on the struct — the derives `canbe ordered`/`canbe hashed` already
+    ask for, which is what makes the generated member and the type's own
+    ordering the same thing. A generic struct's member carries the bound its
+    derive carries (`<T: Clone + Ord>`). Calls, adapter closures and
+    `cmp = cmp@Point` values all reach it as a named fn, so nothing else in the
+    backend learns that `default` exists — and it takes part in overload
+    mangling like any other body-bearing fn.
   * [cmp-hash-values] `hash` is a block expression holding its own
     `std::hash::DefaultHasher`: `{ let mut __h = …; Hash::hash(&v, &mut __h);
     Hasher::finish(&__h) as i64 }`. One hasher per call, so a `hash` nested

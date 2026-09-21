@@ -333,9 +333,15 @@ application).
    declaration-side parser, the same-file and export-match checks, auto-import
    with the type, default selection for implicits, decision 9's consistent
    ambiguity errors in both ranking paths, and the selector in call *and* value
-   position. New rule [cmp-canonical]. Still to do in this step:
-   **`default` obligations and the deletion of `canbe ordered`/`canbe hashed`**
-   (the latter moved to the 2+4 landing, where the sweep happens):
+   position. New rule [cmp-canonical].
+   **`default` obligations landed the same night** (step 3b): the contextual
+   `default` in the `:` clause, the `Ordered`/`Eq`/`Hashed` whitelist and the
+   `self` rule, generation as a *desugaring* (so the generated `@`-scoped
+   members are ordinary items and the duplicate check catches a hand-written
+   collision), today's `canbe` validation inherited, and derive-based lowering on
+   both backends. New rule [cmp-default]. What remains of the original step 3 is
+   the **deletion of `canbe ordered`/`canbe hashed`**, which moved to the 2+4
+   landing where its sweep happens. Original wording:
    parser (`default`
    in the `:` clause; `fn name@Type` declarations and the type side of
    the `@` selector), auto-import with the type, resolution (decision 8's

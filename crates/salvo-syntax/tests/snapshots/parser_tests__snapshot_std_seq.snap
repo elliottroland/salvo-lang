@@ -19,6 +19,7 @@ Module {
                     span: 1392..1395,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "It",
@@ -367,6 +368,7 @@ Module {
                     span: 2010..2016,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "It",
@@ -760,6 +762,7 @@ Module {
                     span: 2400..2406,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "It",
@@ -1092,6 +1095,7 @@ Module {
                     span: 2892..2895,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -1268,6 +1272,7 @@ Module {
                     span: 2979..2985,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -1462,6 +1467,7 @@ Module {
                     span: 3098..3104,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
@@ -1668,6 +1674,7 @@ Module {
                     span: 3681..3687,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "D",
@@ -2114,6 +2121,7 @@ Module {
                     span: 4233..4242,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "D",
@@ -2641,6 +2649,7 @@ Module {
                     span: 5041..5045,
                 },
                 scoped_to: None,
+                structural: false,
                 generics: [
                     Ident {
                         name: "T",
