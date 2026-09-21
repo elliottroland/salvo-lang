@@ -147,6 +147,68 @@ What it leaves behind, each deliberate:
   own section, "Platform handlers — the thread-safety contract", which
   carries the divergence record and the parity plan.
 
+## The `?` family and the placeholder (DECISION — working document OPTIONALS.md)
+
+Raised by the user 2026-09-20: syntax for the two patterns that optional and
+result types force a caller to write out — `?:` over a fallible type (with `_`
+standing for the failure side, and a right side that either gives a value or
+escapes), `?.` for safe chaining that keeps the success tag, a **general `_`
+placeholder rule** for scopes holding a single unnamed value, and
+`waitfor { counter.total(_) }` as the binder-less form of [actor-waitfor].
+
+**Six calls are open** (`Q-1`…`Q-6`), and they are laid out with options,
+trade-offs and a recommendation in **OPTIONALS.md** — which is the working
+document for this round and is deleted once the last decided item lands
+(DESIGN_DOC.md's charter). `Q-1` is load-bearing: *what makes a type fallible*,
+which every other section consumes. Nothing has propagated to the specs, the
+decision log or this file's plan yet.
+
+The feature is **additive** — the long forms stay legal — so no
+backwards-compatibility sweep fires, with one exception measured in the
+document: `_` becomes unbindable, and it appears in zero `.sv` sources today.
+
+## Mutating through a union arm (DECISION)
+
+Left behind by the 2026-09-20 fix to [rs-narrow-mut] (COMPLETED.md's log and its
+closed-defect entry). One shape is now **refused on Rust and accepted on
+Kotlin**, which is a divergence closed by restriction on one side and therefore
+a decision rather than a resting place:
+
+```
+fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
+    if o ^ Ok {
+        add(o, 7)          // Kotlin: mutates the caller's list
+    }                      // Rust: reported — `o` is read-only here
+}
+```
+
+The parameter renders `&Union2<…>` because an arm's `Mut` is not a claim about
+`o`, and **nothing can ask for the `&mut`**: a written `=> o: Mut` is refused by
+the checker ("a deduction may preserve or drop qualifiers, not add them"). So
+the question is what a `Mut` arm means for the *parameter* that carries it.
+
+- **(a) The arm's `Mut` makes the parameter mutable.** `default_param_mode`
+  reads `type_has_mut_arm`, so the parameter is `&mut Union2<…>` and the peel
+  works. Cost: the Rust signature then disagrees with the checker's contract,
+  which still says the parameter is a kept read — and two arguments naming the
+  same place, which the checker permits as two reads, become two `&mut` borrows
+  and an E0499 on a program Salvo accepted. Fixing *that* means teaching the
+  fate analysis about it, which is the real scope of this option.
+- **(b) Admit the deduction.** Relax "may not add qualifiers" so `=> o: Mut` is
+  legal when `Mut` is present on an arm, and let the inference write it from the
+  body. Cost: a written deduction now means "through an arm", which is a new
+  reading of the clause; benefit: the contract stays visible in the signature,
+  which is what deductions are for, and the caller's obligations follow from it.
+- **(c) Keep the refusal, and refuse it in the *checker*** so both backends say
+  the same thing. Cost: a Kotlin program stops compiling; benefit: the language
+  has one story again, and the remedy (take the payload as its own `Mut List<T>`
+  parameter) is one line at each site.
+
+**Recommendation: (b)**, with (c) as the fallback if the deduction reading turns
+out to cost more than it buys. (a) is the one to avoid: it makes the two sides of
+the compiler disagree about what a signature means, which is how the original
+defect happened.
+
 ## Platform handlers — the thread-safety contract (DECISION)
 
 **Where this stands (user decision 2026-09-20, third round):** a platform
@@ -798,7 +860,11 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Six open.** (**Closed 2026-09-18**: the idle report never fired when the
+**Six open.** (**Closed 2026-09-20**: mutating a `Mut` payload through a
+narrowing on three further sites — the intrinsic path, the `^` branch shadow and
+a moved parameter's `mut` binder — silently wrong on Rust and divergent from
+Kotlin; the repro and the shape it left refused are in COMPLETED.md. **Closed
+2026-09-18**: the idle report never fired when the
 waiter was an occupied actor — the prerequisite of SHAREABLE_HANDLERS.md's
 SH-8; the repro and the fix are in COMPLETED.md. Closed in the sessions before
 this one, with repros and

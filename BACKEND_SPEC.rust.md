@@ -526,6 +526,41 @@ the blanket rule:
   `r.as_mut().unwrap().at = 2`). The outermost node of an assignment target
   keeps the read rule — assigning to a narrowed *variable* writes its
   storage, not through the narrowing.
+  * **Two further sites, added 2026-09-20** (the rule shipped with the first
+    two on 2026-09-10 and the others were silently wrong until then; the
+    repro is in COMPLETED.md):
+    * **An `intrinsic` parameter the declaration types `Mut`.** The
+      intrinsic path renders arguments itself, and rendered every place with
+      the read form regardless of mode, so `add(a, 9)` on a narrowed
+      `Mut List<Int>?` emitted `a.as_ref().unwrap().clone().push(9)` — and
+      because the nullable read clones *per read*, the element was gone on
+      the next line. The place now takes the mutable unwrap when the
+      parameter is `Mut` and is not consumed, falling back to the read form
+      when the place carries no narrowing (so an ordinary `Mut` argument is
+      unchanged).
+    * **The `^` branch shadow, when the peeled payload is `Mut`**
+      ([rs-widen-shadow]): bound as `let x = <mutable unwrap>` with
+      `BindKind::RefMut` rather than an owned clone, so a mutation inside the
+      branch reaches the storage and survives the branch. No `mut` on the
+      binder — it is a reference, and the generated code stays warning-free.
+      Reads are unaffected: a `&mut T` binding is what an ordinary `Mut`
+      parameter already is.
+  * **An owned parameter binds `mut` when `Mut` is reachable by peeling an
+    arm**, not only when its own type carries it (`type_has_mut_arm`): a
+    moved `Ok Mut List<Int> | Err Str` parameter is peeled with
+    `o.u1_mut()`, which borrows the binder. The *mode* deliberately still
+    reads `type_has_mut`, since an arm's `Mut` is not a claim about the
+    parameter — which is what leaves the case below.
+  * **The one refused shape** [backend-never-wrong]: a union-typed parameter
+    the frame received **borrowed** (`fn f(o: Ok Mut List<Int> | Err Str)`
+    renders `&Union2<…>`) whose arm is mutated. There is no `&mut` to give
+    and nothing can ask for one — a written `=> o: Mut` is refused by the
+    checker, since the `Mut` is the arm's claim and not the parameter's — so
+    the emitter **reports**, naming the remedy (take the payload as its own
+    `Mut List<T>` parameter and check the arm at the call site). Kotlin
+    compiles and mutates the caller's value here, so this is a real
+    divergence closed by restriction on one side; lifting it is a deduction
+    question, open in ROADMAP.md.
   * **Why it is a rule and not an optimization**: reusing the read form was
     silently wrong. `&mut (p.as_ref().unwrap().clone())` compiles, and the
     mutation lands on the clone — a pass driven through a narrowed handle
@@ -610,6 +645,12 @@ the blanket rule:
   nested `when` see the inner value. The binding kind is saved and restored
   around the branch, since the shadow is owned where the outer binding may be
   a borrow.
+  * **Unless the peeled payload is `Mut`** (2026-09-20): then the shadow is a
+    **mutable borrow into the storage** (`let d = d.u1_mut();`, bound
+    `BindKind::RefMut`, no `mut` on the binder), because an owned clone made a
+    mutation inside the branch vanish when the branch ended — while Kotlin,
+    which casts the storage, kept it. [rs-narrow-mut] carries the whole set of
+    mutable sites and the one shape still refused.
   * Without the shadow the emitted code compiles and is **wrong**: the nested
     `match` scrutinizes the outer wrapper, whose arm 0 is the one the outer
     test already took, so the second inner branch becomes dead code. Caught

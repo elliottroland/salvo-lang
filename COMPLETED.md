@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1212 tests, complete: the toolchain tests are
+cargo test                  # 1215 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,70 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Mutating a `Mut` payload through a narrowing: the other three sites, fixed
+(2026-09-20, late session).** [rs-narrow-mut] landed 2026-09-10 covering
+declared calls and assignment bases. Designing `?.` for OPTIONALS.md walked
+into the rest of it: the fault was still live on the **intrinsic** path and in
+the **`^` branch shadow**, and it was still the same fault — Rust mutated a
+clone, Kotlin mutated the value, neither said anything. Found by *running* both
+backends on a five-line program, which is the only way this class shows up
+(`analyze` is silent by construction, and rustc compiled the wrong code with no
+warning at all — verified by compiling the generated `main.rs` by hand).
+
+What it took, in the order it was found:
+
+- **The intrinsic argument path.** `intrinsic_arg_code` renders its own
+  arguments and rendered *every* place with `emit_place`, the read form,
+  regardless of the parameter's mode. So `add(a, 9)` on a narrowed
+  `Mut List<Int>?` emitted `a.as_ref().unwrap().clone().push(9)`. The nullable
+  read clones per *read*, so the element was gone on the next line; the wrapper
+  form (`e.u1().clone().push(9)`) lost it the same way. Fixed by taking the
+  mutable unwrap when the parameter is `Mut` and not consumed, falling back to
+  the read form when the place carries no narrowing — so an ordinary `Mut`
+  argument emits exactly what it did before.
+- **The `^` branch shadow** [rs-widen-shadow]. The shadow is an owned clone by
+  design ("the outer binding may be a borrow"), which made a mutation *hold*
+  inside the branch and vanish when it ended — the sneakiest of the three,
+  because the branch's own `println` confirmed the mutation. Fixed by binding a
+  mutable borrow into the storage (`let d = d.u1_mut();`, `BindKind::RefMut`)
+  when the peeled payload is `Mut`. Reads needed nothing: a `&mut T` binding is
+  what an ordinary `Mut` parameter already is, so `borrowed_mut_arg`'s reborrow
+  case and every read path already handled it.
+- **A moved union parameter needs its `mut` binder.** `o.u1_mut()` borrows the
+  binder, so `pub fn eat(o: Union2<…>)` was an E0596 the moment the peel became
+  mutable. The existing rule already bound `mut` for `type_has_mut`; it now
+  reads `type_has_mut_arm`, which also finds `Mut` behind a union arm. Only the
+  binder keyword changed — a spurious `mut` costs nothing, since generated code
+  allows `unused_mut`, and the *mode* deliberately still reads `type_has_mut`.
+
+**What it uncovered, and left open.** One shape has no `&mut` to give: a
+union-typed parameter the frame received **borrowed**
+(`fn f(o: Ok Mut List<Int> | Err Str)`), whose arm the body mutates. Nothing can
+ask for the `&mut` — a written `=> o: Mut` is refused by the checker, because
+the `Mut` is the *arm's* claim and not the parameter's ("a deduction may
+preserve or drop qualifiers, not add them"). Kotlin compiles that function and
+mutates the caller's value. Three options were considered: widen
+`default_param_mode` to `type_has_mut_arm` (rejected for now — it makes the
+Rust signature disagree with the checker's contract, and two read-only
+arguments of the same place would become two `&mut` borrows and an E0499 on a
+program the checker accepts); infer the deduction (the checker refuses to
+*express* it, so this is a design change, not a mechanical one); or refuse.
+**Refused**, with a diagnostic naming the remedy — it replaces a raw E0596, and
+the lift is now a **DECISION** in ROADMAP.md ("Mutating through a union arm").
+Note the trade this session made deliberately: three shapes went from *silently
+wrong* to *correct*, and one went from *silently doing nothing* to *refused*,
+which is the direction [backend-never-wrong] points.
+
+Tests: `rustc_compiles_and_runs_mutation_through_a_narrowed_mut_arm` and
+`a_mut_payload_is_peeled_by_borrowing_the_storage` (seven shapes — a variable
+and a struct field over the nullable repr, a wrapper arm through `^` and through
+`when`/`is`, a wrapper behind an `Option`, a moved parameter, a handler state
+field; the negative assertions name the two clone-then-mutate spellings that
+were the defect), `peeling_a_mut_arm_out_of_a_borrowed_parameter_is_reported`
+for the refusal, and `kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm`
+asserting the *same* expected string, which is what makes the parity claim a
+test rather than an observation. 1212 → 1215.
 
 **Spawn-inheritance, built (user decisions 2026-09-20, evening session; the
 whole arc landed the same session).** The arc the shareable-by-default work
@@ -8465,6 +8529,44 @@ the other. "Assigning in is a store" and "moving out is impossible" are one
 fact about handler storage, and shipping half of it left the half that produces
 wrong output.
 
+### ~~Mutating a `Mut` payload through a narrowing, on three more sites~~ — found and closed 2026-09-20
+
+The sequel to the entry below, found while designing `?.` (OPTIONALS.md `Q-4`)
+and closed the same session. The 2026-09-10 fix covered declared calls and
+assignment bases; the **intrinsic** path and the `^` **branch shadow** were
+still wrong, the same way and just as quietly. **Was reproduced by running both
+backends** — `analyze` is silent, and the generated Rust compiled with **no
+rustc warning at all** (checked by hand on the emitted `main.rs`):
+
+```
+let xs: Mut List<Int>? = mut_list_of(1, 2)
+if xs is Mut {
+    add(xs, 3)
+    println("value: ${to_str(xs)}")       // Rust: [1, 2]   Kotlin: [1, 2, 3]
+}
+```
+
+The emitted line was `xs.as_ref().unwrap().clone().push(3);` — the read form
+clones, so the element landed on a temporary and was dropped. Because the
+nullable read clones per *read*, the mutation was gone on the very next line.
+The wrapper shape lost it one step later instead, which is nastier, because the
+branch's own read confirms the mutation:
+
+```
+let r: Ok Mut List<Int> | Err Str = ok(mut_list_of(1, 2))
+if r ^ Ok { add(r, 3); println("inside: ${to_str(r)}") }   // both: [1, 2, 3]
+if r ^ Ok { println("after:  ${to_str(r)}") }              // Rust: [1, 2]   Kotlin: [1, 2, 3]
+```
+
+Kotlin was the correct backend: the arm *holds* that list and narrowing is a
+typing act ([qual-erasure]), so the narrowed read must reach the same value.
+**Fixed under [rs-narrow-mut]** (two new sites, plus `type_has_mut_arm` for a
+moved parameter's `mut` binder) — the decision-log entry at the top of this
+document has the reasoning and the three options weighed for the shape it left
+open: a union parameter received *borrowed* whose arm is mutated, which Kotlin
+allows and Rust now refuses by name, pending the deduction **DECISION** in
+ROADMAP.md.
+
 ### ~~Mutation through a narrowed place borrows a clone on Rust~~ — found and closed 2026-09-10
 
 **Was reproduced** by *running* both backends — `analyze` is silent, and the
@@ -13110,7 +13212,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1212)
+## Test inventory (all green: 1215)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13799,7 +13901,9 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 - **the compile-and-run programs are one
+- `salvo-backend-kotlin`: 113 (130 registered cases — the 2026-09-20 `narrow-mut-arm`
+  case asserts the *same* expected string as the Rust backend's, which is what
+  makes that fix's parity claim a test) - **the compile-and-run programs are one
   test now**: each is a fn returning a `KotlinCase` listed in
   `KOTLIN_CASES`, and `kotlinc_compiles_and_runs_every_case` batch-compiles
   the stamp-missing ones in a few parallel kotlinc invocations (per-case
@@ -14001,7 +14105,11 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 223 - including spawn-inheritance end to end and the
+- `salvo-backend-rust`: 226 - including the three 2026-09-20 [rs-narrow-mut]
+  tests (the seven-shape mutation-through-a-narrowed-`Mut`-arm program compiled
+  and run, the same read off the generated source with the two
+  clone-then-mutate spellings asserted *absent*, and the borrowed-parameter
+  refusal), spawn-inheritance end to end and the
   handle-bundle shapes ([spawn-inherit], [rs-handle-bundle]), the shareable interceptor chain and the
   generic handle-dep handler ([use-local], 2026-09-20), and sixteen [rs-actor] tests (the first
   asynchronous program compiled and run, printing the `sum 5` the Kotlin

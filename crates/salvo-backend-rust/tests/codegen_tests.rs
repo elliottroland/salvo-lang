@@ -5481,9 +5481,175 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
     );
 }
 
+/// [rs-narrow-mut] The other two halves of the same rule, found 2026-09-20
+/// while designing `?.` and silently wrong until then: the **intrinsic**
+/// argument path and the `^` **branch shadow** [rs-widen-shadow].
+///
+/// The 2026-09-10 fix covered declared calls (`ParamMode::RefMut` →
+/// `borrowed_mut_arg`) and assignment bases. It missed:
+///
+/// - an **intrinsic** whose parameter is `Mut` — `intrinsic_arg_code` rendered
+///   every place with `emit_place`, so `add(a, 9)` on a narrowed
+///   `Mut List<Int>?` emitted `a.as_ref().unwrap().clone().push(9)`: compiles,
+///   warns about nothing, drops the element. Every read cloned afresh, so the
+///   mutation was gone on the next line;
+/// - the `^` branch shadow, which bound an owned clone, so a mutation *held*
+///   inside the branch and vanished when it ended.
+///
+/// Both disagreed with Kotlin, which casts the storage and mutates the real
+/// value — the repro and the reasoning are in COMPLETED.md. The shapes here are
+/// the ones that were wrong, each with a different storage: a variable and a
+/// struct field over the nullable representation, a wrapper arm through `^` and
+/// through `when`/`is`, a wrapper behind an `Option`, a **moved** union
+/// parameter (whose binder needs `mut`), and a handler **state field**
+/// (`self.held`).
+const NARROW_MUT_ARM_DEMO: &str = r#"
+struct Shelf canbe Mut {
+    items: Mut List<Int>? = None
+}
+
+effect Bag {
+    fn stash(n: Int) -> None
+    fn dump() -> Str
+}
+
+handler Holder of Bag {
+    held: Ok Mut List<Int> | Err Str = ok(mut_list_of(0))
+
+    fn stash(n: Int) -> None {
+        if held ^ Ok {
+            add(held, n)
+        }
+    }
+
+    fn dump() -> Str {
+        if held ^ Ok {
+            return to_str(held)
+        }
+        return "err"
+    }
+}
+
+fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
+    if o ^ Ok {
+        add(o, 7)
+        return to_str(o)
+    }
+    return "err"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Holder()
+
+    let a: Mut List<Int>? = mut_list_of(1)
+    if a is Mut { add(a, 9) }
+    if a is Mut { println("var ${to_str(a)}") }
+
+    let b = Mut Shelf { items: mut_list_of(1) }
+    if b.items is Mut { add(b.items, 9) }
+    if b.items is Mut { println("field ${to_str(b.items)}") }
+
+    let c: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    if c ^ Ok { add(c, 9) }
+    if c ^ Ok { println("widen ${to_str(c)}") }
+
+    let d: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    when d { is Ok { add(d, 9) } is Err { } }
+    if d ^ Ok { println("when ${to_str(d)}") }
+
+    let e: Ok Mut List<Int> | Err Str | None = ok(mut_list_of(1))
+    if e ^ Ok { add(e, 9) }
+    if e ^ Ok { println("nullable ${to_str(e)}") }
+
+    println("moved ${eat(ok(mut_list_of(1)))}")
+    stash(5)
+    println("state ${dump()}")
+}
+"#;
+
+/// Every line reads back what was just written. The Kotlin backend asserts the
+/// same string — the point of the fix is that the two agree [backend-parity].
+const NARROW_MUT_ARM_OUTPUT: &str = "var [1, 9]\nfield [1, 9]\nwiden [1, 9]\nwhen [1, 9]\nnullable [1, 9]\nmoved [1, 7]\nstate [0, 5]\n";
+
 #[test]
-fn rustc_compiles_and_runs_a_group_over_plain_arms() {
+fn rustc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() {
     if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
+    run_rust_files(&files, "narrow-mut-arm", NARROW_MUT_ARM_OUTPUT);
+}
+
+/// [rs-narrow-mut] The same regression caught off the generated source, with no
+/// toolchain on PATH. The negative assertions are the sharp ones: the two
+/// clone-then-mutate shapes that were the defect must appear nowhere.
+#[test]
+fn a_mut_payload_is_peeled_by_borrowing_the_storage() {
+    let files = generate(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs");
+    let src = &main.content;
+    for needle in [
+        // The intrinsic path: a variable and a field over the nullable repr.
+        "a.as_mut().unwrap().push(9)",
+        "b.items.as_mut().unwrap().push(9)",
+        // The intrinsic path over a wrapper arm, narrowed by `when`/`is`.
+        "d.u1_mut().push(9)",
+        // The `^` shadow: a borrow into the storage, and no `mut` on a binding
+        // that is already a reference.
+        "let c = c.u1_mut();",
+        "let e = e.as_mut().unwrap().u1_mut();",
+        // A moved union parameter binds `mut`, or the peel cannot borrow it.
+        "pub fn eat(mut o: ",
+        // A handler state field peels through `self`, shadowing the field's
+        // name for the branch.
+        "let held = self.held.u1_mut();",
+    ] {
+        assert!(src.contains(needle), "expected `{needle}` in:\n{src}");
+    }
+    for forbidden in [
+        ".as_ref().unwrap().clone().push(",
+        ".u1().clone().push(",
+        "let mut c = c.u1().clone();",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "a mutation must not land on a clone (`{forbidden}`):\n{src}"
+        );
+    }
+}
+
+/// [rs-narrow-mut] [backend-never-wrong] The one shape with no `&mut` to give:
+/// a union-typed parameter the frame received **borrowed**, whose arm is `Mut`.
+/// Kotlin mutates the caller's value; Rust cannot, and the deduction system has
+/// no way to ask for the `&mut` (a written `=> o: Mut` is refused, since the
+/// `Mut` is the arm's claim and not the parameter's). So it is a reported error
+/// naming the remedy, not rustc's E0596 and certainly not the clone.
+#[test]
+fn peeling_a_mut_arm_out_of_a_borrowed_parameter_is_reported() {
+    let errors = expect_errors(
+        r#"
+fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
+    if o ^ Ok {
+        add(o, 7)
+    }
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("read-only here") && e.contains("union arm")),
+        "expected the borrowed-parameter refusal, got: {errors:?}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_group_over_plain_arms() {    if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }

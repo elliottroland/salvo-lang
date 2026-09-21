@@ -869,6 +869,91 @@ fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() -> KotlinCase {
     kotlin_case(files, "narrow-mut", NARROW_MUT_OUTPUT)
 }
 
+/// [qual-widen] [backend-parity] The Kotlin half of the 2026-09-20 fix to
+/// [rs-narrow-mut]: mutating a `Mut` payload reached through a narrowing.
+///
+/// Kotlin was the **correct** backend here and needed no change — a smart cast
+/// (and the `^` shadow's cast) hands out the storage, so the mutation lands on
+/// the caller's value. The case exists because that is only half a claim: the
+/// Rust backend cloned, and the same program printed different things on the
+/// two targets. Pinning this output is what makes the agreement a test. The
+/// source and the expected string are the Rust backend's, character for
+/// character (`NARROW_MUT_ARM_DEMO` in its `codegen_tests.rs`).
+const NARROW_MUT_ARM_DEMO: &str = r#"
+struct Shelf canbe Mut {
+    items: Mut List<Int>? = None
+}
+
+effect Bag {
+    fn stash(n: Int) -> None
+    fn dump() -> Str
+}
+
+handler Holder of Bag {
+    held: Ok Mut List<Int> | Err Str = ok(mut_list_of(0))
+
+    fn stash(n: Int) -> None {
+        if held ^ Ok {
+            add(held, n)
+        }
+    }
+
+    fn dump() -> Str {
+        if held ^ Ok {
+            return to_str(held)
+        }
+        return "err"
+    }
+}
+
+fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
+    if o ^ Ok {
+        add(o, 7)
+        return to_str(o)
+    }
+    return "err"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use Holder()
+
+    let a: Mut List<Int>? = mut_list_of(1)
+    if a is Mut { add(a, 9) }
+    if a is Mut { println("var ${to_str(a)}") }
+
+    let b = Mut Shelf { items: mut_list_of(1) }
+    if b.items is Mut { add(b.items, 9) }
+    if b.items is Mut { println("field ${to_str(b.items)}") }
+
+    let c: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    if c ^ Ok { add(c, 9) }
+    if c ^ Ok { println("widen ${to_str(c)}") }
+
+    let d: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
+    when d { is Ok { add(d, 9) } is Err { } }
+    if d ^ Ok { println("when ${to_str(d)}") }
+
+    let e: Ok Mut List<Int> | Err Str | None = ok(mut_list_of(1))
+    if e ^ Ok { add(e, 9) }
+    if e ^ Ok { println("nullable ${to_str(e)}") }
+
+    println("moved ${eat(ok(mut_list_of(1)))}")
+    stash(5)
+    println("state ${dump()}")
+}
+"#;
+
+const NARROW_MUT_ARM_OUTPUT: &str = "var [1, 9]\nfield [1, 9]\nwiden [1, 9]\nwhen [1, 9]\nnullable [1, 9]\nmoved [1, 7]\nstate [0, 5]\n";
+
+fn kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() -> KotlinCase {
+    let program = build_program(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "narrow-mut-arm", NARROW_MUT_ARM_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_a_group_over_plain_arms() -> KotlinCase {
     let program = build_program(&[("main.sv", PLAIN_GROUP_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -2081,6 +2166,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
     kotlinc_compiles_and_runs_mutation_through_narrowed_places,
+    kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

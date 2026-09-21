@@ -4276,8 +4276,12 @@ impl<'p> Emitter<'p> {
             // it on is not an assignment, so `collect_mutated` cannot see it.
             // A spurious `mut` is harmless — `unused_mut` is allowed in
             // generated code — while a missing one does not compile.
+            //
+            // [rs-narrow-mut] `Mut` on a union *arm* counts too: peeling that
+            // arm mutably borrows this binder (`o.u1_mut()`), which needs the
+            // same `mut`.
             let mut_kw = if mode == ParamMode::Owned
-                && (self.mutated.contains(&p.name.name) || type_has_mut(&p.ty))
+                && (self.mutated.contains(&p.name.name) || type_has_mut_arm(&p.ty))
             {
                 "mut "
             } else {
@@ -8323,6 +8327,24 @@ impl<'p> Emitter<'p> {
                 continue;
             };
             let test = self.is_test_of(span).cloned();
+            // [rs-narrow-mut] A peeled payload that is `Mut` is bound as a
+            // **mutable borrow into the storage**, not an owned clone: the
+            // branch may mutate it, and a mutation of the clone is lost when
+            // the branch ends (found 2026-09-20 — the repro is in
+            // COMPLETED.md). Reads through the binding are unaffected, since a
+            // `&mut T` binding is what an ordinary `Mut` parameter already is
+            // (`BindKind::RefMut`).
+            if target.quals().iter().any(|q| q.name == "Mut") {
+                if let Some(code) = self.emit_narrowed_read_mut(subject, test.as_ref()) {
+                    let displaced = self.bindings.insert(id.name.clone(), BindKind::RefMut);
+                    saved.push((id.name.clone(), displaced));
+                    // No `mut` on the binding: it is a reference, and the
+                    // generated code must stay warning-free.
+                    out.push_str(&format!("{pad}let {} = {code};\n", rs_ident(&id.name)));
+                    continue;
+                }
+                continue;
+            }
             let code = self.emit_narrowed_read(subject, Some(&target), test);
             let kind = if self.narrowed_read_is_ref {
                 BindKind::Ref
@@ -8536,6 +8558,50 @@ impl<'p> Emitter<'p> {
             }
         }
     }
+
+    /// [rs-narrow-mut] `emit_narrowed_read`'s mutable twin, for peeling an
+    /// arm whose payload is `Mut`: the same unwrap through the `_mut`
+    /// accessors, so the result is a `&mut T` *into the storage* rather than
+    /// an owned clone of it.
+    ///
+    /// Used by the `^` branch shadow [rs-widen-shadow]. The owned shadow was
+    /// silently wrong for a `Mut` payload — a mutation inside the branch
+    /// landed on the clone and was gone when the branch ended, while Kotlin
+    /// (which casts the storage) kept it. Found 2026-09-20; the defect and
+    /// its repro are in COMPLETED.md.
+    ///
+    /// `None` when there is no `&mut` to give, having reported why.
+    fn emit_narrowed_read_mut(&mut self, subject: &Expr, test: Option<&UnionTest>) -> Option<String> {
+        self.check_peel_root_mutable(subject)?;
+        if let Some(t) = test {
+            if t.size >= 2 {
+                let arm = t.arms.first().copied().unwrap_or(0);
+                // [rs-proj-arm] A borrowed arm holds `&T`, which cannot yield
+                // a `&mut`. A projection is read-only anyway
+                // ([fate-derived-readonly]), so this should be unreachable —
+                // report rather than fall back to the clone that was the bug
+                // [backend-never-wrong].
+                if self.subject_arm_is_borrowed(subject, arm) {
+                    self.error(
+                        "a `Mut` value cannot be peeled out of a borrowed union arm: \
+                         the arm holds a projection, which is read-only"
+                            .to_string(),
+                    );
+                    return None;
+                }
+                let subj = self.place_storage_mut(subject);
+                let access = if t.nullable {
+                    format!("{subj}.as_mut().unwrap()")
+                } else {
+                    subj
+                };
+                return Some(format!("{access}.u{}_mut()", arm + 1));
+            }
+        }
+        // `T?` representation: the Option is unwrapped mutably in place.
+        let subj = self.place_storage_mut(subject);
+        Some(format!("{subj}.as_mut().unwrap()"))
+    }
 }
 
 impl<'p> Emitter<'p> {
@@ -8676,6 +8742,65 @@ impl<'p> Emitter<'p> {
             Expr::Ident(id) if id.name != "None" => self.binding_place(&id.name),
             other => self.emit_place_mut(other),
         }
+    }
+
+    /// [rs-narrow-mut] The mutable unwrap of a **narrowed** place, or `None`
+    /// when the place carries no narrowing. Shared by the two argument paths
+    /// that need to tell those cases apart: a declared call's `&mut` position
+    /// ([`Self::borrowed_mut_arg`], which adds its own `&mut` for a plain
+    /// name) and an intrinsic's `Mut` parameter (which splices the place as a
+    /// method receiver and must not).
+    fn narrowed_place_mut(&mut self, expr: &Expr) -> Option<String> {
+        let code = match expr {
+            Expr::Ident(id) if id.name != "None" => self.ident_unwrap_mut(id),
+            Expr::Field { .. } | Expr::TupleIndex { .. } => self.place_unwrap_mut(expr),
+            _ => None,
+        }?;
+        // The unwrap borrows the storage, so the storage has to be mutable.
+        self.check_peel_root_mutable(expr)?;
+        Some(code)
+    }
+
+    /// [rs-narrow-mut] [backend-never-wrong] Reports when a mutable peel would
+    /// borrow a place this frame only *reads*, and answers `None` so the caller
+    /// does not fall back to the read form — which is the clone that was the
+    /// defect.
+    ///
+    /// The one reachable shape is a **union-typed parameter with a `Mut`
+    /// arm**: `fn f(o: Ok Mut List<Int> | Err Str)` renders `o` as `&Union2<…>`,
+    /// because an arm's `Mut` is not a claim about `o` itself — the checker
+    /// refuses a written `=> o: Mut` for exactly that reason ("a deduction may
+    /// preserve or drop qualifiers, not add them"), so nothing can ask for the
+    /// `&mut`. Kotlin mutates the caller's value here and Rust cannot, so the
+    /// honest answer is a diagnostic until the deduction question is decided
+    /// (ROADMAP.md, "Open defects"). Before this it was rustc's E0596 with no
+    /// Salvo diagnostic at all.
+    fn check_peel_root_mutable(&mut self, expr: &Expr) -> Option<()> {
+        let mut root = expr;
+        loop {
+            match root {
+                Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => root = base,
+                _ => break,
+            }
+        }
+        let Expr::Ident(id) = root else {
+            return Some(());
+        };
+        if matches!(
+            self.bindings.get(id.name.as_str()),
+            Some(BindKind::Ref | BindKind::OptRef)
+        ) {
+            self.error(format!(
+                "`{}` is read-only here, so a `Mut` value cannot be mutated \
+                 through its union arm: the arm's `Mut` is a claim about the \
+                 arm, not about `{}`, so this frame received it borrowed. Take \
+                 the payload as its own parameter (`Mut List<T>`) and check the \
+                 arm at the call site.",
+                id.name, id.name
+            ));
+            return None;
+        }
+        Some(())
     }
 
     /// [rs-narrow-mut] `emit_place`'s mutable twin, for the base of an
@@ -10076,18 +10201,8 @@ impl<'p> Emitter<'p> {
         // itself producing something: a recorded representation is not
         // necessarily one of the two narrowing shapes (a `Mut` drop records
         // one too), and a bare name still needs its `&mut`.
-        match expr {
-            Expr::Ident(id) if id.name != "None" => {
-                if let Some(code) = self.ident_unwrap_mut(id) {
-                    return code;
-                }
-            }
-            Expr::Field { .. } | Expr::TupleIndex { .. } => {
-                if let Some(code) = self.place_unwrap_mut(expr) {
-                    return code;
-                }
-            }
-            _ => {}
+        if let Some(code) = self.narrowed_place_mut(expr) {
+            return code;
         }
         if let Expr::Ident(id) = expr {
             if id.name != "None" && self.ident_unwrap(id).is_none() {
@@ -12244,6 +12359,34 @@ impl<'p> Emitter<'p> {
                     // 2026-09-15).
                     self.emit_owned(arg)
                 }
+                // [rs-narrow-mut] A parameter the declaration types `Mut` is a
+                // **mutable use** of its argument, so a narrowed place unwraps
+                // through the mutable accessors — the read form clones out of
+                // the representation and the mutation lands on the temporary.
+                //
+                // This is the same fault [rs-narrow-mut] closed for declared
+                // calls in 2026-09-10, left open on the *intrinsic* path
+                // because that path renders every place with `emit_place`
+                // regardless of the parameter's mode: `add(xs, 3)` on a
+                // narrowed `Mut List<Int>?` emitted
+                // `xs.as_ref().unwrap().clone().push(3)`, which compiles,
+                // warns about nothing and drops the element on the floor while
+                // Kotlin (whose smart cast is the storage) appended it. Found
+                // 2026-09-20 designing `?.`; the whole defect is in
+                // COMPLETED.md.
+                //
+                // Falls back to the read form when the place is not narrowed,
+                // so an ordinary `Mut` argument is unchanged.
+                Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. }
+                    if !is_variadic_part
+                        && !consumed.get(i).copied().unwrap_or(false)
+                        && param_ty.as_ref().is_some_and(type_has_mut) =>
+                {
+                    match self.narrowed_place_mut(arg) {
+                        Some(code) => code,
+                        None => self.emit_place(arg),
+                    }
+                }
                 Expr::Ident(_)
                 | Expr::Field { .. }
                 | Expr::TupleIndex { .. }
@@ -13482,6 +13625,26 @@ fn type_has_mut(ty: &Type) -> bool {
             qualifiers.iter().any(|q| q.name.name == "Mut")
         }
         Type::Nullable { inner, .. } => type_has_mut(inner),
+        _ => false,
+    }
+}
+
+/// [rs-narrow-mut] Whether `Mut` is reachable in a type *by peeling a union
+/// arm* — `Ok Mut List<Int> | Err Str` as well as `Mut List<Int>` itself.
+///
+/// Only the owned parameter's `mut` binder reads this, and only to widen it:
+/// a peel through the mutable accessors borrows the storage, which a non-`mut`
+/// binder refuses (E0596), and a spurious `mut` costs nothing (`unused_mut` is
+/// allowed in generated code). The *mode* deliberately keeps `type_has_mut`,
+/// since an arm's `Mut` is not a claim about the parameter — see the open
+/// defect note in ROADMAP.md.
+fn type_has_mut_arm(ty: &Type) -> bool {
+    if type_has_mut(ty) {
+        return true;
+    }
+    match ty {
+        Type::Union { arms, .. } => arms.iter().any(type_has_mut_arm),
+        Type::Nullable { inner, .. } => type_has_mut_arm(inner),
         _ => false,
     }
 }
