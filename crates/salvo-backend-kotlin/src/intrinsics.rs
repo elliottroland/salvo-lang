@@ -491,7 +491,7 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Bytes" => "salvo.SalvoBytes",
         "None" => "Unit",
         "Any" => "Any",
-        "Nothing" => "Nothing",
+        "Never" => "Nothing",
         "List" => "List",
         // [col-insertion-order] The immutable views of the ordered
         // implementations the constructors build: a `LinkedHashSet` *is* a

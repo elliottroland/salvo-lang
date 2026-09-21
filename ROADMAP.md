@@ -147,25 +147,84 @@ What it leaves behind, each deliberate:
   own section, "Platform handlers — the thread-safety contract", which
   carries the divergence record and the parity plan.
 
-## The `?` family and the placeholder (DECISION — working document OPTIONALS.md)
+## The `?` family and the placeholder — the agreed sequence (user decisions 2026-09-20/21)
 
-Raised by the user 2026-09-20: syntax for the two patterns that optional and
-result types force a caller to write out — `?:` over a fallible type (with `_`
-standing for the failure side, and a right side that either gives a value or
-escapes), `?.` for safe chaining that keeps the success tag, a **general `_`
-placeholder rule** for scopes holding a single unnamed value, and
-`waitfor { counter.total(_) }` as the binder-less form of [actor-waitfor].
+Raised by the user 2026-09-20 and re-shaped 2026-09-21: syntax for the two
+patterns that optional and result types force a caller to write out. The design
+round is **OPTIONALS.md** (deleted when the last step lands); the decisions the
+user has now taken turned it from an option space into **five steps**, in this
+order, because each one clears the ground for the next:
 
-**Six calls are open** (`Q-1`…`Q-6`), and they are laid out with options,
-trade-offs and a recommendation in **OPTIONALS.md** — which is the working
-document for this round and is deleted once the last decided item lands
-(DESIGN_DOC.md's charter). `Q-1` is load-bearing: *what makes a type fallible*,
-which every other section consumes. Nothing has propagated to the specs, the
-decision log or this file's plan yet.
+1. **`Nothing` → `Never`** — ✅ **done 2026-09-21** (COMPLETED.md's log).
+2. **`return`/`break`/`continue` become expressions of type `Never`.** Removes
+   the grammar exception step 5's right-hand side would otherwise need. Cheaper
+   than it looks: `diverges()` already tests `ty_of(expr) == Ty::Never`, so
+   `block_exits`'s three syntactic special cases *collapse* into the expression
+   case, and `twice(throw("no"))` already compiles today — so this makes
+   `return` consistent with `throw` rather than opening a new hole. 40 sites
+   across 9 files.
+3. **`^ Q` becomes `is ^Q`.** Widening stops being an operator with its own
+   precedence tier and becomes a mark on a qualifier *inside* an `is` check:
+   the arm test is the same, and `^` only decides whether the claim survives
+   into the narrowed type. `Expr::Widen` merges into `Expr::Is` with a
+   per-qualifier lift flag, and `widen_info` into `is_info` (they already return
+   the same `IsInfo`). **`is ^Q name` gains a binding form** (user decision
+   2026-09-21) — which is what lets several arms be lifted at once, since the
+   lifted value then has somewhere to live; a bare `is ^Q` keeps the single-arm
+   limit, because there the value must be re-read out of the subject. 3 `.sv`
+   sites, 40 inline in Rust tests, `Expr::Widen` in 9 files. Watch the two-sided
+   trap step 1 hit: `^` means one thing in Salvo source and nothing in either
+   target.
+4. **`?:` and `?.` are reserved for `T?`.** `?:` keys on the *presence of a
+   `None` arm* rather than the `?` spelling, and picks every non-`None` arm, so
+   `Str | Int | None` gives `Str | Int` and `_` is `None` (making `return _` the
+   same as a bare `return`). The qualifier form of `?.` is **deferred, not
+   dead** — the spelling `^Ok?.map(…)` follows from step 5 if it is ever wanted.
+   Deferring it also retires the nest-versus-flatten question in OPTIONALS.md
+   `Q-4`, since nothing re-tags.
+5. **Qualifier picks: `expr Pick?: Pick?: … rhs`.** Each pick names arms that
+   *pass through* as the expression's value, `^` decides whether the picked arm
+   keeps its tag, and only the final `?:` has a right-hand side, evaluated with
+   `_` bound to whatever no pick claimed:
+
+   ```
+   let t: Ok T = result_t() Ok?: return _
+   let t: T    = result_t() ^Ok?: return _
+   let t: Str | Err Int | Err Thrown Str = result_or_thrown() ^Ok?: Err?: err(_)
+   ```
+
+   Decided with it, each the user's call:
+   - **`_` carries all its qualifiers and there is no way to strip them here.**
+     So `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`, and
+     replacing one tag with another is an `if` or a `when`. (Found while
+     checking the third example above, which was written as `Err Str`: the
+     checker *computes* `Err Thrown Str` but **refuses to let you write it**,
+     since `Err` and `Thrown` declare no `with` compatibility. That asymmetry is
+     worth a look on its own.)
+   - **A pick may match several arms**, `^` or not: `Ok Int | Ok Str` with
+     `^Ok?:` gives `Int | Str`. A pick produces a *value*, so it is a match
+     re-wrapping into the result union, which both backends already do
+     ([let-infer]); the single-arm limit belongs to the place-narrowing case
+     only (step 3).
+   - **A pick that leaves nothing for the right-hand side is an error**, the way
+     a `try` whose body cannot throw is.
+   - **The empty pick (plain `?:`) may appear anywhere in the chain**, since the
+     ordering rule already covers it: on `Ok Int | Err Str | None`,
+     `^Ok?: ?: rhs` picks `Int`, then `Err Str`, and leaves `None` to the
+     right-hand side.
+   - Each pick matches arms the way `is` does: bare `Ok` takes every `Ok`-tagged
+     arm, `Ok Int` takes that one.
+
+Also agreed, and no longer part of this family: **`waitfor` does not get `_`**.
+What is wanted there is ordinary inference — `waitfor out { counter.total(out) }`
+with the `Reply<T>` inferred from where the binder is used, the binder still
+named. Ambiguity from overloads stays an error, with
+`waitfor out: Reply<Int> { … }` as the written-out remedy. That also collapses
+the general placeholder rule: `_` is one piece of the `?:` form, not a rule about
+scopes.
 
 The feature is **additive** — the long forms stay legal — so no
-backwards-compatibility sweep fires, with one exception measured in the
-document: `_` becomes unbindable, and it appears in zero `.sv` sources today.
+backwards-compatibility sweep fires beyond steps 1 and 3, which are renames.
 
 ## Mutating through a union arm (DECISION)
 

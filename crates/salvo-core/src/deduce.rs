@@ -8,7 +8,7 @@
 //! Each entry has a polarity [deduce-syntax]: plain qualifier names are
 //! *exhaustive* (only those survive — including qualifiers the callee
 //! never declared), `-Q` is a *delta* (drop `Q`, keep the rest), a bare
-//! entry keeps everything, and `Nothing` means moved. The removal set is
+//! entry keeps everything, and `Never` means moved. The removal set is
 //! computed at the call site against the qualifiers the *argument*
 //! carries, which is what makes the exhaustive form sound: a function
 //! that mutates a value can invalidate claims about its contents that its
@@ -57,7 +57,7 @@ use crate::resolve::FnKey;
 pub struct ParamDeduction {
     pub param: String,
     /// False when a call moves the parameter (omitted from a written
-    /// deduction list, written as `[p: Nothing]`, or inferred as moved).
+    /// deduction list, written as `[p: Never]`, or inferred as moved).
     pub kept: bool,
     /// What a call does to the *argument's* known qualifiers. Only
     /// meaningful when `kept`.
@@ -383,7 +383,7 @@ pub(crate) fn optimistic(decl: &FnDecl) -> Vec<ParamDeduction> {
 
 /// A written deduction list, validated for shape: entries must name a
 /// parameter (once), exhaustive entries may only keep qualifiers declared
-/// on that parameter, and `Nothing` is the only type form [deduce-syntax].
+/// on that parameter, and `Never` is the only type form [deduce-syntax].
 /// `mutated` names the parameters the body invalidates; for those, only
 /// the exhaustive form is sound (see the soundness rule under D1).
 pub(crate) fn from_written(
@@ -500,7 +500,7 @@ pub(crate) fn from_written(
                             error(
                                 q.span,
                                 "a deduction entry may only name qualifiers (and \
-                                 `Nothing`): type narrowing in deductions is not \
+                                 `Never`): type narrowing in deductions is not \
                                  supported yet"
                                     .to_string(),
                             );
@@ -517,7 +517,7 @@ pub(crate) fn from_written(
                             error(
                                 q.span,
                                 "a deduction entry may only name qualifiers (and \
-                                 `Nothing`): type narrowing in deductions is not \
+                                 `Never`): type narrowing in deductions is not \
                                  supported yet"
                                     .to_string(),
                             );
@@ -1192,7 +1192,7 @@ impl<'p> Walk<'_, 'p> {
                             continue;
                         };
                         // [deduce-syntax] A fn type's unmentioned parameter is
-                        // kept (the default); only `!x` / `x: Nothing` moves.
+                        // kept (the default); only `!x` / `x: Never` moves.
                         let kept = param_names
                             .get(i)
                             .and_then(|n| n.as_ref())

@@ -116,7 +116,7 @@ Conventions:
   `None` itself is an error too — it has no text form. Motivation is
   parity: Kotlin would print `null` while Rust rejects the `Option`
   (`Display` is not implemented), so leniency made the backends disagree
-  observably. `Unknown`/`Nothing` operands stay lenient
+  observably. `Unknown`/`Never` operands stay lenient
   [type-unknown-lenient].
   * A narrowable *place* is enough: `if p.surname is Str { "${p.surname}" }`
     is accepted, because field chains flow-narrow [flow-place]. Element
@@ -430,13 +430,13 @@ Conventions:
   * A bracket literal still types as an **array** where the position
     expects one, which is what keeps a literal usable in a variadic
     argument.
-* [type-any-nothing] `Any` is the top type; `Nothing` is the bottom type
+* [type-any-never] `Any` is the top type; `Never` is the bottom type
   (the type of `return`/`break`/`continue`), subtype of everything.
-  * A *written* `Nothing` lowers to the bottom type, not to a nominal type
+  * A *written* `Never` lowers to the bottom type, not to a nominal type
     that happens to be spelled that way: `throw`'s declared
-    `-> Nothing => !message` [throw] means callers see a value that fits
+    `-> Never => !message` [throw] means callers see a value that fits
     everywhere and ends the path.
-  * **A `Nothing`-typed expression statement terminates its path**, which
+  * **A `Never`-typed expression statement terminates its path**, which
     both path analyses read from the checker's recorded types rather than
     syntax: a branch ending in `throw(m)` satisfies [fn-must-return], and
     its consumption never reaches the code after the branch
@@ -835,7 +835,7 @@ Conventions:
   * **Narrower than a `fn` by construction**: no body, no effect list, no
     return type (a refinement changes what is *known* after a call, never
     what the call does), and its entries are only additions (`+Q`) and
-    removals (`-Q`). A plain (exhaustive) name and `Nothing` are parse
+    removals (`-Q`). A plain (exhaustive) name and `Never` are parse
     errors: whether a parameter is kept is the function's own deduction to
     make. The AST carries additions and removals as separate lists rather
     than reusing `Deduction`, so the restriction is structural.
@@ -951,7 +951,7 @@ Conventions:
   narrow (`is` / `when`) or assert with `!`.
   * Same parity motivation as [interp-no-none]: Kotlin compares against
     `null` happily while Rust rejects the `Option`.
-  * `Unknown`/`Nothing` operands stay lenient [type-unknown-lenient].
+  * `Unknown`/`Never` operands stay lenient [type-unknown-lenient].
 * [op-arith] Arithmetic (`+ - * / %`, unary `-`) works on **numeric
   operands only** — `Int`, `Long`, `Float`, `Double` (user decision
   2026-09-14, closing the operand-typing DECISION). The result is the
@@ -1004,7 +1004,7 @@ Conventions:
   is how a backend divergence gets in (Kotlin has no truthiness either;
   Rust would reject the `Option`). `is`/`^` checks evaluate to `Bool`.
   * Checked per **leaf** of a `&&`/`||`/`!` condition, which is where the
-    wrong type was written; `Unknown` and `Nothing` stay lenient
+    wrong type was written; `Unknown` and `Never` stay lenient
     [type-unknown-lenient].
   * Remedy named in the diagnostic: compare explicitly (`n != 0`,
     `list.size() > 0`), assert with `!`, or test the type with `is`.
@@ -1034,7 +1034,7 @@ Conventions:
   return emitted(e)        // `e` is the element type here
   ```
   * "Leaves the block" is `return`, `break`, `continue`, or a diverging
-    call ([type-any-nothing]) — the same predicate [fn-must-return] uses,
+    call ([type-any-never]) — the same predicate [fn-must-return] uses,
     plus the loop exits. One branch exiting is not enough: if any branch
     can fall through, either path may have been taken and nothing is
     narrowed.
@@ -1139,7 +1139,7 @@ Conventions:
   * Backends: Kotlin has the same construct [kt-when-cond]; Rust has no
     subject-less `match` and lowers to `if`/`else if`/`else`
     [rs-when-cond].
-* [when-value] `when` is an expression; branches ending in `Nothing`
+* [when-value] `when` is an expression; branches ending in `Never`
   (e.g. `return`) drop out of the value type.
 * [while-value] `while` evaluates to the last evaluated body expression,
   or a `break value`; `else` runs (and provides the value) only if the
@@ -1219,8 +1219,8 @@ Conventions:
   and only std may write them [intrinsic-std-only].
 * [fn-must-return] A fn with a non-`None` return type must return on
   every path. Definitely-returning constructs: `return`, a **diverging
-  expression** ([type-any-nothing]: a statement the checker typed
-  `Nothing`, e.g. `throw(m)`), `if` with an `else` where every branch
+  expression** ([type-any-never]: a statement the checker typed
+  `Never`, e.g. `throw(m)`), `if` with an `else` where every branch
   returns, `when` where every branch returns (exhaustiveness is enforced
   separately [when-exhaustive]).
   * Conservative by design: loops never count as returning (they may run
@@ -1277,7 +1277,7 @@ Conventions:
      `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is
      the broadest type, so it is always least specific — which is why the
      written `Any` lowers to `Ty::Any` rather than a nominal type
-     [type-any-nothing];
+     [type-any-never];
   3. **qualifier sets compare by inclusion**: more qualifiers says more, and
      the *kind* never ranks (`Mut List<T>` and `NonEmpty List<T>` are
      unrankable, deliberately — ranking them would ask the caller to know
@@ -2602,9 +2602,9 @@ Conventions:
 
 * [throw] `throw(message)` leaves the enclosing delimiter instead of
   resuming. It is declared in std (`core.throw`) as the sole member of
-  `effect Throw<M> { fn throw(message: M) -> Nothing }` and known to the => !message
+  `effect Throw<M> { fn throw(message: M) -> Never }` and known to the => !message
   compiler by name; the message is *moved* into the outcome.
-  * Its type is `Nothing`, the bottom type: nothing after it runs, so the
+  * Its type is `Never`, the bottom type: nothing after it runs, so the
     intermediate frames stay silent. A fn that may throw declares
     `[Throw<M>]` and keeps its **own** return type — it never also returns
     an outcome union, which would be `Result` plumbing with extra steps
@@ -3837,7 +3837,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     | Form | Meaning |
     |---|---|
     | `=> list` | keep-all: kept, nothing stripped |
-    | `=> !list` | consumed (caller loses access); `list: Nothing` says the same |
+    | `=> !list` | consumed (caller loses access); `list: Never` says the same |
     | `=> list: A B` | **exhaustive**: afterwards *only* `A B` apply |
     | `=> list: None` | exhaustive and empty: every qualifier stripped |
     | `=> list: -A` | **delta**: drop `A`, everything else survives |
@@ -3894,7 +3894,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     parameter (a deduction preserves or drops, it never *adds* — `+Qual`
     is rejected in a *function's* clause, see D2; it is how a **refinement**
     states what a call establishes [qual-refn]); an entry is either
-    exhaustive or a delta, never both; `Nothing` is the only type form
+    exhaustive or a delta, never both; `Never` is the only type form
     (other type narrowings are D1b); a result path or a parameter's field
     path can only state a projection; a parameter both consumed and named
     as a projection source is an error.
@@ -3954,8 +3954,8 @@ the same day. **Not part of `core`**: the surface is imported, and one
   inference iterate to a fixpoint [deduce-fixpoint], so `return list` in a
   callee consumes the caller's argument exactly like an explicit `!list`.
   * A parameter *not kept* is consumed — the variable's type narrows to
-    `Nothing`, and any later reference to it is a compile error (a
-    `Nothing`-typed value represents an impossibility). Reassigning the
+    `Never`, and any later reference to it is a compile error (a
+    `Never`-typed value represents an impossibility). Reassigning the
     variable revives it. Consumption is uniform across all types: for
     backend-copyable scalars the move never appears in generated code,
     but the Salvo-level contract is enforced the same (decision:
@@ -4109,7 +4109,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     bindings still emit clones on Rust (restriction-valid; a faithful
     refinement can come with S3).
 * [fate-poison] Mutating, moving, or reassigning a *root* variable
-  poisons every variable derived from it: they narrow to `Nothing` with
+  poisons every variable derived from it: they narrow to `Never` with
   the fate recorded, a later use is an error naming the root and the
   event, and reassignment revives them [deduce-consume]. The root itself
   stays usable after a mutation or reassignment. Poison is not
@@ -5055,7 +5055,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     unresolved check marks the pattern and suppresses the match-arm
     verdicts that follow from it — "this check can never succeed", "this
     `when` branch matches no remaining union arm", non-exhaustiveness,
-    and the `Nothing`-narrowing cascade onto the subject. Motivation:
+    and the `Never`-narrowing cascade onto the subject. Motivation:
     with `Ok` undeclared, `if v is Ok` on `Ok Int | Err Str` used to
     report only the arm mismatch (the name was silently read as a base
     type) plus a bogus consumed-value error, and never the missing

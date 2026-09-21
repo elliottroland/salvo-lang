@@ -1,6 +1,6 @@
 //! Non-resumption: `throw` and the intrinsic `try` [throw] [try].
 //!
-//! `throw(message)` returns `Nothing`, so the code between it and its
+//! `throw(message)` returns `Never`, so the code between it and its
 //! delimiter does not run; a function that may throw says so with
 //! `[Throw<M>]` and returns its *own* type. The delimiter is `try { ... }`,
 //! a compiler intrinsic whose value is `Ok T | Thrown M` — an ordinary
@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Nothing\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type Never\nexport intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value\n";
 
 /// Parses + resolves + checks one file (no std) and returns every error
 /// message.
@@ -67,7 +67,7 @@ fn errors(src: &str) -> Vec<String> {
 const PRELUDE: &str = r#"
 
 effect Throw<M> {
-    fn throw(message: M) -> Nothing => !message
+    fn throw(message: M) -> Never => !message
 }
 
 qualifier Ok<T> of T
@@ -256,13 +256,13 @@ fn main_cannot_declare_the_throw_effect() {
 }
 
 /// [throw] There is no handler for throwing: a handler would have to
-/// *resume*, which `Nothing` forbids.
+/// *resume*, which `Never` forbids.
 #[test]
 fn a_handler_for_throw_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          handler Swallow of Throw<Str> {{\n\
-         fn throw(message: Str) -> Nothing => !message {{\n\
+         fn throw(message: Str) -> Never => !message {{\n\
          note(message)\n\
          }}\n\
          }}\n"
@@ -273,9 +273,9 @@ fn a_handler_for_throw_is_rejected() {
     );
 }
 
-// ===== divergence [type-any-nothing] [fn-must-return] =====
+// ===== divergence [type-any-never] [fn-must-return] =====
 
-/// [fn-must-return] `throw` returns `Nothing`, so a branch ending in one
+/// [fn-must-return] `throw` returns `Never`, so a branch ending in one
 /// satisfies "every path returns" — the path ends there.
 #[test]
 fn a_throwing_branch_counts_as_returning() {
@@ -292,7 +292,7 @@ fn a_throwing_branch_counts_as_returning() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [type-any-nothing] The same rule at the level of flow analysis: a
+/// [type-any-never] The same rule at the level of flow analysis: a
 /// branch that throws never falls through, so a value it consumed is still
 /// live afterwards.
 #[test]

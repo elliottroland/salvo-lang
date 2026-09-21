@@ -31,7 +31,7 @@ cargo run -- run --backend kotlin --src examples/throw-and-release/salvo
    leak.
 2. **`throw` keeps the frames in between silent.** `parse_port` declares
    `[Throw<Str>]` and returns `Int`, not an outcome union: `throw` returns
-   `Nothing`, so `port_of` forwards nothing and writes no `?`. `strict_port`
+   `Never`, so `port_of` forwards nothing and writes no `?`. `strict_port`
    throws two *different* message types, and the thrown arm is their union.
 3. **A resource and a throwing call in one function.** `port_from_file` is the
    interaction worth seeing. The code after `parse_port` does not run on the

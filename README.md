@@ -206,7 +206,7 @@ fn main() [use] {
   `import time` brings the whole module.
 - **Non-resumption**: a function that may leave early declares
   `[Throw<Str>]` and keeps its own return type; `throw(message)` returns
-  `Nothing`, so intermediate frames stay silent. The delimiter is
+  `Never`, so intermediate frames stay silent. The delimiter is
   `try { ... }`, whose value is `Ok T | Thrown M` — an ordinary union, so
   `when` reads it like any result.
 - **Deductions**: a clause after the return type — `-> T => list: Mut` —

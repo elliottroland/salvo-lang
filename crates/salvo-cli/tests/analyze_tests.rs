@@ -264,7 +264,7 @@ fn missing_return_is_an_error() {
 }
 
 // [deduce-consume] A written `!p` consumes the identifier argument
-// uniformly across all types: its type narrows to `Nothing` and later uses
+// uniformly across all types: its type narrows to `Never` and later uses
 // are errors; reassignment revives it; kept parameters are unaffected.
 // Consumption on an always-exiting branch does not leak past the branch.
 #[test]
@@ -1781,7 +1781,7 @@ fn deduction_entry_forms_are_validated() {
         "stderr: {stderr}"
     );
 
-    // A type other than `Nothing` is not supported yet (D1b).
+    // A type other than `Never` is not supported yet (D1b).
     fs::write(
         dir.join("main.sv"),
         "fn f(x: List<Int>) -> None => x: List<Int> {\n}\n",

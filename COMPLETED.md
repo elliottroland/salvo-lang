@@ -128,6 +128,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`Nothing` is now `Never` (user decision 2026-09-21).** Step 1 of the five-step
+sequence the user set out for the optional/result syntax (ROADMAP.md, "The `?`
+family"). The reason is the reader's, not the compiler's: a bottom type spelled
+`Nothing` sitting beside the `None` that fills a `T?` invited exactly the
+confusion the two words suggest, and `Never` says what the type actually
+captures. It also lines up with `!` in Rust and `never` in TypeScript, the two
+languages LANGUAGE.md already cites for it.
+
+No compatibility shim, per the standing rule: `Nothing` is now
+`error: unknown type`, and that is the whole transition.
+
+What it touched, and the two places it deliberately did *not*:
+
+- `Ty::Nothing` → `Ty::Never` (67 sites), the variant, the `Display`
+  (diagnostics now print `Never`), and the two name recognizers — the written
+  type in `check.rs` and the deduction clause's consuming spelling in
+  `parser.rs`, where `p: Never` is still the long form of `=> !p`.
+- `std/core/basic.sv`'s declaration, `throw`'s `-> Never`, the four inline `.sv`
+  preludes in the core tests, the diagnostic strings, the corpus and two insta
+  snapshots (name plus a two-character span shift, nothing structural), and the
+  label **[type-any-nothing] → [type-any-never]** with all 16 references.
+- **Kotlin keeps `Nothing` on the target side**: the JVM's bottom type is
+  spelled that way, so [type-basic]'s mapping is now `Never`→`Nothing`, and
+  `TODO()` returns Kotlin's `Nothing`. Rust's mapping was already `Never`→`!` in
+  the spec and `()` in the emitter. A blanket rename got both of these wrong on
+  the first pass and the spec statements had to be put back by hand — worth
+  remembering for step 3, where `^` has the same two-sided character.
+- **English prose was left alone.** "Nothing in the suite read the examples",
+  "Nothing here is lazy" and a dozen more are sentences, not types. The filter
+  that made this safe: in the documents the type is *always* in backticks, so
+  only backticked occurrences were rewritten, and the remainder was read by eye.
+  The generated platform-file header ("Nothing here is yours") is the same trap
+  inside a string literal.
+
+Verified: `-> Never` compiles and runs on both backends (`n is 3` from each),
+`-> Nothing` is `unknown type`, every example regenerated with **no change to
+any checked-in output** (the name reaches neither target's generated code), and
+1215 tests green.
+
 **Mutating a `Mut` payload through a narrowing: the other three sites, fixed
 (2026-09-20, late session).** [rs-narrow-mut] landed 2026-09-10 covering
 declared calls and assignment bases. Designing `?.` for OPTIONALS.md walked
@@ -4467,7 +4506,7 @@ code-signing) rejecting a stale kernel signature cache — see gotchas.
 **Deductions respelled: the `=>` clause (user proposal and decisions
 2026-09-11, late).** The bracket list after `->` is gone; a signature ends in
 `-> T => entries`, on the same line or the next. Entries: `p` (kept), `!p`
-(consumed; `p: Nothing` says the same), `p: Qual` (exhaustive), `p: None`
+(consumed; `p: Never` says the same), `p: Qual` (exhaustive), `p: None`
 (strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: proj[from: a]`
 (the result's field projects `a`), `v.f: proj[from: a]` (a parameter's field is
 re-pointed), bare `proj[from: a, b]` (opaque: the result holds a borrow of
@@ -4740,7 +4779,7 @@ escapes and the caller must know which argument it came from.
 **What it took.** A `moved_places: Vec<MovedPlace>` per local, sitting beside
 `place_narrows` and carried by the same snapshot/restore/merge machinery — the
 second time that substrate paid for itself in one day. A move of a *proper*
-projection records the path instead of setting the root to `Nothing` (both
+projection records the path instead of setting the root to `Never` (both
 routes: the consuming-call path in `projection_move` and the move-mode binding
 path in `apply_binding_mode`). Reads check the place against the record, and the
 merge is **union** — moved on any path is moved — the dual of `place_narrows`,
@@ -5787,8 +5826,8 @@ declared first; it is now selected by the expected fn type
   the `intrinsic type Any`, it lowered to a *nominal* `Named("Any")`, so
   `f(v: Any)` accepted nothing at all — unification compares names. The
   ranking rule "`Any` is the broadest thing a parameter can say" would have
-  been theory. `Any` now lowers to `Ty::Any`, like `Nothing` already lowered
-  to `Ty::Nothing` [type-any-nothing].
+  been theory. `Any` now lowers to `Ty::Any`, like `Never` already lowered
+  to `Ty::Never` [type-any-never].
 - **Rust needed a path for a shadowed call** [rs-shadowed-call]: functions
   and locals share one value namespace there, so `describe(7)` beside
   `let describe = "…"` is E0618 — the emitted call is
@@ -6289,7 +6328,7 @@ the rule labels `[abort]` → `[throw]`,
 `[rs-abort-controlflow]` → `[rs-throw-controlflow]`. `try` is untouched:
 it was never named after the operation. Nothing about the *semantics*
 changed — `throw` is still an ordinary effect operation returning
-`Nothing`, still handler-less, still delimited by the intrinsic `try`
+`Never`, still handler-less, still delimited by the intrinsic `try`
 yielding `Ok T | Thrown M`; in particular it is **not** a keyword, so
 `throw(message)` is a plain call. The test suite kept its 514 tests
 (`crates/salvo-core/tests/abort_tests.rs` → `throw_tests.rs`), and both
@@ -6747,7 +6786,7 @@ always produces a value" is a property the reader has to verify by
 inspection; this form is the one the grammar guarantees. That framing is
 also what kept the implementation small: `Expr::WhenCond` is checked by
 `check_if` itself, so narrowing, accumulated exclusions, the value join,
-`Nothing`-tail dropping and [fn-must-return] all came for free and cannot
+`Never`-tail dropping and [fn-must-return] all came for free and cannot
 drift from `if`'s behaviour.
 
 Decisions taken with it (all user, 2026-09-05): **bare branch heads** (no
@@ -6764,7 +6803,7 @@ feature: `[if-bool]` had said "no truthiness" since M0 and *nothing
 enforced it*. It is now `[cond-bool]`, checked on `if`/`elif`, `while` and
 the new branch heads, per **leaf** of a `&&`/`||`/`!` condition so the
 diagnostic lands on the operand that is wrong, and lenient on `Unknown`
-and `Nothing` [type-unknown-lenient]. `Bool?` is rejected too — which way
+and `Never` [type-unknown-lenient]. `Bool?` is rejected too — which way
 `None` should decide is exactly the guess the rule refuses to make, and
 guessing is how Kotlin/Rust divergence gets in. Nothing in `std/`, the
 corpus, the inline test sources or the specs had to change: the whole
@@ -6833,7 +6872,7 @@ enclosing fn's value instead of the other way round.
 
 **E3 step 2 landed 2026-09-04: `throw` + the intrinsic `try` on both
 backends.** Non-resumption works end to end: a fn that may throw declares
-`[Throw<M>]` and keeps its own return type, `throw(m)` returns `Nothing` so
+`[Throw<M>]` and keeps its own return type, `throw(m)` returns `Never` so
 the frames in between stay silent, and `try { ... }` — a compiler
 intrinsic, not an effect — yields `Ok T | Thrown M`. Four user decisions
 shaped the open questions (all 2026-09-04): **`M` is the union** of the
@@ -7098,7 +7137,7 @@ like struct defaults [effect-handler].
 
 **Next effects slice: E3 steps 1–3 landed 2026-09-04; step 4 (effect
 transformers) is what remains.** Handler *control* beyond "always resumes":
-`defer`, then `throw` returning `Nothing` with a compiler-intrinsic `try`
+`defer`, then `throw` returning `Never` with a compiler-intrinsic `try`
 yielding `Ok T | Thrown M`, then effects on fn types threaded into the
 value (which lifted the fusion's structural cut) — all three **done**, see
 the entries above. Step 4 is transformers: an effect member that runs a
@@ -7423,7 +7462,7 @@ reproduced with a `clear` that emptied a list while the caller kept
 believing `NonEmpty` — is fixed. `[list: NonEmpty Mut]` now means *only*
 those apply afterwards (including dropping qualifiers the callee never
 declared), `[list: -Q]` is the delta form for "everything else
-preserved", `[list: Nothing]` is moved, and a parameter the body mutates
+preserved", `[list: Never]` is moved, and a parameter the body mutates
 may use neither keep-all nor a delta. D2 holds `+Q` asserts and their
 possible unity with constructive qualifiers; D3 covers refinements — the
 general answer to D1's accepted over-strictness, after analysis showed
@@ -7632,7 +7671,7 @@ that still shape the code, and where to look for the mechanics.
   `Ok Int` in the return type quietly became a qualified type with an
   unheard-of qualifier, while `parse_check` — asking `is_qualifier`,
   getting no — read the same `Ok` as a *base type* that no arm matched.
-  Then the empty match set narrowed the subject to `Nothing` and a bogus
+  Then the empty match set narrowed the subject to `Never` and a bogus
   "consumed (moved)" error landed on the next use. Three errors' worth of
   noise, none of them the missing declaration.
   - The checker now rejects any written name in a type position that
@@ -7650,7 +7689,7 @@ that still shape the code, and where to look for the mechanics.
     pass-through.)
   - An unresolved `is`/`when` check marks the pattern and suppresses every
     verdict that follows from the failed match — "can never succeed", "no
-    remaining union arm", non-exhaustiveness, the `Nothing` cascade. One
+    remaining union arm", non-exhaustiveness, the `Never` cascade. One
     error per mistake.
   - Wiring the check up exposed genuinely missing declaration sites:
     struct fields, type-alias targets, effect-member signatures, handler
@@ -7734,7 +7773,7 @@ that still shape the code, and where to look for the mechanics.
   (`Deduction.explicit` flag).
 - **Use-after-consume [deduce-consume]** — the largest post-M8 feature,
   built up across several user decisions:
-  - Consumed values narrow to `Ty::Nothing` (decision: `Nothing` *is*
+  - Consumed values narrow to `Ty::Never` (decision: `Never` *is*
     the marker — "a value that no longer exists is an impossibility");
     referencing one is an error; assignment revives.
   - `check_program` runs *two rounds* so inferred deductions are
@@ -7755,7 +7794,7 @@ that still shape the code, and where to look for the mechanics.
   - Kept parameters shed their removal set (declared − kept) from the
     argument's narrowed type, so a second `remove_first` after
     `[list: Mut]` stripped `NonEmpty` fails overload resolution.
-  - Consumption survives `is`-narrowing restores (`Nothing` is skipped
+  - Consumption survives `is`-narrowing restores (`Never` is skipped
     on restore), and loop bodies are re-checked once with their exit
     state as entry when the first pass changed anything
     (`check_loop_body`) — back-edge use-after-move surfaces like
@@ -7789,7 +7828,7 @@ the decided model). What landed:
   carry the full `VarState`; links union across branch merges.
 - **Poison rules** [fate-poison]: a `Mut`-kept call argument, projection
   assignment, or `++` on a root — and moves and whole-variable
-  reassignment of it — poison its derived variables (`Nothing` + a
+  reassignment of it — poison its derived variables (`Never` + a
   recorded reason; the use-site error names the root, the event, and
   the `copy` remedy). Derived variables are read-only
   [fate-derived-readonly]: moving (consuming call, `return`, `break
@@ -7824,7 +7863,7 @@ identifier in a struct/array/tuple literal, spread `...n` (struct-literal
 spreads and any `Expr::Spread`), `return n`, `break n`, `yield n`, and
 `use Handler(n)` constructor arguments. One helper (`fate_move`) handles
 all of them: a derived variable errors at the site
-[fate-derived-readonly], a root is consumed (`Nothing`) and poisons its
+[fate-derived-readonly], a root is consumed (`Never`) and poisons its
 derived variables [fate-poison], exactly like a call. What's worth
 knowing:
 
@@ -8665,7 +8704,7 @@ resets.
   code that branch can never reach. It is now skipped for exiting branches — the
   same reason `merge_fallthrough` ignores them.
 - **Consumed stays consumed**: `install_narrows` skips a variable narrowed to
-  `Nothing`, exactly as the restore half does — a flow fact outranks a
+  `Never`, exactly as the restore half does — a flow fact outranks a
   narrowing [deduce-consume].
 - **One existing test asserted the old behavior** and became the new rule's
   test: `place_tests`' "outside the branch the fact does not hold" is now
@@ -8865,7 +8904,7 @@ reachable by the route that found it.
 
 Where we are: an *affine* analysis ("use at most once") with solid
 underpinnings: interprocedural contracts (inferred + validated
-deductions), `Nothing`-narrowing with revival, and branch-/loop-aware
+deductions), `Never`-narrowing with revival, and branch-/loop-aware
 state merging. Since L2, the local flow analysis watches *every* move
 event the deduction inference knows — call-site moves, literal stores,
 spread, `return`/`break`/`yield`, `use` constructor arguments — for bare
@@ -8880,7 +8919,7 @@ note).
 Each phase below is independently shippable, in rough dependency order.
 Items marked **DECISION** need a language-design call before or during
 implementation — everything else is analysis engineering under decisions
-already made (uniform-across-types consumption, `Nothing` as the marker,
+already made (uniform-across-types consumption, `Never` as the marker,
 maybe-moved-is-unusable).
 
 ### Backend-parity principle (user decision 2026-09-01)
@@ -8973,7 +9012,7 @@ The decided model:
     Mut-kept call args and projection assignments (effect-handler
     capture deferred to L4).
   - A `Mut` op or move on the *root* poisons every derived member
-    (narrows to `Nothing`, error at later *use*, revival by
+    (narrows to `Never`, error at later *use*, revival by
     reassignment — the existing possibly-consumed machinery). The
     root stays usable after mutation. Poison is not retroactive:
     derivatives created after a mutation are fine. This is NLL-like
@@ -9164,7 +9203,7 @@ practice, independent returns may be the permanently right answer.
      generation; std externals returning projections audited then.
   Open decision points for when L7 starts: the writability boundary
   (readable everywhere; writable only in return position first?),
-  per-qualifier join declarations, and whether `Nothing` gains
+  per-qualifier join declarations, and whether `Never` gains
   parameters (recommended: yes — strictly more informative, revival
   unchanged).
 - **L7a delivered 2026-09-02**: the generic linear opt-in
@@ -9465,7 +9504,7 @@ arrives later as an explicit effect (likely a compiler intrinsic).
 qualifier Thrown<M> of M            // mirrors `Err<T> of T` in core.result
 
 effect Throw<M> {                    // intrinsic; message is moved, like `err`
-    fn throw(message: M) [] -> Nothing => !message
+    fn throw(message: M) [] -> Never => !message
 }
 
 // `try` is a compiler intrinsic, not an effect:
@@ -9491,7 +9530,7 @@ try { body } : Ok T | Thrown M
   authority is `[Throw<M>]` availability alone, which is why the original
   sketch's "only `throw()` may construct it" rule turned out to be
   unnecessary. No provenance semantics, no intrinsic qualifier.
-- **`throw` returns `Nothing`**, which is what keeps intermediate frames
+- **`throw` returns `Never`**, which is what keeps intermediate frames
   silent: a fn that may throw declares `[Throw<Str>]` and returns `Int`.
   It does *not* also return `Thrown` — that would be `Result` plumbing
   with extra steps and would defeat throw being an effect. `Thrown M`
@@ -9571,11 +9610,11 @@ is still unexercised ground.
   inferred from an empty set. The union costs a wrap at each propagation
   site on Rust (`?` needs identical `Break` types) and a tag dispatch at the
   catch on Kotlin; both are in the backend specs.
-- **A `Nothing`-typed expression statement must count as terminating.** ✅
+- **A `Never`-typed expression statement must count as terminating.** ✅
   Done, and it went further than "small": both path analyses
   (`block_returns` for [fn-must-return], `block_exits` for branch merging)
   became *type-aware* Checker methods reading the recorded types, and a
-  written `Nothing` now lowers to the bottom type rather than a nominal
+  written `Never` now lowers to the bottom type rather than a nominal
   type spelled that way. Without the second half, `throw(n)` in a branch
   leaked its consumption of `n` to the fall-through path.
 - **The intrinsic couples the compiler to two core qualifier names.** ✅
@@ -9679,7 +9718,7 @@ transformer if that reads better.
 1. ~~`defer` — standalone, testable, settles linear-on-throw first.~~
    **Done 2026-09-04** ([defer], [defer-no-escape], [kt-defer-finally],
    [rs-defer-splice]).
-2. ~~`throw` returning `Nothing` + intrinsic `try`, with `Thrown<M>` in
+2. ~~`throw` returning `Never` + intrinsic `try`, with `Thrown<M>` in
    std.~~ **Done 2026-09-04** ([throw], [try], [try-innermost],
    [throw-not-main], [throw-linear], [rs-throw-controlflow],
    [rs-try-label], [kt-throw-signal]). What the design got right and wrong
@@ -12752,7 +12791,7 @@ Keep the `:` syntax; give the qualifier list a *polarity* per entry:
 | `[list:]` | keep it, strip every qualifier (unchanged) |
 | `[list: NonEmpty Mut]` | **exhaustive**: afterwards *only* these apply |
 | `[list: -NonEmpty]` | **delta**: drop `NonEmpty`, everything else preserved |
-| `[list: Nothing]` | moved (equivalently: omit the entry) |
+| `[list: Never]` | moved (equivalently: omit the entry) |
 | `[]` | no promises about any parameter — everything moved |
 | *(absent)* | inferred [deduce-infer] |
 
@@ -12838,11 +12877,11 @@ is now `exhaustive_lists_drop_undeclared_qualifiers`, with
   (`CheckPat { quals, base }`), so the parser and resolver can share that
   path: uppercase idents parse as type refs, and qualifier-vs-type is
   settled by resolution.
-  * `[list: Nothing]` is sound *because `Nothing` is uninhabited*: it
+  * `[list: Never]` is sound *because `Never` is uninhabited*: it
     asserts nothing about runtime content, it only withdraws use. That is
     why "moved" falls out of the same rule rather than being a special
     case.
-  * **Type narrowing beyond `Nothing`: its own step (user decision
+  * **Type narrowing beyond `Never`: its own step (user decision
     2026-09-02, following the recommendation).** `[x: Str]` on a `Str?`
     parameter is a *content* claim, so the callee must make it true.
     Out-parameters would do it, but Salvo has none (reassigning a
@@ -12851,7 +12890,7 @@ is now `exhaustive_lists_drop_undeclared_qualifiers`, with
     normally, the parameter is a `Str`" — checked for Salvo bodies by
     requiring the promised narrowed type at every normal exit (the
     machinery `check_linear_exit` already walks), trusted for externals.
-    D1 lands with `Nothing` only; this follows as **D1b**.
+    D1 lands with `Never` only; this follows as **D1b**.
 
 ### D3 — Refinements ✅ Done 2026-09-06
 
@@ -13250,7 +13289,7 @@ cache, with per-test timings.
   skipped with the root exempt) + 24 deduction
   tests (`tests/deduce_tests.rs`: exhaustive lists dropping *undeclared*
   qualifiers and delta lists passing them through, mutating bodies
-  requiring the exhaustive form, `Nothing` meaning moved
+  requiring the exhaustive form, `Never` meaning moved
   [deduce-syntax], move inference, call-graph fixpoint
   transitivity, effect-member contracts reaching inference [call-resolve]
   and a keeping member still borrowing, handler *state* stores counting as
@@ -13477,7 +13516,7 @@ cache, with per-test timings.
   propagates, a message the target cannot carry rejected, `main` declaring
   `Throw` rejected [throw-not-main], a handler *for* `Throw` rejected, an
   throwing branch counting as returning [fn-must-return] and not leaking
-  its consumption to the fall-through path [type-any-nothing], a linear
+  its consumption to the fall-through path [type-any-never], a linear
   value across a may-throw call rejected with the `defer` remedy accepted
   [throw-linear], `throw` *and* a may-throw call inside a deferred block
   rejected [defer-no-escape], an inner delimiter taking only its own
@@ -13684,7 +13723,7 @@ cache, with per-test timings.
   the D1 deduction forms ([deduce-syntax]: the `clear`/`NonEmpty`
   unsoundness now rejected, a delta preserving an undeclared qualifier, a
   bodyless `Mut` parameter refusing the delta form, a mutating body
-  refusing keep-all, mixed polarities, `+Qual`, and non-`Nothing` types),
+  refusing keep-all, mixed polarities, `+Qual`, and non-`Never` types),
   union-arm arguments resolving against union params [type-union],
   std's result tags working with no local declarations
   (`Ok Int | Err Str | None` narrowed by `when`, [qual-result-tags]) and
@@ -15224,7 +15263,7 @@ snapshot diffs.
   `f(v: Any)` accepted *nothing*: unification compares names, and no argument
   is named `Any`. It had been that way for as long as `Any` existed, hidden
   because nobody wrote an `Any` parameter. If a type has language-level
-  meaning ([type-any-nothing]), the lowering has to say so — the std
+  meaning ([type-any-never]), the lowering has to say so — the std
   declaration only gives it a name.
 - **Making something reachable creates new emission cases.** `@module` let a
   call reach a function shadowed by a local, which had been *unreachable*
@@ -15782,7 +15821,7 @@ snapshot diffs.
 - Cascade suppression needs a flag, not a heuristic. Once an `is` check
   names something unresolved, four downstream verdicts become garbage
   (can-never-succeed, no-remaining-arm, non-exhaustive, and the
-  `Nothing`-narrowing that poisons the subject). Carrying an `unresolved`
+  `Never`-narrowing that poisons the subject). Carrying an `unresolved`
   bit on the parsed pattern kills all four at once; trying to recognize
   the situation at each site would have missed some.
 - Where a *lenient* checker draws the line matters more than how lenient
@@ -15930,7 +15969,7 @@ snapshot diffs.
 - (L7b) The Ident-callable path in `check_call` never `check_expr`s the
   callee identifier, so consumed-value reads did not error there —
   calling an already-consumed callable was silently accepted until the
-  path got an explicit `Ty::Nothing` branch. When adding a consumption
+  path got an explicit `Ty::Never` branch. When adding a consumption
   rule, audit every place an identifier is *used* without going
   through the standard read path.
 - (L7b) `once` is the first qualifier with *inverted* subtyping (a
@@ -16042,7 +16081,7 @@ snapshot diffs.
   the `Mut` struct example mutated `person` instead of
   `mutable_person`.)
 - (S1) Poison rides the existing consumed-state machinery: a poisoned
-  variable is just `narrowed = Nothing` plus a `Poison` reason on the
+  variable is just `narrowed = Never` plus a `Poison` reason on the
   `LocalVar` — branch merging, revival-by-reassignment, `is`-restore
   survival, and the loop re-check all carry it with no new lattice.
   Keep new flow facts inside `VarState` (narrowed/links/poison) so

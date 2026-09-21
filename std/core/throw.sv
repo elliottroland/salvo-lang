@@ -7,7 +7,7 @@
 // Own module rather than part of `core.basic` so a program that never
 // throws emits no code for it [mod-used-only].
 
-// [throw] Ends the enclosing `try` block with [message]. Returns `Nothing`
+// [throw] Ends the enclosing `try` block with [message]. Returns `Never`
 // (the bottom type), which is what keeps the frames in between silent: a
 // function that may throw declares `[Throw<M>]` and returns its *own*
 // type, never an outcome union — the union appears in exactly one place,
@@ -16,7 +16,7 @@
 // The message is *moved* into the outcome (the body returns it, so the move
 // is inferred), like the value passed to `err`.
 export effect Throw<M> {
-    fn throw(message: M) -> Nothing => !message
+    fn throw(message: M) -> Never => !message
 }
 
 // [try] The thrown arm of a `try` outcome: `try { ... }` evaluates to

@@ -41,7 +41,7 @@ fn resolve_diags(files: &[(&str, &str)]) -> Vec<String> {
 
 /// The base types the checker needs, as a std file [intrinsic-std-only].
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
-                           export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Nothing\n";
+                           export intrinsic type Long\nexport intrinsic type Any\nexport intrinsic type Never\n";
 
 /// Parses + resolves + checks, returning every diagnostic (both severities).
 fn check_diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {

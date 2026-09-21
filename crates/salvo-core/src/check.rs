@@ -1146,11 +1146,11 @@ struct LocalVar {
     /// is poisoned when a root is mutated or moved [fate-poison].
     links: Vec<FateLink>,
     /// Why this variable is unusable (set together with
-    /// `narrowed = Nothing` when a fate root is mutated/moved/reassigned)
+    /// `narrowed = Never` when a fate root is mutated/moved/reassigned)
     /// [fate-poison].
     poison: Option<Poison>,
     /// What consumed this variable (set together with
-    /// `narrowed = Nothing` when the variable itself was moved: a call,
+    /// `narrowed = Never` when the variable itself was moved: a call,
     /// `return`/`break`/`yield`, a literal store, spread, or a `use`
     /// handler registration) — names the event in the use-site
     /// diagnostic [deduce-consume].
@@ -1911,7 +1911,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [throw] There is no handler for throwing: the
                     // delimiter is `try`, and a handler would have to
-                    // *resume* the operation, which `Nothing` forbids.
+                    // *resume* the operation, which `Never` forbids.
                     for (written, of_ty) in h.of.iter().zip(&of_tys) {
                         if matches!(
                             of_ty.strip_quals(),
@@ -6376,9 +6376,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// tested with `is None`, so an optional reaching an operator is
     /// always a missing narrowing — and the backends disagree about it
     /// (Kotlin compares/prints `null`, Rust rejects the `Option`), which
-    /// makes leniency a parity hole. `Unknown`/`Nothing` stay lenient.
+    /// makes leniency a parity hole. `Unknown`/`Never` stay lenient.
     fn reject_optional_operand(&mut self, op: BinaryOp, operand: &Expr, ty: &Ty) {
-        if ty.is_unknown() || matches!(ty, Ty::Nothing) {
+        if ty.is_unknown() || matches!(ty, Ty::Never) {
             return;
         }
         let stripped = ty.strip_quals();
@@ -6746,7 +6746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // A wholly consumed variable is the other machinery's business
         // [deduce-consume]: one mistake, one diagnostic.
-        if matches!(var.narrowed, Ty::Nothing) {
+        if matches!(var.narrowed, Ty::Never) {
             return false;
         }
         let Some(hit) = var
@@ -6809,7 +6809,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// std provides one for `List<T>`; `Mut Str` never arrives here (a
     /// builder is converted first [str-drop-mut]).
     fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
-        if ty.is_unknown() || matches!(ty, Ty::Nothing) || Self::interp_native(ty) {
+        if ty.is_unknown() || matches!(ty, Ty::Never) || Self::interp_native(ty) {
             return;
         }
         let want = Ty::Fn {
@@ -6881,7 +6881,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Poisons every live variable fate-linked to `root_id` [fate-poison]:
     /// the root was mutated, moved, or reassigned, so derived values may
-    /// no longer exist. They narrow to `Nothing` (error at a later use,
+    /// no longer exist. They narrow to `Never` (error at a later use,
     /// revival by reassignment — the standard possibly-consumed
     /// machinery [deduce-consume]).
     ///
@@ -6908,7 +6908,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .any(|l| l.root_id == root_id && l.overlaps_event(event_path));
                 if hit {
-                    var.narrowed = Ty::Nothing;
+                    var.narrowed = Ty::Never;
                     var.poison = Some(Poison {
                         root_name: root_name.to_string(),
                         event,
@@ -7149,7 +7149,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                var.narrowed = Ty::Nothing;
+                var.narrowed = Ty::Never;
                 var.consumed_by = None;
                 var.poison = Some(Poison {
                     root_name: binding_name.to_string(),
@@ -7703,7 +7703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.lookup_mut(&id.name) {
-                    var.narrowed = Ty::Nothing;
+                    var.narrowed = Ty::Never;
                     var.consumed_by = Some("an earlier call");
                 }
                 consumed_here.push(name);
@@ -7854,7 +7854,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if let Some(var) = self.var_by_id_mut(l.root_id) {
                 loop_origin = var.for_origin;
-                var.narrowed = Ty::Nothing;
+                var.narrowed = Ty::Never;
                 var.poison = None;
                 var.consumed_by = Some(
                     "a move of mutable data projected out of it \
@@ -8000,7 +8000,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// * **Ordering needs `canbe ordered`** on a struct, where equality does
     ///   not — the axes are separate.
     ///
-    /// Unknown and `Nothing` operands stay lenient [type-unknown-lenient].
+    /// Unknown and `Never` operands stay lenient [type-unknown-lenient].
     fn check_comparison_operands(
         &mut self,
         op: ast::BinaryOp,
@@ -8133,7 +8133,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (`Int + Long → Long`, `Float + Double → Double`; the narrower side
     /// records a promotion [op-promote]) and an explicit-conversion error
     /// *across* classes. The result is the promoted operand type.
-    /// `Unknown`/`Nothing` and unconstrained generics stay lenient
+    /// `Unknown`/`Never` and unconstrained generics stay lenient
     /// [type-unknown-lenient].
     fn check_arith(
         &mut self,
@@ -8248,7 +8248,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         }
         match ty.strip_quals() {
-            Ty::Var(_) | Ty::Unknown | Ty::Nothing => None,
+            Ty::Var(_) | Ty::Unknown | Ty::Never => None,
             Ty::Named { name, args } => match name.as_str() {
                 "Int" | "Long" | "Str" | "Char" | "Bool" => None,
                 "Double" | "Float" => Some(format!(
@@ -8303,7 +8303,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         }
         match ty.strip_quals() {
-            Ty::Var(_) | Ty::Unknown | Ty::Nothing => None,
+            Ty::Var(_) | Ty::Unknown | Ty::Never => None,
             Ty::Named { name, args } => match name.as_str() {
                 "Int" | "Long" | "Str" | "Char" | "Bool" => None,
                 "Double" | "Float" => Some(format!(
@@ -9214,7 +9214,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.inferred.is_none() {
             return false;
         }
-        if !var.links.is_empty() || matches!(var.narrowed, Ty::Nothing) {
+        if !var.links.is_empty() || matches!(var.narrowed, Ty::Never) {
             return false;
         }
         if var.is_param && !self.param_owned(name) {
@@ -9291,7 +9291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // over, and copying it leaves no hole at all —
                             // which is why [effect-state-store] exempts it.
                             && self.ty_own_linear(&var.declared)
-                            && (matches!(var.narrowed, Ty::Nothing) || !var.moved_places.is_empty())
+                            && (matches!(var.narrowed, Ty::Never) || !var.moved_places.is_empty())
                     })
                     .map(|(name, _)| name.clone())
             })
@@ -9343,7 +9343,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Nothing;
+                var.narrowed = Ty::Never;
             }
         }
     }
@@ -9377,7 +9377,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Nothing;
+                var.narrowed = Ty::Never;
             }
         }
     }
@@ -9728,7 +9728,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
             if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = Ty::Nothing;
+                var.narrowed = Ty::Never;
             }
         }
     }
@@ -9760,7 +9760,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_expr(extra, None);
         }
         self.record_throw(span, message, true);
-        Ty::Nothing
+        Ty::Never
     }
 
     /// `try { ... }` [try]: the delimiter. The body's value becomes the
@@ -11470,7 +11470,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // The body's value is the `Ok` arm; a body that always exits
         // (`return`, an unconditional throw) contributes `Ok None`.
-        let value_ty = if matches!(value_ty, Ty::Nothing) {
+        let value_ty = if matches!(value_ty, Ty::Never) {
             Ty::none()
         } else {
             value_ty
@@ -11518,7 +11518,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [deduce-consume].
     ///
     /// [throw] is why this is type-aware: `throw(m)` is an ordinary call
-    /// whose type is `Nothing`, so a branch ending in one exits exactly as
+    /// whose type is `Never`, so a branch ending in one exits exactly as
     /// a `return` does. Only sound *after* the block has been checked (the
     /// types it reads are the ones just recorded), which is where both
     /// callers stand.
@@ -11681,12 +11681,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// Whether the checker typed this expression as `Nothing` — it
-    /// diverges, so nothing after it runs [type-any-nothing].
+    /// Whether the checker typed this expression as `Never` — it
+    /// diverges, so nothing after it runs [type-any-never].
     fn diverges(&self, expr: &Expr) -> bool {
         matches!(
             self.out.ty_of(self.file_idx, expr.span()),
-            Some(Ty::Nothing)
+            Some(Ty::Never)
         )
     }
 
@@ -11901,7 +11901,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for n in narrows {
             if n.place.is_root() {
                 if let Some(var) = self.lookup_mut(&n.place.root) {
-                    if matches!(var.narrowed, Ty::Nothing) {
+                    if matches!(var.narrowed, Ty::Never) {
                         continue;
                     }
                     var.narrowed = n.narrowed.clone();
@@ -11962,7 +11962,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // `is`-narrowing restore must not resurrect it — the
                 // consumption is a flow fact, not part of the narrowing
                 // [deduce-consume].
-                if matches!(var.narrowed, Ty::Nothing) {
+                if matches!(var.narrowed, Ty::Never) {
                     continue;
                 }
                 var.narrowed = ty;
@@ -12091,7 +12091,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Merges the fall-through branch states of a branching construct
     /// into the current state [deduce-consume]. For each local: states
-    /// that all agree win; a value consumed (`Nothing`) on *any*
+    /// that all agree win; a value consumed (`Never`) on *any*
     /// fall-through path stays consumed (maybe-moved is unusable, as in
     /// Rust); otherwise disagreeing states conservatively keep only the
     /// qualifiers common to all of them. Fate links union across branches
@@ -12127,7 +12127,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let settled = states
                         .iter()
                         .filter(|s| {
-                            matches!(s.narrowed, Ty::Nothing)
+                            matches!(s.narrowed, Ty::Never)
                                 || s.linear_settled
                                 || !self.ty_own_linear(&s.narrowed)
                         })
@@ -12153,8 +12153,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let joined = if narrowed_states.iter().all(|t| **t == *narrowed_states[0]) {
                     narrowed_states[0].clone()
-                } else if narrowed_states.iter().any(|t| matches!(t, Ty::Nothing)) {
-                    Ty::Nothing
+                } else if narrowed_states.iter().any(|t| matches!(t, Ty::Never)) {
+                    Ty::Never
                 } else {
                     // Keep only qualifiers every path preserves.
                     let mut common: HashSet<String> = narrowed_states[0]
@@ -12184,7 +12184,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                let (poison, consumed_by) = if matches!(joined, Ty::Nothing) {
+                let (poison, consumed_by) = if matches!(joined, Ty::Never) {
                     (
                         states.iter().find_map(|s| s.poison.clone()),
                         states.iter().find_map(|s| s.consumed_by),
@@ -12197,7 +12197,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // otherwise the place falls back to its declared type,
                 // which is always a supertype. A consumed variable keeps
                 // no facts about its parts.
-                let place_narrows: Vec<PlaceNarrow> = if matches!(joined, Ty::Nothing) {
+                let place_narrows: Vec<PlaceNarrow> = if matches!(joined, Ty::Never) {
                     Vec::new()
                 } else {
                     states[0]
@@ -12507,14 +12507,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // [type-any-nothing] The written `Nothing` *is* the bottom type,
+        // [type-any-never] The written `Never` *is* the bottom type,
         // not a nominal type that happens to be called that: `throw`
-        // declares `-> [] Nothing` and its callers must see a value that
+        // declares `-> [] Never` and its callers must see a value that
         // fits everywhere and ends the path.
-        if name == "Nothing" && base.args.is_empty() {
-            return Ty::Nothing;
+        if name == "Never" && base.args.is_empty() {
+            return Ty::Never;
         }
-        // [type-any-nothing] And the written `Any` *is* the top type, for the
+        // [type-any-never] And the written `Any` *is* the top type, for the
         // same reason: a parameter declared `Any` accepts every value, and
         // overload ranking treats it as the broadest thing a parameter can
         // say [fn-overload-rank]. As a nominal `Named("Any")` it accepted
@@ -14081,7 +14081,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // branch learns nothing.
                 Some(stripped) => (stripped, None),
                 None => {
-                    if !other.is_unknown() && !matches!(other, Ty::Nothing) {
+                    if !other.is_unknown() && !matches!(other, Ty::Never) {
                         self.error(
                             span,
                             format!(
@@ -14120,7 +14120,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= blocks & statements =================
 
     /// Checks a block in value position: returns its value type (last
-    /// expression, `Nothing` after return/break/continue, else `None`).
+    /// expression, `Never` after return/break/continue, else `None`).
     fn check_block_value(&mut self, block: &'p Block) -> Ty {
         self.check_branch_block(block, Vec::new()).0
     }
@@ -14490,7 +14490,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.check_state_whole(*span, "return");
                     }
                 }
-                Ty::Nothing
+                Ty::Never
             }
             Stmt::Break { value, span } => {
                 if self.loop_stack.is_empty() {
@@ -14545,7 +14545,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                Ty::Nothing
+                Ty::Never
             }
             Stmt::Continue { span } => {
                 match self.loop_stack.last_mut() {
@@ -14557,7 +14557,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
                     self.check_linear_exit(depth, *span, "continue");
                 }
-                Ty::Nothing
+                Ty::Never
             }
             Stmt::Use {
                 handler,
@@ -14639,7 +14639,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // mistake, one diagnostic.
                 let elem_tys: Vec<Ty> = match ty.strip_quals() {
                     Ty::Tuple(ts) if ts.len() == elems.len() => ts.clone(),
-                    Ty::Unknown | Ty::Nothing => vec![Ty::Unknown; elems.len()],
+                    Ty::Unknown | Ty::Never => vec![Ty::Unknown; elems.len()],
                     other => {
                         let what = match other {
                             Ty::Tuple(ts) => format!(
@@ -14693,7 +14693,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// handler-constructor argument [deduce-consume]. Only bare
     /// identifiers (through spread) are tracked. Moving a fate-linked
     /// (derived) variable is an error [fate-derived-readonly] — `copy`
-    /// is the remedy; moving a root consumes it (narrows to `Nothing`,
+    /// is the remedy; moving a root consumes it (narrows to `Never`,
     /// with `moved_by` naming the event in the use-site diagnostic) and
     /// poisons its derived variables [fate-poison], exactly like a
     /// call-site move.
@@ -14821,7 +14821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.note_linear_move(&name, id.span);
         self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
         if let Some(var) = self.lookup_mut(&id.name) {
-            var.narrowed = Ty::Nothing;
+            var.narrowed = Ty::Never;
             var.consumed_by = Some(moved_by);
         }
     }
@@ -14968,7 +14968,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // value is an error (user decision 2026-09-02):
                         // Kotlin would print `null` while Rust rejects the
                         // `Option` — an observable backend divergence.
-                        if !ty.is_unknown() && !matches!(ty, Ty::Nothing) {
+                        if !ty.is_unknown() && !matches!(ty, Ty::Never) {
                             let stripped = ty.strip_quals();
                             if stripped.has_none_arm() || stripped.is_none_ty() {
                                 let message = if stripped.is_none_ty() {
@@ -15030,9 +15030,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     {
                         return Ty::Unknown;
                     }
-                    // [deduce-consume] `Nothing` marks a consumed (moved)
+                    // [deduce-consume] `Never` marks a consumed (moved)
                     // value: referring to it is an impossibility.
-                    if matches!(narrowed, Ty::Nothing) {
+                    if matches!(narrowed, Ty::Never) {
                         match poison {
                             // [fate-move-mode] The variable is a *root*
                             // consumed by a move-mode binding:
@@ -15070,7 +15070,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 id.span,
                                 format!(
                                     "`{}` cannot be used here: it was consumed (moved) \
-                                     by {}, so its type is `Nothing`; \
+                                     by {}, so its type is `Never`; \
                                      reassign it before use",
                                     id.name,
                                     consumed_by.unwrap_or("an earlier call"),
@@ -15327,7 +15327,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // functions (`get(list, i)`). Only an un-inferred base
                     // stays lenient [type-unknown-lenient] — a generic `T`
                     // is opaque, not unknown.
-                    Ty::Unknown | Ty::Nothing => Ty::Unknown,
+                    Ty::Unknown | Ty::Never => Ty::Unknown,
                     other => {
                         let other = other.clone();
                         self.error(
@@ -16031,7 +16031,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             format!("struct `{name}` has no field `{}`", field.name),
                         );
                     }
-                    Ty::Unknown | Ty::Nothing => {}
+                    Ty::Unknown | Ty::Never => {}
                     // A generic parameter needs its own wording: adding an
                     // accessor cannot help, because nothing is known about
                     // `T` at all.
@@ -16094,7 +16094,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Ty::Unknown
                 }
             },
-            other if other.is_unknown() || matches!(other, Ty::Nothing) => Ty::Unknown,
+            other if other.is_unknown() || matches!(other, Ty::Never) => Ty::Unknown,
             _ => {
                 self.error(
                     span,
@@ -16596,7 +16596,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // un-inferred value stays lenient
                 // [type-unknown-lenient]; everything else is an error
                 // (user decision 2026-09-03).
-                if !other.is_unknown() && !matches!(other, Ty::Nothing) {
+                if !other.is_unknown() && !matches!(other, Ty::Never) {
                     // A matching protocol-shaped `next` without the
                     // declaration is the likeliest near-miss; name the
                     // remedy [group-obligation] rather than leaving a
@@ -16844,7 +16844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Consume the original: the closure owns the value now.
                 self.poison_derived(cap.var_id, &cap.name, FateEvent::Moved, span, Some(&[]));
                 if let Some(var) = self.var_by_id_mut(cap.var_id) {
-                    var.narrowed = Ty::Nothing;
+                    var.narrowed = Ty::Never;
                     var.poison = None;
                     var.consumed_by = Some(
                         "a lambda that captures and mutates it (bind a `copy` first \
@@ -17194,9 +17194,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `&&`/`||`/`!` condition, which is where the wrong type was written.
     /// A type the checker could not infer stays lenient
     /// [type-unknown-lenient], and a diverging expression never produces a
-    /// value to test [type-any-nothing].
+    /// value to test [type-any-never].
     fn require_bool(&mut self, ty: &Ty, span: Span) {
-        if ty.is_unknown() || matches!(ty, Ty::Nothing) || ty.is_bool() {
+        if ty.is_unknown() || matches!(ty, Ty::Never) || ty.is_bool() {
             return;
         }
         self.error(
@@ -17883,7 +17883,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if expected.arms().iter().any(|a| Self::carries_mut(a)) {
             return;
         }
-        if matches!(expected.strip_quals(), Ty::Var(_) | Ty::Any | Ty::Nothing) {
+        if matches!(expected.strip_quals(), Ty::Var(_) | Ty::Any | Ty::Never) {
             return;
         }
         let from = if Self::carries_mut(logical) {
@@ -17943,7 +17943,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Records the representation change (if any) needed to use a value of
     /// (`logical`, `repr`) where `expected` is required.
     fn coerce_repr(&mut self, span: Span, logical: &Ty, repr: &Ty, expected: &Ty) {
-        if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Nothing) {
+        if expected.is_unknown() || logical.is_unknown() || matches!(logical, Ty::Never) {
             return;
         }
         // The emitter unwraps identifier uses narrowed to a single arm, so
@@ -18161,7 +18161,7 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
 /// against an argument type, binding `Var`s in `subst`. Lenient: `Unknown`
 /// matches anything; qualified arguments match unqualified parameters.
 fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
-    if arg.is_unknown() || param.is_unknown() || *arg == Ty::Nothing {
+    if arg.is_unknown() || param.is_unknown() || *arg == Ty::Never {
         return true;
     }
     match (param, arg) {
@@ -18491,7 +18491,7 @@ fn tys_match_renamed(
                 ..
             },
         ) => all(pa, pb, fwd, rev) && tys_match_renamed(ra, rb, fwd, rev),
-        (Ty::Any, Ty::Any) | (Ty::Nothing, Ty::Nothing) | (Ty::Unknown, Ty::Unknown) => true,
+        (Ty::Any, Ty::Any) | (Ty::Never, Ty::Never) | (Ty::Unknown, Ty::Unknown) => true,
         _ => false,
     }
 }
@@ -18710,7 +18710,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let vty = var.narrowed.clone();
                 // A consumed callable (e.g. a `once` fn already called
                 // [once-fn]) reports the standard consumed-use error.
-                if matches!(vty, Ty::Nothing) {
+                if matches!(vty, Ty::Never) {
                     self.check_expr(callee, None);
                     for a in args {
                         self.check_expr(a, None);
@@ -18792,7 +18792,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     Some(&[]),
                                 );
                                 if let Some(var) = self.lookup_mut(&id.name) {
-                                    var.narrowed = Ty::Nothing;
+                                    var.narrowed = Ty::Never;
                                     var.consumed_by = Some(
                                         "a call (a `once` function is callable \
                                          at most once)",
@@ -18866,7 +18866,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for a in args {
             self.check_expr(a, None);
         }
-        if !cty.is_unknown() && !matches!(cty, Ty::Nothing) {
+        if !cty.is_unknown() && !matches!(cty, Ty::Never) {
             self.error(
                 span,
                 format!("this expression is not callable: its type is `{cty}`"),
@@ -19670,7 +19670,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [deduce-consume] Deduction lists are a contract, enforced
         // flow-sensitively on bare identifier arguments: parameters *not*
-        // kept are consumed (moved) — the variable narrows to `Nothing`
+        // kept are consumed (moved) — the variable narrows to `Never`
         // and any later use is an error until it is reassigned. Kept
         // parameters shed their removal set — computed from the entry's
         // effect against the qualifiers the argument carries
@@ -19836,7 +19836,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.note_linear_move(&name, id.span);
                     self.poison_derived(var_id, &name, FateEvent::Moved, span, Some(&[]));
                     if let Some(var) = self.lookup_mut(&id.name) {
-                        var.narrowed = Ty::Nothing;
+                        var.narrowed = Ty::Never;
                         var.consumed_by = Some("an earlier call");
                     }
                     consumed_here.push(name);
@@ -20070,7 +20070,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let callee_generics: HashSet<String> =
             decl.generics.iter().map(|g| g.name.clone()).collect();
-        if let Some(exp) = expected.filter(|e| !e.is_unknown() && **e != Ty::Nothing) {
+        if let Some(exp) = expected.filter(|e| !e.is_unknown() && **e != Ty::Never) {
             let mut from_expected: HashMap<String, Ty> = HashMap::new();
             if unify(ret, exp, &mut from_expected) {
                 for (g, ty) in from_expected {
@@ -20921,7 +20921,7 @@ fn op_numeric(ty: &Ty) -> Option<(bool, u8)> {
 /// and an unconstrained generic parameter (whose leniency here is a
 /// documented leftover, matching the equality slice).
 fn op_lenient(ty: &Ty) -> bool {
-    ty.is_unknown() || matches!(ty, Ty::Nothing | Ty::Var(_))
+    ty.is_unknown() || matches!(ty, Ty::Never | Ty::Var(_))
 }
 
 /// [lit-adopt] The numeric type an **unsuffixed** literal adopts from its

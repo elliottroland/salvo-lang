@@ -49,7 +49,8 @@ Conventions:
 
 * [type-basic] Internal types map natively: `Str`→`String`,
   `Bool`→`Boolean`, `Int`/`Long`/`Float`/`Double`/`Char` keep
-  their names, `Any`→`Any`, `Nothing`→`Nothing` (`emit_named_parts`).
+  their names, `Any`→`Any`, `Never`→**`Nothing`** — the JVM's bottom type keeps
+  its own name (`emit_named_parts`).
 * [kt-byte-unsigned] [byte-value] `Byte`→**`UByte`**, not the JVM's signed
   `Byte`. A Salvo `Byte` is an unsigned octet, and the JVM's is signed, so
   the naive mapping printed `-1` where Rust's `u8` printed `255` — a
@@ -339,7 +340,7 @@ Conventions:
     `Any?` (pass-through, [type-unknown-lenient]).
   * `None`-typed tails/break values have no Kotlin payload: the
     expression stays a statement and the local is assigned `null`;
-    `Nothing`-typed tails never fall through and stay statements.
+    `Never`-typed tails never fall through and stay statements.
   * Statement-position loops keep the plain Kotlin loop; an `else` needs
     only the ran-flag (no `run {}`); a `break value` whose loop value is
     discarded evaluates the operand for side effects only.
@@ -773,7 +774,7 @@ where Rust had to build the fusion to get the same programs running
     signatures come from `emit_param_list`/`emit_return_type` — the same
     renderers `emit_effect` uses — and the constructor arguments from the
     same checker table the entry's parameters come from, so the order
-    cannot drift. `TODO()` returns `Nothing`, so a value-returning member
+    cannot drift. `TODO()` returns Kotlin's `Nothing`, so a value-returning member
     stubs without a cast.
 * [effect-member-overload] **An overloaded member name is suffixed**
   (`close`, `close__2`, …) even though Kotlin has overloading: it would

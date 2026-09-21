@@ -144,7 +144,7 @@ fn borrowing_fields<'p>(
 }
 
 /// The parameters a fn keeps (indices into `decl.params`, implicit
-/// parameters excluded): a written entry that is not `Nothing`, or —
+/// parameters excluded): a written entry that is not `Never`, or —
 /// without a written list — every parameter, conservatively.
 pub fn kept_params(decl: &FnDecl) -> Vec<usize> {
     decl.params

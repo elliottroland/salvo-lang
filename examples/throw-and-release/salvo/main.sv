@@ -52,7 +52,7 @@ fn read_size(name: Str, want: Int) [Console] -> Int {
 // ===== 2. leaving early with a message: `throw` =====
 //
 // A function that may leave early declares `[Throw<Str>]` and keeps its own
-// return type — `throw` returns `Nothing`, the bottom type, so the frames in
+// return type — `throw` returns `Never`, the bottom type, so the frames in
 // between say nothing about it. There is no handler and no `catch`: the
 // delimiter is `try`.
 fn parse_port(text: Str) [Throw<Str>] -> Int => text {

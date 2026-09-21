@@ -518,7 +518,7 @@ pub enum EffectRef {
 /// `=> list: Mut` (*exhaustive* — afterwards only `Mut` applies),
 /// `=> list: None` (exhaustive and empty — every qualifier stripped),
 /// `=> list: -NonEmpty` (*delta* — drop `NonEmpty`, keep the rest),
-/// `=> !list` (moved; `list: Nothing` says the same),
+/// `=> !list` (moved; `list: Never` says the same),
 /// `=> .items: proj[from: list]` (the result's field projects `list`),
 /// `=> v.items: proj[from: other]` (a parameter's field is re-pointed), and
 /// `=> proj[from: c]` (opaque: the result holds a borrow of `c`)
@@ -580,7 +580,7 @@ pub enum DeductionKind {
     Exhaustive(Vec<TypeRef>),
     /// `=> list: -A -B`: these are dropped, everything else survives.
     Remove(Vec<TypeRef>),
-    /// `=> !list` / `=> list: Nothing`: moved (the caller loses access).
+    /// `=> !list` / `=> list: Never`: moved (the caller loses access).
     Moved,
     /// [defer-deduction] `=> defer out`: consumed like `!out`, and the
     /// obligation it carries **may outlive the frame** — parked, stored,

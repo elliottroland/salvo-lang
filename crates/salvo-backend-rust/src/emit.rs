@@ -5315,7 +5315,7 @@ impl<'p> Emitter<'p> {
                 );
                 "()".to_string()
             }
-            Ty::Nothing => "()".to_string(),
+            Ty::Never => "()".to_string(),
         }
     }
     fn is_copy_ty(ty: &Ty) -> bool {
@@ -6255,7 +6255,7 @@ impl<'p> Emitter<'p> {
 
     /// `throw(message)` [throw]: the control transfer itself, in expression
     /// position (`break`/`return` are expressions in Rust, so a
-    /// `Nothing`-typed operand needs no special casing).
+    /// `Never`-typed operand needs no special casing).
     fn emit_throw_call(&mut self, site: &ThrowSite, args: &[Expr], indent: usize) -> String {
         let message = match args.first() {
             Some(a) => self.emit_expr(a),
@@ -6329,7 +6329,7 @@ impl<'p> Emitter<'p> {
         for (i, stmt) in body.stmts.iter().enumerate() {
             if i + 1 == n {
                 if let Stmt::Expr(e) = stmt {
-                    if !matches!(self.ty_of(e.span()), Some(Ty::Nothing)) {
+                    if !matches!(self.ty_of(e.span()), Some(Ty::Never)) {
                         tail_code = Some(self.emit_expr(e));
                         continue;
                     }
@@ -10542,9 +10542,9 @@ impl<'p> Emitter<'p> {
         for (i, stmt) in block.stmts.iter().enumerate() {
             if i + 1 == n {
                 if let Stmt::Expr(e) = stmt {
-                    // The tail is the value. `Nothing`-typed tails
+                    // The tail is the value. `Never`-typed tails
                     // (`return`-like) stay statements.
-                    if matches!(self.ty_of(e.span()), Some(Ty::Nothing)) {
+                    if matches!(self.ty_of(e.span()), Some(Ty::Never)) {
                         out.push_str(&self.emit_expr_stmt(e, indent, StmtCtx::Normal));
                     } else {
                         self.expr_indent = indent;
@@ -10839,7 +10839,7 @@ impl<'p> Emitter<'p> {
     fn emit_loop_value(&mut self, expr: &Expr) -> String {
         let join = self.ty_of(expr.span()).cloned();
         let (local_ty, join_optional, needs_unwrap) = match &join {
-            Some(t) if ty_is_concrete(t) && !t.is_none_ty() && !matches!(t, Ty::Nothing) => {
+            Some(t) if ty_is_concrete(t) && !t.is_none_ty() && !matches!(t, Ty::Never) => {
                 if t.has_none_arm() {
                     (self.rust_ty(t), true, false)
                 } else {
@@ -11010,11 +11010,11 @@ impl<'p> Emitter<'p> {
     }
 
     /// Assigns a block-tail expression to a loop result local.
-    /// `Nothing`-typed tails never fall through; `None`-typed tails
+    /// `Never`-typed tails never fall through; `None`-typed tails
     /// record `None`.
     fn emit_tail_assign(&mut self, e: &Expr, result: &str, join_optional: bool) -> String {
         match self.ty_of(e.span()) {
-            Some(Ty::Nothing) => self.emit_expr_stmt(e, 0, StmtCtx::Normal),
+            Some(Ty::Never) => self.emit_expr_stmt(e, 0, StmtCtx::Normal),
             Some(t) if t.is_none_ty() => {
                 let stmt = self.emit_expr_stmt(e, 0, StmtCtx::Normal);
                 format!("{stmt}{result} = None;\n")
@@ -12252,7 +12252,7 @@ impl<'p> Emitter<'p> {
             });
         let fixed: Vec<Param> = f.params.iter().filter(|p| !p.implicit).cloned().collect();
         // [deduce-syntax] Which fixed parameters the declaration says are
-        // **consumed** (`=> !p`, equivalently `p: Nothing`). An intrinsic has
+        // **consumed** (`=> !p`, equivalently `p: Never`). An intrinsic has
         // no body, so its written clause is the whole truth — and it must
         // mention every non-Copy, non-variadic parameter, so an unmentioned
         // one is genuinely kept. Six-odd std declarations are in this set

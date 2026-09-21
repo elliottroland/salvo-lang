@@ -3380,7 +3380,7 @@ impl<'p> Emitter<'p> {
             }
             Ty::Var(v) => v.clone(),
             Ty::Any => "Any".to_string(),
-            Ty::Nothing => "Nothing".to_string(),
+            Ty::Never => "Nothing".to_string(), // Kotlin's own bottom type keeps its name
             // [implicit-param] A fn type reaches here as an implicit
             // parameter's type, which is always one: `(A, B) -> R`, with a
             // `None` result spelled `Unit` as Kotlin wants it.
@@ -3503,7 +3503,7 @@ impl<'p> Emitter<'p> {
             }
             Ty::Var(name) => name.clone(),
             Ty::Any | Ty::Unknown => "Any".to_string(),
-            Ty::Nothing => "Nothing".to_string(),
+            Ty::Never => "Nothing".to_string(), // Kotlin's own bottom type keeps its name
         }
     }
 
@@ -6185,7 +6185,7 @@ impl<'p> Emitter<'p> {
                 for (i, stmt) in stmts.iter().enumerate() {
                     if i + 1 == n {
                         if let Stmt::Expr(e) = stmt {
-                            if !matches!(self.ty_of(e.span()), Some(Ty::Nothing)) {
+                            if !matches!(self.ty_of(e.span()), Some(Ty::Never)) {
                                 tail = Some(self.emit_expr(e));
                                 continue;
                             }
@@ -6354,7 +6354,7 @@ impl<'p> Emitter<'p> {
             Some(t)
                 if ty_is_concrete(t)
                     && !t.is_none_ty()
-                    && !matches!(t, Ty::Nothing) =>
+                    && !matches!(t, Ty::Never) =>
             {
                 if t.has_none_arm() {
                     // Renders with the trailing `?` already.
@@ -6513,11 +6513,11 @@ impl<'p> Emitter<'p> {
     }
 
     /// Assigns a block-tail expression to a loop result local.
-    /// `Nothing`-typed tails never fall through (statement as-is);
+    /// `Never`-typed tails never fall through (statement as-is);
     /// `None`-typed tails have no Kotlin payload (statement, then `null`).
     fn emit_tail_assign(&mut self, e: &Expr, result: &str) -> String {
         match self.ty_of(e.span()) {
-            Some(Ty::Nothing) => self.emit_expr_stmt(e, 0),
+            Some(Ty::Never) => self.emit_expr_stmt(e, 0),
             Some(t) if t.is_none_ty() => {
                 let stmt = self.emit_expr_stmt(e, 0);
                 format!("{stmt}{result} = null\n")
@@ -7372,7 +7372,7 @@ impl<'p> Emitter<'p> {
             Ty::Array(_) => false,
             // Function values are opaque and immutable.
             Ty::Fn { .. } => true,
-            Ty::Var(_) | Ty::Any | Ty::Nothing | Ty::Unknown => false,
+            Ty::Var(_) | Ty::Any | Ty::Never | Ty::Unknown => false,
         }
     }
 

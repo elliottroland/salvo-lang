@@ -31,7 +31,7 @@ fn age_prediction(person: Surname Person) [Random<Int>, Console] -> None => pers
 }
 
 // [throw] A fn that may leave early declares the effect and keeps its own
-// return type; `throw` returns `Nothing`, so nothing after it runs.
+// return type; `throw` returns `Never`, so nothing after it runs.
 fn parse_length(line: Str) [Throw<Str>] -> Int {
     if size(line) == 0 {
         throw("empty line")

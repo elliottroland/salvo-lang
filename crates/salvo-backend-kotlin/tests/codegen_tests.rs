@@ -7978,7 +7978,7 @@ fn kotlinc_compiles_and_runs_a_container_combinator() -> KotlinCase {
 }
 
 /// [fate-field-disjoint] The Kotlin half of L5: the same source and stdout as
-/// the Rust backend's `rustc_compiles_and_runs_field_disjoint_access`. Nothing
+/// the Rust backend's `rustc_compiles_and_runs_field_disjoint_access`. Never
 /// changes in this emitter — every field read already aliased on the JVM — so
 /// this is the parity check that the newly *legal* programs behave identically
 /// on both backends.

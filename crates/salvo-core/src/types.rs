@@ -177,8 +177,8 @@ pub enum Ty {
     Var(String),
     Any,
     /// The type of `return`/`break`/`continue`; subtype of everything
-    /// [type-any-nothing].
-    Nothing,
+    /// [type-any-never].
+    Never,
     /// An unknown/unchecked type. Compatible with everything; produced when
     /// the checker cannot determine a type. Never an error by itself
     /// [type-unknown-lenient].
@@ -307,13 +307,13 @@ impl Ty {
         }
     }
 
-    /// Builds a normalized union: flattens nested unions, drops `Nothing`
+    /// Builds a normalized union: flattens nested unions, drops `Never`
     /// arms, deduplicates (keeping first occurrence). Returns the single arm
     /// directly when only one remains.
     pub fn union_of(arms: Vec<Ty>) -> Ty {
         let mut flat: Vec<Ty> = Vec::new();
         let push = |ty: Ty, flat: &mut Vec<Ty>| {
-            if ty == Ty::Nothing || flat.contains(&ty) {
+            if ty == Ty::Never || flat.contains(&ty) {
                 return;
             }
             flat.push(ty);
@@ -329,7 +329,7 @@ impl Ty {
             }
         }
         match flat.len() {
-            0 => Ty::Nothing,
+            0 => Ty::Never,
             1 => flat.pop().unwrap(),
             _ => Ty::Union(flat),
         }
@@ -378,7 +378,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         return true;
     }
     match (a, b) {
-        (Ty::Nothing, _) => true,
+        (Ty::Never, _) => true,
         (_, Ty::Any) => true,
         // A union is a subtype when every arm is.
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
@@ -983,7 +983,7 @@ impl fmt::Display for Ty {
             }
             Ty::Var(name) => write!(f, "{name}"),
             Ty::Any => write!(f, "Any"),
-            Ty::Nothing => write!(f, "Nothing"),
+            Ty::Never => write!(f, "Never"),
             Ty::Unknown => write!(f, "?"),
         }
     }
@@ -1028,7 +1028,7 @@ mod tests {
         let u = Ty::union_of(vec![
             Ty::named("Str"),
             Ty::union_of(vec![Ty::named("Str"), Ty::named("Int")]),
-            Ty::Nothing,
+            Ty::Never,
         ]);
         assert_eq!(u, Ty::Union(vec![Ty::named("Str"), Ty::named("Int")]));
         assert_eq!(Ty::union_of(vec![Ty::named("Str"), Ty::named("Str")]), Ty::named("Str"));
@@ -1045,8 +1045,8 @@ mod tests {
         // arm <: union
         assert!(is_subtype(&ok_int, &result));
         assert!(is_subtype(&result, &result));
-        // Nothing <: T <: Any
-        assert!(is_subtype(&Ty::Nothing, &ok_int));
+        // Never <: T <: Any
+        assert!(is_subtype(&Ty::Never, &ok_int));
         assert!(is_subtype(&result, &Ty::Any));
         // subset union <: union
         let sub = Ty::union_of(vec![err_str.clone(), ok_int.clone()]);

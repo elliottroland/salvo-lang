@@ -237,7 +237,7 @@ fn exhaustive<T>(list: Mut A List<T>) -> None => list: Mut {
     );
 }
 
-// [deduce-syntax] `[p: Nothing]` is the moved form (`Nothing` is
+// [deduce-syntax] `[p: Never]` is the moved form (`Never` is
 // uninhabited, so it withdraws use without claiming anything about
 // content) — the same facts as omitting the entry.
 #[test]

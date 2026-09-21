@@ -614,7 +614,7 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         "Bytes" => "Vec<u8>",
         "None" => "()",
         // Only reachable in dead positions.
-        "Nothing" => "()",
+        "Never" => "()",
         "List" => "Vec",
         // [col-insertion-order] Not `HashSet`/`HashMap`: those have no
         // iteration order to speak of (unspecified, and randomly seeded per

@@ -9,7 +9,7 @@
 //! element — expressible without an `else` block or a two-armed `when`.
 //!
 //! The rule keys on *every* branch exiting: `return`, `break`, `continue`,
-//! and a diverging call ([type-any-nothing]) all count, and a branch that can
+//! and a diverging call ([type-any-never]) all count, and a branch that can
 //! fall through narrows nothing after the `if`.
 
 use std::path::Path;
@@ -17,7 +17,7 @@ use std::path::Path;
 use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 
 const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
-     export intrinsic type Nothing\n";
+     export intrinsic type Never\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -101,12 +101,12 @@ fn a_continuing_guard_narrows_the_rest_of_the_body() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [type-any-nothing] A diverging *call* is an exit too: nothing after it
+/// [type-any-never] A diverging *call* is an exit too: nothing after it
 /// runs, so the branch cannot fall through.
 #[test]
 fn a_diverging_call_in_the_guard_counts_as_an_exit() {
     let errs = errors(
-        "fn give_up(reason: Str) -> Nothing => !reason {\n    return give_up(reason)\n}\n\
+        "fn give_up(reason: Str) -> Never => !reason {\n    return give_up(reason)\n}\n\
          fn describe(s: Str?) -> Str => s {\n    \
          if s is None {\n        give_up(\"none\")\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",

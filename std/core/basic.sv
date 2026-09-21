@@ -6,7 +6,7 @@ export intrinsic type Double
 export intrinsic type Char
 export intrinsic type Bool
 export intrinsic type Any
-export intrinsic type Nothing
+export intrinsic type Never
 
 export type Number = Int | Long | Double | Float
 

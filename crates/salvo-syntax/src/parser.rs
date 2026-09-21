@@ -1104,7 +1104,7 @@ impl<'s> Parser<'s> {
 
     /// `=> list: +NonEmpty`, `=> list: -Sorted`, `=> a: +P, b: -Q`
     /// [qual-refn]: every entry is a set of additions and removals, so a
-    /// plain (exhaustive) name or `Nothing` is rejected — a refinement
+    /// plain (exhaustive) name or `Never` is rejected — a refinement
     /// never decides whether a parameter is kept.
     fn parse_refn_deduction_list(&mut self) -> Option<Vec<RefnDeduction>> {
         let mut entries: Vec<RefnDeduction> = Vec::new();
@@ -1717,7 +1717,7 @@ impl<'s> Parser<'s> {
     }
 
     /// One entry [deduce-syntax]: `!elem`, `elem`, `elem: Qual…`,
-    /// `elem: None`, `elem: Nothing`, `elem: -Qual…`, `elem: +Qual…`,
+    /// `elem: None`, `elem: Never`, `elem: -Qual…`, `elem: +Qual…`,
     /// `x.f: proj[from: a]`, `.f: proj[from: a]`, or a bare `proj[from: a]`.
     fn parse_deduction_entry(&mut self) -> Option<Deduction> {
         let start = self.peek().span;
@@ -1828,7 +1828,7 @@ impl<'s> Parser<'s> {
                     (true, true) => {
                         self.error(
                             "expected qualifiers after `:` — `None` to strip every \
-                             qualifier, `Nothing` to consume the value",
+                             qualifier, `Never` to consume the value",
                             end,
                         );
                         DeductionKind::Exhaustive(Vec::new())
@@ -1837,7 +1837,7 @@ impl<'s> Parser<'s> {
                         let lone = |what: &str| {
                             plain.len() == 1 && plain[0].name.name == what && plain[0].args.is_empty()
                         };
-                        if lone("Nothing") {
+                        if lone("Never") {
                             DeductionKind::Moved
                         } else if lone("None") {
                             DeductionKind::Exhaustive(Vec::new())

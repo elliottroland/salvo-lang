@@ -11,7 +11,7 @@
 //!
 //! called `remove_first` twice per turn and silently discarded every other
 //! element — with a *linear* element, its obligation went with it, and the
-//! Rust arm cloned the value the checker believed it had moved. Nothing
+//! Rust arm cloned the value the checker believed it had moved. Never
 //! reported anything.
 //!
 //! The rule now: a binding `is` whose subject is **not a place** is legal as

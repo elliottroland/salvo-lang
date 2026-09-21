@@ -259,7 +259,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             // [qual-refn-conflict] Suppress a group whose members
             // disagree. Two additions conflict when the qualifiers could
             // not have been written together [qual-with]; an addition and
-            // a removal of the same qualifier conflict outright. Nothing
+            // a removal of the same qualifier conflict outright. Never
             // is applied then — the caller can still test by hand, or
             // reconcile with a top-level `refn`. Judged in *this* file's
             // scope, since that is where the refinements are visible.

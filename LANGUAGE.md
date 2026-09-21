@@ -400,11 +400,11 @@ let zeros: Int[] = array_by(5, i -> 0)
 
 The array's size can be fetched from `numbers.size()` (see below for dot-notation of functions) and the array can be 0-indexed using `numbers[index]`. Indexing is an array's alone: a list exposes element access as `get(xs, i)`.
 
-### Any and Nothing
+### Any and Never
 
-Like Kotlin, there is an `Any` type which is the superclass of all other types. There is also a `Nothing` type which represents unreachable code (similar to `!` in Rust or `never` in TypeScript). In the type system, it is treated as the sub-type of every other type so that the types of branching code work out nicely.
+Like Kotlin, there is an `Any` type which is the superclass of all other types. There is also a `Never` type which represents unreachable code (similar to `!` in Rust or `never` in TypeScript). In the type system, it is treated as the sub-type of every other type so that the types of branching code work out nicely.
 
-In the following example, the `return` "evaluates" to `Nothing` while the `Ok` branch evaluates to type `Str`. Thus, the type of `value` is compatible with `Str` (technically, the type of the when expression is `Ok Str`, but the code explicitly elides the `Ok` qualifier).
+In the following example, the `return` "evaluates" to `Never` while the `Ok` branch evaluates to type `Str`. Thus, the type of `value` is compatible with `Str` (technically, the type of the when expression is `Ok Str`, but the code explicitly elides the `Ok` qualifier).
 
 ```
 let result: Ok Str | Err Int = some_func()
@@ -418,7 +418,7 @@ let value: Str = when result {
 }
 ```
 
-`Nothing` is the "evaluated type" of operators like `return`, `break`, and `continue`.
+`Never` is the "evaluated type" of operators like `return`, `break`, and `continue`.
 
 ### Qualifiers
 
@@ -526,7 +526,7 @@ intrinsic type Str canbe Mut
 
 Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section.
 
-`Mut` is also the one qualifier whose *removal* can cost something. Dropping a qualifier is ordinarily free — it only forgets a claim — and a `Mut List<T>` used as a `List<T>` really is the same value. But a backend may render `Mut T` as a *different type* than `T` (Kotlin's `Mut Str` is a `StringBuilder`, which is not a `String`), and there the drop is a conversion. Salvo hides that: the compiler records where a `Mut` is dropped and the backend supplies whatever conversion it needs, at every such place — arguments, returns, annotations, struct fields, union arms, interpolation and operators. Nothing in the source changes, and a `Mut Str` behaves like the `Str` it is being used as.
+`Mut` is also the one qualifier whose *removal* can cost something. Dropping a qualifier is ordinarily free — it only forgets a claim — and a `Mut List<T>` used as a `List<T>` really is the same value. But a backend may render `Mut T` as a *different type* than `T` (Kotlin's `Mut Str` is a `StringBuilder`, which is not a `String`), and there the drop is a conversion. Salvo hides that: the compiler records where a `Mut` is dropped and the backend supplies whatever conversion it needs, at every such place — arguments, returns, annotations, struct fields, union arms, interpolation and operators. Never in the source changes, and a `Mut Str` behaves like the `Str` it is being used as.
 
 ### Generic types
 
@@ -1767,7 +1767,7 @@ Handlers so far always *resume*: an effect operation runs and control comes back
 
 ```
 effect Throw<M> {
-    fn throw(message: M) -> Nothing => !message
+    fn throw(message: M) -> Never => !message
 }
 ```
 
@@ -1782,7 +1782,7 @@ fn parse(line: Str) [Throw<Str>] -> Int {
 }
 ```
 
-`throw` returns `Nothing`, the bottom type, so the code after it never runs — which is what keeps the frames in between silent. `parse` returns `Int`, not an outcome union: no `Result` plumbing, no unwrapping at each call. A function that calls `parse` either declares `[Throw<Str>]` too, passing the throw on, or delimits it.
+`throw` returns `Never`, the bottom type, so the code after it never runs — which is what keeps the frames in between silent. `parse` returns `Int`, not an outcome union: no `Result` plumbing, no unwrapping at each call. A function that calls `parse` either declares `[Throw<Str>]` too, passing the throw on, or delimits it.
 
 The delimiter is `try`, a **compiler intrinsic** rather than an effect — there is no `Try` handler to register, just as there is nothing to register for loops or `if`. It evaluates to an outcome:
 
@@ -1809,7 +1809,7 @@ Details worth knowing:
 
 - **`M` is the union of the message types the body can throw with.** A body that throws with a `Str` in one place and an `Int` in another yields `Ok T | Thrown (Str | Int)`, the same way an `if` with two branch types yields their union. With one message type it stays bare.
 - **A throw lands in the innermost `try`.** There are no labelled throws; a nested delimiter takes its own body's throws and lets an outer one pass through.
-- **A `try` whose body cannot throw is an error.** Nothing can produce the `Thrown` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
+- **A `try` whose body cannot throw is an error.** Never can produce the `Thrown` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
 - **`main` cannot declare `[Throw<M>]`**: there is no caller to receive the throw, so the delimiter has to be inside.
 - **`Thrown M` is forgeable, deliberately.** The qualifier carries no authority — `core.throw`'s `thrown(message)` constructor produces a value in the thrown arm without transferring control. The authority to throw is `[Throw<M>]` availability alone.
 - **Nothing linear may be live across a call that may throw**: the code after the call does not run on the throw path, so the obligation would be owed on a path with no code left to discharge it. Release before the call, or move the value onward so the obligation travels with it. (`defer` used to be the third option — a block spliced at every exit, including the throw path — and it was removed 2026-09-10: linearity is what *checks* the obligation, so the construct that discharged it out of sight was the partial solution to a problem already solved.)
@@ -1838,7 +1838,7 @@ The entries, by shape:
 | entry | meaning |
 |---|---|
 | `=> list` | kept, and every qualifier the argument had survives |
-| `=> !list` | consumed — the caller loses the value (`list: Nothing` says the same) |
+| `=> !list` | consumed — the caller loses the value (`list: Never` says the same) |
 | `=> list: Mut` | **exhaustive**: afterwards `Mut` is the *only* thing still known about the argument |
 | `=> list: None` | exhaustive and empty: every qualifier stripped |
 | `=> list: -NonEmpty` | **delta**: drops `NonEmpty`, leaves everything else intact |
@@ -1873,7 +1873,7 @@ In Rust, the `NonEmpty` state was not captured: this is a Salvo compile-time inf
 fn consume<T>(list: List<T>) -> None => !list
 ```
 
-Calling `consume(list)` _moves_ the variable to the function: `list`'s type narrows to `Nothing` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the consumption is written or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
+Calling `consume(list)` _moves_ the variable to the function: `list`'s type narrows to `Never` (a value that no longer exists is an impossibility), and any future reference to it in the calling function is a compile-time error until the variable is reassigned. This holds whether the consumption is written or inferred — a function that returns its parameter moves it, and callers are checked against that inferred contract just the same. It also holds uniformly across all types: for basic value types the underlying backends copy the value and the generated code would remain valid, but the Salvo-level contract is enforced consistently regardless of the type. The analysis is branch-aware: consuming a value in a branch that always exits (via `return`, `break`, or `continue`) does not affect the code after the branch, while a value consumed on only some fall-through paths is conservatively unusable afterwards. Loops account for the back edge too: a value read early in a loop body and consumed later in the same body is an error, since the read happens after the consumption from the second iteration onwards (reassigning before the body ends keeps it valid).
 
 Consuming calls are not the only way a value moves. Every other escape route consumes a bare variable the same way, and the error at a later use names the event: storing it in a struct, array, or tuple literal (the literal owns it now), spreading it (`...n` reads all of its fields into a new value and consumes the source), returning it, `break`-ing with it, and passing it to a `use` handler constructor (the handler stores it for the rest of the scope). A `break` with a value reaches the code after the loop on every exit path, so a variable consumed by `break` is unusable after the loop even when the `break` sits inside a branch. Reads, by contrast, never consume anything — in particular, string interpolation is a read: `"${n}"` formats the value and retains nothing, so `n` stays usable. As always, `copy(...)` at the move site keeps the original usable, and reassignment revives it.
 
