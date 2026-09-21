@@ -239,6 +239,10 @@ order, because each one clears the ground for the next:
    - Each pick matches arms the way `is` does: bare `Ok` takes every `Ok`-tagged
      arm, `Ok Int` takes that one.
 
+Built alongside the five steps: **a guarding `?:` narrows its subject**
+([elvis-guard], 2026-09-21) — OPTIONALS.md's `Q-6`, the last item in that
+document that was neither decided nor recorded elsewhere.
+
 Also agreed, and no longer part of this family: **`waitfor` does not get `_`**.
 What is wanted there is ordinary inference — `waitfor out { counter.total(out) }`
 with the `Reply<T>` inferred from where the binder is used, the binder still

@@ -9375,11 +9375,23 @@ impl<'p> Emitter<'p> {
                 // the form, and the picked value and `_` share one evaluation.
                 // Unlike `?.` the subject need not be a place: the temporary is
                 // where it lives.
-                let tmp = self.fresh_pick_var();
-                let subj_code = self.emit_expr(subject);
-                let saved_subject = self
-                    .is_temps
-                    .insert((self.file_idx, subject.span()), tmp.clone());
+                let hoist = Self::elvis_needs_temp(subject);
+                let tmp = if hoist {
+                    self.fresh_pick_var()
+                } else {
+                    self.place_storage(subject)
+                };
+                let subj_code = if hoist {
+                    self.emit_expr(subject)
+                } else {
+                    String::new()
+                };
+                let saved_subject = if hoist {
+                    self.is_temps
+                        .insert((self.file_idx, subject.span()), tmp.clone())
+                } else {
+                    None
+                };
                 let test = self.is_test_of(*span).cloned();
                 let cond = match &test {
                     Some(t) => self.emit_union_test(&tmp, t),
@@ -9397,20 +9409,77 @@ impl<'p> Emitter<'p> {
                 let saved = self.placeholder_code.replace(else_read);
                 let r = self.emit_expr(rhs);
                 self.placeholder_code = saved;
-                match saved_subject {
-                    Some(prev) => {
-                        self.is_temps.insert((self.file_idx, subject.span()), prev);
-                    }
-                    None => {
-                        self.is_temps.remove(&(self.file_idx, subject.span()));
+                if hoist {
+                    match saved_subject {
+                        Some(prev) => {
+                            self.is_temps.insert((self.file_idx, subject.span()), prev);
+                        }
+                        None => {
+                            self.is_temps.remove(&(self.file_idx, subject.span()));
+                        }
                     }
                 }
-                format!("{{ let {tmp} = {subj_code}; if {cond} {{ {body} }} else {{ {r} }} }}")
+                if hoist {
+                    format!("{{ let {tmp} = {subj_code}; if {cond} {{ {body} }} else {{ {r} }} }}")
+                } else {
+                    format!("if {cond} {{ {body} }} else {{ {r} }}")
+                }
             }
-            Expr::Elvis { subject, rhs, .. } => {
-                let s = self.emit_expr(subject);
+            Expr::Elvis { subject, rhs, span, .. } => {
+                // [elvis] The same shape the qualifier pick uses, and for the
+                // same reason: the picked value is **read** out of the subject,
+                // not moved out of it. A `match s { Some(v) => v, … }` moves,
+                // which broke the moment [elvis-guard] let the subject be read
+                // again below (rustc E0382) — every other narrowed read clones.
+                // [is-bind-once] The subject is evaluated once, into a
+                // temporary, so it need not be a place.
+                let hoist = Self::elvis_needs_temp(subject);
+                let tmp = if hoist {
+                    self.fresh_pick_var()
+                } else {
+                    self.place_storage(subject)
+                };
+                let subj_code = if hoist {
+                    self.emit_expr(subject)
+                } else {
+                    String::new()
+                };
+                let saved_subject = if hoist {
+                    self.is_temps
+                        .insert((self.file_idx, subject.span()), tmp.clone())
+                } else {
+                    None
+                };
+                let test = self.is_test_of(*span).cloned();
+                let cond = match &test {
+                    Some(t) => self.emit_union_test(&tmp, t),
+                    None => format!("{tmp}.is_some()"),
+                };
+                let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
+                // A test matching **every** value arm is a pure `None` test, so
+                // the read unwraps the `Option` and *keeps* the wrapper: the
+                // picked value is the whole union (`Str | Int`), not one arm of
+                // it. Passing the test on would have taken arm 0.
+                let read_test = test
+                    .clone()
+                    .filter(|t| t.arms.len() != t.size);
+                let body = self.emit_narrowed_read(subject, picked.as_ref(), read_test);
                 let r = self.emit_expr(rhs);
-                format!("match {s} {{ Some(__v) => __v, None => {r} }}")
+                if hoist {
+                    match saved_subject {
+                        Some(prev) => {
+                            self.is_temps.insert((self.file_idx, subject.span()), prev);
+                        }
+                        None => {
+                            self.is_temps.remove(&(self.file_idx, subject.span()));
+                        }
+                    }
+                }
+                if hoist {
+                    format!("{{ let {tmp} = {subj_code}; if {cond} {{ {body} }} else {{ {r} }} }}")
+                } else {
+                    format!("if {cond} {{ {body} }} else {{ {r} }}")
+                }
             }
             // [placeholder] The unpicked arm, read out of the subject.
             Expr::Placeholder { .. } => self
@@ -10014,6 +10083,18 @@ impl<'p> Emitter<'p> {
 
     /// The runtime test for an `is` check against a union representation
     /// [rs-union-enums] [union-arm-identity].
+    /// [is-bind-once] Whether a `?:` subject needs hoisting into a temporary.
+    /// A **place** does not: reading one twice is free, and binding it to a temp
+    /// would *move* it, which the guard narrowing then trips over (rustc E0382)
+    /// — the subject is still readable below. Anything else is evaluated once,
+    /// into the temp.
+    fn elvis_needs_temp(expr: &Expr) -> bool {
+        !matches!(
+            expr,
+            Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. }
+        )
+    }
+
     fn fresh_pick_var(&mut self) -> String {
         self.pick_vars += 1;
         format!("__pick{}", self.pick_vars)

@@ -11946,6 +11946,28 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///
     /// A variable already consumed keeps that fact — a flow fact outranks a
     /// narrowing, exactly as the restore half has it [deduce-consume].
+    /// [elvis-guard] A `?:` whose right side **leaves** has proved something
+    /// about its subject on the path that follows: the value was there. So the
+    /// subject's place narrows to the picked type, exactly as the branch of an
+    /// `is` guard does [is-narrow-guard] — the same facts, reached from an
+    /// expression instead of a condition.
+    ///
+    /// Only when the right side diverges: one that yields a value leaves the
+    /// subject possibly-unpicked afterwards, since that is the path it took.
+    fn install_elvis_guard(&mut self, subject: &'p Expr, picked: &Ty, subj_repr: &Ty) {
+        let Some(place) = Place::of_expr(subject)
+            .filter(|p| p.narrowable() && self.lookup(&p.root).is_some())
+        else {
+            return;
+        };
+        let narrow = Narrow {
+            place,
+            narrowed: picked.clone(),
+            declared: subj_repr.clone(),
+        };
+        self.install_narrows(&[narrow]);
+    }
+
     fn install_narrows(&mut self, narrows: &[Narrow]) {
         for n in narrows {
             if n.place.is_root() {
@@ -14194,6 +14216,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         let rhs_ty = self.check_expr(rhs, None);
         self.placeholder_ty = saved;
         if matches!(rhs_ty, Ty::Never) {
+            // [elvis-guard] The pick held, so the subject reads as the matched
+            // arm on the path below. Note **`arm`, not `picked`**: the lift
+            // applies to the value the expression produced, while the place
+            // still holds the tagged arm — `r ^Ok?: return` leaves `r` an
+            // `Ok Int`, and saying `Int` there would name a type that matches no
+            // arm of the storage (which is exactly what the Rust backend
+            // reported when this narrowed to the lifted type).
+            let repr = self.repr_of(subject, &subj_ty);
+            self.install_elvis_guard(subject, &arm, &repr);
             return picked;
         }
         let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
@@ -15902,9 +15933,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out
                     .elvis_picks
                     .insert(self.key(*span), picked.clone());
+                // The test the emitters need: "one of the value arms", i.e. not
+                // `None`. Recorded here because only the checker knows the
+                // subject's arm identity [union-arm-identity] — and because a
+                // *call* subject has no recorded representation for an emitter
+                // to rebuild it from.
+                let value_arms = subj_ty.value_arms();
+                self.out.is_tests.insert(
+                    self.key(*span),
+                    UnionTest {
+                        size: value_arms.len(),
+                        arms: (0..value_arms.len()).collect(),
+                        nullable: true,
+                        match_none: false,
+                    },
+                );
                 // A diverging right side contributes nothing, exactly as a
-                // branch that escapes does [type-any-never].
+                // branch that escapes does [type-any-never] — and it *proves*
+                // the subject was there, so the place narrows [elvis-guard].
                 if matches!(rhs_ty, Ty::Never) {
+                    let repr = self.repr_of(subject, &subj_ty);
+                    self.install_elvis_guard(subject, &picked, &repr);
                     return picked;
                 }
                 let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);

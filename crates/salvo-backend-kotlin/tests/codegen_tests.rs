@@ -1164,16 +1164,28 @@ fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
     }
 }
 
+// [elvis-guard] After a guarding pick the subject reads as the matched *arm*:
+// `r` is an `Ok Int` below, so it needs no further check.
+fn guarded(text: Str) [Console] -> None {
+    let r = parse(text)
+    let n: Int = r ^Ok?: return
+    let same: Ok Int = r
+    println("guarded ${n} ${same}")
+}
+
 fn main() [use] {
     use StdOutConsole()
     show("doubled", doubled("abc"))
     show("doubled", doubled(""))
     show("kept", kept("abcd"))
     show("kept", kept(""))
+    guarded("hello")
+    guarded("")
 }
 "#;
 
-const PICK_OUTPUT: &str = "doubled ok 6\ndoubled err empty\nkept ok 4\nkept err empty\n";
+const PICK_OUTPUT: &str =
+    "doubled ok 6\ndoubled err empty\nkept ok 4\nkept err empty\nguarded 5 5\n";
 
 fn kotlinc_compiles_and_runs_a_qualifier_pick() -> KotlinCase {
     let program = build_program(&[("main.sv", PICK_DEMO)]);

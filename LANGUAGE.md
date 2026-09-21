@@ -299,6 +299,19 @@ placeholder is needed: a plain `?:` leaves `None`, which is already writable.
 There is no way to strip a tag here, so turning a `Thrown` into an `Err` is a
 `when`.
 
+A `?:` whose right side leaves also **narrows its subject** below, because the
+value must have been there for the code to be running:
+
+```
+let v: Str = t ?: return        // `t` reads as `Str` from here on
+let n: Int = r ^Ok?: return     // `r` reads as `Ok Int` — the arm, tag and all
+```
+
+The pick narrows to the arm rather than to the lifted value: the lift applies to
+what the expression produced, while the variable still holds the tagged arm. A
+right side that yields a value narrows nothing, since that is the path where the
+subject was absent.
+
 The subject is evaluated once, so it can be a call. A pick that matches no arm,
 or that matches every arm and leaves the right side unreachable, is an error.
 

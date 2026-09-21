@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> T as Ok {\n    return value\n}\nexport fn err<T>(value: T) [] -> T as Err {\n    return value\n}\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\nexport intrinsic fn to_upper(s: Str) [] -> Str => s\nexport intrinsic fn note(s: Str) [] -> None => s\nexport qualifier Ok<T> of T\nexport qualifier Err<T> of T\nexport fn ok<T>(value: T) [] -> T as Ok {\n    return value\n}\nexport fn err<T>(value: T) [] -> T as Err {\n    return value\n}\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -213,4 +213,53 @@ fn a_multi_arm_pick_is_refused_for_now() {
         errs.iter().any(|e| e.contains("not emitted yet") || e.contains("several arms")),
         "expected the multi-arm deferral, got: {errs:?}"
     );
+}
+
+/// [elvis-guard] A `?:` whose right side **leaves** has proved its subject was
+/// there, so the place narrows on the path below — the same facts an `is` guard
+/// leaves [is-narrow-guard], reached from an expression instead of a condition.
+/// Interpolation is the probe: it refuses a possibly-`None` value
+/// [interp-no-none], so it passes only if the narrowing landed.
+#[test]
+fn a_guarding_elvis_narrows_its_subject() {
+    let errs = errors(
+        "fn f(t: Str?) [] -> None {\n\
+         \x20   let v: Str = t ?: return\n\
+         \x20   note(t)\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected `t` to read as `Str`, got: {errs:?}");
+}
+
+/// [elvis-guard] A right side that **yields a value** proves nothing: that path
+/// is the one where the subject was absent, so the place keeps its type.
+#[test]
+fn a_valued_elvis_does_not_narrow() {
+    let errs = errors(
+        "fn f(t: Str?) [] -> None {\n\
+         \x20   let v: Str = t ?: \"other\"\n\
+         \x20   note(t)\n\
+         }\n",
+    );
+    assert!(
+        !errs.is_empty(),
+        "expected `t` to stay optional after a valued `?:`"
+    );
+}
+
+/// [elvis-guard] [pick] After a guarding **pick** the place reads as the matched
+/// **arm**, tag included — the lift applies to the value the expression
+/// produced, not to the variable, and naming the lifted type there would match
+/// no arm of the storage.
+#[test]
+fn a_guarding_pick_narrows_to_the_arm() {
+    let errs = errors(
+        "fn parse(t: Str) [] -> Ok Int | Err Str {\n    return err(t)\n}\n\
+         fn f(text: Str) [] -> None {\n\
+         \x20   let r = parse(text)\n\
+         \x20   let n: Int = r ^Ok?: return\n\
+         \x20   let again: Ok Int = r\n\
+         }\n",
+    );
+    assert!(errs.is_empty(), "expected `r` to read as `Ok Int`, got: {errs:?}");
 }

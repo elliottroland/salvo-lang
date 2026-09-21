@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1230 tests, complete: the toolchain tests are
+cargo test                  # 1233 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,40 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A guarding `?:` narrows its subject (user decision 2026-09-21).** OPTIONALS.md's
+`Q-6`, the one item in that document that had been neither decided nor built.
+`[elvis-guard]`.
+
+`let v: Str = t ?: return` proves `t` was there, so `t` reads as `Str` below —
+the facts an `is` guard already left [is-narrow-guard], reached from an
+expression instead of a condition. Only when the right side *diverges*: one that
+yields a value leaves the subject possibly-unpicked, since that is the path it
+took.
+
+Two things it forced, both of them corrections to work from earlier today:
+
+- **A pick narrows to the matched arm, not the lifted type.** `r ^Ok?: return`
+  leaves `r` an `Ok Int`, because the lift applies to the value the expression
+  produced while the place still holds the tagged arm. The first attempt narrowed
+  to `Int` and the Rust backend said so plainly: *narrowed type `Int` matches no
+  arm of `Ok Int | Err Str`*.
+- **The elvis lowering moved its subject**, which only mattered once the subject
+  became readable below: `match t { Some(v) => v, … }` is a move, and rustc
+  reported E0382. Every other narrowed read *clones*, so the plain `?:` now uses
+  the same shape the pick does — and a **place** subject is no longer hoisted
+  into a temporary at all, since the hoist was itself the move. Reading a place
+  twice is free, which is the rule [loop-while-is] already rests on.
+
+One narrow bug fixed on the way: a test matching *every* value arm is a pure
+`None` test, so the read must unwrap the `Option` and **keep** the wrapper — the
+picked value of `Str | Int | None ?: "none"` is the whole `Str | Int`, and
+passing the test through took arm 0 instead.
+
+Tests: three in `elvis_tests.rs` (the guard narrows, a valued right side does
+*not*, and a pick narrows to the arm) plus a `guarded` case added to the pick
+program on both backends, where `let same: Ok Int = r` after the guard compiles
+only if the narrowing landed. 1230 → 1233.
 
 **Qualifier picks: `Qual?:` and `^Qual?:` (user decision 2026-09-21).** Step 5,
 the last of the sequence and the one the other four were for. [pick].
@@ -13461,7 +13495,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1230)
+## Test inventory (all green: 1233)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

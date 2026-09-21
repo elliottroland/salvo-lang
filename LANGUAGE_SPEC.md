@@ -288,6 +288,22 @@ Conventions:
     emits a conditional whose arms are the narrowed read and `null`
     [kt-safe-call]. Rust emits the same shape over the `Option`
     [rs-safe-call].
+* [elvis-guard] A `?:` (plain or a pick) whose right side **leaves** narrows its
+  subject on the path below (user decision 2026-09-21): the value was there, or
+  the code would not be running. The same facts an `is` guard leaves
+  [is-narrow-guard], reached from an expression rather than a condition, and
+  installed only when the subject is a narrowable place [flow-place].
+  * **Only when the right side diverges.** One that yields a value leaves the
+    subject possibly-unpicked, since that is the path it took.
+  * **A pick narrows to the matched *arm*, tag included** — not to the lifted
+    type. `r ^Ok?: return` leaves `r` an `Ok Int`: the lift applies to the value
+    the expression produced, while the place still holds the tagged arm. Naming
+    the lifted type there would name a type matching no arm of the storage,
+    which is exactly what the Rust backend reported when it did.
+  * Consequence for the lowering: the picked value is **read** out of the
+    subject, not moved out of it, since the subject is still live below. A place
+    subject is therefore not hoisted into a temporary at all — reading one twice
+    is free [loop-while-is] — while any other subject is, once.
 * [placeholder] `_` reads as **the value the enclosing construct left
   unnamed**, and **no construct binds one yet** (user decision 2026-09-21): a
   plain `?:` leaves `None`, which the program can already write, so a
