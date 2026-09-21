@@ -12,10 +12,16 @@
 // [col-key-eligible] A key here must be **orderable**, which is a different
 // bar from the hashability `Set`/`Map` ask for: the intrinsic ordered types
 // (`Int`, `Long`, `Str`, `Char`, `Bool`), a `List` or tuple of orderable
-// things (compared lexicographically), or a struct declaring `canbe
-// ordered`. `Double`/`Float` are excluded — Rust's `f64` has no total order
-// — and a **union** is excluded on principle: comparing values of different
-// types has no obvious meaning, where hashing them would have been fine.
+// things (compared lexicographically), or a struct with a `cmp` — one token
+// with `: default Ordered<self>`, or hand-written and `@`-scoped
+// [cmp-default] [cmp-canonical]. `Double`/`Float` are excluded — Rust's `f64`
+// has no total order — and a **union** is excluded on principle: comparing
+// values of different types has no obvious meaning, where hashing them would
+// have been fine.
+//
+// The ordering used is the key's **canonical** one. Parameterizing these types
+// by an ordering (`SortedSet<T, ?cmp = cmp>`, so two differently ordered sets
+// are different types) is designed and not built — see ROADMAP.md.
 //
 // Strings order by **code point** on both backends, which the Kotlin side
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit

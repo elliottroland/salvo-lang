@@ -1822,8 +1822,8 @@ impl<'p> Emitter<'p> {
         // [col-equality] [col-hashed-ordered] Every struct supports `==`, so
         // `PartialEq` is derived unless a fn-typed field makes equality
         // meaningless (`Rc<dyn Fn>` has none). The opt-ins add what a
-        // collection needs on top: `canbe hashed` gives `Eq + Hash`,
-        // `canbe ordered` the total order — both of which exclude float
+        // collection needs on top: `default Hashed<self>` gives `Eq + Hash`,
+        // `default Ordered<self>` the total order — both of which exclude float
         // fields, which is exactly what the checker validated at the
         // declaration, so the derives cannot fail here.
         // [cmp-default] The derives a `default` obligation asks for: the
@@ -4030,10 +4030,11 @@ impl<'p> Emitter<'p> {
     /// `default` exists — a call, an adapter closure and a `cmp = cmp@Point`
     /// value all reach this like any named fn.
     ///
-    /// The derive it stands on is the one today's `canbe ordered`/`canbe hashed`
-    /// already emit (user decision 2026-09-21: `default` inherits the
-    /// derive-based lowering, hand-written implementations do not), so the
-    /// generated member and the struct's own `Ord`/`Hash` cannot disagree.
+    /// The derive it stands on is the one the `default` clause asks for (user
+    /// decision 2026-09-21: `default` inherits the derive-based lowering that
+    /// `canbe ordered`/`canbe hashed` used to drive, hand-written implementations
+    /// do not), so the generated member and the struct's own `Ord`/`Hash` cannot
+    /// disagree.
     fn emit_structural_fn(&mut self, f: &FnDecl) -> String {
         let key = self.key_of_fn(f);
         let member = f.name.name.clone();

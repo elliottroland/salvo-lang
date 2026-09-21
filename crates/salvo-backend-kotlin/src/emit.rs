@@ -112,7 +112,7 @@ pub fn emit_program_reporting(
     // [kt-throw-signal] Generated once for the whole program, when
     // anything throws.
     let mut needs_throw = false;
-    // [kt-ordered] And for the structural comparison a `canbe ordered`
+    // [kt-ordered] And for the structural comparison an ordered
     // struct's `compareTo` uses [col-hashed-ordered].
     let mut needs_compare = false;
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
@@ -433,7 +433,7 @@ fn generate_throw_file() -> String {
     include_str!("../runtime/throw.kt").to_string()
 }
 
-/// [kt-ordered] The structural comparison a `canbe ordered` struct's
+/// [kt-ordered] The structural comparison an ordered struct's
 /// `compareTo` uses for each field [col-hashed-ordered].
 ///
 /// Source in `runtime/compare.kt`, included verbatim and compiled directly
@@ -939,7 +939,7 @@ struct Emitter<'p> {
     /// [kt-throw-signal] This file throws (or delimits a throw), so the
     /// program needs the generated signal class.
     needs_throw: bool,
-    /// [kt-ordered] Whether this module declared a `canbe ordered` struct, so
+    /// [kt-ordered] Whether this module declared an ordered struct, so
     /// the comparison runtime is emitted.
     needs_compare: bool,
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
@@ -1433,7 +1433,7 @@ impl<'p> Emitter<'p> {
             self.generics = saved;
             return format!("\nclass {declared_name}{generics}\n");
         }
-        // [col-hashed-ordered] [kt-ordered] `canbe ordered` needs a real
+        // [col-hashed-ordered] [kt-ordered] An ordered struct needs a real
         // `Comparable`: a Kotlin data class gets `equals`/`hashCode` for free
         // but *not* comparison, so `p < q` would be an unresolved
         // `compareTo`. The order is lexicographic by field declaration order,
@@ -1488,7 +1488,7 @@ impl<'p> Emitter<'p> {
         // statically `Double`/`Float`, is IEEE, so the two agree.
         //
         // `hashCode` is left to the data class: a float-bearing struct is
-        // barred from `canbe hashed` [col-hashed-ordered], so it never
+        // barred from `: default Hashed<self>` [col-hashed-ordered], so it never
         // reaches a hash table where the (NaN-only) inconsistency could
         // matter.
         if ordered {

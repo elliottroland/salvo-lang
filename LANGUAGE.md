@@ -380,7 +380,7 @@ println("${to_str(names)}")        // {apple, fig, pear}
 let smallest = min(names)          // and max, first_key, last_key on a map
 ```
 
-They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else.
+They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else. The ordering is the key type's *canonical* one — the `cmp` it has; a sorted collection parameterized by an ordering of your choosing is designed and not yet built.
 
 Sets and maps **iterate in insertion order**, on every backend. A `Map` iterates its *keys*, and a value is reached with `get`:
 

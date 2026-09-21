@@ -82,7 +82,8 @@ fn main() [use] -> None {
 
     // ===== 3. keys =====
     //
-    // A `canbe hashed` struct is a set element and a map key by value: two
+    // A struct with a `hash` and an `eq` is a set element and a map key by
+    // value: two
     // equal points are the same key.
     let corners: Mut Set<Point> = {}
     add(corners, Point { x: 0, y: 0 })

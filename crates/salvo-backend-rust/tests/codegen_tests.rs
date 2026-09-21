@@ -5246,7 +5246,7 @@ fn rustc_compiles_and_runs_a_canonical_implementation() {
 
 /// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
 /// structural implementations, `@`-scoped to the type, and lowers them to the
-/// derive today's `canbe ordered`/`canbe hashed` already emit — so the generated
+/// derive the `default` clause asks for — so the generated
 /// member and the type's own `Ord`/`Hash` cannot disagree (user decision
 /// 2026-09-21, lowering split by author).
 ///
@@ -5316,7 +5316,7 @@ fn default_obligations_lower_to_the_hosts_derives() {
         .content;
     for expected in [
         // `default Ordered` + `default Hashed` ask for exactly the derives
-        // `canbe ordered`/`canbe hashed` ask for.
+        // the `default` clauses ask for.
         "#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]\npub struct Point",
         // The generated members are ordinary Rust fns over the derive.
         "(Ord::cmp(a, b) as i32)",

@@ -128,6 +128,21 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round — where it stands after four of five steps (2026-09-21,
+night).** Steps 1, 3a, 3b and 2+4 landed (entries below); **step 5** —
+ordering-carrying structures binding their fn at construction, as a type
+argument with static identity — did not, and is the only part left. ORDERING.md
+now holds *that step alone*, with its decisions, its lowering and a build order;
+ROADMAP.md points at it. Two consequences are documented where a reader meets
+them rather than only here: a sorted collection orders by its key's **canonical**
+`cmp` (`std/core/sorted.sv`, LANGUAGE.md), and `demo/heap.sv` still does not
+compile — its declaration line is step 5's, and HEAP_QUALIFIER.md items 2 and 4
+are the rest of what that file needs. One simplification was found while landing
+the four: because qualifiers erase, the *qualifier* case of step 5 can lower a
+captured binder as an ordinary implicit parameter (the machinery already emits
+the adapter), which leaves the Rust markers as the optimization the *container*
+case needs — recorded in ORDERING.md beside the marker design.
+
 **Ordering round, steps 2+4 — the operators resolve through the groups, and
 `canbe ordered`/`canbe hashed` are deleted (2026-09-21, night).** The landing the
 round was for: `a < b` **is** `cmp(a, b) < 0` and `a == b` **is** `eq(a, b)`
@@ -15058,6 +15073,37 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A `params` group is cheap to add and a `Ty` variant is cheap to add; a
+  *convention* is not.** The ordering round's four landed steps needed no new
+  type-system machinery at all — the capabilities ride
+  [implicit-resolve]/[implicit-forward]/[group-obligation], and the `default`
+  generator is a *desugaring* whose output is ordinary overloads, which is what
+  made resolution, the canonical rules, `export` inheritance and the duplicate
+  check apply for free. What did cost real work was the **conventions** the
+  backends had baked in: `canbe hashed`/`canbe ordered` read directly in two
+  emitters, implicit positions rendering by value on Rust
+  ([rs-fn-param-convention]), and overload *mangling* filtering to body-bearing
+  fns (three `default Eq` structs all emitted `eq`). When adding a declaration
+  form, grep the emitters for the *old* form's name before estimating.
+- **A generated declaration must be a real item, or half the language stops
+  applying to it.** `default`'s members are `FnDecl`s appended to the module in
+  the desugar pass; that is why a hand-written member colliding with a generated
+  one is the ordinary [fn-overload-duplicate] error (with a message naming
+  `default`), why they carry the struct's `export`, and why they mangle. The
+  alternative — teaching resolution about "virtual" members — would have needed
+  every one of those rules written twice.
+- **When a diagnostic is about an operator, print the types the *resolution*
+  used.** `==` ignores qualifiers, so `Tagged Point == Point` resolves
+  `eq(Point, Point)`; the first draft of the message said
+  ``` `==` on `Tagged Point` is `eq(Tagged Point, Point)` ```, which reads like a
+  second bug. Strip to the base before formatting.
+- **Python line continuations inside Rust string literals silently produce
+  20-space gaps.** Editing the compiler with `python3 - <<'PY'` heredocs, a `\`
+  at the end of a line in a *non-raw* Python string is consumed by Python, so
+  the Rust source keeps the following indentation *inside* the literal. Two
+  diagnostics and two emitted-code blocks shipped with runs of spaces before it
+  was spotted (2026-09-21). Grep for `\s{20,}` inside string literals after such
+  an edit, or write the file with `write`/`strReplace` instead.
 - **The first execution of a freshly linked binary can cost ~12s of dead
   wall on macOS — and it will corrupt your timing measurements.**
   Gatekeeper (syspolicyd) scans every *new* executable with a network

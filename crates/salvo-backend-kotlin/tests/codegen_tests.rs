@@ -2636,7 +2636,7 @@ fn main() [use] {
 
 /// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
 /// structural implementations and lowers them to what this backend already
-/// emits for `canbe ordered` — `compareTo` through the runtime comparator, the
+/// emits for an ordered struct — `compareTo` through the runtime comparator, the
 /// data class's `equals`, and `hashCode()`.
 ///
 /// Source and expected stdout are **verbatim** the Rust backend's

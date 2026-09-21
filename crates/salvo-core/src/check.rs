@@ -2253,7 +2253,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
-                    // [col-hashed-ordered] `canbe hashed` / `canbe ordered`
+                    // [col-hashed-ordered] The key claims
                     // are checked *here*, where the mistake is: the error
                     // names the field that is not hashable or orderable
                     // rather than surfacing at some distant `Set<Point>`.
@@ -8220,7 +8220,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   `Eq` nor `Hash` (`NaN != NaN`), so a float-keyed map is not
     ///   representable there at all, while Kotlin would take it happily —
     ///   a divergence closed by restriction [backend-parity].
-    /// * a struct is not a key *yet*: `canbe hashed` is the opt-in, and it
+    /// * a struct is not a key *yet*: `: default Hashed<self>` is the clause, and it
     ///   is what the diagnostic points at.
     ///
     /// A type *variable* is eligible: a generic fn's `K` is checked where
@@ -16495,7 +16495,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // be compatible, and what may be compared at all
                         // depends on the operator: `==`/`!=` work on any
                         // struct, ordering on numerics (widened) and structs
-                        // declaring `canbe ordered`.
+                        // with a `cmp`.
                         self.check_comparison_operands(*op, expr.span(), lhs, rhs, &l, &r);
                         Ty::named("Bool")
                     }

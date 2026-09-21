@@ -236,37 +236,44 @@ out to cost more than it buys. (a) is the one to avoid: it makes the two sides o
 the compiler disagree about what a signature means, which is how the original
 defect happened.
 
-## Ordering, equality and hashing (design round — see ORDERING.md)
+## Ordering, equality and hashing — step 5 left (see ORDERING.md)
 
-Opened 2026-09-21 from `demo/heap.sv`'s `Heap<T canbe ordered>` TODO and
-largely decided the same day (COMPLETED.md's log has the entry; the round
-document is **ORDERING.md**, deleted when built). In one paragraph:
-`Ordered`/`Eq`/`Hashed` become params groups (the `Yield` precedent);
-canonical implementations are top-level fns **`@`-scoped to their type**
-(`fn cmp@Person(…)`, in the type's file), imported with the type and the
-default selection for implicits — ambiguity around a canonical is always
-an error, explicit or implicit, with the selector (`cmp@Person`) as the
-remedy; a `default` keyword on compiler-known obligation groups generates
-the structural bundle (`eq` included, `@`-scoped); operators resolve
-through the groups — **equality becomes opt-in** and comparisons on
-unconstrained `T` become errors; ordering-carrying structures bind their
-fn **at construction, as a type argument with static identity**
-(`Heap<?cmp>`, `SortedSet<T, ?cmp>`, `Set<T, ?hash, ?eq>`), lowered to
-zero-sized markers on Rust; `canbe ordered`/`canbe hashed` are deleted.
-**All calls are made** (2026-09-21, formal adoption included; the hash
-question dissolved — backend-native hashing, divergence accepted, see
-"Value-level backend parity" below), and **the build has started**:
-**step 1 landed 2026-09-21** (the three groups and the canonical
-implementations for the intrinsic types are in `std/core/compare.sv`;
-COMPLETED.md's log entry has what it took, including the
-[rs-fn-param-convention] fix it forced). What remains, from ORDERING.md's
-plan: **steps 1, 3 and 2+4 have landed** (the groups and the primitive
-canonicals; `@`-scoped canonicals; `default` obligations; the operators
-through the groups with the deletion of `canbe ordered`/`canbe hashed` and
-its sweep — COMPLETED.md's log has an entry each). What remains is **step 5**
-(fn-valued type arguments — the heap's unblock and the largest single piece)
-and **step 6** (the last documentation pass: [col-sorted]/[col-sorted-list]
-wording, and deleting ORDERING.md).
+Opened 2026-09-21 from `demo/heap.sv`'s `Heap<T canbe ordered>` TODO, decided
+the same day (fourteen user decisions) and **built the same night, four steps of
+five**. What landed — each with a COMPLETED.md log entry, and rules in
+LANGUAGE_SPEC.md:
+
+- **The three capabilities as params groups** in `core.compare`, with canonical
+  implementations for the intrinsic types [cmp-groups] [cmp-hash-values].
+- **`@`-scoped canonicals** (`fn cmp@Person(…)`, in the type's file): imported
+  with the type, the default selection for implicits, ambiguity around one always
+  an error naming the selector, `export` matched against the type's
+  [cmp-canonical].
+- **`default` obligations** (`struct Point : default Ordered<self>`) generating
+  the structural implementations, `eq` included [cmp-default].
+- **The operators through the groups**: `a < b` is `cmp(a, b) < 0`, `a == b` is
+  `eq(a, b)`, so **equality is opt-in** and comparing an unconstrained `T` is an
+  error rather than silence [op-order] [op-equality]. `canbe ordered` and
+  `canbe hashed` are deleted — being orderable is *having a `cmp`*.
+
+**What is left is step 5**: ordering-carrying structures binding their fn **at
+construction, as a type argument with static identity** (`Heap<?cmp>`,
+`SortedSet<T, ?cmp>`, `Set<T, ?hash, ?eq>`) — the heap's unblock, the round's
+largest single piece, and the only part with real type-system work left
+(identities in types, the bare binder and its unification, then the Rust
+marker/`OrdBy` machinery and a Kotlin runtime hash container for the keyed
+containers). The design is decided and whole in **ORDERING.md**, which now holds
+*only* that step, including a build order and one simplification found while
+landing steps 1–4: because qualifiers erase, the *qualifier* case can lower a
+captured binder as an ordinary implicit parameter, leaving the markers as the
+optimization the *container* case needs.
+
+Two consequences of stopping here, both deliberate and both documented where a
+reader meets them: a sorted collection orders by its key's **canonical** `cmp`
+(std/core/sorted.sv and LANGUAGE.md say so), and `demo/heap.sv` still does not
+compile (its `Heap<T canbe ordered>` line is step 5's, and HEAP_QUALIFIER.md
+items 2 and 4 are the rest of it).
+
 A noted follow-on, separately decided when
 raised: migrating qualifier bodies' `fn qualifies` to the same `@`-scoped
 shape (`fn qualifies@Positive`); handler members stay put — they interact

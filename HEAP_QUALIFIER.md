@@ -41,25 +41,32 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 
 | # | TODO (file location) | Kind | Status today |
 |---|---|---|---|
-| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round: **ORDERING.md** | parse error today |
+| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round: **ORDERING.md** | decided and part-built: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound), the `Heap<?cmp>` half is ORDERING.md's step 5 |
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
 | 3 | `val: proj proj T?` (line 28) | defect | plausible root cause found |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | neither exists for `List` |
 | 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) + verification | `!is` does not parse |
 | 6 | `+=` (line 76) | **DECISION** (small) | only `++`/`--` exist [inc-dec] |
-| 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | confirmed; fix is ORDERING.md build step 2 |
+| 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (ORDERING.md step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
 
 Suggested order: **3, then ORDERING.md's steps (which subsume 1 and 7),
 2, 4, 5, 6** — rationale at the end.
 
 ---
 
-## 1. Constraining `Heap` to orderable `T` → **ORDERING.md**
+## 1. Constraining `Heap` to orderable `T` → **ORDERING.md** (part-built)
 
 The 2026-09-21 design discussion grew this item into a redesign of how
 comparison, equality and hashing work in the language, and it now lives in
 its own round document: **ORDERING.md** (the OPTIONALS.md pattern — deleted
 when the last step lands). In brief:
+
+**Landed 2026-09-21**, which changes what this item still needs: the *bound*
+half is done — `Ordered`/`Eq`/`Hashed` are params groups, the operators resolve
+through them, and "orderable `T`" is now spelled `?Ordered<T>` in the signature
+rather than as a bound on the type parameter. What the heap still waits for is
+the *holding* half (`Heap<?cmp>`, ORDERING.md's step 5), because a heap must
+remember which ordering built it. In outline, as decided:
 
 - `Ordered`/`Eq`/`Hashed` become **params groups** (the `Yield` precedent);
   canonical implementations for structs are **top-level fns `@`-scoped to
@@ -330,12 +337,13 @@ worse than a missing diagnostic: the Rust emitter would produce `a <= b` on
 a bound-less generic — code `rustc` rejects at best ([backend-never-wrong]
 survives only by accident of the target refusing it).
 
-**The fix is ORDERING.md build step 2**: operators resolve through the
-`Ordered`/`Eq` groups, so a comparison on a `T` with no `?cmp`/`?eq` in
-scope becomes the ordinary missing-implicit error ([implicit-forward]
-already specifies the generic case), and `Ty::Var` leaves `op_lenient` for
-comparisons. Equality goes the same way — opt-in — per the decisions
-recorded there.
+**Fixed 2026-09-21** (ORDERING.md step 2, landed): operators resolve through
+the `Ordered`/`Eq` groups, so a comparison on a `T` with no `?cmp`/`?eq` in
+scope is the ordinary missing-capability error naming `?Ordered<T>`, and
+`Ty::Var` left `op_lenient` for comparisons. Equality went the same way —
+opt-in. The demo's own comparisons will therefore be *checked* once its
+declaration line parses; they need the `?cmp` the qualifier binds, which is
+step 5.
 
 ---
 
