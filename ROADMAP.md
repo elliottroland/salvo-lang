@@ -147,117 +147,52 @@ What it leaves behind, each deliberate:
   own section, "Platform handlers — the thread-safety contract", which
   carries the divergence record and the parity plan.
 
-## The `?` family and the placeholder — the agreed sequence (user decisions 2026-09-20/21)
+## The `?` family — built; pick chains left as a question (user decisions 2026-09-20/21)
 
-Raised by the user 2026-09-20 and re-shaped 2026-09-21: syntax for the two
-patterns that optional and result types force a caller to write out. The design
-round is **OPTIONALS.md** (deleted when the last step lands); the decisions the
-user has now taken turned it from an option space into **five steps**, in this
-order, because each one clears the ground for the next:
+The whole round is **done** (2026-09-20/21, five steps in one day): `Nothing` →
+`Never`, the three escapes as `Never`-typed expressions, `^ Q` → `is ^Q` with a
+binding form, `?:`/`?.` for `T?`, qualifier picks with `_`, a guarding `?:`
+narrowing its subject, `waitfor` binder inference, and the arm-mapping re-wrap
+for sub-union values. The record is COMPLETED.md's decision log (one entry per
+step, with what each cost and what it uncovered); the rules are [elvis],
+[safe-call], [pick], [placeholder], [elvis-guard], [waitfor-infer], [qual-lift],
+[expr-escape] and [rewrap], plus [kt-elvis]/[rs-elvis] and
+[kt-safe-call]/[rs-safe-call] in the backend specs. OPTIONALS.md, the working
+document, was deleted with the last step.
 
-1. **`Nothing` → `Never`** — ✅ **done 2026-09-21** (COMPLETED.md's log).
-2. **`return`/`break`/`continue` become expressions of type `Never`** — ✅
-   **done 2026-09-21** ([expr-escape]; COMPLETED.md's log). Removes
-   the grammar exception step 5's right-hand side would otherwise need. Cheaper
-   than it looks: `diverges()` already tests `ty_of(expr) == Ty::Never`, so
-   `block_exits`'s three syntactic special cases *collapse* into the expression
-   case, and `twice(throw("no"))` already compiles today — so this makes
-   `return` consistent with `throw` rather than opening a new hole. 40 sites
-   across 9 files.
-3. **`^ Q` becomes `is ^Q`** — ✅ **done 2026-09-21** ([qual-lift];
-   COMPLETED.md's log, which records the two emissions the binding form needed
-   and the multi-arm emission it leaves open). Widening stops being an operator with its own
-   precedence tier and becomes a mark on a qualifier *inside* an `is` check:
-   the arm test is the same, and `^` only decides whether the claim survives
-   into the narrowed type. `Expr::Widen` merges into `Expr::Is` with a
-   per-qualifier lift flag, and `widen_info` into `is_info` (they already return
-   the same `IsInfo`). **`is ^Q name` gains a binding form** (user decision
-   2026-09-21) — which is what lets several arms be lifted at once, since the
-   lifted value then has somewhere to live; a bare `is ^Q` keeps the single-arm
-   limit, because there the value must be re-read out of the subject. 3 `.sv`
-   sites, 40 inline in Rust tests, `Expr::Widen` in 9 files. Watch the two-sided
-   trap step 1 hit: `^` means one thing in Salvo source and nothing in either
-   target.
-   - **Left open by step 3**: the *emission* of a multi-arm lift
-     (`is ^Ok value` where two arms carry `Ok`). The checker accepts it; the
-     emitters refuse it by name, because the bound value spans fewer arms than
-     its storage and so needs the arm-mapping re-wrap [let-infer] rather than a
-     payload read. Both backends already do that re-wrap for an annotated
-     `let`, so this is wiring a recorded coercion at the binding site, not new
-     machinery.
+### Pick chains — **recorded, not scheduled**: are they useful? (user call 2026-09-21)
 
-4. **`?:` and `?.` are reserved for `T?`** — ✅ **done 2026-09-21** ([elvis],
-   [safe-call], [placeholder]; COMPLETED.md's log). `_` was **withdrawn from a
-   plain `?:`** in the same round: the unpicked side is always `None`, which is
-   already writable. One thing it left behind: **a bare `return` in a `-> T?`
-   function is still an error**, so `return _`'s equivalence with `return` needs
-   bare `return` to mean `None` where the return type has a `None` arm. A
-   one-line checker change if wanted; the examples say `return None` today. `?:` keys on the *presence of a
-   `None` arm* rather than the `?` spelling, and picks every non-`None` arm, so
-   `Str | Int | None` gives `Str | Int` and `_` is `None` (making `return _` the
-   same as a bare `return`). The qualifier form of `?.` is **deferred, not
-   dead** — the spelling `^Ok?.map(…)` follows from step 5 if it is ever wanted.
-   Deferring it also retires the nest-versus-flatten question in OPTIONALS.md
-   `Q-4`, since nothing re-tags.
-5. **Qualifier picks** — ✅ **done 2026-09-21** ([pick], [rewrap];
-   COMPLETED.md's log), including the **arm-mapping re-wrap** that step 3's
-   multi-arm lift also waited on: either side of a pick may span several arms.
-   **What is left is pick chains** (`r ^Ok?: Err?: err(_)`) — no longer a
-   re-wrap problem but a structural one: `Elvis` holds one optional pick, and a
-   chain needs a *list*, with the checker consuming arms pick by pick and the
-   emitters emitting an `if`/`else if` chain. Pure convenience: the same program
-   is expressible today with a `when` on the right-hand side. Original shape,
-   for reference: Each pick names arms that
-   *pass through* as the expression's value, `^` decides whether the picked arm
-   keeps its tag, and only the final `?:` has a right-hand side, evaluated with
-   `_` bound to whatever no pick claimed:
+The one shape the round leaves unbuilt, and deliberately unscheduled — the user's
+framing: *record it and see whether it is actually useful*.
 
-   ```
-   let t: Ok T = result_t() Ok?: return _
-   let t: T    = result_t() ^Ok?: return _
-   let t: Str | Err Int | Err Thrown Str = result_or_thrown() ^Ok?: Err?: err(_)
-   ```
+```
+fn result_or_thrown(…) -> Ok Str | Err Int | Thrown Str
 
-   Decided with it, each the user's call:
-   - **`_` carries all its qualifiers and there is no way to strip them here.**
-     So `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`, and
-     replacing one tag with another is an `if` or a `when`. (Found while
-     checking the third example above, which was written as `Err Str`: the
-     checker *computes* `Err Thrown Str` but **refuses to let you write it**,
-     since `Err` and `Thrown` declare no `with` compatibility. That asymmetry is
-     worth a look on its own.)
-   - **A pick may match several arms**, `^` or not: `Ok Int | Ok Str` with
-     `^Ok?:` gives `Int | Str`. A pick produces a *value*, so it is a match
-     re-wrapping into the result union, which both backends already do
-     ([let-infer]); the single-arm limit belongs to the place-narrowing case
-     only (step 3).
-   - **A pick that leaves nothing for the right-hand side is an error**, the way
-     a `try` whose body cannot throw is.
-   - **The empty pick (plain `?:`) may appear anywhere in the chain**, since the
-     ordering rule already covers it: on `Ok Int | Err Str | None`,
-     `^Ok?: ?: rhs` picks `Int`, then `Err Str`, and leaves `None` to the
-     right-hand side.
-   - Each pick matches arms the way `is` does: bare `Ok` takes every `Ok`-tagged
-     arm, `Ok Int` takes that one.
+let t: Str | Err Int | Err Thrown Str = result_or_thrown() ^Ok?: Err?: err(_)
+```
 
-Built alongside the five steps: **a guarding `?:` narrows its subject**
-([elvis-guard], 2026-09-21) — OPTIONALS.md's `Q-6`, the last item in that
-document that was neither decided nor recorded elsewhere.
+Each pick claims arms that pass through as the expression's value; only the last
+`?:` has a right-hand side, with `_` bound to whatever no pick claimed. Decided
+with the rest of [pick] and still standing if it is ever built: picks consume
+arms **in order**, and the **empty pick** (a plain `?:`, which picks the
+non-`None` arms) may appear anywhere in the chain — so on
+`Ok Int | Err Str | None`, `^Ok?: ?: rhs` picks `Int`, then `Err Str`, and leaves
+`None` to the right-hand side.
 
-Also agreed, and no longer part of this family: **`waitfor` does not get `_`** —
-✅ **built 2026-09-21** as ordinary binder inference ([waitfor-infer];
-COMPLETED.md's log). `waitfor out { counter.total(out) }` reads the `Reply<T>`
-off the send; ambiguity is an error naming the written form. That also collapsed
-the general placeholder rule: `_` is one piece of the pick, not a rule about
-scopes.
+**Why it is only a question.** The same program is expressible today: one pick
+plus a `when` on the right-hand side says it, and the arm-mapping re-wrap that a
+chain needs is already built [rewrap]. So a chain buys brevity, nothing more —
+and the evidence that would settle it is *a real program in `examples/` or `std/`
+that reads worse without one*. Until such a site turns up, the cost is not worth
+paying blind.
 
-**OPTIONALS.md is retired** (2026-09-21): every call in it was taken, the rules
-are in LANGUAGE_SPEC.md and the backend specs, and the decisions are in
-COMPLETED.md's log. What the round leaves open is the one lift under step 5
-above.
-
-The feature is **additive** — the long forms stay legal — so no
-backwards-compatibility sweep fires beyond steps 1 and 3, which are renames.
+**What it would cost, so the answer starts from a plan.** Not a re-wrap problem
+any more; a structural one: `Expr::Elvis` holds `pick: Option<ElvisPick>`, and a
+chain needs `picks: Vec<ElvisPick>`, with the checker consuming arms pick by pick
+(each one's remainder feeding the next) and both emitters emitting an `if`/`else
+if` chain instead of one conditional. The parser needs the chain loop — the
+lookahead that recognises a pick (`peek_elvis_pick`) already exists and already
+handles the "another pick, or the right-hand side?" question for one pick.
 
 ## Mutating through a union arm (DECISION)
 

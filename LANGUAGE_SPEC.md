@@ -248,9 +248,13 @@ Conventions:
     as `Err Str`, not `Str`, so the right side can route on it. There is no way
     to strip a tag here — replacing one tag with another is an `if` or a `when`,
     and `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`.
-  * **Only the last `?:` has a right-hand side**, so a chain of picks reads as
-    "these arms are answers too". *Not built yet*: a chain of more than one pick
-    (`r ^Ok?: Err?: err(_)`), which needs the multi-arm work below.
+  * **One pick per `?:`.** A *chain* of picks (`r ^Ok?: Err?: err(_)`), where
+    only the last one carries a right-hand side and each earlier arm passes
+    through as a value, is **not built** — and is recorded as a question rather
+    than a plan (ROADMAP.md, "Pick chains"): the same program is expressible
+    with one pick and a `when`, so the case for the sugar wants a real site that
+    reads worse without it. The multi-arm work it would have needed is done
+    [rewrap].
   * **The subject is evaluated once**, into a temporary registered exactly as a
     hoisted `is` subject is [is-bind-once] — so, unlike `?.`, the subject need
     not be a place.
