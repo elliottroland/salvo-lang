@@ -8,14 +8,14 @@ import salvo.time.*
 
 fun verdict(started: Tick, at: Tick, budget: Duration): String {
     val took = between__2(started, at)
-    if (took > budget) {
+    if (cmp(took, budget) > 0) {
         return "late by ${to_str__3(minus(took, budget))}"
     }
     return "in time, ${to_str__3(minus(budget, took))} to spare"
 }
 
 fun<__Fx> overdue(__fx: __Fx, started: Tick, budget: Duration): Boolean where __Fx : __Has_Ticker {
-    return elapsed(__fx, started) > budget
+    return cmp(elapsed(__fx, started), budget) > 0
 }
 
 class SteppingTicker(private val step: Duration) : Ticker {

@@ -606,3 +606,45 @@ pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {
     }
     return Some(best);
 }
+
+pub fn cmp(a: &Duration, b: &Duration) -> i32 {
+    (Ord::cmp(a, b) as i32)
+}
+
+pub fn eq(a: &Duration, b: &Duration) -> bool {
+    (a == b)
+}
+
+pub fn hash(value: &Duration) -> i64 {
+    let mut __h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(value, &mut __h);
+    (std::hash::Hasher::finish(&__h) as i64)
+}
+
+pub fn cmp__2(a: &Instant, b: &Instant) -> i32 {
+    (Ord::cmp(a, b) as i32)
+}
+
+pub fn eq__2(a: &Instant, b: &Instant) -> bool {
+    (a == b)
+}
+
+pub fn hash__2(value: &Instant) -> i64 {
+    let mut __h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(value, &mut __h);
+    (std::hash::Hasher::finish(&__h) as i64)
+}
+
+pub fn cmp__3(a: &Tick, b: &Tick) -> i32 {
+    (Ord::cmp(a, b) as i32)
+}
+
+pub fn eq__3(a: &Tick, b: &Tick) -> bool {
+    (a == b)
+}
+
+pub fn hash__3(value: &Tick) -> i64 {
+    let mut __h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(value, &mut __h);
+    (std::hash::Hasher::finish(&__h) as i64)
+}

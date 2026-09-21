@@ -226,12 +226,14 @@ Conventions:
     semantics [col-equality], and `==` on statically-`Double` operands is
     IEEE, so comparing the fields that way makes the backends agree.
   * `hashCode` is left to the data class: a float-bearing struct is barred
-    from `canbe hashed`, so it never reaches a hash table where the
+    from `: default Hashed<self>`, so it never reaches a hash table where the
     (NaN-only) inconsistency could be observed.
-* [kt-ordered] A `canbe ordered` struct emits `: Comparable<Self>` with a
-  generated `compareTo`, lexicographic by field declaration order. A data
-  class gets `equals`/`hashCode` for free but *not* comparison, so `p < q`
-  would otherwise be an unresolved `compareTo`.
+* [kt-ordered] A struct declaring `: default Ordered<self>` [cmp-default] emits
+  `: Comparable<Self>` with a generated `compareTo`, lexicographic by field
+  declaration order. A data class gets `equals`/`hashCode` for free but *not*
+  comparison, so the generated `cmp@T` would otherwise have no `compareTo` to
+  reach. (The clause replaced `canbe ordered`, which the ordering round
+  deleted.)
   * Each field is compared through `salvo.__salvoCompare` (runtime file
     `compare.kt`, emitted only when something needs it) rather than
     `field.compareTo(...)`: Salvo says a `List` or a tuple is orderable when
@@ -937,9 +939,10 @@ where Rust had to build the fusion to get the same programs running
   is code-point order. It recurses through lists (lexicographically, a
   shorter prefix ordering first), `Pair` and `Triple`, compares strings by
   code point, and defers to `Comparable` otherwise.
-  * It is emitted when a module declares a `canbe ordered` struct or builds
-    a sorted collection, and the sorted constructors pass it as an explicit
-    `Comparator` rather than relying on natural ordering.
+  * It is emitted when a module declares a struct with
+    `: default Ordered<self>` or builds a sorted collection, and the sorted
+    constructors pass it as an explicit `Comparator` rather than relying on
+    natural ordering.
   * [kt-cmp-groups] [cmp-groups] The canonical `cmp(Str, Str)` reaches it too,
     and for the same reason — so the file is also emitted when that overload
     is called *or* passed as an implicit's adapter, which is the one way a

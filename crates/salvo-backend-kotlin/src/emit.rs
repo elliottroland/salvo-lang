@@ -1438,13 +1438,14 @@ impl<'p> Emitter<'p> {
         // but *not* comparison, so `p < q` would be an unresolved
         // `compareTo`. The order is lexicographic by field declaration order,
         // which is the language's rule and matches Rust's derived `Ord`.
-        // [cmp-default] A `default Ordered<self>` obligation asks for exactly
-        // the same thing the `canbe` opt-in does: the generated `cmp@T` is
-        // defined in terms of this `compareTo` [kt-cmp-groups].
-        let ordered = s.auto_qualifiers.iter().any(|q| q.name.name == "ordered")
-            || s.obligations
-                .iter()
-                .any(|o| o.default && o.group.name.name == "Ordered");
+        // [cmp-default] `default Ordered<self>` is what asks for a real
+        // `Comparable`: the generated `cmp@T` is defined in terms of this
+        // `compareTo` [kt-cmp-groups]. (It used to be `canbe ordered`, which the
+        // ordering round deleted — the opt-in became the implementation.)
+        let ordered = s
+            .obligations
+            .iter()
+            .any(|o| o.default && o.group.name.name == "Ordered");
         let self_ty = format!(
             "{declared_name}{}",
             if s.generics.is_empty() {
@@ -2622,15 +2623,15 @@ impl<'p> Emitter<'p> {
             "cmp" => {
                 self.needs_compare = true;
                 format!(
-                    "\nfun {generics}{name}(a: {ty}, b: {ty}): Int {{\n                         return salvo.__salvoCompare(a, b)\n}}\n"
+                    "\nfun {generics}{name}(a: {ty}, b: {ty}): Int {{\n    return salvo.__salvoCompare(a, b)\n}}\n"
                 )
             }
             "eq" => format!(
-                "\nfun {generics}{name}(a: {ty}, b: {ty}): Boolean {{\n                     return a == b\n}}\n"
+                "\nfun {generics}{name}(a: {ty}, b: {ty}): Boolean {{\n    return a == b\n}}\n"
             ),
             // [cmp-hash-values] This host's digest; Rust's is its own.
             _ => format!(
-                "\nfun {generics}{name}(value: {ty}): Long {{\n                     return value.hashCode().toLong()\n}}\n"
+                "\nfun {generics}{name}(value: {ty}): Long {{\n    return value.hashCode().toLong()\n}}\n"
             ),
         }
     }
@@ -5957,7 +5958,19 @@ impl<'p> Emitter<'p> {
                     UnaryOp::Not => format!("!{inner}"),
                 }
             }
-            Expr::Binary { op, lhs, rhs, .. } => {
+            Expr::Binary { op, lhs, rhs, span } => {
+                // [op-order] [op-equality] A comparison the checker resolved to
+                // a `cmp`/`eq` **is** that call. Absent from the table means the
+                // host's own operator — numerics, and equality at the other
+                // intrinsic types.
+                if let Some(via) = self
+                    .checked
+                    .comparisons
+                    .get(&(self.file_idx, *span))
+                    .cloned()
+                {
+                    return self.emit_compare_via(*op, lhs, rhs, &via, *span);
+                }
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
                 let r = self.emit_operand(rhs, prec);
@@ -7904,6 +7917,54 @@ impl<'p> Emitter<'p> {
                 ));
                 "TODO()".to_string()
             }
+        }
+    }
+
+    /// [op-order] [op-equality] A comparison that goes through the capability's
+    /// function: the call, then the operator applied to its answer. The call
+    /// itself is emitted by the ordinary paths, so an intrinsic (`cmp(Str, Str)`
+    /// → the runtime comparator, which is how this backend gets code-point
+    /// order), a canonical and a generated structural member [cmp-default] all
+    /// need no special handling.
+    fn emit_compare_via(
+        &mut self,
+        op: BinaryOp,
+        lhs: &Expr,
+        rhs: &Expr,
+        via: &salvo_core::CompareVia,
+        span: Span,
+    ) -> String {
+        let args: Vec<&Expr> = vec![lhs, rhs];
+        let call = match via {
+            salvo_core::CompareVia::Call(key) => match self.fn_by_key(*key) {
+                Some(decl) => {
+                    let name = decl.name.name.clone();
+                    if decl.intrinsic {
+                        self.emit_intrinsic_call(decl, &args, span)
+                    } else {
+                        self.emit_fn_call(&name, decl, &[], &args, &[], span)
+                    }
+                }
+                None => {
+                    self.error(
+                        "internal: the `cmp`/`eq` a comparison resolved to is not available"
+                            .to_string(),
+                    );
+                    "TODO()".to_string()
+                }
+            },
+            // [implicit-forward] Through the enclosing fn's own parameter — the
+            // only thing that can compare an opaque `T`. No conventions to
+            // bridge on this backend: everything is a reference.
+            salvo_core::CompareVia::Implicit(name) => {
+                let code: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                format!("{}({})", kt_ident(name), code.join(", "))
+            }
+        };
+        match op {
+            BinaryOp::Eq => call,
+            BinaryOp::NotEq => format!("!{call}"),
+            other => format!("{call} {} 0", binary_op(other)),
         }
     }
 

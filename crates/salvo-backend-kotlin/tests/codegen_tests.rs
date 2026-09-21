@@ -2702,6 +2702,73 @@ fn main() [use] {
     )
 }
 
+/// [op-order] [op-equality] The **operators** through the groups. Source and
+/// expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_operators_through_the_groups`; the `Str` line is the
+/// parity claim, since this host's own `<` on a string compares UTF-16 code
+/// units where Salvo's `cmp(Str, Str)` compares code points [kt-ordered].
+fn kotlinc_compiles_and_runs_operators_through_the_groups() -> KotlinCase {
+    let src = r#"
+struct Point : default Ordered<self> {
+    x: Int,
+    y: Int
+}
+
+// A hand-written canonical, which the operators reach exactly as they reach a
+// generated one [cmp-canonical].
+struct Age {
+    years: Int,
+    label: Str
+}
+
+fn cmp@Age(a: Age, b: Age) [] -> Int => a, b {
+    return cmp(a.years, b.years)
+}
+
+fn eq@Age(a: Age, b: Age) [] -> Bool => a, b {
+    return eq(a.years, b.years)
+}
+
+// [implicit-forward] Generic code publishes the capability in its signature,
+// and the operators inside go through the parameter.
+fn larger_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn same_of<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
+    return a == b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 9 }
+    println("struct ${p < q} ${p == q} ${p != q} ${q >= p}")
+    let young = Age { years: 5, label: "bob" }
+    let old = Age { years: 36, label: "ada" }
+    println("by hand ${young < old} ${young == old}")
+    // `Str` ordering: "ab" < "b" by code point, on both backends.
+    let ab = "ab"
+    let b = "b"
+    println("strs ${ab < b} ${ab == b} ${same_of(ab, b)}")
+    println("generic ${larger_of(3, 9)} ${larger_of(p, q).y} ${larger_of(young, old).label}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "group-operators",
+        "struct true false true true\nby hand true false\n\
+         strs true false false\ngeneric 9 9 ada\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
@@ -2788,6 +2855,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_comparison_groups,
     kotlinc_compiles_and_runs_a_canonical_implementation,
     kotlinc_compiles_and_runs_default_obligations,
+    kotlinc_compiles_and_runs_operators_through_the_groups,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_a_shareable_interceptor_chain,
@@ -4621,23 +4689,24 @@ export fn main() [use] -> None {
      array: 2 7\n")
 }
 
-/// [col-equality] [kt-float-eq] The same source and expected output as the
-/// Rust backend's `rustc_compiles_and_runs_equality_and_ordering`
+/// [op-equality] [op-order] [kt-float-eq] The same source and expected output as
+/// the Rust backend's `rustc_compiles_and_runs_equality_and_ordering`
 /// [backend-parity] — including `struct nan equality: false`, which the data
 /// class's own `equals` would have reported as `true`.
 fn kotlinc_compiles_and_runs_equality_and_ordering() -> KotlinCase {
     let src = r#"
-export struct Point canbe hashed, ordered {
+export struct Point : default Ordered<self>, default Hashed<self> {
     x: Int,
     y: Int
 }
 
-export struct Version canbe hashed, ordered {
+export struct Version : default Ordered<self>, default Hashed<self> {
     parts: List<Int>,
     label: (Str, Int)
 }
 
-export struct Measure {
+// Equality only — and a float field, which is fine for `eq` and not for a key.
+export struct Measure : default Eq<self> {
     value: Double
 }
 

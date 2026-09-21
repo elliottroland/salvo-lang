@@ -28,18 +28,20 @@ pair is ordered by its **keys** instead, and is a *separate type* rather than a
 qualifier on `Set`/`Map`: sortedness changes how a collection behaves, and a
 qualifier can be dropped on the way into a function that relied on it.
 
-**What may be a key.** A key has to be hashable — the intrinsic key types, or
-a struct that opts in with `canbe hashed`. The sorted collections need
-*orderable* keys instead, which is a slightly different bar (a union can be
-hashed but not ordered). Both opt-ins are validated where they are written, so
-a mutable struct or a float field is refused at the declaration rather than at
-some distant `Set<Point>`. Once a struct opts in, it is a key **by value**:
-two equal points are the same key, as the third section shows.
+**What may be a key.** A key has to be hashable — the intrinsic key types, or a
+struct with a `hash` and an `eq`. `: default Hashed<self>` is the one-token way
+to get both, generated from the fields; the sorted collections need a `cmp`
+instead (`: default Ordered<self>`), which is a slightly different bar. The
+clause is validated where it is written, so a mutable struct or a float field is
+refused at the declaration rather than at some distant `Set<Point>`. Once a
+struct has the pair, it is a key **by value**: two equal points are the same key,
+as the third section shows.
 
-**Equality everywhere, ordering by declaration.** Every struct supports `==`
-and `!=`, field by field; only a `canbe ordered` struct supports `<` and its
-relatives. Comparing two *different* struct types is an error rather than a
-quiet `false`.
+**Comparison is a capability.** `==` is `eq(a, b)` and `<` is `cmp(a, b) < 0`, so
+a type of your own has them exactly when the functions exist — generated with
+`default`, or hand-written and `@`-scoped to the type. `Note` here asks only for
+equality. Comparing two *different* struct types is an error rather than a quiet
+`false`.
 
 **Generating and converting.** `list_by(n, i -> …)` builds from a size and a
 rule; `to_set` dedups a list; `to_map` comes in two forms — a list of pairs, or

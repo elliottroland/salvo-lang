@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1271 tests, complete: the toolchain tests are
+cargo test                  # 1278 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,63 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Ordering round, steps 2+4 — the operators resolve through the groups, and
+`canbe ordered`/`canbe hashed` are deleted (2026-09-21, night).** The landing the
+round was for: `a < b` **is** `cmp(a, b) < 0` and `a == b` **is** `eq(a, b)`
+[op-order] [op-equality], so comparison works exactly where the function is —
+which makes equality **opt-in** for a type of your own (overturning
+[col-equality]'s 2026-09-12 "every struct, structurally") and closes the
+silent comparison of unconstrained generics. Landed as one change with its
+sweep, because the operator switch is what breaks every program that compared a
+struct.
+
+- **What keeps the native operator**: numerics (widened per [op-promote]) and
+  equality at the other intrinsic types — the canonical implementation *is* the
+  host's `==` there, so resolving it would buy nothing and cost an indirection.
+  Ordering is deliberately *not* on that path, which is how `Str` gained
+  ordering it never had: `cmp(Str, Str)` is code-point order on both backends,
+  where the JVM's `<` compares UTF-16 code units [kt-ordered].
+- **What the checker records**: a `comparisons` side table, span → `CompareVia`
+  (`Call(FnKey)` or `Implicit(name)`), absent meaning "the host's operator".
+  Both emitters read it and emit the call — an intrinsic through its lowering, a
+  canonical or generated member as a named call — so the operator and the
+  function cannot disagree about what `==` means.
+- **`Ty::Var` left `op_lenient`** for comparisons, which was the point of
+  HEAP_QUALIFIER.md item 7: comparing an opaque `T` used to compile in silence
+  and emit `a < b` on a boundless generic (rustc refused it, so
+  [backend-never-wrong] survived by accident). It is now the ordinary
+  missing-capability error, and the remedy it names is the signature
+  (`?Ordered<T>`) — the colouring [implicit-forward] already had.
+- **`canbe hashed` / `canbe ordered` are gone.** Key eligibility asks whether a
+  `hash`+`eq` (or a `cmp`) *exists* for the type rather than whether its
+  declaration said so, `canbe`'s whitelist is back to `Mut` and `once`, and the
+  deleted spellings get an error naming the obligation that replaced them. The
+  derives both backends emit now come from the `default` clause alone. Also
+  gone: the tmGrammar's `CANBE_WORDS` pair (now `once`/`linear`), with a new
+  contextual pattern for `default` before a capitalized name.
+- **One new std canonical fell out of the sweep**: `eq@Bytes`, because `Bytes`
+  is an `intrinsic type` programs compare with `==` (structural, byte for byte
+  on both hosts). A good check on the design — the sweep found the gap the way a
+  user would, and `@`-scoping it to `Bytes` in `core.bytes` is exactly the shape
+  a std canonical should have.
+- **A fn-typed field no longer bars a struct from equality**, only from the
+  *structural* one: `: default Eq<self>` names the field and refuses, and
+  declaring an `eq` that ignores it makes the type comparable. That is decision
+  6's new capability, and it needed a third validation kind (`eq_ineligible`)
+  beside the hashable/orderable pair — floats pass it, since Salvo owns float
+  equality [kt-float-eq].
+- **The sweep**: `std/time.sv`'s three time types and `std/core/{set,map}.sv`'s
+  prose, `examples/collections` (source, README and both generated trees),
+  `examples/time`'s regenerated output, the equality/ordering e2e pair on both
+  backends, four collection tests and one operator test rewritten around the new
+  rules, and the spec — [col-equality], [col-hashed-ordered] and [op-order]
+  rewritten, [op-equality] added, plus the backend specs' derive paragraphs.
+- **Tests**: 5 more in `compare_tests.rs` (the operators at a struct, a `Str`
+  and a generic; the unconstrained-generic refusal and its remedy; equality
+  opt-in at both; the deleted `canbe` pair naming its replacement; the
+  same-base-type rule surviving) and one e2e program on both backends covering a
+  generated canonical, a hand-written one, `Str` ordering and a generic.
 
 **Ordering round, step 3b — `default` obligations generate the structural
 implementations (2026-09-21, night).** `struct Point : default Ordered<self>,
@@ -13846,7 +13903,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1271)
+## Test inventory (all green: 1278)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13854,7 +13911,7 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 715 - 27 comparison-capability tests (`tests/compare_tests.rs`
+- `salvo-core`: 720 - 32 comparison-capability tests (`tests/compare_tests.rs`
   [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
   resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
   filled by resolution, two spreads composing in one signature, the capability
@@ -13869,7 +13926,11 @@ cache, with per-test timings.
   eight [cmp-default] ones (generation and its use through an implicit, `eq`
   riding along with `Ordered`, the whitelist, the `self` rule, the float-field
   and `canbe Mut` refusals, the hand-written duplicate, a generic struct, and
-  `default` satisfying its own obligation) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
+  `default` satisfying its own obligation) and the five [op-order]/[op-equality]
+  ones (the operators at a struct, a `Str` and a generic; the
+  unconstrained-generic refusal and its remedy; equality opt-in at a struct and
+  at a generic; `canbe hashed`/`canbe ordered` naming their replacement; and the
+  same-base-type rule) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
   [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
   2026-09-20 ten — classification both ways, the call-site rule both ways, the
   opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
@@ -14552,7 +14613,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 (133 registered cases, the newest being
+- `salvo-backend-kotlin`: 113 (134 registered cases, the newest being
   `compare-groups` [cmp-groups], whose source and expected stdout are verbatim
   the Rust backend's — the 2026-09-20 `narrow-mut-arm`
   case asserts the *same* expected string as the Rust backend's, which is what
@@ -14758,8 +14819,9 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 231 - including the two [cmp-groups] tests, the
-  two-module [cmp-canonical] one and the two [cmp-default] ones (the
+- `salvo-backend-rust`: 232 - including the two [cmp-groups] tests, the
+  two-module [cmp-canonical] one, the two [cmp-default] ones and the
+  [op-order]/[op-equality] operator program (the
   comparison groups compiled and run to the stdout the Kotlin backend prints,
   and the host lowerings read off the generated source: `Ord::cmp(&a, &b) as
   i32`, `str` comparison for `Str`, `DefaultHasher` for `hash`, and the

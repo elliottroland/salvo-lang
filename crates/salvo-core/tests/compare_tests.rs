@@ -36,6 +36,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b\n",
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
     "export intrinsic fn hash(value: Str) [] -> Long => value\n",
+    "export intrinsic fn to_long(value: Int) [] -> Long => value\n",
 );
 
 fn errors(src: &str) -> Vec<String> {
@@ -889,5 +890,148 @@ struct Point : Eq<self> {
     assert!(
         bare.iter().any(|e| e.contains("eq")),
         "expected the unmet obligation to name `eq`, got: {bare:?}"
+    );
+}
+
+// ===== [op-order] [op-equality] the operators through the groups =====
+
+/// `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, so both work wherever
+/// the function is — including at a `Str`, which had **no** ordering before
+/// (the operator was refused): `cmp(Str, Str)` is code-point order on both
+/// backends [kt-ordered].
+#[test]
+fn the_operators_resolve_through_the_groups() {
+    let errs = errors(
+        r#"
+struct Point : default Ordered<self> {
+    x: Int
+}
+
+fn probe(p: Point, q: Point, s: Str, t: Str) [] -> Bool => p, q, s, t {
+    let structs = p < q
+    let strs = s <= t
+    let both = p == q
+    let nope = s != t
+    // Numerics keep the native path, mixed widths included [op-promote].
+    let numbers = 1 < 2 && 1 <= to_long(2) && 1 == 1
+    return structs && strs && both && nope && numbers
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [op-order] The hole this closes: comparing an **unconstrained generic** used
+/// to compile silently (`op_lenient` included `Ty::Var` — "a documented
+/// leftover") and emit `a < b` on a boundless generic, which rustc then refused.
+/// It is now the ordinary missing-capability error, and the remedy it names is
+/// the signature.
+#[test]
+fn comparing_an_unconstrained_generic_is_an_error() {
+    let errs = errors(
+        r#"
+fn largest<T>(a: T, b: T) [] -> Bool => a, b {
+    return a < b
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`<` on `T`") && e.contains("?Ordered<T>")),
+        "expected the missing-capability error naming the spread, got: {errs:?}"
+    );
+
+    let with_capability = errors(
+        r#"
+fn largest<T>(a: T, b: T, ?Ordered<T>) [] -> Bool => a, b {
+    return a < b
+}
+
+fn go() [] -> Bool {
+    return largest(1, 2)
+}
+"#,
+    );
+    assert!(
+        with_capability.is_empty(),
+        "unexpected errors: {with_capability:?}"
+    );
+}
+
+/// [op-equality] The same for equality, which is the half that makes it *opt-in*
+/// — and the same colouring at a generic.
+#[test]
+fn equality_is_opt_in_at_every_type() {
+    let missing = errors(
+        r#"
+struct Note {
+    text: Str
+}
+
+fn same(a: Note, b: Note) [] -> Bool => a, b {
+    return a == b
+}
+"#,
+    );
+    assert!(
+        missing
+            .iter()
+            .any(|e| e.contains("`==` on `Note`") && e.contains("default Eq<self>")),
+        "expected the opt-in to be named, got: {missing:?}"
+    );
+
+    let generic = errors(
+        r#"
+fn same<T>(a: T, b: T) [] -> Bool => a, b {
+    return a == b
+}
+"#,
+    );
+    assert!(
+        generic.iter().any(|e| e.contains("?Eq<T>")),
+        "expected the spread to be named, got: {generic:?}"
+    );
+}
+
+/// [cmp-default] `canbe hashed` and `canbe ordered` are **gone**, and the
+/// diagnostic names what replaced them rather than reporting an unknown opt-in.
+#[test]
+fn the_canbe_optins_are_deleted() {
+    for (written, replacement) in [
+        ("canbe hashed", "default Hashed<self>"),
+        ("canbe ordered", "default Ordered<self>"),
+    ] {
+        let errs = errors(&format!("struct Point {written} {{\n    x: Int\n}}\n"));
+        assert!(
+            errs.iter()
+                .any(|e| e.contains("no longer exists") && e.contains(replacement)),
+            "expected `{written}` to name `{replacement}`, got: {errs:?}"
+        );
+    }
+}
+
+/// [op-order] Comparing two different base types is still refused — the check
+/// runs before resolution, so the message is about the *operands* rather than a
+/// missing function.
+#[test]
+fn the_operands_must_still_be_one_type() {
+    let errs = errors(
+        r#"
+struct A : default Eq<self> {
+    v: Int
+}
+
+struct B : default Eq<self> {
+    v: Int
+}
+
+fn probe(a: A, b: B) [] -> Bool => a, b {
+    return a == b
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("must be the same type")),
+        "expected the same-type rule, got: {errs:?}"
     );
 }

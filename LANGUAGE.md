@@ -26,7 +26,7 @@ Salvo has the following basic data types, similar to the JVM:
 * `Char`: a character, equivalent to `Char` in Kotlin and `char` in Rust.
 * `None`: a singleton type, used to represent expressions with no response.
 
-All numbers include the usual arithmetic operations, on **numeric operands only**: `+`, `-`, `*`, `/` and `%` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions. Ordering (`<`, `<=`, `>`, `>=`) works on numbers and on structs declaring `canbe ordered`; equality is its own, broader story (see Collections).
+All numbers include the usual arithmetic operations, on **numeric operands only**: `+`, `-`, `*`, `/` and `%` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions. Ordering (`<`, `<=`, `>`, `>=`) and equality (`==`, `!=`) are **capabilities**, not built-in operations: `a < b` means `cmp(a, b) < 0` and `a == b` means `eq(a, b)`, so they work wherever those functions exist. Numbers, and the other intrinsic types, come with theirs (see [Comparison, equality and hashing](#comparison-equality-and-hashing)).
 
 Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
 
@@ -393,18 +393,18 @@ for name in iter(ages) {
 }
 ```
 
-Not every type can be a key. A key has to be hashable, which for now means one of `Int`, `Long`, `Str`, `Char` and `Bool` — `Double` and `Float` are deliberately excluded, since floating-point equality would not mean the same thing on both backends. A struct opts in:
+Not every type can be a key. A key has to be hashable, which for now means one of `Int`, `Long`, `Str`, `Char` and `Bool` — `Double` and `Float` are deliberately excluded, since floating-point equality would not mean the same thing on both backends. A struct joins in by *having the functions*:
 
 ```
-struct Point canbe hashed, ordered {
+struct Point : default Ordered<self>, default Hashed<self> {
     x: Int,
     y: Int
 }
 ```
 
-`canbe hashed` makes it a `Set` element and a `Map` key; `canbe ordered` additionally allows `<`, `<=`, `>` and `>=`, and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically.
+`default Hashed<self>` generates the `hash` and `eq` that make it a `Set` element and a `Map` key; `default Ordered<self>` generates the `cmp` that gives it `<`, `<=`, `>` and `>=` and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically. See [Comparison, equality and hashing](#comparison-equality-and-hashing) for the whole story, including hand-written implementations.
 
-**Equality needs no opt-in.** Every struct supports `==` and `!=`, comparing field by field:
+**Equality is opt-in, and compares field by field when generated:**
 
 ```
 let a = Point { x: 1, y: 2 }
@@ -412,7 +412,7 @@ let b = Point { x: 1, y: 2 }
 let same = a == b        // true
 ```
 
-Both sides must be the same type — comparing two different struct types is an error rather than a quiet `false` — and qualifiers are ignored, because equality is about the data at the moment of the check, not about what is claimed of the handle. Two things cannot be compared: a struct holding a function (no two backends agree on what equal functions are), and floating-point values, which *can* be compared but whose semantics Salvo defines itself so that both backends agree (`NaN` equals nothing, including itself).
+Both sides must be the same type — comparing two different struct types is an error rather than a quiet `false` — and qualifiers are ignored, because equality is about the data at the moment of the check, not about what is claimed of the handle. A struct holding a *function* cannot have the generated `eq` (no two backends agree on what equal functions are), which is exactly the case for writing one by hand that ignores the field. Floating-point values compare with semantics Salvo defines itself so that both backends agree (`NaN` equals nothing, including itself).
 
 #### Claims a list can carry
 

@@ -325,9 +325,16 @@ application).
    ([rs-fn-param-convention]), which is what makes `?Ordered<T>` usable
    over anything but a Copy scalar. New rules [cmp-groups] and
    [cmp-hash-values]; details in COMPLETED.md's log entry.
-2. **Operators through the groups**: `<`-family → `cmp`, `==`/`!=` → `eq`;
-   drop `Ty::Var` leniency for comparisons (`op_lenient`,
-   check.rs:21137 — HEAP_QUALIFIER.md item 7); numerics fast path.
+2. ~~**Operators through the groups**~~ **+ 4. ~~the equality sweep~~** —
+   **landed 2026-09-21 as one change** (they cannot land apart: the operator
+   switch is what breaks every program that compared a struct). `<`-family →
+   `cmp`, `==`/`!=` → `eq`, recorded per comparison for the emitters; numerics
+   and intrinsic-type equality keep the native operator; `Ty::Var` left
+   `op_lenient` (HEAP_QUALIFIER.md item 7 closed); `canbe ordered`/`canbe
+   hashed` deleted, with key eligibility now asking whether the *function*
+   exists; `eq@Bytes` added to std; the sweep of std, examples, tests and the
+   spec ([col-equality], [col-hashed-ordered], [op-order] rewritten,
+   [op-equality] added). Details in COMPLETED.md's log.
 3. **`@`-scoped canonicals** — **landed 2026-09-21** (step 3a, split from
    `default` at the user's choice of landing order): `fn cmp@Person(…)`, the
    declaration-side parser, the same-file and export-match checks, auto-import
@@ -351,8 +358,9 @@ application).
    `canbe ordered`/`canbe hashed`
    and sweep ([col-hashed-ordered] sites: `std/time.sv`,
    `examples/collections`, corpus, spec snippets).
-4. **The equality sweep**: `: default Eq` on every struct the repo
-   compares; container membership through `?eq` defaults.
+4. ~~**The equality sweep**~~ — landed with step 2 above. (Container membership
+   through `?eq` defaults belongs to step 5, where the containers gain their fn
+   parameters.)
 5. **Fn-valued type arguments (G)**: identities in types (equality,
    unification, inference, display), the `?cmp` binder, marker/ZST
    emission on Rust, the `OrdBy` boundary newtype, Kotlin runtime hash

@@ -260,12 +260,13 @@ question dissolved — backend-native hashing, divergence accepted, see
 implementations for the intrinsic types are in `std/core/compare.sv`;
 COMPLETED.md's log entry has what it took, including the
 [rs-fn-param-convention] fix it forced). What remains, from ORDERING.md's
-plan: step 2 (operators through the groups, dropping `op_lenient`'s
-`Ty::Var`), step 3 (`default` obligations, `@`-scoped canonicals, deleting
-`canbe ordered`/`canbe hashed` and its sweep), step 4 (the equality
-sweep), step 5 (fn-valued type arguments — the heap's unblock and the
-largest piece), step 6 (the spec rewrite of [col-equality],
-[col-hashed-ordered], [op-order]).
+plan: **steps 1, 3 and 2+4 have landed** (the groups and the primitive
+canonicals; `@`-scoped canonicals; `default` obligations; the operators
+through the groups with the deletion of `canbe ordered`/`canbe hashed` and
+its sweep — COMPLETED.md's log has an entry each). What remains is **step 5**
+(fn-valued type arguments — the heap's unblock and the largest single piece)
+and **step 6** (the last documentation pass: [col-sorted]/[col-sorted-list]
+wording, and deleting ORDERING.md).
 A noted follow-on, separately decided when
 raised: migrating qualifier bodies' `fn qualifies` to the same `@`-scoped
 shape (`fn qualifies@Positive`); handler members stay put — they interact

@@ -388,10 +388,12 @@ derives them mechanically:
   calls); std's `first` intrinsic lowers to `list.first()` — clone-free.
 * **Generic bounds.** Every generic parameter gets a `Clone` bound
   (`<T: Clone>`) — the owned-rendering rule may clone values of generic
-  type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` —
-  equality works on every struct [col-equality] — plus `Eq` and `Hash` for
-  `canbe hashed`, and `Eq, PartialOrd, Ord` for `canbe ordered`
-  [col-hashed-ordered]. A struct with a fn-typed field derives only `Clone`:
+  type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` — `PartialEq`
+  unconditionally, since it is what the generated `eq` stands on and costs
+  nothing where Salvo refuses `==` anyway [col-equality] — plus `Eq` and `Hash`
+  for `: default Hashed<self>`, and `Eq, PartialOrd, Ord` for
+  `: default Ordered<self>` [cmp-default] (the `canbe hashed`/`canbe ordered`
+  opt-ins those replaced are gone). A struct with a fn-typed field derives only `Clone`:
   `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
   Generated union enums derive `PartialEq` too, conditionally on their
   payloads, so a struct holding one can derive its own.
@@ -852,9 +854,9 @@ the blanket rule:
   * [cmp-default] A member **generated** by a `default` obligation is emitted as
     an ordinary Rust fn over the *derive*: `pub fn cmp__n(a: &Point, b: &Point)
     -> i32 { (Ord::cmp(a, b) as i32) }`, with `#[derive(PartialOrd, Ord)]` /
-    `Hash` on the struct — the derives `canbe ordered`/`canbe hashed` already
-    ask for, which is what makes the generated member and the type's own
-    ordering the same thing. A generic struct's member carries the bound its
+    `Hash` on the struct — the derives the `default` clause asks for, which is
+    what makes the generated member and the type's own ordering the same
+    thing. A generic struct's member carries the bound its
     derive carries (`<T: Clone + Ord>`). Calls, adapter closures and
     `cmp = cmp@Point` values all reach it as a named fn, so nothing else in the
     backend learns that `default` exists — and it takes part in overload

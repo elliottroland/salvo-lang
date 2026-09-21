@@ -5,8 +5,8 @@
 //
 //   1. three literal forms, and what a brace means where it is ambiguous
 //   2. insertion order for `Set`/`Map`, key order for the sorted pair
-//   3. what may be a key, and how a struct opts in
-//   4. equality on every struct, ordering only where it is declared
+//   3. what may be a key, and how a struct joins in
+//   4. equality and ordering as capabilities, opted into per type
 //   5. generated constructors and converters
 //   6. claims about a list: `NonEmpty`, `Sorted`, `Distinct`
 //   7. iterating a set and a map
@@ -14,16 +14,19 @@
 // Everything here prints identically on both backends, which is the point:
 // the orderings are the language's, not the target's.
 
-// A key must be hashable; `canbe ordered` additionally allows `<` and makes
-// the struct a key of the sorted collections. Both are checked here, at the
-// declaration — a `canbe Mut` struct or a float field would be refused.
-struct Point canbe hashed, ordered {
+// [cmp-default] Comparison, equality and hashing are **capabilities**: having
+// one is having the function. `default` asks the compiler for the structural
+// implementation — `cmp@Point`, `hash@Point` and `eq@Point`, generated from the
+// fields in declaration order — which is what makes a `Point` orderable with
+// `<`, usable as a key, and comparable with `==`. Both clauses are checked
+// here, at the declaration: a `canbe Mut` struct or a float field is refused.
+struct Point : default Ordered<self>, default Hashed<self> {
     x: Int,
     y: Int
 }
 
-// No opt-in: still comparable with `==`, just not usable as a key.
-struct Note {
+// Equality alone: comparable with `==`, and not a key (no `hash`).
+struct Note : default Eq<self> {
     text: Str
 }
 
@@ -101,7 +104,7 @@ fn main() [use] -> None {
     let before = a < c
     println("4. equal ${same}, ordered ${before}")
 
-    // Equality needs no opt-in, so a plain struct has it too.
+    // `default Eq<self>` alone: `==` without an order and without a hash.
     let n1 = Note { text: "same" }
     let n2 = Note { text: "same" }
     let notes_equal = n1 == n2

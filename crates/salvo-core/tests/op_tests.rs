@@ -3,8 +3,13 @@
 //! arithmetic on numeric operands only, implicit widening *within* the
 //! integer and float classes with the promotion recorded for the backends,
 //! an explicit-conversion error *across* them, no `Str +`, `Bool`-only
-//! logicals, ordering on numerics and `canbe ordered` structs, and
-//! unsuffixed literals adopting the expected numeric type.
+//! logicals, and unsuffixed literals adopting the expected numeric type.
+//!
+//! Ordering and equality moved on 2026-09-21: they resolve through the
+//! capability groups [op-order] [op-equality], so `<` is `cmp(a, b) < 0` and
+//! what may be compared is "whatever has the function". Numerics keep the
+//! native fast path, which is what these tests cover; the capability half lives
+//! in `compare_tests.rs`.
 
 use std::path::Path;
 
@@ -206,8 +211,12 @@ fn logical_operands_are_bool_only() {
 
 // ===== ordering [op-order] =====
 
-/// Ordering works on numerics — mixed widths included — and on `canbe
-/// ordered` structs; everything else is refused with the rule spelled out.
+/// Ordering works on numerics, mixed widths included — the **native fast
+/// path**, where the canonical implementation is the host's own operator
+/// [op-order]. Everything else needs a `cmp`, and the refusal says which
+/// function is missing and how to get it: this prelude declares none, so even
+/// `Str` is refused here (the real `core.compare` has one, which is what makes
+/// `"a" < "b"` legal and code-point ordered).
 #[test]
 fn ordering_surface() {
     assert_ok(&body(
@@ -215,16 +224,19 @@ fn ordering_surface() {
     ));
     let msgs = messages(&body("    let a = \"x\" < \"y\""));
     assert!(
-        msgs[0].contains("`Str` cannot be ordered") && msgs[0].contains("canbe ordered"),
+        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains("default Ordered"),
         "{msgs:?}"
     );
     let msgs = messages(&body("    let a = true < false"));
-    assert!(msgs[0].contains("`Bool` cannot be ordered"), "{msgs:?}");
-    // Struct ordering still needs the opt-in (the equality slice's rule,
-    // unchanged).
+    assert!(msgs[0].contains("`cmp(Bool, Bool)`"), "{msgs:?}");
+    // A struct needs its `cmp` like anything else, and the message names both
+    // ways to get one [cmp-canonical] [cmp-default].
     let src = "struct P {\n    x: Int\n}\n\nfn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n";
     let msgs = messages(src);
-    assert!(msgs[0].contains("canbe ordered"), "{msgs:?}");
+    assert!(
+        msgs[0].contains("`fn cmp@P(…)`") && msgs[0].contains("default Ordered<self>"),
+        "{msgs:?}"
+    );
 }
 
 // ===== literal adoption [lit-adopt] =====

@@ -5338,6 +5338,77 @@ fn rustc_compiles_and_runs_default_obligations() {
     run_rust_files(&files, "default_obligations", DEFAULT_OUTPUT);
 }
 
+/// [op-order] [op-equality] The **operators** through the groups: `a < b` is
+/// `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, at a struct, at a `Str` (which
+/// had no ordering at all before, and now orders by code point on both
+/// backends) and at a generic `T` whose capability arrives as an implicit.
+///
+/// Source and expected stdout are **verbatim** the Kotlin backend's
+/// `kotlinc_compiles_and_runs_operators_through_the_groups`. The `Str` line is
+/// the parity claim: the JVM's own `<` would compare UTF-16 code units.
+pub const GROUP_OPERATOR_DEMO: &str = r#"
+struct Point : default Ordered<self> {
+    x: Int,
+    y: Int
+}
+
+// A hand-written canonical, which the operators reach exactly as they reach a
+// generated one [cmp-canonical].
+struct Age {
+    years: Int,
+    label: Str
+}
+
+fn cmp@Age(a: Age, b: Age) [] -> Int => a, b {
+    return cmp(a.years, b.years)
+}
+
+fn eq@Age(a: Age, b: Age) [] -> Bool => a, b {
+    return eq(a.years, b.years)
+}
+
+// [implicit-forward] Generic code publishes the capability in its signature,
+// and the operators inside go through the parameter.
+fn larger_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn same_of<T>(a: T, b: T, ?Eq<T>) [] -> Bool => a, b {
+    return a == b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 9 }
+    println("struct ${p < q} ${p == q} ${p != q} ${q >= p}")
+    let young = Age { years: 5, label: "bob" }
+    let old = Age { years: 36, label: "ada" }
+    println("by hand ${young < old} ${young == old}")
+    // `Str` ordering: "ab" < "b" by code point, on both backends.
+    let ab = "ab"
+    let b = "b"
+    println("strs ${ab < b} ${ab == b} ${same_of(ab, b)}")
+    println("generic ${larger_of(3, 9)} ${larger_of(p, q).y} ${larger_of(young, old).label}")
+}
+"#;
+
+pub const GROUP_OPERATOR_OUTPUT: &str = "struct true false true true\nby hand true false\n\
+                                   strs true false false\ngeneric 9 9 ada\n";
+
+#[test]
+fn rustc_compiles_and_runs_operators_through_the_groups() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", GROUP_OPERATOR_DEMO)]);
+    run_rust_files(&files, "operators_through_groups", GROUP_OPERATOR_OUTPUT);
+}
+
 /// [rs-fn-field] A **composed pass, hand-written**: it stores both its source
 /// and its callback. Storing a function in a struct field used to be a Rust
 /// codegen error while Kotlin accepted it (a live backend divergence, recorded
@@ -8173,10 +8244,10 @@ fn rustc_compiles_and_runs_collection_literals() {
 
 // ===== equality, ordering and struct keys [col-equality] =====
 
-/// [col-equality] [col-hashed-ordered] Structural equality on any struct,
-/// ordering behind `canbe ordered`, a `canbe hashed` struct as a set element
-/// and a map key, lexicographic list/tuple order, and Salvo's own float
-/// equality.
+/// [op-equality] [op-order] [cmp-default] Equality and ordering as
+/// **capabilities**: the structural implementations a `default` obligation
+/// generates, a hashed struct as a set element and a map key, lexicographic
+/// list/tuple order, and Salvo's own float equality.
 ///
 /// The last line is the one this pair exists for: a Kotlin data class's
 /// generated `equals` calls `Double.equals`, for which `NaN` equals itself,
@@ -8185,17 +8256,18 @@ fn rustc_compiles_and_runs_collection_literals() {
 /// its own `equals` [kt-float-eq]. Shares source and expected output with the
 /// Kotlin case of the same name [backend-parity].
 const EQUALITY_DEMO: &str = r#"
-struct Point canbe hashed, ordered {
+struct Point : default Ordered<self>, default Hashed<self> {
     x: Int,
     y: Int
 }
 
-struct Version canbe hashed, ordered {
+struct Version : default Ordered<self>, default Hashed<self> {
     parts: List<Int>,
     label: (Str, Int)
 }
 
-struct Measure {
+// Equality only — and a float field, which is fine for `eq` and not for a key.
+struct Measure : default Eq<self> {
     value: Double
 }
 

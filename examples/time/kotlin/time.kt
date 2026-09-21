@@ -377,3 +377,39 @@ fun earliest_due(deadlines: List<Long>, target: Long): Int? {
     }
     return best
 }
+
+fun cmp(a: Duration, b: Duration): Int {
+    return salvo.__salvoCompare(a, b)
+}
+
+fun eq(a: Duration, b: Duration): Boolean {
+    return a == b
+}
+
+fun hash(value: Duration): Long {
+    return value.hashCode().toLong()
+}
+
+fun cmp__2(a: Instant, b: Instant): Int {
+    return salvo.__salvoCompare(a, b)
+}
+
+fun eq__2(a: Instant, b: Instant): Boolean {
+    return a == b
+}
+
+fun hash__2(value: Instant): Long {
+    return value.hashCode().toLong()
+}
+
+fun cmp__3(a: Tick, b: Tick): Int {
+    return salvo.__salvoCompare(a, b)
+}
+
+fun eq__3(a: Tick, b: Tick): Boolean {
+    return a == b
+}
+
+fun hash__3(value: Tick): Long {
+    return value.hashCode().toLong()
+}

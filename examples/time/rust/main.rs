@@ -48,14 +48,14 @@ use crate::time::*;
 
 pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
     let mut took = between__2(started, at);
-    if took > budget.clone() {
+    if cmp(&took, budget) > 0 {
         return format!("late by {}", to_str__3(&minus(&took, budget)));
     }
     return format!("in time, {} to spare", to_str__3(&minus(budget, &took)));
 }
 
 pub fn overdue<__Fx: __Has_Ticker>(__fx: &mut __Fx, started: &Tick, budget: &Duration) -> bool {
-    return elapsed(&mut *__fx, started) > budget.clone();
+    return cmp(&(elapsed(&mut *__fx, started)), budget) > 0;
 }
 
 pub struct SteppingTicker {

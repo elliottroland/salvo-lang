@@ -491,18 +491,26 @@ Conventions:
     (a surrogate pair, 0xD800–0xDFFF) below a BMP one at 0xE000–0xFFFF. The
     same call Salvo already made for string *indexing* — characters, not
     encoding units — so the Kotlin comparator compares code points.
-* [col-equality] **Every struct supports `==` and `!=`**, structurally
-  (user decision 2026-09-12). Both operands must be the **same base type** —
-  comparing two different struct types is an error, not a constant `false`
-  — and qualifiers are ignored on both sides (`Surname Person == Person` is
-  fine): equality is about the data at the moment of the check, not about
-  what is claimed of the handle. State, provenance and `Mut` alike.
-  * A **fn-typed field bars a struct from equality**: `Rc<dyn Fn>` has none
-    on Rust and Kotlin would compare by reference, so no answer exists that
-    both backends can give. Such a struct is therefore also barred from
-    `canbe hashed` / `canbe ordered`.
-  * **Ordering (`< <= > >=`) needs `canbe ordered`**; equality needs no
-    opt-in. The axes are separate.
+* [col-equality] **Equality is a capability**: `a == b` is `eq(a, b)`, so a
+  struct supports `==` and `!=` exactly when an `eq` for it is in scope —
+  generated with `: default Eq<self>` [cmp-default], or hand-written and
+  `@`-scoped [cmp-canonical]. That **overturns** the 2026-09-12 decision that
+  every struct compares structurally (user decision 2026-09-21): the operator
+  now resolves like any call [op-equality], and a type with no `eq` says so.
+  What survives from the old rule:
+  * Both operands must be the **same base type** — comparing two different
+    struct types is an error, not a constant `false` — and qualifiers are
+    ignored on both sides (`Surname Person == Person` is fine): equality is
+    about the data at the moment of the check, not about what is claimed of the
+    handle. State, provenance and `Mut` alike.
+  * A **fn-typed field bars the *structural* `eq`**: `Rc<dyn Fn>` has none on
+    Rust and Kotlin would compare by reference, so no answer exists that both
+    backends can give — `: default Eq<self>` is refused, naming the field. It no
+    longer bars the *struct*, which is the capability decision 6 opened: declare
+    an `eq` that ignores the field and the type is comparable (and hashable,
+    with a `hash` to match).
+  * **Ordering and equality are separate axes still**, and both are now
+    separate *functions*: `cmp` and `eq`.
   * **Numeric widths mix** [op-promote]: `Long == Int` compares at `Long`.
     Everything else still demands the same base type, and the int↔float mix
     is refused with the conversions named.
@@ -516,19 +524,23 @@ Conventions:
     fix.
   * Generated union enums derive `PartialEq` on Rust, conditionally on
     their payloads, so a struct holding a union can derive its own.
-* [col-hashed-ordered] A struct opts into being a **key** by declaring
-  `canbe hashed` (a `Set` element, a `Map` key) or `canbe ordered` (a
-  `SortedSet` element, a `SortedMap` key, and the ordering operators). Both
-  are **validated where they are written**, so the error names the field
-  rather than surfacing at a distant `Set<Point>`:
+* [col-hashed-ordered] A struct is a **key** when it *has the functions*: a
+  `hash` and an `eq` for a `Set` element or a `Map` key, a `cmp` for a
+  `SortedSet` element or a `SortedMap` key. `canbe hashed` and `canbe ordered`
+  are **deleted** (user decision 2026-09-21) — the opt-in became the
+  implementation, since there was never anything a declaration could opt into
+  beyond having an ordering. `: default Hashed<self>` / `: default Ordered<self>`
+  generate the structural ones [cmp-default] and are **validated where they are
+  written**, so the error names the field rather than surfacing at a distant
+  `Set<Point>`:
   * the struct may not be `canbe Mut` — a value that can change while a
     collection holds it corrupts the collection's lookup or order, which is
     the classic silent-corruption bug made a compile error;
   * every field must itself be hashable / orderable. `Int`, `Long`, `Str`,
     `Char` and `Bool` are both; `Double`/`Float` are **neither** (Rust's
-    `f64` is not `Eq`, `Hash` or `Ord`) while equality on a struct holding
-    one still works; a nested struct must carry the same claim; a `List` or
-    a tuple qualifies exactly when its elements do (user decision
+    `f64` is not `Eq`, `Hash` or `Ord`) while `: default Eq<self>` on a struct
+    holding one still works; a nested struct must have the same members; a
+    `List` or a tuple qualifies exactly when its elements do (user decision
     2026-09-12), ordering **lexicographically**, with a shorter list that is
     a prefix comparing less.
   * Ordering of a struct is lexicographic **by field declaration order**,
@@ -1145,15 +1157,42 @@ Conventions:
   truncate toward zero and **saturate** at the target's bounds
   identically on both backends; `to_int(Long)` keeps the low 32 bits
   (Kotlin `toX()` ≡ Rust `as`, verified pairwise).
-* [op-order] Ordering (`< <= > >=`) works on numeric operands (widened
-  per [op-promote]) and on structs declaring `canbe ordered`
-  [col-equality]; everything else — `Str`, `Char`, `Bool`, containers,
-  tuples, fn values — is refused with the rule spelled out (user decision
-  2026-09-14). Note the deliberate difference from sorted-collection
-  keys [col-hashed-ordered]: `Double` **is** orderable at the operator
-  (both backends agree on IEEE partial comparison, `NaN` answering
-  `false`), while a sorted container of them stays refused (no total
-  order).
+* [op-order] **Ordering is `cmp`**: `a < b` is `cmp(a, b) < 0`, and likewise
+  for `<=`, `>` and `>=` (user decision 2026-09-21, superseding the
+  2026-09-14 surface). So ordering works wherever a `cmp` is in scope:
+  * **Numeric operands keep the native fast path**, widened per [op-promote] —
+    the canonical implementation for a primitive *is* the host's operator, so
+    emitting the operator is emitting the implementation. `Double` is orderable
+    at the operator (both backends agree on IEEE partial comparison, `NaN`
+    answering `false`) while a *sorted container* of them stays refused (no
+    total order) — the same deliberate difference as before, now expressed as
+    "`cmp(Double, Double)` does not exist, but `<` on numerics does not need
+    it".
+  * **Everything else resolves `cmp`** [implicit-resolve]: `Str` now orders (by
+    code point, on both backends, which is what `cmp(Str, Str)` promises and
+    the JVM's `<` does not), a struct orders when it has a `cmp`, and a tuple,
+    a container or a fn value orders when someone declares one. With none in
+    scope the operator is an error naming the remedy — `fn cmp@T(…)`, or
+    `: default Ordered<self>`.
+  * **At a generic `T`** the only candidate is an enclosing implicit parameter
+    [implicit-forward], so a comparison in generic code publishes the
+    capability in the signature (`?Ordered<T>`). Comparing an unconstrained `T`
+    used to compile silently and emit `a < b` on a boundless generic; that hole
+    is closed.
+* [op-equality] **Equality is `eq`**: `a == b` is `eq(a, b)` and `a != b` its
+  negation, resolved exactly as ordering resolves `cmp` (user decision
+  2026-09-21). Equality is therefore **opt-in** for a type of your own
+  [col-equality].
+  * **The intrinsic types keep the native operator**: `eq(Int, Int)`,
+    `eq(Str, Str)` and their siblings *are* `==` on both hosts, so resolving
+    them would buy nothing and cost every comparison an indirection. Ordering
+    is deliberately not on that path, because `Str` must compare by code point
+    where the JVM's `<` compares code units [kt-ordered].
+  * A **possibly-absent** operand is still refused [op-no-none], and numeric
+    widths still mix [op-promote].
+  * The checker records which function each comparison resolved to, and both
+    emitters read it: the operator and the call cannot disagree about what
+    `==` means.
 * [op-bool] `&&`, `||` and unary `!` take `Bool` operands only — the
   value-position twin of [cond-bool], with the same no-truthiness
   reasoning and remedy text. Condition position reports once, through
@@ -4012,7 +4051,8 @@ the same day. **Not part of `core`**: the surface is imported, and one
 * [time-types] **Three types, one representation**: `Duration` (a span),
   `Instant` (a point on the wall clock, nanoseconds since the Unix epoch) and
   `Tick` (a point on the monotonic clock, from an arbitrary origin). Each is a
-  plain std struct with a single `nanos: Long` field, `canbe hashed, ordered`.
+  plain std struct with a single `nanos: Long` field,
+  `: default Ordered<self>, default Hashed<self>` [cmp-default].
   * **One field, deliberately.** Struct equality is structural
     [col-equality] and fields are public, so a `{secs, nanos}` pair would make
     non-canonical values constructible — `{secs: 1, nanos: 0}` and `{secs: 0,

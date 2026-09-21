@@ -112,8 +112,9 @@ fn main() [use] {
   front for a mutable one. `Set` and `Map` iterate in **insertion order on
   every backend**, so a program's output does not depend on the target it
   was compiled for. Every struct compares with `==`; a struct becomes a key
-  by declaring `canbe hashed` (or `canbe ordered`, which also gives it `<`),
-  checked where it is declared. Arrays stay for fixed-size data and the
+  by having a `hash` and an `eq` — `: default Hashed<self>` generates both, and
+  `: default Ordered<self>` a `cmp` that also gives it `<` — checked where it is
+  declared. Arrays stay for fixed-size data and the
   variadic boundary.
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
   value), flow-sensitive narrowing via `is` — of variables and of field

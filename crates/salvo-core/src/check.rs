@@ -369,6 +369,14 @@ struct EffectAvail {
 #[derive(Default)]
 pub struct Checked {
     pub expr_ty: HashMap<Key, Ty>,
+    /// [op-order] [op-equality] How a comparison operator lowers, keyed by the
+    /// span of the binary expression. **Absent means the host's own operator**:
+    /// numeric operands keep the native fast path, and so do the other
+    /// intrinsic types' equality, where the canonical implementation *is* that
+    /// operator [cmp-groups]. Present means the comparison goes through a
+    /// `cmp`/`eq` the checker resolved — a struct's canonical, or the enclosing
+    /// fn's implicit parameter at a generic `T`.
+    pub comparisons: HashMap<Key, CompareVia>,
     /// [op-promote] Operator operands widened by numeric promotion, keyed
     /// by the operand expression's span, mapped to the promoted type
     /// (`Int + Long` promotes the `Int` side to `Long`; `Float`/`Double`
@@ -808,6 +816,22 @@ enum ImplicitMiss {
     /// naming both selector spellings (user decision 2026-09-21). The message
     /// is built where the candidates are known.
     AmbiguousCanonical(String),
+}
+
+/// [op-order] [op-equality] What a comparison operator resolved to, for the
+/// emitters: `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, so the
+/// operator needs the function that implements it (user decisions 2026-09-21).
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompareVia {
+    /// A declared `cmp`/`eq` — a canonical [cmp-canonical], a generated
+    /// structural member [cmp-default], or any other visible overload that
+    /// fits. Intrinsic declarations included, which is how `Str` ordering
+    /// reaches the backends' code-point comparison.
+    Call(FnKey),
+    /// The enclosing fn's own implicit parameter of that name
+    /// [implicit-forward]: the only thing that *can* compare an opaque `T`,
+    /// and the colouring that makes the capability visible in a signature.
+    Implicit(String),
 }
 
 /// One implicit parameter of a fn [implicit-param], after group expansion.
@@ -2535,7 +2559,30 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// method name.
     fn validate_auto_quals(&mut self, quals: &[TypeRef]) {
         for q in quals {
-            if matches!(q.name.name.as_str(), "Mut" | "once" | "hashed" | "ordered") {
+            if matches!(q.name.name.as_str(), "Mut" | "once") {
+                continue;
+            }
+            // [cmp-default] `canbe hashed` / `canbe ordered` are **gone** (user
+            // decision 2026-09-21): a type is hashable or orderable exactly when
+            // a `hash`/`cmp` for it exists, so the opt-in became the
+            // implementation — one token where the type wants the structural one.
+            if matches!(q.name.name.as_str(), "hashed" | "ordered") {
+                let group = if q.name.name == "hashed" {
+                    "Hashed"
+                } else {
+                    "Ordered"
+                };
+                self.error(
+                    q.span,
+                    format!(
+                        "`canbe {}` no longer exists: being hashable or orderable is \
+                         *having the function*, so write the obligation instead — \
+                         `: default {group}<self>` for the structural one, or declare \
+                         `fn {}@…` yourself [cmp-default] [cmp-canonical]",
+                        q.name.name,
+                        if q.name.name == "hashed" { "hash" } else { "cmp" }
+                    ),
+                );
                 continue;
             }
             // [linear-group] `canbe` grants a *qualifier*; linearity is an
@@ -8221,22 +8268,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [col-equality] Operand rules for the comparison operators (user
-    /// decisions 2026-09-12).
+    /// [op-order] [op-equality] Operand rules for the comparison operators,
+    /// which **resolve through the capability groups** (user decisions
+    /// 2026-09-21): `a < b` is `cmp(a, b) < 0` and `a == b` is `eq(a, b)`.
     ///
-    /// * **Equality works on every struct**, structurally, and ignores
-    ///   qualifiers — `Surname Person == Person` is fine, because equality
-    ///   is about the data at the moment of the check, not about what is
-    ///   claimed of the handle.
-    /// * **The two sides must be the same base type.** Comparing different
-    ///   struct types is an error rather than a constant `false`: it is
-    ///   almost always a mistake, and neither backend agrees on what it
-    ///   would mean.
-    /// * **A fn-typed field bars a struct from equality**: `Rc<dyn Fn>` has
-    ///   none on Rust and Kotlin would compare by reference, so there is no
-    ///   answer both backends can give.
-    /// * **Ordering needs `canbe ordered`** on a struct, where equality does
-    ///   not — the axes are separate.
+    /// * **Numerics keep the native fast path**, widening within their class
+    ///   [op-promote]: the canonical implementation for a primitive *is* the
+    ///   host's operator, so emitting the operator is emitting the
+    ///   implementation. Equality at the other intrinsic types is the same
+    ///   story.
+    /// * **Everything else needs a function.** Ordering resolves `cmp` at the
+    ///   operand type, equality resolves `eq` — a canonical [cmp-canonical], a
+    ///   generated structural member [cmp-default], or any other fitting
+    ///   overload. With none in scope the operator is an **error naming the
+    ///   remedy**, which is what makes equality opt-in for a type of your own
+    ///   and closes the silent comparison of unconstrained generics.
+    /// * **At a generic `T`** the only thing that can compare is an enclosing
+    ///   implicit parameter [implicit-forward] — the colouring that puts the
+    ///   capability in the signature. `Ty::Var` is therefore no longer lenient
+    ///   for comparisons (it was "a documented leftover").
+    /// * **The two sides must still be the same base type.** Comparing
+    ///   different struct types is an error rather than a constant `false`.
+    /// * A **fn-typed field** no longer bars a struct from equality by itself:
+    ///   a struct holding one becomes comparable by declaring an `eq` that
+    ///   ignores it (new capability, decision 6). What is refused is the
+    ///   *structural* `default Eq`, where the field has no answer either
+    ///   backend can give.
     ///
     /// Unknown and `Never` operands stay lenient [type-unknown-lenient].
     fn check_comparison_operands(
@@ -8250,7 +8307,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) {
         let equality = matches!(op, ast::BinaryOp::Eq | ast::BinaryOp::NotEq);
         let (lb, rb) = (l.strip_quals(), r.strip_quals());
-        if op_lenient(lb) || op_lenient(rb) {
+        // [type-unknown-lenient] `Unknown` and `Never` stay lenient — one
+        // mistake, one diagnostic. A **type variable** does not: comparing an
+        // opaque `T` used to compile silently and emit `a < b` on a boundless
+        // generic, which rustc then refused (`op_lenient`'s "documented
+        // leftover"). It is now the ordinary missing-capability error.
+        if lb.is_unknown() || rb.is_unknown() || matches!(lb, Ty::Never) || matches!(rb, Ty::Never) {
             return;
         }
         let sym = op_symbol(op);
@@ -8295,8 +8357,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
-        // Same base type on both sides — qualifiers ignored, since equality
-        // is about the data.
+        // Same base type on both sides — qualifiers ignored, since a
+        // comparison is about the data.
         let mismatch = match (lb, rb) {
             (Ty::Named { name: ln, .. }, Ty::Named { name: rn, .. }) => ln != rn,
             _ => false,
@@ -8311,58 +8373,108 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         }
-        let Ty::Named { name, .. } = lb else {
-            // [op-order] A non-named operand (tuple, array, fn value) has
-            // no ordering either backend defines at the operator.
-            if !equality {
-                self.error(
-                    span,
-                    format!(
-                        "`{l}` cannot be ordered: `{sym}` works on numeric operands \
-                         and on structs declaring `canbe ordered`"
-                    ),
-                );
-            }
-            return;
-        };
-        let Some(decl) = self.scope.structs.get(name.as_str()) else {
-            // [op-order] A non-struct, non-numeric base (`Str`, `Char`,
-            // `Bool`, `Byte`, containers): equality per [col-equality],
-            // ordering refused — the decided surface is numerics and
-            // `canbe ordered` structs (user decision 2026-09-14).
-            if !equality {
-                self.error(
-                    span,
-                    format!(
-                        "`{name}` cannot be ordered: `{sym}` works on numeric \
-                         operands and on structs declaring `canbe ordered`"
-                    ),
-                );
-            }
-            return;
-        };
-        if decl.fields.iter().any(|f| matches!(f.ty, ast::Type::Fn { .. })) {
-            self.error(
-                span,
-                format!(
-                    "`{name}` cannot be compared: it holds a function-typed \
-                     field, and a function value has no equality either \
-                     backend can agree on (Rust has none at all, Kotlin would \
-                     compare by reference)"
-                ),
-            );
+        // [op-equality] Equality at an intrinsic type is the host's operator:
+        // `eq(Str, Str)` and its siblings *are* `==`, so resolving them would
+        // buy nothing and cost every emitted comparison an indirection.
+        // Ordering is deliberately not on this path — `Str` must compare by
+        // code point, which is what `cmp(Str, Str)` delivers and what the JVM's
+        // `<` does not [kt-ordered].
+        if equality && self.is_intrinsic_type_ty(lb) {
             return;
         }
-        if !equality && !self.has_auto_ordered(name) {
-            self.error(
-                span,
-                format!(
-                    "`{name}` cannot be ordered: declare `canbe ordered` on it \
-                     to compare its values with `<`, `<=`, `>` and `>=` \
-                     (equality needs no opt-in)"
-                ),
-            );
+        // Everything else: the operator *is* the capability's function.
+        let member = if equality { "eq" } else { "cmp" };
+        let ret = if equality {
+            Ty::named("Bool")
+        } else {
+            Ty::named("Int")
+        };
+        let want = Ty::Fn {
+            params: vec![lb.clone(), rb.clone()],
+            ret: Box::new(ret),
+            contract: None,
+            effects: Vec::new(),
+        };
+        // 1. The enclosing fn's own implicit — the only possibility at a
+        // generic `T` [implicit-forward], and what a bound-carrying signature
+        // publishes.
+        if let Some(own) = self.own_implicits.iter().find(|p| p.name == member) {
+            if is_subtype(&own.ty, &want) || own.ty.is_unknown() {
+                self.out
+                    .comparisons
+                    .insert(self.key(span), CompareVia::Implicit(member.to_string()));
+                return;
+            }
         }
+        // 2. A visible declaration: the canonical, a generated structural
+        // member, or any other fitting overload [implicit-resolve].
+        match self.resolve_implicit_fn(member, &want) {
+            Ok(key) => {
+                self.out
+                    .comparisons
+                    .insert(self.key(span), CompareVia::Call(key));
+            }
+            Err(why) => {
+                // The *base* types, not the written ones: a comparison ignores
+                // qualifiers, so `Tagged Point == Point` is `eq(Point, Point)`
+                // and the diagnostic must say so.
+                let remedy = self.compare_remedy(lb, member);
+                let detail = match why {
+                    ImplicitMiss::Unknown => format!("no `{member}` for `{lb}` is in scope"),
+                    ImplicitMiss::NearMiss(reason) => {
+                        format!("no `{member}` fits `({lb}, {rb})`: {reason}")
+                    }
+                    ImplicitMiss::Ambiguous(n) => format!(
+                        "`{member}` is ambiguous for `{lb}`: {n} declarations fit, so the \
+                         choice would be a guess"
+                    ),
+                    ImplicitMiss::AmbiguousCanonical(detail) => detail,
+                };
+                self.error(
+                    span,
+                    format!("`{sym}` on `{lb}` is `{member}({lb}, {rb})`, and {detail}{remedy}"),
+                );
+            }
+        }
+    }
+
+    /// [op-order] [op-equality] The remedy a refused comparison names, which
+    /// depends on what the operand *is*: a type of your own can declare the
+    /// member (or ask for the structural one), while an opaque `T` can only
+    /// have it passed in.
+    fn compare_remedy(&self, base: &Ty, member: &str) -> String {
+        let group = match member {
+            "eq" => "Eq",
+            _ => "Ordered",
+        };
+        match base {
+            Ty::Var(v) => format!(
+                " — nothing is knowable about `{v}` unless the signature asks: add \
+                 `?{group}<{v}>` (or `?{member}: …`) to this function's parameters \
+                 [implicit-forward]"
+            ),
+            Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
+                " — declare `fn {member}@{name}(…)` in `{name}`'s file, or ask for the \
+                 structural one with `: default {group}<self>` [cmp-default]"
+            ),
+            _ => format!(
+                " — declare a `{member}` for it, or ask for the structural one with \
+                 `: default {group}<self>` where the type is declared [cmp-default]"
+            ),
+        }
+    }
+
+    /// Whether a type is one of the intrinsic (std-declared, compiler-known)
+    /// types, whose canonical `eq` is the host's `==` [cmp-groups].
+    fn is_intrinsic_type_ty(&self, ty: &Ty) -> bool {
+        matches!(
+            ty,
+            Ty::Named { name, args } if args.is_empty()
+                && matches!(
+                    name.as_str(),
+                    "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte" | "Str"
+                )
+        )
     }
 
     /// [op-arith] Arithmetic operand typing (user decision 2026-09-14):
@@ -8463,20 +8575,38 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.promotions.insert(self.key(span), target.clone());
     }
 
-    /// [col-hashed-ordered] Whether a struct declares `canbe hashed`.
-    fn has_auto_hashed(&self, name: &str) -> bool {
-        self.scope
-            .structs
-            .get(name)
-            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "hashed"))
+    /// [cmp-default] Why a field bars the **structural** `eq`: only a function
+    /// value does. Neither backend can compare one (Rust has no equality for a
+    /// closure at all, Kotlin would compare by reference), which is exactly the
+    /// case decision 6 leaves to a hand-written `eq` that ignores the field.
+    fn eq_ineligible(&self, ty: &Ty) -> Option<String> {
+        match ty.strip_quals() {
+            Ty::Fn { .. } => Some(
+                "a function value has no equality either backend can agree on (Rust \
+                 has none at all, Kotlin would compare by reference) — declare an `eq` \
+                 that ignores it instead"
+                    .to_string(),
+            ),
+            _ => None,
+        }
     }
 
-    /// [col-hashed-ordered] Whether a struct declares `canbe ordered`.
-    fn has_auto_ordered(&self, name: &str) -> bool {
-        self.scope
-            .structs
-            .get(name)
-            .is_some_and(|s| s.auto_qualifiers.iter().any(|q| q.name.name == "ordered"))
+    /// [cmp-groups] Whether a **visible** `cmp`/`eq`/`hash` takes this named
+    /// type as its first argument — the "does it have the capability" question,
+    /// asked the way the declaration walk can ask it (before any call is
+    /// resolved). It replaced `canbe hashed`/`canbe ordered`, which asked
+    /// whether the *declaration* said so: a type is orderable now exactly when
+    /// an ordering for it exists, whether hand-written [cmp-canonical] or
+    /// generated [cmp-default].
+    fn has_member_for(&self, member: &str, name: &str) -> bool {
+        self.scope.fns.get(member).is_some_and(|entries| {
+            entries.iter().any(|e| {
+                e.decl
+                    .params
+                    .first()
+                    .is_some_and(|p| matches!(&p.ty, ast::Type::Named { base, .. } if base.name.name == name))
+            })
+        })
     }
 
     /// [col-hashed-ordered] Whether a type can be **hashed** — the
@@ -8505,15 +8635,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .take(2)
                     .find_map(|a| self.hash_ineligible(a, depth + 1)),
                 _ if self.scope.structs.contains_key(name.as_str()) => {
-                    if self.has_auto_hashed(name) {
+                    // [cmp-groups] A key needs both halves: a `hash` to find the
+                    // bucket and an `eq` to compare within it.
+                    if self.has_member_for("hash", name) && self.has_member_for("eq", name) {
                         None
                     } else {
                         Some(format!(
-                            "`{name}` is a struct that does not declare \
-                             `canbe hashed`"
+                            "`{name}` has no `hash`: declare one (with an `eq`) in its \
+                             file, or ask for the structural pair with \
+                             `: default Hashed<self>` [cmp-default]"
                         ))
                     }
                 }
+                // An `intrinsic type` of std's with a canonical `hash`
+                // (`Bytes` has `eq` only, so it is not a key).
+                _ if self.has_member_for("hash", name) && self.has_member_for("eq", name) => None,
                 _ => Some(format!("`{name}` is not hashable")),
             },
             Ty::Tuple(elems) => elems
@@ -8556,15 +8692,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .first()
                     .and_then(|a| self.order_ineligible(a, depth + 1)),
                 _ if self.scope.structs.contains_key(name.as_str()) => {
-                    if self.has_auto_ordered(name) {
+                    if self.has_member_for("cmp", name) {
                         None
                     } else {
                         Some(format!(
-                            "`{name}` is a struct that does not declare \
-                             `canbe ordered`"
+                            "`{name}` has no `cmp`: declare one in its file, or ask for \
+                             the structural one with `: default Ordered<self>` \
+                             [cmp-default]"
                         ))
                     }
                 }
+                _ if self.has_member_for("cmp", name) => None,
                 _ => Some(format!("`{name}` is not orderable")),
             },
             Ty::Tuple(elems) => elems
@@ -8585,29 +8723,22 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [col-hashed-ordered] Validates a struct's `canbe hashed` /
-    /// `canbe ordered` claims where they are written.
+    /// [cmp-default] Validates a struct's `default Hashed<self>` /
+    /// `default Ordered<self>` obligations where they are written.
     ///
-    /// Two conditions, both the user's rule (2026-09-12): the struct must be
-    /// **immutable** — a `canbe Mut` struct could change under a hash table
-    /// or a sorted tree, which is the classic silent corruption — and every
-    /// field must itself be hashable/orderable.
+    /// Two conditions, both the user's rule (2026-09-12, inherited by `default`
+    /// 2026-09-21): the struct must be **immutable** — a `canbe Mut` struct
+    /// could change under a hash table or a sorted tree, which is the classic
+    /// silent corruption — and every field must itself be hashable/orderable,
+    /// because the generated member is the host's *derived* operation over
+    /// them.
     fn check_key_optins(&mut self, s: &'p ast::StructDecl) {
         let mutable = s.auto_qualifiers.iter().any(|q| q.name.name == "Mut");
-        // [cmp-default] The two spellings validate alike, because they lower
-        // alike: a `default` obligation's generated member is defined in terms
-        // of the very derive `canbe` asks for (user decision 2026-09-21 —
-        // `default` inherits today's validation *and* today's lowering). So a
-        // float field is refused at the `default`, where it is easy to see,
+        // A float field is refused at the `default`, where it is easy to see,
         // rather than at a distant `SortedSet<Point>`.
-        let mut claims: Vec<(&str, bool, Span, String)> = Vec::new();
-        for q in &s.auto_qualifiers {
-            match q.name.name.as_str() {
-                "hashed" => claims.push(("hashed", false, q.span, format!("canbe hashed"))),
-                "ordered" => claims.push(("ordered", true, q.span, format!("canbe ordered"))),
-                _ => {}
-            }
-        }
+        // (what the claim is called, which eligibility test it uses, where it is
+        // written, how it reads back).
+        let mut claims: Vec<(&str, u8, Span, String)> = Vec::new();
         for ob in &s.obligations {
             if !ob.default {
                 continue;
@@ -8615,20 +8746,33 @@ impl<'p, 'r> Checker<'p, 'r> {
             match ob.group.name.name.as_str() {
                 "Hashed" => claims.push((
                     "hashed",
-                    false,
+                    0,
                     ob.group.span,
                     "default Hashed<self>".to_string(),
                 )),
                 "Ordered" => claims.push((
                     "ordered",
-                    true,
+                    1,
                     ob.group.span,
                     "default Ordered<self>".to_string(),
+                )),
+                // [cmp-default] The structural `eq` compares the fields, so a
+                // **fn-typed** field bars it: `Rc<dyn Fn>` has no equality on
+                // Rust and Kotlin would compare by reference. Floats are fine
+                // here, where they are not for hashing or ordering — Salvo owns
+                // float equality [kt-float-eq].
+                "Eq" => claims.push((
+                    "comparable",
+                    2,
+                    ob.group.span,
+                    "default Eq<self>".to_string(),
                 )),
                 _ => {}
             }
         }
-        for (claim, ordered, span, written) in claims {
+        for (claim, kind, span, written) in claims {
+            // Only a key can be corrupted by mutation; plain equality cannot.
+            let mutable = mutable && kind != 2;
             if mutable {
                 self.error(
                     span,
@@ -8645,10 +8789,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             for field in &s.fields {
                 let empty = HashMap::new();
                 let ty = self.lower_type_subst(&field.ty, &empty, 0);
-                let bad = if ordered {
-                    self.order_ineligible(&ty, 0)
-                } else {
-                    self.hash_ineligible(&ty, 0)
+                let bad = match kind {
+                    1 => self.order_ineligible(&ty, 0),
+                    2 => self.eq_ineligible(&ty),
+                    _ => self.hash_ineligible(&ty, 0),
                 };
                 if let Some(reason) = bad {
                     self.error(

@@ -40,6 +40,12 @@ export intrinsic fn to_bytes(str: Str) [] -> Bytes => str
 // follow too [fs-bytes].
 export intrinsic fn str_of_bytes(data: Bytes) [] -> Str? => data
 
+// [cmp-canonical] [op-equality] The canonical equality for a buffer:
+// **structural**, byte for byte, which is what `==` on two `Bytes` means.
+// Declared here, `@`-scoped to the type, so it travels with `Bytes` wherever
+// the type does.
+export intrinsic fn eq@Bytes(a: Bytes, b: Bytes) [] -> Bool => a, b
+
 // The number of bytes in [data].
 export intrinsic fn size(data: Bytes) [] -> Int => data
 

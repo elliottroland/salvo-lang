@@ -95,12 +95,12 @@ pub fn main() {
     let mut a = Point { x: 1, y: 2 };
     let mut b = Point { x: 1, y: 2 };
     let mut c = Point { x: 1, y: 9 };
-    let mut same = a == b;
-    let mut before = a < c;
+    let mut same = eq__4(&a, &b);
+    let mut before = cmp__4(&a, &c) < 0;
     println(&mut console, &(format!("4. equal {}, ordered {}", same, before)));
     let mut n1 = Note { text: "same".to_string() };
     let mut n2 = Note { text: "same".to_string() };
-    let mut notes_equal = n1 == n2;
+    let mut notes_equal = eq__5(&n1, &n2);
     println(&mut console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
     println(&mut console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
@@ -139,4 +139,22 @@ pub fn main() {
             println(&mut console, &(format!("7. {} is {}", name, *age.unwrap())));
         }
     }
+}
+
+pub fn cmp__4(a: &Point, b: &Point) -> i32 {
+    (Ord::cmp(a, b) as i32)
+}
+
+pub fn eq__4(a: &Point, b: &Point) -> bool {
+    (a == b)
+}
+
+pub fn hash__4(value: &Point) -> i64 {
+    let mut __h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(value, &mut __h);
+    (std::hash::Hasher::finish(&__h) as i64)
+}
+
+pub fn eq__5(a: &Note, b: &Note) -> bool {
+    (a == b)
 }

@@ -42,7 +42,7 @@
 // **Signed**, which is what makes `between` total: arguments in the wrong
 // order answer a negative span rather than trapping or clamping at zero.
 // A `Long` of nanoseconds spans ±292 years.
-export struct Duration canbe hashed, ordered {
+export struct Duration : default Ordered<self>, default Hashed<self> {
     nanos: Long
 }
 
@@ -52,7 +52,7 @@ export struct Duration canbe hashed, ordered {
 // It is what a program records, logs and compares against a deadline it was
 // *given*; it is the wrong thing to measure an interval with, because the
 // clock under it can be adjusted between two readings. Measure with [Tick].
-export struct Instant canbe hashed, ordered {
+export struct Instant : default Ordered<self>, default Hashed<self> {
     nanos: Long
 }
 
@@ -65,7 +65,7 @@ export struct Instant canbe hashed, ordered {
 // and [Fired] payloads are expressed in ticks. To learn the wall time a tick
 // happened at, ask a [Clock] with [to_instant] — an estimate, for the reasons
 // documented there.
-export struct Tick canbe hashed, ordered {
+export struct Tick : default Ordered<self>, default Hashed<self> {
     nanos: Long
 }
 

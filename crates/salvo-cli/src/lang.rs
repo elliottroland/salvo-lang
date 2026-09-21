@@ -72,6 +72,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
+    // [cmp-default] `: default Ordered<self>`: the generator modifier inside an
+    // obligation clause, recognised by the capitalized group name after it.
+    (
+        "\\\\bdefault(?=\\\\s+[A-Z])",
+        "keyword.declaration.salvo",
+        "the structural-implementation modifier of an obligation",
+    ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
         "\\\\bmailbox(?=\\\\s*\\\\{)",
@@ -129,7 +136,11 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-const CANBE_WORDS: &[&str] = &["hashed", "ordered"];
+/// The lowercase claims a `canbe` clause can name. `hashed`/`ordered` were
+/// deleted with the ordering round (2026-09-21) — being hashable or orderable is
+/// *having the function* now [cmp-default] — leaving `once` on a type and
+/// `linear` in a generic's clause.
+const CANBE_WORDS: &[&str] = &["once", "linear"];
 
 fn alternation(words: &[&str]) -> String {
     words.join("|")
@@ -253,7 +264,7 @@ pub fn tm_grammar() -> String {
           }}
         }},
         {{
-          "comment": "the second and later claims of a `canbe a, b` clause: a comma before and a clause terminator after, so an argument named `ordered` stays plain",
+          "comment": "the second and later claims of a `canbe a, b` clause: a comma before and a clause terminator after, so an argument named `once` stays plain",
           "match": "(?<=,)\\s*({canbe_words})\\b(?=\\s*(?:,|\\{{|>|->|$))",
           "captures": {{
             "1": {{ "name": "keyword.other.salvo" }}
@@ -499,17 +510,19 @@ mod tests {
             );
         }
         // The `canbe` clause's claims, both the first and the continuations.
-        assert!(grammar.contains("\\\\b(canbe)\\\\s+(hashed|ordered)\\\\b"));
-        assert!(grammar.contains("(?<=,)\\\\s*(hashed|ordered)\\\\b"));
+        assert!(grammar.contains("\\\\b(canbe)\\\\s+(once|linear)\\\\b"));
+        assert!(grammar.contains("(?<=,)\\\\s*(once|linear)\\\\b"));
         // Ordered *before* the plain keyword alternation, which would
-        // otherwise consume `canbe` and leave `hashed` unmatched: TextMate
+        // otherwise consume `canbe` and leave `once` unmatched: TextMate
         // takes the first pattern that matches at a position.
-        let canbe_clause = grammar.find("(canbe)\\\\s+(hashed").expect("canbe clause pattern");
+        let canbe_clause = grammar.find("(canbe)\\\\s+(once").expect("canbe clause pattern");
         let plain = grammar.find("(as|of|with|canbe").expect("plain keyword pattern");
         assert!(
             canbe_clause < plain,
-            "the `canbe hashed` pattern must come before the plain keyword alternation"
+            "the `canbe once` pattern must come before the plain keyword alternation"
         );
+        // [cmp-default] The obligation clause's generator modifier.
+        assert!(grammar.contains("\\\\bdefault(?=\\\\s+[A-Z])"));
     }
 
     // [cli-lang] A `[symbol]` doc reference inside a comment is highlighted,
