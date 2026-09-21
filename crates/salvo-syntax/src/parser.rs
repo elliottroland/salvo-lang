@@ -1366,6 +1366,31 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident_value("fn")?;
+        // [cmp-canonical] `fn cmp@Person(…)`: the **canonical** implementation
+        // of a capability for a type, `@`-scoped to it. The same selector the
+        // language already reads on a *reference* ([fn-overload-at]'s
+        // `size@core.list`, [effect-at]'s `close@Fs`), now also written at the
+        // declaration — so the declaration spelling and the disambiguation
+        // spelling are one token (user decision 2026-09-21).
+        //
+        // Capitalized only: a type is uppercase [name-casing], and a lowercase
+        // name after `@` is a module path everywhere else, which here would be
+        // someone reaching for a module-scoping form that does not exist (a fn
+        // is already scoped to its module).
+        let mut scoped_to = None;
+        if self.at(&TokenKind::At) && self.same_line() {
+            let at = self.bump().span;
+            let target = self.ident()?;
+            if !target.name.starts_with(|c: char| c.is_uppercase()) {
+                self.error(
+                    "`@` on a declaration scopes a function to a *type* \
+                     (`fn cmp@Person(…)`), and a type name is capitalized \
+                     [name-casing]; a function is already scoped to its module",
+                    at,
+                );
+            }
+            scoped_to = Some(target);
+        }
         let (generics, generic_canbe) = self.parse_generics_canbe();
         let (mut params, implicit_groups) = self.parse_params()?;
 
@@ -1438,6 +1463,7 @@ impl<'s> Parser<'s> {
             is_send,
             iter_state,
             name,
+            scoped_to,
             generics,
             generic_canbe,
             params,

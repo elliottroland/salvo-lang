@@ -83,6 +83,7 @@ Module {
                     name: "emitted",
                     span: 1576..1583,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -197,6 +198,7 @@ Module {
                     name: "finished",
                     span: 1687..1695,
                 },
+                scoped_to: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -309,6 +311,7 @@ Module {
                             name: "next",
                             span: 3119..3123,
                         },
+                        scoped_to: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,

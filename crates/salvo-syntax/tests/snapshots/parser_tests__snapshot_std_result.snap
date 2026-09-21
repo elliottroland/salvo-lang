@@ -99,6 +99,7 @@ Module {
                     name: "ok",
                     span: 1100..1102,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -213,6 +214,7 @@ Module {
                     name: "err",
                     span: 1244..1247,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",

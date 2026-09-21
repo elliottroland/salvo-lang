@@ -39,6 +39,12 @@ const STD_PRELUDE: &str = concat!(
 );
 
 fn errors(src: &str) -> Vec<String> {
+    errors_in(&[("main.sv", src)])
+}
+
+/// The same over several user files, which is what the canonical rules need:
+/// "the type's own file" and "imported with the type" are both about *files*.
+fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
@@ -46,12 +52,14 @@ fn errors(src: &str) -> Vec<String> {
         STD_PRELUDE.to_string(),
         true,
     );
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        src.to_string(),
-        false,
-    );
+    for (name, src) in files {
+        sources.add(
+            *name,
+            SourceSet::classify(Path::new(name)).unwrap(),
+            src.to_string(),
+            false,
+        );
+    }
     let mut modules = Vec::with_capacity(sources.files.len());
     for file in &sources.files {
         let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
@@ -332,5 +340,354 @@ fn ranked(a: Opaque, b: Opaque) [] -> Int => a, b {
     assert!(
         errs.iter().any(|e| e.contains("cmp")),
         "expected the missing `cmp` to be named, got: {errs:?}"
+    );
+}
+
+// ===== [cmp-canonical] the canonical implementation, `@`-scoped to its type =====
+
+/// `fn cmp@Person(…)` is an ordinary overload — bare calls and dot-notation
+/// reach it [fn-dot] — declared in the type's own file.
+#[test]
+fn a_canonical_is_an_ordinary_overload() {
+    let errs = errors(
+        r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+fn older(a: Person, b: Person) [] -> Bool => a, b {
+    return a.cmp(b) > 0
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// The selector spelling **is** the declaration spelling: `cmp@Person` names it
+/// at a call, and — following the *module* precedent [fn-overload-at] rather
+/// than [effect-at]'s call-only form — as a value, which is what
+/// `cmp = cmp@Person` needs [implicit-override].
+#[test]
+fn a_canonical_is_named_by_the_selector_it_is_declared_with() {
+    let errs = errors(
+        r#"
+struct Person {
+    name: Str,
+    age: Int
+}
+
+fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn pick(a: Person, b: Person) [] -> Person => !a, !b {
+    let explicit = cmp@Person(a, b)
+    return min_of(a, b, cmp = cmp@Person)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-canonical] It **travels with the type**: a module that imports `Person`
+/// and nothing else can still compare two, which is what closes
+/// [implicit-resolve]'s per-call-site visibility hole.
+#[test]
+fn a_canonical_is_imported_with_its_type() {
+    let errs = errors_in(&[
+        (
+            "people.sv",
+            r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import people.Person
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn go(a: Person, b: Person) [] -> Person => !a, !b {
+    let direct = cmp(a, b)
+    return min_of(a, b)
+}
+"#,
+        ),
+    ]);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// The rule that makes "imported with the type" applicable without searching
+/// the program: a canonical lives in the type's **own file**.
+#[test]
+fn a_canonical_must_live_in_its_types_file() {
+    let errs = errors_in(&[
+        (
+            "people.sv",
+            r#"
+export struct Person {
+    name: Str
+}
+"#,
+        ),
+        (
+            "other.sv",
+            r#"
+import people.Person
+
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+"#,
+        ),
+    ]);
+    assert!(
+        errs.iter().any(|e| e.contains("not a type declared in this file")),
+        "expected the same-file rule to be named, got: {errs:?}"
+    );
+}
+
+/// [mod-export] `export` is explicit on a canonical and must **match the
+/// type's** (user decision 2026-09-21): no inheritance, either way.
+#[test]
+fn a_canonicals_export_must_match_its_types() {
+    let exported_fn_private_type = errors(
+        r#"
+struct Point {
+    x: Int
+}
+
+export fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+    return cmp(a.x, b.x)
+}
+"#,
+    );
+    assert!(
+        exported_fn_private_type
+            .iter()
+            .any(|e| e.contains("must agree on `export`")),
+        "expected the export-match error, got: {exported_fn_private_type:?}"
+    );
+
+    let exported_type_private_fn = errors(
+        r#"
+export struct Point {
+    x: Int
+}
+
+fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+    return cmp(a.x, b.x)
+}
+"#,
+    );
+    assert!(
+        exported_type_private_fn
+            .iter()
+            .any(|e| e.contains("must agree on `export`")),
+        "expected the export-match error, got: {exported_type_private_fn:?}"
+    );
+
+    let matching = errors(
+        r#"
+export struct Point {
+    x: Int
+}
+
+export fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+    return cmp(a.x, b.x)
+}
+"#,
+    );
+    assert!(matching.is_empty(), "unexpected errors: {matching:?}");
+}
+
+/// [cmp-canonical] Decision 9: ambiguity around a canonical is **an error,
+/// explicit and implicit alike** — no scope rung silently wins. This is the one
+/// carve-out of [fn-overload-scope]'s Own-beats-Import silence.
+#[test]
+fn ambiguity_around_a_canonical_is_an_error_on_every_rung() {
+    let files = &[
+        (
+            "people.sv",
+            r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import people.Person
+
+// This module's own `cmp` for the same shape: today's ladder would take it
+// silently, because `Own` outranks `Import`.
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn go(a: Person, b: Person) [] -> Person => !a, !b {
+    let direct = cmp(a, b)
+    return min_of(a, b)
+}
+"#,
+        ),
+    ];
+    let errs = errors_in(files);
+    // The *call* says both selector spellings…
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("ambiguous call to `cmp(Person, Person)`")
+                && e.contains("cmp@Person")
+                && e.contains("cmp@main")),
+        "expected the call ambiguity to name both spellings, got: {errs:?}"
+    );
+    // …and so does implicit resolution, which used to resolve by rung.
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("is ambiguous for `min_of`") && e.contains("cmp@Person")),
+        "expected the implicit ambiguity to name the canonical, got: {errs:?}"
+    );
+}
+
+/// The remedy the diagnostics name, which is the point of the selector being
+/// one token: both spellings resolve.
+#[test]
+fn the_selector_resolves_an_ambiguity_around_a_canonical() {
+    let errs = errors_in(&[
+        (
+            "people.sv",
+            r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import people.Person
+
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn go(a: Person, b: Person) [] -> Person => !a, !b {
+    let by_age = cmp@Person(a, b)
+    let by_name = cmp@main(a, b)
+    return min_of(a, b, cmp = cmp@Person)
+}
+"#,
+        ),
+    ]);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-canonical] The canonical is the **default selection** even where a
+/// nearer rung has a fitting candidate of a *different* shape: only candidates
+/// that fit compete, so an unrelated `cmp` in this module is not an ambiguity.
+#[test]
+fn an_unrelated_overload_is_not_an_ambiguity() {
+    let errs = errors_in(&[
+        (
+            "people.sv",
+            r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import people.Person
+
+struct Box {
+    at: Int
+}
+
+fn cmp(a: Box, b: Box) [] -> Int => a, b {
+    return cmp(a.at, b.at)
+}
+
+fn go(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a, b)
+}
+"#,
+        ),
+    ]);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// A lowercase name after `@` on a *declaration* is a mistake with its own
+/// message: a fn is already scoped to its module, so the only `@` that means
+/// anything there is a type's.
+#[test]
+fn a_declaration_selector_must_name_a_type() {
+    let (_, diags) = salvo_syntax::parse_module(
+        "fn cmp@people(a: Int, b: Int) -> Int {\n    return 0\n}\n",
+    );
+    let errs: Vec<String> = diags
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(
+        errs.iter().any(|e| e.contains("scopes a function to a *type*")),
+        "expected the casing rule to be named, got: {errs:?}"
     );
 }

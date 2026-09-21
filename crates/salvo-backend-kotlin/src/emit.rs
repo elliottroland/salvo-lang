@@ -5753,14 +5753,25 @@ impl<'p> Emitter<'p> {
             // recorded which declaration it means — so this is the ordinary
             // function reference.
             Expr::Scoped { name, .. } => self.named_fn_value(&name.name, name.span),
-            // [effect-at] Checker-refused as a value; never emitted.
+            // [effect-at] Checker-refused as a value — *unless* the capitalized
+            // name is a type, which makes this a canonical named as a value
+            // ([cmp-canonical] `cmp = cmp@Person`): the checker resolved a
+            // function, so the selector is erased like any other.
             Expr::EffectScoped { name, .. } => {
-                self.error(format!(
-                    "internal error: `{}@Effect` reached the Kotlin emitter as a \
-                     value (the checker refuses member values)",
-                    name.name
-                ));
-                "TODO()".to_string()
+                if self
+                    .checked
+                    .fn_refs
+                    .contains_key(&(self.file_idx, name.span))
+                {
+                    self.named_fn_value(&name.name, name.span)
+                } else {
+                    self.error(format!(
+                        "internal error: `{}@Effect` reached the Kotlin emitter as a \
+                         value (the checker refuses member values)",
+                        name.name
+                    ));
+                    "TODO()".to_string()
+                }
             }
             Expr::Field { base, field, span } => {
                 let code = format!("{}.{}", self.emit_expr(base), kt_ident(&field.name));

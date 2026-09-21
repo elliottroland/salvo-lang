@@ -93,6 +93,7 @@ Module {
                     name: "copy",
                     span: 258..262,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -174,6 +175,7 @@ Module {
                     name: "chars",
                     span: 297..302,
                 },
+                scoped_to: None,
                 generics: [],
                 generic_canbe: [],
                 derived_return: None,
@@ -270,6 +272,7 @@ Module {
                     name: "complicated_func",
                     span: 355..371,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",

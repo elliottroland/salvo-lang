@@ -1508,6 +1508,10 @@ Conventions:
     every function, and `@` is what reaches one anyway.
   * On a renamed name it is an error: a rename already names one
     declaration.
+  * A capitalized name that is a **type** is the third sibling of this family:
+    a canonical selector [cmp-canonical]. Effects and types share the
+    capitalized namespace [name-casing] and one name cannot be both in scope,
+    so the reading is decided by what the name declares — not by new grammar.
 * [fn-rename] **`rename fn add2 = add(a: Int | Str, b: Int | Str)`** gives
   one overload a name of its own (user decision 2026-09-07), which is how an
   ambiguity the ranking cannot settle is settled.
@@ -2688,6 +2692,55 @@ Conventions:
     opt-in equality, the `default` generator, `@`-scoped canonicals and
     ordering-carrying types) is the rest of the round — see ROADMAP.md
     "Ordering, equality and hashing".
+* [cmp-canonical] A capability's **canonical** implementation for a type is a
+  top-level fn **`@`-scoped to it** — `fn cmp@Person(a: Person, b: Person) ->
+  Int`, declared in the type's own file (user decision 2026-09-21). It is an
+  ordinary overload: bare calls and dot-notation reach it [fn-dot], it takes
+  part in ranking like any other, and it is *not* tied to the obligation clause
+  (`fn cmp@Person` alone makes `Person` orderable; `: Ordered<self>` remains a
+  check at the declaration). On top of that it has three properties:
+  * **It travels with the type.** Importing `Person` imports every fn
+    `@`-scoped to it, so the canonical is in scope wherever the type is usable.
+    That is what closes [implicit-resolve]'s per-call-site visibility hole: a
+    module importing `Person` but not its file's `cmp` could otherwise resolve
+    `?cmp` to some *other* visible `cmp(Person, Person)`, or to nothing. The fn
+    keeps its own name — an `as` alias renames the type, and a partial rename
+    of a capability would mean nothing. This knowingly overturns
+    [implicit-resolve]'s recorded note that "Salvo needs no qualified-name
+    syntax for defaults … nothing ties it to the type's declaration": the tie
+    and the syntax now exist, because canonical visibility must not depend on
+    which of a file's names a module happened to import.
+  * **It is the default selection for an implicit parameter** of the same name
+    and shape: it is not beaten by a nearer scope rung, and it is not beaten
+    silently by anything else either (below).
+  * **Ambiguity around it is always an error** — explicit calls and implicit
+    resolution alike (decision 9). When a canonical is among the *fitting*
+    candidates, a second fitting candidate on **any** rung is an error naming
+    both selector spellings (`cmp@Person`, `cmp@my.module`), where
+    [fn-overload-scope] would otherwise let `Own` beat `Import` in silence.
+    This is the single carve-out of that rule; the wider intent — no
+    scope-based silent winners anywhere — is its own ROADMAP item, and this is
+    its first installment.
+  * **`export` is explicit and must match the type's** (decision 10): an
+    exported type with a private canonical, or the reverse, is a compile-time
+    error naming the mismatch. No inheritance — that keeps [mod-export]'s "the
+    public surface is exactly what the module writes down" literally true where
+    auto-import might have blurred it.
+  * **The declaration spelling is the disambiguation spelling.** `cmp@Person`
+    at a call selects it, and — following the *module* precedent
+    [fn-overload-at] rather than [effect-at]'s call-only form — so does
+    `cmp = cmp@Person` in value position [implicit-override]. Naming a type
+    with no such fn is an error saying where one would live.
+  * **Same name, same parameter types is a duplicate**, `@`-scoped or not
+    [fn-overload-duplicate]: nothing at a *bare* call site could tell the two
+    apart, and the remedy is to keep one. (That is also what catches a
+    hand-written implementation colliding with a generated one.)
+  * The selector is **erased**: the checker records which declaration a
+    selected name means, and both backends emit an ordinary call of it.
+  * For the intrinsic types the canonicals stay plain std overloads: `Int` is
+    declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so the
+    same-file rule could not hold — and `core.*` is implicitly visible
+    everywhere, which is the property `@`-scoping exists to provide.
 * [cmp-hash-values] A hash value holds **within one execution and nowhere
   else** (user decision 2026-09-21). Each backend hashes with its host's own
   algorithm — `hashCode()` on Kotlin, `DefaultHasher` on Rust — so the same

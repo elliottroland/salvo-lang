@@ -563,6 +563,7 @@ fn expand(
             name: "iter".to_string(),
             span: iter_span,
         },
+        scoped_to: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: None,
@@ -627,6 +628,9 @@ fn expand(
         is_send: false,
         iter_state: vec![],
         name: f.name.clone(),
+        // [cmp-canonical] An `iter fn` is never `@`-scoped: the form declares
+        // a pass, and the generated halves inherit its plain name.
+        scoped_to: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
         derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),

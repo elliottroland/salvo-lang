@@ -78,6 +78,7 @@ Module {
                     name: "list_of",
                     span: 788..795,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -179,6 +180,7 @@ Module {
                     name: "mut_list_of",
                     span: 885..896,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -292,6 +294,7 @@ Module {
                     name: "list_by",
                     span: 1131..1138,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -442,6 +445,7 @@ Module {
                     name: "mut_list_by",
                     span: 1239..1250,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -602,6 +606,7 @@ Module {
                     name: "get",
                     span: 1415..1418,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -755,6 +760,7 @@ Module {
                     name: "add",
                     span: 1710..1713,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -929,6 +935,7 @@ Module {
                     name: "remove_first",
                     span: 2372..2384,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -1068,6 +1075,7 @@ Module {
                     name: "remove_at",
                     span: 2627..2636,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -1246,6 +1254,7 @@ Module {
                     name: "drain",
                     span: 3972..3977,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -1429,6 +1438,7 @@ Module {
                     name: "first",
                     span: 4094..4099,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -1598,6 +1608,7 @@ Module {
                             name: "qualifies",
                             span: 4650..4659,
                         },
+                        scoped_to: None,
                         generics: [],
                         generic_canbe: [],
                         derived_return: None,
@@ -1825,6 +1836,7 @@ Module {
                     name: "non_empty_list",
                     span: 5189..5203,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -1988,6 +2000,7 @@ Module {
                     name: "first",
                     span: 5714..5719,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -2154,6 +2167,7 @@ Module {
                     name: "size",
                     span: 5876..5880,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -2269,6 +2283,7 @@ Module {
                     name: "iter",
                     span: 6240..6244,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -2630,6 +2645,7 @@ Module {
                     name: "next",
                     span: 7364..7368,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -2977,6 +2993,7 @@ Module {
                     name: "to_str",
                     span: 7982..7988,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -3145,6 +3162,7 @@ Module {
                     name: "sort",
                     span: 9014..9018,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -3266,6 +3284,7 @@ Module {
                     name: "mut_sort",
                     span: 9275..9283,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -3405,6 +3424,7 @@ Module {
                     name: "add_sorted",
                     span: 10093..10103,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",
@@ -3576,6 +3596,7 @@ Module {
                     name: "binary_search",
                     span: 10489..10502,
                 },
+                scoped_to: None,
                 generics: [
                     Ident {
                         name: "T",

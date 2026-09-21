@@ -2571,6 +2571,69 @@ fn main() [use] {
     )
 }
 
+/// [cmp-canonical] The **canonical** implementation of a capability for a type,
+/// `@`-scoped to it: declared in the type's file, imported with the type, the
+/// default selection for an implicit of the same shape, and named by the same
+/// selector at a call or as a value.
+///
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_a_canonical_implementation`. The selector is erased
+/// on both backends — the checker resolved a declaration, and what is emitted is
+/// an ordinary call of it.
+fn kotlinc_compiles_and_runs_a_canonical_implementation() -> KotlinCase {
+    let people = r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+// The canonical ordering for `Person`: an ordinary overload that travels with
+// the type, exported to match it.
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+"#;
+    let main = r#"
+// Only the *type* is imported; its canonical rides along [cmp-canonical].
+import people.Person
+
+// An ordinary overload of the same shape, in *this* module — the `Own` rung,
+// which today's ladder would let win silently. It cannot: an ambiguity around a
+// canonical is always an error [cmp-canonical], so every call below selects.
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let ada = Person { name: "ada", age: 36 }
+    let bob = Person { name: "bob", age: 5 }
+    // Both spellings of the selector: at a call, and as a value filling an
+    // implicit parameter [implicit-override].
+    println("by age ${cmp@Person(ada, bob)}")
+    println("by name ${cmp@main(ada, bob)}")
+    let younger = min_of(ada, bob, cmp = cmp@Person)
+    println("younger ${younger.name}")
+}
+"#;
+    let program = build_program(&[("people.sv", people), ("main.sv", main)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "canonical-impl",
+        "by age 1\nby name -1\nyounger bob\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
@@ -2655,6 +2718,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_mixed_spread,
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_the_comparison_groups,
+    kotlinc_compiles_and_runs_a_canonical_implementation,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
     kotlinc_compiles_and_runs_a_shareable_interceptor_chain,

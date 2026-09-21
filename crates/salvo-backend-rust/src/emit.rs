@@ -9645,14 +9645,30 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            // [effect-at] Checker-refused as a value; never emitted.
+            // [effect-at] Checker-refused as a value — *unless* the capitalized
+            // name is a type, which makes this a canonical named as a value
+            // ([cmp-canonical] `cmp = cmp@Person`). The two are told apart by
+            // what the checker recorded: a resolved `fn_refs` entry means it
+            // resolved a **function**, so this renders like any named fn passed
+            // by value, selector erased, exactly as `Expr::Scoped` does.
             Expr::EffectScoped { name, .. } => {
-                self.error(format!(
-                    "internal error: `{}@Effect` reached the Rust emitter as a \
-                     value (the checker refuses member values)",
-                    name.name
-                ));
-                "todo!()".to_string()
+                match self
+                    .checked
+                    .fn_refs
+                    .get(&(self.file_idx, name.span))
+                    .copied()
+                    .and_then(|k| self.fn_by_key(k))
+                {
+                    Some(decl) => self.rust_fn_name(decl),
+                    None => {
+                        self.error(format!(
+                            "internal error: `{}@Effect` reached the Rust emitter as a \
+                             value (the checker refuses member values)",
+                            name.name
+                        ));
+                        "todo!()".to_string()
+                    }
+                }
             }
             Expr::Call {
                 callee,

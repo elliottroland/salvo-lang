@@ -445,6 +445,20 @@ pub struct FnDecl {
     /// reserved word.
     pub is_send: bool,
     pub name: Ident,
+    /// [cmp-canonical] `fn cmp@Person(a: Person, b: Person) -> Int`: the
+    /// **canonical** implementation of a capability for a type, `@`-scoped to
+    /// it (user decision 2026-09-21). An ordinary top-level overload with two
+    /// extra properties — it *travels with the type* (importing `Person`
+    /// imports it, so the canonical is in scope wherever the type is usable)
+    /// and it is the **default selection** for an implicit parameter of the
+    /// same name and shape [implicit-resolve]. Declared in the type's own
+    /// file, with an `export` matching the type's.
+    ///
+    /// The same `@` the language already uses to select a scope
+    /// ([fn-overload-at]'s `size@core.list`, [effect-at]'s `close@Fs`),
+    /// extended from modules and effects to types — on both sides, since
+    /// `cmp = cmp@Person` is how a call names one explicitly.
+    pub scoped_to: Option<Ident>,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,

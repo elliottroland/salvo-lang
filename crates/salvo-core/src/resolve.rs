@@ -624,6 +624,76 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
+    // [cmp-canonical] An `@`-scoped fn is the **canonical** implementation of
+    // a capability for a type, and two rules keep that claim honest — both
+    // checked here, where the declaring module's own items are at hand:
+    //
+    // * it lives in the type's **own file**, which is what makes "importing
+    //   the type imports its canonicals" a rule a reader can apply without
+    //   searching the program (and what stops a third module from minting a
+    //   canonical for someone else's type);
+    // * its `export` **matches the type's** (user decision 2026-09-21) — no
+    //   inheritance, so [mod-export]'s "the public surface is exactly what the
+    //   module writes down" stays literally true where auto-import would
+    //   otherwise blur it.
+    {
+        let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
+        sorted_modules.sort_by_key(|m| m.to_string());
+        for module in sorted_modules {
+            let items = &by_module[*module];
+            for (key, f) in &items.fns {
+                let Some(target) = &f.scoped_to else { continue };
+                // A type of this module: a struct, or an `intrinsic type`
+                // (std's own canonicals are scoped to those).
+                let here: Option<bool> = items
+                    .structs
+                    .iter()
+                    .find(|(_, s)| s.name.name == target.name)
+                    .map(|(_, s)| s.exported)
+                    .or_else(|| {
+                        items
+                            .opaque_types
+                            .iter()
+                            .find(|(_, t)| t.name.name == target.name)
+                            .map(|(_, t)| t.exported)
+                    });
+                let Some(type_exported) = here else {
+                    errors.push(FileDiagnostic::error(
+                        key.file,
+                        target.span,
+                        format!(
+                            "`{}` is not a type declared in this file, so `{}@{}` cannot be its \
+                             canonical implementation: an `@`-scoped fn travels with its \
+                             type, which only works where the two are declared together \
+                             [cmp-canonical]",
+                            target.name, f.name.name, target.name
+                        ),
+                    ));
+                    continue;
+                };
+                if type_exported != f.exported {
+                    let (has, lacks) = if type_exported {
+                        ("the type is `export`ed", "this fn is not")
+                    } else {
+                        ("this fn is `export`ed", "the type is not")
+                    };
+                    errors.push(FileDiagnostic::error(
+                        key.file,
+                        f.name.span,
+                        format!(
+                            "`{}@{}` and `{}` must agree on `export`: {has}, but {lacks}. An \
+                             `@`-scoped fn is imported with its type, so a mismatch would \
+                             either hide the canonical from every module that can use the \
+                             type, or export a name the type cannot reach [cmp-canonical] \
+                             [mod-export]",
+                            f.name.name, target.name, target.name
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
     // Pass 2: build one scope per file.
     let mut scopes = Vec::with_capacity(program.files.len());
     for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
@@ -948,11 +1018,27 @@ fn add_items<'p>(
     // between a rule and a mystery.
     let visible = |exported: bool| level == Level::Own || exported;
     for (key, f) in &items.fns {
-        if want(&f.name.name) {
+        // [cmp-canonical] An `@`-scoped fn **travels with its type**: an import
+        // that names `Person` brings every `fn …@Person` of that file along, so
+        // the canonical is in scope wherever the type is usable. Without it
+        // [implicit-resolve]'s per-call-site locality would be a hazard — a
+        // module importing `Person` but not its file's `cmp` could resolve
+        // `?cmp` to some *other* visible `cmp(Person, Person)`, or to nothing.
+        // The fn keeps its own name: an `as` alias renames the type it was
+        // written on, and there is no sensible partial rename of a capability.
+        let via_type = f
+            .scoped_to
+            .as_ref()
+            .is_some_and(|t| !want(&f.name.name) && want(&t.name));
+        if want(&f.name.name) || via_type {
             if !visible(f.exported) {
                 continue;
             }
-            let name = visible_as(&f.name.name);
+            let name = if via_type {
+                f.name.name.as_str()
+            } else {
+                visible_as(&f.name.name)
+            };
             scope
                 .fns
                 .entry(name)

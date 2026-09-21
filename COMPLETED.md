@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1251 tests, complete: the toolchain tests are
+cargo test                  # 1261 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,54 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Ordering round, step 3a — `@`-scoped canonical implementations (2026-09-21,
+night).** `fn cmp@Person(a: Person, b: Person) -> Int` [cmp-canonical]: the
+canonical implementation of a capability for a type, declared in the type's own
+file. Landed before the operator switch deliberately (the user picked option B):
+it is the round's largest piece of *new syntax*, and getting it in while
+everything still compiles means the operator change is a pure behaviour change
+plus a sweep, not three things at once.
+
+- **No new grammar on the reference side.** `cmp@Person(a, b)` already parsed as
+  [effect-at]'s capitalized selector; which of the two it is, is decided by what
+  the name *declares* — effects and types share the capitalized namespace
+  [name-casing] and one name cannot be both in scope. So the family gained a
+  third sibling rather than a competitor, and the only parser change is the
+  **declaration** side (`fn name@Type`, capitalized-only with its own error).
+  Value position works because this selector follows the *module* precedent
+  ([fn-overload-at] is "also valid as a value"), which is what
+  `cmp = cmp@Person` needs [implicit-override]; both emitters now render an
+  `EffectScoped` value as the resolved fn when the checker recorded one.
+- **Travels with the type**: `add_items` wants a fn either by its own name or by
+  the name of the type it is `@`-scoped to, so `import people.Person` brings
+  `cmp@Person` along at the import's rung. That is what closes
+  [implicit-resolve]'s per-call-site visibility hole, and it is why the two
+  guard rules exist — declared in the **type's own file**, and `export`
+  **matching the type's** (decision 10, no inheritance), both checked in
+  `resolve` where the module's own items are at hand.
+- **Decision 9, the interesting half.** A canonical among the *fitting*
+  candidates is never decided by scope rank: one fitting candidate is the
+  answer, two is an error naming both selector spellings (`cmp@Person`,
+  `cmp@main`). Implemented in the two places that rank candidates —
+  `select_overload` for calls and `resolve_implicit_fn` for implicits, the
+  latter previously resolving by rung and so diverging from the explicit path.
+  This is the single carve-out of [fn-overload-scope]'s Own-beats-Import
+  silence; the wider "no silent scope winners" item stays untouched.
+- **A duplicate is still a duplicate**: `cmp@Person(Person, Person)` beside
+  `cmp(Person, Person)` in one module is the ordinary
+  [fn-overload-duplicate] error, which is exactly what should catch a
+  hand-written implementation colliding with a `default`-generated one in step
+  3b. Found by the e2e test trying to write both in one file.
+- **Tests**: 9 more in `compare_tests.rs` (the canonical as an ordinary
+  overload; both selector spellings; imported with the type; the same-file
+  refusal; export mismatch both ways plus the matching case; ambiguity on every
+  rung, explicit *and* implicit; the selector as the remedy; an unrelated
+  overload staying unambiguous; the lowercase-after-`@` parse error) and one
+  two-module e2e program on both backends. Every parser AST snapshot moved by
+  one field (`scoped_to`).
+- **Not yet**: `default` obligations (3b), which generate `@`-scoped canonicals
+  and are what make this worth having for `Point`-shaped structs.
 
 **Ordering round, step 1 — the three capability groups exist (2026-09-21,
 night).** The first installment of ORDERING.md's build plan, and it is
@@ -13757,7 +13805,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1251)
+## Test inventory (all green: 1261)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13765,14 +13813,18 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 698 - 10 comparison-capability tests (`tests/compare_tests.rs`
+- `salvo-core`: 707 - 19 comparison-capability tests (`tests/compare_tests.rs`
   [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
   resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
   filled by resolution, two spreads composing in one signature, the capability
   forwarding into a fn that declares `?cmp` individually, a struct joining by
   declaring the fn, `: Ordered<self>`/`: Eq<self>` checked at the struct, and
   the three refusals — a generic that asks for nothing, `cmp` at `Double`,
-  `cmp` at a struct that declares none) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
+  `cmp` at a struct that declares none) — plus the nine [cmp-canonical] ones
+  (the `@`-scoped canonical as an ordinary overload, both selector spellings,
+  imported with its type, the same-file and export-match refusals, ambiguity on
+  every rung explicit *and* implicit, the selector as the remedy, an unrelated
+  overload staying unambiguous, and the lowercase-after-`@` parse error) + 21 shareable/monitor/with-clause tests (`tests/monitor_tests.rs`
   [use-local] [effect-local] [monitor-handler]: the monitor-spawn six plus the
   2026-09-20 ten — classification both ways, the call-site rule both ways, the
   opt-out named, `local`-dep pinning, the fusion-pinning dep blockers, the
@@ -14455,7 +14507,7 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 (131 registered cases, the newest being
+- `salvo-backend-kotlin`: 113 (132 registered cases, the newest being
   `compare-groups` [cmp-groups], whose source and expected stdout are verbatim
   the Rust backend's — the 2026-09-20 `narrow-mut-arm`
   case asserts the *same* expected string as the Rust backend's, which is what
@@ -14661,7 +14713,8 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 228 - including the two [cmp-groups] tests (the
+- `salvo-backend-rust`: 229 - including the two [cmp-groups] tests and the
+  two-module [cmp-canonical] one (the
   comparison groups compiled and run to the stdout the Kotlin backend prints,
   and the host lowerings read off the generated source: `Ord::cmp(&a, &b) as
   i32`, `str` comparison for `Str`, `DefaultHasher` for `hash`, and the

@@ -1262,19 +1262,38 @@ let yes = eq(1.5, 1.5)          // true
 there is no total order to promise — the same reason a sorted collection of
 them is refused.
 
-A type of your own joins in by declaring the function:
+A type of your own joins in by declaring the function — and the *canonical* one
+for a type is written `@`-scoped to it, in the type's own file:
 
 ```
 struct Person { name: Str, age: Int }
 
-fn cmp(a: Person, b: Person) -> Int {
+fn cmp@Person(a: Person, b: Person) -> Int {
     return cmp(a.age, b.age)
 }
 ```
 
-and can promise it at the declaration, `struct Person : Ordered<self>`, which
-checks there that a matching `cmp` exists rather than failing at some distant
-use.
+`cmp@Person` is an ordinary function: `cmp(p, q)` and `p.cmp(q)` both reach it.
+The `@` adds two things. It **travels with the type** — a module that imports
+`Person` gets its canonical too, so "orderable" arrives with the type instead of
+depending on which of its file's names you happened to import — and it is what
+an implicit `?cmp` resolves to by default. `export` on it is explicit and must
+match the type's: a public type with a private canonical is a compile error, not
+a silent hole.
+
+Because a canonical is *the* implementation for its type, an ambiguity around
+one is never settled by scope. If another `cmp` also fits, the call says which
+it means, with the same selector the declaration was written with:
+
+```
+let by_age = cmp@Person(ada, bob)      // the canonical
+let by_name = cmp@main(ada, bob)       // this module's own
+let younger = min_of(ada, bob, cmp = cmp@Person)
+```
+
+A type can also promise the capability at its declaration,
+`struct Person : Ordered<self>`, which checks there that a matching `cmp`
+exists rather than failing at some distant use.
 
 A *generic* function has to ask, because nothing about an opaque `T` is
 knowable:

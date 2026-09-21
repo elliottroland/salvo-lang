@@ -5176,6 +5176,74 @@ fn rustc_compiles_and_runs_the_comparison_groups() {
     run_rust_files(&files, "compare_groups", CMP_OUTPUT);
 }
 
+/// [cmp-canonical] The **canonical** implementation of a capability for a type,
+/// `@`-scoped to it: declared in the type's file, imported with the type, the
+/// default selection for an implicit of the same shape, and named by the same
+/// selector at a call or as a value. Two modules, because "travels with the
+/// type" is the property that needs a second one.
+///
+/// Source and expected stdout are **verbatim** the Kotlin backend's
+/// `kotlinc_compiles_and_runs_a_canonical_implementation`.
+pub const CANONICAL_PEOPLE: &str = r#"
+export struct Person {
+    name: Str,
+    age: Int
+}
+
+// The canonical ordering for `Person`: an ordinary overload that travels with
+// the type, exported to match it.
+export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+"#;
+
+pub const CANONICAL_MAIN: &str = r#"
+// Only the *type* is imported; its canonical rides along [cmp-canonical].
+import people.Person
+
+// An ordinary overload of the same shape, in *this* module — the `Own` rung,
+// which today's ladder would let win silently. It cannot: an ambiguity around a
+// canonical is always an error [cmp-canonical], so every call below selects.
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let ada = Person { name: "ada", age: 36 }
+    let bob = Person { name: "bob", age: 5 }
+    // Both spellings of the selector: at a call, and as a value filling an
+    // implicit parameter [implicit-override].
+    println("by age ${cmp@Person(ada, bob)}")
+    println("by name ${cmp@main(ada, bob)}")
+    let younger = min_of(ada, bob, cmp = cmp@Person)
+    println("younger ${younger.name}")
+}
+"#;
+
+pub const CANONICAL_OUTPUT: &str = "by age 1\nby name -1\nyounger bob\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_canonical_implementation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[
+        ("people.sv", CANONICAL_PEOPLE),
+        ("main.sv", CANONICAL_MAIN),
+    ]);
+    run_rust_files(&files, "canonical_impl", CANONICAL_OUTPUT);
+}
+
 /// [rs-fn-field] A **composed pass, hand-written**: it stores both its source
 /// and its callback. Storing a function in a struct field used to be a Rust
 /// codegen error while Kotlin accepted it (a live backend divergence, recorded
