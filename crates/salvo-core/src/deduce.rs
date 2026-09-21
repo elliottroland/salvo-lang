@@ -1081,7 +1081,7 @@ impl<'p> Walk<'_, 'p> {
                 LambdaBody::Expr(e) => self.cond_expr(e),
                 LambdaBody::Block(b) => self.cond_block(b),
             },
-            // [qual-widen] The check reads its subject.
+            // [qual-lift] The check reads its subject.
             Expr::Widen { subject, .. } => self.expr(subject),
             // [try] The delimiter's body is ordinary code: the calls in it
             // contribute to the enclosing fn's inferred contract. A throw

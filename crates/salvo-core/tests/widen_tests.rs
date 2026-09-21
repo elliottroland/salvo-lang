@@ -1,11 +1,11 @@
-//! The widening check `^` [qual-widen].
+//! The widening check `^` [qual-lift].
 //!
 //! `^` is the dual of `is`: where a successful `is` narrows the subject (a
 //! qualifier added, a union arm picked), a successful `^` **generalizes** it
 //! by removing the listed qualifiers. Boolean-valued, same places, same
 //! runtime test — only the type in the branch differs. Its reason to exist
 //! is the qualified union: `Ok (Ok Int | Err Str)` is a claim *about* a
-//! union, and `^ Ok` is what lets a branch `when` the union inside it.
+//! union, and `is ^Ok` is what lets a branch `when` the union inside it.
 
 use std::path::Path;
 
@@ -83,7 +83,7 @@ fn err(value: Str) [] -> Str as Err => !value {
 }
 "#;
 
-/// [qual-widen] The motivating case: a `^` branch head tests the arm *and*
+/// [qual-lift] The motivating case: a `^` branch head tests the arm *and*
 /// removes the claim, so the branch can `when` the union inside it — no
 /// intermediate binding and no repeated type.
 #[test]
@@ -94,7 +94,7 @@ fn a_widening_branch_opens_a_nested_union() {
          fn probe() [] -> None {{\n\
          let o = outcome()\n\
          when o {{\n\
-         ^ Ok {{\n\
+         is ^Ok {{\n\
          when o {{\n\
          is Ok {{ note(\"value\") }}\n\
          is Err {{ note(\"inner error\") }}\n\
@@ -107,7 +107,7 @@ fn a_widening_branch_opens_a_nested_union() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [qual-widen] In an `if`, the same check on a plain qualified value: the
+/// [qual-lift] In an `if`, the same check on a plain qualified value: the
 /// qualifier is statically present, so it cannot fail — and the subject
 /// reads without it inside the branch, which is what picks the *unqualified*
 /// overload.
@@ -116,7 +116,7 @@ fn widening_strips_a_qualifier_in_an_if() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn probe(p: Mut Person) [] -> None => p: Mut {{\n\
-         if p ^ Mut {{\n\
+         if p is ^Mut {{\n\
          read(p)\n\
          }}\n\
          }}\n"
@@ -124,14 +124,14 @@ fn widening_strips_a_qualifier_in_an_if() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [qual-widen] And the point of it: after widening, the value no longer
+/// [qual-lift] And the point of it: after widening, the value no longer
 /// satisfies what the qualifier granted.
 #[test]
 fn a_widened_value_loses_what_the_qualifier_granted() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn probe(p: Mut Person) [] -> None => p: Mut {{\n\
-         if p ^ Mut {{\n\
+         if p is ^Mut {{\n\
          touch(p)\n\
          }}\n\
          }}\n"
@@ -144,7 +144,7 @@ fn a_widened_value_loses_what_the_qualifier_granted() {
 
 // ===== the exclusion list =====
 
-/// [qual-widen] The capability qualifiers that may never be dropped, read
+/// [qual-lift] The capability qualifiers that may never be dropped, read
 /// from the *same* list `Qual T <: T` uses (user decision 2026-09-05), so
 /// the two cannot drift.
 #[test]
@@ -156,7 +156,7 @@ fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
         let errs = errors(&format!(
             "{PRELUDE}\n\
              fn probe(p: Person) [] -> None => p {{\n\
-             if p ^ {qual} {{\n\
+             if p is ^{qual} {{\n\
              read(p)\n\
              }}\n\
              }}\n"
@@ -172,14 +172,14 @@ fn intrinsic_capability_qualifiers_cannot_be_widened_away() {
 
 // ===== the error cases =====
 
-/// [qual-widen] Nothing to remove is an error, not a silently-false test
+/// [qual-lift] Nothing to remove is an error, not a silently-false test
 /// (user decision 2026-09-05).
 #[test]
 fn widening_a_qualifier_the_value_lacks_is_rejected() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
          fn probe(p: Person) [] -> None => p {{\n\
-         if p ^ Surname {{\n\
+         if p is ^Surname {{\n\
          read(p)\n\
          }}\n\
          }}\n"
@@ -191,28 +191,28 @@ fn widening_a_qualifier_the_value_lacks_is_rejected() {
     );
 }
 
-/// [qual-widen] `^` removes qualifiers; a *type* on the right is an `is`
-/// question.
+/// [qual-lift] `^` removes qualifiers; a *type* on the right is an `is`
+/// [qual-lift] A check **mixes** lifted and kept terms — `is ^Ok Int` marks
+/// the qualifier but not the base type — and that is refused at the parse, not
+/// the check: some terms marked and some not is a syntactic property, and the
+/// parser cannot tell a qualifier from a type name (both are uppercase). The
+/// old spelling `^ Ok Int` was refused too, by the checker's qualifiers-only
+/// rule, so nothing expressible has been lost. Lifting a qualifier *while*
+/// naming the arm's base type stays unexpressible for now.
 #[test]
-fn a_type_on_the_right_of_widening_is_rejected() {
-    let errs = errors(&format!(
-        "{PRELUDE}\n\
-         fn outcome() [] -> Ok Int | Err Str {{ return err(\"e\") }}\n\
-         fn probe() [] -> None {{\n\
-         let o = outcome()\n\
-         if o ^ Ok Int {{\n\
-         note(\"ok\")\n\
-         }}\n\
-         }}\n"
-    ));
+fn a_check_mixing_lifted_and_kept_terms_is_rejected() {
+    let src = "fn probe(o: Ok Int | Err Str) {\n    if o is ^Ok Int {\n        note(o)\n    }\n}\n";
+    let (_ast, diagnostics) = salvo_syntax::parse_module(src);
     assert!(
-        errs.iter()
-            .any(|e| e.contains("qualifier names only")),
-        "expected the qualifiers-only error, got: {errs:?}"
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("lifts every qualifier or none")),
+        "expected the mixed-check error, got {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
 
-/// [qual-widen] One widened view cannot stand for two arms: each would peel
+/// [qual-lift] One widened view cannot stand for two arms: each would peel
 /// a different wrapper position.
 #[test]
 fn widening_more_than_one_arm_is_rejected() {
@@ -221,7 +221,7 @@ fn widening_more_than_one_arm_is_rejected() {
          fn pair() [] -> Ok Int | Ok Str {{ return ok(1) }}\n\
          fn probe() [] -> None {{\n\
          let o = pair()\n\
-         if o ^ Ok {{\n\
+         if o is ^Ok {{\n\
          note(\"ok\")\n\
          }}\n\
          }}\n"
@@ -233,29 +233,65 @@ fn widening_more_than_one_arm_is_rejected() {
     );
 }
 
-/// [qual-widen] No binding form: the subject itself reads widened, so a
-/// second spelling would be redundant (user decision 2026-09-05).
+/// [qual-lift] A lift **takes a binding** (user decision 2026-09-21,
+/// superseding the 2026-09-05 no-binding rule): `is ^Mut plain` names the
+/// lifted value. That is what makes a multi-arm lift possible — the lifted
+/// value is materialized once, into the binding — so the test asserts both
+/// halves: the single-arm binding checks clean, and a *two*-arm lift is
+/// accepted with a binding and refused without one, naming it.
 #[test]
-fn a_widening_check_takes_no_binding() {
-    let mut sources = SourceSet::default();
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        "fn f(p: Mut Person) {\n    if p ^ Mut plain {\n        read(plain)\n    }\n}\n"
-            .to_string(),
-        false,
-    );
-    let (_ast, diagnostics) = salvo_syntax::parse_module(&sources.files[0].content);
+fn a_lift_takes_a_binding_and_a_multi_arm_lift_needs_one() {
+    let single = errors(&format!(
+        "{PRELUDE}\n\
+         fn probe(p: Mut Person) [] -> None => p: Mut {{\n\
+         if p is ^Mut plain {{\n\
+         read(plain)\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(single.is_empty(), "expected a clean lift binding, got: {single:?}");
+
+    // Two `Ok` arms: the lifted value is `Int | Str`, which needs a name.
+    let bound = errors(&format!(
+        "{PRELUDE}\n\
+         fn outcome() [] -> Ok Int | Ok Str | Err Str {{ return err(\"e\") }}\n\
+         fn probe() [] -> None {{\n\
+         let o = outcome()\n\
+         if o is ^Ok value {{\n\
+         note(\"lifted\")\n\
+         }}\n\
+         }}\n"
+    ));
+    // The checker side of a multi-arm lift is built (the arms lift, nothing
+    // narrows, the binding takes their union); the *emission* is not — a value
+    // spanning fewer arms than its storage needs the arm-mapping re-wrap
+    // [let-infer] — so it is refused by name rather than emitted wrong.
     assert!(
-        diagnostics
+        bound
             .iter()
-            .any(|d| d.is_error() && d.message.contains("`^` takes no binding")),
-        "expected the no-binding error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+            .any(|e| e.contains("not emitted yet") && e.contains("2 arms")),
+        "expected the multi-arm deferral, got: {bound:?}"
+    );
+
+    let unbound = errors(&format!(
+        "{PRELUDE}\n\
+         fn outcome() [] -> Ok Int | Ok Str | Err Str {{ return err(\"e\") }}\n\
+         fn probe() [] -> None {{\n\
+         let o = outcome()\n\
+         if o is ^Ok {{\n\
+         note(\"lifted\")\n\
+         }}\n\
+         }}\n"
+    ));
+    assert!(
+        unbound
+            .iter()
+            .any(|e| e.contains("matches more than one arm") && e.contains("bind the")),
+        "expected the multi-arm refusal naming the binding, got: {unbound:?}"
     );
 }
 
-/// [qual-widen] A `^` branch consumes the arms it matched, exactly as `is`
+/// [qual-lift] A `^` branch consumes the arms it matched, exactly as `is`
 /// does, so exhaustiveness needs no new rule.
 #[test]
 fn a_widening_branch_consumes_its_arms() {
@@ -265,7 +301,7 @@ fn a_widening_branch_consumes_its_arms() {
          fn probe() [] -> None {{\n\
          let o = outcome()\n\
          when o {{\n\
-         ^ Ok {{ note(\"ok\") }}\n\
+         is ^Ok {{ note(\"ok\") }}\n\
          }}\n\
          }}\n"
     ));

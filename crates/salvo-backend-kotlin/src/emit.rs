@@ -388,11 +388,20 @@ fn kotlin_package(module: &ModulePath) -> String {
     out
 }
 
-/// [qual-widen] Visits every `^` check a condition applies, through `&&`
+/// [qual-lift] Visits every `^` check a condition applies, through `&&`
 /// chains as well.
 fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
     match cond {
-        Expr::Widen { subject, span, .. } => f(subject, *span),
+        // [qual-lift] A lift **with a binding** materializes the value into
+        // that name instead, so there is no shadow to make: the binding is
+        // emitted by the `is`-binding path, and a multi-arm lift narrows
+        // nothing to shadow anyway.
+        Expr::Widen {
+            subject,
+            binding: None,
+            span,
+            ..
+        } => f(subject, *span),
         Expr::Binary {
             op: BinaryOp::And,
             lhs,
@@ -4864,7 +4873,7 @@ impl<'p> Emitter<'p> {
                 };
                 out.push_str(&bind);
             }
-            // [qual-widen] A `^` branch head peels the arm it matched.
+            // [qual-lift] A `^` branch head peels the arm it matched.
             if branch.widen {
                 if let Some(target) = self
                     .checked
@@ -4942,7 +4951,7 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [qual-widen] Materializes the peel a `^` check performs: the widened
+    /// [qual-lift] Materializes the peel a `^` check performs: the widened
     /// value is bound to a **shadowing** local for the branch, so reads of
     /// the subject — and any nested `when` on it — see it at the widened
     /// type. (Kotlin warns about the shadowing; the alternative, a fresh
@@ -5017,15 +5026,28 @@ impl<'p> Emitter<'p> {
 
     fn emit_is_bindings(&mut self, cond: &Expr, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let mut collected: Vec<(&Expr, &[TypeRef], &Ident, Span)> = Vec::new();
-        collect_is_bindings(cond, &mut |subject, check, binding, is_span| {
-            collected.push((subject, check, binding, is_span));
+        let mut collected: Vec<(&Expr, &[TypeRef], &Ident, Span, bool)> = Vec::new();
+        collect_is_bindings(cond, &mut |subject, check, binding, is_span, lift| {
+            collected.push((subject, check, binding, is_span, lift));
         });
         let mut out = String::new();
-        for (subject, check, binding, is_span) in collected {
+        for (subject, check, binding, is_span, lift) in collected {
             // The binding reads the payload out of the storage: a narrowed
             // subject place must not unwrap twice [flow-place].
             let subj = self.emit_place_storage(subject);
+            // [qual-lift] A lift whose check peels **no wrapper** (`is ^Mut
+            // plain`) binds the subject itself: qualifiers are erased, so the
+            // lifted value *is* the value, and any `Mut`-drop conversion is the
+            // coercion table's business [str-drop-mut]. Without this the
+            // `is`-binding path built a cast to the check's terms — `list as
+            // Mut`, which names no Kotlin type.
+            if lift && self.is_test_of(is_span).is_none() {
+                out.push_str(&format!(
+                    "{pad}val {} = {subj}\n",
+                    kt_ident(&binding.name)
+                ));
+                continue;
+            }
             let code = match self.is_test_of(is_span).cloned() {
                 Some(test) if test.size >= 2 => {
                     let kt = self
@@ -5709,7 +5731,7 @@ impl<'p> Emitter<'p> {
                 }
                 format!("{l} {} {r}", binary_op(*op))
             }
-            // [qual-widen] The dual of `is`: the *same* runtime test (the
+            // [qual-lift] The dual of `is`: the *same* runtime test (the
             // qualifier is erased, so widening is a typing act), or `true`
             // when the qualifiers are statically present and nothing has to
             // be tested.
@@ -8708,7 +8730,7 @@ fn is_place_expr(expr: &Expr) -> bool {
 
 fn collect_is_bindings<'a>(
     cond: &'a Expr,
-    f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span),
+    f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span, bool),
 ) {
     match cond {
         Expr::Is {
@@ -8716,7 +8738,17 @@ fn collect_is_bindings<'a>(
             check,
             binding: Some(b),
             span,
-        } => f(subject, check, b, *span),
+        } => f(subject, check, b, *span, false),
+        // [qual-lift] `is ^Ok inner` binds too, at the *lifted* type. The
+        // binding's own recorded type is what the read is built against, so
+        // the same emission serves both — which is why the widen shadow is
+        // only needed when there is no binding [rs-widen-shadow].
+        Expr::Widen {
+            subject,
+            quals,
+            binding: Some(b),
+            span,
+        } => f(subject, quals, b, *span, true),
         Expr::Binary {
             op: BinaryOp::And,
             lhs,

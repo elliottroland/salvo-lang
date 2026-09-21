@@ -151,7 +151,7 @@ fn main() [use] {
 
     // `^` is the dual of `is`: it reads the subject with the claim *removed*,
     // which is how the less specific overload is reached deliberately.
-    if warm ^ Celsius {
+    if warm is ^Celsius {
         println("2. widened: ${describe(warm)}")
     }
 

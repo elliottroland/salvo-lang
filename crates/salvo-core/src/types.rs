@@ -474,7 +474,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // a `once` one is wanted (the `Iter<T>` factory this was built
         // for went with the reduction to `next`), since promising to use
         // something at most once demands less than being able to use it
-        // repeatedly. Never the reverse — `once` never drops [qual-widen].
+        // repeatedly. Never the reverse — `once` never drops [qual-lift].
         //
         // Deliberately unconditional on the base, unlike the *position*
         // rule: whether `once` may be **written** on a type needs the
@@ -491,7 +491,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             is_subtype(a, base)
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
-        // ([qual-widen]'s single exclusion list: `once`, `Linear`,
+        // ([qual-lift]'s single exclusion list: `once`, `Linear`,
         // `proj`). [copy-scalar-free] `proj` on a Copy scalar is the one
         // exception: a borrowed `Int` is the number itself on both
         // backends, so `proj Int <: Int`.
@@ -652,7 +652,7 @@ pub fn contract_fits(
     })
 }
 
-/// [qual-widen]. The single exclusion list: `is_subtype`'s `Qual T <: T`
+/// [qual-lift]. The single exclusion list: `is_subtype`'s `Qual T <: T`
 /// rule and the `^` widening check both read it, so the two cannot drift as
 /// intrinsic qualifiers are added (user decision 2026-09-05).
 ///

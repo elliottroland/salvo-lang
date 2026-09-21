@@ -8192,7 +8192,7 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} {} {{\n", cond_code(c)));
             out.push_str(&self.emit_is_bindings(cond, indent + 1));
-            // [qual-widen] A `^` condition peels a wrapper for the branch.
+            // [qual-lift] A `^` condition peels a wrapper for the branch.
             let (shadows, saved) = self.emit_widen_shadows(cond, indent + 1);
             out.push_str(&shadows);
             out.push_str(&self.emit_block_stmts(block, indent + 1, ctx));
@@ -8240,12 +8240,26 @@ impl<'p> Emitter<'p> {
 
     fn emit_is_bindings(&mut self, cond: &Expr, indent: usize) -> String {
         let pad = "    ".repeat(indent);
-        let mut collected: Vec<(&Expr, &[TypeRef], &Ident, Span)> = Vec::new();
-        collect_is_bindings(cond, &mut |subject, check, binding, is_span| {
-            collected.push((subject, check, binding, is_span));
+        let mut collected: Vec<(&Expr, &[TypeRef], &Ident, Span, bool)> = Vec::new();
+        collect_is_bindings(cond, &mut |subject, check, binding, is_span, lift| {
+            collected.push((subject, check, binding, is_span, lift));
         });
         let mut out = String::new();
-        for (subject, _check, binding, is_span) in collected {
+        for (subject, _check, binding, is_span, lift) in collected {
+            // [qual-lift] A lift whose check peels **no wrapper** (`is ^Mut
+            // plain`) binds the subject itself: qualifiers are erased, so the
+            // lifted value *is* the value. Without this the narrowed-read path
+            // assumed an `Option` in front of it and emitted
+            // `list.as_ref().unwrap().clone()` for a plain `&mut Vec`.
+            if lift && self.is_test_of(is_span).is_none() {
+                let code = self.emit_place(subject);
+                out.push_str(&format!(
+                    "{pad}let {} = {code};\n",
+                    rs_ident(&binding.name)
+                ));
+                self.bindings.insert(binding.name.clone(), BindKind::Ref);
+                continue;
+            }
             self.bindings.insert(binding.name.clone(), BindKind::Owned);
             let code = if self
                 .checked
@@ -8296,7 +8310,7 @@ impl<'p> Emitter<'p> {
         out
     }
 
-    /// [qual-widen] Materializes the peel a `^` check performs: the widened
+    /// [qual-lift] Materializes the peel a `^` check performs: the widened
     /// value is bound to a **shadowing** local for the branch, so reads of
     /// the subject — and any nested `when` on it — see it at the widened
     /// type. Returns the emitted lines and the binding kinds to restore when
@@ -8363,7 +8377,7 @@ impl<'p> Emitter<'p> {
         (out, saved)
     }
 
-    /// Restores binding kinds displaced by a `^` shadow [qual-widen].
+    /// Restores binding kinds displaced by a `^` shadow [qual-lift].
     fn restore_bindings(&mut self, saved: Vec<(String, Option<BindKind>)>) {
         for (name, kind) in saved.into_iter().rev() {
             match kind {
@@ -9482,7 +9496,7 @@ impl<'p> Emitter<'p> {
                 span,
                 ..
             } => self.emit_is_check(subject, check, *span),
-            // [qual-widen] The same runtime test as `is`, or `true` when the
+            // [qual-lift] The same runtime test as `is`, or `true` when the
             // qualifiers are statically present: qualifiers are erased, so
             // widening is a typing act, not a run-time one.
             Expr::Widen { subject, span, .. } => match self.is_test_of(*span).cloned() {
@@ -10537,7 +10551,7 @@ impl<'p> Emitter<'p> {
             let c = self.emit_expr(cond);
             out.push_str(&format!("{kw} {} {{\n", cond_code(c)));
             out.push_str(&self.emit_is_bindings(cond, indent + 1));
-            // [qual-widen]
+            // [qual-lift]
             let (shadows, saved) = self.emit_widen_shadows(cond, indent + 1);
             out.push_str(&shadows);
             out.push_str(&self.emit_value_block(block, indent + 1));
@@ -10681,7 +10695,7 @@ impl<'p> Emitter<'p> {
                     rs_ident(&b.name)
                 ));
             }
-            // [qual-widen] A `^` branch head peels the arm it matched: bind
+            // [qual-lift] A `^` branch head peels the arm it matched: bind
             // the widened value to a shadowing local so the body — and any
             // nested `when` on the subject — sees it at the widened type.
             let mut saved_widen: Vec<(String, Option<BindKind>)> = Vec::new();
@@ -14080,7 +14094,7 @@ fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
         // [actor-self-send] A leaf.
         Expr::SelfScoped { .. } => {}
         Expr::WaitFor { body, .. } => collect_mutated(body, out),
-        // [qual-widen] The check reads its subject.
+        // [qual-lift] The check reads its subject.
         Expr::Widen { subject, .. } => collect_mutated_expr(subject, out),
         // Leaves: no sub-expression, so nothing can be mutated inside.
         // Listed rather than defaulted, because a missed form emits an
@@ -14275,7 +14289,7 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
                 }
             }
         }
-        // [qual-widen] No binding of its own — the subject reads widened —
+        // [qual-lift] No binding of its own — the subject reads widened —
         // but the subject expression may declare one.
         Expr::Widen { subject, .. } => collect_declared_expr(subject, out),
         // [try] The delimiter's body is ordinary code and declares its own
@@ -14322,12 +14336,21 @@ fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
-/// [qual-widen] Visits every `^` check a condition applies, including
+/// [qual-lift] Visits every `^` check a condition applies, including
 /// through `&&` chains and a `!`-free `||` (the same shape `is` bindings
 /// walk).
 fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
     match cond {
-        Expr::Widen { subject, span, .. } => f(subject, *span),
+        // [qual-lift] A lift **with a binding** materializes the value into
+        // that name instead, so there is no shadow to make: the binding is
+        // emitted by the `is`-binding path, and a multi-arm lift narrows
+        // nothing to shadow anyway.
+        Expr::Widen {
+            subject,
+            binding: None,
+            span,
+            ..
+        } => f(subject, *span),
         Expr::Binary {
             op: BinaryOp::And,
             lhs,
@@ -14463,7 +14486,7 @@ fn is_place_expr(expr: &Expr) -> bool {
 
 fn collect_is_bindings<'a>(
     cond: &'a Expr,
-    f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span),
+    f: &mut impl FnMut(&'a Expr, &'a [TypeRef], &'a Ident, Span, bool),
 ) {
     match cond {
         Expr::Is {
@@ -14471,7 +14494,17 @@ fn collect_is_bindings<'a>(
             check,
             binding: Some(b),
             span,
-        } => f(subject, check, b, *span),
+        } => f(subject, check, b, *span, false),
+        // [qual-lift] `is ^Ok inner` binds too, at the *lifted* type. The
+        // binding's own recorded type is what the read is built against, so
+        // the same emission serves both — which is why the widen shadow is
+        // only needed when there is no binding [rs-widen-shadow].
+        Expr::Widen {
+            subject,
+            quals,
+            binding: Some(b),
+            span,
+        } => f(subject, quals, b, *span, true),
         Expr::Binary {
             op: BinaryOp::And,
             lhs,

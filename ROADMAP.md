@@ -164,7 +164,9 @@ order, because each one clears the ground for the next:
    case, and `twice(throw("no"))` already compiles today — so this makes
    `return` consistent with `throw` rather than opening a new hole. 40 sites
    across 9 files.
-3. **`^ Q` becomes `is ^Q`.** Widening stops being an operator with its own
+3. **`^ Q` becomes `is ^Q`** — ✅ **done 2026-09-21** ([qual-lift];
+   COMPLETED.md's log, which records the two emissions the binding form needed
+   and the multi-arm emission it leaves open). Widening stops being an operator with its own
    precedence tier and becomes a mark on a qualifier *inside* an `is` check:
    the arm test is the same, and `^` only decides whether the claim survives
    into the narrowed type. `Expr::Widen` merges into `Expr::Is` with a
@@ -176,6 +178,14 @@ order, because each one clears the ground for the next:
    sites, 40 inline in Rust tests, `Expr::Widen` in 9 files. Watch the two-sided
    trap step 1 hit: `^` means one thing in Salvo source and nothing in either
    target.
+   - **Left open by step 3**: the *emission* of a multi-arm lift
+     (`is ^Ok value` where two arms carry `Ok`). The checker accepts it; the
+     emitters refuse it by name, because the bound value spans fewer arms than
+     its storage and so needs the arm-mapping re-wrap [let-infer] rather than a
+     payload read. Both backends already do that re-wrap for an annotated
+     `let`, so this is wiring a recorded coercion at the binding site, not new
+     machinery.
+
 4. **`?:` and `?.` are reserved for `T?`.** `?:` keys on the *presence of a
    `None` arm* rather than the `?` spelling, and picks every non-`None` arm, so
    `Str | Int | None` gives `Str | Int` and `_` is `None` (making `return _` the
@@ -236,7 +246,7 @@ a decision rather than a resting place:
 
 ```
 fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
-    if o ^ Ok {
+    if o is ^Ok {
         add(o, 7)          // Kotlin: mutates the caller's list
     }                      // Rust: reported — `o` is read-only here
 }

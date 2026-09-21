@@ -372,13 +372,19 @@ Conventions:
     range out of a std intrinsic, say — where the Rust splice does not run on
     a panic. Salvo has no `catch`, so side effects during a crash are not part
     of a program's meaning.
-* [qual-widen] [kt-widen-shadow] A `^` check emits the same test `is` would
+* [qual-lift] [kt-widen-shadow] A `^` check emits the same test `is` would
   (or `true` for a tautology). Where it peels a wrapper arm, the widened
   value is bound to a **shadowing `val`** at the top of the branch
   (`val nested = nested.value as Union2<Int, String>`), so reads of the
   subject and any nested `when` see the inner value. Kotlin warns about the
   shadowing; the alternative — a fresh name — would need every read in the
   branch rewritten. The cast cannot fail: the arm test just proved the arm.
+  * **A lift with a binding needs no shadow** (2026-09-21): `is ^Ok value`
+    materializes the lifted value into `value` instead, through the
+    `is`-binding path. A lift of a **qualifier only** binds the subject itself
+    there, since qualifiers are erased — the payload read the wrapper case uses
+    would be wrong for it (on Rust it assumed an `Option`; on Kotlin it built a
+    cast to the qualifier's name).
   * `^` on a projection is a reported codegen error for now, as in Rust.
 * [fn-effects] [kt-fn-effect-params] A fn type's effects are **leading
   parameters** of the Kotlin function type: `(s: Str) [Logger] -> Str`

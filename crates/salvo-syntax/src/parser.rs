@@ -2634,38 +2634,14 @@ impl<'s> Parser<'s> {
             match self.kind() {
                 TokenKind::KwIs if self.same_line() => {
                     self.bump();
-                    let (check, binding) = self.parse_is_check()?;
+                    let (check, binding, lifted) = self.parse_is_check()?;
                     let end = binding
                         .as_ref()
                         .map(|b| b.span)
                         .or_else(|| check.last().map(|r| r.span))
                         .unwrap_or_else(|| lhs.span());
                     let span = lhs.span().to(end);
-                    lhs = Expr::Is {
-                        subject: Box::new(lhs),
-                        check,
-                        binding,
-                        span,
-                    };
-                }
-                // [qual-widen] `expr ^ Qual...`, same precedence tier as `is`.
-                TokenKind::Caret if self.same_line() => {
-                    self.bump();
-                    let (quals, binding) = self.parse_is_check()?;
-                    if let Some(b) = &binding {
-                        self.error(
-                            "`^` takes no binding: the subject itself reads \
-                             without the qualifier in the checked branch",
-                            b.span,
-                        );
-                    }
-                    let end = quals.last().map(|r| r.span).unwrap_or_else(|| lhs.span());
-                    let span = lhs.span().to(end);
-                    lhs = Expr::Widen {
-                        subject: Box::new(lhs),
-                        quals,
-                        span,
-                    };
+                    lhs = self.is_or_widen(lhs, check, binding, lifted, span)?;
                 }
                 TokenKind::Lt | TokenKind::Gt | TokenKind::LtEq | TokenKind::GtEq
                     if self.same_line() =>
@@ -2692,15 +2668,62 @@ impl<'s> Parser<'s> {
         Some(lhs)
     }
 
+    /// [qual-lift] Classifies a parsed `is` check: every term `^`-marked is a
+    /// **widening** check (the qualifiers are tested and removed), none marked
+    /// is an ordinary narrowing `is`, and a mix is refused — the two say
+    /// opposite things about the same check, and no existing form needed it
+    /// (the standalone `^ Q` operator this replaces took qualifiers only).
+    fn is_or_widen(
+        &mut self,
+        subject: Expr,
+        check: Vec<TypeRef>,
+        binding: Option<Ident>,
+        lifted: usize,
+        span: Span,
+    ) -> Option<Expr> {
+        if lifted == 0 {
+            return Some(Expr::Is {
+                subject: Box::new(subject),
+                check,
+                binding,
+                span,
+            });
+        }
+        if lifted != check.len() {
+            self.error(
+                "an `is` check either lifts every qualifier or none: mark them \
+                 all with `^` (`is ^Mut ^NonEmpty`), or split the check",
+                span,
+            );
+        }
+        Some(Expr::Widen {
+            subject: Box::new(subject),
+            quals: check,
+            binding,
+            span,
+        })
+    }
+
     /// The type-ref sequence after `is`, with an optional trailing binding.
     /// Type names are uppercase by convention; a trailing lowercase
     /// identifier is a binding: `is Str s`, `is Err Str`, `is NonEmpty`.
-    fn parse_is_check(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>)> {
+    fn parse_is_check(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>, usize)> {
         let mut refs = Vec::new();
         let mut binding = None;
+        let mut lifted = 0usize;
         loop {
             if !self.same_line() {
                 break;
+            }
+            // [qual-lift] `is ^Ok` — the qualifier is tested *and removed*
+            // (user decision 2026-09-21, superseding the standalone `^ Ok`
+            // operator). The mark is on the qualifier, not on the check, so a
+            // reader learns one rule: `^Q` is "Q, lifted".
+            if matches!(self.kind(), TokenKind::Caret) {
+                self.bump();
+                lifted += 1;
+                refs.push(self.parse_type_ref()?);
+                continue;
             }
             // [obligation-spelling] `is once (A) -> B`, `is proj Str`: the
             // obligation keywords open a type ref like any qualifier.
@@ -2733,7 +2756,7 @@ impl<'s> Parser<'s> {
             self.error(format!("expected type after `is`, found {found}"), span);
             return None;
         }
-        Some((refs, binding))
+        Some((refs, binding, lifted))
     }
 
     fn parse_additive(&mut self) -> Option<Expr> {
@@ -3872,29 +3895,23 @@ impl<'s> Parser<'s> {
                 self.parse_block()?;
                 continue;
             }
-            // [qual-widen] A branch head is `is ...` (narrow) or `^ ...`
-            // (widen): the same arm test, opposite effect on the type.
-            let widen = self.at(&TokenKind::Caret);
-            let head_span = if widen {
-                self.bump().span
-            } else {
-                self.expect(&TokenKind::KwIs)?.span
-            };
-            let (check, binding) = self.parse_is_check()?;
-            if widen {
-                if let Some(b) = &binding {
-                    self.error(
-                        "a `^` branch takes no binding: the subject itself \
-                         reads without the qualifier inside the branch",
-                        b.span,
-                    );
-                }
+            // [qual-lift] A branch head is always `is`; `^` on its qualifiers
+            // is what makes it a widening branch (user decision 2026-09-21).
+            let head_span = self.expect(&TokenKind::KwIs)?.span;
+            let (check, binding, lifted) = self.parse_is_check()?;
+            let widen = lifted > 0;
+            if widen && lifted != check.len() {
+                self.error(
+                    "a branch head either lifts every qualifier or none: mark \
+                     them all with `^`, or split the branch",
+                    head_span,
+                );
             }
             let body = self.parse_block()?;
             let span = head_span.to(body.span);
             branches.push(WhenBranch {
                 check,
-                binding: if widen { None } else { binding },
+                binding,
                 widen,
                 body,
                 span,

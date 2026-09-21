@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1216 tests, complete: the toolchain tests are
+cargo test                  # 1217 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,50 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`^ Q` is now `is ^Q`, and a lift takes a binding (user decisions
+2026-09-21).** Step 3 of the `?` family sequence. Widening stops being an
+operator with its own precedence tier and becomes a **mark on a qualifier
+inside an `is` check**: one rule where there were two, and `^Q` now reads as
+"Q, lifted" wherever a qualifier may be written. `[qual-widen]` was renamed
+`[qual-lift]` with all its references. The old spelling is a plain parse error.
+
+- **All or none**, enforced at the parse: a check mixing marked and unmarked
+  terms is refused, because the parser cannot tell a qualifier from a base type
+  (both are uppercase). The cost is that `is ^Ok Int` — lift the qualifier,
+  *name* the arm's type — is unexpressible for now; nothing was lost, since the
+  old operator refused a base type outright. If it is ever wanted, the fix is
+  per-term lift flags in the AST rather than the all-or-none count.
+- **The binding form** (superseding the no-binding rule of 2026-09-05): `is ^Ok
+  value` names the lifted value. It needed **two** emissions, which is the part
+  worth remembering: a lift that peels a *wrapper arm* reads the payload out of
+  the storage, while a lift of a *qualifier only* binds the value itself, since
+  qualifiers are erased. Reusing the `is`-binding path for both emitted
+  `list.as_ref().unwrap().clone()` for a plain `&mut Vec` on Rust and a cast to
+  `Mut` — a type Kotlin has never heard of — on Kotlin. Both were caught by
+  *running* a four-line program on both backends, not by the suite: no existing
+  test could have, since the form did not exist.
+- **Multi-arm lifts**: the user's reading (`Ok Int | Ok Str` with `^Ok` gives
+  `Int | Str`) is right, and my carried-over refusal was wrong — the old rule is
+  about *re-reading a place*, and a lift that produces a value is a re-wrap the
+  backends already do [let-infer]. The **checker** implements it (the arms lift,
+  nothing narrows, the binding takes their union); the **emission is deferred**
+  and refused by name, because the bound value spans fewer arms than its storage
+  and needs the arm mapping. Without a binding it stays refused for the original
+  reason.
+
+A sweep lesson, paid for twice: **a line-by-line rewrite that reconstructs the
+line must keep the line ending.** Two passes of `re.match` + f-string
+reconstruction silently *merged* each rewritten line with the next one, in the
+corpus, in LANGUAGE.md and in six places across the two codegen test files. The
+tell is `git diff --numstat`: insertions fewer than deletions in a pure rename
+means lines were lost. Worth checking that on every mechanical sweep.
+
+Tests: `a_lift_takes_a_binding_and_a_multi_arm_lift_needs_one` and
+`a_check_mixing_lifted_and_kept_terms_is_rejected` (replacing the two tests
+whose rules changed), plus `rustc_compiles_and_runs_a_lift_binding` and its
+Kotlin registry twin, which assert the same output from both backends for the
+two emissions. 1216 → 1217.
 
 **The escapes are expressions (user decision 2026-09-21).** Step 2 of the `?`
 family sequence: `return`, `break` and `continue` moved from `Stmt` to `Expr`
@@ -6702,9 +6746,9 @@ on both backends [rs-iter-lazy].
 **The widening check `^` landed 2026-09-05 (user design).** The dual of
 `is`: boolean-valued, same places, same runtime test, but a successful check
 reads the subject with the named qualifiers **removed** rather than added —
-`list ^ Mut` without `Mut`, `outcome ^ Ok` without `Ok`. A `when` branch head
+`list is ^Mut` without `Mut`, `outcome is ^Ok` without `Ok`. A `when` branch head
 may be `^ Qual` too, which is the form that motivated it: `Ok (Ok Int | Err
-Str)` is a claim *about* a union, and `when o { ^ Ok { when o { … } } }`
+Str)` is a claim *about* a union, and `when o { is ^Ok { when o { … } } }`
 reaches the inner union with no intermediate binding and no repeated type.
 
 Decisions taken with it (all user, 2026-09-05): nothing to remove is an
@@ -6740,7 +6784,7 @@ binding may be a borrow. Checker-side this needed a physical-view override on
 the variable (`LocalVar::widened`), because `repr_of` reads the variable's
 declared type and a root narrow could not previously change it.
 
-Two cuts, both reported: `^` on a *projection* (`p.result ^ Ok`) needs a
+Two cuts, both reported: `^` on a *projection* (`p.result is ^Ok`) needs a
 plain variable to shadow, and a `^` matching **more than one arm** cannot be
 one widened view (each arm peels a different wrapper position) — the latter
 rejected in the checker, so it reads as a language rule rather than a codegen
@@ -8636,8 +8680,8 @@ branch's own read confirms the mutation:
 
 ```
 let r: Ok Mut List<Int> | Err Str = ok(mut_list_of(1, 2))
-if r ^ Ok { add(r, 3); println("inside: ${to_str(r)}") }   // both: [1, 2, 3]
-if r ^ Ok { println("after:  ${to_str(r)}") }              // Rust: [1, 2]   Kotlin: [1, 2, 3]
+if r is ^Ok { add(r, 3); println("inside: ${to_str(r)}") }   // both: [1, 2, 3]
+if r is ^Ok { println("after:  ${to_str(r)}") }              // Rust: [1, 2]   Kotlin: [1, 2, 3]
 ```
 
 Kotlin was the correct backend: the arm *holds* that list and narrowing is a
@@ -13294,7 +13338,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1216)
+## Test inventory (all green: 1217)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

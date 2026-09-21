@@ -1082,20 +1082,43 @@ Conventions:
 * [is-precise] Checks may include qualifiers and generics:
   `is Err Str` matches only the `Err Str` arm; `is Err` matches every
   `Err`-qualified arm; overlapping matches infer the smaller union.
-* [qual-widen] `expr ^ Qual...` is the **dual of `is`** (user decision
-  2026-09-05): boolean-valued, same places, same runtime test — but where a
-  successful `is` *narrows* the subject (a qualifier added, an arm picked), a
-  successful `^` **generalizes** it, removing the listed qualifiers for the
-  branch. `list ^ Mut` reads `list` without `Mut`; `outcome ^ Ok` without
-  `Ok`.
-  * A `when` **branch head** may be `^ Qual...` as well as `is ...`: the
-    same arm test, with the subject reading widened inside the branch. That
-    is the form the qualified-union case wants — `when o { ^ Ok { when o {
+* [qual-lift] `expr is ^Qual...` **lifts** a qualifier: the same arm test an
+  ordinary `is` performs, after which the listed qualifiers are *removed* for
+  the branch. `list is ^Mut` reads `list` without `Mut`; `outcome is ^Ok`
+  without `Ok`. Spelled as a mark on the qualifier since 2026-09-21 (user
+  decision, step 3 of the `?` family sequence); from 2026-09-05 until then it
+  was a standalone operator `expr ^ Qual...` with its own precedence tier, and
+  the change buys one rule instead of two — `^Q` is "Q, lifted", wherever a
+  qualifier may be written in a check.
+  * **All or none.** Every qualifier in a check is marked or none is; a mix
+    (`is ^Ok NonEmpty`) is a *parse* error, because some-marked-some-not is a
+    syntactic property and the parser cannot tell a qualifier from a base type
+    (both are uppercase). One consequence: lifting a qualifier while *naming*
+    the arm's base type (`is ^Ok Int`) is unexpressible for now. Nothing was
+    lost — the old operator refused a base type outright.
+  * **A binding is allowed** (user decision 2026-09-21, superseding the
+    no-binding rule of 2026-09-05): `is ^Ok value` names the lifted value.
+    Two emissions, because they genuinely differ: a lift that peels a
+    **wrapper arm** reads the payload out of the storage, while a lift of a
+    **qualifier only** binds the value itself, qualifiers being erased.
+  * **Several arms at once** is what the binding is for: the lifted value is
+    *produced*, so it can span two arms where a re-read of the subject cannot,
+    and with a binding nothing narrows — the subject keeps its declared type
+    and the lifted union lives in the name. The **checker** implements this;
+    the **emission is deferred** (the bound value spans fewer arms than its
+    storage, so it needs the arm-mapping re-wrap [let-infer]), so a multi-arm
+    lift with a binding is refused by name rather than emitted wrong
+    [backend-never-wrong]. Without a binding it stays refused for the original
+    reason: one re-read cannot stand for two wrapper positions.
+  * A `when` **branch head** takes the same form: `is ^Qual...` alongside
+    `is ...`, the same arm test with the subject reading lifted inside the
+    branch. That
+    is the form the qualified-union case wants — `when o { is ^Ok { when o {
     … } } }` reaches the union inside `Ok (Ok Int | Err Str)` with no
     intermediate binding and no repeated type.
   * The qualifiers must be **present**: nothing to remove is an error, not a
     silently-false test (`^` is not a predicate test — that is `is`).
-    Several may be removed at once (`v ^ Mut NonEmpty`), and the right side
+    Several may be removed at once (`v is ^Mut ^NonEmpty`), and the right side
     is qualifier names only: a *type* there is an `is` question.
   * **Droppability comes from one list** — `types::qual_drop_block`, which
     `Qual T <: T` also reads, so the two cannot drift as intrinsic
@@ -1123,8 +1146,8 @@ Conventions:
   they now narrow (user decision 2026-09-03): `if … is` covers them.
   * A **qualified union** (`Ok (A | B)`, a `Thrown (Str | Int)` message
     [try]) is a claim *about* a union, so its arms belong to the inner
-    type. Reach them with a `^` branch head ([qual-widen]:
-    `when v { ^ Ok { when v { … } } }`), or bind at the inner type
+    type. Reach them with a `^` branch head ([qual-lift]:
+    `when v { is ^Ok { when v { … } } }`), or bind at the inner type
     (`let inner: A | B = value`). The droppable-qualifier rule does the
     unwrapping ([qual-erasure]: `Qual T <: T`), which is also why the
     intrinsic capability qualifiers need no special case — `once` is

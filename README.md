@@ -121,7 +121,7 @@ fn main() [use] {
 - **Qualifiers**: type-level annotations (`Ok T`, `Surname Person`) enabling
   overloading, union tagging, and precise checks; `Mut` opts structs and
   types (`canbe Mut`) into mutability. `is` narrows a value to a more
-  specific type, `^` widens it by removing a qualifier (`when o { ^ Ok { … } }`
+  specific type, `^` widens it by removing a qualifier (`when o { is ^Ok { … } }`
   reads the union inside an `Ok` claim). A qualifier is a claim about a
   value's *contents* (`NonEmpty`) or about where the *handle* came from
   (`provenance qualifier Authenticated of Request`) — only the former can

@@ -773,7 +773,7 @@ fn step(n: Int) -> Emitted (Str | Int) | Finished {
 fn show(n: Int) [Console] {
     let r = step(n)
     when r {
-        ^ Emitted {
+        is ^Emitted {
             when r {
                 is Str { println("str ${r}") }
                 is Int { println("int ${r}") }
@@ -806,7 +806,7 @@ struct Flat {
 
 fn show(step: Emitted Int | Finished) [Console] {
     when step {
-        ^ Emitted { println("got ${step}") }
+        is ^Emitted { println("got ${step}") }
         is Finished { println("end") }
     }
 }
@@ -817,7 +817,7 @@ iter fn next(f: Flat) -> Emitted Int | Finished {
         if inner is Mut ListYield<Int> {
             let step = next(inner)
             when step {
-                ^ Emitted { return emitted(step) }
+                is ^Emitted { return emitted(step) }
                 is Finished { inner = None }
             }
         }
@@ -869,7 +869,7 @@ fn kotlinc_compiles_and_runs_mutation_through_narrowed_places() -> KotlinCase {
     kotlin_case(files, "narrow-mut", NARROW_MUT_OUTPUT)
 }
 
-/// [qual-widen] [backend-parity] The Kotlin half of the 2026-09-20 fix to
+/// [qual-lift] [backend-parity] The Kotlin half of the 2026-09-20 fix to
 /// [rs-narrow-mut]: mutating a `Mut` payload reached through a narrowing.
 ///
 /// Kotlin was the **correct** backend here and needed no change — a smart cast
@@ -893,13 +893,13 @@ handler Holder of Bag {
     held: Ok Mut List<Int> | Err Str = ok(mut_list_of(0))
 
     fn stash(n: Int) -> None {
-        if held ^ Ok {
+        if held is ^Ok {
             add(held, n)
         }
     }
 
     fn dump() -> Str {
-        if held ^ Ok {
+        if held is ^Ok {
             return to_str(held)
         }
         return "err"
@@ -907,7 +907,7 @@ handler Holder of Bag {
 }
 
 fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
-    if o ^ Ok {
+    if o is ^Ok {
         add(o, 7)
         return to_str(o)
     }
@@ -927,16 +927,16 @@ fn main() [use] {
     if b.items is Mut { println("field ${to_str(b.items)}") }
 
     let c: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
-    if c ^ Ok { add(c, 9) }
-    if c ^ Ok { println("widen ${to_str(c)}") }
+    if c is ^Ok { add(c, 9) }
+    if c is ^Ok { println("widen ${to_str(c)}") }
 
     let d: Ok Mut List<Int> | Err Str = ok(mut_list_of(1))
     when d { is Ok { add(d, 9) } is Err { } }
-    if d ^ Ok { println("when ${to_str(d)}") }
+    if d is ^Ok { println("when ${to_str(d)}") }
 
     let e: Ok Mut List<Int> | Err Str | None = ok(mut_list_of(1))
-    if e ^ Ok { add(e, 9) }
-    if e ^ Ok { println("nullable ${to_str(e)}") }
+    if e is ^Ok { add(e, 9) }
+    if e is ^Ok { println("nullable ${to_str(e)}") }
 
     println("moved ${eat(ok(mut_list_of(1)))}")
     stash(5)
@@ -982,6 +982,55 @@ fn main() [use] {
 "#;
 
 const ESCAPE_EXPR_OUTPUT: &str = "guarded(-1) 0\nguarded(7) 7\nfirst_big(4) 6\n";
+
+/// [qual-lift] Step 3's new form: a lift **binding**. Two shapes, because they
+/// emit differently — a lift that peels a wrapper arm reads the payload out of
+/// the storage, while a lift of a *qualifier only* binds the value itself,
+/// since qualifiers are erased. The second was the bug this test was written
+/// against: the `is`-binding path assumed a payload read and emitted
+/// `list.as_ref().unwrap().clone()` for a plain `&mut Vec` on Rust, and a cast
+/// to a non-existent type (`list as Mut`) on Kotlin.
+const LIFT_BINDING_DEMO: &str = r#"
+fn classify(n: Int) -> Ok Int | Err Str {
+    if n == 0 {
+        return err("zero")
+    }
+    return ok(n)
+}
+
+fn describe(n: Int) [Console] -> None {
+    let outcome = classify(n)
+    if outcome is ^Ok value {
+        println("ok ${value}")
+    }
+    if outcome is Err {
+        println("err ${outcome}")
+    }
+}
+
+fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
+    if list is ^Mut plain {
+        println("size ${size(plain)}")
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    describe(7)
+    describe(0)
+    read_only(mut_list_of(1, 2, 3))
+}
+"#;
+
+const LIFT_BINDING_OUTPUT: &str = "ok 7\nerr zero\nsize 3\n";
+
+fn kotlinc_compiles_and_runs_a_lift_binding() -> KotlinCase {
+    let program = build_program(&[("main.sv", LIFT_BINDING_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lift-binding", LIFT_BINDING_OUTPUT)
+}
 
 fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
     let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
@@ -2213,6 +2262,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_mutation_through_narrowed_places,
     kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm,
     kotlinc_compiles_and_runs_escapes_in_expression_position,
+    kotlinc_compiles_and_runs_a_lift_binding,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,
@@ -6060,9 +6110,9 @@ fn kotlinc_compiles_and_runs_fn_type_effects() -> KotlinCase {
     kotlin_case(files, "fn-effects", FN_EFFECTS_STDOUT)
 }
 
-// ===== the widening check `^` [qual-widen] =====
+// ===== the widening check `^` [qual-lift] =====
 
-// [qual-widen] `^` tests the arm *and* removes the claim, so a branch can
+// [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
@@ -6085,7 +6135,7 @@ fn limit(n: Int) [Throw<Int>] -> Int {
 fn describe(n: Int) [Console] -> None {
     let nested = try { wrapped(n) }
     when nested {
-        ^ Ok {
+        is ^Ok {
             when nested {
                 is Ok {
                     println("value ${nested}")
@@ -6114,7 +6164,7 @@ fn main() [use] -> None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        ^ Thrown {
+        is ^Thrown {
             when mixed {
                 is Str {
                     println("message text ${mixed}")
@@ -6130,7 +6180,7 @@ fn main() [use] -> None {
 
 const WIDEN_STDOUT: &str = "value 7\nerror zero\nthrown negative\nmessage number 9\n";
 
-/// [qual-widen] Kotlin materializes the same peel with a shadowing `val`
+/// [qual-lift] Kotlin materializes the same peel with a shadowing `val`
 /// (the alternative, a fresh name, would need every read rewritten).
 #[test]
 fn widening_materializes_the_peel_kotlin() {

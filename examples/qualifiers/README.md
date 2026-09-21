@@ -27,8 +27,9 @@ cargo run -- run --backend kotlin --src examples/qualifiers/salvo
    which is how a list from elsewhere earns it. A **constructor function**
    (`fn celsius(degrees: Int) -> [] Int as Celsius`) asserts one outright, which
    is the only way to get a constructive qualifier — one with no predicate to
-   test. `^ Celsius` is the dual of `is`: it reads the subject with the claim
-   *removed*, which is how the less specific overload is reached on purpose.
+   test. `is ^Celsius` **lifts** the claim: the same arm test, after which the
+   subject reads with the claim *removed*, which is how the less specific
+   overload is reached on purpose.
 3. **What survives a call.** A deduction list is exhaustive: `[list: Mut]` says
    `Mut` is the only claim left afterwards, so `compact` drops `NonEmpty` and
    `head(xs)` stops compiling until an `add` re-establishes it. `sum` writes no

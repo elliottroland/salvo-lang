@@ -588,7 +588,7 @@ pub struct Checked {
     /// inferred from its body. Both emitters thread these *into* the
     /// closure instead of capturing them.
     pub lambda_effects: HashMap<Key, Vec<Ty>>,
-    /// [qual-widen] The type a `^` check widens its subject to, keyed by the
+    /// [qual-lift] The type a `^` check widens its subject to, keyed by the
     /// check's span (a `^` expression, or a `^` branch head in a `when`).
     /// Present only when the check *peels a wrapper arm*, which is when the
     /// emitters must materialize the peel: they bind the widened value to a
@@ -1182,7 +1182,7 @@ struct LocalVar {
     /// takes ownership, exactly as a struct literal does
     /// [effect-state-store]. Ordinary locals link instead [fate-link].
     is_handler_state: bool,
-    /// [qual-widen] While a `^` check holds, the *physical* view of this
+    /// [qual-lift] While a `^` check holds, the *physical* view of this
     /// variable: the arm test peeled a wrapper, so reads and any further
     /// narrowing compose on the inner value rather than on the storage.
     /// `None` outside a widening branch (`declared` is then the view). The
@@ -9525,7 +9525,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Why a *written* qualifier name may not be removed with `^`, if it may
-    /// not [qual-widen]. Consults the effect namespace first: an effect claim
+    /// not [qual-lift]. Consults the effect namespace first: an effect claim
     /// on a producer never drops [fn-effects], and the name-based list
     /// cannot know an arbitrary effect's name.
     fn removal_block(&self, name: &str) -> Option<&'static str> {
@@ -11941,7 +11941,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Applied place facts, with the fact each one displaced
         // [flow-place].
         let mut saved_places: Vec<(Place, Ty, Option<PlaceNarrow>)> = Vec::new();
-        // [qual-widen] Root narrows whose *view* differs from the variable's
+        // [qual-lift] Root narrows whose *view* differs from the variable's
         // declared type (a `^` widening) install it for the branch.
         let mut saved_views: Vec<(String, Option<Ty>)> = Vec::new();
         for n in narrows {
@@ -13794,7 +13794,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
-/// Removes the named qualifiers from a type [qual-widen], or `None` when it
+/// Removes the named qualifiers from a type [qual-lift], or `None` when it
 /// does not carry all of them. `Qual T` with every qualifier removed is `T`.
 fn strip_quals_named(ty: &Ty, names: &[String]) -> Option<Ty> {
     let Ty::Qualified { quals, base } = ty else {
@@ -14011,13 +14011,19 @@ struct IsInfo {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
-    // ================= widening checks [qual-widen] =================
+    // ================= widening checks [qual-lift] =================
 
     /// Analyzes a `^` check: the **dual of `is`**. The runtime test is the
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
     /// than refined, so the subject reads without them inside the branch.
-    fn widen_info(&mut self, subject: &'p Expr, quals: &'p [TypeRef], span: Span) -> IsInfo {
+    fn widen_info(
+        &mut self,
+        subject: &'p Expr,
+        quals: &'p [TypeRef],
+        binding: Option<&'p Ident>,
+        span: Span,
+    ) -> IsInfo {
         let subj_ty = self.check_expr(subject, None);
         let repr = self.repr_of(subject, &subj_ty);
         let pat = self.parse_check(quals);
@@ -14051,7 +14057,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, "`^` needs a qualifier to remove".to_string());
             return unchanged;
         }
-        // [qual-widen] The single exclusion list, shared with `Qual T <: T`.
+        // [qual-lift] The single exclusion list, shared with `Qual T <: T`.
         let mut blocked = false;
         for q in &pat.quals {
             if let Some(reason) = self.removal_block(q) {
@@ -14067,22 +14073,52 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(test) = self.union_test_for(&repr, &pat) {
             self.out.is_tests.insert(self.key(span), test);
         }
+        let mut multi_arm = false;
         let (matched, remaining) = match &subj_ty {
             Ty::Union(arms) => {
                 let (m, r): (Vec<Ty>, Vec<Ty>) = arms
                     .iter()
                     .cloned()
                     .partition(|arm| self.arm_matches(arm, &pat));
-                if m.len() > 1 {
-                    // Each arm would peel a *different* wrapper position, so
-                    // one widened view cannot stand for all of them.
+                multi_arm = m.len() > 1;
+                if m.len() > 1 && binding.is_some() {
+                    // [qual-lift] The binding is where a multi-arm lift *will*
+                    // live (user decision 2026-09-21), and the checker side is
+                    // built: the arms are lifted, nothing narrows, the binding
+                    // takes their union. What is not built is the **emission** —
+                    // the lifted value is a value of a *smaller* union than the
+                    // storage, so it needs the arm-mapping re-wrap [let-infer]
+                    // rather than a payload read. Refused until that lands,
+                    // rather than emitted wrong [backend-never-wrong].
                     self.error(
                         span,
                         format!(
-                            "`^ {}` matches more than one arm of \
-                             `{subj_ty}`: widening removes a qualifier from \
-                             a single arm",
-                            pat.quals.join(" ")
+                            "lifting several arms of `{subj_ty}` at once is not \
+                             emitted yet: the bound value spans {} arms, which \
+                             needs a re-wrap. Check one arm at a time \
+                             (`is ^{} Int`-style) for now",
+                            m.len(),
+                            pat.quals.join(" ^")
+                        ),
+                    );
+                    return unchanged;
+                }
+                if m.len() > 1 && binding.is_none() {
+                    // [qual-lift] Each arm peels a *different* wrapper
+                    // position, so re-reading the subject cannot stand for all
+                    // of them — but a **binding** can (user decision
+                    // 2026-09-21): the lifted value is materialized once, into
+                    // a name, so several arms may be lifted at a time there.
+                    // The diagnostic names that remedy.
+                    self.error(
+                        span,
+                        format!(
+                            "`is ^{}` matches more than one arm of \
+                             `{subj_ty}`: lifting re-reads the subject, which \
+                             cannot stand for several arms at once — bind the \
+                             lifted value instead (`is ^{} name`)",
+                            pat.quals.join(" ^"),
+                            pat.quals.join(" ^")
                         ),
                     );
                     return unchanged;
@@ -14123,7 +14159,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             },
         };
-        // [qual-widen] Inside the branch the value is seen *at* the widened
+        // [qual-lift] Inside the branch the value is seen *at* the widened
         // type: the arm test peeled the wrapper, so a further `is`/`when` on
         // the subject must narrow relative to the stripped type, not to the
         // storage it came out of. (The emitters materialize the peel as a
@@ -14136,12 +14172,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             repr
         };
+        // [qual-lift] A **multi-arm** lift narrows nothing: re-reading the
+        // subject is exactly what cannot stand for several arms, so the lifted
+        // value lives only in the binding and the subject keeps its declared
+        // type inside the branch. (Single-arm lifts narrow the place as they
+        // always did.)
+        let subject_place = if multi_arm { None } else { subject_place };
+        // [qual-lift] `is ^Ok inner` binds the **lifted** value to a fresh
+        // name for the branch (user decision 2026-09-21). It is the same
+        // binding an `is Type name` makes, at the lifted type, and it shares
+        // fate with the subject [fate-link] — so a multi-arm lift has exactly
+        // one place to live, which is what makes it legal above.
+        let binding = binding.map(|b| {
+            let bty = matched.clone();
+            self.out.expr_ty.insert(self.key(b.span), bty.clone());
+            if self.ty_own_linear(&bty) {
+                self.out.linear_moves.insert(self.key(b.span));
+            }
+            let links = self.links_for_value(subject, b.span);
+            (b.clone(), bty, links, None)
+        });
         IsInfo {
             subject_place,
             subject_repr,
             matched,
             remaining,
-            binding: None,
+            binding,
         }
     }
 
@@ -14793,7 +14849,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
         if let Expr::Ident(id) = expr {
             if let Some(var) = self.lookup(&id.name) {
-                // [qual-widen] Inside a `^` branch the value is seen at the
+                // [qual-lift] Inside a `^` branch the value is seen at the
                 // widened type.
                 return var.widened.clone().unwrap_or_else(|| var.declared.clone());
             }
@@ -14883,7 +14939,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 if let Some(var) = self.lookup(&id.name) {
                     let narrowed = var.narrowed.clone();
-                    // [qual-widen] Inside a `^` branch the physical view is
+                    // [qual-lift] Inside a `^` branch the physical view is
                     // the widened type: the wrapper the arm test peeled is
                     // materialized by the emitters, so reads (and any
                     // further narrowing) unwrap relative to *it*.
@@ -15517,14 +15573,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.is_info(expr);
                 Ty::named("Bool")
             }
-            // [qual-widen] Boolean-valued like `is`; the flow facts are
+            // [qual-lift] Boolean-valued like `is`; the flow facts are
             // produced by `analyze_cond` in condition position.
             Expr::Widen {
                 subject,
                 quals,
+                binding,
                 span,
             } => {
-                self.widen_info(subject, quals, *span);
+                self.widen_info(subject, quals, binding.as_ref(), *span);
                 Ty::named("Bool")
             }
             Expr::NonNull { operand, .. } => {
@@ -17112,13 +17169,14 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
-            // [qual-widen] The dual of `is`: same test, generalized type.
+            // [qual-lift] The dual of `is`: same test, generalized type.
             Expr::Widen {
                 subject,
                 quals,
+                binding,
                 span,
             } => {
-                let info = self.widen_info(subject, quals, *span);
+                let info = self.widen_info(subject, quals, binding.as_ref(), *span);
                 self.out.expr_ty.insert(self.key(*span), Ty::named("Bool"));
                 let mut out = CondInfo::default();
                 if let Some(place) = &info.subject_place {
@@ -17134,6 +17192,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                             declared: info.subject_repr.clone(),
                         });
                     }
+                }
+                // [qual-lift] `is ^Ok inner` declares `inner` in the branch,
+                // exactly as an `is` binding does.
+                if let Some(binding) = info.binding {
+                    out.bindings.push(binding);
                 }
                 out
             }
@@ -17724,7 +17787,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(test) = self.union_test_for(&repr, &pat) {
                 self.out.is_tests.insert(self.key(branch.span), test);
             }
-            // [qual-widen] A `^` branch tests the same arm and then reads the
+            // [qual-lift] A `^` branch tests the same arm and then reads the
             // subject *without* the qualifiers: the whole point is the
             // nested case, where the arm's payload is itself a union
             // (`Ok (Ok Int | Err Str)`) that the branch can then `when` on.
@@ -17783,7 +17846,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
-            // [qual-widen] A `^` branch sees the subject at the widened
+            // [qual-lift] A `^` branch sees the subject at the widened
             // type, so nested narrowing composes on that rather than on the
             // storage the arm test peeled it out of.
             let declared = if branch.widen && self.out.is_tests.contains_key(&self.key(branch.span))

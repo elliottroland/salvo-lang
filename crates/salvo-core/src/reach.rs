@@ -319,7 +319,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             type_names(ty, used);
             block_names(body, used);
         }
-        // [qual-widen] The qualifier names are type references.
+        // [qual-lift] The qualifier names are type references.
         Expr::Widen { subject, quals, .. } => {
             expr_names(subject, used);
             for q in quals {

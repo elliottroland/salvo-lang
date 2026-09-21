@@ -56,11 +56,12 @@ fn checks(person: Person) -> None {
     let pair = (person, check_surname(person))
 }
 
-// [qual-widen] `^` is the dual of `is`: a successful check reads the subject
-// with the qualifier *removed*, which is what opens a qualified union.
+// [qual-lift] `is ^Q` lifts a qualifier: the same arm test, after which the
+// subject reads with the claim *removed*, which is what opens a qualified
+// union.
 fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
     when outcome {
-        ^ Ok {
+        is ^Ok {
             when outcome {
                 is Ok {
                     println("value ${outcome}")
@@ -77,7 +78,7 @@ fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
 }
 
 fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
-    if list ^ Mut {
+    if list is ^Mut {
         println("size ${size(list)}")
     }
 }

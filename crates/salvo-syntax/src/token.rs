@@ -113,7 +113,7 @@ pub enum TokenKind {
     Percent,  // %
     PlusPlus, // ++
     MinusMinus, // --
-    Caret,    // ^ — the qualifier-widening check [qual-widen]
+    Caret,    // ^ — the qualifier-widening check [qual-lift]
     At,       // @ — the scope selector on a call [fn-overload-at]
 
     Eof,

@@ -731,13 +731,13 @@ for i in range(0, person.age) {
 
 `for` loops evaluate to values just like `while` loops. They support `break`, `continue` and `else`.
 
-### Widening with `^`
+### Lifting a qualifier: `is ^Q`
 
-`is` narrows: a successful check means the value is *more* specific than its declared type. `^` is its dual — a successful check means the value may be read as *less* specific, with the named qualifiers removed:
+`is` narrows: a successful check means the value is *more* specific than its declared type. Marking a qualifier with `^` inside the check makes it do the dual as well — the arm is still tested, but the claim is **lifted**, so the value reads as *less* specific afterwards:
 
 ```
 fn describe(p: Mut Person) [Console] {
-    if p ^ Mut {
+    if p is ^Mut {
         read_only_report(p)      // `p` reads as `Person` here
     }
 }
@@ -748,7 +748,7 @@ Its reason to exist is the qualified union. `Ok (Ok Int | Err Str)` is a claim *
 ```
 let nested = try { wrapped(7) }        // Ok (Ok Int | Err Str) | Thrown Str
 when nested {
-    ^ Ok {
+    is ^Ok {
         // `nested` reads as `Ok Int | Err Str` here
         when nested {
             is Ok { println("value ${nested}") }
@@ -763,11 +763,21 @@ when nested {
 
 The rules:
 
-- **Boolean-valued, like `is`**, and usable in the same places: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head. A `^` branch consumes the arms it matched, so exhaustiveness works unchanged.
-- **The qualifiers must be there.** Nothing to remove is an error, not a false test — `^` removes a known claim, it does not test for one (that is `is`).
-- **Several at once** is allowed: `v ^ Mut NonEmpty`.
-- **Some qualifiers can never be dropped**: `once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
-- **No binding form.** The subject itself reads widened, so `is Type name`'s counterpart would be redundant.
+- **It is an ordinary `is`**, so it works everywhere one does: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head, where it consumes the arms it matched so exhaustiveness is unchanged. The runtime test is the same; `^` decides only whether the claim survives into the branch.
+- **The qualifiers must be there.** Nothing to lift is an error, not a false test — `^Q` lifts a known claim, it does not test for one (that is a plain `is Q`).
+- **All or none.** `is ^Mut ^NonEmpty` lifts both; a check mixing lifted and kept qualifiers (`is ^Ok NonEmpty`) is an error, since the two say opposite things about one check.
+- **Some qualifiers can never be lifted**: `once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
+- **A binding is allowed**, and it is what makes a lift of *several arms at once* possible:
+
+  ```
+  let outcome: Ok Int | Ok Str | Err Str = classify(input)
+  if outcome is ^Ok value {
+      // `value` is `Int | Str`; `outcome` keeps its declared type here
+      print_either(value)
+  }
+  ```
+
+  Without a binding the lifted value has to be re-read out of the subject, and one such read cannot stand for two arms that live in different wrapper positions — so a multi-arm lift without a binding is an error naming this remedy. With a single arm, a binding is optional: the subject itself reads lifted, as `p is ^Mut` does above.
 
 ## Functions
 

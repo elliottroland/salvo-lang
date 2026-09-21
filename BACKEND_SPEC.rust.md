@@ -637,7 +637,7 @@ the blanket rule:
   is an ordinary call on a borrow. A derived struct [interp-struct] renders
   as a nested `format!` over its fields — *not* `{:?}`, which would quote
   strings and so disagree with Kotlin.
-* [qual-widen] [rs-widen-shadow] A `^` check emits the same test `is` would
+* [qual-lift] [rs-widen-shadow] A `^` check emits the same test `is` would
   (or `true` when the qualifiers are statically present — qualifiers are
   erased, so widening is a typing act). Where it *peels a wrapper arm*, the
   widened value is bound to a **shadowing local** at the top of the branch
@@ -651,12 +651,18 @@ the blanket rule:
     mutation inside the branch vanish when the branch ended — while Kotlin,
     which casts the storage, kept it. [rs-narrow-mut] carries the whole set of
     mutable sites and the one shape still refused.
+  * **A lift with a binding needs no shadow** (2026-09-21): `is ^Ok value`
+    materializes the lifted value into `value` instead, through the
+    `is`-binding path. A lift of a **qualifier only** binds the subject itself
+    there, since qualifiers are erased — the payload read the wrapper case uses
+    would be wrong for it, and was: it assumed an `Option` in front and emitted
+    `list.as_ref().unwrap().clone()` for a plain `&mut Vec`.
   * Without the shadow the emitted code compiles and is **wrong**: the nested
     `match` scrutinizes the outer wrapper, whose arm 0 is the one the outer
     test already took, so the second inner branch becomes dead code. Caught
     by running the feature's own demo (`Display` on the generated union had
     been masking it in the printed output).
-  * `^` on a *projection* (`p.result ^ Ok`) is a reported codegen error for
+  * `^` on a *projection* (`p.result is ^Ok`) is a reported codegen error for
     now: the materialization needs a plain variable to shadow.
 * [fn-effects] [rs-fn-effect-params] A fn type's effects are **leading
   `&mut dyn Effect` parameters** of the closure: `(s: Str) [Logger] -> Str`

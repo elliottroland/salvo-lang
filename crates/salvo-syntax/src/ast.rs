@@ -933,16 +933,20 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `expr ^ Qual...` — the *widening* check [qual-widen]: the dual of
+    /// `expr is ^Qual...` — the *widening* check [qual-lift]: the dual of
     /// `is`. Where a successful `is` narrows the subject (a qualifier added,
     /// a union arm picked), a successful `^` **generalizes** it by removing
-    /// the listed qualifiers — `list ^ Mut` reads `list` without `Mut`
-    /// afterwards, `outcome ^ Ok` without `Ok`. Boolean-valued, like `is`;
+    /// the listed qualifiers — `list is ^Mut` reads `list` without `Mut`
+    /// afterwards, `outcome is ^Ok` without `Ok`. Boolean-valued, like `is`;
     /// the runtime test is the same one `is` performs.
     Widen {
         subject: Box<Expr>,
         /// The qualifiers to remove (all must be present and droppable).
         quals: Vec<TypeRef>,
+        /// [qual-lift] `is ^Ok inner` — the lifted value bound to a fresh
+        /// name for the branch (user decision 2026-09-21). Without one the
+        /// subject itself reads lifted, as it always did.
+        binding: Option<Ident>,
         span: Span,
     },
     /// `expr!` — non-null assertion.
@@ -1143,12 +1147,11 @@ pub enum StructLitFieldKind {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WhenBranch {
-    /// The `is ...` / `^ ...` check.
+    /// The `is ...` check, with or without `^`-lifted qualifiers.
     pub check: Vec<TypeRef>,
     pub binding: Option<Ident>,
-    /// The branch head was `^` rather than `is` [qual-widen]: the same arm
-    /// test, but the subject reads *without* the listed qualifiers inside
-    /// the branch.
+    /// [qual-lift] Every qualifier in the check was `^`-marked: the same arm
+    /// test, but the subject reads *without* them inside the branch.
     pub widen: bool,
     pub body: Block,
     pub span: Span,
