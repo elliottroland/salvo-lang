@@ -5900,7 +5900,11 @@ impl<'p> Emitter<'p> {
                 let v = self.emit_bound_value(value, *span);
                 format!("{pad}{t} = {v};\n")
             }
-            Stmt::Return { value, .. } => match (ctx, value) {
+            // [expr-escape] The escapes are expressions now (2026-09-21), so
+            // they arrive wrapped in a statement. These arms come before the
+            // general `Stmt::Expr` case and keep every rule they had: the unit
+            // return, the loop-result routing and the exit splices.
+            Stmt::Expr(Expr::Return { value, .. }) => match (ctx, value.as_deref()) {
                 // [rs-none-unit] `None` is Rust's `()`: a fn returning it has
                 // no return type at all, so `return None;` is E0308. The
                 // literal has nothing to evaluate; anything else may be a
@@ -5948,7 +5952,8 @@ impl<'p> Emitter<'p> {
                     format!("{splices}{pad}return{value};\n")
                 }
             },
-            Stmt::Break { value, .. } => {
+            Stmt::Expr(Expr::Break { value, .. }) => {
+                let value = value.as_deref();
                 let target = self.loop_results.last().cloned().flatten();
                 // [rs-exit-splice] Leaving the loop runs the
                 // blocks registered inside it; the break value is
@@ -5978,7 +5983,7 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            Stmt::Continue { .. } => {
+            Stmt::Expr(Expr::Continue { .. }) => {
                 let splices = self.exit_splice_code(indent, true);
                 format!("{splices}{pad}continue;\n")
             }
@@ -9302,6 +9307,39 @@ impl<'p> Emitter<'p> {
     /// renderings — these all produce owned values).
     fn emit_raw_like(&mut self, expr: &Expr) -> String {
         match expr {
+            // [expr-escape] An escape *nested inside* an expression — the
+            // form statement position never produces, since `emit_stmt` takes
+            // those. Rust has the same three as expressions, so the rendering
+            // is direct; what it cannot do from here is run the exit splices
+            // an enclosing block owes ([rs-exit-splice] needs statement
+            // position), so a nested escape under an owed splice is reported
+            // rather than emitted wrong [backend-never-wrong].
+            Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => {
+                let value = match expr {
+                    Expr::Return { value, .. } | Expr::Break { value, .. } => value.as_deref(),
+                    _ => None,
+                };
+                if !self.exit_splice_code(0, true).is_empty() {
+                    self.error(
+                        "an early escape inside an expression is not supported \
+                         where the enclosing block owes cleanup: bind the value \
+                         with `let` first"
+                            .to_string(),
+                    );
+                }
+                let word = match expr {
+                    Expr::Return { .. } => "return",
+                    Expr::Break { .. } => "break",
+                    _ => "continue",
+                };
+                match value {
+                    Some(v) => {
+                        let code = self.emit_expr(v);
+                        format!("{word} {code}")
+                    }
+                    None => word.to_string(),
+                }
+            }
             // Literal suffixes emit explicit Rust types [lit-numeric]
             // [type-basic]: `1L` -> `1i64`, `1.2f` -> `1.2f32`. An
             // *unsuffixed* literal renders at its **checked** type
@@ -11240,7 +11278,7 @@ impl<'p> Emitter<'p> {
                 let n = block.stmts.len();
                 for (i, stmt) in block.stmts.iter().enumerate() {
                     if i + 1 == n {
-                        if let Stmt::Return { value: Some(v), .. } = stmt {
+                        if let Stmt::Expr(Expr::Return { value: Some(v), .. }) = stmt {
                             let code = self.emit_expr(v);
                             let splices = self.splice_exits(body_floor, 1, true);
                             if splices.is_empty() {
@@ -11254,7 +11292,7 @@ impl<'p> Emitter<'p> {
                             continue;
                         }
                     }
-                    if matches!(stmt, Stmt::Return { .. }) {
+                    if matches!(stmt, Stmt::Expr(Expr::Return { .. })) {
                         self.error(
                             "early `return` inside a lambda is not supported yet \
                              (only as the final statement)",
@@ -13880,9 +13918,6 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
                 collect_mutated_expr(value, out);
             }
             Stmt::Let { value, .. } => collect_mutated_expr(value, out),
-            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
-                collect_mutated_expr(v, out)
-            }
             Stmt::Use { handler, .. } => collect_mutated_expr(handler, out),
             Stmt::Expr(e) => collect_mutated_expr(e, out),
             _ => {}
@@ -13892,6 +13927,13 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [expr-escape] The escapes carry a value expression.
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                collect_mutated_expr(v, out);
+            }
+        }
+        Expr::Continue { .. } => {}
         Expr::IncDec { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
@@ -14066,9 +14108,6 @@ fn collect_declared(block: &Block, out: &mut HashSet<String>) {
                 collect_declared_expr(target, out);
                 collect_declared_expr(value, out);
             }
-            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
-                collect_declared_expr(v, out)
-            }
             Stmt::Use { handler, .. } => collect_declared_expr(handler, out),
             Stmt::Expr(e) => collect_declared_expr(e, out),
             _ => {}
@@ -14096,6 +14135,12 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
 
 fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                collect_declared_expr(v, out);
+            }
+        }
+        Expr::Continue { .. } => {}
         Expr::Is {
             subject, binding, ..
         } => {
@@ -14319,7 +14364,6 @@ fn throw_message_of(ty: &Ty) -> Option<Ty> {
 /// body that gave a value away, dead code rustc still borrow-checks.
 fn block_terminates(block: &Block) -> bool {
     block.stmts.iter().any(|stmt| match stmt {
-        Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
         Stmt::Expr(e) => expr_terminates(e),
         _ => false,
     })
@@ -14327,6 +14371,8 @@ fn block_terminates(block: &Block) -> bool {
 
 fn expr_terminates(expr: &Expr) -> bool {
     match expr {
+        // [expr-escape] All three leave the block they are written in.
+        Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => true,
         Expr::If {
             branches,
             else_block,

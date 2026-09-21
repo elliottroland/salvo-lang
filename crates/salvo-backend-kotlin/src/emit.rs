@@ -3545,7 +3545,10 @@ impl<'p> Emitter<'p> {
                 let v = self.emit_expr(value);
                 format!("{pad}{t} = {v}\n")
             }
-            Stmt::Return { value, .. } => match (self.stmt_ctx, value) {
+            // [expr-escape] The escapes are expressions now (2026-09-21) and
+            // arrive wrapped in a statement; these arms precede the general
+            // `Stmt::Expr` case and keep every rule they had.
+            Stmt::Expr(Expr::Return { value, .. }) => match (self.stmt_ctx, value.as_deref()) {
                 // [kt-none-unit] A `None` value in a `Unit`-returning fn has no
                 // payload to hand back: evaluate it for its effects (it may be
                 // a call) and return bare. `return null` would be a kotlinc
@@ -3572,7 +3575,8 @@ impl<'p> Emitter<'p> {
                 }
                 (_, None) => format!("{pad}return\n"),
             },
-            Stmt::Break { value, .. } => {
+            Stmt::Expr(Expr::Break { value, .. }) => {
+                let value = value.as_deref();
                 let target = self.loop_results.last().cloned().flatten();
                 match (value, target) {
                     // [while-value] route the value into the enclosing
@@ -3597,7 +3601,7 @@ impl<'p> Emitter<'p> {
                     (None, _) => format!("{pad}break\n"),
                 }
             }
-            Stmt::Continue { .. } => format!("{pad}continue\n"),
+            Stmt::Expr(Expr::Continue { .. }) => format!("{pad}continue\n"),
             Stmt::Use {
                 handler,
                 local,
@@ -5471,6 +5475,30 @@ impl<'p> Emitter<'p> {
 
     fn emit_expr_raw(&mut self, expr: &Expr) -> String {
         match expr {
+            // [expr-escape] An escape *nested inside* an expression — the form
+            // statement position never produces, since `emit_stmt` takes those.
+            // Kotlin has the same three as expressions, so the rendering is
+            // direct; a `break`/`continue` carrying a loop-result assignment or
+            // a `return` under an owed cleanup belongs to statement position,
+            // which is where those rules live.
+            Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => {
+                let value = match expr {
+                    Expr::Return { value, .. } | Expr::Break { value, .. } => value.as_deref(),
+                    _ => None,
+                };
+                let word = match expr {
+                    Expr::Return { .. } => "return",
+                    Expr::Break { .. } => "break",
+                    _ => "continue",
+                };
+                match value {
+                    Some(v) => {
+                        let code = self.emit_expr(v);
+                        format!("{word} {code}")
+                    }
+                    None => word.to_string(),
+                }
+            }
             // Literal suffixes map 1:1 onto Kotlin's [lit-numeric]:
             // `1L` -> `1L` (Long), `1.2f` -> `1.2f` (Float).
             // [lit-numeric] [lit-adopt] Suffixes render explicitly (`1L`,
@@ -6231,13 +6259,13 @@ impl<'p> Emitter<'p> {
         let n = stmts.len();
         for (i, stmt) in stmts.iter().enumerate() {
             if i + 1 == n {
-                if let Stmt::Return { value: Some(v), .. } = stmt {
+                if let Stmt::Expr(Expr::Return { value: Some(v), .. }) = stmt {
                     let code = self.emit_expr(v);
                     out.push_str(&format!("    {code}\n"));
                     continue;
                 }
             }
-            if matches!(stmt, Stmt::Return { .. }) {
+            if matches!(stmt, Stmt::Expr(Expr::Return { .. })) {
                 self.error(
                     "early `return` inside a lambda is not supported yet \
                      (only as the final statement)",
@@ -8310,9 +8338,6 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
                 collect_mutated_expr(value, out);
             }
             Stmt::Let { value, .. } => collect_mutated_expr(value, out),
-            Stmt::Return { value: Some(v), .. }
-            | Stmt::Break { value: Some(v), .. }
-            => collect_mutated_expr(v, out),
             Stmt::Use { handler, .. } => collect_mutated_expr(handler, out),
             Stmt::Expr(e) => collect_mutated_expr(e, out),
             _ => {}
@@ -8322,6 +8347,13 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [expr-escape] The escapes carry a value expression.
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                collect_mutated_expr(v, out);
+            }
+        }
+        Expr::Continue { .. } => {}
         Expr::IncDec { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
@@ -8500,9 +8532,6 @@ fn collect_declared(block: &Block, out: &mut HashSet<String>) {
                 collect_declared_expr(target, out);
                 collect_declared_expr(value, out);
             }
-            Stmt::Return { value: Some(v), .. }
-            | Stmt::Break { value: Some(v), .. }
-            => collect_declared_expr(v, out),
             Stmt::Use { handler, .. } => collect_declared_expr(handler, out),
             Stmt::Expr(e) => collect_declared_expr(e, out),
             _ => {}

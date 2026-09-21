@@ -163,17 +163,19 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "value",
-                                            span: 1642..1647,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1642..1647,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1635..1647,
-                            },
+                                    span: 1635..1647,
+                                },
+                            ),
                         ],
                         span: 1629..1649,
                     },
@@ -222,29 +224,31 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    StructLit {
-                                        ty: Some(
-                                            Named {
-                                                qualifiers: [],
-                                                base: TypeRef {
-                                                    name: Ident {
-                                                        name: "Finished",
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        StructLit {
+                                            ty: Some(
+                                                Named {
+                                                    qualifiers: [],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Finished",
+                                                            span: 1726..1734,
+                                                        },
+                                                        args: [],
+                                                        from: [],
                                                         span: 1726..1734,
                                                     },
-                                                    args: [],
-                                                    from: [],
-                                                    span: 1726..1734,
                                                 },
-                                            },
-                                        ),
-                                        fields: [],
-                                        span: 1726..1737,
-                                    },
-                                ),
-                                span: 1719..1737,
-                            },
+                                            ),
+                                            fields: [],
+                                            span: 1726..1737,
+                                        },
+                                    ),
+                                    span: 1719..1737,
+                                },
+                            ),
                         ],
                         span: 1713..1739,
                     },

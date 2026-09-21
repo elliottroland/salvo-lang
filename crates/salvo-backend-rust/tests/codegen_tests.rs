@@ -5648,6 +5648,60 @@ fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
     );
 }
 
+/// [expr-escape] The three escapes are expressions of type `Never` (user
+/// decision 2026-09-21, step 2 of the `?` family sequence). Two shapes that
+/// were *ungrammatical* before it, because `return`/`break`/`continue` were
+/// statements:
+///
+/// - an escape nested in an **argument position** (`twice(return 0)`), which is
+///   the same shape a `Never`-returning call like `throw(m)` always had;
+/// - a `break` as the value of an `if` feeding a `let`, which is the tail
+///   position `?:`'s right-hand side will need in step 5.
+///
+/// Both backends render the escape natively, so the assertion is the output.
+const ESCAPE_EXPR_DEMO: &str = r#"
+fn twice(n: Int) -> Int {
+    return n * 2
+}
+
+fn guarded(n: Int) -> Int {
+    if n < 0 {
+        return twice(return 0)
+    }
+    return n
+}
+
+fn first_big(limit: Int) -> Int {
+    let total: Int = 0
+    let i: Int = 0
+    while true {
+        let step: Int = if i < limit { i } else { break }
+        total = total + step
+        i = i + 1
+    }
+    return total
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("guarded(-1) ${guarded(-1)}")
+    println("guarded(7) ${guarded(7)}")
+    println("first_big(4) ${first_big(4)}")
+}
+"#;
+
+const ESCAPE_EXPR_OUTPUT: &str = "guarded(-1) 0\nguarded(7) 7\nfirst_big(4) 6\n";
+
+#[test]
+fn rustc_compiles_and_runs_escapes_in_expression_position() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ESCAPE_EXPR_DEMO)]);
+    run_rust_files(&files, "escape-expr", ESCAPE_EXPR_OUTPUT);
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_group_over_plain_arms() {    if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");

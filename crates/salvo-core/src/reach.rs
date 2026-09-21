@@ -252,14 +252,8 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
                 expr_names(target, used);
                 expr_names(value, used);
             }
-            Stmt::Return { value, .. } | Stmt::Break { value, .. } => {
-                if let Some(v) = value {
-                    expr_names(v, used);
-                }
-            }
             Stmt::Use { handler, .. } => expr_names(handler, used),
             Stmt::Expr(e) => expr_names(e, used),
-            Stmt::Continue { .. } => {}
         }
     }
 }
@@ -271,6 +265,13 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         }
         // [try] The delimiter's body is ordinary code.
         Expr::Try { body, .. } => block_names(body, used),
+        // [expr-escape] `return f(x)` uses `f` and `x`.
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                expr_names(v, used);
+            }
+        }
+        Expr::Continue { .. } => {}
         // [actor-spawn-expr] The handler name and every clause count as
         // uses: this is what stops an imported handler or a `pool` function
         // being reported as unused because it is only spawned.

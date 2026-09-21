@@ -885,18 +885,6 @@ impl<'p> Walk<'_, 'p> {
                     self.expr(value);
                 }
             }
-            Stmt::Return { value: Some(v), .. } => {
-                // [readonly-return] A fn returning `proj[from: p, …] T` hands
-                // its result out *borrowed*: returning a source (or a
-                // projection of one) keeps it. Everything else returned is
-                // moved.
-                if self.returns_projection_of(v) {
-                    self.expr(v);
-                } else {
-                    self.moving_expr(v);
-                }
-            }
-            Stmt::Break { value: Some(v), .. } => self.moving_expr(v),
             Stmt::Use { handler, .. } => {
                 // Handler constructor arguments are stored in the handler.
                 if let Expr::Call { args, .. } = handler {
@@ -1100,6 +1088,22 @@ impl<'p> Walk<'_, 'p> {
             // can leave it early, so an addition inside one does not reach
             // the contract [qual-refn-infer].
             Expr::Try { body, .. } => self.cond_block(body),
+            // [expr-escape] Returning or breaking with a value **moves** it
+            // (2026-09-21: the same rule, now reached as an expression).
+            Expr::Return { value: Some(v), .. } => {
+                // [readonly-return] A fn returning `proj[from: p, …] T` hands
+                // its result out *borrowed*: returning a source (or a
+                // projection of one) keeps it. Everything else returned is
+                // moved.
+                if self.returns_projection_of(v) {
+                    self.expr(v);
+                } else {
+                    self.moving_expr(v);
+                }
+            }
+            Expr::Break { value: Some(v), .. } => self.moving_expr(v),
+            Expr::Return { value: None, .. } | Expr::Break { value: None, .. }
+            | Expr::Continue { .. } => {}
             // [actor-spawn-expr] A spawn's arguments cross the seam, so a
             // value passed to a child is *consumed* — walked as ordinary
             // reads here (the send-as-move accounting arrives with the

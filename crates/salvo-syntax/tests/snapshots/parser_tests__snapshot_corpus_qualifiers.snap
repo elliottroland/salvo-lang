@@ -500,26 +500,28 @@ Module {
                         body: Some(
                             Block {
                                 stmts: [
-                                    Return {
-                                        value: Some(
-                                            Binary {
-                                                op: Gt,
-                                                lhs: Ident(
-                                                    Ident {
-                                                        name: "int",
-                                                        span: 346..349,
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Binary {
+                                                    op: Gt,
+                                                    lhs: Ident(
+                                                        Ident {
+                                                            name: "int",
+                                                            span: 346..349,
+                                                        },
+                                                    ),
+                                                    rhs: Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 352..353,
                                                     },
-                                                ),
-                                                rhs: Int {
-                                                    value: 0,
-                                                    long: false,
-                                                    span: 352..353,
+                                                    span: 346..353,
                                                 },
-                                                span: 346..353,
-                                            },
-                                        ),
-                                        span: 339..353,
-                                    },
+                                            ),
+                                            span: 339..353,
+                                        },
+                                    ),
                                 ],
                                 span: 329..359,
                             },
@@ -626,26 +628,28 @@ Module {
                         body: Some(
                             Block {
                                 stmts: [
-                                    Return {
-                                        value: Some(
-                                            Binary {
-                                                op: GtEq,
-                                                lhs: Ident(
-                                                    Ident {
-                                                        name: "int",
-                                                        span: 460..463,
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Binary {
+                                                    op: GtEq,
+                                                    lhs: Ident(
+                                                        Ident {
+                                                            name: "int",
+                                                            span: 460..463,
+                                                        },
+                                                    ),
+                                                    rhs: Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 467..468,
                                                     },
-                                                ),
-                                                rhs: Int {
-                                                    value: 0,
-                                                    long: false,
-                                                    span: 467..468,
+                                                    span: 460..468,
                                                 },
-                                                span: 460..468,
-                                            },
-                                        ),
-                                        span: 453..468,
-                                    },
+                                            ),
+                                            span: 453..468,
+                                        },
+                                    ),
                                 ],
                                 span: 443..474,
                             },
@@ -764,39 +768,41 @@ Module {
                         body: Some(
                             Block {
                                 stmts: [
-                                    Return {
-                                        value: Some(
-                                            Is {
-                                                subject: Field {
-                                                    base: Ident(
-                                                        Ident {
-                                                            name: "person",
-                                                            span: 587..593,
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Is {
+                                                    subject: Field {
+                                                        base: Ident(
+                                                            Ident {
+                                                                name: "person",
+                                                                span: 587..593,
+                                                            },
+                                                        ),
+                                                        field: Ident {
+                                                            name: "surname",
+                                                            span: 594..601,
                                                         },
-                                                    ),
-                                                    field: Ident {
-                                                        name: "surname",
-                                                        span: 594..601,
+                                                        span: 587..601,
                                                     },
-                                                    span: 587..601,
-                                                },
-                                                check: [
-                                                    TypeRef {
-                                                        name: Ident {
-                                                            name: "Str",
+                                                    check: [
+                                                        TypeRef {
+                                                            name: Ident {
+                                                                name: "Str",
+                                                                span: 605..608,
+                                                            },
+                                                            args: [],
+                                                            from: [],
                                                             span: 605..608,
                                                         },
-                                                        args: [],
-                                                        from: [],
-                                                        span: 605..608,
-                                                    },
-                                                ],
-                                                binding: None,
-                                                span: 587..608,
-                                            },
-                                        ),
-                                        span: 580..608,
-                                    },
+                                                    ],
+                                                    binding: None,
+                                                    span: 587..608,
+                                                },
+                                            ),
+                                            span: 580..608,
+                                        },
+                                    ),
                                 ],
                                 span: 570..614,
                             },
@@ -986,17 +992,19 @@ Module {
                                     span: 894..944,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "num",
-                                            span: 956..959,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "num",
+                                                span: 956..959,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 949..959,
-                            },
+                                    span: 949..959,
+                                },
+                            ),
                         ],
                         span: 860..961,
                     },
@@ -2132,39 +2140,41 @@ Module {
                         body: Some(
                             Block {
                                 stmts: [
-                                    Return {
-                                        value: Some(
-                                            Binary {
-                                                op: Gt,
-                                                lhs: Call {
-                                                    callee: Ident(
-                                                        Ident {
-                                                            name: "size",
-                                                            span: 2411..2415,
-                                                        },
-                                                    ),
-                                                    type_args: [],
-                                                    args: [
-                                                        Ident(
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Binary {
+                                                    op: Gt,
+                                                    lhs: Call {
+                                                        callee: Ident(
                                                             Ident {
-                                                                name: "list",
-                                                                span: 2416..2420,
+                                                                name: "size",
+                                                                span: 2411..2415,
                                                             },
                                                         ),
-                                                    ],
-                                                    named: [],
-                                                    span: 2411..2421,
+                                                        type_args: [],
+                                                        args: [
+                                                            Ident(
+                                                                Ident {
+                                                                    name: "list",
+                                                                    span: 2416..2420,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        named: [],
+                                                        span: 2411..2421,
+                                                    },
+                                                    rhs: Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 2424..2425,
+                                                    },
+                                                    span: 2411..2425,
                                                 },
-                                                rhs: Int {
-                                                    value: 0,
-                                                    long: false,
-                                                    span: 2424..2425,
-                                                },
-                                                span: 2411..2425,
-                                            },
-                                        ),
-                                        span: 2404..2425,
-                                    },
+                                            ),
+                                            span: 2404..2425,
+                                        },
+                                    ),
                                 ],
                                 span: 2394..2431,
                             },

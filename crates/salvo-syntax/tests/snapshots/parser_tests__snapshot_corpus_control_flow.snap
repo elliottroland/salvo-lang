@@ -111,49 +111,51 @@ Module {
                                             },
                                             Block {
                                                 stmts: [
-                                                    Return {
-                                                        value: Some(
-                                                            Str {
-                                                                parts: [
-                                                                    Interp(
-                                                                        Field {
-                                                                            base: Ident(
-                                                                                Ident {
-                                                                                    name: "person",
-                                                                                    span: 99..105,
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Interp(
+                                                                            Field {
+                                                                                base: Ident(
+                                                                                    Ident {
+                                                                                        name: "person",
+                                                                                        span: 99..105,
+                                                                                    },
+                                                                                ),
+                                                                                field: Ident {
+                                                                                    name: "name",
+                                                                                    span: 106..110,
                                                                                 },
-                                                                            ),
-                                                                            field: Ident {
-                                                                                name: "name",
-                                                                                span: 106..110,
+                                                                                span: 99..110,
                                                                             },
-                                                                            span: 99..110,
-                                                                        },
-                                                                    ),
-                                                                    Text(
-                                                                        " ",
-                                                                    ),
-                                                                    Interp(
-                                                                        Field {
-                                                                            base: Ident(
-                                                                                Ident {
-                                                                                    name: "person",
-                                                                                    span: 114..120,
+                                                                        ),
+                                                                        Text(
+                                                                            " ",
+                                                                        ),
+                                                                        Interp(
+                                                                            Field {
+                                                                                base: Ident(
+                                                                                    Ident {
+                                                                                        name: "person",
+                                                                                        span: 114..120,
+                                                                                    },
+                                                                                ),
+                                                                                field: Ident {
+                                                                                    name: "surname",
+                                                                                    span: 121..128,
                                                                                 },
-                                                                            ),
-                                                                            field: Ident {
-                                                                                name: "surname",
-                                                                                span: 121..128,
+                                                                                span: 114..128,
                                                                             },
-                                                                            span: 114..128,
-                                                                        },
-                                                                    ),
-                                                                ],
-                                                                span: 96..130,
-                                                            },
-                                                        ),
-                                                        span: 89..130,
-                                                    },
+                                                                        ),
+                                                                    ],
+                                                                    span: 96..130,
+                                                                },
+                                                            ),
+                                                            span: 89..130,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 79..136,
                                             },
@@ -163,24 +165,26 @@ Module {
                                     span: 52..136,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Field {
-                                        base: Ident(
-                                            Ident {
-                                                name: "person",
-                                                span: 148..154,
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Field {
+                                            base: Ident(
+                                                Ident {
+                                                    name: "person",
+                                                    span: 148..154,
+                                                },
+                                            ),
+                                            field: Ident {
+                                                name: "name",
+                                                span: 155..159,
                                             },
-                                        ),
-                                        field: Ident {
-                                            name: "name",
-                                            span: 155..159,
+                                            span: 148..159,
                                         },
-                                        span: 148..159,
-                                    },
-                                ),
-                                span: 141..159,
-                            },
+                                    ),
+                                    span: 141..159,
+                                },
+                            ),
                         ],
                         span: 46..161,
                     },
@@ -614,19 +618,21 @@ Module {
                                                             span: 538..565,
                                                         },
                                                     ),
-                                                    Return {
-                                                        value: Some(
-                                                            Str {
-                                                                parts: [
-                                                                    Text(
-                                                                        "error",
-                                                                    ),
-                                                                ],
-                                                                span: 585..592,
-                                                            },
-                                                        ),
-                                                        span: 578..592,
-                                                    },
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "error",
+                                                                        ),
+                                                                    ],
+                                                                    span: 585..592,
+                                                                },
+                                                            ),
+                                                            span: 578..592,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 524..602,
                                             },
@@ -637,17 +643,19 @@ Module {
                                 },
                                 span: 438..608,
                             },
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "value",
-                                            span: 620..625,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 620..625,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 613..625,
-                            },
+                                    span: 613..625,
+                                },
+                            ),
                         ],
                         span: 432..627,
                     },
@@ -970,95 +978,97 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    WhenCond {
-                                        branches: [
-                                            (
-                                                Binary {
-                                                    op: Lt,
-                                                    lhs: Ident(
-                                                        Ident {
-                                                            name: "n",
-                                                            span: 1092..1093,
-                                                        },
-                                                    ),
-                                                    rhs: Int {
-                                                        value: 0,
-                                                        long: false,
-                                                        span: 1096..1097,
-                                                    },
-                                                    span: 1092..1097,
-                                                },
-                                                Block {
-                                                    stmts: [
-                                                        Expr(
-                                                            Str {
-                                                                parts: [
-                                                                    Text(
-                                                                        "negative",
-                                                                    ),
-                                                                ],
-                                                                span: 1100..1110,
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        WhenCond {
+                                            branches: [
+                                                (
+                                                    Binary {
+                                                        op: Lt,
+                                                        lhs: Ident(
+                                                            Ident {
+                                                                name: "n",
+                                                                span: 1092..1093,
                                                             },
                                                         ),
-                                                    ],
-                                                    span: 1098..1112,
-                                                },
-                                            ),
-                                            (
-                                                Binary {
-                                                    op: Eq,
-                                                    lhs: Ident(
-                                                        Ident {
-                                                            name: "n",
-                                                            span: 1121..1122,
+                                                        rhs: Int {
+                                                            value: 0,
+                                                            long: false,
+                                                            span: 1096..1097,
                                                         },
-                                                    ),
-                                                    rhs: Int {
-                                                        value: 0,
-                                                        long: false,
-                                                        span: 1126..1127,
+                                                        span: 1092..1097,
                                                     },
-                                                    span: 1121..1127,
-                                                },
-                                                Block {
-                                                    stmts: [
-                                                        Expr(
-                                                            Str {
-                                                                parts: [
-                                                                    Text(
-                                                                        "zero",
-                                                                    ),
-                                                                ],
-                                                                span: 1130..1136,
-                                                            },
-                                                        ),
-                                                    ],
-                                                    span: 1128..1138,
-                                                },
-                                            ),
-                                        ],
-                                        else_block: Block {
-                                            stmts: [
-                                                Expr(
-                                                    Str {
-                                                        parts: [
-                                                            Text(
-                                                                "positive",
+                                                    Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "negative",
+                                                                        ),
+                                                                    ],
+                                                                    span: 1100..1110,
+                                                                },
                                                             ),
                                                         ],
-                                                        span: 1154..1164,
+                                                        span: 1098..1112,
+                                                    },
+                                                ),
+                                                (
+                                                    Binary {
+                                                        op: Eq,
+                                                        lhs: Ident(
+                                                            Ident {
+                                                                name: "n",
+                                                                span: 1121..1122,
+                                                            },
+                                                        ),
+                                                        rhs: Int {
+                                                            value: 0,
+                                                            long: false,
+                                                            span: 1126..1127,
+                                                        },
+                                                        span: 1121..1127,
+                                                    },
+                                                    Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "zero",
+                                                                        ),
+                                                                    ],
+                                                                    span: 1130..1136,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        span: 1128..1138,
                                                     },
                                                 ),
                                             ],
-                                            span: 1152..1166,
+                                            else_block: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Str {
+                                                            parts: [
+                                                                Text(
+                                                                    "positive",
+                                                                ),
+                                                            ],
+                                                            span: 1154..1164,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 1152..1166,
+                                            },
+                                            span: 1077..1172,
                                         },
-                                        span: 1077..1172,
-                                    },
-                                ),
-                                span: 1070..1172,
-                            },
+                                    ),
+                                    span: 1070..1172,
+                                },
+                            ),
                         ],
                         span: 1064..1174,
                     },
@@ -1437,17 +1447,19 @@ Module {
                                 },
                                 span: 1523..1611,
                             },
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "last",
-                                            span: 1623..1627,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "last",
+                                                span: 1623..1627,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1616..1627,
-                            },
+                                    span: 1616..1627,
+                                },
+                            ),
                         ],
                         span: 1503..1629,
                     },
@@ -1798,17 +1810,19 @@ Module {
                                 },
                                 span: 1837..1928,
                             },
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "full_name",
-                                            span: 1940..1949,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "full_name",
+                                                span: 1940..1949,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1933..1949,
-                            },
+                                    span: 1933..1949,
+                                },
+                            ),
                         ],
                         span: 1831..1951,
                     },
@@ -1968,19 +1982,21 @@ Module {
                                                             span: 2276..2287,
                                                         },
                                                     ),
-                                                    Return {
-                                                        value: Some(
-                                                            Str {
-                                                                parts: [
-                                                                    Text(
-                                                                        "",
-                                                                    ),
-                                                                ],
-                                                                span: 2303..2305,
-                                                            },
-                                                        ),
-                                                        span: 2296..2305,
-                                                    },
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Str {
+                                                                    parts: [
+                                                                        Text(
+                                                                            "",
+                                                                        ),
+                                                                    ],
+                                                                    span: 2303..2305,
+                                                                },
+                                                            ),
+                                                            span: 2296..2305,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 2266..2311,
                                             },
@@ -2097,17 +2113,19 @@ Module {
                                     span: 2403..2414,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "out",
-                                            span: 2426..2429,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "out",
+                                                span: 2426..2429,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 2419..2429,
-                            },
+                                    span: 2419..2429,
+                                },
+                            ),
                         ],
                         span: 2216..2431,
                     },

@@ -195,17 +195,19 @@ Module {
                                     span: 62..149,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "max",
-                                            span: 161..164,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "max",
+                                                span: 161..164,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 154..164,
-                            },
+                                    span: 154..164,
+                                },
+                            ),
                         ],
                         span: 31..166,
                     },
@@ -388,17 +390,19 @@ Module {
                                             },
                                             Block {
                                                 stmts: [
-                                                    Return {
-                                                        value: Some(
-                                                            Ident(
-                                                                Ident {
-                                                                    name: "rest_max",
-                                                                    span: 307..315,
-                                                                },
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "rest_max",
+                                                                        span: 307..315,
+                                                                    },
+                                                                ),
                                                             ),
-                                                        ),
-                                                        span: 300..315,
-                                                    },
+                                                            span: 300..315,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 290..321,
                                             },
@@ -408,17 +412,19 @@ Module {
                                     span: 251..321,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "first",
-                                            span: 333..338,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "first",
+                                                span: 333..338,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 326..338,
-                            },
+                                    span: 326..338,
+                                },
+                            ),
                         ],
                         span: 210..340,
                     },
@@ -684,17 +690,19 @@ Module {
                                     span: 455..507,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "result",
-                                            span: 519..525,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "result",
+                                                span: 519..525,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 512..525,
-                            },
+                                    span: 512..525,
+                                },
+                            ),
                         ],
                         span: 405..527,
                     },
@@ -761,24 +769,26 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Str {
-                                        parts: [
-                                            Interp(
-                                                Ident(
-                                                    Ident {
-                                                        name: "int",
-                                                        span: 575..578,
-                                                    },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Str {
+                                            parts: [
+                                                Interp(
+                                                    Ident(
+                                                        Ident {
+                                                            name: "int",
+                                                            span: 575..578,
+                                                        },
+                                                    ),
                                                 ),
-                                            ),
-                                        ],
-                                        span: 572..580,
-                                    },
-                                ),
-                                span: 565..580,
-                            },
+                                            ],
+                                            span: 572..580,
+                                        },
+                                    ),
+                                    span: 565..580,
+                                },
+                            ),
                         ],
                         span: 559..582,
                     },
@@ -980,24 +990,26 @@ Module {
                                             body: Block(
                                                 Block {
                                                     stmts: [
-                                                        Return {
-                                                            value: Some(
-                                                                Str {
-                                                                    parts: [
-                                                                        Interp(
-                                                                            Ident(
-                                                                                Ident {
-                                                                                    name: "i",
-                                                                                    span: 748..749,
-                                                                                },
+                                                        Expr(
+                                                            Return {
+                                                                value: Some(
+                                                                    Str {
+                                                                        parts: [
+                                                                            Interp(
+                                                                                Ident(
+                                                                                    Ident {
+                                                                                        name: "i",
+                                                                                        span: 748..749,
+                                                                                    },
+                                                                                ),
                                                                             ),
-                                                                        ),
-                                                                    ],
-                                                                    span: 745..751,
-                                                                },
-                                                            ),
-                                                            span: 738..751,
-                                                        },
+                                                                        ],
+                                                                        span: 745..751,
+                                                                    },
+                                                                ),
+                                                                span: 738..751,
+                                                            },
+                                                        ),
                                                     ],
                                                     span: 736..753,
                                                 },
@@ -1160,60 +1172,62 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    StructLit {
-                                        ty: Some(
-                                            Named {
-                                                qualifiers: [],
-                                                base: TypeRef {
-                                                    name: Ident {
-                                                        name: "Range",
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        StructLit {
+                                            ty: Some(
+                                                Named {
+                                                    qualifiers: [],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Range",
+                                                            span: 1029..1034,
+                                                        },
+                                                        args: [],
+                                                        from: [],
                                                         span: 1029..1034,
                                                     },
-                                                    args: [],
-                                                    from: [],
-                                                    span: 1029..1034,
                                                 },
-                                            },
-                                        ),
-                                        fields: [
-                                            StructLitField {
-                                                kind: Named {
-                                                    name: Ident {
-                                                        name: "start",
-                                                        span: 1036..1041,
-                                                    },
-                                                    value: Ident(
-                                                        Ident {
+                                            ),
+                                            fields: [
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
                                                             name: "start",
-                                                            span: 1043..1048,
+                                                            span: 1036..1041,
                                                         },
-                                                    ),
-                                                },
-                                                span: 1036..1048,
-                                            },
-                                            StructLitField {
-                                                kind: Named {
-                                                    name: Ident {
-                                                        name: "end",
-                                                        span: 1050..1053,
+                                                        value: Ident(
+                                                            Ident {
+                                                                name: "start",
+                                                                span: 1043..1048,
+                                                            },
+                                                        ),
                                                     },
-                                                    value: Ident(
-                                                        Ident {
-                                                            name: "end",
-                                                            span: 1055..1058,
-                                                        },
-                                                    ),
+                                                    span: 1036..1048,
                                                 },
-                                                span: 1050..1058,
-                                            },
-                                        ],
-                                        span: 1029..1059,
-                                    },
-                                ),
-                                span: 1022..1059,
-                            },
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
+                                                            name: "end",
+                                                            span: 1050..1053,
+                                                        },
+                                                        value: Ident(
+                                                            Ident {
+                                                                name: "end",
+                                                                span: 1055..1058,
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 1050..1058,
+                                                },
+                                            ],
+                                            span: 1029..1059,
+                                        },
+                                    ),
+                                    span: 1022..1059,
+                                },
+                            ),
                         ],
                         span: 1016..1061,
                     },
@@ -1415,84 +1429,86 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    StructLit {
-                                        ty: Some(
-                                            Named {
-                                                qualifiers: [
-                                                    TypeRef {
-                                                        name: Ident {
-                                                            name: "Mut",
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        StructLit {
+                                            ty: Some(
+                                                Named {
+                                                    qualifiers: [
+                                                        TypeRef {
+                                                            name: Ident {
+                                                                name: "Mut",
+                                                                span: 1071..1075,
+                                                            },
+                                                            args: [],
+                                                            from: [],
                                                             span: 1071..1075,
+                                                        },
+                                                    ],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "__Pass_Range",
+                                                            span: 1068..1069,
                                                         },
                                                         args: [],
                                                         from: [],
                                                         span: 1071..1075,
                                                     },
-                                                ],
-                                                base: TypeRef {
-                                                    name: Ident {
-                                                        name: "__Pass_Range",
-                                                        span: 1068..1069,
-                                                    },
-                                                    args: [],
-                                                    from: [],
-                                                    span: 1071..1075,
                                                 },
-                                            },
-                                        ),
-                                        fields: [
-                                            StructLitField {
-                                                kind: Named {
-                                                    name: Ident {
-                                                        name: "end",
-                                                        span: 1075..1076,
-                                                    },
-                                                    value: Field {
-                                                        base: Ident(
-                                                            Ident {
-                                                                name: "range",
-                                                                span: 1074..1075,
-                                                            },
-                                                        ),
-                                                        field: Ident {
+                                            ),
+                                            fields: [
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
                                                             name: "end",
                                                             span: 1075..1076,
                                                         },
-                                                        span: 1075..1076,
-                                                    },
-                                                },
-                                                span: 1075..1076,
-                                            },
-                                            StructLitField {
-                                                kind: Named {
-                                                    name: Ident {
-                                                        name: "at",
-                                                        span: 1138..1140,
-                                                    },
-                                                    value: Field {
-                                                        base: Ident(
-                                                            Ident {
-                                                                name: "range",
-                                                                span: 1148..1153,
+                                                        value: Field {
+                                                            base: Ident(
+                                                                Ident {
+                                                                    name: "range",
+                                                                    span: 1074..1075,
+                                                                },
+                                                            ),
+                                                            field: Ident {
+                                                                name: "end",
+                                                                span: 1075..1076,
                                                             },
-                                                        ),
-                                                        field: Ident {
-                                                            name: "start",
-                                                            span: 1154..1159,
+                                                            span: 1075..1076,
                                                         },
-                                                        span: 1148..1159,
                                                     },
+                                                    span: 1075..1076,
                                                 },
-                                                span: 1138..1159,
-                                            },
-                                        ],
-                                        span: 1072..1073,
-                                    },
-                                ),
-                                span: 1073..1074,
-                            },
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
+                                                            name: "at",
+                                                            span: 1138..1140,
+                                                        },
+                                                        value: Field {
+                                                            base: Ident(
+                                                                Ident {
+                                                                    name: "range",
+                                                                    span: 1148..1153,
+                                                                },
+                                                            ),
+                                                            field: Ident {
+                                                                name: "start",
+                                                                span: 1154..1159,
+                                                            },
+                                                            span: 1148..1159,
+                                                        },
+                                                    },
+                                                    span: 1138..1159,
+                                                },
+                                            ],
+                                            span: 1072..1073,
+                                        },
+                                    ),
+                                    span: 1073..1074,
+                                },
+                            ),
                         ],
                         span: 1069..1070,
                     },
@@ -1658,23 +1674,25 @@ Module {
                                             },
                                             Block {
                                                 stmts: [
-                                                    Return {
-                                                        value: Some(
-                                                            Call {
-                                                                callee: Ident(
-                                                                    Ident {
-                                                                        name: "finished",
-                                                                        span: 1206..1214,
-                                                                    },
-                                                                ),
-                                                                type_args: [],
-                                                                args: [],
-                                                                named: [],
-                                                                span: 1206..1216,
-                                                            },
-                                                        ),
-                                                        span: 1199..1216,
-                                                    },
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Call {
+                                                                    callee: Ident(
+                                                                        Ident {
+                                                                            name: "finished",
+                                                                            span: 1206..1214,
+                                                                        },
+                                                                    ),
+                                                                    type_args: [],
+                                                                    args: [],
+                                                                    named: [],
+                                                                    span: 1206..1216,
+                                                                },
+                                                            ),
+                                                            span: 1199..1216,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 1189..1222,
                                             },
@@ -1758,30 +1776,32 @@ Module {
                                 },
                                 span: 1248..1259,
                             },
-                            Return {
-                                value: Some(
-                                    Call {
-                                        callee: Ident(
-                                            Ident {
-                                                name: "emitted",
-                                                span: 1271..1278,
-                                            },
-                                        ),
-                                        type_args: [],
-                                        args: [
-                                            Ident(
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Call {
+                                            callee: Ident(
                                                 Ident {
-                                                    name: "v",
-                                                    span: 1279..1280,
+                                                    name: "emitted",
+                                                    span: 1271..1278,
                                                 },
                                             ),
-                                        ],
-                                        named: [],
-                                        span: 1271..1281,
-                                    },
-                                ),
-                                span: 1264..1281,
-                            },
+                                            type_args: [],
+                                            args: [
+                                                Ident(
+                                                    Ident {
+                                                        name: "v",
+                                                        span: 1279..1280,
+                                                    },
+                                                ),
+                                            ],
+                                            named: [],
+                                            span: 1271..1281,
+                                        },
+                                    ),
+                                    span: 1264..1281,
+                                },
+                            ),
                         ],
                         span: 1116..1283,
                     },
@@ -1944,55 +1964,57 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    StructLit {
-                                        ty: Some(
-                                            Named {
-                                                qualifiers: [
-                                                    TypeRef {
-                                                        name: Ident {
-                                                            name: "Mut",
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        StructLit {
+                                            ty: Some(
+                                                Named {
+                                                    qualifiers: [
+                                                        TypeRef {
+                                                            name: Ident {
+                                                                name: "Mut",
+                                                                span: 1461..1464,
+                                                            },
+                                                            args: [],
+                                                            from: [],
                                                             span: 1461..1464,
+                                                        },
+                                                    ],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Countdown",
+                                                            span: 1465..1474,
                                                         },
                                                         args: [],
                                                         from: [],
-                                                        span: 1461..1464,
-                                                    },
-                                                ],
-                                                base: TypeRef {
-                                                    name: Ident {
-                                                        name: "Countdown",
                                                         span: 1465..1474,
                                                     },
-                                                    args: [],
-                                                    from: [],
-                                                    span: 1465..1474,
                                                 },
-                                            },
-                                        ),
-                                        fields: [
-                                            StructLitField {
-                                                kind: Named {
-                                                    name: Ident {
-                                                        name: "at",
-                                                        span: 1476..1478,
-                                                    },
-                                                    value: Ident(
-                                                        Ident {
-                                                            name: "from",
-                                                            span: 1480..1484,
+                                            ),
+                                            fields: [
+                                                StructLitField {
+                                                    kind: Named {
+                                                        name: Ident {
+                                                            name: "at",
+                                                            span: 1476..1478,
                                                         },
-                                                    ),
+                                                        value: Ident(
+                                                            Ident {
+                                                                name: "from",
+                                                                span: 1480..1484,
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 1476..1484,
                                                 },
-                                                span: 1476..1484,
-                                            },
-                                        ],
-                                        span: 1461..1485,
-                                    },
-                                ),
-                                span: 1454..1485,
-                            },
+                                            ],
+                                            span: 1461..1485,
+                                        },
+                                    ),
+                                    span: 1454..1485,
+                                },
+                            ),
                         ],
                         span: 1448..1487,
                     },
@@ -2150,23 +2172,25 @@ Module {
                                             },
                                             Block {
                                                 stmts: [
-                                                    Return {
-                                                        value: Some(
-                                                            Call {
-                                                                callee: Ident(
-                                                                    Ident {
-                                                                        name: "finished",
-                                                                        span: 1587..1595,
-                                                                    },
-                                                                ),
-                                                                type_args: [],
-                                                                args: [],
-                                                                named: [],
-                                                                span: 1587..1597,
-                                                            },
-                                                        ),
-                                                        span: 1580..1597,
-                                                    },
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Call {
+                                                                    callee: Ident(
+                                                                        Ident {
+                                                                            name: "finished",
+                                                                            span: 1587..1595,
+                                                                        },
+                                                                    ),
+                                                                    type_args: [],
+                                                                    args: [],
+                                                                    named: [],
+                                                                    span: 1587..1597,
+                                                                },
+                                                            ),
+                                                            span: 1580..1597,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 1570..1603,
                                             },
@@ -2250,30 +2274,32 @@ Module {
                                 },
                                 span: 1633..1648,
                             },
-                            Return {
-                                value: Some(
-                                    Call {
-                                        callee: Ident(
-                                            Ident {
-                                                name: "emitted",
-                                                span: 1660..1667,
-                                            },
-                                        ),
-                                        type_args: [],
-                                        args: [
-                                            Ident(
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Call {
+                                            callee: Ident(
                                                 Ident {
-                                                    name: "now",
-                                                    span: 1668..1671,
+                                                    name: "emitted",
+                                                    span: 1660..1667,
                                                 },
                                             ),
-                                        ],
-                                        named: [],
-                                        span: 1660..1672,
-                                    },
-                                ),
-                                span: 1653..1672,
-                            },
+                                            type_args: [],
+                                            args: [
+                                                Ident(
+                                                    Ident {
+                                                        name: "now",
+                                                        span: 1668..1671,
+                                                    },
+                                                ),
+                                            ],
+                                            named: [],
+                                            span: 1660..1672,
+                                        },
+                                    ),
+                                    span: 1653..1672,
+                                },
+                            ),
                         ],
                         span: 1551..1674,
                     },
@@ -2605,39 +2631,41 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    NonNull {
-                                        operand: Call {
-                                            callee: Field {
-                                                base: Ident(
-                                                    Ident {
-                                                        name: "list",
-                                                        span: 1918..1922,
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        NonNull {
+                                            operand: Call {
+                                                callee: Field {
+                                                    base: Ident(
+                                                        Ident {
+                                                            name: "list",
+                                                            span: 1918..1922,
+                                                        },
+                                                    ),
+                                                    field: Ident {
+                                                        name: "get",
+                                                        span: 1923..1926,
                                                     },
-                                                ),
-                                                field: Ident {
-                                                    name: "get",
-                                                    span: 1923..1926,
+                                                    span: 1918..1926,
                                                 },
-                                                span: 1918..1926,
+                                                type_args: [],
+                                                args: [
+                                                    Int {
+                                                        value: 0,
+                                                        long: false,
+                                                        span: 1927..1928,
+                                                    },
+                                                ],
+                                                named: [],
+                                                span: 1918..1929,
                                             },
-                                            type_args: [],
-                                            args: [
-                                                Int {
-                                                    value: 0,
-                                                    long: false,
-                                                    span: 1927..1928,
-                                                },
-                                            ],
-                                            named: [],
-                                            span: 1918..1929,
+                                            span: 1918..1930,
                                         },
-                                        span: 1918..1930,
-                                    },
-                                ),
-                                span: 1911..1930,
-                            },
+                                    ),
+                                    span: 1911..1930,
+                                },
+                            ),
                         ],
                         span: 1905..1932,
                     },
@@ -2881,30 +2909,32 @@ Module {
                                             },
                                             Block {
                                                 stmts: [
-                                                    Return {
-                                                        value: Some(
-                                                            Call {
-                                                                callee: Ident(
-                                                                    Ident {
-                                                                        name: "remove_first",
-                                                                        span: 2093..2105,
-                                                                    },
-                                                                ),
-                                                                type_args: [],
-                                                                args: [
-                                                                    Ident(
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Call {
+                                                                    callee: Ident(
                                                                         Ident {
-                                                                            name: "list",
-                                                                            span: 2106..2110,
+                                                                            name: "remove_first",
+                                                                            span: 2093..2105,
                                                                         },
                                                                     ),
-                                                                ],
-                                                                named: [],
-                                                                span: 2093..2111,
-                                                            },
-                                                        ),
-                                                        span: 2086..2111,
-                                                    },
+                                                                    type_args: [],
+                                                                    args: [
+                                                                        Ident(
+                                                                            Ident {
+                                                                                name: "list",
+                                                                                span: 2106..2110,
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                    named: [],
+                                                                    span: 2093..2111,
+                                                                },
+                                                            ),
+                                                            span: 2086..2111,
+                                                        },
+                                                    ),
                                                 ],
                                                 span: 2076..2117,
                                             },
@@ -2914,17 +2944,19 @@ Module {
                                     span: 2055..2117,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "None",
-                                            span: 2129..2133,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "None",
+                                                span: 2129..2133,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 2122..2133,
-                            },
+                                    span: 2122..2133,
+                                },
+                            ),
                         ],
                         span: 2049..2135,
                     },
@@ -3284,30 +3316,32 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Call {
-                                        callee: Ident(
-                                            Ident {
-                                                name: "f",
-                                                span: 2517..2518,
-                                            },
-                                        ),
-                                        type_args: [],
-                                        args: [
-                                            Ident(
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Call {
+                                            callee: Ident(
                                                 Ident {
-                                                    name: "value",
-                                                    span: 2519..2524,
+                                                    name: "f",
+                                                    span: 2517..2518,
                                                 },
                                             ),
-                                        ],
-                                        named: [],
-                                        span: 2517..2525,
-                                    },
-                                ),
-                                span: 2510..2525,
-                            },
+                                            type_args: [],
+                                            args: [
+                                                Ident(
+                                                    Ident {
+                                                        name: "value",
+                                                        span: 2519..2524,
+                                                    },
+                                                ),
+                                            ],
+                                            named: [],
+                                            span: 2517..2525,
+                                        },
+                                    ),
+                                    span: 2510..2525,
+                                },
+                            ),
                         ],
                         span: 2504..2527,
                     },
@@ -3428,27 +3462,29 @@ Module {
                                                                 span: 2601..2625,
                                                             },
                                                         ),
-                                                        Return {
-                                                            value: Some(
-                                                                Str {
-                                                                    parts: [
-                                                                        Interp(
-                                                                            Ident(
-                                                                                Ident {
-                                                                                    name: "s",
-                                                                                    span: 2644..2645,
-                                                                                },
+                                                        Expr(
+                                                            Return {
+                                                                value: Some(
+                                                                    Str {
+                                                                        parts: [
+                                                                            Interp(
+                                                                                Ident(
+                                                                                    Ident {
+                                                                                        name: "s",
+                                                                                        span: 2644..2645,
+                                                                                    },
+                                                                                ),
                                                                             ),
-                                                                        ),
-                                                                        Text(
-                                                                            "!",
-                                                                        ),
-                                                                    ],
-                                                                    span: 2641..2648,
-                                                                },
-                                                            ),
-                                                            span: 2634..2648,
-                                                        },
+                                                                            Text(
+                                                                                "!",
+                                                                            ),
+                                                                        ],
+                                                                        span: 2641..2648,
+                                                                    },
+                                                                ),
+                                                                span: 2634..2648,
+                                                            },
+                                                        ),
                                                     ],
                                                     span: 2591..2654,
                                                 },
@@ -3831,17 +3867,19 @@ Module {
                                     span: 3166..3211,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "acc",
-                                            span: 3223..3226,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "acc",
+                                                span: 3223..3226,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 3216..3226,
-                            },
+                                    span: 3216..3226,
+                                },
+                            ),
                         ],
                         span: 3139..3228,
                     },
@@ -4009,17 +4047,19 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "list",
-                                            span: 3312..3316,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "list",
+                                                span: 3312..3316,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 3305..3316,
-                            },
+                                    span: 3305..3316,
+                                },
+                            ),
                         ],
                         span: 3299..3318,
                     },

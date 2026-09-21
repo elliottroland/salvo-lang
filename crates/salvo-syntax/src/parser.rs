@@ -2291,36 +2291,6 @@ impl<'s> Parser<'s> {
             TokenKind::KwLet => self.parse_let(),
             // [fn-rename] In force from here to the end of the block.
             TokenKind::KwRename => self.parse_rename().map(Stmt::Rename),
-            TokenKind::KwReturn => {
-                let start = self.bump().span;
-                let value = if self.stmt_value_follows() {
-                    Some(self.parse_expr()?)
-                } else {
-                    None
-                };
-                let end = value.as_ref().map(|e| e.span()).unwrap_or(start);
-                Some(Stmt::Return {
-                    value,
-                    span: start.to(end),
-                })
-            }
-            TokenKind::KwBreak => {
-                let start = self.bump().span;
-                let value = if self.stmt_value_follows() {
-                    Some(self.parse_expr()?)
-                } else {
-                    None
-                };
-                let end = value.as_ref().map(|e| e.span()).unwrap_or(start);
-                Some(Stmt::Break {
-                    value,
-                    span: start.to(end),
-                })
-            }
-            TokenKind::KwContinue => {
-                let span = self.bump().span;
-                Some(Stmt::Continue { span })
-            }
             TokenKind::KwUse => {
                 let start = self.bump().span;
                 // [use-local] `use local H(args)` — the scope-local opt-out
@@ -3202,6 +3172,32 @@ impl<'s> Parser<'s> {
 
     fn parse_primary(&mut self) -> Option<Expr> {
         match self.kind().clone() {
+            // [expr-escape] The three escapes are **expressions** of type
+            // `Never` (user decision 2026-09-21), so a tail position can hold
+            // one with no grammar exception — which is what `?:`'s right side
+            // needs. A value follows only on the same line and only when
+            // something can start one, so `return` alone before a `}` or a
+            // newline is still the value-less form.
+            TokenKind::KwReturn | TokenKind::KwBreak => {
+                let is_break = matches!(self.kind(), TokenKind::KwBreak);
+                let start = self.bump().span;
+                let value = if self.stmt_value_follows() {
+                    Some(Box::new(self.parse_expr()?))
+                } else {
+                    None
+                };
+                let end = value.as_ref().map(|e| e.span()).unwrap_or(start);
+                let span = start.to(end);
+                Some(if is_break {
+                    Expr::Break { value, span }
+                } else {
+                    Expr::Return { value, span }
+                })
+            }
+            TokenKind::KwContinue => {
+                let span = self.bump().span;
+                Some(Expr::Continue { span })
+            }
             TokenKind::Int { value, long } => {
                 let tok = self.bump();
                 Some(Expr::Int {

@@ -11523,8 +11523,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// types it reads are the ones just recorded), which is where both
     /// callers stand.
     fn block_exits(&self, block: &Block) -> bool {
+        // [expr-escape] The three escapes are `Never`-typed *expressions*
+        // (2026-09-21), so they arrive here as expression statements and the
+        // syntactic special cases they used to need are gone: `diverges`
+        // recognizes them by the type the checker recorded, exactly as it
+        // already recognized a `throw(m)` call [type-any-never].
         block.stmts.iter().any(|stmt| match stmt {
-            Stmt::Return { .. } | Stmt::Break { .. } | Stmt::Continue { .. } => true,
             Stmt::Expr(e) => self.expr_exits(e),
             _ => false,
         })
@@ -11535,6 +11539,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return true;
         }
         match expr {
+            // [expr-escape] All three leave the enclosing block. `diverges`
+            // above already answers for them off the recorded type; listed
+            // here because this match is deliberately exhaustive, so a new
+            // control-flow form has to be classified.
+            Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => true,
             Expr::If {
                 branches,
                 else_block,
@@ -11606,17 +11615,29 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// divergence rule: a path that throws never falls off the end.
     fn block_returns(&self, block: &Block) -> bool {
         block.stmts.iter().any(|stmt| match stmt {
-            Stmt::Return { .. } => true,
             Stmt::Expr(e) => self.expr_returns(e),
             _ => false,
         })
     }
 
     fn expr_returns(&self, expr: &Expr) -> bool {
+        // [expr-escape] A `break`/`continue` is `Never`-typed like a `return`
+        // or a `throw`, but it leaves a **loop**, not the function, so it must
+        // not satisfy [fn-must-return]. Checked here rather than left to
+        // `diverges`, which knows only the type: before the escapes became
+        // expressions this distinction was free, because only `Stmt::Return`
+        // counted.
+        if matches!(expr, Expr::Break { .. } | Expr::Continue { .. }) {
+            return false;
+        }
         if self.diverges(expr) {
             return true;
         }
         match expr {
+            // [expr-escape] Only `return` leaves the *function*; the guard
+            // above has already answered `false` for the other two.
+            Expr::Return { .. } => true,
+            Expr::Break { .. } | Expr::Continue { .. } => false,
             Expr::If {
                 branches,
                 else_block,
@@ -13586,9 +13607,6 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
                 }
             }
             Stmt::Expr(e) | Stmt::Let { value: e, .. } => collect_assigned_expr(e, out),
-            Stmt::Return { value: Some(e), .. } | Stmt::Break { value: Some(e), .. } => {
-                collect_assigned_expr(e, out)
-            }
             _ => {}
         }
     }
@@ -13602,6 +13620,14 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
 /// diagnostic. A new variant must be classified, not defaulted.
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [expr-escape] The escapes carry a value expression, which may hold
+        // assignments of its own (a block-valued `if`, say).
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            if let Some(v) = value {
+                collect_assigned_expr(v, out);
+            }
+        }
+        Expr::Continue { .. } => {}
         Expr::IncDec { operand, .. } => {
             if let Expr::Ident(id) = operand.as_ref() {
                 out.insert(id.name.clone());
@@ -13797,9 +13823,6 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
         Stmt::Assign { target, value, .. } => {
             expr_mentions(target, name) || expr_mentions(value, name)
         }
-        Stmt::Return { value: Some(e), .. } | Stmt::Break { value: Some(e), .. } => {
-            expr_mentions(e, name)
-        }
         Stmt::Use { handler, .. } => expr_mentions(handler, name),
         Stmt::Expr(e) => expr_mentions(e, name),
         _ => false,
@@ -13817,6 +13840,11 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
 fn expr_mentions(expr: &Expr, name: &str) -> bool {
     let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
+        // [expr-escape] `return x` mentions `x`.
+        Expr::Return { value, .. } | Expr::Break { value, .. } => {
+            value.as_ref().is_some_and(|v| expr_mentions(v, name))
+        }
+        Expr::Continue { .. } => false,
         Expr::Ident(id) => id.name == name,
         Expr::Str { parts, .. } => parts.iter().any(|p| match p {
             StrExprPart::Interp(e) => expr_mentions(e, name),
@@ -14401,163 +14429,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 Ty::none()
-            }
-            Stmt::Return { value, span } => {
-                let expected = self.ret_ty.clone();
-                match value {
-                    Some(v) => {
-                        // [proj-anywhere] A constructor call whose result
-                        // goes into a `proj` arm lends its argument: mark
-                        // it before checking so the contract does not
-                        // consume the value the caller is about to borrow.
-                        // The call is resolved during checking, so the arm
-                        // test itself happens after; the mark is on the
-                        // *shape* (a one-argument call under a union-return
-                        // derived fn) and the arm decides below.
-                        let saved_lending = self.lending_ctor;
-                        if self.own_derived_return.is_some() && !self.own_proj_arms.is_empty() {
-                            if let Expr::Call { span, args, .. } = v {
-                                if args.len() == 1 {
-                                    self.lending_ctor = Some(*span);
-                                }
-                            }
-                        }
-                        let vty = self.check_expr(v, Some(&expected));
-                        self.lending_ctor = saved_lending;
-                        if !is_subtype(&vty, &expected) {
-                            self.error(
-                                v.span(),
-                                format!("expected return type `{expected}`, found `{vty}`"),
-                            );
-                        }
-                        // [readonly-return] A derived-return fn
-                        // *borrows* its result out: the value must be
-                        // derived from the annotated parameter (or be
-                        // `None`), and nothing is consumed.
-                        let into_proj_arm = match self.own_derived_return.clone() {
-                            None => None,
-                            Some(from) if self.own_proj_arms.is_empty() => Some(from),
-                            // [proj-anywhere] A union return: only a value
-                            // built for a `proj` arm is a borrow. The arm is
-                            // read off the constructor the value goes
-                            // through (`emitted(x)` builds `Emitted`).
-                            Some(from) => self
-                                .constructed_qualifier(v)
-                                .filter(|q| self.own_proj_arms.contains(q))
-                                .map(|_| from),
-                        };
-                        if let Some(from) = into_proj_arm {
-                            // [proj-anywhere] Only a *union* return goes
-                            // through a tag constructor whose operand is the
-                            // borrowed value (`emitted(x)`); the arm test
-                            // above is what established that. A plain
-                            // `proj[from: p] T` return is checked as
-                            // written — unwrapping any one-argument call
-                            // here mistook `list.get(0)` for a constructor
-                            // and asked the *index* for its provenance.
-                            let inner = if self.own_proj_arms.is_empty() {
-                                v
-                            } else {
-                                Self::constructor_operand(v)
-                            };
-                            self.check_derived_return_value(inner, &from);
-                        } else {
-                            // Returning a value moves it: a fate-linked
-                            // (derived) variable cannot be moved
-                            // [fate-derived-readonly]; returning a root
-                            // consumes it [deduce-consume] (terminal
-                            // here, but visible to unreachable code and
-                            // to derived-variable poison [fate-poison]).
-                            self.fate_move(v, "return", "a `return`", *span);
-                        }
-                        // [linear-obligation] Nothing linear may be
-                        // alive anywhere when the fn exits.
-                        self.check_linear_exit(0, *span, "return");
-                        // [linear-state] …and no state field may be left
-                        // with a hole in it.
-                        self.check_state_whole(*span, "return");
-                    }
-                    None => {
-                        if !expected.is_none_ty() && !expected.is_unknown() {
-                            self.error(
-                                *span,
-                                format!("bare `return` in a function returning `{expected}`"),
-                            );
-                        }
-                        // [linear-obligation]
-                        self.check_linear_exit(0, *span, "return");
-                        // [linear-state]
-                        self.check_state_whole(*span, "return");
-                    }
-                }
-                Ty::Never
-            }
-            Stmt::Break { value, span } => {
-                if self.loop_stack.is_empty() {
-                    self.error(*span, "`break` outside of a loop");
-                }
-                // [while-value] `break value` contributes to the loop's
-                // value; a bare `break` may leave the loop without a value.
-                match value {
-                    Some(v) => {
-                        let vty = self.check_expr(v, None);
-                        // `break value` moves the value out of the loop:
-                        // a derived variable cannot be moved
-                        // [fate-derived-readonly]; a root is consumed
-                        // [deduce-consume] — the code after the loop sees
-                        // it moved.
-                        self.fate_move(v, "break with", "a `break`", *span);
-                        let repr = self.repr_of(v, &vty);
-                        if let Some(ctx) = self.loop_stack.last_mut() {
-                            ctx.breaks.push(TailInfo {
-                                span: v.span(),
-                                logical: vty,
-                                repr,
-                            });
-                        }
-                    }
-                    None => {
-                        if let Some(ctx) = self.loop_stack.last_mut() {
-                            ctx.may_skip_value = true;
-                        }
-                    }
-                }
-                // [linear-obligation] Frames inside the loop die at a
-                // `break`: nothing linear may still be owed in them.
-                // The loop's exit is reachable from every `break`: record
-                // this path's flow state so the after-loop merge sees
-                // values consumed on break paths [deduce-consume] (an
-                // always-exiting branch containing the `break` contributes
-                // nothing to the merge *inside* the body, but the loop
-                // exit is exactly where its state lands).
-                match self.loop_stack.last().map(|c| c.entry_depth) {
-                    Some(depth) => {
-                        self.check_linear_exit(depth, *span, "break");
-                        let snap = self.snapshot_narrows();
-                        if let Some(ctx) = self.loop_stack.last_mut() {
-                            ctx.break_states.push(snap);
-                        }
-                    }
-                    None => {
-                        let snap = self.snapshot_narrows();
-                        if let Some(ctx) = self.loop_stack.last_mut() {
-                            ctx.break_states.push(snap);
-                        }
-                    }
-                }
-                Ty::Never
-            }
-            Stmt::Continue { span } => {
-                match self.loop_stack.last_mut() {
-                    Some(ctx) => ctx.may_skip_value = true,
-                    None => self.error(*span, "`continue` outside of a loop"),
-                }
-                // [linear-obligation] Frames inside the loop iteration
-                // die at a `continue`.
-                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
-                    self.check_linear_exit(depth, *span, "continue");
-                }
-                Ty::Never
             }
             Stmt::Use {
                 handler,
@@ -15724,6 +15595,166 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => self.check_if(branches, Some(else_block), *span),
             // [try] The throw delimiter: an intrinsic, not an effect.
             Expr::Try { body, span } => self.check_try(body, *span),
+            // [expr-escape] The three escapes are expressions of type
+            // `Never` (user decision 2026-09-21). The rules are unchanged
+            // from when they were statements — only where they live is.
+            Expr::Return { value, span } => {
+                let expected = self.ret_ty.clone();
+                match value {
+                    Some(v) => {
+                        // [proj-anywhere] A constructor call whose result
+                        // goes into a `proj` arm lends its argument: mark
+                        // it before checking so the contract does not
+                        // consume the value the caller is about to borrow.
+                        // The call is resolved during checking, so the arm
+                        // test itself happens after; the mark is on the
+                        // *shape* (a one-argument call under a union-return
+                        // derived fn) and the arm decides below.
+                        let saved_lending = self.lending_ctor;
+                        if self.own_derived_return.is_some() && !self.own_proj_arms.is_empty() {
+                            if let Expr::Call { span, args, .. } = v.as_ref() {
+                                if args.len() == 1 {
+                                    self.lending_ctor = Some(*span);
+                                }
+                            }
+                        }
+                        let vty = self.check_expr(v, Some(&expected));
+                        self.lending_ctor = saved_lending;
+                        if !is_subtype(&vty, &expected) {
+                            self.error(
+                                v.span(),
+                                format!("expected return type `{expected}`, found `{vty}`"),
+                            );
+                        }
+                        // [readonly-return] A derived-return fn
+                        // *borrows* its result out: the value must be
+                        // derived from the annotated parameter (or be
+                        // `None`), and nothing is consumed.
+                        let into_proj_arm = match self.own_derived_return.clone() {
+                            None => None,
+                            Some(from) if self.own_proj_arms.is_empty() => Some(from),
+                            // [proj-anywhere] A union return: only a value
+                            // built for a `proj` arm is a borrow. The arm is
+                            // read off the constructor the value goes
+                            // through (`emitted(x)` builds `Emitted`).
+                            Some(from) => self
+                                .constructed_qualifier(v)
+                                .filter(|q| self.own_proj_arms.contains(q))
+                                .map(|_| from),
+                        };
+                        if let Some(from) = into_proj_arm {
+                            // [proj-anywhere] Only a *union* return goes
+                            // through a tag constructor whose operand is the
+                            // borrowed value (`emitted(x)`); the arm test
+                            // above is what established that. A plain
+                            // `proj[from: p] T` return is checked as
+                            // written — unwrapping any one-argument call
+                            // here mistook `list.get(0)` for a constructor
+                            // and asked the *index* for its provenance.
+                            let inner = if self.own_proj_arms.is_empty() {
+                                v
+                            } else {
+                                Self::constructor_operand(v)
+                            };
+                            self.check_derived_return_value(inner, &from);
+                        } else {
+                            // Returning a value moves it: a fate-linked
+                            // (derived) variable cannot be moved
+                            // [fate-derived-readonly]; returning a root
+                            // consumes it [deduce-consume] (terminal
+                            // here, but visible to unreachable code and
+                            // to derived-variable poison [fate-poison]).
+                            self.fate_move(v, "return", "a `return`", *span);
+                        }
+                        // [linear-obligation] Nothing linear may be
+                        // alive anywhere when the fn exits.
+                        self.check_linear_exit(0, *span, "return");
+                        // [linear-state] …and no state field may be left
+                        // with a hole in it.
+                        self.check_state_whole(*span, "return");
+                    }
+                    None => {
+                        if !expected.is_none_ty() && !expected.is_unknown() {
+                            self.error(
+                                *span,
+                                format!("bare `return` in a function returning `{expected}`"),
+                            );
+                        }
+                        // [linear-obligation]
+                        self.check_linear_exit(0, *span, "return");
+                        // [linear-state]
+                        self.check_state_whole(*span, "return");
+                    }
+                }
+                Ty::Never
+            }
+            Expr::Break { value, span } => {
+                if self.loop_stack.is_empty() {
+                    self.error(*span, "`break` outside of a loop");
+                }
+                // [while-value] `break value` contributes to the loop's
+                // value; a bare `break` may leave the loop without a value.
+                match value {
+                    Some(v) => {
+                        let vty = self.check_expr(v, None);
+                        // `break value` moves the value out of the loop:
+                        // a derived variable cannot be moved
+                        // [fate-derived-readonly]; a root is consumed
+                        // [deduce-consume] — the code after the loop sees
+                        // it moved.
+                        self.fate_move(v, "break with", "a `break`", *span);
+                        let repr = self.repr_of(v, &vty);
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.breaks.push(TailInfo {
+                                span: v.span(),
+                                logical: vty,
+                                repr,
+                            });
+                        }
+                    }
+                    None => {
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.may_skip_value = true;
+                        }
+                    }
+                }
+                // [linear-obligation] Frames inside the loop die at a
+                // `break`: nothing linear may still be owed in them.
+                // The loop's exit is reachable from every `break`: record
+                // this path's flow state so the after-loop merge sees
+                // values consumed on break paths [deduce-consume] (an
+                // always-exiting branch containing the `break` contributes
+                // nothing to the merge *inside* the body, but the loop
+                // exit is exactly where its state lands).
+                match self.loop_stack.last().map(|c| c.entry_depth) {
+                    Some(depth) => {
+                        self.check_linear_exit(depth, *span, "break");
+                        let snap = self.snapshot_narrows();
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.break_states.push(snap);
+                        }
+                    }
+                    None => {
+                        let snap = self.snapshot_narrows();
+                        if let Some(ctx) = self.loop_stack.last_mut() {
+                            ctx.break_states.push(snap);
+                        }
+                    }
+                }
+                Ty::Never
+            }
+            Expr::Continue { span } => {
+                match self.loop_stack.last_mut() {
+                    Some(ctx) => ctx.may_skip_value = true,
+                    None => self.error(*span, "`continue` outside of a loop"),
+                }
+                // [linear-obligation] Frames inside the loop iteration
+                // die at a `continue`.
+                if let Some(depth) = self.loop_stack.last().map(|c| c.entry_depth) {
+                    self.check_linear_exit(depth, *span, "continue");
+                }
+                Ty::Never
+            }
             // [actor-spawn-expr] The asynchronous binding of a handler: its
             // value is the child's `Addr<E>`.
             Expr::Spawn {

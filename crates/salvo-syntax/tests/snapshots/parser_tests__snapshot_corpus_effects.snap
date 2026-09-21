@@ -333,26 +333,28 @@ Module {
                                         },
                                         span: 220..247,
                                     },
-                                    Return {
-                                        value: Some(
-                                            Index {
-                                                base: Ident(
-                                                    Ident {
-                                                        name: "values",
-                                                        span: 263..269,
-                                                    },
-                                                ),
-                                                index: Ident(
-                                                    Ident {
-                                                        name: "i",
-                                                        span: 270..271,
-                                                    },
-                                                ),
-                                                span: 263..272,
-                                            },
-                                        ),
-                                        span: 256..272,
-                                    },
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Index {
+                                                    base: Ident(
+                                                        Ident {
+                                                            name: "values",
+                                                            span: 263..269,
+                                                        },
+                                                    ),
+                                                    index: Ident(
+                                                        Ident {
+                                                            name: "i",
+                                                            span: 270..271,
+                                                        },
+                                                    ),
+                                                    span: 263..272,
+                                                },
+                                            ),
+                                            span: 256..272,
+                                        },
+                                    ),
                                 ],
                                 span: 210..278,
                             },
@@ -976,30 +978,32 @@ Module {
                                     span: 860..914,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Call {
-                                        callee: Ident(
-                                            Ident {
-                                                name: "size",
-                                                span: 926..930,
-                                            },
-                                        ),
-                                        type_args: [],
-                                        args: [
-                                            Ident(
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Call {
+                                            callee: Ident(
                                                 Ident {
-                                                    name: "line",
-                                                    span: 931..935,
+                                                    name: "size",
+                                                    span: 926..930,
                                                 },
                                             ),
-                                        ],
-                                        named: [],
-                                        span: 926..936,
-                                    },
-                                ),
-                                span: 919..936,
-                            },
+                                            type_args: [],
+                                            args: [
+                                                Ident(
+                                                    Ident {
+                                                        name: "line",
+                                                        span: 931..935,
+                                                    },
+                                                ),
+                                            ],
+                                            named: [],
+                                            span: 926..936,
+                                        },
+                                    ),
+                                    span: 919..936,
+                                },
+                            ),
                         ],
                         span: 854..938,
                     },

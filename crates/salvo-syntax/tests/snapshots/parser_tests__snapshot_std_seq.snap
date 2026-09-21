@@ -326,17 +326,19 @@ Module {
                                     span: 1515..1557,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "out",
-                                            span: 1569..1572,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "out",
+                                                span: 1569..1572,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1562..1572,
-                            },
+                                    span: 1562..1572,
+                                },
+                            ),
                         ],
                         span: 1478..1574,
                     },
@@ -720,17 +722,19 @@ Module {
                                     span: 2168..2242,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "out",
-                                            span: 2254..2257,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "out",
+                                                span: 2254..2257,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 2247..2257,
-                            },
+                                    span: 2247..2257,
+                                },
+                            ),
                         ],
                         span: 2126..2259,
                     },
@@ -1047,17 +1051,19 @@ Module {
                                     span: 2516..2559,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "acc",
-                                            span: 2571..2574,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "acc",
+                                                span: 2571..2574,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 2564..2574,
-                            },
+                                    span: 2564..2574,
+                                },
+                            ),
                         ],
                         span: 2491..2576,
                     },
@@ -2063,17 +2069,19 @@ Module {
                                     span: 3871..3914,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "dest",
-                                            span: 3926..3930,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "dest",
+                                                span: 3926..3930,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 3919..3930,
-                            },
+                                    span: 3919..3930,
+                                },
+                            ),
                         ],
                         span: 3865..3932,
                     },
@@ -2584,17 +2592,19 @@ Module {
                                     span: 4456..4537,
                                 },
                             ),
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "dest",
-                                            span: 4549..4553,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "dest",
+                                                span: 4549..4553,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 4542..4553,
-                            },
+                                    span: 4542..4553,
+                                },
+                            ),
                         ],
                         span: 4450..4555,
                     },

@@ -583,14 +583,14 @@ fn expand(
         return_type: Some(pass_ty(true)),
         constructs: None,
         body: Some(Block {
-            stmts: vec![Stmt::Return {
-                value: Some(Expr::StructLit {
+            stmts: vec![Stmt::Expr(Expr::Return {
+                value: Some(Box::new(Expr::StructLit {
                     ty: Some(pass_ty(true)),
                     fields: lit_fields,
                     span: lit_span,
-                }),
+                })),
                 span: ret_span,
-            }],
+            })],
             span: iter_span,
         }),
         span: iter_span,
@@ -782,12 +782,6 @@ impl Rewrite {
                 self.expr(target);
                 self.expr(value);
             }
-            Stmt::Return { value, .. } | Stmt::Break { value, .. } => {
-                if let Some(value) = value {
-                    self.expr(value);
-                }
-            }
-            Stmt::Continue { .. } => {}
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Rename(_) => {}
             Stmt::Expr(expr) => self.expr(expr),
@@ -956,6 +950,13 @@ impl Rewrite {
                 LambdaBody::Block(block) => self.block(block),
             },
             Expr::Try { body, .. } => self.block(body),
+            // [expr-escape] The escapes carry an optional value expression.
+            Expr::Return { value, .. } | Expr::Break { value, .. } => {
+                if let Some(value) = value {
+                    self.expr(value);
+                }
+            }
+            Expr::Continue { .. } => {}
             // [actor-spawn-expr] Every clause is an ordinary expression, so
             // an `iter fn` subject read inside one rewrites like any other.
             Expr::Spawn {
@@ -1059,13 +1060,8 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(target, reserved, out);
                     walk_expr(value, reserved, out);
                 }
-                Stmt::Return { value, .. } | Stmt::Break { value, .. } => {
-                    if let Some(value) = value {
-                        walk_expr(value, reserved, out);
-                    }
-                }
                 Stmt::Use { handler, .. } => walk_expr(handler, reserved, out),
-                Stmt::Continue { .. } | Stmt::Rename(_) => {}
+                Stmt::Rename(_) => {}
                 Stmt::Expr(expr) => walk_expr(expr, reserved, out),
             }
         }
@@ -1133,6 +1129,12 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::Try { body, .. } => walk_block(body, reserved, out),
+            Expr::Return { value, .. } | Expr::Break { value, .. } => {
+                if let Some(value) = value {
+                    walk_expr(value, reserved, out);
+                }
+            }
+            Expr::Continue { .. } => {}
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] The
             // asynchronous forms hold ordinary expressions and blocks.
             Expr::Spawn {

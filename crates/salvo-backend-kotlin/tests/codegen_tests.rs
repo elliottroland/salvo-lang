@@ -946,6 +946,51 @@ fn main() [use] {
 
 const NARROW_MUT_ARM_OUTPUT: &str = "var [1, 9]\nfield [1, 9]\nwiden [1, 9]\nwhen [1, 9]\nnullable [1, 9]\nmoved [1, 7]\nstate [0, 5]\n";
 
+/// [expr-escape] [backend-parity] The Kotlin half of step 2: the same program
+/// the Rust backend runs, asserting the same string. Kotlin has all three
+/// escapes as expressions natively, so nothing here needed a special rendering
+/// — which is the point of checking it.
+const ESCAPE_EXPR_DEMO: &str = r#"
+fn twice(n: Int) -> Int {
+    return n * 2
+}
+
+fn guarded(n: Int) -> Int {
+    if n < 0 {
+        return twice(return 0)
+    }
+    return n
+}
+
+fn first_big(limit: Int) -> Int {
+    let total: Int = 0
+    let i: Int = 0
+    while true {
+        let step: Int = if i < limit { i } else { break }
+        total = total + step
+        i = i + 1
+    }
+    return total
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("guarded(-1) ${guarded(-1)}")
+    println("guarded(7) ${guarded(7)}")
+    println("first_big(4) ${first_big(4)}")
+}
+"#;
+
+const ESCAPE_EXPR_OUTPUT: &str = "guarded(-1) 0\nguarded(7) 7\nfirst_big(4) 6\n";
+
+fn kotlinc_compiles_and_runs_escapes_in_expression_position() -> KotlinCase {
+    let program = build_program(&[("main.sv", ESCAPE_EXPR_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "escape-expr", ESCAPE_EXPR_OUTPUT)
+}
+
 fn kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() -> KotlinCase {
     let program = build_program(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -2167,6 +2212,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     a_fallible_pass_yields_a_result,
     kotlinc_compiles_and_runs_mutation_through_narrowed_places,
     kotlinc_compiles_and_runs_mutation_through_a_narrowed_mut_arm,
+    kotlinc_compiles_and_runs_escapes_in_expression_position,
     kotlinc_compiles_and_runs_a_group_over_plain_arms,
     kotlinc_compiles_and_runs_a_hand_written_pass,
     kotlinc_compiles_and_runs_a_released_raw_pass,

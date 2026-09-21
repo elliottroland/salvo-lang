@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1215 tests, complete: the toolchain tests are
+cargo test                  # 1216 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~5s warm, ~1min cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,49 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The escapes are expressions (user decision 2026-09-21).** Step 2 of the `?`
+family sequence: `return`, `break` and `continue` moved from `Stmt` to `Expr`
+with type `Never`. The reason is step 5 — `maybe_t() ?: return _` needs an
+escape in a tail position, and the alternative was a grammar exception naming
+the three words in one more place. [expr-escape].
+
+It **deleted more than it added**, which is why it was worth doing as its own
+step rather than as a clause of step 5:
+
+- The two path analyses lost their syntactic special cases. `block_exits` and
+  `block_returns` now read divergence off the checker's recorded types alone,
+  which is exactly what they already did for a `throw(m)` call — the predicate
+  `diverges()` has always been `ty_of(expr) == Ty::Never`. One mechanism where
+  there were two.
+- Nothing in the *rules* moved: the return-type check, the bare-`return` error,
+  `break`'s contribution to a loop's value, the two "outside a loop" errors, the
+  linear exit and state-whole checks, and the move of a returned value all came
+  across unchanged, one match arm at a time. The emitters kept their statement
+  logic verbatim (unit returns, loop-result routing, exit splices) and were
+  re-pointed at `Stmt::Expr(Expr::Return { … })`, so statement position emits
+  byte-identical code.
+
+Two things the move exposed, both now written down:
+
+- **`break`/`continue` diverge without *returning*.** They are `Never`-typed
+  like a `return`, so the type-driven predicate would have let a `break` satisfy
+  [fn-must-return]. Unreachable today (a loop is excluded from the returns walk,
+  and a `break` can only live inside one), but it is a hole that would have
+  opened the first time that walk changed, so `expr_returns` refuses the two by
+  name.
+- **A nested escape under owed cleanup is refused**, not emitted. An escape
+  inside an expression cannot run the exit splices its block owes
+  ([rs-exit-splice] is statement-position machinery), so that combination is a
+  reported codegen error [backend-never-wrong]. Everything else renders
+  natively: both targets have all three as expressions.
+
+Tests: `rustc_compiles_and_runs_escapes_in_expression_position` and the Kotlin
+registry case of the same name asserting the same string — an escape in an
+**argument** position (`twice(return 0)`, the shape `twice(throw("no"))` always
+had) and a `break` as the value of an `if` feeding a `let`, neither of which was
+grammatical before. Thirteen AST snapshots moved from `Return { … }` to
+`Expr(Return { … })`, reviewed as purely the nesting change. 1215 → 1216.
 
 **`Nothing` is now `Never` (user decision 2026-09-21).** Step 1 of the five-step
 sequence the user set out for the optional/result syntax (ROADMAP.md, "The `?`
@@ -13251,7 +13294,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1215)
+## Test inventory (all green: 1216)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

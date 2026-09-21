@@ -676,17 +676,19 @@ Module {
                                 },
                                 span: 541..575,
                             },
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "person2",
-                                            span: 587..594,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "person2",
+                                                span: 587..594,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 580..594,
-                            },
+                                    span: 580..594,
+                                },
+                            ),
                         ],
                         span: 155..596,
                     },
@@ -840,37 +842,39 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Str {
-                                        parts: [
-                                            Text(
-                                                "Surname is ",
-                                            ),
-                                            Interp(
-                                                NonNull {
-                                                    operand: Field {
-                                                        base: Ident(
-                                                            Ident {
-                                                                name: "person",
-                                                                span: 731..737,
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "Surname is ",
+                                                ),
+                                                Interp(
+                                                    NonNull {
+                                                        operand: Field {
+                                                            base: Ident(
+                                                                Ident {
+                                                                    name: "person",
+                                                                    span: 731..737,
+                                                                },
+                                                            ),
+                                                            field: Ident {
+                                                                name: "surname",
+                                                                span: 738..745,
                                                             },
-                                                        ),
-                                                        field: Ident {
-                                                            name: "surname",
-                                                            span: 738..745,
+                                                            span: 731..745,
                                                         },
-                                                        span: 731..745,
+                                                        span: 731..746,
                                                     },
-                                                    span: 731..746,
-                                                },
-                                            ),
-                                        ],
-                                        span: 717..748,
-                                    },
-                                ),
-                                span: 710..748,
-                            },
+                                                ),
+                                            ],
+                                            span: 717..748,
+                                        },
+                                    ),
+                                    span: 710..748,
+                                },
+                            ),
                         ],
                         span: 704..750,
                     },

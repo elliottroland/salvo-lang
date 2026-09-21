@@ -418,7 +418,19 @@ let value: Str = when result {
 }
 ```
 
-`Never` is the "evaluated type" of operators like `return`, `break`, and `continue`.
+`Never` is the type of `return`, `break` and `continue`, which are
+**expressions**, not statements. Usually that makes no visible difference — an
+escape sits on a line of its own, as it does above — but it means one can stand
+wherever a value is expected, which is what lets a guard be written inline:
+
+```
+let step: Int = if i < limit { i } else { break }
+```
+
+A value follows an escape only on the same line, so `return` before a newline or
+a `}` is still the value-less form. `break` and `continue` leave a *loop* rather
+than the function, so neither satisfies "this function always returns" the way a
+`return` does.
 
 ### Qualifiers
 

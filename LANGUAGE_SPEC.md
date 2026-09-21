@@ -944,6 +944,33 @@ Conventions:
 * [expr-everything] Every control-flow construct is an expression; a
   branch's value/type is its last expression, and the construct's type is
   the union of branch types.
+* [expr-escape] **`return`, `break` and `continue` are expressions of type
+  `Never`** (user decision 2026-09-21), not statements — step 2 of the `?`
+  family sequence, and the reason `maybe_t() ?: return _` needs no grammar
+  exception. A bare escape on its own line is an ordinary expression
+  statement.
+  * **A value follows only on the same line**, and only when a token that can
+    begin one does: `return` before a `}` or a newline is still the
+    value-less form. So the shape of existing code is unchanged.
+  * **The rules are the ones they always had**, only reached through the
+    expression checker: the return type check, the bare-`return`-in-a-
+    value-returning-fn error, `break`'s contribution to a loop's value
+    [while-value], "`break`/`continue` outside a loop", the linear exit
+    checks [linear-obligation] and the state-whole check, and the move of a
+    returned or broken value [deduce-consume].
+  * **What it deletes**: the syntactic special cases in the two path
+    analyses. `block_exits` and `block_returns` now read divergence off the
+    checker's recorded types alone ([type-any-never]'s predicate), which is
+    what they already did for a `throw(m)` call. One rule, one mechanism.
+  * **`break`/`continue` diverge but do not *return***: they leave a loop,
+    not the function, so [fn-must-return] excludes them explicitly. The
+    distinction used to be free, because only a `return` *statement* counted.
+  * **Nested positions work**: `twice(return 0)` is grammatical, as
+    `twice(throw("no"))` already was. Both backends have the three as
+    expressions natively, so each renders directly. The one refusal is an
+    escape nested in an expression where the enclosing block owes cleanup
+    ([rs-exit-splice] runs at statement position), reported rather than
+    emitted wrong [backend-never-wrong].
 * [op-no-none] Arithmetic (`+ - * / %`) and comparison (`< > <= >=`,
   `== !=`) reject a possibly-`None` operand, and `None` itself, as an
   error (user decision 2026-09-02): nullability is tested with `is None`,

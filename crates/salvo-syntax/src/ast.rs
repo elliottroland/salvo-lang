@@ -767,12 +767,6 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
-    /// `return expr?`
-    Return { value: Option<Expr>, span: Span },
-    /// `break expr?`
-    Break { value: Option<Expr>, span: Span },
-    /// `continue`
-    Continue { span: Span },
     /// `use HandlerExpr(...)` — register a handler for the current context.
     /// [use-local] `use local HandlerExpr(...)` binds it **scope-local**
     /// (lock-free, unshareable) instead of shareable-by-default (user
@@ -1015,6 +1009,17 @@ pub enum Expr {
     /// the outcome `Ok T | Aborted M`, and an `abort` performed inside it
     /// becomes the `Aborted M` arm.
     Try { body: Block, span: Span },
+    /// [expr-escape] `return expr?` — an **expression** of type `Never`
+    /// (user decision 2026-09-21), not a statement. The three escapes are
+    /// expressions so that a tail position can hold one without the grammar
+    /// naming them: `maybe_t() ?: return _` needs no exception, and a
+    /// `Never`-typed escape behaves exactly as a `Never`-returning call like
+    /// `throw(m)` already did [type-any-never].
+    Return { value: Option<Box<Expr>>, span: Span },
+    /// [expr-escape] `break expr?` — type `Never`.
+    Break { value: Option<Box<Expr>>, span: Span },
+    /// [expr-escape] `continue` — type `Never`.
+    Continue { span: Span },
     /// `...expr` — spread in call arguments or struct literals.
     Spread { operand: Box<Expr>, span: Span },
     /// [actor-self-send] `k@self(args)` — a message to **the actor the
@@ -1219,6 +1224,9 @@ impl Expr {
             | Expr::For { span, .. }
             | Expr::Lambda { span, .. }
             | Expr::Try { span, .. }
+            | Expr::Return { span, .. }
+            | Expr::Break { span, .. }
+            | Expr::Continue { span, .. }
             | Expr::SelfScoped { span, .. }
             | Expr::Spawn { span, .. }
             | Expr::ReplyTo { span, .. }

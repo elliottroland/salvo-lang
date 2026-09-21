@@ -240,15 +240,17 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    ArrayLit {
-                                        elems: [],
-                                        span: 346..348,
-                                    },
-                                ),
-                                span: 339..348,
-                            },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        ArrayLit {
+                                            elems: [],
+                                            span: 346..348,
+                                        },
+                                    ),
+                                    span: 339..348,
+                                },
+                            ),
                         ],
                         span: 333..350,
                     },
@@ -349,19 +351,21 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Str {
-                                        parts: [
-                                            Text(
-                                                "",
-                                            ),
-                                        ],
-                                        span: 421..423,
-                                    },
-                                ),
-                                span: 414..423,
-                            },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Str {
+                                            parts: [
+                                                Text(
+                                                    "",
+                                                ),
+                                            ],
+                                            span: 421..423,
+                                        },
+                                    ),
+                                    span: 414..423,
+                                },
+                            ),
                         ],
                         span: 408..425,
                     },

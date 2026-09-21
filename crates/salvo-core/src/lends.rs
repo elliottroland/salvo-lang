@@ -383,6 +383,11 @@ impl<'p> Walk<'_, '_, 'p> {
                 Some(out)
             }
             Expr::Try { body, .. } => self.lends_of_block(body),
+            // [expr-escape] An escape never yields a value, so it lends
+            // nothing — whatever its operand is, no borrow leaves through it.
+            Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => {
+                Some(HashSet::new())
+            }
             Expr::Widen { subject, .. } => self.lends_of_expr(subject),
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] None of the
             // three yields a view: an `Addr` and a `Reply` are owned tokens,
@@ -603,6 +608,10 @@ fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) 
                 }
             }
             Expr::Try { body, .. } => collect_defs(body, out),
+            // [expr-escape] The escapes carry a value expression.
+            Expr::Return { value: Some(v), .. } | Expr::Break { value: Some(v), .. } => {
+                expr(v, out);
+            }
             _ => {}
         }
     }
@@ -619,9 +628,6 @@ fn collect_defs<'e>(block: &'e Block, out: &mut HashMap<String, Vec<&'e Expr>>) 
                     out.entry(id.name.clone()).or_default().push(value);
                 }
                 expr(value, out);
-            }
-            Stmt::Return { value: Some(v), .. } | Stmt::Break { value: Some(v), .. } => {
-                expr(v, out)
             }
             Stmt::Expr(e) => expr(e, out),
             _ => {}
@@ -692,6 +698,10 @@ fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
                 }
             }
             Expr::Try { body, .. } => collect_returns(body, out, false),
+            // [expr-escape] The escapes carry a value expression.
+            Expr::Return { value: Some(v), .. } | Expr::Break { value: Some(v), .. } => {
+                expr(v, out);
+            }
             // A lambda's returns are its own.
             Expr::Lambda { .. } => {}
             _ => {}
@@ -700,10 +710,14 @@ fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
     let n = block.stmts.len();
     for (i, s) in block.stmts.iter().enumerate() {
         match s {
-            Stmt::Return { value: Some(v), .. } => {
+            // [expr-escape] A `return v` reaches here as an expression
+            // statement now; its value is still one of the block's outgoing
+            // values, so this arm comes *before* the general expression case.
+            Stmt::Expr(Expr::Return { value: Some(v), .. }) => {
                 out.push(v);
                 expr(v, out);
             }
+            Stmt::Expr(Expr::Break { value: Some(v), .. }) => expr(v, out),
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } => expr(value, out),
             Stmt::Expr(e) => {
                 if tail && i + 1 == n {
@@ -721,7 +735,6 @@ fn collect_returns<'e>(block: &'e Block, out: &mut Vec<&'e Expr>, tail: bool) {
                     expr(e, out);
                 }
             }
-            Stmt::Break { value: Some(v), .. } => expr(v, out),
             _ => {}
         }
     }

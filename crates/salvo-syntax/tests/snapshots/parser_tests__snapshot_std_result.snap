@@ -179,17 +179,19 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "value",
-                                            span: 1156..1161,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1156..1161,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1149..1161,
-                            },
+                                    span: 1149..1161,
+                                },
+                            ),
                         ],
                         span: 1143..1163,
                     },
@@ -291,17 +293,19 @@ Module {
                 body: Some(
                     Block {
                         stmts: [
-                            Return {
-                                value: Some(
-                                    Ident(
-                                        Ident {
-                                            name: "value",
-                                            span: 1302..1307,
-                                        },
+                            Expr(
+                                Return {
+                                    value: Some(
+                                        Ident(
+                                            Ident {
+                                                name: "value",
+                                                span: 1302..1307,
+                                            },
+                                        ),
                                     ),
-                                ),
-                                span: 1295..1307,
-                            },
+                                    span: 1295..1307,
+                                },
+                            ),
                         ],
                         span: 1289..1309,
                     },

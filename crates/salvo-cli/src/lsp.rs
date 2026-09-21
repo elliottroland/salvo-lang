@@ -1213,7 +1213,13 @@ fn qualifies_section(
 ) -> Option<String> {
     let f = decl.fns.iter().find(|f| f.name.name == "qualifies")?;
     let body = f.body.as_ref()?;
-    let [salvo_syntax::ast::Stmt::Return { value: Some(expr), .. }] = &body.stmts[..] else {
+    // [expr-escape] A one-line `qualifies` body is `return <expr>`, which is an
+    // expression statement since 2026-09-21.
+    let [salvo_syntax::ast::Stmt::Expr(salvo_syntax::ast::Expr::Return {
+        value: Some(expr),
+        ..
+    })] = &body.stmts[..]
+    else {
         return None;
     };
     let span = expr.span();

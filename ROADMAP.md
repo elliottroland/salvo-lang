@@ -156,7 +156,8 @@ user has now taken turned it from an option space into **five steps**, in this
 order, because each one clears the ground for the next:
 
 1. **`Nothing` → `Never`** — ✅ **done 2026-09-21** (COMPLETED.md's log).
-2. **`return`/`break`/`continue` become expressions of type `Never`.** Removes
+2. **`return`/`break`/`continue` become expressions of type `Never`** — ✅
+   **done 2026-09-21** ([expr-escape]; COMPLETED.md's log). Removes
    the grammar exception step 5's right-hand side would otherwise need. Cheaper
    than it looks: `diverges()` already tests `ty_of(expr) == Ty::Never`, so
    `block_exits`'s three syntactic special cases *collapse* into the expression
