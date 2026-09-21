@@ -2660,6 +2660,17 @@ fn prefix_content(content: &str, pfx: &str) -> String {
 /// behaves exactly as it did when every case was its own test.
 #[test]
 fn kotlinc_compiles_and_runs_every_case() {
+    // The skip gate comes *before* the cases are built: each case builder
+    // runs the whole pipeline (parse + check + emit over std), which is the
+    // entire ~30s cost of this test — paid even when nothing kotlinc-shaped
+    // would run (the ROADMAP "case driver" defect, fix 1). `SALVO_SKIP_E2E`
+    // is an explicit request to skip toolchain verification, so nothing is
+    // owed here. A *missing* kotlinc still builds the cases below: their
+    // content assertions must keep running for contributors without the
+    // toolchain, as they did when each case was its own #[test].
+    if salvo_testkit::skip_e2e() {
+        return;
+    }
     // Build every case first: the content assertions inside case builders
     // run even when kotlinc is missing, as they did when each was a #[test].
     let cases: Vec<KotlinCase> = KOTLIN_CASES.iter().map(|make| make()).collect();

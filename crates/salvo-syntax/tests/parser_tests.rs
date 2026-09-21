@@ -1793,7 +1793,7 @@ fn collect_replyto(
     body: Option<&salvo_syntax::ast::Block>,
     out: &mut Vec<(String, bool, usize)>,
 ) {
-    use salvo_syntax::ast::{Expr, Item, Stmt};
+    use salvo_syntax::ast::{Expr, Stmt};
     let Some(body) = body else { return };
     fn walk(expr: &Expr, out: &mut Vec<(String, bool, usize)>) {
         match expr {

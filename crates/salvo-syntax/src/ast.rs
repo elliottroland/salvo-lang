@@ -188,7 +188,7 @@ pub struct TypeDecl {
 }
 
 /// `struct Person canbe Mut { name: Str, ... }`, optionally with an
-/// obligation clause: `struct Lines : Linear, Yield<Str> canbe Mut { ... }`
+/// obligation clause: `linear struct Lines : Yield<self, Str> canbe Mut { ... }`
 /// [group-obligation].
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructDecl {

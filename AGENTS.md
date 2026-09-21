@@ -125,9 +125,17 @@ runner, where cross-binary scheduling wins and the timings matter):
 
 | command | what it does | wall time |
 |---|---|---|
-| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~4s |
-| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~5s warm, ~1min cold |
-| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~55–70s |
+| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~13s |
+| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~15s warm, minutes cold |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~1m40 |
+
+(Measured 2026-09-21 at `[profile.dev] opt-level = 1`; a full rebuild is
+~2m49 one-off, incremental builds ~8–12s. A run right after a **relink** —
+e.g. after touching `salvo-core` — additionally pays a serialized per-binary
+first-execution stall from macOS Gatekeeper: ~2.5s per freshly linked binary
+with the terminal's Developer Tools exemption, ~12s without it. See the
+Gatekeeper gotcha in COMPLETED.md; never take a perf number from the first
+run after a relink.)
 
 - **Always run `cargo build` and `cargo test` before presenting changes**, and
   the fresh nextest run before anything that gets committed or handed over.
@@ -140,7 +148,7 @@ runner, where cross-binary scheduling wins and the timings matter):
   point.
 - **Watch the clock and flag drift** (user decision 2026-09-12). Test runs
   are `time`d; the table above is the budget. When a run overshoots it
-  noticeably — warm runs past ~15s, fresh runs past ~1½ minutes — or a
+  noticeably — warm runs past ~20s, fresh runs past ~2 minutes — or a
   command looks hung, say so to the user rather than silently waiting or
   retrying: slow runs so far have meant something diagnosable (doctest
   passes, JVM probes, stale-object pileup, AMFI kills — see COMPLETED.md's
@@ -161,6 +169,16 @@ runner, where cross-binary scheduling wins and the timings matter):
   use `env!("CARGO_TARGET_TMPDIR")` (via `salvo_testkit::scratch`), and the
   stamp cache lives in `target/tmp/salvo-e2e-cache` — delete that directory
   to reset it.
+- **When runs drift slow, check the debris as part of the test stage:**
+  `find target/debug/deps -name '*.rcgu.o' | wc -l`. macOS keeps a `.o`
+  per codegen unit as every binary's debug info and cargo never collects
+  the ones rebuilds strand; twice they piled up to ~650–790k files and
+  15–50 GiB, and at that size *everything* touching `deps/` crawls (an
+  `ls` took 23s). The `salvo-testkit` hygiene test prunes every object no
+  live binary's debug map references on each full run, so the count should
+  stay five digits; if it doesn't, run the hygiene test and look — a
+  six-digit count after it passes means the pruner has a gap (see the
+  gotchas in COMPLETED.md), and `cargo clean` is the reset.
 - Some tests invoke `kotlinc` (or `rustc` for the Rust backend) to compile
   and run emitted code with exact stdout assertions; they skip gracefully if
   the toolchain is not on PATH. If you have it, treat those tests as required.

@@ -236,6 +236,79 @@ out to cost more than it buys. (a) is the one to avoid: it makes the two sides o
 the compiler disagree about what a signature means, which is how the original
 defect happened.
 
+## Ordering, equality and hashing (design round — see ORDERING.md)
+
+Opened 2026-09-21 from `demo/heap.sv`'s `Heap<T canbe ordered>` TODO and
+largely decided the same day (COMPLETED.md's log has the entry; the round
+document is **ORDERING.md**, deleted when built). In one paragraph:
+`Ordered`/`Eq`/`Hashed` become params groups (the `Yield` precedent);
+canonical implementations are top-level fns **`@`-scoped to their type**
+(`fn cmp@Person(…)`, in the type's file), imported with the type and the
+default selection for implicits — ambiguity around a canonical is always
+an error, explicit or implicit, with the selector (`cmp@Person`) as the
+remedy; a `default` keyword on compiler-known obligation groups generates
+the structural bundle (`eq` included, `@`-scoped); operators resolve
+through the groups — **equality becomes opt-in** and comparisons on
+unconstrained `T` become errors; ordering-carrying structures bind their
+fn **at construction, as a type argument with static identity**
+(`Heap<?cmp>`, `SortedSet<T, ?cmp>`, `Set<T, ?hash, ?eq>`), lowered to
+zero-sized markers on Rust; `canbe ordered`/`canbe hashed` are deleted.
+**All calls are made** (2026-09-21, formal adoption included; the hash
+question dissolved — backend-native hashing, divergence accepted, see
+"Value-level backend parity" below): the round is **ready to build** from
+ORDERING.md's plan, gated on the concurrent test-time session finishing.
+A noted follow-on, separately decided when
+raised: migrating qualifier bodies' `fn qualifies` to the same `@`-scoped
+shape (`fn qualifies@Positive`); handler members stay put — they interact
+with handler state.
+
+The rest of the heap demo's plan (D2's motivating example, the
+`proj proj T?` defect, `swap`, `!is`, `+=`) is **HEAP_QUALIFIER.md**, with
+its own suggested sequence.
+
+## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
+
+The user's intent, stated while deciding ORDERING.md's canonical
+placement: **reject scope-based silent winners everywhere** — ambiguity
+between fitting candidates should be an error naming the selector
+spellings, not a resolution by rung. ORDERING.md's decision 9 (ambiguity
+around an `@`-scoped canonical always errors, explicit and implicit
+alike) is the first installment; the rest is deferred to this item so it
+can be designed as a **consistency pass across features** rather than
+piecemeal. What it revisits:
+
+- [fn-overload-scope]'s "scope beats signature" (user decision
+  2026-09-07, with its warning-plus-`@module` confirmation mechanism) —
+  the largest piece; the warning machinery suggests the errors can name
+  their remedies the same way.
+- What counts as a *silent winner* versus *designed shadowing* has to be
+  drawn feature by feature: a later `use` shadowing an earlier handler is
+  interception semantics, not an accident ([effect-member-overload] and
+  the outward-binding rule), and a fn-typed local shadowing a name
+  outright is the caller's explicit choice. The pass should list every
+  resolution-by-position rule in the spec and decide each.
+- Migration: erroring where code silently resolved today sweeps std and
+  examples; no compatibility machinery (per the invariant), but the sweep
+  is why this is its own item.
+
+## Value-level backend parity for hash and random (recorded, not scheduled)
+
+Decided 2026-09-21 (ORDERING.md decision 13): callable `hash` lowers to
+each backend's **native** hashing, so hash *values* diverge across
+backends — accepted deliberately, on the analogy of the two backends
+generating different random numbers. The shape and the high-level
+guarantees are identical (`eq(a,b)` ⇒ `hash(a) == hash(b)` within one
+execution); the exact values are not, and per-run divergence on one
+backend (a seeded hasher) is within contract. This item records the
+possible future reversal, for hash and random *together*: language-defined
+algorithms implemented identically in both runtimes, if value-level
+reproducibility across targets ever earns its cost (the rejected sketch:
+FNV-1a 64 over a canonical byte encoding — length-prefixed strings,
+fields in declaration order, arm index before payload). Until then a
+program must not print or persist a hash value and expect cross-backend
+identity — an example's `expected.txt` cannot contain one, the posture
+random already has.
+
 ## Platform handlers — the thread-safety contract (DECISION)
 
 **Where this stands (user decision 2026-09-20, third round):** a platform
@@ -563,13 +636,6 @@ Found while building step 1; none blocks step 2.
   effects, `Timer` as an actor effect, and the testing posture
   [time-coupling]). What is still owed is the **actor surface** prose itself —
   and it is now owed twice over, since both new chapters assume the vocabulary.
-- **The fresh-run budget is over**: `SALVO_E2E_FRESH=1 cargo nextest run` now
-  takes ~2m against AGENTS.md's ~55–70s (measured 2026-09-18, 1154 tests),
-  effectively the wall time of the single
-  `kotlinc_compiles_and_runs_every_case` driver — ~119s for 121 cases in
-  batched invocations, which the rest of the suite runs underneath. Nothing new is wrong — the driver's *cached/skipped* cost is
-  the open defect above — but the budget line in AGENTS.md and COMPLETED.md
-  is now optimistic for a cold run, and each new case adds about a second.
 
 ### The task kernel — leftovers (2026-09-17)
 
@@ -859,8 +925,9 @@ links to the section that states the options.
 | Question | Due | Where |
 |---|---|---|
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
-| **D2** — `+Q` in a function's own deduction list (needs an establishment rule) | unscheduled | "Deductions and qualifier reasoning" |
+| **D2** — `+Q` in a function's own deduction list (needs an establishment rule) — now has its motivating example: `heap_push` re-asserting `Heap`, with a proposed narrow rule (same-file trusted keep) | unscheduled | "Deductions and qualifier reasoning"; HEAP_QUALIFIER.md item 2 |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
+| **The heap plan's small calls** — `swap`'s out-of-range answer, `!is` sugar, `+=` compound assignment | unscheduled | HEAP_QUALIFIER.md items 4–6 |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
@@ -910,38 +977,23 @@ std fn — one loud half inside std's own emission and one *silently wrong
 output* half through `@module` — and consuming a handler's stored values,
 which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 
-- **The Kotlin case driver costs ~17s on every run, cached or skipped**
-  (found 2026-09-15 while adding the scheduler runtime tests; pre-existing,
-  and the reason a warm `cargo test` is ~30s against AGENTS.md's ~5s
-  budget). It grows with the registry: ~25s at 121 cases, measured
-  2026-09-18. Repro:
-
-  ```bash
-  # identical timings, three ways — the cache and the skip both no-op:
-  cargo test -p salvo-backend-kotlin --test codegen_tests            # 18.3s
-  cargo test -p salvo-backend-kotlin --test codegen_tests            # 18.2s
-  SALVO_SKIP_E2E=1 cargo test -p salvo-backend-kotlin --test codegen_tests  # 17.7s
-  cargo nextest run -p salvo-backend-kotlin --test codegen_tests
-  #   PASS [ 16.827s] kotlinc_compiles_and_runs_every_case
-  ```
-
-  Root cause: `kotlinc_compiles_and_runs_every_case` builds **every**
-  `KOTLIN_CASES` entry up front (`cases = KOTLIN_CASES.iter().map(|f| f())`),
-  and each case function runs the whole pipeline — parse + check + emit over
-  `std` — before any gate is consulted. So the cost is paid whether or not
-  `kotlinc` is available, whether or not the stamps hit, and whether or not
-  `SALVO_SKIP_E2E` is set. It is *not* toolchain time: the 17s survives
-  skipping.
-
-  Two fixes, in increasing order of value: (1) consult the availability /
-  skip gate **before** building the cases — restores `SALVO_SKIP_E2E`'s
-  documented ~4s and costs three lines; (2) make the stamp key cheap enough
-  to check without emitting (hash the `.sv` source plus an emitter-version
-  token instead of the generated files), which is what would restore the warm
-  budget. (2) is a testkit design change and wants its own think: the current
-  key's virtue is that it cannot go stale, and a source-plus-version key
-  trades that for speed. The Rust backend's per-test runner does not have the
-  problem (its cases build one at a time, inside their own gate).
+- **A warm *unskipped* run still re-emits every Kotlin case before its stamp
+  can hit** (found 2026-09-15; the skip-gate half of the original defect was
+  fixed 2026-09-21 — the `SALVO_SKIP_E2E` gate is hoisted above case-building
+  in `kotlinc_compiles_and_runs_every_case`, driver test 0.00s under skip,
+  and `[profile.dev] opt-level = 1` cut the remaining per-case emit cost;
+  numbers and record in COMPLETED.md's log). What remains: the stamp key is
+  the content hash of the *generated* files, so a warm run without the skip
+  must parse + check + emit every `KOTLIN_CASES` entry over `std` just to
+  discover the stamp hits. At opt-level 1 that is ~7.5s for the codegen
+  binary (was ~30s), so the pressure is off — but it still grows with the
+  registry. The fix is a **source-keyed stamp**: hash the `.sv` source plus
+  an emitter-version token instead of the generated files, cheap to check
+  without emitting. That is a testkit design change and wants its own think:
+  the current key's virtue is that it cannot go stale, and a
+  source-plus-version key trades that for speed — the user's call. The Rust
+  backend's per-test runner does not have the problem (its cases build one
+  at a time, inside their own gate).
 
 - **Iterating a *temporary* container emits Rust that does not compile**
   (found 2026-09-18 while building loop destructuring; pre-existing, and
@@ -2424,14 +2476,21 @@ blocking, and several are "revisit only if a customer appears".
 
 - **Fresh-suite speed, remaining steps toward ~10–15s** (goal set by the
   user 2026-09-12; the kotlinc batching landed the same day — see
-  COMPLETED.md decision log — bringing a fresh run to ~50s, ~55–70s
-  since the interception case joined the batch). What is left,
+  COMPLETED.md decision log — bringing a fresh run to ~50s, and
+  `[profile.dev] opt-level = 1` (2026-09-21) holds it at **~1m40 for 1237
+  tests**, the `kotlinc_compiles_and_runs_every_case` driver's ~99s being
+  the wall the rest of the suite runs underneath). What is left,
   in impact order: the CLI suites (`run_tests`, `platform_tests`,
   `analyze_tests`: ~16s max single test; each spawns `salvo run`/`compile`
   which pays its own kotlinc), the rust codegen suite (~4.8s max under
   contention; a shared-runtime batch or precompiled `libcore` would cut
   it), and running the batched Kotlin programs in one JVM instead of one
-  `kotlin` launch each (~0.4s per program). Past those, the floor is the
+  `kotlin` launch each (~0.4s per program). A *warm*-run idea recorded
+  2026-09-21: every golden test re-reads, re-parses and re-checks `std/`
+  (`build_program`); the parse could be cached today (`OnceLock` over the
+  parsed modules — AST is `Clone`), but the *check* cannot be without
+  incremental checking, and at opt-level 1 the per-test cost is ~0.07s —
+  measure before bothering. Past those, the floor is the
   matrix size itself — trimming compile-and-run cases whose behavior the
   goldens already pin.
 

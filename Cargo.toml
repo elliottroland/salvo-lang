@@ -29,3 +29,21 @@ insta = "1.40"
 lsp-server = "0.7"
 lsp-types = "0.95"
 serde_json = "1.0"
+
+# Test-speed lever (2026-09-21): the golden/codegen tests run the full
+# pipeline (parse + check + emit over std/) per test — ~110 times in the
+# Kotlin binary alone — and at opt-level 0 that was ~30s wall per warm run;
+# opt-level 1 makes it ~7s and the whole warm skip-e2e suite ~14s, while
+# keeping incremental compiles cheap. Line tables keep panic backtraces
+# readable at a fraction of full debuginfo's size and deps/ pileup
+# (COMPLETED.md gotcha on `.rcgu.o` accumulation); step-debugging with
+# locals wants a temporary `debug = true`.
+#
+# Note: the *edit loop* (touch salvo-core, re-run the suite) is dominated
+# by something else entirely — macOS assesses every freshly linked test
+# binary on first execution (~12s each, serialized, no CPU; see the
+# "first execution of a fresh binary" gotcha in COMPLETED.md). No cargo
+# profile affects that.
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"

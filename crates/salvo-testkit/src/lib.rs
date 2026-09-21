@@ -367,44 +367,80 @@ pub fn cached(target_tmpdir: &str, what: &str, parts: &[&[u8]]) -> Option<Stamp>
     })
 }
 
-/// Deletes orphaned debug-info objects from a `target/debug/deps`-style
+/// Deletes unreferenced debug-info objects from a `target/debug/deps`-style
 /// directory, returning how many were removed.
 ///
-/// On macOS, cargo's default `split-debuginfo=unpacked` keeps every
-/// `*.rcgu.o` codegen object next to the binary that references it (the
-/// binary holds OSO pointers into them; debuggers follow the pointers).
-/// Cargo never garbage-collects them, and every rebuild writes a fresh set
-/// under a new hash — measured here: 790k files / dozens of GiB after a few
-/// weeks, enough to make anything that lists the directory crawl.
+/// On macOS, cargo's default `split-debuginfo=unpacked` keeps `*.rcgu.o`
+/// codegen objects next to the linked artifact; the artifact's debug map
+/// (its ` OSO ` stab entries, readable with `nm -pa`) points into them and
+/// debuggers follow the pointers. Cargo never garbage-collects the objects,
+/// and they pile up two ways (measured here: 790k files / 48.7 GiB once,
+/// and 650k / 15 GiB again three weeks later):
 ///
-/// An object is an orphan when the artifact it belongs to is gone: the
-/// leading `name-hash` segment of `X.<cgu>.rcgu.o` names the linked
-/// artifact, so the object is kept iff `X`, `libX.rlib` or `libX.dylib`
-/// still exists. Objects of *current* binaries are never touched, so
-/// debugging them keeps working.
+/// - a **renamed** artifact (new `name-hash`) strands its whole object set;
+/// - a **relinked** artifact strands the objects of every CGU the
+///   incremental rebuild replaced — the artifact name survives, so the dead
+///   objects look owned forever. The middle segment of
+///   `X.<mid>.<cgu>.rcgu.o` is per-CGU, not per-build, so generations
+///   interleave: a live binary references objects across many `<mid>`s and
+///   no name- or mtime-shaped rule can tell the dead ones apart.
+///
+/// The keep rule is therefore taken from the debug maps themselves: an
+/// object is kept iff some binary or dylib in the directory **references**
+/// it. A reference to an rlib archive *member* (`libx.rlib(x.rcgu.o)`) does
+/// not protect the loose file of the same name — the rlib carries its own
+/// copy inside, which is also why rlib-owned loose objects are pure waste.
+/// Deleting a loose object never breaks a later build: the objects are link
+/// *outputs* re-emitted from `target/*/incremental`, not inputs (verified:
+/// an incremental rebuild after deleting all of them relinks and runs).
+///
+/// Degradation is conservative: a binary `nm` cannot read keeps all objects
+/// of its name rather than losing them to the parse failure, and if `nm`
+/// itself is missing the whole pass falls back to the coarser owner rule
+/// (keep an object iff its `name-hash` artifact still exists), which
+/// handles the renamed-artifact half only.
 pub fn prune_stale_debug_objects(deps_dir: &Path) -> usize {
     let Ok(entries) = std::fs::read_dir(deps_dir) else {
         return 0;
     };
-    let mut names: Vec<String> = Vec::new();
+    let mut objects: Vec<String> = Vec::new();
+    let mut mapped: Vec<String> = Vec::new(); // artifacts carrying a debug map
     let mut live: std::collections::HashSet<String> = std::collections::HashSet::new();
     for entry in entries.flatten() {
-        if let Ok(name) = entry.file_name().into_string() {
-            if name.ends_with(".rcgu.o") {
-                names.push(name);
-            } else if !name.contains('.') || name.ends_with(".rlib") || name.ends_with(".dylib") {
-                live.insert(name);
-            }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if name.ends_with(".rcgu.o") {
+            objects.push(name);
+            continue;
+        }
+        let is_file = entry.file_type().map(|t| t.is_file()).unwrap_or(false);
+        if is_file && (!name.contains('.') || name.ends_with(".dylib")) {
+            mapped.push(name.clone());
+        }
+        if !name.contains('.') || name.ends_with(".rlib") || name.ends_with(".dylib") {
+            live.insert(name);
         }
     }
+    if objects.is_empty() {
+        return 0;
+    }
+    let references = debug_map_references(deps_dir, &mapped);
     let mut removed = 0;
-    for name in names {
+    for name in objects {
         let Some(owner) = name.split('.').next() else {
             continue;
         };
-        let lib = format!("lib{owner}.rlib");
-        let dylib = format!("lib{owner}.dylib");
-        if live.contains(owner) || live.contains(&lib) || live.contains(&dylib) {
+        let keep = match &references {
+            // nm is missing: the coarse rule — keep while the owner exists.
+            None => {
+                live.contains(owner)
+                    || live.contains(&format!("lib{owner}.rlib"))
+                    || live.contains(&format!("lib{owner}.dylib"))
+            }
+            Some((referenced, unparsed)) => referenced.contains(&name) || unparsed.contains(owner),
+        };
+        if keep {
             continue;
         }
         if std::fs::remove_file(deps_dir.join(&name)).is_ok() {
@@ -412,4 +448,55 @@ pub fn prune_stale_debug_objects(deps_dir: &Path) -> usize {
         }
     }
     removed
+}
+
+/// The union of loose `.rcgu.o` basenames referenced by the debug maps of
+/// `mapped` artifacts (via `nm -pa`'s ` OSO ` entries), plus the *owner
+/// keys* of artifacts nm could not read — their objects are kept by
+/// ownership instead of being lost to a parse failure. `None` when `nm`
+/// itself cannot be run.
+fn debug_map_references(
+    deps_dir: &Path,
+    mapped: &[String],
+) -> Option<(
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+)> {
+    let mut referenced = std::collections::HashSet::new();
+    let mut unparsed = std::collections::HashSet::new();
+    for artifact in mapped {
+        let output = match std::process::Command::new("nm")
+            .arg("-pa")
+            .arg(deps_dir.join(artifact))
+            .output()
+        {
+            Ok(output) if output.status.success() => output,
+            Ok(_) => {
+                // `X.dylib`-shaped artifacts own `X.*.rcgu.o` after the
+                // `lib` prefix comes off; plain binaries own their own name.
+                let owner = artifact
+                    .strip_suffix(".dylib")
+                    .and_then(|s| s.strip_prefix("lib"))
+                    .unwrap_or(artifact);
+                unparsed.insert(owner.to_string());
+                continue;
+            }
+            Err(_) => return None,
+        };
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let Some(path) = line.split(" OSO ").nth(1) else {
+                continue;
+            };
+            let path = path.trim();
+            // `path(member)` references live inside an archive; only a bare
+            // `.rcgu.o` path names a loose object.
+            if path.contains('(') || !path.ends_with(".rcgu.o") {
+                continue;
+            }
+            if let Some(name) = Path::new(path).file_name().and_then(|n| n.to_str()) {
+                referenced.insert(name.to_string());
+            }
+        }
+    }
+    Some((referenced, unparsed))
 }

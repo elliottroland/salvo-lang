@@ -1929,7 +1929,7 @@ Conventions:
     binder nothing tells them apart, and [var-no-shadow] would refuse them
     in the body. The remedy is to write the clashing ones out individually.
 * [group-obligation] A `params` group may be stated as an **obligation** on
-  a struct declaration: `struct Lines : Linear, Yield<Str> canbe Mut { … }`
+  a struct declaration: `linear struct Lines : Yield<self, Str> canbe Mut { … }`
   — a `:` clause between the generics and `canbe`, comma-separated, each
   entry a group name with type arguments (user decisions 2026-09-08,
   roadmap R1). Where `?Group<T>` asks the *call site* to supply the members,

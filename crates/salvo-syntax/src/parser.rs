@@ -810,7 +810,7 @@ impl<'s> Parser<'s> {
         // (user decision 2026-09-12): `struct Box<T canbe linear>` is the
         // conditional-container declaration.
         let (generics, generic_canbe) = self.parse_generics_canbe();
-        // `: Linear, Yield<Str>` — obligation groups this type satisfies
+        // `: Yield<self, Str>` — obligation groups this type satisfies
         // [group-obligation]. Before `canbe`, because `:` states what the
         // type must *provide* while `canbe` states what it may be qualified
         // as.

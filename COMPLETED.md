@@ -55,13 +55,13 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 cargo build                 # workspace build, no warnings
 cargo test                  # 1237 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
-                            # recompiled — ~5s warm, ~1min cold
+                            # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
                             # FULL: every test, nothing taken from the cache
-                            # (~55-70s), with per-test timings; the pre-commit /
+                            # (~1m40), with per-test timings; the pre-commit /
                             # handover check (fall back to `cargo test` if
                             # nextest is not installed)
-SALVO_SKIP_E2E=1 cargo test # inner loop: ~4s, by skipping every test that shells
+SALVO_SKIP_E2E=1 cargo test # inner loop: ~13s, by skipping every test that shells
                             # out to kotlinc/rustc. Those tests still report as
                             # *passing*, so this is never the pre-submit check.
 INSTA_UPDATE=always cargo test   # accept/update insta snapshots after intended changes
@@ -127,6 +127,116 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The debug-object pruner now keeps exactly what debug maps reference
+(2026-09-21, late evening).** Found while answering "did we fix the
+`.rcgu.o` pileup for good?": no — `deps/` was back to 650k files / 15 GiB
+(50.6 GiB by `cargo clean`'s own count) with the hygiene test passing,
+because the original pruner's owner rule (keep while the `name-hash`
+artifact exists) only catches *renamed* artifacts, and an **incremental
+relink strands objects under a name that keeps existing**. Establishing the
+right rule took three experiments on a scratch crate (tmp/gcprobe): the
+middle segment of `X.<mid>.<cgu>.rcgu.o` is **per-CGU, not per-build** — a
+live binary references objects across many `<mid>`s, so the
+keep-newest-generation-by-mtime idea would delete live debug info and was
+discarded; a binary names exactly the loose objects it references in its
+debug map (`nm -pa`, ` OSO ` entries), while **rlib dependencies are
+referenced as archive members** (`libx.rlib(x.rcgu.o)`) — the loose copies
+rlibs leave behind (49k for `salvo_core` alone) are pure waste; and
+deleting loose objects **cannot break a later build** — they are link
+outputs re-emitted from `target/*/incremental`, not inputs (deleted all,
+incremental rebuild relinked and ran). `prune_stale_debug_objects` now
+keeps an object iff some live binary/dylib's debug map references it,
+falling back conservatively: a binary `nm` cannot read keeps its objects by
+ownership, and a missing `nm` reverts the whole pass to the old owner rule.
+A fixture test (`the_pruner_keeps_exactly_what_debug_maps_reference`) pins
+the rule: referenced objects survive; a stale generation of a live binary,
+an orphan, and an rlib-owned loose object all go. AGENTS.md gained a
+test-stage bullet: when runs drift slow, check the `.rcgu.o` count as part
+of the test stage. The gotcha is rewritten to match.
+
+**Test speed: the driver skip gate, `opt-level = 1`, and the Gatekeeper
+stall (2026-09-21, evening; validated after the terminal exemption).** A
+timing investigation with two fixes and one macOS discovery.
+(1) *The Kotlin case driver defect, skip half* — fixed:
+`kotlinc_compiles_and_runs_every_case` built every `KOTLIN_CASES` entry
+(full parse+check+emit over std each) before consulting any gate; the
+`SALVO_SKIP_E2E` gate is now hoisted above case-building
+(codegen_tests.rs), 27.6s → 0.00s under skip. Deliberately *only* the skip
+gate: a missing kotlinc still builds the cases, because their content
+assertions must keep running for contributors without the toolchain. The
+warm-unskipped half (a source-keyed stamp) stays open in ROADMAP.md.
+(2) *`[profile.dev] opt-level = 1, debug = "line-tables-only"`* in the
+workspace Cargo.toml: the golden tests dominate the codegen binary (~109
+tests each re-checking all of std; poor thread scaling — per-test CPU, not
+a lock), and optimizing the compiler under test cut the binary 30.8s →
+7.5s. Line tables also shrink the `.rcgu.o` surface (see the debug-objects
+gotcha). Cost: a full rebuild is ~2m49 (one-off); incremental builds
+unchanged (~8–12s). (3) *The ~10min edit loop was Gatekeeper, not cargo*:
+every freshly **linked** test binary paid ~11.5s dead wall (0.02s CPU) on
+its **first execution** — syspolicyd's `GK performScan` does a network
+round-trip to Apple per new binary, serialized, ~45 relinked binaries ≈
+9–10min. The user exempted the terminal (Privacy & Security → Developer
+Tools, 2026-09-21); measured after: the stall is ~2.5s/binary from the
+(sandboxed) agent shell — the exemption may be total in the exempted
+terminal itself. New gotcha recorded. Validated numbers, warm machine:
+warm skip suite ~45s → **~13s**; warm full `cargo test` **~15s** (stamps
+hit); `SALVO_E2E_FRESH=1 cargo nextest run` 1237/1237 in **99s** (~1m47
+wall); edit loop (touch check.rs → skip suite) ~10min → **5m34** in the
+sandboxed shell (52s rebuild+relink + the residual stall — likely far less
+in an exempted terminal). Also fixed en route: an unused `Item` import in
+salvo-syntax's parser_tests.rs (the one warning in the full-suite build).
+AGENTS.md's timing table and budgets refreshed to match.
+
+**Ordering, equality and hashing — a design round opened and largely decided
+(user decisions 2026-09-21).** Raised by `demo/heap.sv`'s
+`Heap<T canbe ordered>` TODO and grown, through one session, into a redesign
+of the three capabilities. The round lives in **ORDERING.md** (deleted when
+built, the OPTIONALS.md pattern); the demo's other TODOs are planned in
+**HEAP_QUALIFIER.md**. Decided, in outline: `Ordered`/`Eq`/`Hashed` become
+**params groups** (the `Yield` precedent — no traits); canonical
+implementations are top-level fns **`@`-scoped to their type**
+(`fn cmp@Person(…)`, in the type's file — settled the same evening after
+an in-body-member draft), imported with the type and the default
+selection for implicits, with ambiguity around a canonical always an
+error, explicit and implicit alike (the wider no-silent-scope-winners
+intent is a ROADMAP item), and `export` on them explicit and
+match-checked against the type's; a
+**`default` keyword on compiler-known obligation groups**
+(`struct Point : default Ordered<self>`) generates the structural implementation,
+and the `default` forms bring `eq` with them; operators resolve through the
+groups, so **equality becomes opt-in** (overturning [col-equality]'s
+"every struct, structurally", 2026-09-12) and comparisons on unconstrained
+`T` become errors (closing the `op_lenient` `Ty::Var` leftover); structures
+that hold an ordering bind it **at construction as a fn-valued type
+argument with static identity** (`Heap<?cmp>`, `SortedSet<T, ?cmp = cmp>`,
+`Set<T, ?hash, ?eq>`) — lowered to zero-sized marker types on Rust, so no
+comparator value exists and sendability is untouched; `canbe ordered` and
+`canbe hashed` are deleted. Rejected on the way (recorded in ORDERING.md so
+they are not re-explored): comparator-in-the-value (not sendable,
+[rs-fn-field]), an ordering-overriding qualifier on elements (droppability
+makes it silently wrong), a separate `order` declaration species (same
+lowering, more surface), canonical members in the struct body (superseded
+by `@`-scoping within the session), and bound-only `<T canbe ordered>`
+(subsumed by the groups). The last four calls landed the same evening:
+the `?cmp` binder binds **bare in the signature** (one namespace per
+signature; capture from argument types where no implicit parameter
+declares it — "an indirect way of declaring a fn in the parameter
+scope"); fn-valued type arguments are **named top-level fns only**;
+the hash-algorithm question **dissolved** — backend-native hashing,
+cross-backend value divergence accepted on the random-numbers analogy
+(contract: `eq` ⇒ equal hashes within one execution; value-level parity
+for hash and random is a recorded ROADMAP item); and the package was
+**formally adopted** — ORDERING.md is the build
+plan, gated on the concurrent test-time session. **Found in passing and
+fixed**: the [group-obligation] examples in
+LANGUAGE_SPEC.md, ast.rs and parser.rs were stale twice over — they omitted
+the `self` argument ([group-self], `Yield<self, Str>`) and still showed
+`: Linear` as an obligation entry where the current language declares
+`linear struct` [linear-group] (user correction; std/core/fs.sv:195 is the
+reference). The parser test `parser_tests.rs:277` still parses the old
+spelling — deliberate there (it exercises the parse, not the checker), but
+worth a look when the obligation grammar next changes.
 
 **The arm-mapping re-wrap: sub-union values (2026-09-21).** The single lift the
 `?` family round left behind, and it unblocked two of the three shapes waiting on
@@ -14710,6 +14820,19 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **The first execution of a freshly linked binary can cost ~12s of dead
+  wall on macOS — and it will corrupt your timing measurements.**
+  Gatekeeper (syspolicyd) scans every *new* executable with a network
+  round-trip to Apple, serialized across binaries: a relink-everything test
+  run paid ~45 × ~12s ≈ 10 minutes at ~0.02s CPU per binary, instant on the
+  second execution (2026-09-21; `log show --predicate 'process ==
+  "syspolicyd"'` shows the `GK performScan` entries). Exempting the
+  terminal (Privacy & Security → Developer Tools; `spctl developer-mode
+  enable-terminal` opens that pane) cut the stall to ~2.5s/binary as
+  measured from a sandboxed agent shell — possibly to zero in the exempted
+  terminal itself. Same macOS subsystem as the AMFI SIGKILL gotcha below.
+  The trap for perf work: any number taken on the first run after a relink
+  is Gatekeeper, not the code — throw the first run away.
 - **A bulk-rename regex with `\s+` crosses newlines.** Renaming the
   spawn-dependency clause (`spawn H() use D` → `with D`, 2026-09-20) matched
   across a line break and joined a deliberate two-statement pair —
@@ -15255,10 +15378,19 @@ snapshot diffs.
 - **`target/debug/deps` accumulates `.rcgu.o` files forever on macOS.**
   `split-debuginfo=unpacked` (the platform default) keeps every codegen
   object as the debug info of its binary, and cargo never garbage-collects
-  the sets orphaned by rebuilds: 790k files / 48.7 GiB after a few weeks,
-  slowing every directory scan and possibly implicated in the AMFI kills
-  above. `salvo-testkit`'s hygiene test now prunes orphans on every full
-  run; if `deps/` is somehow huge again, `cargo clean` resets it.
+  the ones rebuilds strand: 790k files / 48.7 GiB after a few weeks —
+  and again 650k / 15 GiB three weeks after the first fix, because
+  *renaming* is not the only way to strand an object: an **incremental
+  relink keeps the artifact's name** and replaces CGUs, so dead
+  generations look owned forever (one binary had 19), and rlib-owned
+  loose objects are never referenced at all (the archive holds its own
+  copy). The middle segment of `X.<mid>.<cgu>.rcgu.o` is per-CGU, not
+  per-build, so no name- or mtime-shaped rule can find the dead ones —
+  `salvo-testkit`'s hygiene test therefore keeps exactly what live debug
+  maps reference (`nm -pa`'s ` OSO ` entries) on every full run. Loose
+  objects are link *outputs*, never inputs, so deleting them cannot break
+  a later incremental build (verified). If `deps/` is somehow huge again,
+  `cargo clean` resets it.
 - **An empty doctest pass is not free.** `cargo test` runs rustdoc over
   every library crate to *collect* doctests even when there are none —
   ~7s per crate here, uncached, every run; it was 38s of a 54s warm suite.
