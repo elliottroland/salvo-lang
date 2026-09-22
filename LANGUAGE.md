@@ -1240,8 +1240,21 @@ Three capabilities are declared exactly this way, in `core.compare`:
 ```
 params Ordered<T> { fn cmp(a: T, b: T) -> Int }
 params Eq<T>      { fn eq(a: T, b: T) -> Bool }
-params Hashed<T>  { fn hash(value: T) -> Long }
+params Hashed<T>  { fn hash(value: T) -> Long
+                    fn eq(a: T, b: T) -> Bool }
 ```
+
+`Hashed` is a **pair**, and says so: a hash container buckets by `hash` and
+confirms the bucket hit by `eq`, so a `hash` without its `eq` is useless and a
+pair that disagrees is a container that loses values. `Ordered` is deliberately
+not a pair — no sorted collection consults equality, since it decides membership
+by `cmp` — which is what lets one program hold a `Set<Person>` keyed by every
+field beside a heap ranked by age, without either being a lie.
+
+A group that spreads two overlapping capabilities asks for the shared member
+once: `?Eq<T>, ?Hashed<T>` brings one `eq`. And a spread asks for *every* member
+it declares, whether the body uses it or not — so a function that only needs an
+ordering writes `?cmp: (T, T) -> Int` rather than a group.
 
 So "orderable" is not a property of a type — it is *an ordering being in
 scope*. `cmp` answers a negative number when `a` sorts first, zero when the two

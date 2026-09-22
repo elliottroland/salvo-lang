@@ -257,7 +257,7 @@ In brief:
    promise. What it buys is *some* members generated beside others written by
    hand — a custom `eq` over a structural `cmp`, which `default` could not
    express.
-2. **`Hashed<T>` gains `eq`** (a hash container buckets by `hash` and confirms
+2. ✅ **`Hashed<T>` gains `eq`** — **landed 2026-09-22** (a hash container buckets by `hash` and confirms
    by `eq`, so the pair is the unit); overlapping spreads **merge** to one
    position; a spread resolves **every** member, used or not.
 3. **Group spreads in a slot list** (`qualifier Heap<T, ?Ordered<T>>`), slots

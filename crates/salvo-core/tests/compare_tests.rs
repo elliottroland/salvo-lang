@@ -28,7 +28,7 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Str canbe Mut\n",
     "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
-    "export params Hashed<T> {\n    fn hash(value: T) -> Long\n}\n",
+    "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
     "export intrinsic fn cmp(a: Str, b: Str) [] -> Int => a, b\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
@@ -861,6 +861,100 @@ struct Counter : auto Ordered<self> canbe Mut {
             .any(|e| e.contains("auto fn cmp@Counter") && e.contains("canbe Mut")),
         "expected the mutable struct to be refused, got: {mutable:?}"
     );
+}
+
+/// [cmp-auto] [implicit-group] `Hashed<T>` declares the **pair** a hash
+/// container needs — `hash` to bucket, `eq` to confirm the bucket hit — and two
+/// spreads asking for the same position ask for one parameter (user decisions
+/// 2026-09-22). `?Eq<T>` beside `?Hashed<T>` is one `eq`, not a collision.
+#[test]
+fn overlapping_spreads_merge() {
+    let errs = errors(
+        r#"
+fn digest_agrees<T>(a: T, b: T, ?Eq<T>, ?Hashed<T>) [] -> Bool => a, b {
+    if eq(a, b) {
+        return hash(a) == hash(b)
+    }
+    return true
+}
+
+fn probe(x: Int, y: Int) [] -> Bool => x, y {
+    return digest_agrees(x, y)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// …while a name clash at two *different* types stays an error: nothing tells
+/// those two apart, and the message names both types and the remedy.
+#[test]
+fn a_clash_at_two_types_is_still_an_error() {
+    let errs = errors(
+        r#"
+params Weird<T> {
+    fn eq(a: T, b: T) -> Int
+}
+
+fn probe<T>(a: T, b: T, ?Eq<T>, ?Weird<T>) [] -> Bool => a, b {
+    return eq(a, b)
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("two different types") && e.contains("distinct names")),
+        "expected the clash to be reported: {errs:?}"
+    );
+}
+
+/// [cmp-auto] A spread resolves **every** member, used or not (decision 19), so
+/// `?Hashed<T>` at a type with a `hash` and no `eq` is the ordinary
+/// missing-implicit error naming `eq`. Asking for less is a narrower spread, or
+/// the members written individually.
+#[test]
+fn a_spread_resolves_every_member() {
+    let errs = errors(
+        r#"
+struct Key {
+    x: Int
+}
+
+auto fn hash@Key(value: Key) [] -> Long => value
+
+fn bucket<T>(v: T, ?Hashed<T>) [] -> Long => v {
+    return hash(v)
+}
+
+fn probe(k: Key) [] -> Long => k {
+    return bucket(k)
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`eq`")),
+        "expected the unfilled `eq` to be named: {errs:?}"
+    );
+
+    // Declaring the member it actually needs asks for less, and works.
+    let errs = errors(
+        r#"
+struct Key {
+    x: Int
+}
+
+auto fn hash@Key(value: Key) [] -> Long => value
+
+fn bucket<T>(v: T, ?hash: (T) -> Long) [] -> Long => v {
+    return hash(v)
+}
+
+fn probe(k: Key) [] -> Long => k {
+    return bucket(k)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
 /// [cmp-auto] The **function-level** form, and the reason it exists (user

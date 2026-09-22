@@ -1968,9 +1968,21 @@ Conventions:
   * The expansion order — written implicits first, then each group's members
     in declaration order — is published by the checker as the one ordered
     list both the callee's parameters and the caller's arguments follow.
-  * Two implicits of the same name in one signature are an error: with no
-    binder nothing tells them apart, and [var-no-shadow] would refuse them
-    in the body. The remedy is to write the clashing ones out individually.
+  * **Two spreads asking for the same position ask for one parameter** (user
+    decision 2026-09-22): `?Eq<T>` beside `?Hashed<T>` brings **one** `eq`, since
+    `Hashed` carries the `eq` its `hash` is confirmed by [cmp-groups]. Merging is
+    by name *and* type — it is one function position, named once — and a binder
+    among the merged occurrences makes the merged position a binder
+    [cmp-binder].
+  * Two implicits of the same name at **different types** are an error: with no
+    binder nothing tells them apart, and [var-no-shadow] would refuse them in
+    the body. The message names both types; the remedy is to write the clashing
+    ones out individually.
+  * **A spread resolves every member, used or not** (user decision 2026-09-22):
+    `?Hashed<T>` asks the call site for exactly what the group declares, so a `T`
+    with a `hash` and no `eq` is the ordinary missing-implicit error naming `eq`.
+    Asking for less is a narrower group, or the members written individually —
+    which is what keeps `?cmp: (T, T) -> Int` a spelling worth having.
 * [group-obligation] A `params` group may be stated as an **obligation** on
   a struct declaration: `linear struct Lines : Yield<self, Str> canbe Mut { … }`
   — a `:` clause between the generics and `canbe`, comma-separated, each

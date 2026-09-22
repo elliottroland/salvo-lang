@@ -3486,30 +3486,44 @@ impl<'p, 'r> Checker<'p, 'r> {
                 binder: true,
             });
         }
-        // Two implicits of the same name cannot both be filled: with no
-        // binder there is nothing to tell them apart, and [var-no-shadow]
-        // would refuse them in the body anyway. The remedy is to write the
-        // members out individually under distinct names.
-        let mut seen: HashMap<&str, Span> = HashMap::new();
-        let mut duplicates: Vec<(String, Span)> = Vec::new();
-        for p in &out {
-            if seen.contains_key(p.name.as_str()) {
-                duplicates.push((p.name.clone(), p.span));
-            } else {
-                seen.insert(p.name.as_str(), p.span);
+        // [cmp-auto] [implicit-group] Two spreads asking for the **same
+        // position** ask for one parameter, not two: `?Eq<T>` beside
+        // `?Hashed<T>` brings one `eq`, since `Hashed` carries the `eq` its
+        // `hash` is confirmed by (user decision 2026-09-22). Merging is by name
+        // *and* type — it is one function position, named once, so filling it
+        // twice would be filling the same thing twice.
+        //
+        // A name clash at *different* types stays an error: with no binder
+        // nothing tells those two apart, and [var-no-shadow] would refuse them
+        // in the body anyway. The remedy is to write the ones that clash
+        // individually under distinct names.
+        let mut merged: Vec<ImplicitParam> = Vec::with_capacity(out.len());
+        let mut clashes: Vec<(String, Span, Ty, Ty)> = Vec::new();
+        for p in out {
+            match merged.iter_mut().find(|q| q.name == p.name) {
+                Some(kept) if kept.ty == p.ty => {
+                    // One position, so one parameter. A binder anywhere makes
+                    // the merged position a binder [cmp-binder].
+                    kept.binder = kept.binder || p.binder;
+                }
+                Some(kept) => {
+                    clashes.push((p.name.clone(), p.span, kept.ty.clone(), p.ty.clone()));
+                }
+                None => merged.push(p),
             }
         }
-        for (name, span) in duplicates {
+        for (name, span, first, second) in clashes {
             self.error(
                 span,
                 format!(
-                    "`{name}` is declared as an implicit parameter twice: with no \
-                     binder there is no way to tell them apart, so write the ones \
-                     that clash individually under distinct names"
+                    "`{name}` is declared as an implicit parameter twice, at two \
+                     different types (`{first}` and `{second}`): with no binder there \
+                     is no way to tell them apart, so write the ones that clash \
+                     individually under distinct names"
                 ),
             );
         }
-        out
+        merged
     }
 
     /// The fn type a *declared* fn has as a value: parameters, result,

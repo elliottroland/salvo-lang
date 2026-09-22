@@ -128,6 +128,37 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 2 — `Hashed` is a pair, and overlapping
+spreads merge (2026-09-22).** User decisions 16, 18 and 19. `core.compare`'s
+`Hashed<T>` now declares `hash` *and* `eq`, which is what a hash container
+actually needs — it buckets by `hash` and confirms the bucket hit by `eq`, so the
+pair is the unit. `Ordered<T>` stays a single member (decision 17: no sorted
+container consults equality).
+
+- **The bundle made the overlap ordinary.** `?Eq<T>, ?Hashed<T>` in one signature
+  now brings `eq` twice, which [implicit-group]'s "two implicits of one name is
+  an error" was written to refuse — a rule aimed at a rare mistake that had
+  become the common case. Merging is by name **and type**: it is one function
+  position, named once, so filling it twice would be filling the same thing
+  twice. A clash at two *different* types stays an error, and the message now
+  names both types.
+- **Resolve-all needed no code** (decision 19): a spread already resolved every
+  member, so the decision was to *keep* the behaviour and document it. What it
+  costs is visible in the new test — `?Hashed<T>` at a type with a `hash` and no
+  `eq` is the ordinary missing-implicit error — and what it buys is that
+  `?cmp: (T, T) -> Int` stays the spelling for asking for less.
+- **The surprise was the test preludes.** Three test files mirror
+  `core.compare` by hand (`compare_tests.rs`, `collection_tests.rs` twice), so the
+  group change had to be made four times or a test asserting the new rule passed
+  for the wrong reason — which is exactly what happened first: the
+  resolve-every-member test saw no error because its prelude's `Hashed` still had
+  one member. A hand-copied std surface is a place where a language change can
+  look landed without being.
+- Rules: [cmp-groups] and [implicit-group] updated; LANGUAGE.md's group listing
+  now shows the pair and explains which of the two bundles and why. Three new
+  tests in `compare_tests.rs` (the merge, the clash at two types, and
+  resolve-all with its narrower-spread remedy).
+
 **Ordering round (second plan), step 1 — `auto` replaces `default`, at the
 function level (2026-09-22).** User decision 15. A capability's structural
 implementation is now a bodiless **`auto fn`** `@`-scoped to its type

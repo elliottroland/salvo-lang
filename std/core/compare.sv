@@ -38,12 +38,21 @@ export params Eq<T> {
     fn eq(a: T, b: T) -> Bool
 }
 
-// The hashing capability, the second half of what a `Set` element or a `Map`
-// key needs (`eq` is the first). `Long` rather than `Int` because both hosts
-// hand back a wide digest and narrowing it would throw away bits for
+// What a `Set` element or a `Map` key needs, which is a **pair**: a hash
+// container buckets by `hash` and confirms the bucket hit by `eq`, so a `hash`
+// without its `eq` is useless and a pair that disagrees is a silently broken
+// container (user decision 2026-09-22). `Long` rather than `Int` because both
+// hosts hand back a wide digest and narrowing it would throw away bits for
 // nothing.
+//
+// `Ordered` deliberately does *not* bundle `eq`: no sorted container consults
+// equality — both hosts collapse by the comparator — so an `eq` there would be a
+// member nothing reads, and keeping the two apart is what lets one program hold
+// a `Set<Person>` by all fields beside a `SortedSet<Person, by_age>` by rank
+// without either being a lie.
 export params Hashed<T> {
     fn hash(value: T) -> Long
+    fn eq(a: T, b: T) -> Bool
 }
 
 // ===== the canonical implementations for the intrinsic types =====

@@ -164,8 +164,8 @@ work is. Each step is one commit.
    desugaring: the clause sugar keeps producing what it produces today. Groups
    unchanged. ~120 sites across std, both emitters, the checker, the parser,
    five test files, the specs and the editor grammar.
-2. **`Hashed<T>` gains `eq`; overlapping spreads merge; a spread resolves every
-   member.** Decisions 16, 18, 19. The merge is in `collect_implicits`' duplicate
+2. ✅ **`Hashed<T>` gains `eq`; overlapping spreads merge; a spread resolves
+   every member** — **landed 2026-09-22**. Decisions 16, 18, 19. The merge is in `collect_implicits`' duplicate
    check; the group change is `std/core/compare.sv` plus whatever asked for
    `?Hashed<T>` and relied on getting only `hash`.
 3. **Group spreads in slot lists, aliasing, and the ambiguity refusal.**
