@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-export intrinsic type Map<K, V canbe linear, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq> canbe Mut
+export intrinsic type Map<K, V canbe linear, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut
 
 // Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a

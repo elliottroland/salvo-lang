@@ -917,6 +917,7 @@ impl<'s> Parser<'s> {
         let name = self.ident_value("function slot")?;
         self.expect(&TokenKind::Colon)?;
         let ty = self.parse_type()?;
+        let ty_span = ty.span();
         if !matches!(ty, Type::Fn { .. }) {
             // The same requirement an implicit parameter has, for the same
             // reason: what fills it is a function [implicit-param].
@@ -929,43 +930,14 @@ impl<'s> Parser<'s> {
                 ty.span(),
             );
         }
-        // `= cmp` / `= cmp@Person`: the identity a use site that writes none
-        // gets.
-        let default = if self.eat(&TokenKind::Eq).is_some() {
-            Some(self.parse_fn_identity()?)
-        } else {
-            None
-        };
-        let end = default.as_ref().map(|d| d.span).unwrap_or(ty.span());
+        // [cmp-carry] No `= default`: the slot's **name** is what an unwritten
+        // one resolves by, exactly as an implicit parameter's is
+        // [implicit-resolve]. Writing one would restate the mechanism, so the
+        // form does not exist.
         Some(FnSlot {
             name,
             ty,
-            default,
-            span: question.to(end),
-        })
-    }
-
-    /// [cmp-carry] A written function **identity**: `cmp`, `cmp@Person`,
-    /// `size@core.list`. Never a binder — a default is a real fn.
-    fn parse_fn_identity(&mut self) -> Option<TypeRef> {
-        let name = self.ident_value("function")?;
-        let mut end = name.span;
-        let at = if self.at(&TokenKind::At) {
-            self.bump();
-            let sel = self.ident_dotted_path()?;
-            end = sel.span;
-            Some(sel)
-        } else {
-            None
-        };
-        Some(TypeRef {
-            alias: None,
-            name,
-            args: Vec::new(),
-            from: Vec::new(),
-            at,
-            binder: false,
-            span: end,
+            span: question.to(ty_span),
         })
     }
 

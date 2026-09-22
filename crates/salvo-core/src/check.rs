@@ -13613,28 +13613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) {
         for entry in slots {
             match entry {
-                ast::SlotDecl::One(slot) => {
-                    self.validate_type(&slot.ty);
-                    let Some(default) = &slot.default else { continue };
-                    let name = default.name.name.as_str();
-                    let ok = match &default.at {
-                        Some(at) => self.fn_exists_at(name, &at.name),
-                        None => self.has_callable(name),
-                    };
-                    if !ok {
-                        let shown = match &default.at {
-                            Some(at) => format!("{name}@{}", at.name),
-                            None => name.to_string(),
-                        };
-                        self.error(
-                            slot.span,
-                            format!(
-                                "the default for `?{}` names no visible function `{shown}`",
-                                slot.name.name
-                            ),
-                        );
-                    }
-                }
+                ast::SlotDecl::One(slot) => self.validate_type(&slot.ty),
                 // [cmp-carry] A group spread in a slot list is the same
                 // declaration-side shorthand it is in a parameter list, so it
                 // gets the same diagnostic when the group is not there.
@@ -13769,15 +13748,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             match entry {
                 ast::SlotDecl::One(slot) => {
                     let ty = self.lower_type(&slot.ty);
-                    let info = FnSlotInfo {
-                        name: slot.name.name.clone(),
-                        ty,
-                        default: slot.default.as_ref().map(|d| FnId::Named {
-                            name: d.name.name.clone(),
-                            at: d.at.as_ref().map(|a| a.name.clone()),
-                        }),
-                    };
-                    push_slot(&mut out, info);
+                    push_slot(
+                        &mut out,
+                        FnSlotInfo {
+                            name: slot.name.name.clone(),
+                            ty,
+                        },
+                    );
                 }
                 ast::SlotDecl::Group(spread) => {
                     let Some(group) = self
@@ -13809,7 +13786,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                             FnSlotInfo {
                                 name: member.name.name.clone(),
                                 ty: substitute_vars(&ty, &subst, &bound),
-                                default: None,
                             },
                         );
                     }
@@ -13919,30 +13895,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         // padding them keeps every mention of the qualifier the same arity,
         // which is what lets a bare `Heap` and a `Heap<Person, cmp@Person>`
         // compare at all.
-        let identities: Vec<Ty> = slots
+        // [cmp-carry] **An unwritten slot is resolved by its name**, exactly as an
+        // implicit parameter is [implicit-resolve] — there is no default to
+        // materialize, so a type nobody wrote an identity into carries none.
+        // `Set<Str>` is therefore exactly the type it has always been, a bare
+        // `Heap` carries nothing, and only a type that says something *different*
+        // about its ordering grows an argument to say it in. That is what keeps
+        // this out of the hundreds of places that read a container's type
+        // arguments positionally.
+        let identities: Vec<Ty> = filled
             .iter()
-            .enumerate()
-            .map(|(at, slot)| match &filled[at] {
-                Some(ty) => ty.clone(),
-                None => match &slot.default {
-                    Some(id) => Ty::FnName(id.clone()),
-                    None => Ty::Unknown,
-                },
-            })
+            .map(|f| f.clone().unwrap_or(Ty::Unknown))
             .collect();
-        // [cmp-carry] **The default is not materialized.** When every slot holds
-        // what the declaration says it holds anyway, the type carries no identity
-        // arguments at all — so `Set<Str>` is exactly the type it has always
-        // been, a bare `Heap` carries nothing, and only a type that says
-        // something *different* about its ordering grows an argument to say it
-        // in. That is what keeps this change out of the hundreds of places that
-        // read a container's type arguments positionally.
-        let at_default = slots.iter().zip(&identities).all(|(slot, id)| match &slot.default {
-            Some(d) => *id == Ty::FnName(d.clone()),
-            None => id.is_unknown(),
-        });
         let mut out = types;
-        if at_default {
+        if identities.iter().all(|id| id.is_unknown()) {
             return out;
         }
         while out.len() < type_arity {
@@ -20930,7 +20896,6 @@ fn tys_match_renamed(
 struct FnSlotInfo {
     name: String,
     ty: Ty,
-    default: Option<FnId>,
 }
 
 /// [col-key-eligible] [cmp-carry] The four **keyed containers**, with how many
@@ -20950,19 +20915,12 @@ fn keyed_container(name: &str) -> Option<(usize, bool)> {
 
 /// [cmp-carry] [implicit-group] Adds a slot to an expanded list, **merging** an
 /// entry that asks for the same position at the same type: two groups naming one
-/// member name it once, exactly as two implicit spreads do. A merged slot keeps
-/// the first default written for it.
+/// member name it once, exactly as two implicit spreads do.
 fn push_slot(out: &mut Vec<FnSlotInfo>, slot: FnSlotInfo) {
-    match out.iter_mut().find(|s| s.name == slot.name) {
-        Some(kept) if kept.ty == slot.ty => {
-            if kept.default.is_none() {
-                kept.default = slot.default;
-            }
-        }
-        // A clash at two *types* is reported by `slot_clashes`; keeping both here
-        // would make the positions disagree with what the diagnostic said.
-        Some(_) => {}
-        None => out.push(slot),
+    // A clash at two *types* is reported by `slot_clashes`; keeping both here
+    // would make the positions disagree with what the diagnostic said.
+    if !out.iter().any(|s| s.name == slot.name) {
+        out.push(slot);
     }
 }
 

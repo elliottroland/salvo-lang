@@ -734,7 +734,12 @@ pub enum SlotDecl {
 
 /// [cmp-carry] A **fn slot** in a declaration's generics list:
 /// `qualifier Heap<T, ?cmp: (T, T) -> Int>`,
-/// `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
+/// `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int>`.
+///
+/// There is no default to write: **the slot's name *is* its default**, because
+/// that is how an implicit parameter already works [implicit-resolve] — a `?cmp`
+/// nobody writes is resolved by the name `cmp` where it is needed (user decision
+/// 2026-09-22).
 ///
 /// The position a function **identity** fills, spelled like the implicit
 /// parameter it is resolved as [implicit-param] — so a reader who knows
@@ -747,8 +752,6 @@ pub struct FnSlot {
     /// The fn type an identity must have to fill the slot, over the
     /// declaration's own type parameters.
     pub ty: Type,
-    /// `= cmp`: the identity a use site that writes none gets.
-    pub default: Option<TypeRef>,
     pub span: Span,
 }
 

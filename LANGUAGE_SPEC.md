@@ -480,16 +480,17 @@ Conventions:
     collapse differently in `SortedSet<Person, cmp@Person>` and
     `SortedSet<Person, by_age>`, and neither is the other
     [cmp-carry].
-* [col-keyed-slots] The four keyed containers declare their slots, defaulted to
-  the canonical implementation:
-  `SortedSet<T, ?cmp: (T, T) -> Int = cmp>`,
-  `SortedMap<K, V, ?cmp: (K, K) -> Int = cmp>`,
-  `Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq>`,
-  `Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq>`.
-  * **The default is not materialized** [cmp-carry]: a type whose slots all hold
-    what the declaration says anyway carries no identity arguments, so `Set<Str>`
-    is exactly the type it has always been and only a container that says
-    something *different* grows an argument to say it in.
+* [col-keyed-slots] The four keyed containers declare their slots:
+  `SortedSet<T, ?cmp: (T, T) -> Int>`,
+  `SortedMap<K, V, ?cmp: (K, K) -> Int>`,
+  `Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool>`,
+  `Map<K, V, ?hash: (K) -> Long, ?eq: (K, K) -> Bool>`.
+  * **An unwritten slot is resolved by its name** [cmp-carry] [implicit-resolve],
+    so nothing is materialized for it: `Set<Str>` is exactly the type it has
+    always been and only a container that says something *different* about its
+    keys grows an argument to say it in. What makes that stable for the canonical
+    case is [cmp-canonical] — a canonical travels with its type, so the `cmp` an
+    unwritten slot resolves to is the same one everywhere the type is usable.
   * **A non-canonical identity is refused for now**, at the written type, naming
     what it waits for: a keyed container has to carry the function at run time and
     neither host's container has a slot for one, so the containers must become
@@ -2898,9 +2899,11 @@ Conventions:
   what one call site resolved is published by the type it produced.
   * The declaration writes a **fn slot** in its generics list —
     `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`,
-    `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>` — spelled like the
-    implicit parameter it is resolved as [implicit-param], with an optional
-    `= name` default. A **`params` group spreads into a slot list** exactly as it
+    `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int>` — spelled like the implicit
+    parameter it is resolved as [implicit-param]. **There is no default to
+    write**: the slot's *name* is what an unwritten one resolves by, which is how
+    an implicit parameter already works [implicit-resolve] (user decision
+    2026-09-22 — an earlier `= cmp` form restated the mechanism and is gone). A **`params` group spreads into a slot list** exactly as it
     does into a parameter list (user decision 2026-09-22):
     `qualifier Heap<T, ?Ordered<T>> of List<T>` declares one slot per member, at
     the position the spread is written, and two entries asking for the same
@@ -2942,9 +2945,10 @@ Conventions:
     `Heap<Person, f>` as a *parameter* demands exactly `f`. That makes the bare
     form the empty case of one rule rather than a special case of its own.
   * **A bare name is resolved where the type is used**, like any implicit
-    [implicit-resolve]: `Heap<min_by_age>` names "the `min_by_age` visible
-    here", which is what lets a slot have a default (`= cmp`) that means the
-    right `cmp` per instantiation. A `@`-scoped canonical is the spelling that
+    [implicit-resolve]: `Heap<Person, min_by_age>` names "the `min_by_age` visible
+    here", and an *unwritten* slot is resolved by the slot's own name — which is
+    why no default needs writing and why one slot means the right `cmp` at every
+    instantiation. A `@`-scoped canonical is the spelling that
     does not depend on the reader's imports [cmp-canonical], and it is what a
     resolved identity is published as when the declaration has one.
 * [cmp-binder] **The binder binds bare in the signature** (user decision
