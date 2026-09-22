@@ -247,6 +247,22 @@ An `elif` chain accumulates the same way, so two exiting branches leave the
 third arm. One branch exiting is not enough: if any branch can fall through,
 either path may have been taken and nothing is narrowed.
 
+A guard usually wants the *negative* test, and that is `!is`:
+
+```
+fn describe(s: Str?) -> Str {
+    if s !is Str {
+        return "nothing"
+    }
+    return s                    // `s` is `Str` here
+}
+```
+
+`x !is Q` is exactly `!(x is Q)` — the same check, spelled the way a guard reads
+— so it works wherever an `is` does, `&&`/`||` and `when` heads included. It
+binds nothing and takes no `^`: a failed test tells you nothing about the value
+on the branch it guards, so there is nothing to name or to lift.
+
 `?:` is `!` with a path instead of a panic. It picks the non-`None` side of its
 subject, and its right side runs only when the subject is `None`:
 

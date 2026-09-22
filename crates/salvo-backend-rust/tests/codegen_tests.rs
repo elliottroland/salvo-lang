@@ -8964,7 +8964,7 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
 
 export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) [] -> T?
     => heap: +Heap<T, ?cmp> Mut {
-    if !(heap is NonEmpty) {
+    if heap !is NonEmpty {
         return None
     }
     return heap_pop(heap)

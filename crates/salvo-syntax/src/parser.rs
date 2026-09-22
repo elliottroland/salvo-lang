@@ -2913,6 +2913,50 @@ impl<'s> Parser<'s> {
                     let span = lhs.span().to(end);
                     lhs = self.is_or_widen(lhs, check, binding, lifted, span)?;
                 }
+                // [is-not] `x !is Q` is sugar for `!(x is Q)` (user decision
+                // 2026-09-22): one `Expr::Is` under a `Not`, so narrowing,
+                // `when` heads and the guard rule all reach it unchanged — the
+                // `Not` arm of `analyze_cond` already swaps the two narrow sets
+                // [is-narrow-guard]. The postfix tier leaves this `!` alone.
+                TokenKind::Bang
+                    if self.same_line() && matches!(self.peek_at(1).kind, TokenKind::KwIs) =>
+                {
+                    let start = self.bump().span;
+                    self.bump();
+                    let (check, binding, lifted) = self.parse_is_check()?;
+                    let end = binding
+                        .as_ref()
+                        .map(|b| b.span)
+                        .or_else(|| check.last().map(|r| r.span))
+                        .unwrap_or_else(|| lhs.span());
+                    // A negated test narrows nothing in its *then* branch, so
+                    // there is no value for a binding to name.
+                    if let Some(b) = &binding {
+                        self.error(
+                            "`!is` binds nothing: the value is only known on the \
+                             branch the test *fails*, so there is nothing to \
+                             name — drop the binding, or write the positive test \
+                             with an `else`",
+                            b.span,
+                        );
+                    }
+                    if lifted > 0 {
+                        self.error(
+                            "`!is ^Q` is not a check: `^` widens the value it \
+                             tested [qual-lift], and a negated test produces no \
+                             value to widen — write `!(x is ^Q)` if the boolean \
+                             is all you want",
+                            start.to(end),
+                        );
+                    }
+                    let span = lhs.span().to(end);
+                    let inner = self.is_or_widen(lhs, check, binding, lifted, span)?;
+                    lhs = Expr::Unary {
+                        op: UnaryOp::Not,
+                        operand: Box::new(inner),
+                        span: start.to(end),
+                    };
+                }
                 TokenKind::Lt | TokenKind::Gt | TokenKind::LtEq | TokenKind::GtEq
                     if self.same_line() =>
                 {
@@ -3460,7 +3504,16 @@ impl<'s> Parser<'s> {
                         span,
                     };
                 }
-                TokenKind::Bang if self.same_line() => {
+                // [is-not] `!` directly before `is` is the **negated check**,
+                // not an assert: `s !is Str` used to parse as `(s!) is Str`,
+                // which type-checked and meant the opposite of what it reads
+                // like (the assert makes the value present, then the test
+                // passes) — so the spelling the demo's author reached for
+                // silently inverted the guard. The comparison tier takes it.
+                TokenKind::Bang
+                    if self.same_line()
+                        && !matches!(self.peek_at(1).kind, TokenKind::KwIs) =>
+                {
                     let end = self.bump().span;
                     let span = expr.span().to(end);
                     expr = Expr::NonNull {

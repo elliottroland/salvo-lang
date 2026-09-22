@@ -1320,6 +1320,23 @@ Conventions:
   * Narrowing resets to the declared type for any variable assigned
     inside a branch ([narrow-assign-reset]); place facts fall on the
     events in [flow-place-invalidate].
+* [is-not] `x !is Q` is **sugar for `!(x is Q)`** (user decision 2026-09-22,
+  the heap plan's item 5): the parser builds one `Expr::Is` under a `Not`, so
+  narrowing, `when` heads and [is-narrow-guard]'s fall-through all reach it
+  without knowing the spelling exists — `analyze_cond`'s `Not` arm already swaps
+  the two narrow sets, which is what makes `if x !is Q { return }` narrow the
+  rest of the block.
+  * **It had to be a parser rule, because the spelling was already legal and
+    meant something else.** `!` is the assert postfix [type-nullable], so
+    `s !is Str` parsed as `(s!) is Str` — asserting the value present and then
+    testing it, which type-checks and reads as the *opposite* of the intent. So
+    the postfix tier now leaves a `!` alone when `is` follows it; `(s!) is Str`
+    is still writable with the parentheses.
+  * **No binding and no `^`**: a negated test tells you nothing on the branch it
+    guards, so there is no value to name (`!is Q name`) and none to widen
+    (`!is ^Q` [qual-lift]). Both are errors naming the positive form.
+  * Everything it composes with comes free: `&&`/`||`, a `when` condition head,
+    and the overload routing after the guard [fn-overload-rank].
 * [is-narrow-guard] A narrowing **survives a guard** (user decision
   2026-09-09): when every branch of an `if` leaves the block, the code
   after it is on the else-path, so each condition's else-narrows hold

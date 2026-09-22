@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1325 tests, complete: the toolchain tests are
+cargo test                  # 1330 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,22 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`!is`, which was not missing but misparsed (user decision 2026-09-22).**
+`x !is Q` is sugar for `!(x is Q)` [is-not] — one `Expr::Is` under a `Not`, so
+narrowing, `when` heads and the guard rule reach it unchanged. HEAP_QUALIFIER.md
+item 5, and the last of its two sugar items but one.
+
+- **The defect underneath it**: `!` is the assert postfix, so `s !is Str` already
+  parsed — as `(s!) is Str`, which asserts the value present and then tests it.
+  That type-checks and means the *opposite* of what it reads like, in the exact
+  spelling the demo's author reached for without checking. The plan had recorded
+  "`!is` does not parse"; it parsed, and lied. The postfix tier now leaves a `!`
+  alone when `is` follows it, and `(s!) is Str` stays writable with parentheses.
+- Refused with the positive form named: a binding (nothing is known about the
+  value on the branch a failed test guards) and a `^` widening (nothing to lift).
+- The two behaviours the plan had bundled into this item needed no change at all;
+  they were verified earlier the same day. So the item was one parser rule.
 
 **A mutator may keep a claim it re-establishes — D2, answered and built (user
 decision 2026-09-22).** `=> p: +Q` in a function's own deduction clause says the
@@ -14552,7 +14568,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1325)
+## Test inventory (all green: 1330)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

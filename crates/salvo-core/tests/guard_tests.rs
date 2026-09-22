@@ -238,3 +238,17 @@ fn without_the_guard_the_plain_overload_wins() {
         "got {errs:?}"
     );
 }
+
+/// [is-not] The same guard in the spelling it is usually reached for
+/// (`!is`, user decision 2026-09-22): sugar for `!(x is Q)`, so it narrows the
+/// fall-through exactly as the parenthesized form does — one `Expr::Is` under a
+/// `Not`, which is all the checker ever sees.
+#[test]
+fn the_not_is_spelling_narrows_the_same_way() {
+    let errs = errors(
+        "fn describe(s: Str?) -> Str {\n    \
+         if s !is Str {\n        return \"none\"\n    }\n    \
+         let text: Str = s\n    return text\n}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}

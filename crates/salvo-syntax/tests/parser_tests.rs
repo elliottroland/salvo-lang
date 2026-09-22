@@ -2294,3 +2294,63 @@ fn a_waitfor_without_a_written_type_parses() {
     }
     assert!(found, "expected a waitfor");
 }
+
+// ===== [is-not] `x !is Q` =====
+
+/// Sugar for `!(x is Q)` (user decision 2026-09-22): one `Expr::Is` under a
+/// `Not`, so everything downstream — narrowing, `when` heads, the guard rule —
+/// reaches it without knowing the spelling exists.
+#[test]
+fn not_is_parses_as_a_negated_check() {
+    let expr = parse_expr_stmt("value !is Str");
+    match expr {
+        salvo_syntax::ast::Expr::Unary { op, operand, .. } => {
+            assert!(matches!(op, salvo_syntax::ast::UnaryOp::Not), "got {op:?}");
+            assert!(
+                matches!(*operand, salvo_syntax::ast::Expr::Is { .. }),
+                "expected an `is` under the `Not`, got {operand:?}"
+            );
+        }
+        other => panic!("expected a negated check, got {other:?}"),
+    }
+}
+
+/// The reason this needed a parser rule rather than a lexer token: `!` is also
+/// the **assert** postfix, so `s !is Str` used to parse as `(s!) is Str` — which
+/// type-checked, and meant the *opposite* of what it reads like. The assert is
+/// still there for everything that is not an `is`.
+#[test]
+fn the_assert_postfix_survives_beside_not_is() {
+    let expr = parse_expr_stmt("first(xs)! + 1");
+    assert!(
+        matches!(expr, salvo_syntax::ast::Expr::Binary { .. }),
+        "expected the assert to still bind as a postfix, got {expr:?}"
+    );
+    // …and with parentheses the old reading is still writable.
+    let expr = parse_expr_stmt("(s!) is Str");
+    assert!(
+        matches!(expr, salvo_syntax::ast::Expr::Is { .. }),
+        "expected a positive `is` over an asserted value, got {expr:?}"
+    );
+}
+
+/// A negated test narrows nothing on the branch it guards, so there is no
+/// value for a binding to name.
+#[test]
+fn not_is_refuses_a_binding() {
+    let errors = errors_of("fn f(s: Str?) -> Str {\n    if s !is Str text {\n        return \"no\"\n    }\n    return \"yes\"\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("`!is` binds nothing")),
+        "got {errors:?}"
+    );
+}
+
+/// …and `^` has nothing to widen either [qual-lift].
+#[test]
+fn not_is_refuses_a_widening() {
+    let errors = errors_of("fn f(o: Ok Int | Err Str) -> Int {\n    if o !is ^Ok {\n        return 0\n    }\n    return 1\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("`!is ^Q` is not a check")),
+        "got {errors:?}"
+    );
+}

@@ -52,7 +52,7 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | ✅ **landed 2026-09-22**: `=> heap: +Heap<T, ?cmp> Mut`, trusted in the qualifier's own file |
 | 3 | `val: proj proj T?` (line 28) | defect | ✅ **fixed 2026-09-22**: a hover-only display bug in the LSP, not the type system |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | ✅ **`swap` landed 2026-09-22**, answering `Bool`; the positional write stays deliberately absent |
-| 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) | narrowing and routing **verified working** 2026-09-22; only `!is` is missing |
+| 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) | ✅ **landed 2026-09-22**: `!is` is sugar for `!(x is Q)`, and the narrowing and routing were already right |
 | 6 | `+=` (line 76) | **DECISION** (small) | only `++`/`--` exist [inc-dec] |
 | 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (the ordering round's step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
 
@@ -256,15 +256,19 @@ return heap_pop(heap)
    checker test pins the routing and a negative twin pins that it is the guard
    doing the work.
 
-**Plan:** layers 2–3 are done and needed no compiler change — no narrow or rank
-gap existed. What is left is the **DECISION**: add `!is` as sugar? Options:
-  - **A.** `expr !is Type` sugar → `Unary Not (Is …)` in the parser's
-    comparison tier. Kotlin precedent, reads well, ~20 lines + tests. No
-    binding form (`!is Q name` binds nothing — there is no narrowed value).
-  - **B.** Keep `!(x is Q)` as the only spelling. Zero work, but the demo's
-    intuition (author reached for `!is` without checking) is evidence for A.
-- Recommendation: **A**. The verification has landed, so this is now the whole
-  of item 5.
+**Landed 2026-09-22** as option A (the user's call): `x !is Q` is sugar for
+`!(x is Q)` — one `Expr::Is` under a `Not` in the comparison tier, so nothing
+downstream knows the spelling exists.
+
+**It was not merely missing, it was misparsed.** `!` is the assert postfix, so
+`s !is Str` parsed as `(s!) is Str`: assert the value present, then test it —
+which type-checks and means the *opposite* of what it reads like. The plan's
+"`!is` does not parse" was wrong, and the fix had to take the `!` away from the
+postfix tier when `is` follows (`(s!) is Str` is still writable with parentheses).
+A silent inversion in the one spelling the demo's author reached for.
+
+Refused, each naming the positive form: a binding (`!is Q name` — a failed test
+tells you nothing about the value) and a widening (`!is ^Q` — nothing to lift).
 
 **Effort:** small.
 
@@ -329,8 +333,8 @@ step 5.
    natural `Mut`-parameter shape, and `demo/heap.sv` compiles *and runs*.
 4. ✅ **#4 (`swap`)** — **landed 2026-09-22**, which took `demo/heap.sv` down to
    **one** error: item 2's.
-5. **#5 (`!is`)** — the guard narrowing and the routing are verified working
-   (2026-09-22); only the sugar is left, and it is a parser change.
+5. ✅ **#5 (`!is`)** — **landed 2026-09-22**, and it fixed a silent misparse
+   rather than adding a missing one.
 6. **#6 (`+=`)** — independent, small, any time.
 
 The demo rewrite (whenever the heap first compiles) also folds in the

@@ -59,13 +59,12 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
 
 // Pops the smallest element in the heap, preserving the heap property.
 export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
-    if !(heap is NonEmpty) {
+    if heap !is NonEmpty {
         return None
     }
     // The guard narrows `heap` to `NonEmpty` on the way out of the `if`
     // [is-narrow-guard], so this routes to the overload below rather than
-    // recursing into this one [fn-overload-rank] — verified 2026-09-22. What
-    // item 5 still wants is only the `!is` spelling of the guard.
+    // recursing into this one [fn-overload-rank].
     return heap_pop(heap)
 }
 
@@ -117,12 +116,10 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
 //
 // Two more TODOs are noted inline and cost no errors here:
 //
-//   * item 5 — `!is` as sugar. The narrowing and the routing it was bundled
-//     with already work (verified 2026-09-22).
 //   * item 6 — `+=`.
 //
-// Item 3 — the `proj proj T?` hover on `heap.get(i)` — is **fixed**
-// (2026-09-22).
+// Item 3 (the `proj proj T?` hover) and item 5 (`!is`, used above) are both
+// **fixed** (2026-09-22).
 //
 // The ordering itself needs nothing further: `?cmp` is bound once per
 // signature, the two `heap_pop` overloads share it, and a caller that never
