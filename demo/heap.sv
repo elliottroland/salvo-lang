@@ -18,6 +18,13 @@ export fn empty_heap<T>(?Ordered<T>) -> Mut List<T> as Heap<T, ?cmp> {
     return mut_list_of()
 }
 
+fn something() {
+    let names: Mut List<Str> = ["roland", "jessica"]
+    heapify(names)
+    // TOOD: This should see that `names` is a Heap
+    heap_push(names, "kevin")
+}
+
 // Makes an arbitrary list into a heap. `+Heap<T, ?cmp>` **establishes** the
 // claim rather than keeping one [deduce-reapply]: the list arrives with nothing
 // claimed about it, and this file declares `Heap`, so it is the party trusted to
@@ -41,7 +48,7 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) -> None
 // function knows the sift below puts it back. Trusted because this is the file
 // that declares `Heap`, the same party a constructor fn and a refinement trust.
 export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
-=> heap: +Heap<T, ?cmp> Mut, !elem {
+=> heap: +Heap Mut, !elem {
     add(heap, elem)
     // The index where the value currently is
     let i = size(heap) - 1
@@ -51,7 +58,7 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
         // 2026-09-22, which was a hover bug rather than a type.)
         let val = heap.get(i) ?: break
 
-        let i_parent = i / 2
+        let i_parent = (i - 1) / 2
         let parent = heap.get(i_parent) ?: break
         if parent <= val {
             break

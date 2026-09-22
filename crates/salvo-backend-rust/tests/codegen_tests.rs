@@ -5007,6 +5007,54 @@ pub const IMPLICIT_OUTPUT: &str = "total=6\nproduct=24\nnested=6\npair=42\nlambd
 /// parameter of fn type, and the call site passes what resolution found —
 /// so nothing about the feature survives into Rust. A group leaves no trace
 /// at all: it was never a value [implicit-group].
+/// [implicit-param] A call fills the **callee's** implicit parameters, read out
+/// of a side table — so the answer must not depend on where the callee is
+/// declared. It did until 2026-09-22: a callee written *below* its caller (or in
+/// a file sorted after it) looked like a fn with no implicits, so the call was
+/// accepted with none filled and the emitted call was short an argument, on both
+/// backends. The checker could not see it — it accepted the call either way —
+/// which is why the test lives here, where the symptom was.
+#[test]
+fn an_implicit_argument_does_not_depend_on_declaration_order() {
+    let files = generate(&[(
+        "main.sv",
+        r#"
+fn caller(a: Str, b: Str) -> Int => a, b {
+    return bigger(a, b)
+}
+
+// Declared *after* its caller, and takes an implicit.
+fn bigger<T>(a: T, b: T, ?Ordered<T>) -> Int => a, b {
+    if cmp(a, b) > 0 {
+        return 1
+    }
+    return 0
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let n = caller("bb", "a")
+    println("${n}")
+}
+"#,
+    )]);
+    let src = &files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs")
+        .content;
+    // The callee takes the position…
+    assert!(
+        src.contains("pub fn bigger<T: Clone>(a: &T, b: &T, cmp: &mut dyn FnMut(&T, &T) -> i32)"),
+        "expected the implicit position in:\n{src}"
+    );
+    // …and the call from *above* it fills the position rather than omitting it.
+    assert!(
+        src.contains("bigger::<String>(a, b, &mut |__i0, __i1|"),
+        "expected the call to pass its implicit argument in:\n{src}"
+    );
+}
+
 #[test]
 fn implicit_parameters_lower_to_trailing_fn_arguments() {
     let files = generate(&[("main.sv", IMPLICIT_DEMO)]);

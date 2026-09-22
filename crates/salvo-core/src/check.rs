@@ -1774,6 +1774,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// which declarations have an `FnKey` (only a top-level fn does; the rest
     /// key by their name span). Its diagnostics are dropped by the caller.
     fn collect_implicit_signatures(&mut self, module: &'p Module) {
+        // [deduce-reapply] The same-file rule for `+Q` reads this, and the
+        // pre-pass records the claims it confines — so it has to know which
+        // qualifiers this file declares, exactly as the real walk does.
+        self.own_qualifiers = module
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Qualifier(q) => Some(q.name.name.clone()),
+                _ => None,
+            })
+            .collect();
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
                 Item::Fn(f) => {
@@ -1783,6 +1794,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     });
                     let saved = self.enter_generics(&f.generics);
                     self.expand_implicits(f);
+                    // [deduce-reapply] What this fn says it **establishes**, for
+                    // the same reason its implicits are recorded here: a call
+                    // site reads it out of a table, so a callee the walk had not
+                    // reached yet looked like a fn that establishes nothing and
+                    // the claim silently failed to reach the caller (found
+                    // 2026-09-22, the same defect one table over).
+                    self.check_reapplied_deductions(f);
                     self.generics = saved;
                     self.own_fn = None;
                 }
@@ -15473,6 +15491,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .find(|p| p.name.name == param_name.name)
                 .map(|p| self.lower_type(&p.ty));
+            // Collected per entry and *inserted*, so running this twice — the
+            // signature pre-pass and the signature check — records the same
+            // thing once [deduce-reapply].
+            let mut established: Vec<Qual> = Vec::new();
             for q in reapplied {
                 let name = q.name.name.as_str();
                 if matches!(name, "Mut" | "proj" | "linear" | "once") {
@@ -15595,14 +15617,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                // Recorded for the call sites, which substitute this call's type
-                // arguments and identities into it.
-                if let Some(key) = self.own_fn {
+                established.push(lowered);
+            }
+            // Recorded for the call sites, which substitute this call's type
+            // arguments and identities into it.
+            if let Some(key) = self.own_fn {
+                if !established.is_empty() {
                     self.out
                         .established_quals
-                        .entry((key, param_name.name.clone()))
-                        .or_default()
-                        .push(lowered);
+                        .insert((key, param_name.name.clone()), established);
                 }
             }
         }

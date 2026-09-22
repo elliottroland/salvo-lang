@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1340 tests, complete: the toolchain tests are
+cargo test                  # 1342 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,26 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The order-dependent side table, one hour later (2026-09-22).** `+Q`'s
+establishment reached the caller only when the callee was declared **above** the
+call: `established_quals` is filled as the check walks, so `heapify` written below
+its caller looked like a fn that establishes nothing and `heap_push(names, …)`
+then had no `Heap` to accept. Found by the user in `demo/heap.sv`.
+
+- **The same defect as the implicit-parameter one**, in a table added an hour
+  after fixing it — and the gotcha for it was already written down. Recording a
+  thing a *call* needs about a *callee* as the walk reaches it is a rule about
+  declaration order, however innocuous the table looks.
+- Fixed by recording establishment in the same program-wide signature pre-pass,
+  which also needed `own_qualifiers` there (the same-file rule reads it), and by
+  making the recording *insert* rather than push so running it twice records once.
+- **Both are now pinned, and the pins were checked against the broken code.** The
+  establishment one is a checker test; the implicit one had to move to the Rust
+  backend's codegen tests, because the checker accepted the call either way — the
+  symptom was the emitted call missing an argument. A first attempt at it passed
+  with the fix *reverted*, which is the only reason that came to light: a
+  regression test is worth what it catches, so revert the fix and watch it fail.
 
 **`+Q` establishes a claim, not only re-establishes one (user decision
 2026-09-22).** The `+Q` form landed earlier the same day as *re*-application:
@@ -14656,7 +14676,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1340)
+## Test inventory (all green: 1342)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15831,15 +15851,18 @@ snapshot diffs.
   through JSON: `\\+=` in the generator is the regex `\+=`, and one backslash
   too many silently matches a literal backslash instead of a `+`.
 
-- **A side table filled as the walk goes is a rule about declaration order.**
-  `implicit_params` was written per fn as the checker reached it and read at every
-  call site, so a callee further down the file was indistinguishable from a callee
-  with no implicits — and the call silently lost its arguments. Anything a *call*
-  needs about a *callee* has to be complete before the first body is checked; if a
-  table is consulted across declarations, fill it in a pre-pass. The symptom to
-  watch for is a program that type-checks and then fails in the target compiler
-  with an arity or type error, since that is the shape of a missing side-table
-  entry.
+- **A side table filled as the walk goes is a rule about declaration order** —
+  and this one bit **twice in one day**. `implicit_params` was written per fn as
+  the checker reached it and read at every call site, so a callee further down the
+  file was indistinguishable from a callee with no implicits, and the call silently
+  lost its arguments; `established_quals` was added an hour after that fix and did
+  the same thing to `+Q`. Anything a *call* needs about a *callee* must be complete
+  before the first body is checked: `collect_implicit_signatures` is the pre-pass
+  where it belongs, and a new table read across declarations belongs there on the
+  day it is written. Two symptoms to recognise — a program that type-checks and
+  then fails in the target compiler with an arity error (the implicit case), and a
+  claim or fact that only holds when the callee happens to sit above the call (the
+  establishment case).
 - **A 1.8-second test run is a failed one.** `cargo test` compiles the test
   binaries first, and a compile error there prints `error:` without any
   `test result:` line — so a grep for failures finds nothing and the suite looks

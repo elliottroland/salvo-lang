@@ -1501,6 +1501,24 @@ fn a_claim_the_parameter_lacks_can_be_established() {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
+/// [deduce-reapply] …and it reaches the caller **whatever the order of the
+/// declarations**: what a call needs to know about a callee comes out of a side
+/// table, and a table filled as the check walks makes the answer depend on where
+/// the callee sits. That had already cost the implicit parameters once
+/// (2026-09-22); this pins the same property for the claims a fn establishes,
+/// with the callee written *below* its caller.
+#[test]
+fn an_established_claim_does_not_depend_on_declaration_order() {
+    let errs = reapply_errors(
+        "qualifier H<T> of List<T>\n\n\
+         fn only_heap<T>(xs: H<T> Mut List<T>) [] -> Int => xs {\n    return 1\n}\n\n\
+         fn caller(xs: Mut List<Int>) [] -> Int => xs: Mut {\n    \
+         heapify(xs)\n    return only_heap(xs)\n}\n\n\
+         fn heapify<T>(xs: Mut List<T>) [] -> None\n=> xs: +H<T> Mut {\n}\n",
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
 /// …and the claim has to make sense for the parameter's type, on the terms a
 /// constructor's `as Q` answers to [qual-ctor-fn].
 #[test]

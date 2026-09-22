@@ -573,3 +573,4 @@ fn the_wrong_number_of_type_arguments_is_rejected() {
         "expected the arity error, got: {errs:?}"
     );
 }
+
