@@ -2843,6 +2843,59 @@ Conventions:
     prints, they substitute like type arguments, and no value ever has one as
     its type — an identity that reached a backend's type renderer is an error,
     not output [backend-never-wrong].
+  * **A slot is declared by a qualifier or an `intrinsic type`**, and nowhere
+    else. On a *fn* the binder binds bare in the signature instead (below), so
+    a `?name:` in a fn's generics list is an error naming the two places it
+    belongs: the parameter list, and the types the binder is written in.
+  * **A qualifier's arguments are identities, not types.** A qualifier's type
+    arguments come from the type it qualifies (`Ok Str` implies `Ok<Str>`), so
+    `Heap<cmp@Person>` needs no reading-order rule and one heap's arguments
+    always read the same way. A slot's type is therefore instantiated by
+    matching the qualifier's `of` type against the value: `Heap<T, ?cmp: (T, T)
+    -> Int> of List<T>` on a `List<Person>` wants `(Person, Person) -> Int`. A
+    keyed *type* keeps the ordinary positional reading, its slots trailing its
+    type parameters (`SortedSet<Str, my_cmp>`).
+  * **A bare `Heap` accepts any identity.** An expected qualifier that writes
+    no arguments is matched by name, so a body that never needs the ordering
+    takes `Heap Mut List<T>` and a `Heap<f>` value fits it. `Heap<f>` as a
+    *parameter* demands exactly `f`.
+  * **A bare name is resolved where the type is used**, like any implicit
+    [implicit-resolve]: `Heap<min_by_age>` names "the `min_by_age` visible
+    here", which is what lets a slot have a default (`= cmp`) that means the
+    right `cmp` per instantiation. A `@`-scoped canonical is the spelling that
+    does not depend on the reader's imports [cmp-canonical], and it is what a
+    resolved identity is published as when the declaration has one.
+* [cmp-binder] **The binder binds bare in the signature** (user decision
+  2026-09-21, ORDERING.md decision 11): all `?name` occurrences in one
+  signature denote **one binding**. It is filled either way round:
+  * by an **explicit implicit parameter** when the fn declares one —
+    `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp>`, where
+    [implicit-resolve] fills it and the *result type publishes what it chose*;
+  * otherwise by **capture** from the argument types —
+    `heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T)`, where unifying the
+    parameter against the argument binds it. Its fn type is never written at
+    the fn: the slot it fills states it.
+  * **Two occurrences must agree.** `merge(a: Heap<?cmp> Mut List<T>, b:
+    Heap<?cmp> Mut List<T>)` forces both arguments to carry the same ordering,
+    and a mismatch is the ordinary argument-does-not-fit error, which names
+    both types (`Heap<by_name> Mut List<Person>` against `Heap<cmp@Person> …`).
+    Two independent orderings are two names.
+  * **In the body the binder is an ordinary implicit** [implicit-param]: a
+    local of fn type, callable, forwarded to inner calls by name and type
+    [implicit-forward]. What fills it at a call is the identity the *types*
+    carry, before any resolution by name — which is how a heap is compared with
+    the ordering it was built with rather than with whatever is visible at the
+    call.
+  * **A deduction that keeps the qualifier keeps the identity**, automatically:
+    the identity lives in the type, and the fn could not have changed it.
+  * **What fills a binder must have an identity.** `cmp = my_cmp` and
+    `cmp = cmp@Person` do; a lambda does not, and passing one where the
+    signature carries the binder is an error rather than a silently dropped
+    claim.
+  * Justification recorded with the decision: the bare binder is *an indirect
+    way of declaring a fn in the parameter scope*, so it does not belong in the
+    generics list — with the reservation that the generics-list spelling could
+    be revisited if the bare form disappoints.
 * [cmp-hash-values] A hash value holds **within one execution and nowhere
   else** (user decision 2026-09-21). Each backend hashes with its host's own
   algorithm — `hashCode()` on Kotlin, `DefaultHasher` on Rust — so the same

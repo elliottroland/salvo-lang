@@ -160,7 +160,7 @@ pub enum FnId {
     /// A named fn: a module fn (`min_by_age`), an `@`-scoped canonical
     /// (`cmp@Person`) or an intrinsic.
     Named { name: String, at: Option<String> },
-    /// `?cmp` — the **binder**: one binding per signature, in the identity
+    /// [cmp-binder] `?cmp` — the **binder**: one binding per signature, in the identity
     /// domain what `Ty::Var` is in the type domain. Filled at the call site
     /// by the resolved implicit, or captured from an argument's type
     /// (ORDERING.md decision 11).
@@ -547,7 +547,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             (is_subtype(ba, bb) || nested_group_remainder(qa, qb, ba, bb).is_some())
                 && qb
                     .iter()
-                    .all(|q| q.name == "once" || q.effect || qa.contains(q))
+                    .all(|q| q.name == "once" || q.effect || qual_present(qa, q))
                 // [proj-type] A never-drop qualifier the value carries
                 // (`proj`, `Linear`) must be expected too: `Emitted (proj
                 // Str)` is not an `Emitted Str` — the borrow is inside.
@@ -648,6 +648,22 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether a value carrying `have` satisfies an expected qualifier `want`.
+///
+/// Arguments are compared only when the *expectation* writes them: a
+/// qualifier's generic arguments are rarely written (`Ok Str` implies
+/// `Ok<Str>`), and [cmp-carry] makes that load-bearing — a bare `Heap`
+/// parameter accepts a `Heap<cmp@Person>` value, which is how a body that
+/// never needs the identity stays free of it, while a `Heap<f>` parameter
+/// demands exactly `f`.
+fn qual_present(have: &[Qual], want: &Qual) -> bool {
+    have.iter().any(|q| {
+        q.name == want.name
+            && q.effect == want.effect
+            && (want.args.is_empty() || q.args == want.args)
+    })
 }
 
 /// [qual-group] The *inner* arm a flattened nested group fits, if any.

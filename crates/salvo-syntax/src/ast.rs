@@ -179,6 +179,11 @@ pub struct TypeDecl {
     /// parameter is taken to reach one — which is what `List` means by
     /// holding its elements.
     pub generic_canbe: Vec<(Ident, TypeRef)>,
+    /// [cmp-carry] The **fn slots** in the generics list, after the type
+    /// parameters: `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
+    /// Each carries an identity, not a type, so they are kept apart from
+    /// `generics` — arity, `canbe` and substitution are about types only.
+    pub fn_slots: Vec<FnSlot>,
     /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
     /// into the language-level `Mut` qualifier (like `struct ... canbe
     /// Mut` [struct-mut]).
@@ -292,6 +297,12 @@ pub struct QualifierDecl {
     pub subject: QualSubject,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// [cmp-carry] The **fn slots** in the generics list, after the type
+    /// parameters: `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`. The
+    /// identity a use site writes (`Heap<cmp@Person>`) fills one; a
+    /// qualifier's *type* arguments come from the base type it is applied to,
+    /// which is why the two lists are kept apart.
+    pub fn_slots: Vec<FnSlot>,
     pub of: Type,
     /// Compatible qualifiers, e.g. `with Surname`.
     pub with: Vec<TypeRef>,
@@ -691,6 +702,26 @@ impl Type {
     }
 }
 
+/// [cmp-carry] A **fn slot** in a declaration's generics list:
+/// `qualifier Heap<T, ?cmp: (T, T) -> Int>`,
+/// `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
+///
+/// The position a function **identity** fills, spelled like the implicit
+/// parameter it is resolved as [implicit-param] — so a reader who knows
+/// `?cmp: (T, T) -> Int` on a fn knows it here. Slots trail the ordinary
+/// type parameters, for the same reason an implicit parameter trails the
+/// ordinary ones: a type argument written after one could not be passed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FnSlot {
+    pub name: Ident,
+    /// The fn type an identity must have to fill the slot, over the
+    /// declaration's own type parameters.
+    pub ty: Type,
+    /// `= cmp`: the identity a use site that writes none gets.
+    pub default: Option<TypeRef>,
+    pub span: Span,
+}
+
 /// A reference to a named type or qualifier, with optional generic arguments:
 /// `Str`, `List<Int>`, `Ok<T>`.
 #[derive(Clone, Debug, PartialEq)]
@@ -703,6 +734,16 @@ pub struct TypeRef {
     /// does — a return, a union arm (`(proj[from: xs] T)?`). Empty on a
     /// field or parameter (the source is the value's, not the type's).
     pub from: Vec<Ident>,
+    /// [cmp-carry] `cmp@Person` in a type-argument position: the selector
+    /// naming which `cmp` this identity is — a type (`@Person`, an
+    /// `@`-scoped canonical [cmp-canonical]) or a module (`@core.list`,
+    /// dotted, [fn-overload-at]). Only a function **identity** carries one;
+    /// a type never does, so a selector here is what tells the two apart
+    /// without knowing the slot.
+    pub at: Option<Ident>,
+    /// [cmp-carry] `?cmp`: this argument is the signature's **binder**
+    /// rather than a named fn or a type.
+    pub binder: bool,
     pub span: Span,
 }
 
@@ -710,7 +751,14 @@ pub struct TypeRef {
 
 impl fmt::Display for TypeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // [cmp-carry] An identity reads as it is written: `?cmp`, `cmp@Person`.
+        if self.binder {
+            write!(f, "?")?;
+        }
         write!(f, "{}", self.name.name)?;
+        if let Some(at) = &self.at {
+            write!(f, "@{}", at.name)?;
+        }
         if !self.from.is_empty() {
             let names: Vec<&str> = self.from.iter().map(|i| i.name.as_str()).collect();
             write!(f, "[from: {}]", names.join(", "))?;

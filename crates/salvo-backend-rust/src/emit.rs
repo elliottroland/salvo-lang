@@ -4506,6 +4506,7 @@ impl<'p> Emitter<'p> {
                         ty,
                         span: p.span,
                         borrowed_arms: Vec::new(),
+                        binder: false,
                     });
                     self.bindings
                         .insert(p.name.name.clone(), BindKind::SelfField);
@@ -14392,6 +14393,8 @@ fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {
             Type::Named {
                 qualifiers: qualifiers.clone(),
                 base: TypeRef {
+                    at: None,
+                    binder: false,
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),
                     from: base.from.clone(),

@@ -313,6 +313,8 @@ fn expand(
             vec![]
         },
         base: TypeRef {
+            at: None,
+            binder: false,
             name: pass_name.clone(),
             args: f
                 .generics
@@ -320,6 +322,8 @@ fn expand(
                 .map(|g| Type::Named {
                     qualifiers: vec![],
                     base: TypeRef {
+                        at: None,
+                        binder: false,
                         name: g.clone(),
                         args: vec![],
                         from: Vec::new(),
@@ -469,6 +473,8 @@ fn expand(
         obligations: vec![Obligation {
             default: false,
             group: TypeRef {
+                at: None,
+                binder: false,
                 name: Ident {
                     name: "Yield".to_string(),
                     span: struct_span,
@@ -684,6 +690,8 @@ fn expand(
 
 fn type_ref(name: &str, span: Span) -> TypeRef {
     TypeRef {
+        at: None,
+        binder: false,
         name: Ident {
             name: name.to_string(),
             span,
@@ -1408,6 +1416,8 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
     let self_ty = Type::Named {
         qualifiers: vec![],
         base: TypeRef {
+            at: None,
+            binder: false,
             name: s.name.clone(),
             args: s
                 .generics

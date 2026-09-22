@@ -706,7 +706,10 @@ impl<'s> Parser<'s> {
         // opt-ins like a struct's: `intrinsic type List<T canbe linear>` is
         // what makes `List<Reply<T>>` a linear type and `List<Int>` a plain
         // one (user decision 2026-09-16).
-        let (generics, generic_canbe) = self.parse_generics_canbe();
+        // [cmp-carry] And fn slots, which is how a keyed container names the
+        // ordering or hash its keys are kept by:
+        // `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
+        let (generics, generic_canbe, fn_slots) = self.parse_generics_slots();
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
@@ -745,6 +748,7 @@ impl<'s> Parser<'s> {
             name,
             generics,
             generic_canbe,
+            fn_slots,
             auto_qualifiers,
             alias,
             span: start.to(end),
@@ -753,22 +757,62 @@ impl<'s> Parser<'s> {
 
     /// `<A, B, C>` — declaration-site generic parameters.
     fn parse_generics(&mut self) -> Vec<Ident> {
-        let (generics, canbe) = self.parse_generics_canbe();
+        let (generics, canbe, slots) = self.parse_generics_all();
         for (ident, _) in &canbe {
             self.error(
                 "`canbe` on a type parameter is only supported on functions and structs",
                 ident.span,
             );
         }
+        for slot in &slots {
+            // [cmp-carry] A fn slot belongs to a declaration whose *values*
+            // can carry an identity — a qualifier or an intrinsic type. On a
+            // fn the binder binds bare in the signature instead (ORDERING.md
+            // decision 11): it is an indirect way of declaring a fn in the
+            // parameter scope, so it does not belong in the generics list.
+            self.error(
+                format!(
+                    "`?{}` declares a function slot, which only a qualifier or an \
+                     `intrinsic type` may have: on a function, write the implicit \
+                     parameter (`?{}: …`) in the parameter list, and use `?{}` in \
+                     the types it applies to",
+                    slot.name.name, slot.name.name, slot.name.name
+                ),
+                slot.span,
+            );
+        }
         generics
+    }
+
+    /// [cmp-carry] A generics list that may declare **fn slots**:
+    /// `<T, ?cmp: (T, T) -> Int = cmp>` — for a qualifier or an
+    /// `intrinsic type`.
+    fn parse_generics_slots(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<FnSlot>) {
+        self.parse_generics_all()
     }
 
     /// Type parameters with optional per-parameter `canbe` opt-ins
     /// [linear-generics] [canbe-optin]: `<T canbe linear, U>` — one
     /// qualifier per `canbe` (the comma separates parameters).
     fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
+        let (generics, canbe, slots) = self.parse_generics_all();
+        for slot in &slots {
+            self.error(
+                format!(
+                    "`?{}` declares a function slot, which only a qualifier or an \
+                     `intrinsic type` may have [cmp-carry]",
+                    slot.name.name
+                ),
+                slot.span,
+            );
+        }
+        (generics, canbe)
+    }
+
+    fn parse_generics_all(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<FnSlot>) {
         let mut generics = Vec::new();
         let mut canbe = Vec::new();
+        let mut slots: Vec<FnSlot> = Vec::new();
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
@@ -776,8 +820,37 @@ impl<'s> Parser<'s> {
                 if self.eat(&TokenKind::Gt).is_some() || self.at_eof() {
                     break;
                 }
+                // [cmp-carry] `?cmp: (T, T) -> Int = cmp` — a fn slot, spelled
+                // like the implicit parameter it is resolved as
+                // [implicit-param].
+                if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
+                    match self.parse_fn_slot(q) {
+                        Some(slot) => slots.push(slot),
+                        None => {
+                            self.bump();
+                            continue;
+                        }
+                    }
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        if self.expect(&TokenKind::Gt).is_none() {
+                            break;
+                        }
+                        break;
+                    }
+                    continue;
+                }
                 match self.ident_type("generic parameter") {
                     Some(id) => {
+                        if !slots.is_empty() {
+                            // [cmp-carry] Slots trail the type parameters, as
+                            // an implicit parameter trails the ordinary ones.
+                            self.error(
+                                "a type parameter cannot follow a function slot: \
+                                 slots come last, so the types they are written \
+                                 over are already in scope",
+                                id.span,
+                            );
+                        }
                         if self.eat(&TokenKind::KwCanbe).is_some() {
                             if let Some(q) = self.parse_type_ref() {
                                 canbe.push((id.clone(), q));
@@ -799,7 +872,79 @@ impl<'s> Parser<'s> {
             }
             self.group_depth -= 1;
         }
-        (generics, canbe)
+        (generics, canbe, slots)
+    }
+
+    /// [cmp-carry] One fn slot, after its `?`: `cmp: (T, T) -> Int = cmp`.
+    fn parse_fn_slot(&mut self, question: Span) -> Option<FnSlot> {
+        let name = self.ident_value("function slot")?;
+        self.expect(&TokenKind::Colon)?;
+        let ty = self.parse_type()?;
+        if !matches!(ty, Type::Fn { .. }) {
+            // The same requirement an implicit parameter has, for the same
+            // reason: what fills it is a function [implicit-param].
+            self.error(
+                format!(
+                    "a function slot must have a function type, but `{ty}` is not \
+                     one: write `?{}: (T, T) -> Int`",
+                    name.name
+                ),
+                ty.span(),
+            );
+        }
+        // `= cmp` / `= cmp@Person`: the identity a use site that writes none
+        // gets.
+        let default = if self.eat(&TokenKind::Eq).is_some() {
+            Some(self.parse_fn_identity()?)
+        } else {
+            None
+        };
+        let end = default.as_ref().map(|d| d.span).unwrap_or(ty.span());
+        Some(FnSlot {
+            name,
+            ty,
+            default,
+            span: question.to(end),
+        })
+    }
+
+    /// [cmp-carry] A written function **identity**: `cmp`, `cmp@Person`,
+    /// `size@core.list`. Never a binder — a default is a real fn.
+    fn parse_fn_identity(&mut self) -> Option<TypeRef> {
+        let name = self.ident_value("function")?;
+        let mut end = name.span;
+        let at = if self.at(&TokenKind::At) {
+            self.bump();
+            let sel = self.ident_dotted_path()?;
+            end = sel.span;
+            Some(sel)
+        } else {
+            None
+        };
+        Some(TypeRef {
+            name,
+            args: Vec::new(),
+            from: Vec::new(),
+            at,
+            binder: false,
+            span: end,
+        })
+    }
+
+    /// A selector after `@`: a type name (`Person`) or a dotted module path
+    /// (`core.list`), kept as one identifier whose name holds the dots.
+    fn ident_dotted_path(&mut self) -> Option<Ident> {
+        let first = self.ident()?;
+        let mut name = first.name.clone();
+        let mut span = first.span;
+        while self.at(&TokenKind::Dot) {
+            self.bump();
+            let next = self.ident()?;
+            name.push('.');
+            name.push_str(&next.name);
+            span = span.to(next.span);
+        }
+        Some(Ident { name, span })
     }
 
     fn parse_struct(&mut self, linear: bool) -> Option<StructDecl> {
@@ -905,7 +1050,15 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwQualifier)?.span;
         let name = self.ident_decl_dotted("qualifier")?;
-        let generics = self.parse_generics();
+        // [cmp-carry] `qualifier Heap<T, ?cmp: (T, T) -> Int>`: a qualifier may
+        // declare fn slots, which is how a structure *holds* an ordering.
+        let (generics, canbe, fn_slots) = self.parse_generics_slots();
+        for (ident, _) in &canbe {
+            self.error(
+                "`canbe` on a type parameter is only supported on functions and structs",
+                ident.span,
+            );
+        }
         self.expect(&TokenKind::KwOf)?;
         let of = self.parse_type()?;
         let mut with = Vec::new();
@@ -947,6 +1100,7 @@ impl<'s> Parser<'s> {
             subject,
             name,
             generics,
+            fn_slots,
             of,
             with,
             field_overrides,
@@ -1313,6 +1467,8 @@ impl<'s> Parser<'s> {
                     let lit = self.parse_struct_lit_body(Some(Type::Named {
                         qualifiers: Vec::new(),
                         base: TypeRef {
+                            at: None,
+                            binder: false,
                             name: Ident {
                                 name: MAILBOX_TYPE.to_string(),
                                 span: start,
@@ -2161,6 +2317,18 @@ impl<'s> Parser<'s> {
         let name = self.type_ref_name()?;
         let mut args = Vec::new();
         let mut end = name.span;
+        // [cmp-carry] `cmp@Person` / `size@core.list` — a function **identity**
+        // in a type-argument position, which is what a structure that holds an
+        // ordering carries. The selector is what tells an identity from a type
+        // without knowing the slot; a bare name is decided by the slot at
+        // lowering, and where no slot expects one it stays an ordinary type.
+        let mut at = None;
+        if self.at(&TokenKind::At) && self.same_line() {
+            self.bump();
+            let sel = self.ident_dotted_path()?;
+            end = sel.span;
+            at = Some(sel);
+        }
         // [proj-anywhere] `proj[from: param]`: the borrow's source, written on
         // the obligation itself so it can sit anywhere a type does — a union
         // arm, a type argument, a tuple element — and so a type borrowing
@@ -2194,6 +2362,31 @@ impl<'s> Parser<'s> {
                 if self.at(&TokenKind::Gt) || self.at_eof() {
                     break;
                 }
+                // [cmp-carry] `Heap<?cmp>`: the signature's binder in a
+                // type-argument position. Only here — `?` before a type
+                // anywhere else is the nullable postfix's `T?` misplaced.
+                if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
+                    let Some(id) = self.ident_value("function slot") else {
+                        self.group_depth -= 1;
+                        return None;
+                    };
+                    let span = q.to(id.span);
+                    args.push(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            name: id,
+                            args: Vec::new(),
+                            from: Vec::new(),
+                            at: None,
+                            binder: true,
+                            span,
+                        },
+                    });
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
                 let Some(ty) = self.parse_type() else {
                     self.group_depth -= 1;
                     return None;
@@ -2211,6 +2404,8 @@ impl<'s> Parser<'s> {
             name,
             args,
             from,
+            at,
+            binder: false,
             span,
         })
     }

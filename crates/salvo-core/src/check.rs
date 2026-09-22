@@ -854,6 +854,13 @@ pub struct ImplicitParam {
     /// that distinguishes borrows from values (Rust) renders those arms as
     /// references. Empty for a non-union return or a plain implicit.
     pub borrowed_arms: Vec<usize>,
+    /// [cmp-binder] True when the signature carries this name as a **binder**
+    /// (`Heap<?cmp>`) — whether the parameter was written (`?cmp: (T, T) ->
+    /// Int`, whose resolution the result type then publishes) or captured from
+    /// the argument types. What fills it is then the identity the types carry,
+    /// before any resolution by name: that is the whole point of putting the
+    /// ordering in the type.
+    pub binder: bool,
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -2244,6 +2251,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
+                    self.check_fn_slots(&q.name.name, &q.fn_slots);
                     self.check_qualifier_decl(q);
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
@@ -2277,6 +2285,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Type(t) => {
                     let saved = self.enter_generics(&t.generics);
+                    self.check_fn_slots(&t.name.name, &t.fn_slots);
                     self.validate_auto_quals(&t.auto_qualifiers);
                     if let Some(alias) = &t.alias {
                         self.validate_type(alias);
@@ -3335,6 +3344,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ast::Type::Fn { ret, .. } => proj_arm_indices(ret),
                     _ => Vec::new(),
                 },
+                // [cmp-carry] Set below, once the signature's binders are
+                // known: a written `?cmp` *is* the binding when the types
+                // carry `?cmp`.
+                binder: false,
             });
         }
         for g in &f.implicit_groups {
@@ -3414,8 +3427,56 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ty,
                     span: g.span,
                     borrowed_arms,
+                    binder: false,
                 });
             }
+        }
+        // [cmp-binder] The **binders** this signature captures. All `?name`
+        // occurrences in one signature are one binding (ORDERING.md decision
+        // 11): bound by an explicit implicit parameter when one is declared
+        // — `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp>`,
+        // where resolution fills it and the return type publishes what it
+        // chose — and otherwise **captured** from the argument types, as
+        // `heap_push`'s is. Its fn type is never written at the fn: the slot
+        // it fills states it, which is why this reads the slot rather than
+        // the signature.
+        let mut captured: Vec<(String, Ty, Span)> = Vec::new();
+        for p in f.params.iter().filter(|p| !p.implicit) {
+            let ty = self.lower_type(&p.ty);
+            self.collect_binder_slots(&ty, p.span, &mut captured);
+        }
+        if let Some(rt) = &f.return_type {
+            let ty = self.lower_type(rt);
+            self.collect_binder_slots(&ty, rt.span(), &mut captured);
+        }
+        // [qual-ctor-fn] `-> Mut List<T> as Heap<?cmp>`: the claim a
+        // constructor mints carries the identity too.
+        if let Some(cref) = &f.constructs {
+            let base = f
+                .return_type
+                .as_ref()
+                .map(|rt| self.lower_type(rt))
+                .unwrap_or_else(Ty::none);
+            let empty = HashMap::new();
+            let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
+            let claimed = base.qualify(quals);
+            self.collect_binder_slots(&claimed, cref.span, &mut captured);
+        }
+        for (name, ty, span) in captured {
+            // An explicitly declared implicit of the same name *is* the
+            // binding — the binder and the parameter are one thing, and what
+            // resolution puts in it is what the result type publishes.
+            if let Some(written) = out.iter_mut().find(|o| o.name == name) {
+                written.binder = true;
+                continue;
+            }
+            out.push(ImplicitParam {
+                name,
+                ty,
+                span,
+                borrowed_arms: Vec::new(),
+                binder: true,
+            });
         }
         // Two implicits of the same name cannot both be filled: with no
         // binder there is nothing to tell them apart, and [var-no-shadow]
@@ -3552,7 +3613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         decl: &'p FnDecl,
         key: Option<FnKey>,
-        subst: &HashMap<String, Ty>,
+        subst: &mut HashMap<String, Ty>,
         callee_generics: &HashSet<String>,
         named: &'p [ast::NamedArg],
         span: Span,
@@ -3582,7 +3643,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         implicits: &[ImplicitParam],
         callee: &str,
-        subst: &HashMap<String, Ty>,
+        subst: &mut HashMap<String, Ty>,
         callee_generics: &HashSet<String>,
         named: &'p [ast::NamedArg],
         span: Span,
@@ -3604,6 +3665,94 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The type as this call needs it, with the callee's type
             // arguments substituted in.
             let want = substitute_vars(&imp.ty, subst, callee_generics);
+            let Some((arg, identity)) =
+                self.fill_one_implicit(imp, callee, &want, named, subst, span)
+            else {
+                continue;
+            };
+            // [cmp-binder] What filled a **binder** becomes part of the call's
+            // type: `empty_heap(…)` answers `Heap<cmp@Person> Mut List<Person>`
+            // because the identity resolution chose is substituted into the
+            // result. A binder already bound — captured from an argument — keeps
+            // what it was bound to.
+            if imp.binder {
+                let key = FnId::subst_key(&imp.name);
+                if let (false, Some(id)) = (subst.contains_key(&key), identity) {
+                    subst.insert(key, Ty::FnName(id));
+                }
+            }
+            filled.push(arg);
+        }
+        // A named argument matching no implicit parameter is a mistake, not
+        // a silent no-op.
+        for arg in named {
+            if !implicits.iter().any(|p| p.name == arg.name.name) {
+                self.error(
+                    arg.span,
+                    format!(
+                        "`{callee}` has no implicit parameter named `{}`",
+                        arg.name.name
+                    ),
+                );
+            }
+        }
+        self.out.implicit_args.insert(self.key(span), filled);
+    }
+
+    /// One implicit parameter, filled [implicit-resolve] — `None` when
+    /// nothing fits, which is reported here.
+    fn fill_one_implicit(
+        &mut self,
+        imp: &ImplicitParam,
+        callee: &str,
+        want: &Ty,
+        named: &'p [ast::NamedArg],
+        subst: &HashMap<String, Ty>,
+        span: Span,
+    ) -> Option<(ImplicitArg, Option<FnId>)> {
+        let want = want.clone();
+        {
+            // 0. [cmp-binder] The identity the argument *types* carry. A binder
+            // bound by unification is the answer before any resolution by
+            // name: what the structure was built with, not what happens to be
+            // visible at this call site — which is the hazard
+            // [implicit-resolve]'s locality would otherwise leave open.
+            if imp.binder {
+                if let Some(Ty::FnName(id)) = subst.get(&FnId::subst_key(&imp.name)).cloned() {
+                    match &id {
+                        // The caller's own binder, forwarded [implicit-forward].
+                        FnId::Binder(b) => {
+                            if self.own_implicits.iter().any(|p| p.name == *b) {
+                                return Some((ImplicitArg::Forwarded { name: b.clone() }, None));
+                            }
+                        }
+                        FnId::Named { name, at } => {
+                            match self.resolve_implicit_fn_at(name, at.as_deref(), &want) {
+                                Ok((key, _)) => {
+                                    return Some((
+                                        ImplicitArg::Resolved {
+                                            name: imp.name.clone(),
+                                            key,
+                                            want: want.clone(),
+                                        },
+                                        None,
+                                    ))
+                                }
+                                Err(_) => {
+                                    self.error(
+                                        span,
+                                        format!(
+                                            "`{callee}` needs the `{}` this value was built                                              with — `{id}` — and it does not fit `?{}: {want}`                                              here [cmp-carry]",
+                                            imp.name, imp.name
+                                        ),
+                                    );
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // 1. Written at the call site.
             if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
                 let got = self.check_expr(&arg.value, Some(&want));
@@ -3621,31 +3770,51 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!("`{}` does not fit here: {detail}", imp.name),
                     );
                 }
-                filled.push(ImplicitArg::Given {
-                    name: imp.name.clone(),
-                    arity: match want.strip_quals() {
-                        Ty::Fn { params, .. } => params.len(),
-                        _ => 0,
+                // [cmp-carry] A binder filled by hand publishes what was
+                // named — and only a *name* can be published, which is where
+                // the static-identity rule bites at a call site.
+                let identity = if imp.binder {
+                    self.written_value_identity(&arg.value)
+                } else {
+                    None
+                };
+                return Some((
+                    ImplicitArg::Given {
+                        name: imp.name.clone(),
+                        arity: match want.strip_quals() {
+                            Ty::Fn { params, .. } => params.len(),
+                            _ => 0,
+                        },
                     },
-                });
-                continue;
+                    identity,
+                ));
             }
             // 2. Forwarded from the enclosing fn's own implicits.
             if let Some(own) = self.own_implicits.iter().find(|p| p.name == imp.name) {
                 if is_subtype(&own.ty, &want) || own.ty.is_unknown() || want.is_unknown() {
-                    filled.push(ImplicitArg::Forwarded {
-                        name: imp.name.clone(),
-                    });
-                    continue;
+                    return Some((
+                        ImplicitArg::Forwarded {
+                            name: imp.name.clone(),
+                        },
+                        // The enclosing fn's own binding, whatever it is:
+                        // inside generic code the identity is a name only its
+                        // caller knows [implicit-forward].
+                        Some(FnId::Binder(imp.name.clone())),
+                    ));
                 }
             }
             // 3. Resolved by name and type among the visible fns.
-            match self.resolve_implicit_fn(&imp.name, &want) {
-                Ok(found) => filled.push(ImplicitArg::Resolved {
-                    name: imp.name.clone(),
-                    key: found,
-                    want: want.clone(),
-                }),
+            match self.resolve_implicit_fn_at(&imp.name, None, &want) {
+                Ok((found, identity)) => {
+                    return Some((
+                        ImplicitArg::Resolved {
+                            name: imp.name.clone(),
+                            key: found,
+                            want: want.clone(),
+                        },
+                        Some(identity),
+                    ))
+                }
                 Err(why) => {
                     let remedy = format!(
                         "declare a matching `fn {}`, or pass one here with `{} = ...`",
@@ -3693,27 +3862,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // A named argument matching no implicit parameter is a mistake, not
-        // a silent no-op.
-        for arg in named {
-            if !implicits.iter().any(|p| p.name == arg.name.name) {
-                self.error(
-                    arg.span,
-                    format!(
-                        "`{callee}` has no implicit parameter named `{}`",
-                        arg.name.name
-                    ),
-                );
-            }
-        }
-        self.out.implicit_args.insert(self.key(span), filled);
+        None
     }
 
     /// The fn a name resolves to at a required fn type [implicit-resolve]:
     /// a *unique* visible overload whose signature matches. Ambiguity is an
     /// error rather than a guess, exactly as for an ordinary overloaded call
     /// [fn-overload].
-    fn resolve_implicit_fn(&mut self, name: &str, want: &Ty) -> Result<FnKey, ImplicitMiss> {
+    ///
+    /// `at` restricts the candidates to one selector — a type
+    /// (`cmp@Person`, an `@`-scoped canonical [cmp-canonical]) or a module
+    /// (`@core.list` [fn-overload-at]) — which is what makes an identity a
+    /// type carries resolve to the fn it names and no other [cmp-carry].
+    /// The identity that comes back is the *declaration's own*: its
+    /// `@`-scoping when it has one, and its bare name otherwise.
+    fn resolve_implicit_fn_at(
+        &mut self,
+        name: &str,
+        at: Option<&str>,
+        want: &Ty,
+    ) -> Result<(FnKey, FnId), ImplicitMiss> {
         let Ty::Fn {
             params: want_params,
             ret: want_ret,
@@ -3723,7 +3891,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Err(ImplicitMiss::Unknown);
         };
         // [fn-rename] Only the overloads that still answer to this name.
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self
+            .overloads_of(name)
+            .into_iter()
+            .filter(|e| match at {
+                None => true,
+                Some(sel) => {
+                    e.decl.scoped_to.as_ref().is_some_and(|t| t.name == sel)
+                        || e.module.to_string() == sel
+                }
+            })
+            .collect();
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
@@ -3735,7 +3913,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             collect_base_names(t, &mut want_types);
         }
         // Each hit with the type it is the canonical of, when it is one.
-        let mut hits: Vec<(FnKey, crate::resolve::Rung, Option<String>, String)> = Vec::new();
+        let mut hits: Vec<(FnKey, crate::resolve::Rung, Option<String>, String, FnId)> =
+            Vec::new();
         // The best explanation of a candidate that did not fit, for the
         // diagnostic when nothing does. Ranked, because the *interesting*
         // near-miss is the one a printed type cannot show: a candidate whose
@@ -3809,7 +3988,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .as_ref()
                     .map(|t| t.name.clone())
                     .filter(|t| want_types.contains(t));
-                hits.push((entry.key, entry.rung, canonical, entry.module.to_string()));
+                // [cmp-carry] The identity of the declaration itself, which is
+                // what a result type publishes: `@`-scoped when it is, and the
+                // bare name otherwise — a bare name means "the `cmp` of that
+                // name visible where the type is used", which is
+                // [implicit-resolve]'s locality, narrowed for canonicals by
+                // [cmp-canonical]'s travelling rule.
+                let identity = FnId::Named {
+                    name: decl.name.name.clone(),
+                    at: decl.scoped_to.as_ref().map(|t| t.name.clone()),
+                };
+                hits.push((
+                    entry.key,
+                    entry.rung,
+                    canonical,
+                    entry.module.to_string(),
+                    identity,
+                ));
             } else {
                 let reason = self.fn_fit_reason(want, &candidate, name).unwrap_or_else(|| {
                     format!("the `{name}` in scope is `{candidate}`, and the position needs `{want}`")
@@ -3824,13 +4019,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // is an error naming both selector spellings (decision 9), which is the
         // one place [fn-overload-scope]'s Own-beats-Import silence is carved
         // out. Either the canonical answers, or the call says which it means.
-        if hits.iter().any(|(_, _, canon, _)| canon.is_some()) {
+        if hits.iter().any(|(_, _, canon, _, _)| canon.is_some()) {
             if hits.len() == 1 {
-                return Ok(hits[0].0);
+                let hit = hits.remove(0);
+                return Ok((hit.0, hit.4));
             }
             let mut shown: Vec<String> = hits
                 .iter()
-                .map(|(_, _, canon, module)| match canon {
+                .map(|(_, _, canon, module, _)| match canon {
                     Some(ty) => format!("`{name}@{ty}`"),
                     None => format!("`{name}@{module}`"),
                 })
@@ -3848,16 +4044,66 @@ impl<'p, 'r> Checker<'p, 'r> {
         // declaring its own pass under a name std also uses (`ListYield` plus
         // its `next`) resolves to its own `next` rather than colliding with
         // core's — the same ladder every named call already walks.
-        if let Some(top) = hits.iter().map(|(_, rung, _, _)| *rung).max() {
-            hits.retain(|(_, rung, _, _)| *rung == top);
+        if let Some(top) = hits.iter().map(|(_, rung, _, _, _)| *rung).max() {
+            hits.retain(|(_, rung, _, _, _)| *rung == top);
         }
         match hits.len() {
             0 => Err(match near {
                 Some((_, reason)) => ImplicitMiss::NearMiss(reason),
                 None => ImplicitMiss::Unknown,
             }),
-            1 => Ok(hits[0].0),
+            1 => {
+                let hit = hits.remove(0);
+                Ok((hit.0, hit.4))
+            }
             n => Err(ImplicitMiss::Ambiguous(n)),
+        }
+    }
+
+    /// [cmp-binder] The identity of a value written for an implicit parameter
+    /// (`cmp = my_cmp`, `cmp = cmp@Person`), when it has one. A lambda or a
+    /// local does not: it has no name a type could carry, and where the
+    /// signature carries the binder that is an error rather than a silent
+    /// loss of the claim.
+    fn written_value_identity(&mut self, value: &Expr) -> Option<FnId> {
+        match value {
+            Expr::Ident(id) if self.lookup(&id.name).is_none() => {
+                Some(FnId::named(id.name.clone()))
+            }
+            Expr::Scoped {
+                base: None,
+                name,
+                module,
+                ..
+            } => Some(FnId::Named {
+                name: name.name.clone(),
+                at: Some(
+                    module
+                        .iter()
+                        .map(|m| m.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join("."),
+                ),
+            }),
+            Expr::EffectScoped {
+                base: None,
+                name,
+                effect,
+                ..
+            } => Some(FnId::Named {
+                name: name.name.clone(),
+                at: Some(effect.name.clone()),
+            }),
+            other => {
+                self.error(
+                    other.span(),
+                    "this value has no identity a type can carry: the position's \
+                     claim names the function it was built with, so pass a named \
+                     top-level `fn` (a lambda or a local cannot be named in a type) \
+                     [cmp-carry]",
+                );
+                None
+            }
         }
     }
 
@@ -6409,13 +6655,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ty: self.lower_type(&p.ty),
                     span: p.span,
                     borrowed_arms: Vec::new(),
+                    binder: false,
                 })
                 .collect();
             self.generics = saved;
             list
         };
         if !ctor_implicits.is_empty() {
-            self.fill_implicits(&ctor_implicits, &id.name, &subst, &generic_set, &[], span);
+            let mut subst = subst.clone();
+            self.fill_implicits(&ctor_implicits, &id.name, &mut subst, &generic_set, &[], span);
         }
         let concrete: Vec<Ty> = of_tys
             .iter()
@@ -7103,8 +7351,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             contract: None,
             effects: Vec::new(),
         };
-        match self.resolve_implicit_fn("to_str", &want) {
-            Ok(key) => {
+        match self.resolve_implicit_fn_at("to_str", None, &want) {
+            Ok((key, _)) => {
                 self.out.interp_to_str.insert(self.key(expr.span()), key);
                 return;
             }
@@ -8408,8 +8656,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // 2. A visible declaration: the canonical, a generated structural
         // member, or any other fitting overload [implicit-resolve].
-        match self.resolve_implicit_fn(member, &want) {
-            Ok(key) => {
+        match self.resolve_implicit_fn_at(member, None, &want) {
+            Ok((key, _)) => {
                 self.out
                     .comparisons
                     .insert(self.key(span), CompareVia::Call(key));
@@ -12993,6 +13241,386 @@ impl<'p, 'r> Checker<'p, 'r> {
         subst: &HashMap<String, Ty>,
         depth: usize,
     ) -> Vec<Qual> {
+        // [cmp-carry] A qualifier that declares fn slots takes **identities**
+        // in its argument list, in slot order — never types: a qualifier's
+        // type arguments come from the type it qualifies (`Ok Str` implies
+        // `Ok<Str>`), so `Heap<cmp@Person>` is unambiguous and one heap's
+        // arguments always read the same way.
+        let slotted: Vec<Option<Vec<FnSlotInfo>>> = qualifiers
+            .iter()
+            .map(|q| {
+                let slots = self.qual_fn_slots(&q.name.name);
+                if slots.is_empty() {
+                    None
+                } else {
+                    Some(slots)
+                }
+            })
+            .collect();
+        let mut out: Vec<Qual> = Vec::new();
+        for (q, slots) in qualifiers.iter().zip(&slotted) {
+            if let Some(slots) = slots {
+                let args = self.lower_identity_args(&q.args, None, slots, subst, depth);
+                // [lsp-definition] qualifier name -> its declaration.
+                self.record_def_ref(q.name.span, &q.name.name);
+                out.push(Qual {
+                    effect: false,
+                    name: q.name.name.clone(),
+                    args,
+                });
+                continue;
+            }
+            out.push(self.lower_qual_plain(q, subst, depth));
+        }
+        out
+    }
+
+    /// [cmp-binder] Every binder occurrence in a lowered type, paired with the
+    /// fn type its **slot** demands — the position states the type, so the fn
+    /// never writes it. One binding per name: a repeat occurrence adds
+    /// nothing, which is what makes `heap_merge`'s two parameters share an
+    /// ordering.
+    fn collect_binder_slots(&mut self, ty: &Ty, span: Span, out: &mut Vec<(String, Ty, Span)>) {
+        match ty {
+            Ty::Qualified { quals, base } => {
+                for q in quals {
+                    for (i, arg) in q.args.iter().enumerate() {
+                        let Ty::FnName(FnId::Binder(name)) = arg else {
+                            continue;
+                        };
+                        if out.iter().any(|(n, _, _)| n == name) {
+                            continue;
+                        }
+                        let Some(want) = self.qual_slot_ty(&q.name, i, base) else {
+                            continue;
+                        };
+                        out.push((name.clone(), want, span));
+                    }
+                }
+                self.collect_binder_slots(base, span, out);
+            }
+            Ty::Named { name, args } => {
+                let slots = self.type_fn_slots(name);
+                let arity = args.len().saturating_sub(slots.len());
+                for (i, arg) in args.iter().enumerate() {
+                    if let Ty::FnName(FnId::Binder(binder)) = arg {
+                        if out.iter().any(|(n, _, _)| n == binder) {
+                            continue;
+                        }
+                        if let Some(want) =
+                            self.type_slot_ty(name, &args[..arity.min(args.len())], i - arity)
+                        {
+                            out.push((binder.clone(), want, span));
+                        }
+                        continue;
+                    }
+                    self.collect_binder_slots(arg, span, out);
+                }
+            }
+            Ty::Union(arms) => {
+                for a in arms {
+                    self.collect_binder_slots(a, span, out);
+                }
+            }
+            Ty::Tuple(elems) => {
+                for e in elems {
+                    self.collect_binder_slots(e, span, out);
+                }
+            }
+            Ty::Array(elem) => self.collect_binder_slots(elem, span, out),
+            Ty::Fn { params, ret, .. } => {
+                for p in params {
+                    self.collect_binder_slots(p, span, out);
+                }
+                self.collect_binder_slots(ret, span, out);
+            }
+            _ => {}
+        }
+    }
+
+    /// [cmp-carry] The fn type a **qualifier's** slot demands, over the types
+    /// the qualified value is made of: `Heap<T, ?cmp: (T, T) -> Int> of
+    /// List<T>` applied to a `List<Person>` wants `(Person, Person) -> Int`.
+    /// The qualifier's own type parameters come from its `of` type matched
+    /// against the value — which is the same reading `Ok Str` implies
+    /// `Ok<Str>` by.
+    fn qual_slot_ty(&mut self, qual: &str, index: usize, base: &Ty) -> Option<Ty> {
+        let decl = self.qual_decl(qual)?;
+        let slot = decl.fn_slots.get(index)?;
+        let saved = self.enter_generics(&decl.generics);
+        let of = self.lower_type(&decl.of);
+        let want = self.lower_type(&slot.ty);
+        self.generics = saved;
+        let mut subst: HashMap<String, Ty> = HashMap::new();
+        unify(&of, base, &mut subst);
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        Some(substitute_vars(&want, &subst, &generics))
+    }
+
+    /// [cmp-carry] The fn type an `intrinsic type`'s slot demands, over the
+    /// type arguments written beside it: `SortedSet<Str, ?cmp>` wants
+    /// `(Str, Str) -> Int`.
+    fn type_slot_ty(&mut self, name: &str, type_args: &[Ty], index: usize) -> Option<Ty> {
+        let decl = self.scope.opaque_types.get(name).copied()?;
+        let slot = decl.fn_slots.get(index)?;
+        let saved = self.enter_generics(&decl.generics);
+        let want = self.lower_type(&slot.ty);
+        self.generics = saved;
+        let subst: HashMap<String, Ty> = decl
+            .generics
+            .iter()
+            .map(|g| g.name.clone())
+            .zip(type_args.iter().cloned())
+            .collect();
+        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        Some(substitute_vars(&want, &subst, &generics))
+    }
+
+    /// [cmp-carry] The visible declaration of a qualifier name.
+    fn qual_decl(&self, name: &str) -> Option<&'p QualifierDecl> {
+        self.scope
+            .qualifiers
+            .get(name)
+            .and_then(|decls| decls.first())
+            .copied()
+    }
+
+    /// [cmp-carry] Validates a declaration's **fn slots**: the types written
+    /// in each slot resolve, two slots of one name are refused (with no
+    /// binder, nothing would tell them apart — [implicit-group]'s rule, for
+    /// the same reason), and a `= default` names a fn that exists.
+    ///
+    /// What is *not* checked here is whether the default fits the slot: the
+    /// slot is written over the declaration's own type parameters
+    /// (`(T, T) -> Int`), and `cmp` fits it only once `T` is something. That
+    /// check belongs to the instantiation, which is also where its error is
+    /// worth reading.
+    fn check_fn_slots(&mut self, owner: &str, slots: &'p [ast::FnSlot]) {
+        for (i, slot) in slots.iter().enumerate() {
+            self.validate_type(&slot.ty);
+            if slots[..i].iter().any(|s| s.name.name == slot.name.name) {
+                self.error(
+                    slot.span,
+                    format!(
+                        "`{}` declares the function slot `?{}` twice: with no binder \
+                         nothing tells two slots of one name apart",
+                        owner, slot.name.name
+                    ),
+                );
+            }
+            let Some(default) = &slot.default else { continue };
+            let name = default.name.name.as_str();
+            let ok = match &default.at {
+                Some(at) => self.fn_exists_at(name, &at.name),
+                None => self.has_callable(name),
+            };
+            if !ok {
+                let shown = match &default.at {
+                    Some(at) => format!("{name}@{}", at.name),
+                    None => name.to_string(),
+                };
+                self.error(
+                    slot.span,
+                    format!(
+                        "the default for `?{}` names no visible function `{shown}`",
+                        slot.name.name
+                    ),
+                );
+            }
+        }
+    }
+
+    /// [cmp-carry] The fn slots a qualifier declares, if it is visible and
+    /// declares any.
+    fn qual_fn_slots(&self, name: &str) -> Vec<FnSlotInfo> {
+        self.scope
+            .qualifiers
+            .get(name)
+            .and_then(|decls| decls.first())
+            .map(|d| slot_infos(&d.fn_slots))
+            .unwrap_or_default()
+    }
+
+    /// [cmp-carry] The fn slots an `intrinsic type` declares.
+    fn type_fn_slots(&self, name: &str) -> Vec<FnSlotInfo> {
+        self.scope
+            .opaque_types
+            .get(name)
+            .map(|d| slot_infos(&d.fn_slots))
+            .unwrap_or_default()
+    }
+
+    /// [cmp-carry] Lowers a written argument list against a declaration's fn
+    /// slots. `type_arity` is how many leading arguments are ordinary *types*
+    /// — `None` for a qualifier, all of whose written arguments are
+    /// identities. Slots nobody wrote take their declared default; a slot
+    /// with no default and nothing written carries nothing, which is the bare
+    /// `Heap` a body that never needs the identity may use.
+    fn lower_identity_args(
+        &mut self,
+        written: &[ast::Type],
+        type_arity: Option<usize>,
+        slots: &[FnSlotInfo],
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Vec<Ty> {
+        let type_arity = type_arity.unwrap_or(0);
+        let mut out: Vec<Ty> = Vec::new();
+        let mut filled = 0usize;
+        for (i, arg) in written.iter().enumerate() {
+            if i < type_arity {
+                out.push(self.lower_type_subst(arg, subst, depth));
+                continue;
+            }
+            if filled >= slots.len() {
+                let names: Vec<String> =
+                    slots.iter().map(|s| format!("`?{}`", s.name)).collect();
+                self.error(
+                    arg.span(),
+                    format!(
+                        "too many arguments: this declaration has {} function slot(s){}",
+                        slots.len(),
+                        if names.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", names.join(", "))
+                        }
+                    ),
+                );
+                break;
+            }
+            match self.written_fn_id(arg) {
+                Some(id) => out.push(Ty::FnName(id)),
+                None => out.push(Ty::Unknown),
+            }
+            filled += 1;
+        }
+        // The slots nobody wrote: their defaults, while there are defaults.
+        for slot in slots.iter().skip(filled) {
+            match &slot.default {
+                Some(id) => out.push(Ty::FnName(id.clone())),
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// [cmp-carry] The function **identity** a type-argument position writes:
+    /// `?cmp` (the signature's binder), `cmp@Person` (a selector, so the
+    /// reader and the checker both know it names a fn) or a bare name.
+    ///
+    /// A bare name must have **static identity** (decision 12) — it must name
+    /// a top-level fn. A local, a parameter or an implicit of fn type is
+    /// refused here, because a type cannot carry something with no name of its
+    /// own: that is what makes an identity printable, comparable and
+    /// substitutable.
+    fn written_fn_id(&mut self, arg: &ast::Type) -> Option<FnId> {
+        let ast::Type::Named { qualifiers, base } = arg else {
+            self.error(
+                arg.span(),
+                "a function slot takes a function identity — a name like `cmp`, \
+                 `cmp@Person` or the signature's `?cmp` — not a type",
+            );
+            return None;
+        };
+        if !qualifiers.is_empty() || !base.args.is_empty() || !base.from.is_empty() {
+            self.error(
+                arg.span(),
+                "a function identity is a plain name (`cmp`, `cmp@Person`): it takes \
+                 no qualifiers and no type arguments of its own",
+            );
+            return None;
+        }
+        let name = base.name.name.clone();
+        if base.binder {
+            return Some(FnId::Binder(name));
+        }
+        if let Some(at) = &base.at {
+            let at_name = at.name.clone();
+            if !self.fn_exists_at(&name, &at_name) {
+                let where_ = if at_name.starts_with(|c: char| c.is_uppercase()) {
+                    format!(
+                        "declare `fn {name}@{at_name}(…)` in the file that declares \
+                         `{at_name}` [cmp-canonical]"
+                    )
+                } else {
+                    format!("module `{at_name}` declares no `{name}` [fn-overload-at]")
+                };
+                self.error(
+                    arg.span(),
+                    format!("no `{name}@{at_name}` in scope: {where_}"),
+                );
+                return None;
+            }
+            return Some(FnId::Named {
+                name,
+                at: Some(at_name),
+            });
+        }
+        // A bare name: a top-level fn, and nothing else.
+        if self.lookup(&name).is_some() {
+            self.error(
+                arg.span(),
+                format!(
+                    "`{name}` is a local here, and a lambda or local has no identity a \
+                     type can carry: declare it as a `fn` (a type carries only what it \
+                     can print — a named, top-level, capture-free function) \
+                     [cmp-carry]"
+                ),
+            );
+            return None;
+        }
+        if self.generics.contains(&name) {
+            self.error(
+                arg.span(),
+                format!(
+                    "`{name}` is a type parameter, and this position carries a \
+                     function identity: name a function, or the signature's binder \
+                     (`?{name}`)"
+                ),
+            );
+            return None;
+        }
+        if !self.has_callable(&name) {
+            self.error_unresolved(
+                arg.span(),
+                format!("no function `{name}` in scope to carry here"),
+                &name,
+            );
+            return None;
+        }
+        Some(FnId::named(name))
+    }
+
+    /// [cmp-carry] Whether some visible overload of `name` answers to the
+    /// selector `at` — a type (`cmp@Person`, an `@`-scoped canonical
+    /// [cmp-canonical]) or a module (`size@core.list` [fn-overload-at]).
+    fn fn_exists_at(&self, name: &str, at: &str) -> bool {
+        self.overloads_of(name).iter().any(|e| {
+            e.decl
+                .scoped_to
+                .as_ref()
+                .is_some_and(|t| t.name == at)
+                || e.module.to_string() == at
+        })
+    }
+
+    fn lower_qual_plain(
+        &mut self,
+        q: &TypeRef,
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Qual {
+        let one = std::slice::from_ref(q);
+        self.lower_quals_plain(one, subst, depth).remove(0)
+    }
+
+    fn lower_quals_plain(
+        &mut self,
+        qualifiers: &[TypeRef],
+        subst: &HashMap<String, Ty>,
+        depth: usize,
+    ) -> Vec<Qual> {
         qualifiers
             .iter()
             // [proj-type] `proj` is part of the lowered type (user decision
@@ -13083,11 +13711,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !self.type_name_exists(name) && self.scope.param_groups.contains_key(name) {
             return Ty::Unknown;
         }
-        let args: Vec<Ty> = base
-            .args
-            .iter()
-            .map(|a| self.lower_type_subst(a, subst, depth))
-            .collect();
+        let args: Vec<Ty> = {
+            // [cmp-carry] A keyed container names the ordering (or hash) its
+            // keys are kept by in a **fn slot** after its type parameters:
+            // `SortedSet<Str, my_cmp>`. The leading arguments are types as
+            // ever; the trailing ones are identities, and a slot nobody wrote
+            // takes its declared default (`?cmp: (T, T) -> Int = cmp`).
+            let slots = self.type_fn_slots(name);
+            if slots.is_empty() {
+                base.args
+                    .iter()
+                    .map(|a| self.lower_type_subst(a, subst, depth))
+                    .collect()
+            } else {
+                let arity = self
+                    .scope
+                    .opaque_types
+                    .get(name)
+                    .map_or(0, |d| d.generics.len());
+                self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth)
+            }
+        };
         // Type aliases expand structurally (with generic substitution).
         if let Some(alias) = self.scope.type_aliases.get(name) {
             if let Some(target) = &alias.alias {
@@ -13578,7 +14222,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // elements, so they have to *have* one — the same bar the
                 // sorted containers apply to their keys.
                 self.check_sorted_list_claim(qualifiers, base);
+                // [cmp-carry] The trailing arguments of a type with fn slots
+                // are **identities** (`SortedSet<Str, my_cmp>`), checked by the
+                // lowering rather than as types.
+                let type_args = base
+                    .args
+                    .len()
+                    .saturating_sub(self.type_fn_slots(&base.name.name).len());
                 for (i, a) in base.args.iter().enumerate() {
+                    if i >= type_args {
+                        continue;
+                    }
                     // [actor-spawn-expr] `Addr<E>`'s argument is the *effect*
                     // the actor serves — the one sanctioned effect-in-a-
                     // type-argument (user decision 2026-09-15). Validated
@@ -13632,6 +14286,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Every applied qualifier names a declaration [name-resolve].
         for q in qualifiers {
             self.require_name(q, true);
+            // [cmp-carry] A qualifier that declares fn slots takes
+            // **identities** there, not types: `Heap<cmp@Person>` names a
+            // function, and validating it as a type would report an unknown
+            // one. The identity's own check is the lowering's
+            // (`written_fn_id`), which is where the static-identity rule and
+            // its diagnostic live.
+            if !self.qual_fn_slots(&q.name.name).is_empty() {
+                continue;
+            }
             for a in &q.args {
                 self.validate_type(a);
             }
@@ -14112,17 +14775,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_else(Ty::none);
         match &decl.constructs {
             Some(cref) => {
+                // [cmp-carry] Through `lower_quals`, so the claim a constructor
+                // mints carries its identity: `-> Mut List<T> as Heap<?cmp>`
+                // publishes the ordering the call resolved.
                 let empty = HashMap::new();
-                let qual = Qual {
-                    effect: false,
-                    name: cref.name.name.clone(),
-                    args: cref
-                        .args
-                        .iter()
-                        .map(|a| self.lower_type_subst(a, &empty, 0))
-                        .collect(),
-                };
-                ret.qualify(vec![qual])
+                let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
+                ret.qualify(quals)
             }
             None => ret,
         }
@@ -19477,6 +20135,29 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 .iter()
                 .filter(|q| q.effect)
                 .all(|q| pq.contains(q))
+                // [cmp-carry] A qualifier's own arguments unify too, which is
+                // how a **captured binder** learns the identity its argument
+                // carries: `Heap<?cmp>` against `Heap<cmp@Person>` binds
+                // `?cmp`, and a second parameter sharing the binder must then
+                // agree — `heap_merge`'s "two heaps ordered differently" is
+                // this unification failing, reported as the ordinary
+                // argument-does-not-fit error naming both types. A value
+                // carrying the qualifier *bare* says nothing about the slot,
+                // so there is nothing to bind and the missing identity is
+                // reported where it is needed.
+                && pq.iter().all(|q| {
+                    if q.args.is_empty() {
+                        return true;
+                    }
+                    match arg.quals().iter().find(|a| a.name == q.name) {
+                        Some(a) if a.args.len() == q.args.len() => q
+                            .args
+                            .iter()
+                            .zip(&a.args)
+                            .all(|(p, x)| unify(p, x, subst)),
+                        _ => true,
+                    }
+                })
                 && unify(pb, &residual, subst)
         }
         // A union parameter tries each arm against the *intact* argument —
@@ -19774,6 +20455,30 @@ fn tys_match_renamed(
         (Ty::Any, Ty::Any) | (Ty::Never, Ty::Never) | (Ty::Unknown, Ty::Unknown) => true,
         _ => false,
     }
+}
+
+/// [cmp-carry] One **fn slot** as the *lowering* reads it: the name a
+/// signature's binder shares with it, and the identity a use site that writes
+/// none gets. The fn type the slot demands is read from the declaration
+/// itself, where the type parameters it is written over are in scope
+/// (`qual_slot_ty`, `type_slot_ty`).
+#[derive(Clone, Debug)]
+struct FnSlotInfo {
+    name: String,
+    default: Option<FnId>,
+}
+
+fn slot_infos(slots: &[ast::FnSlot]) -> Vec<FnSlotInfo> {
+    slots
+        .iter()
+        .map(|s| FnSlotInfo {
+            name: s.name.name.clone(),
+            default: s.default.as_ref().map(|d| FnId::Named {
+                name: d.name.name.clone(),
+                at: d.at.as_ref().map(|a| a.name.clone()),
+            }),
+        })
+        .collect()
 }
 
 fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
@@ -20869,7 +21574,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.learn_yield_elems(decl, &callee_generics, &mut subst);
         // [implicit-resolve] Fill the callee's implicit parameters, now that
         // its type arguments are known.
-        self.resolve_implicits(decl, best_key, &subst, &callee_generics, named, span);
+        self.resolve_implicits(decl, best_key, &mut subst, &callee_generics, named, span);
         // [linear-generics] An unconstrained generic parameter cannot be
         // instantiated with a linear type: generic code neither knows
         // nor honors the obligation. `discard` is the one blessed
@@ -22167,10 +22872,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the effect instance's type arguments substituted in, and the
         // handler receives them as trailing arguments like any caller would.
         if !member_implicits.is_empty() {
+            let mut filled_subst = subst.clone();
             self.fill_implicits(
                 &member_implicits,
                 &member.name.name,
-                &subst,
+                &mut filled_subst,
                 &generic_set,
                 named,
                 span,
