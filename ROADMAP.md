@@ -278,7 +278,13 @@ In brief:
    landed 2026-09-22** (runtime only — see COMPLETED.md). What is left:
    - **wire the emitter to it**: generate a marker per bound identity, name it at
      each construction site, and switch the sorted intrinsics off bare
-     `BTreeSet`/`BTreeMap`;
+     `BTreeSet`/`BTreeMap`. The identity comes from the **construction site's
+     recorded type**, not from an implicit argument: giving the constructors a
+     `?Ordered<T>` was tried and backed out 2026-09-22, because a tuple has no
+     Salvo `cmp` and cannot be given one (see COMPLETED.md). The emitter
+     therefore needs a name→declaration step for a written identity, which is
+     worth recording as a checker side table (span → the resolved `FnKey` per
+     identity) rather than re-resolving in the backend;
    - **the hash pair**: `SalvoSet`/`SalvoMap` keyed by the slots' `hash`/`eq`
      (through a `HashBy<H, E, T>` wrapper) instead of the host's `Hash`/`Eq`;
    - **Kotlin**: the `TreeSet`/`TreeMap` comparator from the slot's identity, and
@@ -310,6 +316,24 @@ The heap demo's remaining plan (D2's motivating example, the `proj proj T?`
 defect, `swap`, `!is`, `+=`) is **HEAP_QUALIFIER.md**, with its own suggested
 sequence. `demo/heap.sv` is written in the new syntax and reports exactly four
 errors: three missing `swap` (item 4) and one D2 body validation (item 2).
+
+## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
+
+[col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
+do, comparing lexicographically", and that is true of the two **backends** rather
+than of the language: `core.compare` declares `cmp` for the intrinsic scalars
+only. It cannot declare one for a tuple, because
+`cmp<A, B>(a: (A, B), b: (A, B)) -> Int` needs `?Ordered<A>, ?Ordered<B>` and
+[implicit-resolve] **skips a candidate that itself needs implicits** — a rule
+recorded as "out of scope for now, and silently skipping it is better than picking
+it and failing later".
+
+Lifting it (resolve a candidate's own implicits recursively, bottom-up, and refuse
+a cycle) would make the claim true in Salvo and would let a keyed container over a
+tuple or a list name its ordering like any other. Found while wiring the keyed
+containers' runtimes, where the gap is what stopped the constructors from asking
+for the capability. Not blocking: the canonical path uses the host's structural
+ordering, which agrees with a generated `auto fn cmp` by construction.
 
 ## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
 

@@ -128,6 +128,39 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b, second slice — the pattern rule, and a
+wall worth knowing about (2026-09-22).**
+
+- **A signature may omit a keyed container's identity arguments**, and then it
+  says nothing about them: `size(set: SortedSet<T>)` takes a set however it is
+  ordered. Implemented as `named_args_fit` — argument lists of one nominal type
+  compare on their common prefix, provided the dropped tail is identities — so it
+  is the same "unstated is unconstrained" rule an unwritten slot has, and it is
+  what keeps std's thirty-odd keyed signatures generic over the ordering without
+  a binder in each. `unify` got the matching arm.
+- **The route that does not work, and why**: making the keyed *constructors*
+  demand the capability (`sorted_set_of<T>(...elems: T[], ?Ordered<T>) ->
+  SortedSet<T, ?cmp>`) is the obvious way to give the emitter an identity to
+  lower. It fails immediately on `sorted_set_of((2, 0), (1, 9))`: a **tuple has no
+  Salvo `cmp`**, and cannot be given one, because `cmp<A, B>(a: (A, B), b: (A,
+  B))` would itself need `?Ordered<A>, ?Ordered<B>` — and [implicit-resolve]
+  *skips a candidate that needs implicits*. The same holds for `List<T>`. Today
+  those cases work because the containers use the **host's** structural ordering,
+  which for a generated `auto fn cmp` is the same function by construction
+  [cmp-auto].
+  * So the constructors keep their signatures, the canonical path keeps using the
+    host's ordering, and a *written* identity is what the emitter must lower —
+    read off the construction site's recorded type rather than from an implicit
+    argument.
+  * It also exposes a real gap in [col-hashed-ordered]'s claim that "a `List` or a
+    tuple qualifies exactly when its elements do": that is true of the *backends*,
+    not of the language's own `cmp`. Making it true in Salvo needs **recursive
+    implicit resolution** (a candidate whose own implicits can be filled), which
+    is its own item, now in ROADMAP.md.
+- The not-yet refusal moved from "any identity argument" to "a **named** one",
+  since a binder is resolved per call and is the canonical path; and it now says
+  the runtime exists and the emitters do not reach it, which is the true state.
+
 **Ordering round (second plan), step 4b, first slice — the Rust sorted
 collections carry their ordering (2026-09-22).** User decision after a design
 exchange that improved on ORDERING.md's plan: keep the **ZST markers** (so no

@@ -9241,26 +9241,30 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         };
         // [cmp-carry] A keyed container may *name* the ordering or hash it keeps
-        // its keys by — the slots are declared — but neither runtime can honour a
-        // non-canonical one yet: a `BTreeSet` takes no comparator and a
-        // `LinkedHashSet` keys off `hashCode`/`equals`, so the containers have to
-        // become Salvo-runtime ones first. Refused rather than emitted wrongly
-        // [backend-never-wrong], and the message says what it is waiting for.
-        if base.args.len() > arity {
-            let written = base.args[arity].to_string();
-            self.error(
-                base.args[arity].span(),
-                format!(
-                    "`{}` cannot be keyed by `{written}` yet: the canonical `{}` is the \
-                     only one either backend can honour, because a keyed container has \
-                     to carry the function at run time and neither host's container has \
-                     a slot for one. The declaration is ready and the runtimes are not \
-                     — see ROADMAP's ordering entry",
-                    base.name.name,
-                    if ordered { "cmp" } else { "hash`/`eq" }
-                ),
+        // its keys by — the slots are declared, and the Rust runtime that can
+        // honour one is written [col-keyed-slots] — but the emitters do not reach
+        // it yet, so a **named** identity is refused here rather than compiled
+        // into a container that ignores it [backend-never-wrong]. A *binder* is
+        // fine: it is resolved per call and the canonical path is unchanged.
+        if let Some(written) = base.args.get(arity) {
+            let named = !matches!(
+                written,
+                ast::Type::Named { base, .. } if base.binder
             );
-            return;
+            if named {
+                self.error(
+                    written.span(),
+                    format!(
+                        "`{}` cannot be keyed by `{written}` yet: the runtime that \
+                         carries an ordering is in place, and the emitters do not reach \
+                         it yet — see ROADMAP's ordering entry. The canonical `{}` is \
+                         what both backends honour today",
+                        base.name.name,
+                        if ordered { "cmp" } else { "hash`/`eq" }
+                    ),
+                );
+                return;
+            }
         }
         if base.args.len() != arity {
             return;
@@ -14146,18 +14150,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .opaque_types
                     .get(name)
                     .map_or(0, |d| d.generics.len());
-                let lowered = self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth);
-                // [cmp-carry] A keyed container whose runtime cannot honour a
-                // non-canonical identity yet lowers to the container *without*
-                // it: the refusal is `check_key_eligibility`'s, reported once at
-                // the written type, and degrading here keeps that one mistake to
-                // one diagnostic instead of cascading through every call the
-                // value reaches [type-unknown-lenient].
-                if keyed_container(name).is_some() && lowered.len() > arity {
-                    lowered.into_iter().take(arity).collect()
-                } else {
-                    lowered
-                }
+                self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth)
             }
         };
         // Type aliases expand structurally (with generic substitution).
@@ -20616,7 +20609,18 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             !once_blocked && !quals.iter().any(|q| q.effect) && unify(param, base, subst)
         }
         (Ty::Named { name: pn, args: pa }, Ty::Named { name: an, args: aa }) => {
-            pn == an && pa.len() == aa.len() && pa.iter().zip(aa).all(|(p, a)| unify(p, a, subst))
+            // [cmp-carry] A pattern may omit a keyed container's trailing
+            // identity arguments — unstated is unconstrained — so the common
+            // prefix is what unifies, and a dropped tail must be identities.
+            let common = pa.len().min(aa.len());
+            let droppable = |t: &&Ty| matches!(t, Ty::FnName(_) | Ty::Unknown);
+            pn == an
+                && pa[common..].iter().all(|t| droppable(&t))
+                && aa[common..].iter().all(|t| droppable(&t))
+                && pa[..common]
+                    .iter()
+                    .zip(&aa[..common])
+                    .all(|(p, a)| unify(p, a, subst))
         }
         (Ty::Array(p), Ty::Array(a)) => unify(p, a, subst),
         (Ty::Tuple(ps), Ty::Tuple(as_)) => {

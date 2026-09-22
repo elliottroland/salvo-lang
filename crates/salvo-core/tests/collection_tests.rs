@@ -930,11 +930,26 @@ fn a_keyed_container_defaults_to_the_canonical_identity() {
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// …and a **non-canonical** one is refused for now: the declaration is ready and
-/// the runtimes are not, since a keyed container has to carry the function at run
-/// time and neither host's container has a slot for one. An error, never wrong
-/// output [backend-never-wrong] — and one error, not a cascade, because the type
-/// degrades to the canonical form after it is reported.
+/// [cmp-carry] A signature may **omit** a keyed container's identity arguments,
+/// and then it says nothing about them: `size(set: SortedSet<T>)` takes a set
+/// however it is ordered, which is what keeps std's own surface generic over the
+/// ordering without writing a binder in thirty signatures. Unstated is
+/// unconstrained, the same rule an unwritten slot has.
+#[test]
+fn a_signature_may_omit_a_containers_identity() {
+    let msgs = sorted_messages(
+        "fn count<T>(s: SortedSet<T>) -> Int => s {\n    return size(s)\n}\n\n\
+         fn probe(a: SortedSet<Int>, b: SortedSet<Str>) -> Int => a, b {\n    \
+         return count(a) + count(b)\n}\n",
+    );
+    assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
+}
+
+/// …and a **named** one is refused for now: the Rust runtime that carries an
+/// ordering is written and tested, but no emitter reaches it yet, so this is an
+/// error rather than a container that silently ignores the ordering it was told
+/// to keep [backend-never-wrong]. A *binder* is not refused — it resolves per
+/// call, which is the canonical path.
 #[test]
 fn a_non_canonical_key_identity_is_refused_for_now() {
     let msgs = sorted_messages(
@@ -944,7 +959,7 @@ fn a_non_canonical_key_identity_is_refused_for_now() {
     assert_eq!(msgs.len(), 1, "expected exactly one error: {msgs:?}");
     assert!(
         msgs[0].contains("cannot be keyed by `by_size` yet")
-            && msgs[0].contains("canonical `cmp`"),
+            && msgs[0].contains("emitters do not reach"),
         "unexpected message: {}",
         msgs[0]
     );

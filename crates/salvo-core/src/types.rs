@@ -613,9 +613,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 && is_subtype(base, b)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
-            na == nb
-                && aa.len() == ab.len()
-                && aa.iter().zip(ab).all(|(x, y)| compatible(x, y))
+            na == nb && named_args_fit(aa, ab)
         }
         (Ty::Array(x), Ty::Array(y)) => compatible(x, y),
         (Ty::Tuple(xs), Ty::Tuple(ys)) => {
@@ -648,6 +646,28 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         }
         _ => false,
     }
+}
+
+/// [cmp-carry] Whether two argument lists of the same nominal type fit.
+///
+/// Invariant, as generic arguments have always been — with one addition: a type
+/// may **omit a keyed container's trailing identity arguments**, because an
+/// unstated identity is an unconstrained one, exactly as an unwritten slot is.
+/// So `SortedSet<Str>` and `SortedSet<Str, cmp>` compare on their common prefix,
+/// which is what lets `size(set: SortedSet<T>)` accept a set however it is
+/// ordered while `f(s: SortedSet<Str, by_age>)` still demands that ordering.
+/// Only identities may be dropped this way: a missing *type* argument is an
+/// arity mistake and stays one.
+fn named_args_fit(a: &[Ty], b: &[Ty]) -> bool {
+    let common = a.len().min(b.len());
+    let droppable = |t: &Ty| matches!(t, Ty::FnName(_) | Ty::Unknown);
+    if !a[common..].iter().all(droppable) || !b[common..].iter().all(droppable) {
+        return false;
+    }
+    a[..common]
+        .iter()
+        .zip(&b[..common])
+        .all(|(x, y)| compatible(x, y))
 }
 
 /// Whether a value carrying `have` satisfies an expected qualifier `want`.
