@@ -100,7 +100,7 @@ class MemFs : Fs {
         if (!fs_has_children(files, path)) {
             return U2_2<List<String>, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
-        val names: MutableSet<String> = linkedSetOf<String>()
+        val names: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
         val prefix = "$path/"
         for (key in files.keys) {
             if (key.startsWith(prefix)) {

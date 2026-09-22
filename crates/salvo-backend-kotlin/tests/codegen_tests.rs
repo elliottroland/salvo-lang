@@ -2927,7 +2927,55 @@ fn main() [use] {
     )
 }
 
+/// [cmp-carry] [col-membership] A **hash** container keyed by the `hash` and `eq`
+/// its type names. Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_a_keyed_hash_pair`; here the pair becomes two function
+/// references handed to a runtime container that extends `AbstractMutableSet`, so
+/// the emitted *type* is still `MutableSet<T>` and only the construction differs.
+fn kotlinc_compiles_and_runs_a_keyed_hash_pair() -> KotlinCase {
+    let src = r#"
+struct Person { name: Str, age: Int }
+
+auto fn hash@Person(value: Person) -> Long
+auto fn eq@Person(a: Person, b: Person) -> Bool
+
+// A pair that keys by age alone: two people of an age are one member.
+fn age_hash(p: Person) -> Long => p {
+    return to_long(p.age)
+}
+
+fn same_age(a: Person, b: Person) -> Bool => a, b {
+    return a.age == b.age
+}
+
+// One body, either keying: the pair is the container's, not the caller's.
+fn tally<T>(s: Set<T>) -> Int => s {
+    return size(s)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let all: Mut Set<Person> = mut_set_of()
+    let byage: Mut Set<Person, age_hash, same_age> = mut_set_of()
+    let bob = Person {name: "Bob", age: 24}
+    add(all, copy(bob))
+    add(byage, bob)
+    let eve = Person {name: "Eve", age: 24}
+    let fresh = add(all, copy(eve))
+    let twin = add(byage, eve)
+    println("added ${fresh} ${twin}")
+    println("sizes ${tally(all)} ${tally(byage)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "keyed-hash", "added true false\nsizes 2 1\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
     kotlinc_compiles_and_runs_an_actor,

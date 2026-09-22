@@ -12838,9 +12838,13 @@ impl<'p> Emitter<'p> {
             // arguments with a spread was assembled into a fresh vector by
             // `intrinsic_arg_code`, so it arrives owned and must not be
             // cloned again.
-            // [cmp-carry] When this call builds a keyed container, the ordering
-            // it will be kept by is in the call's own type.
-            let ordering = self.ordering_marker_for(span);
+            // [cmp-carry] When this call builds a keyed container, the identities
+            // it will be kept by are in the call's own type — an ordering for the
+            // sorted pair, a hash/equality pair for the hash pair. One slot,
+            // since only one of the two applies to any call.
+            let ordering = self
+                .ordering_marker_for(span)
+                .or_else(|| self.container_identity_markers(span));
             let variadic_at = f.params.iter().position(|p| p.variadic);
             let tail_len = variadic_at.map_or(0, |v| args.len().saturating_sub(v));
             let spread = if !args.iter().any(|a| matches!(a, Expr::Spread { .. })) {

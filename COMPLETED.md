@@ -128,6 +128,37 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b complete — the Kotlin hash half, in a
+fraction of the Rust one (2026-09-22).** `Set`/`Map` can now name the `hash` and
+`eq` their keys are kept by on **both** backends, which finishes step 4.
+
+- **The JVM has interfaces where Rust has concrete types, and that is the whole
+  difference in cost.** `SalvoHashMap`/`SalvoHashSet` extend
+  `AbstractMutableMap`/`AbstractMutableSet`, so the emitted **type** is unchanged
+  (`MutableMap<K, V>`, `MutableSet<T>`) and every operation the backend lowers —
+  `put`, `get`, `containsKey`, `keys`, `size`, iteration — arrives through the
+  interface. Naming a hash therefore cost this backend its *construction sites and
+  nothing else*: no lowering changed, no golden moved, and the canonical path is
+  still a `LinkedHashMap`. Rust needed a boxed store and a rewrite of the container
+  because `SalvoMap` is a concrete type whose methods carried the bounds.
+- **The pair travels as values, not types**: there is no zero-sized-type trick on
+  the JVM, so the container holds `(K) -> Long` and `(K, K) -> Boolean` and the
+  emitter passes `::age_hash, ::same_age` — function *references*, which is what
+  the first attempt got wrong (bare names do not resolve as values).
+- The representation matches the Rust runtime's deliberately — an insertion-ordered
+  slab plus a bucket index, compacted when the dead slots outnumber the live ones —
+  so the two agree observably on order, on overwrite keeping a key's position, and
+  on removal [backend-parity].
+- **One bug worth the record**: Rust's hash markers were computed but never
+  reached `fn_call`, because only the *sorted* marker was threaded into the
+  intrinsic lowering. The symptom was a program that ran and answered *wrongly*
+  (`sizes 2 2` where `2 1` was right) rather than failing — the one failure mode
+  [backend-never-wrong] exists to prevent, caught only because the test compared
+  both keyings in one program. A lowering that silently falls back to a default is
+  worth distrusting: the fix threads both identities through one slot, since only
+  one applies per call.
+- Two e2e cases from **verbatim** one source, one per backend.
+
 **Ordering round (second plan), step 4b, fifth slice — the Rust hash pair behind
 a store, which closed a defect (2026-09-22).** `SalvoMap`/`SalvoSet` are keyed by
 the `hash` and `eq` their type names, through the same shape the sorted pair

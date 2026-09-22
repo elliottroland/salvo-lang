@@ -5601,6 +5601,60 @@ fn main() [use] {
     );
 }
 
+/// [cmp-carry] [col-membership] A **hash** container keyed by the `hash` and `eq`
+/// its type names: membership is `eq`-distinct, so a second person of an age
+/// already present is one member under a pair that keys by age and a new one under
+/// the canonical pair. Source and expected stdout are **verbatim** the Kotlin
+/// backend's `kotlinc_compiles_and_runs_a_keyed_hash_pair` — there the pair is
+/// passed to a runtime container as two function references, here it is two
+/// zero-sized markers.
+pub const KEYED_HASH_DEMO: &str = r#"
+struct Person { name: Str, age: Int }
+
+auto fn hash@Person(value: Person) -> Long
+auto fn eq@Person(a: Person, b: Person) -> Bool
+
+// A pair that keys by age alone: two people of an age are one member.
+fn age_hash(p: Person) -> Long => p {
+    return to_long(p.age)
+}
+
+fn same_age(a: Person, b: Person) -> Bool => a, b {
+    return a.age == b.age
+}
+
+// One body, either keying: the pair is the container's, not the caller's.
+fn tally<T>(s: Set<T>) -> Int => s {
+    return size(s)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let all: Mut Set<Person> = mut_set_of()
+    let byage: Mut Set<Person, age_hash, same_age> = mut_set_of()
+    let bob = Person {name: "Bob", age: 24}
+    add(all, copy(bob))
+    add(byage, bob)
+    let eve = Person {name: "Eve", age: 24}
+    let fresh = add(all, copy(eve))
+    let twin = add(byage, eve)
+    println("added ${fresh} ${twin}")
+    println("sizes ${tally(all)} ${tally(byage)}")
+}
+"#;
+
+pub const KEYED_HASH_OUTPUT: &str = "added true false\nsizes 2 1\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_keyed_hash_pair() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", KEYED_HASH_DEMO)]);
+    run_rust_files(&files, "keyed_hash", KEYED_HASH_OUTPUT);
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_keyed_container_ordering() {
     if !rustc_available() {

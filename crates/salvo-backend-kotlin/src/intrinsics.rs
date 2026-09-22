@@ -34,11 +34,23 @@ pub fn fn_call(
     args: &[String],
     type_args: &[String],
     ordering: Option<&str>,
+    keyed: Option<(&str, &str)>,
 ) -> Option<String> {
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("TODO()");
     // [cmp-carry] The comparison a sorted collection is kept by: the function its
     // type names, or the language's structural comparison when it names none.
+    // [cmp-carry] A hash container's constructor: the runtime container when the
+    // type names a `hash`/`eq` pair, the JVM's own `LinkedHashMap` otherwise —
+    // which is what every Salvo program has always compiled to.
+    let set_ctor = |elem: &str| match keyed {
+        Some((h, e)) => format!("salvo.SalvoHashSet<{elem}>({h}, {e})"),
+        None => format!("linkedSetOf<{elem}>()"),
+    };
+    let map_ctor = |k: &str, v: &str| match keyed {
+        Some((h, e)) => format!("salvo.SalvoHashMap<{k}, {v}>({h}, {e})"),
+        None => format!("linkedMapOf<{k}, {v}>()"),
+    };
     let cmp_body = || match ordering {
         Some(target) => format!("{target}(__a, __b)"),
         None => "salvo.__salvoCompare(__a, __b)".to_string(),
@@ -251,16 +263,18 @@ pub fn fn_call(
             format!("MutableList<{}>({}, {})", elem(), a(0), a(1))
         }
         ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
-            "linkedSetOf<{}>().also {{ __s -> __s.addAll((0 until ({})).map({})) }}",
-            elem(),
+            "{}.also {{ __s -> __s.addAll((0 until ({})).map({})) }}",
+            set_ctor(&elem()),
             a(0),
             a(1)
         ),
         ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => format!(
-            "linkedMapOf<{}, {}>().also {{ __m -> (0 until ({})).map({})\
+            "{}.also {{ __m -> (0 until ({})).map({})\
              .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            type_args.first().map(String::as_str).unwrap_or("Any"),
-            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            map_ctor(
+                type_args.first().map(String::as_str).unwrap_or("Any"),
+                type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            ),
             a(0),
             a(1)
         ),
@@ -268,20 +282,24 @@ pub fn fn_call(
         // [col-convert] The converters. `LinkedHashSet`/`LinkedHashMap` keep
         // first-appearance order [col-insertion-order].
         ("to_set", Some("List")) => {
-            format!("linkedSetOf<{}>().also {{ __s -> __s.addAll({}) }}", elem(), a(0))
+            format!("{}.also {{ __s -> __s.addAll({}) }}", set_ctor(&elem()), a(0))
         }
         ("to_map", Some("List")) if args.len() == 1 => format!(
-            "linkedMapOf<{}, {}>().also {{ __m -> {}\
+            "{}.also {{ __m -> {}\
              .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            type_args.first().map(String::as_str).unwrap_or("Any"),
-            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            map_ctor(
+                type_args.first().map(String::as_str).unwrap_or("Any"),
+                type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            ),
             a(0)
         ),
         ("to_map", Some("List")) => format!(
-            "linkedMapOf<{}, {}>().also {{ __m -> {}.map({})\
+            "{}.also {{ __m -> {}.map({})\
              .forEach {{ __e -> __m.put(__e.first, __e.second) }} }}",
-            type_args.get(1).map(String::as_str).unwrap_or("Any"),
-            type_args.get(2).map(String::as_str).unwrap_or("Any"),
+            map_ctor(
+                type_args.get(1).map(String::as_str).unwrap_or("Any"),
+                type_args.get(2).map(String::as_str).unwrap_or("Any"),
+            ),
             a(0),
             a(1)
         ),
@@ -294,7 +312,7 @@ pub fn fn_call(
         // [type-canbe-mut]; the element type is spelled out for the same
         // reason the list constructors spell it [backend-intrinsic].
         ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
-            format!("linkedSetOf<{}>({})", elem(), args.join(", "))
+            format!("{}.also {{ __s -> __s.addAll(listOf({})) }}", set_ctor(&elem()), args.join(", "))
         }
         // `add`/`remove` already report whether the set changed, which is
         // what Salvo's `Bool` returns mean.

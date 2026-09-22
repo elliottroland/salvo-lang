@@ -264,7 +264,7 @@ In brief:
    optional at a use site, aliasing with the destructuring syntax
    (`Heap<T, ?cmp: cmp2>`), and an alias that **remembers its slot** so two
    in-scope candidates for one capability are refused whatever they are called.
-4. **The keyed containers**, split: ✅ **4a landed 2026-09-22** — the four
+4. ✅ **The keyed containers** — **complete 2026-09-22**. 4a: — the four
    types' slots with membership named per container ([col-membership],
    [col-keyed-slots]), the canonical default left unmaterialized so `Set<Str>` is
    unchanged, and a non-canonical identity refused with a message naming what it
@@ -285,10 +285,10 @@ In brief:
      hashes used to type-check and then fail in rustc, because the runtime's hashing
      operations needed bounds the emitter does not write. Behind the store every
      operation is bound-free (COMPLETED.md has the two resolution traps);
-   - ✅ **Kotlin's sorted half** — **landed 2026-09-22**: the `TreeSet`/`TreeMap`
-     comparator comes from the identity, so a named ordering now runs on both
-     backends from one source. Its **hash** half still needs a runtime container,
-     since `LinkedHashSet` keys off `hashCode`/`equals` with no pluggable slot;
+   - ✅ **Kotlin, both halves** — **landed 2026-09-22**: the `TreeSet`/`TreeMap`
+     comparator comes from the identity, and `SalvoHashMap`/`SalvoHashSet` extend
+     the JVM's abstract collections so a named hash pair costs the construction
+     sites and nothing else;
    - **the checker**: lift the not-yet gate in `check_key_eligibility`, and let a
      signature that omits a container's identity arguments accept a value that
      carries them (`size(set: Set<T>)` over a `Set<Str, my_hash>`) — the same

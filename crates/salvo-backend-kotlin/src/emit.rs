@@ -15,7 +15,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, UnionTest};
-use salvo_core::types::Ty;
+use salvo_core::types::{FnId, Ty};
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
@@ -115,6 +115,7 @@ pub fn emit_program_reporting(
     // [kt-ordered] And for the structural comparison an ordered
     // struct's `compareTo` uses [col-hashed-ordered].
     let mut needs_compare = false;
+    let mut needs_keyed = false;
     // [kt-bytes] And for the byte buffer, whenever a `Bytes` is named
     // anywhere in the program [bytes-type].
     let mut needs_bytes = false;
@@ -158,6 +159,7 @@ pub fn emit_program_reporting(
         tuple_sizes.extend(emitter.tuple_sizes);
         needs_throw |= emitter.needs_throw;
         needs_compare |= emitter.needs_compare;
+        needs_keyed |= emitter.needs_keyed;
         needs_bytes |= emitter.needs_bytes;
         needs_scheduler |= emitter.needs_scheduler;
         needs_time |= emitter.needs_time;
@@ -236,6 +238,14 @@ pub fn emit_program_reporting(
         files.push(EmittedFile {
             rel_path: std::path::PathBuf::from("compare.kt"),
             content: generate_compare_file(),
+        });
+    }
+    // [cmp-carry] Only where a collection's type *names* the hash and equality its
+    // keys are kept by: everything else is still a `LinkedHashMap`.
+    if needs_keyed {
+        files.push(EmittedFile {
+            rel_path: std::path::PathBuf::from("keyed.kt"),
+            content: generate_keyed_file(),
         });
     }
     if needs_bytes {
@@ -436,6 +446,11 @@ fn generate_throw_file() -> String {
 /// [kt-ordered] The structural comparison an ordered struct's
 /// `compareTo` uses for each field [col-hashed-ordered].
 ///
+/// Source in `runtime/keyed.kt`, included verbatim [backend-companion].
+fn generate_keyed_file() -> String {
+    include_str!("../runtime/keyed.kt").to_string()
+}
+
 /// Source in `runtime/compare.kt`, included verbatim and compiled directly
 /// by `runtime_tests.rs`.
 fn generate_compare_file() -> String {
@@ -942,6 +957,9 @@ struct Emitter<'p> {
     /// [kt-ordered] Whether this module declared an ordered struct, so
     /// the comparison runtime is emitted.
     needs_compare: bool,
+    /// [cmp-carry] Whether this module builds a collection keyed by a **named**
+    /// hash and equality, which is the only thing `keyed.kt` is for.
+    needs_keyed: bool,
     /// [kt-bytes] Whether this file named a `Bytes`, so the program needs
     /// the buffer runtime class.
     needs_bytes: bool,
@@ -1062,6 +1080,7 @@ impl<'p> Emitter<'p> {
             ret_is_unit: false,
             needs_throw: false,
             needs_compare: false,
+            needs_keyed: false,
             needs_bytes: false,
             needs_scheduler: false,
             needs_time: false,
@@ -2950,6 +2969,7 @@ impl<'p> Emitter<'p> {
                 &[code.clone()],
                 &[],
                 None,
+                None,
             ) {
                 Some(rendered) => rendered,
                 None => {
@@ -3542,6 +3562,61 @@ impl<'p> Emitter<'p> {
 
     // ================= checker-type (Ty) rendering =================
 
+    /// [cmp-carry] The `hash` and `eq` a hash container built here is kept by, as
+    /// two Kotlin function references — `None` for the canonical path, which stays
+    /// a `LinkedHashMap` and is what every Salvo program has always compiled to.
+    ///
+    /// On the JVM there is no zero-sized-type trick: the pair is passed to the
+    /// runtime container as *values*. The container extends the JVM's abstract
+    /// collections, so the emitted type is unchanged and only the construction
+    /// differs — which is why this backend pays one call site and no lowerings.
+    fn keyed_pair(&mut self, span: Span) -> Option<(String, String)> {
+        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return None;
+        };
+        if !matches!(name.as_str(), "Set" | "Map") {
+            return None;
+        }
+        let subject = args.first()?.clone();
+        let ids: Vec<FnId> = args
+            .iter()
+            .filter_map(|a| match a {
+                Ty::FnName(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        if ids.len() != 2 {
+            return None;
+        }
+        self.needs_keyed = true;
+        let hash = self.identity_fn_name(&ids[0], &subject)?;
+        let eq = self.identity_fn_name(&ids[1], &subject)?;
+        Some((hash, eq))
+    }
+
+    /// [cmp-carry] The Kotlin name of the declaration an identity resolves to —
+    /// the *checker's* answer, recorded where the type was written.
+    fn identity_fn_name(&mut self, id: &FnId, subject: &Ty) -> Option<String> {
+        let decl = self
+            .checked
+            .carried_identities
+            .get(&(id.clone(), subject.clone()))
+            .copied()
+            .and_then(|k| self.fn_by_key(k));
+        match decl {
+            // A **function reference**: the container takes the pair as values, so
+            // what it needs is `::name` rather than a call.
+            Some(decl) => Some(format!("::{}", self.kotlin_fn_name(decl))),
+            None => {
+                self.error(format!(
+                    "the `{id}` this collection is keyed by has no resolved declaration"
+                ));
+                None
+            }
+        }
+    }
+
     /// [cmp-carry] The Kotlin function a keyed container's named ordering is kept
     /// by, when this expression builds one — a `TreeSet`/`TreeMap` takes a
     /// comparator, so the identity needs no marker here, only a name.
@@ -3563,15 +3638,13 @@ impl<'p> Emitter<'p> {
             return None;
         };
         let (id, name) = (id.clone(), name.clone());
+        let subject = args.first()?.clone();
+        // [cmp-carry] A *hash* container's pair is handed to the runtime container
+        // as two function values rather than as a comparator, so it is resolved by
+        // `keyed_pair` instead — this path is the sorted pair's comparator.
         if matches!(name.as_str(), "Set" | "Map") {
-            self.error(format!(
-                "the kotlin backend cannot key a `{name}` by `{id}` yet: a hash \
-                 container has to carry the function at run time, and this backend's \
-                 is still the JVM's own — see ROADMAP's ordering entry"
-            ));
             return None;
         }
-        let subject = args.first()?.clone();
         let key = (id.clone(), subject);
         let decl = self
             .checked
@@ -5987,7 +6060,12 @@ impl<'p> Emitter<'p> {
                 match self.ty_of(*span).map(|t| t.strip_quals()) {
                     Some(Ty::Named { name, args }) if name == "Map" && args.len() == 2 => {
                         let (kt, vt) = (self.emit_ty(&args[0]), self.emit_ty(&args[1]));
-                        format!("linkedMapOf<{}, {}>()", kt, vt)
+                        match self.keyed_pair(*span) {
+                            Some((h, e)) => {
+                                format!("salvo.SalvoHashMap<{kt}, {vt}>({h}, {e})")
+                            }
+                            None => format!("linkedMapOf<{}, {}>()", kt, vt),
+                        }
                     }
                     Some(Ty::Named { name, args }) if name == "List" && args.len() == 1 => {
                         let elem = self.emit_ty(&args[0]);
@@ -6001,7 +6079,17 @@ impl<'p> Emitter<'p> {
                         }
                     }
                     Some(Ty::Named { name, args }) if name == "Set" && args.len() == 1 => {
-                        format!("linkedSetOf<{}>({})", self.emit_ty(&args[0]), items.join(", "))
+                        {
+                            let elem = self.emit_ty(&args[0]);
+                            match self.keyed_pair(*span) {
+                                Some((h, e)) => format!(
+                                    "salvo.SalvoHashSet<{elem}>({h}, {e}).also {{ __s -> \
+                                     __s.addAll(listOf({})) }}",
+                                    items.join(", ")
+                                ),
+                                None => format!("linkedSetOf<{elem}>({})", items.join(", ")),
+                            }
+                        }
                     }
                     _ => format!("linkedSetOf<Any>({})", items.join(", ")),
                 }
@@ -6017,7 +6105,14 @@ impl<'p> Emitter<'p> {
                     }
                     _ => ("Any".to_string(), "Any".to_string()),
                 };
-                format!("linkedMapOf<{}, {}>({})", kt, vt, items.join(", "))
+                match self.keyed_pair(*span) {
+                    Some((h, e)) => format!(
+                        "salvo.SalvoHashMap<{kt}, {vt}>({h}, {e}).also {{ __m -> \
+                         __m.putAll(listOf({})) }}",
+                        items.join(", ")
+                    ),
+                    None => format!("linkedMapOf<{}, {}>({})", kt, vt, items.join(", ")),
+                }
             }
             Expr::Tuple { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();
@@ -7549,12 +7644,14 @@ impl<'p> Emitter<'p> {
             // rather than emitted as a container that ignores the ordering it was
             // told to keep [backend-never-wrong].
             let ordering = self.container_ordering(span);
+            let keyed = self.keyed_pair(span);
             if let Some(code) = crate::intrinsics::fn_call(
                 &f.name.name,
                 recv,
                 &arg_code,
                 &type_args,
                 ordering.as_deref(),
+                keyed.as_ref().map(|(h, e)| (h.as_str(), e.as_str())),
             )
             {
                 return code;
@@ -8008,7 +8105,7 @@ impl<'p> Emitter<'p> {
         if decl.name.name == "cmp" && recv == Some("Str") {
             self.needs_compare = true;
         }
-        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[], None) {
+        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[], None, None) {
             Some(body) => format!("{{ {} -> {body} }}", params.join(", ")),
             None => {
                 self.error(format!(

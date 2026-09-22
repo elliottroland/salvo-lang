@@ -180,7 +180,10 @@ work is. Each step is one commit.
      container ([col-membership], [col-keyed-slots]). The default is **not
      materialized**, so `Set<Str>` is unchanged; a non-canonical identity is
      refused with a message naming what it waits for.
-   - **4b, the runtimes**: Rust's `SalvoSet`/`SalvoMap` keyed by the slots'
+   - ✅ **4b, the runtimes** — **landed 2026-09-22**, in five slices (COMPLETED.md
+     has each): the Rust sorted pair behind a boxed store with ZST markers, the
+     pattern rule, the emitter wiring, the Rust hash pair (which closed a
+     pre-existing defect), and Kotlin's two halves. Originally described as: Rust's `SalvoSet`/`SalvoMap` keyed by the slots'
      functions rather than by the host's `Hash`/`Eq`, a sorted pair that carries
      its comparator, the Kotlin hash container, `binary_search`'s confirm
      (`cmp == 0`, fixing the host-`==` defect), and std's own signatures gaining
