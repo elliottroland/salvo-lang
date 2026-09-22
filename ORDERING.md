@@ -3,15 +3,25 @@
 Raised 2026-09-21 by `demo/heap.sv`'s `Heap<T canbe ordered>` TODO
 (HEAP_QUALIFIER.md item 1) and grown, through two sessions' worth of user
 decisions, into a redesign of how comparison, equality and hashing work in the
-language. **Decisions 1–14 were made 2026-09-21 and 15–22 on 2026-09-22.** What
-has landed so far: steps 1–4 of the first plan (2026-09-21) and step 5's own
-first four build items (2026-09-22) — their record is in COMPLETED.md's decision
-log, and the rules are in LANGUAGE_SPEC.md ([cmp-groups], [cmp-hash-values],
-[cmp-canonical], [cmp-auto], [op-order], [op-equality], [cmp-carry],
-[cmp-binder], with [col-equality] and [col-hashed-ordered] rewritten).
+language. **Decisions 1–14 were made 2026-09-21 and 15–22 on 2026-09-22, and
+everything decided has been built except one item.**
 
-**What is left is the five-step sequence below**, agreed 2026-09-22. Delete this
-file when step 5 of it lands.
+**What is left is step 5 of the sequence below — `Sorted<?cmp>` — and nothing
+else.** It is written out in full under "Step 5 in full": the problem, the four
+signatures, the one way it differs from the keyed containers, the snag to expect
+with two ways out and a recommendation, the file and line references, and what
+done looks like. Start there. **Delete this file when it lands**, leaving the
+record in COMPLETED.md.
+
+What has landed, all with COMPLETED.md log entries and rules in LANGUAGE_SPEC.md
+([cmp-groups], [cmp-hash-values], [cmp-canonical], [cmp-auto], [op-order],
+[op-equality], [cmp-carry], [cmp-binder], [col-membership], [col-keyed-slots],
+with [col-equality] and [col-hashed-ordered] rewritten): the three capabilities as
+params groups, `@`-scoped canonicals, `auto fn` generation, the operators through
+the groups (2026-09-21); then identities in types, the written forms, the `?cmp`
+binder, group spreads in slot lists with aliasing, and the keyed containers keeping
+their keys by the ordering or hash their type names — on both backends
+(2026-09-22).
 
 ## What already works (so the remainder reads in context)
 
