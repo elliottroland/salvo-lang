@@ -1397,38 +1397,46 @@ So a structure names the ordering it holds as a **type argument**, fixed where
 the value is constructed:
 
 ```
-// The claim, with a slot for the ordering it is kept by.
+// The claim, with a slot for the ordering it is kept by. `?Ordered<T>` would
+// say the same thing by naming the group.
 qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>
 
 // Building one: an ordinary implicit parameter, and the return type publishes
 // what the call resolved.
-fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp> {
+fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<T, ?cmp> {
     return mut_list_of()
 }
 
 // Using one: `?cmp` is *captured* from the argument's type. Nothing says what
 // it is — the slot above does that.
-fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<?cmp>
-    => !heap, !elem {
+fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<T, ?cmp> => !heap, !elem {
     // `cmp` is an ordinary implicit parameter in here: the one this heap was
     // built with, whatever is visible at the call.
     ...
 }
 ```
 
-The slot is spelled like the implicit parameter it is resolved as, and a use
-site fills it with a **function identity**: a bare name (`Heap<min_by_age>`), a
-canonical (`Heap<cmp@Person>`), or the signature's own binder (`Heap<?cmp>`).
+Type arguments come first and slots after. A slot is spelled like the implicit
+parameter it is resolved as, and a use site fills it with a **function
+identity** — a bare name (`Heap<Person, min_by_age>`) or a canonical
+(`Heap<Person, cmp@Person>`) — or with the signature's own binder
+(`Heap<T, ?cmp>`).
 
 Three things follow, and they are the point:
 
 - **`Heap<min_by_age>` and `Heap<max_by_age>` are different types.** Passing one
   where the other is expected is an ordinary type error naming both.
-- **All the `?cmp` in one signature are one binding.** A `merge(a: Heap<?cmp>
-  Mut List<T>, b: Heap<?cmp> Mut List<T>)` accepts two heaps only if they carry
-  the same ordering; two independent orderings are two names. A function that
-  never needs the ordering writes the claim bare (`Heap List<T>`) and accepts
-  any of them.
+- **All the `?cmp` in one signature are one binding.** A
+  `merge(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>)` accepts two
+  heaps only if they carry the same ordering. Two *different* orderings need two
+  names, which is what an alias is for: `b: Heap<T, ?cmp: cmp2>` fills the same
+  slot under the name `cmp2`. A slot a signature never mentions is not
+  constrained at all, so a function that does not care writes the claim bare
+  (`Heap List<T>`) and accepts any of them.
+- **Two orderings in scope refuse the operator.** In that `merge`, `x < y` could
+  mean either `cmp` or `cmp2`, so it is an error naming both and the body calls
+  the one it means. The alias is how the two get into one scope, not a way to
+  make the choice implicit.
 - **A function bound into a type must be named, top-level and capture-free.** A
   lambda has no identity a type could carry, and the error says so instead of
   losing the claim quietly. Everything a type can *print* it can carry.

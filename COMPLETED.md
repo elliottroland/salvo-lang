@@ -128,6 +128,42 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 3 — group spreads in a slot list, aliasing,
+and the operator's ambiguity (2026-09-22).** User decision 21, and the half of
+the operator rule that goes with it.
+
+- **`qualifier Heap<T, ?Ordered<T>> of List<T>`** declares one slot per member,
+  at the position the spread is written. The slot list became
+  `Vec<SlotDecl>` (`One(FnSlot)` | `Group(TypeRef)`) and is **expanded by the
+  checker**, not the parser: a group's members are only visible once
+  cross-module scope exists. Expansion merges two entries asking for the same
+  position at the same type, the same rule step 2 gave implicit spreads.
+- **Type arguments first, slots after** — replacing yesterday's
+  identities-only reading of a qualifier's arguments, which needed a special case
+  (`Heap<?cmp>`) that the user's own examples did not use. One positional rule
+  now covers a qualifier and a keyed type alike.
+- **An unwritten argument is `Ty::Unknown`**, and that one choice carries the
+  whole "a slot list is a *pattern*" rule: `Unknown` is compatible in both
+  directions [type-unknown-lenient], so an unmentioned slot constrains nothing
+  and a bare `Heap` becomes the empty case of the same rule rather than a special
+  case. It also forced the padding of *type* arguments — a bare `Heap` and a
+  `Heap<Person, cmp@Person>` have to be the same arity to compare at all — and
+  `qual_present` had to compare arguments with `compatible` instead of `==`.
+- **`?cmp: cmp2` aliases a binder**, in the spelling destructuring already uses.
+  The parser gained `TypeRef.alias`; the binder's name in the signature is the
+  alias, and the *slot* it fills is the name on the left, which is why a partial
+  slot list is readable at all.
+- **An alias remembers its slot** (`ImplicitParam.slot`), and that is what keeps
+  it honest: `x < y` in a two-heap function finds two candidates for `cmp` —
+  whatever they are called — and is refused naming both. Asked of what a
+  parameter *is* rather than what it is called, which is the difference between
+  aliasing to get two orderings into one scope and aliasing to dodge the choice
+  between them. The user caught this: the name-based reading I had described
+  would have let the alias silently pick one.
+- Rules [cmp-carry] and [cmp-binder] extended; LANGUAGE.md's section rewritten
+  around the new spellings. Four new tests in `carry_tests.rs` (the spread, the
+  unconstrained slot, the alias, and the refusal) — 17 there now.
+
 **Ordering round (second plan), step 2 — `Hashed` is a pair, and overlapping
 spreads merge (2026-09-22).** User decisions 16, 18 and 19. `core.compare`'s
 `Hashed<T>` now declares `hash` *and* `eq`, which is what a hash container

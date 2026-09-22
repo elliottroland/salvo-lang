@@ -315,6 +315,7 @@ fn expand(
         base: TypeRef {
             at: None,
             binder: false,
+            alias: None,
             name: pass_name.clone(),
             args: f
                 .generics
@@ -324,6 +325,7 @@ fn expand(
                     base: TypeRef {
                         at: None,
                         binder: false,
+                        alias: None,
                         name: g.clone(),
                         args: vec![],
                         from: Vec::new(),
@@ -475,6 +477,7 @@ fn expand(
             group: TypeRef {
                 at: None,
                 binder: false,
+                alias: None,
                 name: Ident {
                     name: "Yield".to_string(),
                     span: struct_span,
@@ -690,6 +693,7 @@ fn expand(
 
 fn type_ref(name: &str, span: Span) -> TypeRef {
     TypeRef {
+        alias: None,
         at: None,
         binder: false,
         name: Ident {
@@ -1462,6 +1466,7 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
         base: TypeRef {
             at: None,
             binder: false,
+            alias: None,
             name: s.name.clone(),
             args: s
                 .generics

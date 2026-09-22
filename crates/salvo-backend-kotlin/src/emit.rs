@@ -8631,6 +8631,7 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
                 base: TypeRef {
                     at: None,
                     binder: false,
+                    alias: None,
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),
                     from: base.from.clone(),

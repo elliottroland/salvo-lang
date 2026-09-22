@@ -787,15 +787,15 @@ impl<'s> Parser<'s> {
             // fn the binder binds bare in the signature instead (ORDERING.md
             // decision 11): it is an indirect way of declaring a fn in the
             // parameter scope, so it does not belong in the generics list.
+            let (name, span) = slot_name_span(slot);
             self.error(
                 format!(
-                    "`?{}` declares a function slot, which only a qualifier or an \
+                    "`?{name}` declares a function slot, which only a qualifier or an \
                      `intrinsic type` may have: on a function, write the implicit \
-                     parameter (`?{}: …`) in the parameter list, and use `?{}` in \
-                     the types it applies to",
-                    slot.name.name, slot.name.name, slot.name.name
+                     parameter (`?{name}: …`) in the parameter list, and use `?{name}` \
+                     in the types it applies to"
                 ),
-                slot.span,
+                span,
             );
         }
         generics
@@ -804,7 +804,7 @@ impl<'s> Parser<'s> {
     /// [cmp-carry] A generics list that may declare **fn slots**:
     /// `<T, ?cmp: (T, T) -> Int = cmp>` — for a qualifier or an
     /// `intrinsic type`.
-    fn parse_generics_slots(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<FnSlot>) {
+    fn parse_generics_slots(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>) {
         self.parse_generics_all()
     }
 
@@ -814,22 +814,22 @@ impl<'s> Parser<'s> {
     fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
         let (generics, canbe, slots) = self.parse_generics_all();
         for slot in &slots {
+            let (name, span) = slot_name_span(slot);
             self.error(
                 format!(
-                    "`?{}` declares a function slot, which only a qualifier or an \
-                     `intrinsic type` may have [cmp-carry]",
-                    slot.name.name
+                    "`?{name}` declares a function slot, which only a qualifier or an \
+                     `intrinsic type` may have [cmp-carry]"
                 ),
-                slot.span,
+                span,
             );
         }
         (generics, canbe)
     }
 
-    fn parse_generics_all(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<FnSlot>) {
+    fn parse_generics_all(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>) {
         let mut generics = Vec::new();
         let mut canbe = Vec::new();
-        let mut slots: Vec<FnSlot> = Vec::new();
+        let mut slots: Vec<SlotDecl> = Vec::new();
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
@@ -841,8 +841,28 @@ impl<'s> Parser<'s> {
                 // like the implicit parameter it is resolved as
                 // [implicit-param].
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
+                    // [cmp-carry] `?Ordered<T>` — a group spread, recognised by
+                    // its casing exactly as a parameter list's is
+                    // [implicit-group]. Expanded by the checker, where the
+                    // group's members are visible.
+                    if self.at_type_name() {
+                        match self.parse_type_ref() {
+                            Some(group) => slots.push(SlotDecl::Group(group)),
+                            None => {
+                                self.bump();
+                                continue;
+                            }
+                        }
+                        if self.eat(&TokenKind::Comma).is_none() {
+                            if self.expect(&TokenKind::Gt).is_none() {
+                                break;
+                            }
+                            break;
+                        }
+                        continue;
+                    }
                     match self.parse_fn_slot(q) {
-                        Some(slot) => slots.push(slot),
+                        Some(slot) => slots.push(SlotDecl::One(slot)),
                         None => {
                             self.bump();
                             continue;
@@ -939,6 +959,7 @@ impl<'s> Parser<'s> {
             None
         };
         Some(TypeRef {
+            alias: None,
             name,
             args: Vec::new(),
             from: Vec::new(),
@@ -1484,6 +1505,7 @@ impl<'s> Parser<'s> {
                     let lit = self.parse_struct_lit_body(Some(Type::Named {
                         qualifiers: Vec::new(),
                         base: TypeRef {
+                            alias: None,
                             at: None,
                             binder: false,
                             name: Ident {
@@ -2387,10 +2409,26 @@ impl<'s> Parser<'s> {
                         self.group_depth -= 1;
                         return None;
                     };
-                    let span = q.to(id.span);
+                    // [cmp-binder] `?cmp: cmp2` — the binder introduced under
+                    // another name, because this signature already has a `cmp`.
+                    // The destructuring spelling (`field: variable_name`): the
+                    // left names the slot, the right names it here.
+                    let alias = if self.eat(&TokenKind::Colon).is_some() {
+                        match self.ident_value("binder alias") {
+                            Some(a) => Some(a),
+                            None => {
+                                self.group_depth -= 1;
+                                return None;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let span = q.to(alias.as_ref().map(|a| a.span).unwrap_or(id.span));
                     args.push(Type::Named {
                         qualifiers: Vec::new(),
                         base: TypeRef {
+                            alias,
                             name: id,
                             args: Vec::new(),
                             from: Vec::new(),
@@ -2418,6 +2456,7 @@ impl<'s> Parser<'s> {
         }
         let span = name.span.to(end);
         Some(TypeRef {
+            alias: None,
             name,
             args,
             from,
@@ -4518,5 +4557,14 @@ pub fn first_proj_source(ty: &Type) -> Option<Ident> {
             arms.iter().find_map(first_proj_source)
         }
         _ => None,
+    }
+}
+
+/// [cmp-carry] How a slot-list entry reads back in a diagnostic: the slot's own
+/// name, or the group's.
+fn slot_name_span(slot: &SlotDecl) -> (String, Span) {
+    match slot {
+        SlotDecl::One(s) => (s.name.name.clone(), s.span),
+        SlotDecl::Group(g) => (g.name.name.clone(), g.span),
     }
 }

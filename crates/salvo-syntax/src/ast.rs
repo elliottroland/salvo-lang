@@ -179,11 +179,12 @@ pub struct TypeDecl {
     /// parameter is taken to reach one — which is what `List` means by
     /// holding its elements.
     pub generic_canbe: Vec<(Ident, TypeRef)>,
-    /// [cmp-carry] The **fn slots** in the generics list, after the type
-    /// parameters: `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
-    /// Each carries an identity, not a type, so they are kept apart from
-    /// `generics` — arity, `canbe` and substitution are about types only.
-    pub fn_slots: Vec<FnSlot>,
+    /// [cmp-carry] The **slot list** in the generics, after the type
+    /// parameters: `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`, or a
+    /// group spread (`?Ordered<T>`). Each slot carries an identity, not a type, so
+    /// they are kept apart from `generics` — arity, `canbe` and substitution are
+    /// about types only.
+    pub fn_slots: Vec<SlotDecl>,
     /// Auto-qualifiers, e.g. `canbe Mut` [type-canbe-mut]: the type opts
     /// into the language-level `Mut` qualifier (like `struct ... canbe
     /// Mut` [struct-mut]).
@@ -302,12 +303,11 @@ pub struct QualifierDecl {
     pub subject: QualSubject,
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// [cmp-carry] The **fn slots** in the generics list, after the type
-    /// parameters: `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`. The
-    /// identity a use site writes (`Heap<cmp@Person>`) fills one; a
-    /// qualifier's *type* arguments come from the base type it is applied to,
-    /// which is why the two lists are kept apart.
-    pub fn_slots: Vec<FnSlot>,
+    /// [cmp-carry] The **slot list** in the generics, after the type parameters:
+    /// `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`, or a group spread
+    /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person, cmp@Person>`)
+    /// fills one.
+    pub fn_slots: Vec<SlotDecl>,
     pub of: Type,
     /// Compatible qualifiers, e.g. `with Surname`.
     pub with: Vec<TypeRef>,
@@ -714,6 +714,24 @@ impl Type {
     }
 }
 
+/// [cmp-carry] One entry of a declaration's **slot list**: a slot written out,
+/// or a `params` group spread into one slot per member (user decision
+/// 2026-09-22).
+///
+/// `qualifier Heap<T, ?Ordered<T>> of List<T>` is sugar for
+/// `qualifier Heap<T, ?cmp: (T, T) -> Int>`, exactly as `?Ordered<T>` in a
+/// parameter list is sugar for the members as implicit parameters
+/// [implicit-group]. One ordered list, because slots are filled positionally and
+/// a group's members take the positions where the spread is written.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SlotDecl {
+    /// `?cmp: (T, T) -> Int = cmp`
+    One(FnSlot),
+    /// `?Ordered<T>` — expanded by the checker, which is where a group's
+    /// members are visible.
+    Group(TypeRef),
+}
+
 /// [cmp-carry] A **fn slot** in a declaration's generics list:
 /// `qualifier Heap<T, ?cmp: (T, T) -> Int>`,
 /// `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
@@ -756,6 +774,12 @@ pub struct TypeRef {
     /// [cmp-carry] `?cmp`: this argument is the signature's **binder**
     /// rather than a named fn or a type.
     pub binder: bool,
+    /// [cmp-binder] `?cmp: cmp2` — the **alias** a binder is introduced under,
+    /// when the slot's own name is taken. The destructuring spelling
+    /// (`field: variable_name`), for the same reason: the left is what is being
+    /// named, the right is the name it gets here. Only meaningful with
+    /// `binder`.
+    pub alias: Option<Ident>,
     pub span: Span,
 }
 
@@ -768,6 +792,9 @@ impl fmt::Display for TypeRef {
             write!(f, "?")?;
         }
         write!(f, "{}", self.name.name)?;
+        if let Some(alias) = &self.alias {
+            write!(f, ": {}", alias.name)?;
+        }
         if let Some(at) = &self.at {
             write!(f, "@{}", at.name)?;
         }

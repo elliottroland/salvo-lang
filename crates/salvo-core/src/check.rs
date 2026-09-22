@@ -854,6 +854,12 @@ pub struct ImplicitParam {
     /// that distinguishes borrows from values (Rust) renders those arms as
     /// references. Empty for a non-union return or a plain implicit.
     pub borrowed_arms: Vec<usize>,
+    /// [cmp-binder] The **slot** this parameter came from, when it came from one:
+    /// `?cmp: cmp2` is named `cmp2` here and remembers that it fills a `cmp`.
+    /// That is what makes an alias honest — two orderings in one scope are an
+    /// ambiguity for `<` whatever they are called, so the operator has to ask
+    /// what a parameter *is*, not what it is called (user decision 2026-09-22).
+    pub slot: Option<String>,
     /// [cmp-binder] True when the signature carries this name as a **binder**
     /// (`Heap<?cmp>`) — whether the parameter was written (`?cmp: (T, T) ->
     /// Int`, whose resolution the result type then publishes) or captured from
@@ -2258,7 +2264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
-                    self.check_fn_slots(&q.name.name, &q.fn_slots);
+                    self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
                     self.check_qualifier_decl(q);
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
@@ -2287,7 +2293,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Item::Type(t) => {
                     let saved = self.enter_generics(&t.generics);
-                    self.check_fn_slots(&t.name.name, &t.fn_slots);
+                    self.check_fn_slots(&t.name.name, &t.fn_slots, &t.generics);
                     self.validate_auto_quals(&t.auto_qualifiers);
                     if let Some(alias) = &t.alias {
                         self.validate_type(alias);
@@ -3356,6 +3362,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // known: a written `?cmp` *is* the binding when the types
                 // carry `?cmp`.
                 binder: false,
+                slot: None,
             });
         }
         for g in &f.implicit_groups {
@@ -3436,6 +3443,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span: g.span,
                     borrowed_arms,
                     binder: false,
+                    slot: None,
                 });
             }
         }
@@ -3448,7 +3456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `heap_push`'s is. Its fn type is never written at the fn: the slot
         // it fills states it, which is why this reads the slot rather than
         // the signature.
-        let mut captured: Vec<(String, Ty, Span)> = Vec::new();
+        let mut captured: Vec<(String, Ty, Span, Option<String>)> = Vec::new();
         for p in f.params.iter().filter(|p| !p.implicit) {
             let ty = self.lower_type(&p.ty);
             self.collect_binder_slots(&ty, p.span, &mut captured);
@@ -3470,12 +3478,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             let claimed = base.qualify(quals);
             self.collect_binder_slots(&claimed, cref.span, &mut captured);
         }
-        for (name, ty, span) in captured {
+        for (name, ty, span, slot) in captured {
             // An explicitly declared implicit of the same name *is* the
             // binding — the binder and the parameter are one thing, and what
             // resolution puts in it is what the result type publishes.
             if let Some(written) = out.iter_mut().find(|o| o.name == name) {
                 written.binder = true;
+                if written.slot.is_none() {
+                    written.slot = slot;
+                }
                 continue;
             }
             out.push(ImplicitParam {
@@ -3484,6 +3495,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
                 borrowed_arms: Vec::new(),
                 binder: true,
+                slot,
             });
         }
         // [cmp-auto] [implicit-group] Two spreads asking for the **same
@@ -6678,6 +6690,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span: p.span,
                     borrowed_arms: Vec::new(),
                     binder: false,
+                    slot: None,
                 })
                 .collect();
             self.generics = saved;
@@ -8668,6 +8681,35 @@ impl<'p, 'r> Checker<'p, 'r> {
         // 1. The enclosing fn's own implicit — the only possibility at a
         // generic `T` [implicit-forward], and what a bound-carrying signature
         // publishes.
+        //
+        // [cmp-binder] Two of them for one capability is an **ambiguity**, and
+        // aliasing is what makes it visible rather than what dodges it: a
+        // signature holding two heaps ordered differently has two `cmp`s in
+        // scope, so `a < b` there could mean either and the body must say which
+        // (user decision 2026-09-22). Asked of what a parameter *is* — the slot
+        // it fills — not of what it is called.
+        let candidates: Vec<&ImplicitParam> = self
+            .own_implicits
+            .iter()
+            .filter(|p| p.name == member || p.slot.as_deref() == Some(member))
+            .collect();
+        if candidates.len() > 1 {
+            let shown: Vec<String> = candidates
+                .iter()
+                .map(|p| format!("`{}`", p.name))
+                .collect();
+            self.error(
+                span,
+                format!(
+                    "`{sym}` on `{lb}` is `{member}({lb}, {rb})`, and this function has \
+                     {} of them in scope ({}): the operator cannot choose, so call the \
+                     one you mean [cmp-binder]",
+                    candidates.len(),
+                    shown.join(", ")
+                ),
+            );
+            return;
+        }
         if let Some(own) = self.own_implicits.iter().find(|p| p.name == member) {
             if is_subtype(&own.ty, &want) || own.ty.is_unknown() {
                 self.out
@@ -13386,7 +13428,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut out: Vec<Qual> = Vec::new();
         for (q, slots) in qualifiers.iter().zip(&slotted) {
             if let Some(slots) = slots {
-                let args = self.lower_identity_args(&q.args, None, slots, subst, depth);
+                // [cmp-carry] A qualifier's type arguments are written first
+                // (`Heap<T, ?cmp> List<T>`), its slots after — the same
+                // positional reading a keyed type has (user decision
+                // 2026-09-22).
+                let arity = self
+                    .qual_decl(&q.name.name)
+                    .map_or(0, |d| d.generics.len());
+                let args =
+                    self.lower_identity_args(&q.args, Some(arity), slots, subst, depth);
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
                 out.push(Qual {
@@ -13406,21 +13456,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// never writes it. One binding per name: a repeat occurrence adds
     /// nothing, which is what makes `heap_merge`'s two parameters share an
     /// ordering.
-    fn collect_binder_slots(&mut self, ty: &Ty, span: Span, out: &mut Vec<(String, Ty, Span)>) {
+    fn collect_binder_slots(
+        &mut self,
+        ty: &Ty,
+        span: Span,
+        out: &mut Vec<(String, Ty, Span, Option<String>)>,
+    ) {
         match ty {
             Ty::Qualified { quals, base } => {
                 for q in quals {
+                    // [cmp-carry] A qualifier's type arguments come first, its
+                    // slots after, so the slot index is the argument's position
+                    // less the declared type arity.
+                    let arity = self.qual_decl(&q.name).map_or(0, |d| d.generics.len());
                     for (i, arg) in q.args.iter().enumerate() {
                         let Ty::FnName(FnId::Binder(name)) = arg else {
                             continue;
                         };
-                        if out.iter().any(|(n, _, _)| n == name) {
+                        if out.iter().any(|(n, _, _, _)| n == name) {
                             continue;
                         }
-                        let Some(want) = self.qual_slot_ty(&q.name, i, base) else {
+                        let at = i.saturating_sub(arity);
+                        let Some(want) = self.qual_slot_ty(&q.name, at, base) else {
                             continue;
                         };
-                        out.push((name.clone(), want, span));
+                        let slot = self.qual_fn_slots(&q.name).get(at).map(|s| s.name.clone());
+                        out.push((name.clone(), want, span, slot));
                     }
                 }
                 self.collect_binder_slots(base, span, out);
@@ -13430,13 +13491,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let arity = args.len().saturating_sub(slots.len());
                 for (i, arg) in args.iter().enumerate() {
                     if let Ty::FnName(FnId::Binder(binder)) = arg {
-                        if out.iter().any(|(n, _, _)| n == binder) {
+                        if out.iter().any(|(n, _, _, _)| n == binder) {
                             continue;
                         }
+                        let at = i.saturating_sub(arity);
                         if let Some(want) =
-                            self.type_slot_ty(name, &args[..arity.min(args.len())], i - arity)
+                            self.type_slot_ty(name, &args[..arity.min(args.len())], at)
                         {
-                            out.push((binder.clone(), want, span));
+                            let slot = self.type_fn_slots(name).get(at).map(|s| s.name.clone());
+                            out.push((binder.clone(), want, span, slot));
                         }
                         continue;
                     }
@@ -13464,34 +13527,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [cmp-carry] The fn type a **qualifier's** slot demands, over the types
-    /// the qualified value is made of: `Heap<T, ?cmp: (T, T) -> Int> of
-    /// List<T>` applied to a `List<Person>` wants `(Person, Person) -> Int`.
-    /// The qualifier's own type parameters come from its `of` type matched
-    /// against the value — which is the same reading `Ok Str` implies
-    /// `Ok<Str>` by.
+    /// [cmp-carry] The fn type a **qualifier's** slot demands, over the types the
+    /// qualified value is made of: `Heap<T, ?cmp: (T, T) -> Int> of List<T>`
+    /// applied to a `List<Person>` wants `(Person, Person) -> Int`. The
+    /// qualifier's own type parameters come from its `of` type matched against
+    /// the value, which is the same reading `Ok Str` implies `Ok<Str>` by.
     fn qual_slot_ty(&mut self, qual: &str, index: usize, base: &Ty) -> Option<Ty> {
         let decl = self.qual_decl(qual)?;
-        let slot = decl.fn_slots.get(index)?;
-        let saved = self.enter_generics(&decl.generics);
+        let slots = self.qual_fn_slots(qual);
+        let want = slots.get(index)?.ty.clone();
+        let generic_names = decl.generics.clone();
+        let saved = self.enter_generics(&generic_names);
         let of = self.lower_type(&decl.of);
-        let want = self.lower_type(&slot.ty);
         self.generics = saved;
         let mut subst: HashMap<String, Ty> = HashMap::new();
         unify(&of, base, &mut subst);
-        let generics: HashSet<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
+        let generics: HashSet<String> = generic_names.iter().map(|g| g.name.clone()).collect();
         Some(substitute_vars(&want, &subst, &generics))
     }
 
-    /// [cmp-carry] The fn type an `intrinsic type`'s slot demands, over the
-    /// type arguments written beside it: `SortedSet<Str, ?cmp>` wants
+    /// [cmp-carry] The fn type an `intrinsic type`'s slot demands, over the type
+    /// arguments written beside it: `SortedSet<Str, ?cmp>` wants
     /// `(Str, Str) -> Int`.
     fn type_slot_ty(&mut self, name: &str, type_args: &[Ty], index: usize) -> Option<Ty> {
         let decl = self.scope.opaque_types.get(name).copied()?;
-        let slot = decl.fn_slots.get(index)?;
-        let saved = self.enter_generics(&decl.generics);
-        let want = self.lower_type(&slot.ty);
-        self.generics = saved;
+        let slots = self.type_fn_slots(name);
+        let want = slots.get(index)?.ty.clone();
         let subst: HashMap<String, Ty> = decl
             .generics
             .iter()
@@ -13511,77 +13572,246 @@ impl<'p, 'r> Checker<'p, 'r> {
             .copied()
     }
 
-    /// [cmp-carry] Validates a declaration's **fn slots**: the types written
-    /// in each slot resolve, two slots of one name are refused (with no
-    /// binder, nothing would tell them apart — [implicit-group]'s rule, for
-    /// the same reason), and a `= default` names a fn that exists.
+    /// [cmp-carry] Validates a declaration's **slot list**: every written slot's
+    /// type resolves, a group spread names a visible `params` group, two slots of
+    /// one name at one type are merged (so only a clash at two *types* is
+    /// reported), and a `= default` names a fn that exists.
     ///
-    /// What is *not* checked here is whether the default fits the slot: the
-    /// slot is written over the declaration's own type parameters
-    /// (`(T, T) -> Int`), and `cmp` fits it only once `T` is something. That
-    /// check belongs to the instantiation, which is also where its error is
-    /// worth reading.
-    fn check_fn_slots(&mut self, owner: &str, slots: &'p [ast::FnSlot]) {
-        for (i, slot) in slots.iter().enumerate() {
-            self.validate_type(&slot.ty);
-            if slots[..i].iter().any(|s| s.name.name == slot.name.name) {
-                self.error(
-                    slot.span,
-                    format!(
-                        "`{}` declares the function slot `?{}` twice: with no binder \
-                         nothing tells two slots of one name apart",
-                        owner, slot.name.name
-                    ),
-                );
+    /// What is *not* checked here is whether a default fits its slot: the slot is
+    /// written over the declaration's own type parameters (`(T, T) -> Int`), and
+    /// `cmp` fits it only once `T` is something. That check belongs to the
+    /// instantiation, which is also where its error is worth reading.
+    fn check_fn_slots(
+        &mut self,
+        owner: &str,
+        slots: &'p [ast::SlotDecl],
+        generics: &[ast::Ident],
+    ) {
+        for entry in slots {
+            match entry {
+                ast::SlotDecl::One(slot) => {
+                    self.validate_type(&slot.ty);
+                    let Some(default) = &slot.default else { continue };
+                    let name = default.name.name.as_str();
+                    let ok = match &default.at {
+                        Some(at) => self.fn_exists_at(name, &at.name),
+                        None => self.has_callable(name),
+                    };
+                    if !ok {
+                        let shown = match &default.at {
+                            Some(at) => format!("{name}@{}", at.name),
+                            None => name.to_string(),
+                        };
+                        self.error(
+                            slot.span,
+                            format!(
+                                "the default for `?{}` names no visible function `{shown}`",
+                                slot.name.name
+                            ),
+                        );
+                    }
+                }
+                // [cmp-carry] A group spread in a slot list is the same
+                // declaration-side shorthand it is in a parameter list, so it
+                // gets the same diagnostic when the group is not there.
+                ast::SlotDecl::Group(spread) => {
+                    self.record_def_ref(spread.name.span, &spread.name.name);
+                    let Some(group) = self
+                        .scope
+                        .param_groups
+                        .get(spread.name.name.as_str())
+                        .copied()
+                    else {
+                        let name = spread.name.name.clone();
+                        self.error_unresolved(
+                            spread.span,
+                            format!(
+                                "no `params` group named `{name}` is in scope: `?{name}` \
+                                 spreads a group's members as function slots"
+                            ),
+                            &name,
+                        );
+                        continue;
+                    };
+                    for a in &spread.args {
+                        self.validate_type(a);
+                    }
+                    if spread.args.len() != group.generics.len() {
+                        self.error(
+                            spread.span,
+                            format!(
+                                "`{}` takes {} type argument(s), found {}",
+                                group.name.name,
+                                group.generics.len(),
+                                spread.args.len()
+                            ),
+                        );
+                    }
+                }
             }
-            let Some(default) = &slot.default else { continue };
-            let name = default.name.name.as_str();
-            let ok = match &default.at {
-                Some(at) => self.fn_exists_at(name, &at.name),
-                None => self.has_callable(name),
-            };
-            if !ok {
-                let shown = match &default.at {
-                    Some(at) => format!("{name}@{}", at.name),
-                    None => name.to_string(),
-                };
-                self.error(
-                    slot.span,
-                    format!(
-                        "the default for `?{}` names no visible function `{shown}`",
-                        slot.name.name
-                    ),
-                );
+        }
+        // The clash a merge cannot resolve: one name, two types.
+        self.slot_clashes(owner, slots, generics);
+    }
+
+    /// [cmp-carry] Reports a slot name declared twice at two different types —
+    /// the one overlap a merge cannot absorb [implicit-group].
+    fn slot_clashes(
+        &mut self,
+        owner: &str,
+        slots: &'p [ast::SlotDecl],
+        generics: &[ast::Ident],
+    ) {
+        let expanded = self.expand_slots(slots, generics);
+        let mut seen: Vec<(String, Ty)> = Vec::new();
+        for slot in expanded {
+            match seen.iter().find(|(n, _)| *n == slot.name) {
+                Some((_, ty)) if *ty == slot.ty => {}
+                Some((_, ty)) => {
+                    let (first, second) = (ty.clone(), slot.ty.clone());
+                    self.error(
+                        self.slot_span(slots, &slot.name),
+                        format!(
+                            "`{owner}` declares the function slot `?{}` twice, at two \
+                             different types (`{first}` and `{second}`): with no binder \
+                             nothing tells two slots of one name apart",
+                            slot.name
+                        ),
+                    );
+                }
+                None => seen.push((slot.name.clone(), slot.ty)),
             }
         }
     }
 
-    /// [cmp-carry] The fn slots a qualifier declares, if it is visible and
-    /// declares any.
-    fn qual_fn_slots(&self, name: &str) -> Vec<FnSlotInfo> {
-        self.scope
-            .qualifiers
-            .get(name)
-            .and_then(|decls| decls.first())
-            .map(|d| slot_infos(&d.fn_slots))
+    /// Where to report something about a named slot: its own entry if it was
+    /// written out, else the spread that contributed it.
+    fn slot_span(&self, slots: &'p [ast::SlotDecl], name: &str) -> Span {
+        for entry in slots {
+            match entry {
+                ast::SlotDecl::One(s) if s.name.name == name => return s.span,
+                ast::SlotDecl::Group(g) => return g.span,
+                _ => {}
+            }
+        }
+        slots
+            .first()
+            .map(|e| match e {
+                ast::SlotDecl::One(s) => s.span,
+                ast::SlotDecl::Group(g) => g.span,
+            })
             .unwrap_or_default()
     }
 
-    /// [cmp-carry] The fn slots an `intrinsic type` declares.
-    fn type_fn_slots(&self, name: &str) -> Vec<FnSlotInfo> {
-        self.scope
-            .opaque_types
-            .get(name)
-            .map(|d| slot_infos(&d.fn_slots))
-            .unwrap_or_default()
+    /// [cmp-carry] The slot list a qualifier declares, expanded: written slots as
+    /// themselves, a group spread as one slot per member.
+    fn qual_fn_slots(&mut self, name: &str) -> Vec<FnSlotInfo> {
+        let Some(decl) = self.qual_decl(name) else {
+            return Vec::new();
+        };
+        if decl.fn_slots.is_empty() {
+            return Vec::new();
+        }
+        let generics = decl.generics.clone();
+        let slots = &decl.fn_slots;
+        self.expand_slots(slots, &generics)
     }
 
-    /// [cmp-carry] Lowers a written argument list against a declaration's fn
-    /// slots. `type_arity` is how many leading arguments are ordinary *types*
-    /// — `None` for a qualifier, all of whose written arguments are
-    /// identities. Slots nobody wrote take their declared default; a slot
-    /// with no default and nothing written carries nothing, which is the bare
-    /// `Heap` a body that never needs the identity may use.
+    /// [cmp-carry] The same for an `intrinsic type`.
+    fn type_fn_slots(&mut self, name: &str) -> Vec<FnSlotInfo> {
+        let Some(decl) = self.scope.opaque_types.get(name).copied() else {
+            return Vec::new();
+        };
+        if decl.fn_slots.is_empty() {
+            return Vec::new();
+        }
+        let generics = decl.generics.clone();
+        self.expand_slots(&decl.fn_slots, &generics)
+    }
+
+    /// [cmp-carry] Expands a declaration's slot list under its own type
+    /// parameters. A group spread contributes its members in declaration order,
+    /// taking the positions where the spread is written, and two entries asking
+    /// for the same position at the same type are **merged** — exactly as two
+    /// implicit spreads are [implicit-group].
+    fn expand_slots(
+        &mut self,
+        slots: &'p [ast::SlotDecl],
+        generics: &[ast::Ident],
+    ) -> Vec<FnSlotInfo> {
+        let saved = self.enter_generics(generics);
+        let mut out: Vec<FnSlotInfo> = Vec::new();
+        for entry in slots {
+            match entry {
+                ast::SlotDecl::One(slot) => {
+                    let ty = self.lower_type(&slot.ty);
+                    let info = FnSlotInfo {
+                        name: slot.name.name.clone(),
+                        ty,
+                        default: slot.default.as_ref().map(|d| FnId::Named {
+                            name: d.name.name.clone(),
+                            at: d.at.as_ref().map(|a| a.name.clone()),
+                        }),
+                    };
+                    push_slot(&mut out, info);
+                }
+                ast::SlotDecl::Group(spread) => {
+                    let Some(group) = self
+                        .scope
+                        .param_groups
+                        .get(spread.name.name.as_str())
+                        .copied()
+                    else {
+                        continue;
+                    };
+                    let args: Vec<Ty> = spread.args.iter().map(|a| self.lower_type(a)).collect();
+                    if args.len() != group.generics.len() {
+                        continue;
+                    }
+                    let subst: HashMap<String, Ty> = group
+                        .generics
+                        .iter()
+                        .map(|g| g.name.clone())
+                        .zip(args)
+                        .collect();
+                    let bound: HashSet<String> =
+                        group.generics.iter().map(|g| g.name.clone()).collect();
+                    for member in &group.fns {
+                        let inner = self.enter_generics(&group.generics);
+                        let ty = self.member_fn_ty(member);
+                        self.generics = inner;
+                        push_slot(
+                            &mut out,
+                            FnSlotInfo {
+                                name: member.name.name.clone(),
+                                ty: substitute_vars(&ty, &subst, &bound),
+                                default: None,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        self.generics = saved;
+        out
+    }
+
+
+    /// [cmp-carry] Lowers a written argument list against a declaration's slot
+    /// list. `type_arity` is how many leading arguments are ordinary *types*.
+    ///
+    /// Two ways to fill a slot, and the spelling says which: an **identity**
+    /// (`cmp@Person`) fills the next slot positionally, while a **binder**
+    /// (`?cmp`, `?cmp: cmp2`) names its slot — `?` on the left is the slot's own
+    /// name, and an alias on the right is what the binder is called here
+    /// [cmp-binder]. Naming the slot is what makes a partial list readable:
+    /// `Heap<T, ?eq>` constrains the `eq` slot and says nothing about `cmp`.
+    ///
+    /// A slot nobody wrote takes its declared default, or stays **unconstrained**
+    /// — `Ty::Unknown`, which is compatible in both directions
+    /// [type-unknown-lenient] and is exactly what "this signature does not care
+    /// which" means. That is what makes a written slot list a *pattern* rather
+    /// than an exact type, and today's bare `Heap` the empty case of one rule.
     fn lower_identity_args(
         &mut self,
         written: &[ast::Type],
@@ -13591,42 +13821,92 @@ impl<'p, 'r> Checker<'p, 'r> {
         depth: usize,
     ) -> Vec<Ty> {
         let type_arity = type_arity.unwrap_or(0);
-        let mut out: Vec<Ty> = Vec::new();
-        let mut filled = 0usize;
+        let mut types: Vec<Ty> = Vec::new();
+        let mut filled: Vec<Option<Ty>> = vec![None; slots.len()];
+        let mut next_positional = 0usize;
         for (i, arg) in written.iter().enumerate() {
             if i < type_arity {
-                out.push(self.lower_type_subst(arg, subst, depth));
+                types.push(self.lower_type_subst(arg, subst, depth));
                 continue;
             }
-            if filled >= slots.len() {
-                let names: Vec<String> =
-                    slots.iter().map(|s| format!("`?{}`", s.name)).collect();
+            // Which slot this argument is for.
+            let named = match arg {
+                ast::Type::Named { base, .. } if base.binder => {
+                    match slots.iter().position(|s| s.name == base.name.name) {
+                        Some(at) => Some(at),
+                        None => {
+                            let known: Vec<String> =
+                                slots.iter().map(|s| format!("`?{}`", s.name)).collect();
+                            self.error(
+                                arg.span(),
+                                format!(
+                                    "`?{}` names no function slot here{}",
+                                    base.name.name,
+                                    if known.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(" (it has {})", known.join(", "))
+                                    }
+                                ),
+                            );
+                            continue;
+                        }
+                    }
+                }
+                _ => {
+                    let at = next_positional;
+                    next_positional += 1;
+                    if at >= slots.len() {
+                        let names: Vec<String> =
+                            slots.iter().map(|s| format!("`?{}`", s.name)).collect();
+                        self.error(
+                            arg.span(),
+                            format!(
+                                "too many arguments: this declaration has {} function \
+                                 slot(s){}",
+                                slots.len(),
+                                if names.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" ({})", names.join(", "))
+                                }
+                            ),
+                        );
+                        continue;
+                    }
+                    Some(at)
+                }
+            };
+            let Some(at) = named else { continue };
+            if filled[at].is_some() {
                 self.error(
                     arg.span(),
-                    format!(
-                        "too many arguments: this declaration has {} function slot(s){}",
-                        slots.len(),
-                        if names.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" ({})", names.join(", "))
-                        }
-                    ),
+                    format!("the function slot `?{}` is filled twice", slots[at].name),
                 );
-                break;
+                continue;
             }
-            match self.written_fn_id(arg) {
-                Some(id) => out.push(Ty::FnName(id)),
-                None => out.push(Ty::Unknown),
-            }
-            filled += 1;
+            filled[at] = Some(match self.written_fn_id(arg) {
+                Some(id) => Ty::FnName(id),
+                None => Ty::Unknown,
+            });
         }
-        // The slots nobody wrote: their defaults, while there are defaults.
-        for slot in slots.iter().skip(filled) {
-            match &slot.default {
-                Some(id) => out.push(Ty::FnName(id.clone())),
-                None => break,
-            }
+        // A qualifier's type arguments are "rarely written explicitly" (`Ok Str`
+        // implies `Ok<Str>`), so an unwritten one is unconstrained too — and
+        // padding them keeps every mention of the qualifier the same arity,
+        // which is what lets a bare `Heap` and a `Heap<Person, cmp@Person>`
+        // compare at all.
+        let mut out = types;
+        while out.len() < type_arity {
+            out.push(Ty::Unknown);
+        }
+        for (at, slot) in slots.iter().enumerate() {
+            out.push(match filled[at].take() {
+                Some(ty) => ty,
+                None => match &slot.default {
+                    Some(id) => Ty::FnName(id.clone()),
+                    None => Ty::Unknown,
+                },
+            });
         }
         out
     }
@@ -13659,7 +13939,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let name = base.name.name.clone();
         if base.binder {
-            return Some(FnId::Binder(name));
+            // [cmp-binder] The binder's name in this signature: its alias when
+            // one is written, else the slot's own name.
+            return Some(FnId::Binder(
+                base.alias.as_ref().map(|a| a.name.clone()).unwrap_or(name),
+            ));
         }
         if let Some(at) = &base.at {
             let at_name = at.name.clone();
@@ -20583,28 +20867,36 @@ fn tys_match_renamed(
     }
 }
 
-/// [cmp-carry] One **fn slot** as the *lowering* reads it: the name a
-/// signature's binder shares with it, and the identity a use site that writes
-/// none gets. The fn type the slot demands is read from the declaration
-/// itself, where the type parameters it is written over are in scope
-/// (`qual_slot_ty`, `type_slot_ty`).
+/// [cmp-carry] One **fn slot**, expanded: the name a signature's binder shares
+/// with it, the fn type an identity must fit (over the *declaration's* own type
+/// parameters), and the identity a use site that writes none gets.
+///
+/// A group spread in a slot list contributes one of these per member
+/// (`?Ordered<T>` → `cmp`), which is why the list is built by the checker rather
+/// than read off the AST: a group's members are only visible here.
 #[derive(Clone, Debug)]
 struct FnSlotInfo {
     name: String,
+    ty: Ty,
     default: Option<FnId>,
 }
 
-fn slot_infos(slots: &[ast::FnSlot]) -> Vec<FnSlotInfo> {
-    slots
-        .iter()
-        .map(|s| FnSlotInfo {
-            name: s.name.name.clone(),
-            default: s.default.as_ref().map(|d| FnId::Named {
-                name: d.name.name.clone(),
-                at: d.at.as_ref().map(|a| a.name.clone()),
-            }),
-        })
-        .collect()
+/// [cmp-carry] [implicit-group] Adds a slot to an expanded list, **merging** an
+/// entry that asks for the same position at the same type: two groups naming one
+/// member name it once, exactly as two implicit spreads do. A merged slot keeps
+/// the first default written for it.
+fn push_slot(out: &mut Vec<FnSlotInfo>, slot: FnSlotInfo) {
+    match out.iter_mut().find(|s| s.name == slot.name) {
+        Some(kept) if kept.ty == slot.ty => {
+            if kept.default.is_none() {
+                kept.default = slot.default;
+            }
+        }
+        // A clash at two *types* is reported by `slot_clashes`; keeping both here
+        // would make the positions disagree with what the diagnostic said.
+        Some(_) => {}
+        None => out.push(slot),
+    }
 }
 
 fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {

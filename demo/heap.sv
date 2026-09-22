@@ -18,7 +18,7 @@ export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
 // Returns an empty List which trivially supports the heap property. The
 // ordering arrives as an ordinary implicit parameter, and the return type
 // publishes the one resolution chose [cmp-binder].
-export fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp> {
+export fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<T, ?cmp> {
     return mut_list_of()
 }
 
@@ -28,7 +28,7 @@ export fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp> {
 // because keeping a user qualifier across a `Mut` parameter needs ROADMAP's D2
 // (`=> heap: Heap<?cmp> Mut` fails body validation today: `add`'s own clause
 // strips the claim, and nothing brings it back).
-export fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<?cmp>
+export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<T, ?cmp>
     => !heap, !elem {
     add(heap, elem)
     // The index where the value currently is
@@ -55,7 +55,7 @@ export fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) -> Mut List<T> as 
 }
 
 // Pops the smallest element in the heap, preserving the heap property.
-export fn heap_pop<T>(heap: Heap<?cmp> Mut List<T>) -> T? {
+export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
     if !(heap is NonEmpty) {
         return None
     }
@@ -67,7 +67,7 @@ export fn heap_pop<T>(heap: Heap<?cmp> Mut List<T>) -> T? {
 // A deduction entry names qualifiers, not their arguments: keeping `Heap` keeps
 // the ordering too, since the identity lives in the type and this fn could not
 // have changed it [cmp-binder].
-export fn heap_pop<T>(heap: NonEmpty Heap<?cmp> Mut List<T>) -> T => heap: Heap Mut {
+export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T => heap: Heap Mut {
     if heap.size() == 1 {
         return remove_first@core.list(heap)!
     }

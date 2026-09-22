@@ -2859,9 +2859,13 @@ Conventions:
   what one call site resolved is published by the type it produced.
   * The declaration writes a **fn slot** in its generics list —
     `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`,
-  `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>` — spelled like the
+    `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>` — spelled like the
     implicit parameter it is resolved as [implicit-param], with an optional
-    `= name` default.
+    `= name` default. A **`params` group spreads into a slot list** exactly as it
+    does into a parameter list (user decision 2026-09-22):
+    `qualifier Heap<T, ?Ordered<T>> of List<T>` declares one slot per member, at
+    the position the spread is written, and two entries asking for the same
+    position at the same type merge [implicit-group].
   * A use site fills the slot with an **identity**: a bare name
     (`Heap<min_by_age>`), an `@`-scoped canonical (`Heap<cmp@Person>`
     [cmp-canonical]) or the signature's **binder** (`Heap<?cmp>`, below).
@@ -2884,18 +2888,20 @@ Conventions:
     else. On a *fn* the binder binds bare in the signature instead (below), so
     a `?name:` in a fn's generics list is an error naming the two places it
     belongs: the parameter list, and the types the binder is written in.
-  * **A qualifier's arguments are identities, not types.** A qualifier's type
-    arguments come from the type it qualifies (`Ok Str` implies `Ok<Str>`), so
-    `Heap<cmp@Person>` needs no reading-order rule and one heap's arguments
-    always read the same way. A slot's type is therefore instantiated by
-    matching the qualifier's `of` type against the value: `Heap<T, ?cmp: (T, T)
-    -> Int> of List<T>` on a `List<Person>` wants `(Person, Person) -> Int`. A
-    keyed *type* keeps the ordinary positional reading, its slots trailing its
-    type parameters (`SortedSet<Str, my_cmp>`).
-  * **A bare `Heap` accepts any identity.** An expected qualifier that writes
-    no arguments is matched by name, so a body that never needs the ordering
-    takes `Heap Mut List<T>` and a `Heap<f>` value fits it. `Heap<f>` as a
-    *parameter* demands exactly `f`.
+  * **Type arguments first, slots after** — one positional reading for a
+    qualifier and a keyed type alike (user decision 2026-09-22):
+    `Heap<Person, cmp@Person> Mut List<Person>`, `SortedSet<Str, my_cmp>`. A
+    slot's type is instantiated by matching the qualifier's `of` type against the
+    value, so `Heap<T, ?cmp: (T, T) -> Int> of List<T>` on a `List<Person>` wants
+    `(Person, Person) -> Int`. An argument nobody wrote — a type argument or a
+    slot — is **unconstrained**, which is what keeps every mention of one
+    qualifier the same arity.
+  * **A written slot list is a pattern, not an exact type.** A slot a signature
+    does not mention is not constrained and the value keeps carrying it, so
+    `Heap Mut List<T>` (nothing written) accepts any ordering and
+    `Heap<T, ?eq> …` constrains the `eq` slot while saying nothing about `cmp`.
+    `Heap<Person, f>` as a *parameter* demands exactly `f`. That makes the bare
+    form the empty case of one rule rather than a special case of its own.
   * **A bare name is resolved where the type is used**, like any implicit
     [implicit-resolve]: `Heap<min_by_age>` names "the `min_by_age` visible
     here", which is what lets a slot have a default (`= cmp`) that means the
@@ -2929,6 +2935,18 @@ Conventions:
     `cmp = cmp@Person` do; a lambda does not, and passing one where the
     signature carries the binder is an error rather than a silently dropped
     claim.
+  * **A binder names its slot, and may be aliased.** `?cmp` fills the slot
+    `cmp` under that name; `?cmp: cmp2` fills it under the name `cmp2` — the
+    destructuring spelling (`field: variable_name`), for the same reason: the
+    left names the thing, the right names it here. Naming the slot is what lets a
+    signature mention some slots and not others.
+  * **An alias remembers its slot** (user decision 2026-09-22), so two
+    candidates for one capability are an **ambiguity for the operator** whatever
+    they are called: a signature holding two heaps ordered differently has two
+    `cmp`s in scope, `a < b` there is refused naming both, and the body calls the
+    one it means. Aliasing is how two orderings get into one scope, not how the
+    choice between them is dodged — the operator asks what a parameter *is*, not
+    what it is called.
   * Justification recorded with the decision: the bare binder is *an indirect
     way of declaring a fn in the parameter scope*, so it does not belong in the
     generics list — with the reservation that the generics-list spelling could

@@ -2805,7 +2805,7 @@ fn by_name(a: Person, b: Person) [] -> Int => a, b {
 
 // [cmp-binder] Here the binder is an implicit parameter the fn declares, so
 // resolution fills it and the result type publishes what it chose.
-fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<?cmp> {
+fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<T, ?cmp> {
     return mut_list_of()
 }
 
@@ -2813,14 +2813,14 @@ fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<?cmp> {
 // written but `?cmp`, and the slot it fills states its type. The claim is
 // re-minted on the way out, which is what a constructor fn may do today —
 // keeping it across a `Mut` parameter is ROADMAP's D2.
-fn rank_add<T>(r: Ranked<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Ranked<?cmp> => !r, !elem {
+fn rank_add<T>(r: Ranked<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Ranked<T, ?cmp> => !r, !elem {
     add(r, elem)
     return r
 }
 
 // One body, two answers: it compares with whatever ordering its argument was
 // built with.
-fn least_index<T>(r: Ranked<?cmp> List<T>) -> Int => r {
+fn least_index<T>(r: Ranked<T, ?cmp> List<T>) -> Int => r {
     let best = 0
     let i = 1
     while i < size(r) {

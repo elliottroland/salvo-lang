@@ -260,7 +260,7 @@ In brief:
 2. ✅ **`Hashed<T>` gains `eq`** — **landed 2026-09-22** (a hash container buckets by `hash` and confirms
    by `eq`, so the pair is the unit); overlapping spreads **merge** to one
    position; a spread resolves **every** member, used or not.
-3. **Group spreads in a slot list** (`qualifier Heap<T, ?Ordered<T>>`), slots
+3. ✅ **Group spreads in a slot list** — **landed 2026-09-22** (`qualifier Heap<T, ?Ordered<T>>`), slots
    optional at a use site, aliasing with the destructuring syntax
    (`Heap<T, ?cmp: cmp2>`), and an alias that **remembers its slot** so two
    in-scope candidates for one capability are refused whatever they are called.

@@ -168,7 +168,7 @@ work is. Each step is one commit.
    every member** — **landed 2026-09-22**. Decisions 16, 18, 19. The merge is in `collect_implicits`' duplicate
    check; the group change is `std/core/compare.sv` plus whatever asked for
    `?Hashed<T>` and relied on getting only `hash`.
-3. **Group spreads in slot lists, aliasing, and the ambiguity refusal.**
+3. ✅ **Group spreads in slot lists, aliasing, and the ambiguity refusal** — **landed 2026-09-22**.
    Decisions 21 and the alias half of the operator rule: `?Group<T>` in a
    qualifier's or type's generics list, `?slot: alias` at a use site, alias
    provenance recorded so the operator resolution can refuse two candidates for

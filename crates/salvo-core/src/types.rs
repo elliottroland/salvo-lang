@@ -662,7 +662,12 @@ fn qual_present(have: &[Qual], want: &Qual) -> bool {
     have.iter().any(|q| {
         q.name == want.name
             && q.effect == want.effect
-            && (want.args.is_empty() || q.args == want.args)
+            && (want.args.is_empty()
+                || (q.args.len() == want.args.len()
+                    && q.args
+                        .iter()
+                        .zip(&want.args)
+                        .all(|(x, w)| compatible(x, w))))
     })
 }
 

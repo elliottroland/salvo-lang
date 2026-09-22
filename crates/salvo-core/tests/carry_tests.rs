@@ -47,11 +47,19 @@ export fn by_name(a: Person, b: Person) [] -> Int => a, b {
 
 export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>
 
-export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<?cmp> {
+// [cmp-carry] The same thing through a **group spread**: one slot per member of
+// the group, which is what `?Ordered<T>` means in a slot list.
+export qualifier Ranked<T, ?Ordered<T>> of List<T>
+
+export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Ranked<T, ?cmp> {
     return mut_list_of()
 }
 
-export fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) [] -> Mut List<T> as Heap<?cmp> => !heap, !elem {
+export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<T, ?cmp> {
+    return mut_list_of()
+}
+
+export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> Mut List<T> as Heap<T, ?cmp> => !heap, !elem {
     add(heap, elem)
     return heap
 }
@@ -165,7 +173,7 @@ import heap.Heap
 import heap.by_name
 import heap.empty_heap
 
-fn wants_canonical(h: Heap<cmp@Person> Mut List<Person>) [] -> Int => h {
+fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
     return 0
 }
 
@@ -176,7 +184,7 @@ fn run() [] -> Int {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("Heap<by_name>")),
+        errs.iter().any(|e| e.contains("Heap<Person, by_name>")),
         "expected the carried ordering named: {errs:?}"
     );
     // And the other way round, where an annotation shows both sides.
@@ -188,14 +196,15 @@ import heap.by_name
 import heap.empty_heap
 
 fn run() [] -> Int {
-    let h: Heap<cmp@Person> Mut List<Person> = empty_heap<Person>(cmp = by_name)
+    let h: Heap<Person, cmp@Person> Mut List<Person> = empty_heap<Person>(cmp = by_name)
     return 0
 }
 "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("Heap<cmp@Person>") && e.contains("Heap<by_name>")),
+            .any(|e| e.contains("Heap<Person, cmp@Person>")
+                && e.contains("Heap<Person, by_name>")),
         "expected both identities named: {errs:?}"
     );
 }
@@ -211,7 +220,7 @@ import heap.Heap
 import heap.by_name
 import heap.empty_heap
 
-fn merge<T>(a: Heap<?cmp> Mut List<T>, b: Heap<?cmp> Mut List<T>) [] -> Int => a, b {
+fn merge<T>(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>) [] -> Int => a, b {
     return cmp(a.size(), b.size())
 }
 
@@ -235,7 +244,7 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn merge<T>(a: Heap<?cmp> Mut List<T>, b: Heap<?cmp> Mut List<T>) [] -> Int => a, b {
+fn merge<T>(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>) [] -> Int => a, b {
     return cmp(a.size(), b.size())
 }
 
@@ -260,7 +269,7 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn least<T>(heap: Heap<?cmp> Mut List<T>, a: T, b: T) [] -> Int => heap, a, b {
+fn least<T>(heap: Heap<T, ?cmp> Mut List<T>, a: T, b: T) [] -> Int => heap, a, b {
     return cmp(a, b)
 }
 
@@ -286,11 +295,11 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn only_canonical(r: Heap<cmp@Person> Mut List<Person>) [] -> Int => r {
+fn only_canonical(r: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => r {
     return 0
 }
 
-fn touch<T>(r: Heap<?cmp> Mut List<T>) [] -> Int => r: Heap Mut {
+fn touch<T>(r: Heap<T, ?cmp> Mut List<T>) [] -> Int => r: Heap Mut {
     return size(r)
 }
 
@@ -302,6 +311,107 @@ fn run() [] -> Int {
 "#,
     );
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-carry] A `params` group spread into a **slot list** declares one slot
+/// per member (user decision 2026-09-22), so `Ranked<T, ?Ordered<T>>` is the
+/// `Heap` declaration written the short way — and a use site fills it by naming
+/// the member's slot.
+#[test]
+fn a_group_spreads_into_a_slot_list() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Ranked
+import heap.empty_ranked
+
+fn least<T>(r: Ranked<T, ?cmp> List<T>, a: T, b: T) [] -> Int => r, a, b {
+    return cmp(a, b)
+}
+
+fn run() [] -> Int {
+    let r = empty_ranked<Person>()
+    return least(r, Person {name: "a", age: 1}, Person {name: "b", age: 2})
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-binder] A slot a signature does not mention is **not constrained** — the
+/// value keeps carrying it — which is what makes a written slot list a pattern
+/// rather than an exact type, and a bare `Heap` the empty case of one rule.
+#[test]
+fn an_unmentioned_slot_is_unconstrained() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+import heap.by_name
+import heap.empty_heap
+
+fn size_only<T>(h: Heap Mut List<T>) [] -> Int => h {
+    return size(h)
+}
+
+fn run() [] -> Int {
+    let a = empty_heap<Person>()
+    let b = empty_heap<Person>(cmp = by_name)
+    return size_only(a) + size_only(b)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-binder] Two heaps in one signature need two names, and the **alias**
+/// gives the second one: `?cmp: cmp2` fills the `cmp` slot under the name
+/// `cmp2`.
+#[test]
+fn a_binder_may_be_aliased() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+import heap.by_name
+import heap.empty_heap
+
+fn compare_across<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T) [] -> Int => a, b, x, y {
+    // Each ordering is reachable by its own name.
+    return cmp(x, y) + cmp2(x, y)
+}
+
+fn run() [] -> Int {
+    let one = empty_heap<Person>()
+    let other = empty_heap<Person>(cmp = by_name)
+    return compare_across(one, other, Person {name: "a", age: 1}, Person {name: "b", age: 2})
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-binder] …and an alias does not make the *operator* unambiguous: two
+/// orderings in one scope are two candidates for `<` whatever they are called,
+/// so the body must name the one it means. Aliasing is how two orderings get
+/// into one scope, not how the choice between them is dodged.
+#[test]
+fn two_orderings_in_scope_refuse_the_operator() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+
+fn pick<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T) [] -> Bool => a, b, x, y {
+    return x < y
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("in scope") && e.contains("`cmp`") && e.contains("`cmp2`")),
+        "expected the operator to refuse: {errs:?}"
+    );
 }
 
 // ===== static identity =====
@@ -339,7 +449,7 @@ import heap.by_name
 
 fn run() [] -> Int {
     let mine = by_name
-    let h: Heap<mine> Mut List<Person> = mut_list_of()
+    let h: Heap<Person, mine> Mut List<Person> = mut_list_of()
     return 0
 }
 "#,
@@ -359,7 +469,7 @@ fn an_unknown_identity_is_reported() {
 import heap.Person
 import heap.Heap
 
-fn run(h: Heap<nowhere> Mut List<Person>) [] -> Int => h {
+fn run(h: Heap<Person, nowhere> Mut List<Person>) [] -> Int => h {
     return 0
 }
 "#,
@@ -379,7 +489,7 @@ fn a_selector_must_name_a_declaration() {
 import heap.Person
 import heap.Heap
 
-fn run(h: Heap<cmp@Nothing> Mut List<Person>) [] -> Int => h {
+fn run(h: Heap<Person, cmp@Nothing> Mut List<Person>) [] -> Int => h {
     return 0
 }
 "#,
