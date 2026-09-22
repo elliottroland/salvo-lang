@@ -268,14 +268,30 @@ In brief:
    types' slots with membership named per container ([col-membership],
    [col-keyed-slots]), the canonical default left unmaterialized so `Set<Str>` is
    unchanged, and a non-canonical identity refused with a message naming what it
-   waits for. **4b is the runtimes**: Rust's `SalvoSet`/`SalvoMap` keyed by the
-   slots' functions instead of the host's `Hash`/`Eq`, a sorted pair carrying its
-   comparator, Kotlin's hash container, and std's signatures gaining binders so a
-   fn can be generic over the identity. It also fixes an existing defect:
-   `binary_search` confirms its hit with the *host's* `==` on both backends,
-   which is neither `eq` nor `cmp == 0`. A **`fn` pointer** is the lowering to
-   use rather than ORDERING.md's markers — an identity is a named top-level fn,
-   so the pointer is Copy and Send and needs no hidden marker generic.
+   waits for. **4b is the runtimes**, and its lowering is settled (user decision
+   2026-09-22): keep ORDERING.md's **ZST markers**, but erase them at the
+   container's edge behind a `Box<dyn SortedStore<T>>` — so comparisons stay
+   direct and inlinable while `SalvoSortedSet<Person>` is one Rust type whatever
+   it is ordered by, and no emitted signature grows a marker parameter. A
+   `repr(transparent)` `OrdBy<C, T>` makes lookups clone-free through one
+   `unsafe` cast whose precondition the compiler enforces. **The Rust sorted pair
+   landed 2026-09-22** (runtime only — see COMPLETED.md). What is left:
+   - **wire the emitter to it**: generate a marker per bound identity, name it at
+     each construction site, and switch the sorted intrinsics off bare
+     `BTreeSet`/`BTreeMap`;
+   - **the hash pair**: `SalvoSet`/`SalvoMap` keyed by the slots' `hash`/`eq`
+     (through a `HashBy<H, E, T>` wrapper) instead of the host's `Hash`/`Eq`;
+   - **Kotlin**: the `TreeSet`/`TreeMap` comparator from the slot's identity, and
+     a runtime hash container, since `LinkedHashSet` keys off
+     `hashCode`/`equals` with no pluggable slot;
+   - **the checker**: lift the not-yet gate in `check_key_eligibility`, and let a
+     signature that omits a container's identity arguments accept a value that
+     carries them (`size(set: Set<T>)` over a `Set<Str, my_hash>`) — the same
+     pattern rule qualifiers already have;
+   - **`binary_search`'s confirm**, which on both backends is the *host's* `==`
+     today: neither `eq` nor `cmp == 0`, so a struct with no `eq` at all still
+     gets host equality. It becomes `cmp(x, e) == 0`, the only test consistent
+     with the `Sorted` claim its parameter demands.
 5. **`Sorted<?cmp>`**: the list claim carrying its ordering, with
    `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 
