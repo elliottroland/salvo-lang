@@ -236,63 +236,50 @@ out to cost more than it buys. (a) is the one to avoid: it makes the two sides o
 the compiler disagree about what a signature means, which is how the original
 defect happened.
 
-## Keyed containers parameterized by their ordering (**DECISION**, see ORDERING.md)
+## Ordering, equality and hashing — the last five steps (decided 2026-09-22, see ORDERING.md)
 
-The last piece of the ordering round. Everything else in it landed — the three
-capabilities as params groups, `@`-scoped canonicals, `default` obligations, the
-operators through the groups (2026-09-21), and **step 5's first four build
-items** (2026-09-22): identities in types, the written forms, the `?cmp` binder,
-and a worked example running on both backends. Their record is COMPLETED.md's
-decision log; the rules are [cmp-carry] and [cmp-binder] in LANGUAGE_SPEC.md and
-"A structure that holds an ordering" in LANGUAGE.md.
+What landed already: the three capabilities as params groups, `@`-scoped
+canonicals, `default` obligations, the operators through the groups
+(2026-09-21), and identities in types, the written forms, the `?cmp` binder and
+a worked example on both backends (2026-09-22). Their record is COMPLETED.md's
+decision log; the rules are [cmp-groups], [cmp-canonical], [cmp-default],
+[op-order], [op-equality], [cmp-carry] and [cmp-binder], plus "A structure that
+holds an ordering" in LANGUAGE.md.
 
-**What is left** is ORDERING.md's build item 5: giving `SortedSet`, `SortedMap`,
-`Set` and `Map` their own slots (`SortedSet<T, ?cmp: (T, T) -> Int = cmp>`,
-`Set<T, ?hash = hash, ?eq = eq>`). The *language* machinery exists and is tested;
-what this item is about is the two backends, because a container is where an
-identity stops being erasable:
+**The remainder is decided** (user decisions 15–22, 2026-09-22 — no DECISION is
+outstanding) and written up as a five-step sequence in **ORDERING.md**, which
+holds the reasoning, the rejected alternatives and the container lowering.
+In brief:
 
-- **Rust** needs the marker machinery ORDERING.md designs: a generated
-  zero-sized struct and trait impl per bound fn, a hidden marker generic on every
-  fn generic over a keyed container, and — at the one boundary where Rust demands
-  the ordering *in the element type*, since `BTreeSet`/`BTreeMap` take no
-  comparator — the `#[repr(transparent)] struct OrdBy<C, T>` wrapper whose `Ord`
-  delegates to `C::cmp`. **Invariant to keep**: the only real `Ord` impls are
-  derived ones, so a hand-written `cmp` never becomes a type's `Ord`.
-- **Kotlin** needs a runtime hash container with pluggable `hash`/`eq`
-  (`LinkedHashSet` keys off `hashCode`/`equals` with no slot for anything else);
-  the Rust side already has `SalvoSet`/`SalvoMap` [rs-collections]. `TreeSet`/
-  `TreeMap` already take a comparator, so the sorted half is the construction
-  site only.
+1. **`default` → `auto`, at the function level**: a bodiless `auto fn
+   cmp@Person(…)` is the structural implementation, `auto Group<self>` is sugar
+   for one per member, and the obligation clause goes back to being only a
+   promise. What it buys is *some* members generated beside others written by
+   hand — a custom `eq` over a structural `cmp`, which `default` could not
+   express.
+2. **`Hashed<T>` gains `eq`** (a hash container buckets by `hash` and confirms
+   by `eq`, so the pair is the unit); overlapping spreads **merge** to one
+   position; a spread resolves **every** member, used or not.
+3. **Group spreads in a slot list** (`qualifier Heap<T, ?Ordered<T>>`), slots
+   optional at a use site, aliasing with the destructuring syntax
+   (`Heap<T, ?cmp: cmp2>`), and an alias that **remembers its slot** so two
+   in-scope candidates for one capability are refused whatever they are called.
+4. **The keyed containers**: `SortedSet<T, ?Ordered<T>>`, `Set<T, ?Hashed<T>>`
+   and the two `Map`s, with **membership named per container** — `cmp(a, b) == 0`
+   for the sorted pair (which is what both hosts' BTree/TreeSet already do) and
+   `eq`-distinct for the hash pair. Then the Rust marker/`OrdBy` machinery and a
+   Kotlin runtime hash container. This step also fixes an existing defect:
+   `binary_search` confirms its hit with the *host's* `==` on both backends,
+   which is neither `eq` nor `cmp == 0` — and since equality became opt-in, a
+   struct with no `eq` still gets host equality there.
+5. **`Sorted<?cmp>`**: the list claim carrying its ordering, with
+   `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 
-**Two calls are the user's before this can be specified** (which is why the item
-is marked DECISION rather than scheduled):
-
-1. **Membership semantics for a keyed container**, to be written as definitions
-   rather than left implied. The proposal: a `SortedSet<T, f>` deduplicates by
-   `f` (two elements are the same member when `f(a, b) == 0`), and a
-   `Set<T, ?hash, ?eq>`'s members are `eq`-distinct. The consequence worth
-   stating out loud is that membership then *depends on the slot*: the same
-   values in `SortedSet<Person, cmp@Person>` (by age) and
-   `SortedSet<Person, by_name>` collapse differently, and a program that reads
-   one as the other is reading a different set. The alternative — membership
-   always by the key's canonical `eq`, with the slot affecting only *order* — is
-   simpler to explain and quietly wrong for any `cmp` coarser than equality
-   (`SortedSet<Person, by_age>` would keep two people of the same age, which is
-   not what a sorted set by age means).
-2. **Whether `Sorted List<T>` [col-sorted-list] is parameterized in the same
-   change** (`Sorted<?cmp>`), or stays canonical-only at first. Once orderings
-   are plural, `add_sorted` under a different `cmp` than the sort used silently
-   breaks the claim — so either the claim carries its ordering (one more slot,
-   and `sort`/`mut_sort`/`add_sorted`/`binary_search` all bind it), or the claim
-   keeps meaning "by the canonical `cmp`" and every one of those fns must refuse
-   a written `cmp` that is not it.
-
-Until this lands: a sorted collection orders by its key's **canonical** `cmp`,
-which std/core/sorted.sv and LANGUAGE.md both say where a reader meets it.
-
-ORDERING.md survives as this item's design document (its other four build items
-are struck out, with a pointer to COMPLETED.md); delete it when this lands.
+`Ordered<T>` deliberately does **not** carry an `eq`: neither host's sorted
+container consults equality, so the slot would be read by nothing — and keeping
+the two apart is what lets one program hold a `Set<Person>` by all fields beside
+a `SortedSet<Person, by_age>` by rank without either being a lie. The
+`cmp`/`eq`/`hash` contracts stay **trusted**, as [cmp-groups] already has them.
 
 A noted follow-on from the round, separately decided when raised: migrating
 qualifier bodies' `fn qualifies` to the same `@`-scoped shape
@@ -301,8 +288,8 @@ state.
 
 The heap demo's remaining plan (D2's motivating example, the `proj proj T?`
 defect, `swap`, `!is`, `+=`) is **HEAP_QUALIFIER.md**, with its own suggested
-sequence. `demo/heap.sv` is now written in the new syntax and reports exactly
-four errors: three missing `swap` (item 4) and one D2 body validation (item 2).
+sequence. `demo/heap.sv` is written in the new syntax and reports exactly four
+errors: three missing `swap` (item 4) and one D2 body validation (item 2).
 
 ## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
 
