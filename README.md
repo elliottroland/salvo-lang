@@ -111,11 +111,14 @@ fn main() [use] {
   with a literal — `[1, 2, 3]`, `{"a", "b"}`, `{"k": "v"}`, and `Mut` in
   front for a mutable one. `Set` and `Map` iterate in **insertion order on
   every backend**, so a program's output does not depend on the target it
-  was compiled for. Every struct compares with `==`; a struct becomes a key
-  by having a `hash` and an `eq` — `: default Hashed<self>` generates both, and
-  `: default Ordered<self>` a `cmp` that also gives it `<` — checked where it is
-  declared. Arrays stay for fixed-size data and the
-  variadic boundary.
+  was compiled for. Comparison is a **capability**, not a built-in: `a == b` is
+  `eq(a, b)` and `a < b` is `cmp(a, b) < 0`, so equality is opt-in and a type
+  joins in by declaring the function — `: default Hashed<self>` generates `hash`
+  and `eq`, `: default Ordered<self>` a `cmp` too, checked where they are
+  declared. A structure that *stays* ordered names the ordering it holds as a
+  type argument (`Heap<T, ?cmp: (T, T) -> Int>`), so a heap built under one
+  ordering is a different type from one built under another and the two refuse
+  to mix. Arrays stay for fixed-size data and the variadic boundary.
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
   value), flow-sensitive narrowing via `is` — of variables and of field
   chains (`p.address.city`) — and exhaustive `when`.

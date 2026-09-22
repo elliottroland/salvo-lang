@@ -41,7 +41,7 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 
 | # | TODO (file location) | Kind | Status today |
 |---|---|---|---|
-| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round: **ORDERING.md** | decided and part-built: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound), the `Heap<?cmp>` half is ORDERING.md's step 5 |
+| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round: **ORDERING.md** | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
 | 3 | `val: proj proj T?` (line 28) | defect | plausible root cause found |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | neither exists for `List` |
@@ -65,8 +65,9 @@ when the last step lands). In brief:
 half is done — `Ordered`/`Eq`/`Hashed` are params groups, the operators resolve
 through them, and "orderable `T`" is now spelled `?Ordered<T>` in the signature
 rather than as a bound on the type parameter. What the heap still waits for is
-the *holding* half (`Heap<?cmp>`, ORDERING.md's step 5), because a heap must
-remember which ordering built it. In outline, as decided:
+the *holding* half — which landed 2026-09-22: a heap remembers which ordering
+built it by naming it in a fn slot, and `demo/heap.sv` is written that way now.
+In outline, as decided:
 
 - `Ordered`/`Eq`/`Hashed` become **params groups** (the `Yield` precedent);
   canonical implementations for structs are **top-level fns `@`-scoped to
@@ -351,9 +352,10 @@ step 5.
 
 1. **#3 (`proj proj`)** — a plain defect, no decision needed, and its fix
    de-noises every later hover/test while working on the file.
-2. **ORDERING.md's steps** — subsume #1 and #7; steps 1–4 need no
-   type-system work and already fix #7; step 5 unblocks the heap's
-   declaration and comparisons.
+2. ✅ **ORDERING.md's steps** — subsumed #1 and #7, and are done as far as this
+   file is concerned (2026-09-21/22): the declaration line and every comparison
+   in `heap.sv` now check. Only ORDERING.md's keyed-container item is left, and
+   nothing here waits on it.
 3. **#2 (D2)** — the establishment rule; after it, `heap_push` keeps its
    natural `Mut`-parameter shape. (Meanwhile: rewrite the demo to
    consume-and-return `as Heap`, which works today.)

@@ -380,7 +380,7 @@ println("${to_str(names)}")        // {apple, fig, pear}
 let smallest = min(names)          // and max, first_key, last_key on a map
 ```
 
-They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else. The ordering is the key type's *canonical* one — the `cmp` it has; a sorted collection parameterized by an ordering of your choosing is designed and not yet built.
+They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else. The ordering is the key type's *canonical* one — the `cmp` it has. A sorted collection parameterized by an ordering of your choosing is designed and not yet built: the machinery it needs now exists (see [A structure that holds an ordering](#a-structure-that-holds-an-ordering)), and the keyed containers have not been given their slots yet.
 
 Sets and maps **iterate in insertion order**, on every backend. A `Map` iterates its *keys*, and a value is reached with `get`:
 
@@ -1343,6 +1343,58 @@ differently on Kotlin and on Rust — deliberately, the way the two backends
 generate different random numbers. What holds everywhere is that equal values
 hash equal. So a hash is a bucket, not data: do not print it, persist it, or
 compare it across runs.
+
+#### A structure that holds an ordering
+
+`sort(list, cmp = …)` picks an ordering per call, which is right for an
+algorithm that does its work and hands the result back. A structure that *stays*
+ordered — a heap, a ranked list — cannot work that way: building it under one
+ordering and reading it under another is a corrupt structure, and "which
+ordering" is a property of the value, not of each call.
+
+So a structure names the ordering it holds as a **type argument**, fixed where
+the value is constructed:
+
+```
+// The claim, with a slot for the ordering it is kept by.
+qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>
+
+// Building one: an ordinary implicit parameter, and the return type publishes
+// what the call resolved.
+fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp> {
+    return mut_list_of()
+}
+
+// Using one: `?cmp` is *captured* from the argument's type. Nothing says what
+// it is — the slot above does that.
+fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<?cmp>
+    => !heap, !elem {
+    // `cmp` is an ordinary implicit parameter in here: the one this heap was
+    // built with, whatever is visible at the call.
+    ...
+}
+```
+
+The slot is spelled like the implicit parameter it is resolved as, and a use
+site fills it with a **function identity**: a bare name (`Heap<min_by_age>`), a
+canonical (`Heap<cmp@Person>`), or the signature's own binder (`Heap<?cmp>`).
+
+Three things follow, and they are the point:
+
+- **`Heap<min_by_age>` and `Heap<max_by_age>` are different types.** Passing one
+  where the other is expected is an ordinary type error naming both.
+- **All the `?cmp` in one signature are one binding.** A `merge(a: Heap<?cmp>
+  Mut List<T>, b: Heap<?cmp> Mut List<T>)` accepts two heaps only if they carry
+  the same ordering; two independent orderings are two names. A function that
+  never needs the ordering writes the claim bare (`Heap List<T>`) and accepts
+  any of them.
+- **A function bound into a type must be named, top-level and capture-free.** A
+  lambda has no identity a type could carry, and the error says so instead of
+  losing the claim quietly. Everything a type can *print* it can carry.
+
+Dropping the claim is safe rather than silently wrong: the operations demand it,
+and a plain value never gets it back by subtyping — you lose access, never
+correctness.
 
 ### Variadic arguments
 

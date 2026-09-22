@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1278 tests, complete: the toolchain tests are
+cargo test                  # 1293 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -128,20 +128,77 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Ordering round — where it stands after four of five steps (2026-09-21,
-night).** Steps 1, 3a, 3b and 2+4 landed (entries below); **step 5** —
-ordering-carrying structures binding their fn at construction, as a type
-argument with static identity — did not, and is the only part left. ORDERING.md
-now holds *that step alone*, with its decisions, its lowering and a build order;
-ROADMAP.md points at it. Two consequences are documented where a reader meets
-them rather than only here: a sorted collection orders by its key's **canonical**
-`cmp` (`std/core/sorted.sv`, LANGUAGE.md), and `demo/heap.sv` still does not
-compile — its declaration line is step 5's, and HEAP_QUALIFIER.md items 2 and 4
-are the rest of what that file needs. One simplification was found while landing
-the four: because qualifiers erase, the *qualifier* case of step 5 can lower a
-captured binder as an ordinary implicit parameter (the machinery already emits
-the adapter), which leaves the Rust markers as the optimization the *container*
-case needs — recorded in ORDERING.md beside the marker design.
+**Ordering round, step 5 — a structure holds its ordering: the identity is in
+the type (2026-09-22).** Option G of the original exploration, adopted as
+ORDERING.md decision 1 and built in the four steps its build order prescribes,
+one commit each. A structure that *stays* ordered names the ordering in a **fn
+slot** and carries the resolved identity in its type [cmp-carry]; all the `?cmp`
+in one signature are one **binding** [cmp-binder]. Four of the five build items
+landed; the fifth (the keyed containers) waits on two user decisions, below.
+
+- **Identities in types** (`Ty::FnName(FnId)`, commit 1). `FnId` is either a
+  named fn — a module fn, or an `@`-scoped canonical (`cmp@Person`) — or the
+  signature's `Binder`, which is to the identity domain what `Ty::Var` is to the
+  type domain. It prints by name, compares by name, substitutes like a type
+  argument, and unifies: a binder binds once, two named identities match only by
+  being the same fn. Binders share the type-variable substitution map under a
+  `"?name"` key, since `?` is not an identifier character — which is why the
+  *result* type of a call gets the identity for free, through the
+  `substitute_vars` the call already ran. ORDERING.md's measurement held: exactly
+  three `match` sites in the workspace are exhaustive over `Ty`, all type
+  renderers, and all three now *error* on an identity rather than rendering
+  anything [backend-never-wrong].
+- **The written forms and the binder** (commit 2, landed together because the
+  forms mean nothing until something binds them). A slot is declared by a
+  qualifier or an `intrinsic type` and nowhere else — on a fn the binder binds
+  bare, which is ORDERING.md decision 11, so a `?name:` in a fn's generics list
+  is an error naming the two places it belongs. A use site writes `?cmp`,
+  `cmp@Person`, or a bare name. `TypeRef` grew `at` and `binder`, which is why
+  every parser snapshot moved; the alternative, a new `ast::Type` variant, would
+  have needed arms in a dozen exhaustive matches for a node only ever written in
+  one position.
+- **Two readings of one argument list.** A *qualifier*'s arguments are
+  identities only — its type arguments come from the type it qualifies (`Ok Str`
+  implies `Ok<Str>`), so `Heap<cmp@Person>` needs no reading-order rule and one
+  heap's arguments always read the same way. A *type*'s keep the positional
+  reading with slots trailing the type parameters (`SortedSet<Str, my_cmp>`).
+  This is the one implementation-level choice the design did not already make;
+  it is a rule in [cmp-carry] now.
+- **What fills a binder** is the identity the *types* carry, before any
+  resolution by name — a new rule 0 ahead of [implicit-resolve]'s three. That is
+  the whole point: `least_index` compares a list with the ordering it was
+  *built* with, not with whatever `cmp` is visible where the call is written,
+  which is the hazard [implicit-resolve]'s per-call-site locality would
+  otherwise leave open. Where the fn declares the implicit instead
+  (`empty_heap`), resolution fills it and the result type publishes what it
+  chose.
+- **The backends needed nothing.** The simplification found while landing steps
+  1–4 held exactly: a qualifier erases, so a carried identity lowers as the
+  *implicit parameter* it is resolved as — an ordinary trailing argument both
+  emitters already emit. The worked example (a `Ranked<T, ?cmp>` list, built
+  under the canonical ordering and under a second one, answering differently
+  from one generic body) compiles and runs on `kotlinc` and `rustc` from one
+  verbatim-shared source, and not a line of either emitter changed.
+- **`demo/heap.sv`, the file this round came from**, is rewritten to the new
+  syntax and its ordering half compiles. `salvo analyze` reports **exactly
+  four** errors on it: three missing `swap` (HEAP_QUALIFIER item 4) and one D2
+  body validation ("deduction promises qualifier `Heap` … but the body may
+  remove it", item 2). Both were predicted by ORDERING.md; the file itself now
+  says so, so the next reader does not have to re-derive it.
+- **A deduction that keeps a qualifier keeps its identity**, verified rather
+  than assumed: a deduction entry names qualifier *names*, and the argument's
+  own type carries the arguments, so `=> r: Heap Mut` leaves a value that a
+  later `Heap<cmp@Person>` position accepts. `=> r: Heap<?cmp> Mut` is a
+  parse-level refusal (a deduction entry takes no type arguments), which is the
+  honest spelling to document rather than a gap to fill.
+- **Not landed: the keyed containers** (`SortedSet`/`SortedMap`/`Set`/`Map`
+  gaining their defaulted slots, the Rust marker/`OrdBy` machinery, a Kotlin
+  runtime hash container). It is the only part of step 5 with real backend work,
+  and it cannot be specified before the two questions ORDERING.md recorded with
+  it are answered — membership semantics for keyed containers, and whether
+  `Sorted List<T>` is parameterized in the same change. Both are the user's
+  calls (AGENTS.md's first invariant), so they are in ROADMAP.md as **DECISION**
+  and ORDERING.md survives holding that step's design alone.
 
 **Ordering round, steps 2+4 — the operators resolve through the groups, and
 `canbe ordered`/`canbe hashed` are deleted (2026-09-21, night).** The landing the
@@ -13918,7 +13975,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1278)
+## Test inventory (all green: 1293)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -13926,7 +13983,14 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 720 - 32 comparison-capability tests (`tests/compare_tests.rs`
+- `salvo-core`: 734 - 13 carried-ordering tests (`tests/carry_tests.rs`
+  [cmp-carry] [cmp-binder], the ordering round's step 5: a qualifier declaring a
+  fn slot, a heap built and pushed under one ordering, two orderings refusing to
+  mix in both diagnostics, one binder forcing two arguments to agree and
+  accepting two that do, the binder callable in the body, a deduction keeping the
+  identity with the qualifier, the two static-identity refusals — a lambda and a
+  local — an unknown identity, a selector naming nowhere, a slot that is not a
+  function, and a slot on a fn) + 32 comparison-capability tests (`tests/compare_tests.rs`
   [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
   resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
   filled by resolution, two spreads composing in one signature, the capability
@@ -15072,6 +15136,27 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A type position that is not a type has to be taught to *three* places.**
+  [cmp-carry]'s identities (`Heap<cmp@Person>`) are written where types go, so
+  the checker reaches them by three separate walks: `lower_type_subst` (which
+  builds the `Ty`), `validate_type`/`validate_quals` (which report unknown
+  *names*), and — the one that is easy to miss — whatever lowers the same syntax
+  by hand somewhere else. `fn_return_ty` built the `as Q` clause's qualifier
+  itself instead of calling `lower_quals`, so `-> … as Heap<?cmp>` type-checked
+  everywhere except in the one place that mattered. Teach the lowering and
+  forget the validation and a *correct* program gets an "unknown type" beside
+  its correct result; unify the duplicate lowering path first, then add the
+  form.
+- **Publishing a resolution into a result type is an ordering constraint, not a
+  mechanism.** `empty_heap(…)` answers `Heap<cmp@Person> Mut List<Person>`
+  because `check_call` resolves implicits *before* it substitutes the return
+  type, and because binders live in the same substitution map as type variables
+  (under a `"?name"` key — `?` is not an identifier character, so the two
+  namespaces cannot collide). Both were free; what cost a signature change
+  across four call sites was that `fill_implicits` took `&subst` and had to take
+  `&mut`. When a new fact has to reach a call's result, look for the existing
+  substitution before adding a side table.
 
 - **A `params` group is cheap to add and a `Ty` variant is cheap to add; a
   *convention* is not.** The ordering round's four landed steps needed no new
