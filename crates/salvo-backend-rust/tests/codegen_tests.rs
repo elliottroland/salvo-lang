@@ -8901,6 +8901,16 @@ fn main() [use] {
         println("a character before the start is absent")
     }
 
+    // A positional *write* answers whether it wrote, which is the same report
+    // for the same reason: a write that quietly did nothing has no symptom at
+    // the call. Out of range the value is the caller's and stays untouched.
+    let text = mut_str("hello")
+    println("wrote ${set(text, 0, 'H')} ${text}")
+    println("write past the end ${set(text, 9, 'X')} ${text}")
+    let buf = mut_bytes(bytes_of(to_byte(1), to_byte(2)))
+    println("wrote a byte ${set(buf, 1, to_byte(9))} ${to_hex(buf)}")
+    println("byte past the end ${set(buf, 2, to_byte(9))} ${to_hex(buf)}")
+
     // The heap's own move, in the spelling it uses [fn-dot].
     let heap: Mut List<Int> = mut_list_of(5, 9, 7)
     heap.swap(0, 2)
@@ -8915,6 +8925,10 @@ pub const BOUNDS_OUTPUT: &str = "swapped true [c, b, a]\n\
      read before the start is absent\n\
      read past the end is absent\n\
      a character before the start is absent\n\
+     wrote true Hello\n\
+     write past the end false Hello\n\
+     wrote a byte true 0109\n\
+     byte past the end false 0109\n\
      sifted [7, 9, 5]\n";
 
 #[test]

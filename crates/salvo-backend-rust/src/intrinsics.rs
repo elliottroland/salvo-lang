@@ -636,9 +636,11 @@ pub fn fn_call(
         ("append", Some("Bytes")) => format!("{}.extend_from_slice(&{}[..])", a(0), a(1)),
         // Out of range does nothing, so this is a statement rather than an
         // indexing assignment (which would panic).
+        // [col-bounds] Answers whether it wrote: out of range nothing moves and
+        // the caller is told, rather than a silent no-op.
         ("set", Some("Bytes")) => format!(
             "{{ let __i = {}; if __i >= 0 && (__i as usize) < {}.len() \
-             {{ {}[(__i as usize)] = {}; }} }}",
+             {{ {}[(__i as usize)] = {}; true }} else {{ false }} }}",
             a(1),
             a(0),
             a(0),

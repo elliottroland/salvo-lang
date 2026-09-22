@@ -418,17 +418,16 @@ Conventions:
   * A **read** answers an optional: `get` on a list, an array or a `Bytes`,
     `char_at` on a `Str`, `slice`/`substring` for a range. Both ends count, and a
     negative index is out of range rather than counted from the back.
-  * `swap(list, i, j)` answers a **`Bool`** — `false` when either index is out of
-    range, and then nothing moved (user decision 2026-09-22). Chosen over a
-    silent no-op because a swap that quietly did nothing is a reordering bug with
-    no symptom at the call site, and over the hosts' behaviour because
-    `Vec::swap` panics where a JVM list throws, so the same program would fail
-    differently per backend [backend-parity].
-  * A **scalar positional write** — `set` on a `Mut Str` or a `Mut Bytes` — is a
-    no-op out of range and answers `None`: there is nothing to report and
-    growing the buffer would make a `set` an `append`. So std is not uniform
-    here, deliberately: the shape of the honest answer differs by what the
-    operation could say.
+  * A **write answers a `Bool`** — `false` when the index is out of range, and
+    then nothing was written (user decisions 2026-09-22): `swap(list, i, j)`,
+    `set` on a `Mut Str`, `set` on a `Mut Bytes`. Chosen over a silent no-op
+    because a write that quietly did nothing has no symptom at the call site, and
+    over the hosts' behaviour because they disagree — `Vec::swap` panics where a
+    JVM list throws, and `setCharAt` throws where a slice write would panic — so
+    the same program would fail differently per backend [backend-parity]. The
+    answer is ignorable, and at a known-good index that is what a caller does.
+  * An out-of-range write **never grows the value**: that would make a `set` an
+    `append`, and the buffer is the caller's.
   * There is **no positional write for a list** at all [linear-container]: the
     displaced value would have nowhere to go when the index misses, and every
     available answer either drops it or confuses "displaced" with "bounced".

@@ -2426,6 +2426,16 @@ export fn main() [use] {
         println("a character before the start is absent")
     }
 
+    // A positional *write* answers whether it wrote, which is the same report
+    // for the same reason: a write that quietly did nothing has no symptom at
+    // the call. Out of range the value is the caller's and stays untouched.
+    let text = mut_str("hello")
+    println("wrote ${set(text, 0, 'H')} ${text}")
+    println("write past the end ${set(text, 9, 'X')} ${text}")
+    let buf = mut_bytes(bytes_of(to_byte(1), to_byte(2)))
+    println("wrote a byte ${set(buf, 1, to_byte(9))} ${to_hex(buf)}")
+    println("byte past the end ${set(buf, 2, to_byte(9))} ${to_hex(buf)}")
+
     // The heap's own move, in the spelling it uses [fn-dot].
     let heap: Mut List<Int> = mut_list_of(5, 9, 7)
     heap.swap(0, 2)
@@ -2443,6 +2453,10 @@ export fn main() [use] {
      read before the start is absent\n\
      read past the end is absent\n\
      a character before the start is absent\n\
+     wrote true Hello\n\
+     write past the end false Hello\n\
+     wrote a byte true 0109\n\
+     byte past the end false 0109\n\
      sifted [7, 9, 5]\n")
 }
 
@@ -8309,9 +8323,12 @@ fn mut_str_lowers_to_a_string_builder() {
         "unexpected:\n{main}"
     );
     // `setCharAt` throws out of range, so `set` guards — and binds its
-    // arguments, so a call argument is evaluated once.
+    // arguments, so a call argument is evaluated once. [col-bounds] The guard
+    // answers `false` rather than falling through silently.
     assert!(
-        main.contains("if (__i >= 0 && __i < __s.length) __s.setCharAt(__i, 'H')"),
+        main.contains(
+            "if (__i >= 0 && __i < __s.length) { __s.setCharAt(__i, 'H'); true } else false"
+        ),
         "unexpected:\n{main}"
     );
 }

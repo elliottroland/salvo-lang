@@ -49,7 +49,7 @@ A string being immutable does not mean building one has to be quadratic: `Str` o
 ```
 let text: Mut Str = mut_str("hello")
 append(text, ", world")
-set(text, 0, 'H')
+set(text, 0, 'H')          // answers whether it wrote; ignorable
 println(text)              // Hello, world
 ```
 
@@ -389,7 +389,7 @@ A map literal's keys are expressions, which is why `{x: 1}` is *not* a map: a br
 
 Taking something back **out** of a collection is a move, not a copy: `remove_first(list)` and `remove_at(list, i)` answer `T?` — the element, or `None` when there is nothing at that position — and `remove(map, key)` does the same for a map's value. `replace(map, key, value)` is the write that hands back what it displaced. None of them leaves a hole or duplicates anything, which is what lets a collection hold values that must be used exactly once (see "Linear types"); for ordinary data they are simply the operations you would expect. `drain(list, each)` consumes a collection and hands every element to a function, in order.
 
-A list has no positional *write*, on purpose: when the index misses, the value written has nowhere to go. What it has instead is `swap(list, i, j)`, which exchanges two elements — nothing enters, nothing leaves, so nothing can be dropped. Every operation that takes an index **answers rather than failing**, and identically on both targets: a read is an optional, `swap` is a `Bool` that is `false` when an index is out of range (and then nothing moved), and a negative index is out of range rather than counted from the back.
+A list has no positional *write*, on purpose: when the index misses, the value written has nowhere to go. What it has instead is `swap(list, i, j)`, which exchanges two elements — nothing enters, nothing leaves, so nothing can be dropped. Every operation that takes an index **answers rather than failing**, and identically on both targets: a read is an optional, and a *write* — `swap`, or `set` on a `Mut Str` or `Mut Bytes` — is a `Bool` that is `false` when the index is out of range, in which case nothing was written. Ignore the answer where the index is known good. A negative index is out of range rather than counted from the back, on every surface.
 
 For a collection kept in order rather than in insertion order, there are `SortedSet<T>` and `SortedMap<K, V>`:
 

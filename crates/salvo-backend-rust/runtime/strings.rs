@@ -4,24 +4,26 @@
 pub trait SalvoStr {
     /// `set(str, index, chr)`: replaces the `index`-th *character* —
     /// characters, not bytes, like every other index in Salvo's string
-    /// surface. Out of range it does nothing, which is what keeps a `set`
-    /// from becoming an `append`.
-    fn salvo_set(&mut self, index: i32, chr: char);
+    /// surface — and answers whether it did. Out of range it writes nothing
+    /// and answers `false`, which is what keeps a `set` from becoming an
+    /// `append` while still telling the caller [col-bounds].
+    fn salvo_set(&mut self, index: i32, chr: char) -> bool;
 }
 
 impl SalvoStr for String {
-    fn salvo_set(&mut self, index: i32, chr: char) {
+    fn salvo_set(&mut self, index: i32, chr: char) -> bool {
         if index < 0 {
-            return;
+            return false;
         }
         let i = index as usize;
         if i >= self.chars().count() {
-            return;
+            return false;
         }
         *self = self
             .chars()
             .enumerate()
             .map(|(k, c)| if k == i { chr } else { c })
             .collect();
+        true
     }
 }

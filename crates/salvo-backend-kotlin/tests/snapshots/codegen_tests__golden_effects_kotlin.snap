@@ -491,8 +491,12 @@ class SalvoBytes {
         if (index >= 0 && index < len) buf[index].toUByte() else null
 
     /** Out of range does nothing: growing here would make a `set` an `add`. */
-    fun setAt(index: Int, byte: UByte) {
-        if (index >= 0 && index < len) buf[index] = byte.toByte()
+    // [col-bounds] Answers whether it wrote: out of range the buffer is
+    // untouched and the caller is told.
+    fun setAt(index: Int, byte: UByte): Boolean {
+        if (index < 0 || index >= len) return false
+        buf[index] = byte.toByte()
+        return true
     }
 
     fun add(byte: UByte) {

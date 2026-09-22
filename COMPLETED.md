@@ -128,6 +128,25 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A positional write answers whether it wrote (user decision 2026-09-22).**
+`set` on a `Mut Str` and on a `Mut Bytes` answer `Bool` instead of `None`:
+`false` out of range, and then nothing was written. That makes [col-bounds]
+**uniform** — a read answers an optional, a write answers a `Bool` — where the
+rule had been written the same day recording that std was deliberately *not*
+uniform, on the grounds that a scalar `set` has nothing to report.
+
+- It does: "I did not write" is exactly what the caller cannot otherwise find
+  out, and it is the same reason `swap` answers. The earlier reasoning had
+  confused *having no displaced value to hand back* with *having nothing to say*.
+- Cheap because both were already guarded: each lowering tested the bounds and
+  fell through silently, so the change is what the guard evaluates to.
+  `salvo_set` (Rust runtime) and `SalvoBytes.setAt` (Kotlin runtime) return the
+  same answer, which moved every checked-in Kotlin `bytes.kt` by four lines.
+- Ignoring it stays ordinary — every existing call site does, and at a known-good
+  index that is what a caller should do. Both `set`s joined the shared bounds e2e
+  case, in range and past the end, so the pair is asserted on both backends from
+  verbatim one source.
+
 **Compound assignment, and the assignment rule it exposed (user decision
 2026-09-22).** `x += e`, `-=`, `*=`, `/=` are **pure desugar** to `x = x op e` in
 the parser [op-compound] — four tokens, one helper, and nothing downstream knows

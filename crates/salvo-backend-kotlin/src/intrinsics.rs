@@ -502,9 +502,12 @@ pub fn fn_call(
         // [kt-mut-str] The mutators take a `StringBuilder`.
         ("append", Some("Str")) => format!("{}.append({})", a(0), a(1)),
         // `setCharAt` throws out of range; Salvo's `set` does nothing.
+        // [col-bounds] Answers whether it wrote, like every other
+        // out-of-range write in std.
         ("set", Some("Str")) => format!(
             "run {{ val __s = {}; val __i = {}; \
-             if (__i >= 0 && __i < __s.length) __s.setCharAt(__i, {}) }}",
+             if (__i >= 0 && __i < __s.length) {{ __s.setCharAt(__i, {}); true }} \
+             else false }}",
             a(0),
             a(1),
             a(2)

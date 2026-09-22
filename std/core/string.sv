@@ -106,10 +106,15 @@ export intrinsic fn parse_int(str: Str) [] -> Int? => str
 // surviving qualifiers are listed exhaustively [deduce-syntax].
 export intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
 
-// Replaces the character at [index] with [chr]. Out of range, it does
-// nothing — the string is the caller's, and growing it here would make a
-// `set` an `append`.
-export intrinsic fn set(str: Mut Str, index: Int, chr: Char) [] -> None => str: Mut, index, chr
+// Replaces the character at [index] with [chr], and answers whether it did.
+// Out of range it writes nothing and answers `false` — the string is the
+// caller's, and growing it here would make a `set` an `append`.
+//
+// [col-bounds] Characters, not encoding units, like every other index into a
+// string; and the `Bool` is the report every out-of-range write in std makes
+// (user decision 2026-09-22).
+export intrinsic fn set(str: Mut Str, index: Int, chr: Char) [] -> Bool
+    => str: Mut, index, chr
 
 // Removes every character from [str]
 export intrinsic fn clear(str: Mut Str) [] -> None => str: Mut

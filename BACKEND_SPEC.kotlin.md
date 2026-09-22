@@ -128,8 +128,9 @@ Conventions:
     own spread operator [fn-variadic]. No parts at all is `StringBuilder()`.
   * The mutators are native: `append` → `.append(..)`, `clear` →
     `.clear()`, and `set` → a guarded `setCharAt` (which throws out of
-    range, where Salvo's `set` does nothing), binding its arguments in a
-    `run { }` so a call argument is evaluated once.
+    range, where Salvo's `set` writes nothing and answers `false`
+    [col-bounds]), binding its arguments in a `run { }` so a call argument is
+    evaluated once and the guard is the expression's value.
   * `copy` of a `Mut Str` is `StringBuilder(sb)` [kt-copy]: identity would
     alias the buffer.
   * String indexes are UTF-16 code units here (`.length`, `substring`) and

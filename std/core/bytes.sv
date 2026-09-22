@@ -67,10 +67,15 @@ export intrinsic fn add(data: Mut Bytes, byte: Byte) [] -> None => data: Mut, by
 // Appends every byte of [more] to [data].
 export intrinsic fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut, more
 
-// Replaces the byte at [index]. Out of range it does nothing — the buffer is
-// the caller's, and growing it here would make a `set` an `add`, exactly as
-// on `Mut Str` [set].
-export intrinsic fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> None => data: Mut, index, byte
+// Replaces the byte at [index], and answers whether it did. Out of range it
+// writes nothing and answers `false` — the buffer is the caller's, and growing
+// it here would make a `set` an `add`, exactly as on `Mut Str` [set].
+//
+// [col-bounds] The `Bool` is the same report `swap` makes, and for the same
+// reason (user decision 2026-09-22): a write that quietly did nothing is a bug
+// with no symptom at the call. Ignore it where the index is known good.
+export intrinsic fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> Bool
+    => data: Mut, index, byte
 
 // Removes every byte from [data], keeping whatever room it had. This is the
 // call that makes a buffer reusable across reads [fs-read-to].
