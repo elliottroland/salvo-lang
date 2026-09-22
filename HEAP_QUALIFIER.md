@@ -44,7 +44,7 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 | 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round, now complete (COMPLETED.md's log) | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
 | 3 | `val: proj proj T?` (line 28) | defect | ✅ **fixed 2026-09-22**: a hover-only display bug in the LSP, not the type system |
-| 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | neither exists for `List` |
+| 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | ✅ **`swap` landed 2026-09-22**, answering `Bool`; the positional write stays deliberately absent |
 | 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) | narrowing and routing **verified working** 2026-09-22; only `!is` is missing |
 | 6 | `+=` (line 76) | **DECISION** (small) | only `++`/`--` exist [inc-dec] |
 | 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (the ordering round's step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
@@ -197,56 +197,43 @@ reaching for the type system.
 
 ---
 
-## 4. `swap` / set-at-index for `Mut List<T>` — std API (**DECISION** on shape)
+## 4. `swap` for `Mut List<T>` — **landed 2026-09-22**
 
-**Today:** `List` has `get`, `add`, `remove_first`, `remove_at`, `size`, …
-— no `swap`, no `set`. `set` exists for `Mut Bytes` and `Mut Str`
-(std/core/bytes.sv:67, string.sv:112), where elements are Copy scalars and
-the old value can vanish. For `List<T>` with `T canbe linear`, overwriting
-index `i` must put the old value *somewhere* — the TODO's own observation
-("we would need to _take_ from the list as well").
-
-**Proposed additions to `core.list` (all `intrinsic`, both backends):**
+**Shipped**, with the user's call on the one open corner:
 
 ```
-// The heap's actual need — total, no values enter or leave, linear-safe:
-export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> None
+export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Bool
     => list: Mut, i, j
-
-// The general write — replace, answering the displaced value:
-export intrinsic fn set<T canbe linear>(list: Mut List<T>, index: Int, elem: T) [] -> T?
-    => list: Mut, index, !elem
 ```
 
-- `swap` with either index out of bounds: propose **no-op is wrong** — but
-  what instead is a call for the user. Options: (a) answer `Bool`
-  (like `Set.add`), (b) answer `None` and treat out-of-range as a no-op,
-  (c) leave it partial and document. `get`'s precedent is the honest
-  optional; `swap` has no value to make optional, so (a) reads best.
-- `set` answers `T?` — `None` when `index` is out of range, in which case
-  **`elem` was consumed but not stored**: for a linear `T` that is a
-  dropped obligation, so either `set` must answer `T?` where out-of-range
-  *returns `elem` itself* (awkward: caller can't tell "displaced old
-  value" from "rejected new value"), or out-of-range on a linear element
-  is refused differently. Simplest honest shape: `set` requires the index
-  in range as a documented contract and answers the displaced `T`
-  (non-optional), with the out-of-range behavior being the same as the
-  backends' (panic/exception) — but "never silently wrong" argues against.
-  **This corner is the decision**; the heap only needs `swap`, so `set`
-  can also simply wait.
-- Rust lowering: `Vec::swap` is exactly `swap`; `std::mem::replace(&mut v[i], e)`
-  is `set`. Kotlin: an `also`-captured `list[i] = e` pair. Both trivial in
-  each backend's `intrinsics.rs`.
-- Naming/`bytes` parity: `Bytes.set` returns `None` (Copy world); `List.set`
-  answering the old value diverges by name. Alternative name: `replace`.
+`false` when either index is out of range, and then nothing moved — chosen over a
+silent no-op (a swap that quietly does nothing is a reordering bug with no symptom
+at the call) and over the hosts' own behaviour (`Vec::swap` panics where a JVM list
+throws, so the same program would fail differently per backend). `canbe linear`
+because the exchange is **total**: no value enters the list and none leaves, so
+nothing can be dropped — which is what makes it the one positional write a list of
+obligations can have.
 
-**Recommendation:** ship `swap` now (unblocks the heap, no semantic
-corners), put `set`/`replace`'s out-of-range-with-linear-element question
-to the user only when something needs it.
+**The positional write stays deliberately absent**, and that was already settled
+in `core.list`'s own prose before this plan existed: `replace(list, index, elem)`
+has nowhere to put the displaced value when the index misses, and every available
+answer either drops it (a silent leak) or confuses "displaced" with "bounced".
+`swap` escapes the question rather than answering it. So no decision was needed
+here after all.
 
-**Effort:** small — one intrinsic in std + two backend lowerings + e2e
-cases (a new `KotlinCase` registry entry and a Rust runner test per
-AGENTS.md).
+**It closed a pre-existing defect on the way.** `[col-bounds]` — the rule
+`core.list` had been *referencing* without it being written down anywhere — is now
+in LANGUAGE_SPEC.md, and writing it exposed that the Rust backend broke its own
+posture for a **literal** index: the lowerings cast straight to `usize`, a literal
+takes its type from the cast target, and `(-1) as usize` is rustc's E0600. So
+`get(xs, -1)` type-checked in Salvo and then failed to *build* — a
+[backend-never-wrong] violation, with a variable holding `-1` working fine. The
+cast now goes through `i64` at every index position (list/array/`Bytes` `get`,
+`char_at`, `swap`), which moved every Rust golden and example by one `as i64`.
+
+Tested by one e2e case per backend from verbatim one source, covering `swap` in
+range, in place, past the end and negative, plus a literal negative read on three
+surfaces.
 
 ---
 
@@ -356,8 +343,8 @@ step 5.
 3. **#2 (D2)** — the establishment rule; after it, `heap_push` keeps its
    natural `Mut`-parameter shape. (Meanwhile: rewrite the demo to
    consume-and-return `as Heap`, which works today.)
-4. **#4 (`swap`)** — small std intrinsic; after the above the heap
-   actually compiles and runs, making it a real e2e case.
+4. ✅ **#4 (`swap`)** — **landed 2026-09-22**, which took `demo/heap.sv` down to
+   **one** error: item 2's.
 5. **#5 (`!is`)** — the guard narrowing and the routing are verified working
    (2026-09-22); only the sugar is left, and it is a parser change.
 6. **#6 (`+=`)** — independent, small, any time.

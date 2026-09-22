@@ -68,6 +68,14 @@ pub fn fn_call(
     // [col-membership].
     let keyed = || ordering.unwrap_or("HostHash, HostEq");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("todo!()");
+    // [col-bounds] An `Int` argument in an **index** position. The cast goes
+    // through `i64` rather than straight to `usize`, because a *literal* takes
+    // its type from the cast target: `(-1) as usize` is rustc's E0600, so
+    // `get(xs, -1)` type-checked in Salvo and then failed to build — a
+    // [backend-never-wrong] violation, found and fixed 2026-09-22 while adding
+    // `swap`. Through a signed type the negative value wraps to a huge `usize`,
+    // which every length test rejects, which is the answer std promises.
+    let index = |i: usize| format!("({}) as i64 as usize", a(i));
     let spread_any = spread != Spread::None;
     // The variadic tail as an **owned** `Vec`: already owned when the emitter
     // assembled it, cloned when it is a borrowed forward.
@@ -284,7 +292,7 @@ pub fn fn_call(
         // caller that needs ownership says `copy` [copy-opt-in]. (Until
         // 2026-09-11 every read cloned, even one that only tested `None`.)
         ("get", Some("List")) | ("get", Some("[]")) => {
-            format!("{}.get(({}) as usize)", a(0), a(1))
+            format!("{}.get({})", a(0), index(1))
         }
         ("add", Some("List")) => format!("{}.push({})", a(0), a(1)),
         // [linear-container] Take-by-move: the element leaves the list, so
@@ -299,6 +307,20 @@ pub fn fn_call(
         // [rs-borrows].
         ("remove_first", Some("List")) => format!("{}.salvo_remove_first()", a(0)),
         ("remove_at", Some("List")) => format!("{}.salvo_remove_at({})", a(0), a(1)),
+        // [col-bounds] `Vec::swap` panics out of range, and the answer has to be
+        // a `Bool` instead — so the bounds are tested here. A negative `i32`
+        // becomes a huge `usize`, which the length test rejects, so one
+        // comparison per index covers both ends.
+        ("swap", Some("List")) => format!(
+            "{{ let __i = {}; let __j = {}; \
+             if __i < {}.len() && __j < {}.len() {{ {}.swap(__i, __j); true }} \
+             else {{ false }} }}",
+            index(1),
+            index(2),
+            a(0),
+            a(0),
+            a(0)
+        ),
         // [linear-container] The terminal: the list is consumed (so a state
         // field arrives here as a `mem::take`) and every element is handed to
         // the callback, which owns it.
@@ -403,7 +425,7 @@ pub fn fn_call(
         // [col-key-eligible] An owned read of a snapshot element — a clone
         // here, where Kotlin can share the reference.
         ("snapshot_at", Some("List")) => {
-            format!("{}.get(({}) as usize).cloned()", a(0), a(1))
+            format!("{}.get({}).cloned()", a(0), index(1))
         }
         // [col-to-str] `{1, 2, 3}`, insertion-ordered — the runtime type's
         // `Display` is the language's format, so both backends agree
@@ -525,7 +547,7 @@ pub fn fn_call(
         // filesystem's offsets are in [fs-token].
         ("byte_size", Some("Str")) => format!("({}.len() as i64)", a(0)),
         ("char_at", Some("Str")) => {
-            format!("{}.chars().nth(({}) as usize)", a(0), a(1))
+            format!("{}.chars().nth({})", a(0), index(1))
         }
         ("split", Some("Str")) => format!(
             "{}.split(&{}[..]).map(|__p| __p.to_string()).collect::<Vec<String>>()",
@@ -596,7 +618,7 @@ pub fn fn_call(
         ("size", Some("Bytes")) => format!("({}.len() as i32)", a(0)),
         // A negative index wraps to a huge `usize`, which `get` answers
         // `None` for — the same answer the declaration gives it.
-        ("get", Some("Bytes")) => format!("{}.get(({}) as usize).copied()", a(0), a(1)),
+        ("get", Some("Bytes")) => format!("{}.get({}).copied()", a(0), index(1)),
         ("slice", Some("Bytes")) => format!(
             "{{ let __d = &{}; let __i = {}; let __j = {}; \
              if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() \

@@ -51,6 +51,19 @@ export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => 
 export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
     => list: Mut, index
 
+// [linear-container] Exchanges the elements at [i] and [j]. **Total**: no value
+// enters the list and none leaves it, which is what makes it the one positional
+// write a list of obligations can have — nothing can be dropped by it.
+//
+// [col-bounds] Answers **`false`** when either index is out of range, and then
+// nothing moved (user decision 2026-09-22). A `Bool` rather than a silent no-op
+// because a swap that quietly did nothing is a reordering bug with no symptom at
+// the call, and rather than the hosts' own behaviour because `Vec::swap` panics
+// where a JVM list throws — the same program would fail differently on the two
+// backends [backend-parity].
+export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Bool
+    => list: Mut, i, j
+
 // [linear-container] There is deliberately **no** positional write for a list
 // of obligations. `replace(list, index, elem) -> T?` looks like the map's, but
 // a list index can be *out of range*, and then the value written has nowhere
@@ -58,7 +71,8 @@ export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] 
 // surface exists to prevent), handing it back would make "displaced" and
 // "bounced" indistinguishable, and refusing at run time is not how the rest of
 // std treats an index [col-bounds]. Take the element out and add a new one, or
-// key the collection with a `Map`, whose `replace` has no such hole.
+// key the collection with a `Map`, whose `replace` has no such hole. [swap] is
+// the exchange that escapes the whole question by moving nothing in or out.
 
 // [linear-container] The **terminal**: consumes the list and hands every
 // element to [each], in order. This is how a list of obligations ends — the

@@ -266,9 +266,10 @@ What the round left open:
 
 The heap demo's remaining plan (D2's motivating example, `swap`, `!is`, `+=`) is
 **HEAP_QUALIFIER.md**, with its own suggested sequence. `demo/heap.sv` is written
-in the new syntax and reports exactly four errors: three missing `swap` (item 4)
-and one D2 body validation (item 2). Its `proj proj T?` item closed 2026-09-22 —
-a hover-only defect, and not where the plan guessed (COMPLETED.md's log).
+in the new syntax and reports **one** error: item 2's D2 body validation. Items 3
+(a hover-only defect, not where the plan guessed), 4 (`swap`, which also closed a
+literal-index defect on the Rust backend) and 5's two verified behaviours all
+closed 2026-09-22 — COMPLETED.md's log has each.
 
 ## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
 

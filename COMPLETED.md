@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1318 tests, complete: the toolchain tests are
+cargo test                  # 1319 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,36 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`swap` for a list, and the index rule it made someone write down (user decision
+2026-09-22).** `swap(list, i, j) -> Bool` in `core.list`, `false` when either index
+is out of range and then nothing moved. HEAP_QUALIFIER.md item 4, and three of
+`demo/heap.sv`'s four errors — the demo is now down to one.
+
+- **Why a `Bool`** (the user's call among three options): a silent no-op makes a
+  reordering bug with no symptom at the call site, and the hosts' own behaviour
+  fails *differently* per backend — `Vec::swap` panics, a JVM list throws — which
+  [backend-parity] does not allow. `canbe linear` comes free because the exchange
+  is total: nothing enters the list, nothing leaves, so nothing can be dropped,
+  which is what makes it the one positional write a list of obligations can have.
+- **The `set`/`replace` corner needed no decision**: `core.list`'s own prose had
+  already settled it before the plan asked — a positional write has nowhere to put
+  the displaced value when the index misses, and every answer either drops it or
+  confuses "displaced" with "bounced".
+- **`[col-bounds]` existed as a label and nowhere else.** `core.list` referenced it;
+  no spec defined it. It is now a rule, and it says what std actually does: a read
+  answers an optional, `swap` answers a `Bool`, a scalar `set` is a no-op answering
+  `None`, and a list has no positional write at all. Not uniform, deliberately —
+  the shape of the honest answer differs by what the operation *could* say.
+- **Writing the rule exposed a live [backend-never-wrong] violation.** The Rust
+  lowerings cast an index straight to `usize`, and a *literal* takes its type from
+  the cast target: `(-1) as usize` is rustc's E0600, so `get(xs, -1)` type-checked
+  in Salvo and then failed to build — while a variable holding `-1` worked. Every
+  index position now casts through `i64` (list/array/`Bytes` `get`, `char_at`,
+  `swap`), which cost one `as i64` in every Rust golden and example. Kotlin never
+  had the bug, so the e2e case is the assertion that Rust agrees, index by index.
+- One e2e case per backend from verbatim one source: `swap` in range, in place,
+  past the end and negative, plus literal negative reads on three surfaces.
 
 **A negated guard narrows a predicate qualifier, and a same-name overload does
 not eat itself — verified, not changed (2026-09-22).** HEAP_QUALIFIER.md item 5
@@ -14455,7 +14485,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1318)
+## Test inventory (all green: 1319)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

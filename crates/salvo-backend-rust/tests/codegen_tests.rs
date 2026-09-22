@@ -3280,7 +3280,7 @@ fn array_std_functions_lower() {
         .unwrap();
     for needle in [
         "nums.len() as i32",
-        "nums.get((2) as usize)",
+        "nums.get((2) as i64 as usize)",
         "nums.first()",
     ] {
         assert!(
@@ -8081,9 +8081,10 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
         .expect("main.rs emitted")
         .content;
     // The lambda returns the borrow itself: no clone, and the Copy index
-    // is deref'd for the cast.
+    // is deref'd for the cast — which goes through `i64`, so a negative
+    // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
-        main.contains("|i| all.get((*i) as usize).unwrap()"),
+        main.contains("|i| all.get((*i) as i64 as usize).unwrap()"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
@@ -8866,6 +8867,60 @@ pub const LIST_CLAIMS_OUTPUT: &str = "built 10\n\
 fn rustc_compiles_and_runs_list_claims() {
     let files = generate(&[("main.sv", LIST_CLAIMS_DEMO)]);
     run_rust_files(&files, "list-claims", LIST_CLAIMS_OUTPUT);
+}
+
+// ===== [col-bounds] every index answers rather than failing =====
+
+/// Shared verbatim with the Kotlin backend's `kotlinc_compiles_and_runs_bounds`
+/// (bar `export` on `main`) — same source, same expected stdout. The parity is
+/// the assertion twice over: `swap` reports out-of-range as `false` where
+/// `Vec::swap` panics and a JVM list throws, and a **literal** negative index
+/// answers rather than failing to build, which it did not until 2026-09-22
+/// (`(-1) as usize` is rustc's E0600 — a [backend-never-wrong] violation the
+/// Kotlin side never had).
+pub const BOUNDS_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+
+    // [col-bounds] A total exchange, and the one positional write a list of
+    // obligations can have: nothing enters, nothing leaves, nothing is dropped.
+    let xs: Mut List<Str> = mut_list_of("a", "b", "c")
+    println("swapped ${swap(xs, 0, 2)} ${to_str(xs)}")
+    println("in place ${swap(xs, 1, 1)} ${to_str(xs)}")
+    println("past the end ${swap(xs, 0, 3)} ${to_str(xs)}")
+    println("negative ${swap(xs, -1, 0)} ${to_str(xs)}")
+
+    // Reads answer an optional, at either end, for a literal as for a variable.
+    if get(xs, -1) is None {
+        println("read before the start is absent")
+    }
+    if get(xs, 9) is None {
+        println("read past the end is absent")
+    }
+    if char_at("hi", -1) is None {
+        println("a character before the start is absent")
+    }
+
+    // The heap's own move, in the spelling it uses [fn-dot].
+    let heap: Mut List<Int> = mut_list_of(5, 9, 7)
+    heap.swap(0, 2)
+    println("sifted ${to_str(heap)}")
+}
+"#;
+
+pub const BOUNDS_OUTPUT: &str = "swapped true [c, b, a]\n\
+     in place true [c, b, a]\n\
+     past the end false [c, b, a]\n\
+     negative false [c, b, a]\n\
+     read before the start is absent\n\
+     read past the end is absent\n\
+     a character before the start is absent\n\
+     sifted [7, 9, 5]\n";
+
+#[test]
+fn rustc_compiles_and_runs_bounds() {
+    let files = generate(&[("main.sv", BOUNDS_DEMO)]);
+    run_rust_files(&files, "bounds", BOUNDS_OUTPUT);
 }
 
 

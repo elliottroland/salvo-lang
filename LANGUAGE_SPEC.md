@@ -380,6 +380,36 @@ Conventions:
     `MutableList(n, init)`) or to `.map(init)` rather than being invoked
     inline: an immediately applied lambda literal has no expected type, and
     kotlinc then demands an explicit parameter type.
+* [col-bounds] **An index-taking operation answers; it does not fail.** An
+  out-of-range index is an ordinary outcome in Salvo, reported the way the
+  operation's own shape allows, and identically on both backends — never a panic,
+  an exception, or a wrapped-around read. (The label was referenced by
+  `core.list` before it was written down; defined 2026-09-22 with `swap`.)
+  * A **read** answers an optional: `get` on a list, an array or a `Bytes`,
+    `char_at` on a `Str`, `slice`/`substring` for a range. Both ends count, and a
+    negative index is out of range rather than counted from the back.
+  * `swap(list, i, j)` answers a **`Bool`** — `false` when either index is out of
+    range, and then nothing moved (user decision 2026-09-22). Chosen over a
+    silent no-op because a swap that quietly did nothing is a reordering bug with
+    no symptom at the call site, and over the hosts' behaviour because
+    `Vec::swap` panics where a JVM list throws, so the same program would fail
+    differently per backend [backend-parity].
+  * A **scalar positional write** — `set` on a `Mut Str` or a `Mut Bytes` — is a
+    no-op out of range and answers `None`: there is nothing to report and
+    growing the buffer would make a `set` an `append`. So std is not uniform
+    here, deliberately: the shape of the honest answer differs by what the
+    operation could say.
+  * There is **no positional write for a list** at all [linear-container]: the
+    displaced value would have nowhere to go when the index misses, and every
+    available answer either drops it or confuses "displaced" with "bounced".
+    `swap` is the exchange that escapes the question by moving nothing in or out.
+  * **A literal index is not a special case** — which it was until 2026-09-22 on
+    the Rust backend: the lowerings cast straight to `usize`, a literal takes its
+    type from the cast target, and `(-1) as usize` is rustc's E0600. So
+    `get(xs, -1)` type-checked and then failed to *build*, with no Salvo
+    diagnostic ([backend-never-wrong]); a variable holding `-1` was fine. The
+    cast now goes through `i64`, and one e2e case per backend from verbatim one
+    source pins every index in this rule.
 * [col-convert] Converters between the collections: `to_list` (from a set or
   sorted set), `to_set` (from a list — duplicates collapse, first-appearance
   order), and **two `to_map` forms** (user decision 2026-09-12): from a list

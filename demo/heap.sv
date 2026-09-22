@@ -49,7 +49,8 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> 
             break
         }
 
-        // TODO: `swap` does not exist for `List` yet (HEAP_QUALIFIER.md item 4).
+        // A total exchange, so nothing can be dropped by it; it answers `false`
+        // out of range, which cannot happen here [col-bounds].
         heap.swap(i, i_parent)
         i = copy(i_parent)
     }
@@ -106,15 +107,12 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T => heap: He
 }
 
 // What this file still waits for, all of it tracked in HEAP_QUALIFIER.md.
-// `salvo analyze` on it reports **exactly four** errors as of 2026-09-22, and
-// they are these two items and nothing else:
+// `salvo analyze` on it reports **exactly one** error as of 2026-09-22:
 //
-//   * item 4 — `swap` (and set-at-index) for `Mut List<T>`: three of the four
-//     ("no function named `swap` is in scope").
-//   * item 2 / ROADMAP **D2** — the fourth: "deduction promises qualifier
-//     `Heap` on `heap`, but the body may remove it". A mutator cannot yet keep
-//     a claim it re-establishes, which is why `heap_push` above consumes and
-//     returns instead.
+//   * item 2 / ROADMAP **D2** — the only one left: "deduction promises
+//     qualifier `Heap` on `heap`, but the body may remove it". A mutator cannot
+//     yet keep a claim it re-establishes, which is why `heap_push` above
+//     consumes and returns instead.
 //
 // Two more TODOs are noted inline and cost no errors here:
 //

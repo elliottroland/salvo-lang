@@ -462,7 +462,7 @@ impl Fragile for Breaking {
 
     fn crash(&mut self) {
         let mut empty: Vec<i32> = vec![];
-        let mut boom = *empty.get((7) as usize).unwrap();
+        let mut boom = *empty.get((7) as i64 as usize).unwrap();
         drop(boom);
     }
 }

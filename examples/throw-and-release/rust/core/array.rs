@@ -16,7 +16,7 @@ pub struct ArrayYield<'s, T: Clone + 'static> {
 }
 
 pub fn next<'s, T: Clone>(p: &mut ArrayYield<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = p.items.get((p.at) as usize);
+    let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
     }

@@ -17,7 +17,7 @@ pub struct BytesYield<'s> {
 }
 
 pub fn next__2(p: &mut BytesYield<'_>) -> Union2<u8, Finished> {
-    let mut b = p.data.get((p.at) as usize).copied();
+    let mut b = p.data.get((p.at) as i64 as usize).copied();
     if b.is_none() {
         return Union2::<u8, Finished>::U2(finished());
     }

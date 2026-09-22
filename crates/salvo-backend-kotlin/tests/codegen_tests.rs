@@ -2395,6 +2395,57 @@ export fn main() [use] {
      sorted map claim a\n")
 }
 
+// ===== [col-bounds] every index answers rather than failing =====
+
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_bounds` (bar `export` on `main`). This backend is
+/// the one that was already right: a JVM list throws where `swap` must answer
+/// `false`, and a negative index has never been a *compile* problem here — so
+/// the assertion is that Rust now agrees, index by index [backend-parity].
+fn kotlinc_compiles_and_runs_bounds() -> KotlinCase {
+    let src = r#"
+export fn main() [use] {
+    use StdOutConsole()
+
+    // [col-bounds] A total exchange, and the one positional write a list of
+    // obligations can have: nothing enters, nothing leaves, nothing is dropped.
+    let xs: Mut List<Str> = mut_list_of("a", "b", "c")
+    println("swapped ${swap(xs, 0, 2)} ${to_str(xs)}")
+    println("in place ${swap(xs, 1, 1)} ${to_str(xs)}")
+    println("past the end ${swap(xs, 0, 3)} ${to_str(xs)}")
+    println("negative ${swap(xs, -1, 0)} ${to_str(xs)}")
+
+    // Reads answer an optional, at either end, for a literal as for a variable.
+    if get(xs, -1) is None {
+        println("read before the start is absent")
+    }
+    if get(xs, 9) is None {
+        println("read past the end is absent")
+    }
+    if char_at("hi", -1) is None {
+        println("a character before the start is absent")
+    }
+
+    // The heap's own move, in the spelling it uses [fn-dot].
+    let heap: Mut List<Int> = mut_list_of(5, 9, 7)
+    heap.swap(0, 2)
+    println("sifted ${to_str(heap)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "bounds", "swapped true [c, b, a]\n\
+     in place true [c, b, a]\n\
+     past the end false [c, b, a]\n\
+     negative false [c, b, a]\n\
+     read before the start is absent\n\
+     read past the end is absent\n\
+     a character before the start is absent\n\
+     sifted [7, 9, 5]\n")
+}
+
 // ===== [fn-variadic] mixing plain arguments with a `...spread` =====
 
 /// Source and expected stdout are **verbatim** the Rust backend's
@@ -3081,6 +3132,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_codepoint_string_order,
     kotlinc_compiles_and_runs_generated_constructors,
     kotlinc_compiles_and_runs_list_claims,
+    kotlinc_compiles_and_runs_bounds,
     kotlinc_compiles_and_runs_mixed_spread,
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_the_comparison_groups,

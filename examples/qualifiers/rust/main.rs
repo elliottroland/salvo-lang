@@ -42,7 +42,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn head(list: &Vec<i32>) -> i32 {
-    let mut first = list.get((0) as usize);
+    let mut first = list.get((0) as i64 as usize);
     return *first.unwrap();
 }
 

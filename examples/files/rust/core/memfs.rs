@@ -287,7 +287,7 @@ pub fn mem_find_newline(data: &Vec<u8>, from: i32) -> i32 {
     let mut end = (data.len() as i32);
     let mut i = from;
     while i < end {
-        if (((data.get((i) as usize).copied().unwrap()) as i32) == 10) {
+        if (((data.get((i) as i64 as usize).copied().unwrap()) as i32) == 10) {
             return i;
         }
         i = i + 1;

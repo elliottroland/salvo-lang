@@ -18,7 +18,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
 }
 
 pub fn next__6<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
-    let mut key = p.items.get((p.at) as usize).cloned();
+    let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
     }

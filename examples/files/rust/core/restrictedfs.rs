@@ -20,7 +20,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut skip = 0;
     let mut i = (segs.len() as i32) - 1;
     while i >= 0 {
-        let mut seg = segs.get((i) as usize).unwrap();
+        let mut seg = segs.get((i) as i64 as usize).unwrap();
         if seg.clone() == "..".to_string() {
             skip = skip + 1;
         } else {
@@ -41,7 +41,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut parts: Vec<String> = vec![];
     let mut j = (kept.len() as i32) - 1;
     while j >= 0 {
-        parts.push(kept.get((j) as usize).unwrap().clone());
+        parts.push(kept.get((j) as i64 as usize).unwrap().clone());
         j = j - 1;
     }
     let mut rel = parts.join(&"/".to_string()[..]);

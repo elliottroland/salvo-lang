@@ -13,7 +13,7 @@ pub struct StrYield<'s> {
 }
 
 pub fn next__8(p: &mut StrYield<'_>) -> Union2<char, Finished> {
-    let mut chr = p.text.chars().nth((p.at) as usize);
+    let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
     }
