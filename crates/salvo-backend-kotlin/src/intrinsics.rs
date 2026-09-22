@@ -180,7 +180,8 @@ pub fn fn_call(
         ("binary_search", Some("List")) => format!(
             "{}.let {{ __l -> {}.let {{ __e -> __l.indexOfFirst \
              {{ salvo.__salvoCompare(it, __e) >= 0 }}\
-             .let {{ if (it >= 0 && __l[it] == __e) it else null }} }} }}",
+             .let {{ if (it >= 0 && salvo.__salvoCompare(__l[it], __e) == 0) it \
+             else null }} }} }}",
             a(0),
             a(1)
         ),

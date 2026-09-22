@@ -240,11 +240,12 @@ pub fn fn_call(
             a(0),
             a(0)
         ),
-        // Lower bound, then an equality test — not `Vec::binary_search`, which
+        // Lower bound, then a *tie* test — not an equality test, and not
+        // `Vec::binary_search`, which
         // may answer any index within an equal run [col-sorted-list].
         ("binary_search", Some("List")) => format!(
             "{{ let __e = {}; let __at = {}.partition_point(|__x| __x < &__e); \
-             if __at < {}.len() && {}[__at] == __e {{ Some(__at as i32) }} \
+             if __at < {}.len() && !(__e < {}[__at]) {{ Some(__at as i32) }} \
              else {{ None }} }}",
             a(1),
             a(0),

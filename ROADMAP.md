@@ -294,10 +294,10 @@ In brief:
      signature that omits a container's identity arguments accept a value that
      carries them (`size(set: Set<T>)` over a `Set<Str, my_hash>`) — the same
      pattern rule qualifiers already have;
-   - **`binary_search`'s confirm**, which on both backends is the *host's* `==`
-     today: neither `eq` nor `cmp == 0`, so a struct with no `eq` at all still
-     gets host equality. It becomes `cmp(x, e) == 0`, the only test consistent
-     with the `Sorted` claim its parameter demands.
+   - ✅ **`binary_search`'s confirm** — **fixed 2026-09-22** (it was independent
+     of the runtimes): it was the *host's* `==` on both backends, and is now a tie
+     test in the ordering the bound used, so it depends on exactly the capability
+     its parameter's `Sorted` claim is about.
 5. **`Sorted<?cmp>`**: the list claim carrying its ordering, with
    `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 

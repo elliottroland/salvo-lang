@@ -128,6 +128,23 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`binary_search` confirmed a hit with the host's equality — fixed
+(2026-09-22).** A defect ORDERING.md found while specifying keyed-container
+membership, closed on its own because it is independent of the runtimes. Both
+backends found the lower bound with the *comparator* and then confirmed the hit
+with the **host's** `==`: `__l[__at] == __e` on Rust, `__l[it] == __e` on Kotlin.
+That is neither the language's `eq` nor `cmp == 0`, and since equality became
+opt-in (2026-09-21) it meant a struct with a `cmp` and **no `eq` at all** still
+got host equality there — and a hand-written `cmp` coarser than structural
+equality answered "absent" for an element the claim says is present.
+
+Now the confirm is a *tie* test in the same ordering the bound used: `!(__e <
+__l[__at])` on Rust (the lower bound already guarantees `__l[__at] >= __e`, so
+"not greater" is "equal", and it needs only the `PartialOrd` the bound needed) and
+`__salvoCompare(__l[it], __e) == 0` on Kotlin. `binary_search` now depends on
+exactly the capability its parameter's `Sorted` claim is about, and on nothing
+else.
+
 **Ordering round (second plan), step 4b, second slice — the pattern rule, and a
 wall worth knowing about (2026-09-22).**
 

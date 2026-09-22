@@ -116,7 +116,7 @@ pub fn main() {
     println(&mut console, &(format!("6. after add, first is {}", first(&growing))));
     let mut ordered = { let mut __v = vec![40, 10, 30, 20].clone(); __v.sort(); __v };
     println(&mut console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    let mut __is1 = { let __e = 30; let __at = ordered.partition_point(|__x| __x < &__e); if __at < ordered.len() && ordered[__at] == __e { Some(__at as i32) } else { None } };
+    let mut __is1 = { let __e = 30; let __at = ordered.partition_point(|__x| __x < &__e); if __at < ordered.len() && !(__e < ordered[__at]) { Some(__at as i32) } else { None } };
     if __is1.is_some() {
         let mut at = __is1.unwrap();
         println(&mut console, &(format!("6. found 30 at {}", at)));

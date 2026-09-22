@@ -90,7 +90,7 @@ fun main() {
     println(console, "6. after add, first is ${first(growing)}")
     val ordered = listOf<Int>(40, 10, 30, 20).sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) })
     println(console, "6. sorted ${ordered.joinToString(", ", "[", "]")}")
-    var __is1 = ordered.let { __l -> 30.let { __e -> __l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it >= 0 && __l[it] == __e) it else null } } }
+    var __is1 = ordered.let { __l -> 30.let { __e -> __l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it >= 0 && salvo.__salvoCompare(__l[it], __e) == 0) it else null } } }
     if (__is1 != null) {
         val at = __is1 as Int
         println(console, "6. found 30 at $at")

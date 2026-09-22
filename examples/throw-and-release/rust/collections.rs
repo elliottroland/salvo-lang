@@ -335,6 +335,23 @@ pub trait SalvoCmp<T> {
     fn cmp(a: &T, b: &T) -> i32;
 }
 
+/// The **canonical** ordering, as a marker: the host's own `Ord`. A sorted
+/// collection whose type names no ordering is kept by this one, which is what
+/// every such collection was kept by before orderings could be named — and for a
+/// generated `auto fn cmp` it *is* the same function, since that member lowers to
+/// the host's derived comparison [cmp-auto].
+pub struct HostOrd;
+
+impl<T: Ord> SalvoCmp<T> for HostOrd {
+    fn cmp(a: &T, b: &T) -> i32 {
+        match Ord::cmp(a, b) {
+            Ordering::Less => -1,
+            Ordering::Equal => 0,
+            Ordering::Greater => 1,
+        }
+    }
+}
+
 /// An element wearing an ordering. `#[repr(transparent)]` is load-bearing:
 /// with exactly one non-zero-sized field this type has `T`'s size, alignment
 /// and validity, which is what lets `probe` view a borrowed `T` as a borrowed
