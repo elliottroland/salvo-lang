@@ -436,7 +436,7 @@ That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a fu
 `Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
 
 ```
-let ordered = sort(list_of(40, 10, 30))     // a Sorted List<Int>
+let ordered = sort(list_of(40, 10, 30))     // a Sorted<Int, cmp> List<Int>
 let at = binary_search(ordered, 30)         // honest only because it is Sorted
 
 let live: Mut Sorted List<Int> = mut_sort(list_of(10, 30))
@@ -444,6 +444,17 @@ add_sorted(live, 20)                        // inserts in order, claim survives
 ```
 
 `add_sorted` is the insert that *keeps* the claim: it places the element where the order survives, and says so in its own deduction clause — which it may do, unlike `add`, because it genuinely knows. Note that this `Sorted` is a different mechanic from the `SortedSet`/`SortedMap` **types**: those are a representation, this is an erased claim about an otherwise ordinary list, which is why a `Sorted List` still reaches the whole list surface.
+
+The claim **names the ordering it was sorted by**, the way any structure that holds an ordering does (see "A structure that holds an ordering"): orderings are plural, so "sorted" alone would not say enough — an `add_sorted` under a different `cmp` than the sort used would insert at a position that means nothing in the order the list is actually in. `sort` publishes what it resolved, and the two operations that read the claim capture it:
+
+```
+fn by_len(a: Str, b: Str) -> Int { return cmp(size(a), size(b)) }
+
+let words = sort(list_of("pear", "fig", "Apple"), cmp = by_len)   // Sorted<Str, by_len>
+let found = binary_search(words, "kiwi")                          // asks by length: 1
+```
+
+Two lists sorted differently are two types and refuse to mix, and a signature that wants either writes the claim without an ordering (`xs: Sorted List<T>`) — an argument nobody wrote is *unconstrained*, so the value keeps carrying its own. A `let` annotation reads the same way, which is why the `Mut Sorted List<Int>` above still knows what sorted it.
 
 These three are about a *list*. `NonEmpty` also means what it says about the other containers — `Set`, `Map`, `SortedSet`, `SortedMap` — because **a qualifier name may be declared over several subject types**, and the subject decides which one a use means, just as a function overload is decided by its arguments:
 

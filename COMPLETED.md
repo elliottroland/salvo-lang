@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1293 tests, complete: the toolchain tests are
+cargo test                  # 1315 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -128,8 +128,67 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Ordering round (second plan), step 4b complete — the Kotlin hash half, in a
-fraction of the Rust one (2026-09-22).** `Set`/`Map` can now name the `hash` and
+**Ordering round (second plan), step 5 — `Sorted<?cmp>`, which finishes the round
+and closed a defect worse than the one it was named after (2026-09-22).** The
+claim on a list now **names the ordering it was sorted by** (user decision 22):
+`sort`/`mut_sort` publish what resolution found, `add_sorted`/`binary_search`
+capture it from the argument's type [col-sorted-list]. ORDERING.md is deleted with
+this entry; the round is done. Entries below cite "the ordering round's decision
+N" where they used to name that file — the decisions themselves are here, in this
+log, and every live document now points at it instead.
+
+- **A qualifier has nothing to hold an ordering in, and that is why this step was
+  cheap.** A keyed *container* carries its identity at run time (step 4's work);
+  `Sorted List<T>` is a plain `Vec`/`MutableList` with an erased claim
+  [qual-erasure], so the ordering arrives *per operation* as the implicit
+  parameter the binder already lowers to. No markers, no runtime container, no
+  type-system work — steps 3 and 4 had built all of it.
+- **No `intrinsic fn` takes an implicit parameter**, because a lowering is a
+  template over rendered arguments. So the four became **ordinary Salvo fns over
+  three private primitives** — `sort_by`, `insert_sorted_by`, `search_sorted_by`,
+  each handed the comparator as an ordinary fn-typed argument — which is
+  ORDERING.md's recommended way out, and the bodies are one line each. Teaching
+  the intrinsic path to pass implicit arguments was the alternative: emitter
+  surgery for three one-line bodies.
+- **`add_sorted` needed a `refn` to keep its own promise.** Its body now *calls*
+  something that mutates, and a mutating callee's exhaustive `=> list: Mut` drops
+  the claim, so the written `=> list: Mut Sorted` failed validation
+  ([deduce-syntax] is sound only by forbidding a mutating fn from promising a
+  qualifier it has never heard of). The fix is the mechanism that exists for
+  exactly this: a refinement on `insert_sorted_by` re-establishing `Sorted`
+  [qual-refn] — and since `Sorted` has no `qualifies` to host a body, it is a
+  **top-level, module-scoped** `refn` [qual-refn-scope], which is what that form
+  is for.
+- **A `let` annotation had to become a pattern too.** `let live: Mut Sorted
+  List<Int> = mut_sort(xs)` otherwise *erased* the ordering the sort published, and
+  `add_sorted(live, 20)` then had nothing to capture. [cmp-carry]'s "an argument
+  nobody wrote is unconstrained" was written for a signature; applying it to a
+  written annotation is `fill_unwritten_args` in check.rs (one pass filling
+  `Ty::Unknown` positions from the value's type). Written positions stay demands,
+  so an annotation naming *another* ordering still fails, naming both. Without it
+  the only way to write a local's type would have been to name an intrinsic `cmp`
+  inside it.
+- **The defect it closed was worse than "the ordering is ignored".** ORDERING.md
+  expected a wrong answer; measured before the change, a struct with a
+  hand-written `cmp@Person` and `sort(people)` **failed in rustc** (raw `E0277`,
+  "the trait bound `Person: Ord` is not satisfied", no Salvo diagnostic — a
+  [backend-never-wrong] violation) and **threw at run time on Kotlin** inside
+  `sortedWith`. The checker accepted it because a hand-written `cmp` is what
+  orderability *means* [col-hashed-ordered], while both lowerings reached for the
+  host's ordering. Both now compile and print the same thing.
+- Kotlin's `__salvoCompare` is no longer wanted by the sorted-*list* surface (the
+  comparator arrives as an argument), so `needs_compare` lost those four names;
+  the sorted *collections* and the canonical `cmp(Str, Str)` still ask for the
+  file, which is how the code-point correction still happens.
+- The cost in emitted code: every program using `core.list` now carries the four
+  wrappers (they used to be intrinsics and emit nothing), and each comparison goes
+  through one indirect call. Four tests in `carry_tests.rs` — which now loads
+  **real std** rather than a mirror of it, since what is under test is std's own
+  shape (the precedent is `diag_tests`' `check_errors`) — plus the hand-written
+  ordering in both backends' `list_claims` e2e case from verbatim one source, and
+  in `examples/collections`.
+
+ `Set`/`Map` can now name the `hash` and
 `eq` their keys are kept by on **both** backends, which finishes step 4.
 
 - **The JVM has interfaces where Rust has concrete types, and that is the whole
@@ -14349,7 +14408,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1293)
+## Test inventory (all green: 1315)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -14357,14 +14416,18 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 734 - 13 carried-ordering tests (`tests/carry_tests.rs`
-  [cmp-carry] [cmp-binder], the ordering round's step 5: a qualifier declaring a
+- `salvo-core`: 747 - 21 carried-ordering tests (`tests/carry_tests.rs`
+  [cmp-carry] [cmp-binder], the ordering round's steps 3 and 5: a qualifier declaring a
   fn slot, a heap built and pushed under one ordering, two orderings refusing to
   mix in both diagnostics, one binder forcing two arguments to agree and
   accepting two that do, the binder callable in the body, a deduction keeping the
   identity with the qualifier, the two static-identity refusals — a lambda and a
   local — an unknown identity, a selector naming nowhere, a slot that is not a
-  function, and a slot on a fn) + 32 comparison-capability tests (`tests/compare_tests.rs`
+  function, and a slot on a fn; then four over **real std** for the `Sorted`
+  claim [col-sorted-list]: a list sorted by a hand-written ordering searched and
+  inserted into under it, the same list refused by a position demanding another,
+  two sorted lists under one binder agreeing and disagreeing, and an annotation
+  keeping an ordering it does not name while a written one is demanded) + 32 comparison-capability tests (`tests/compare_tests.rs`
   [cmp-groups], the ordering round's step 1: the canonical `cmp`/`eq`/`hash`
   resolving at a concrete type and through dot-notation, a `?Ordered<T>` spread
   filled by resolution, two spreads composing in one signature, the capability
@@ -15510,6 +15573,29 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A std function that stops being an `intrinsic fn` starts being *emitted*, and
+  every golden moves.** Turning `sort`/`mut_sort`/`add_sorted`/`binary_search`
+  into ordinary Salvo (step 5, so they could take an implicit parameter) added
+  four functions to every program's `core/list.rs` / `core/list.kt` — five golden
+  snapshots per backend, plus every checked-in example, because a module's fns
+  are emitted whether or not the program calls them. Expect the snapshot churn to
+  be the *first* thing a change like this shows, and read the diff for the
+  generated bodies rather than skipping to `INSTA_UPDATE=always`: this is where
+  the lowering is visible.
+- **`&&T` where `&T` is wanted compiles, and that is load-bearing for intrinsic
+  templates.** `search_sorted_by`'s lowering writes `__cmp(__x, &__e)` without
+  knowing whether the rendered `__e` is a value or a place, so on the borrowed
+  path it passes `&&T` — which Rust accepts by deref coercion at a call argument.
+  A template cannot know the mode of what it is handed; leaning on the coercion is
+  what lets one template serve both.
+- **A written *type* is a pattern in more places than a signature.** Applying
+  [cmp-carry]'s "an argument nobody wrote is unconstrained" to parameters was step
+  3; step 5 found the hole — a `let` annotation. `let live: Mut Sorted List<Int> =
+  mut_sort(xs)` looked like documentation and was silently throwing the ordering
+  away, which only showed up two lines later as "no matching overload for
+  `add_sorted`". When a type-argument position becomes optional, walk *every* site
+  a type is written and ask what an omitted argument means there.
 
 - **A type position that is not a type has to be taught to *three* places.**
   [cmp-carry]'s identities (`Heap<cmp@Person>`) are written where types go, so

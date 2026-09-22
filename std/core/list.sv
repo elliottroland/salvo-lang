@@ -169,16 +169,65 @@ export intrinsic fn to_str<T>(list: List<T>) [] -> Str => list
 // whether a list happens to be sorted needs the elements compared, which
 // only a backend can do over an unconstrained `T`. It is established by
 // construction instead — `sort`/`mut_sort` — and preserved by `add_sorted`.
-export qualifier Sorted<T> of List<T> with NonEmpty
+// [cmp-carry] The claim **names the ordering it is sorted by**: `Sorted` alone
+// says nothing about *which* order the elements are in, and an `add_sorted`
+// bound to a different `cmp` than the sort used would insert at a position
+// that is a lower bound for one ordering and nonsense for the other. The slot
+// makes the two different types, so they refuse to mix.
+export qualifier Sorted<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
 
-// Returns the elements in order. The comparison is the language's, not the
-// target's: `Str` compares by code point on both backends [col-sorted].
-export intrinsic fn sort<T>(list: List<T>) [] -> List<T> as Sorted => list
+// ===== the ordering-taking primitives =====
+//
+// [col-sorted-list] The three operations below are ordinary Salvo over these,
+// which is what lets them take the ordering as an **implicit** parameter: no
+// `intrinsic fn` takes one, since its lowering is a template over rendered
+// arguments. So the binding happens in Salvo and each primitive is handed the
+// comparator as an ordinary fn-typed argument. Private to this module: what a
+// program sees is the four functions below [mod-private].
+
+// Answers the elements of [list] in the order [cmp] puts them in. A stable
+// sort on both backends, so equal elements keep their relative order.
+intrinsic fn sort_by<T>(list: List<T>, cmp: (T, T) -> Int) [] -> Mut List<T>
+    => list, cmp
+
+// Inserts [elem] at the **lower bound** for [cmp] — before any element that
+// ties with it — which is the position that keeps the list ordered.
+intrinsic fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int) [] -> None
+    => list: Mut, !elem, cmp
+
+// [qual-refn] The claim's owner states what that insert does to it, because the
+// primitive cannot: a function that mutates may not promise back a qualifier it
+// has never heard of [deduce-syntax], and inserting at the lower bound is
+// exactly the operation that keeps a list ordered. Sound because the position is
+// computed with `cmp` — the ordering the claim names, which is why the claim
+// carries it. Module-scoped [qual-refn-scope], and `Sorted` has no `qualifies`
+// to put it beside, so it is written here rather than in the qualifier's body.
+refn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int)
+    => list: +Sorted
+
+// The **lowest** index that ties with [elem] under [cmp], or `None`. A tie is
+// `cmp(a, b) == 0`, never the host's equality: that is the only test
+// consistent with the ordering the `Sorted` claim names [col-membership].
+intrinsic fn search_sorted_by<T>(list: List<T>, elem: T, cmp: (T, T) -> Int) [] -> Int?
+    => list, elem, cmp
+
+// Returns the elements in order, and **publishes the ordering** it sorted by:
+// the result is `Sorted<T, ?cmp>` for whatever `cmp` resolution found here, so
+// the two functions below are computed with the ordering the list actually
+// carries [cmp-carry]. The comparison is the language's, not the target's: a
+// hand-written `cmp@Person` is what sorts a `List<Person>`, and `Str` compares
+// by code point on both backends [col-sorted].
+export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> List<T> as Sorted<T, ?cmp> => list {
+    return sort_by(list, cmp)
+}
 
 // Mutable variant, which is how a `Mut Sorted List<T>` is obtained — and so
 // how `add_sorted` gets something to insert into. `mut_sort(mut_list_of())`
 // is the empty sorted list.
-export intrinsic fn mut_sort<T>(list: List<T>) [] -> Mut List<T> as Sorted => list
+export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T, ?cmp>
+    => list {
+    return sort_by(list, cmp)
+}
 
 // [col-sorted-list] Inserts `elem` at the position that keeps the list in
 // order, which is what lets the claim survive the mutation. Equal elements
@@ -187,16 +236,26 @@ export intrinsic fn mut_sort<T>(list: List<T>) [] -> Mut List<T> as Sorted => li
 //
 // The list must already be sorted: inserting into an unordered list in order
 // would not make it ordered, so the parameter demands the claim it returns.
+// The ordering is **captured from the claim** [cmp-binder] rather than
+// resolved here, so the insert position is computed with the ordering the list
+// was sorted by — a list sorted by one `cmp` cannot be added to under another,
+// because the two are different types.
+//
 // The exhaustive deduction names `Sorted` itself: a mutating function must
 // state what survives [deduce-syntax], and this is the one function that
 // genuinely knows the claim does — so it needs no refinement from the
 // qualifier, unlike `add`, which cannot promise `NonEmpty` [qual-refn].
-export intrinsic fn add_sorted<T>(list: Mut Sorted List<T>, elem: T) [] -> None
-    => list: Mut Sorted, !elem
+export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
+    => list: Mut Sorted, !elem {
+    insert_sorted_by(list, elem, cmp)
+}
 
 // [col-sorted-list] The index of `elem`, or `None`. An honest signature only
 // because the parameter is `Sorted`: over an unordered list the answer would
 // be meaningless rather than merely absent. With equal elements it answers
-// the **lowest** matching index, on both backends.
-export intrinsic fn binary_search<T>(list: Sorted List<T>, elem: T) [] -> Int?
-    => list, elem
+// the **lowest** matching index, on both backends — and "matching" is a tie
+// in the ordering the claim names, `cmp(a, b) == 0` [col-membership].
+export fn binary_search<T>(list: Sorted<T, ?cmp> List<T>, elem: T) [] -> Int?
+    => list, elem {
+    return search_sorted_by(list, elem, cmp)
+}

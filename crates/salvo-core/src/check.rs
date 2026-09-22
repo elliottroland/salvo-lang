@@ -3457,7 +3457,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // [cmp-binder] The **binders** this signature captures. All `?name`
-        // occurrences in one signature are one binding (ORDERING.md decision
+        // occurrences in one signature are one binding (the ordering round's decision
         // 11): bound by an explicit implicit parameter when one is declared
         // — `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp>`,
         // where resolution fills it and the return type publishes what it
@@ -16341,14 +16341,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         );
                     }
                 }
-                let declared = annotated.unwrap_or_else(|| {
-                    // [let-infer] Without an annotation the *logical* value
-                    // type becomes
-                    // the declared type; re-wrap narrowed unions physically.
-                    let repr = self.repr_of(value, &value_ty);
-                    self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
-                    value_ty.clone()
-                });
+                let declared = annotated
+                    .map(|ann| fill_unwritten_args(&ann, &value_ty))
+                    .unwrap_or_else(|| {
+                        // [let-infer] Without an annotation the *logical* value
+                        // type becomes
+                        // the declared type; re-wrap narrowed unions physically.
+                        let repr = self.repr_of(value, &value_ty);
+                        self.maybe_coerce(value.span(), &value_ty, &repr, &value_ty.clone());
+                        value_ty.clone()
+                    });
                 // [proj-anywhere] A view of a temporary cannot be kept.
                 self.reject_temp_view(value, "bind");
                 // Binding from a bare identifier or projection links the
@@ -20548,7 +20550,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         }
         // [cmp-carry] The identity domain. A **binder** binds like a type
         // variable — one binding per signature, so two occurrences captured
-        // from two arguments must agree (ORDERING.md decision 11) — and two
+        // from two arguments must agree (the ordering round's decision 11) — and two
         // *named* identities match only by being the same fn, which is what
         // makes `Heap<min_by_age>` and `Heap<max_by_age>` refuse to mix.
         (Ty::FnName(FnId::Binder(b)), Ty::FnName(id)) => {
@@ -20961,6 +20963,70 @@ fn keyed_container(name: &str) -> Option<(usize, bool)> {
         "SortedMap" => Some((2, true)),
         _ => None,
     }
+}
+
+/// [cmp-carry] A **written type is a pattern for its slots**: an argument the
+/// writer left out is *unconstrained*, so a `let` annotation that names a
+/// qualifier without its identity keeps the identity the value carries —
+/// `let live: Mut Sorted List<Int> = mut_sort(xs)` is still sorted by the `cmp`
+/// the sort published, and `add_sorted(live, 20)` can capture it.
+///
+/// The same rule a *parameter* gets from `qual_present`'s wildcard match, applied
+/// where a type is written for a local. Only unwritten positions are filled
+/// (`Ty::Unknown`, which is what an unwritten slot or a padded type argument
+/// lowers to), so a written identity that disagrees with the value still fails
+/// the subtype check above — naming an ordering is how you demand it.
+fn fill_unwritten_args(ann: &Ty, value: &Ty) -> Ty {
+    match (ann, value) {
+        (
+            Ty::Qualified { quals, base },
+            Ty::Qualified {
+                quals: vq,
+                base: vb,
+            },
+        ) => Ty::Qualified {
+            quals: quals
+                .iter()
+                .map(|q| match vq.iter().find(|v| v.name == q.name) {
+                    Some(v) => Qual {
+                        args: fill_arg_list(&q.args, &v.args),
+                        ..q.clone()
+                    },
+                    None => q.clone(),
+                })
+                .collect(),
+            base: Box::new(fill_unwritten_args(base, vb)),
+        },
+        // A qualified annotation over an unqualified value cannot happen (the
+        // subtype check would have failed), but the reverse does: the value
+        // carries claims the annotation drops, and dropping is the point.
+        (_, Ty::Qualified { base: vb, .. }) => fill_unwritten_args(ann, vb),
+        (Ty::Named { name, args }, Ty::Named { name: vn, args: va }) if name == vn => Ty::Named {
+            name: name.clone(),
+            args: fill_arg_list(args, va),
+        },
+        _ => ann.clone(),
+    }
+}
+
+/// One positional argument list against the value's: an `Unknown` takes the
+/// value's, everything else is recursed into and kept.
+fn fill_arg_list(ann: &[Ty], value: &[Ty]) -> Vec<Ty> {
+    let mut out: Vec<Ty> = ann
+        .iter()
+        .enumerate()
+        .map(|(i, a)| match (a, value.get(i)) {
+            (Ty::Unknown, Some(v)) => v.clone(),
+            (_, Some(v)) => fill_unwritten_args(a, v),
+            (_, None) => a.clone(),
+        })
+        .collect();
+    // An annotation may write fewer arguments than the value carries — the
+    // trailing ones are unwritten, and so unconstrained.
+    if value.len() > out.len() {
+        out.extend(value[out.len()..].iter().cloned());
+    }
+    out
 }
 
 /// [cmp-carry] [implicit-group] Adds a slot to an expanded list, **merging** an

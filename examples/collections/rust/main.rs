@@ -55,6 +55,10 @@ pub struct Note {
     pub text: String,
 }
 
+pub fn by_len(a: &String, b: &String) -> i32 {
+    return (Ord::cmp(&((a.chars().count() as i32)), &((b.chars().count() as i32))) as i32);
+}
+
 pub fn count_unique(xs: &Vec<i32>) -> i32 {
     return (xs.len() as i32);
 }
@@ -114,17 +118,24 @@ pub fn main() {
     let mut growing: Vec<i32> = vec![];
     growing.push(7);
     println(&mut console, &(format!("6. after add, first is {}", first(&growing))));
-    let mut ordered = { let mut __v = vec![40, 10, 30, 20].clone(); __v.sort(); __v };
+    let mut ordered = sort::<i32>(&(vec![40, 10, 30, 20]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     println(&mut console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    let mut __is1 = { let __e = 30; let __at = ordered.partition_point(|__x| __x < &__e); if __at < ordered.len() && !(__e < ordered[__at]) { Some(__at as i32) } else { None } };
+    let mut __is1 = binary_search::<i32>(&ordered, &(30), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     if __is1.is_some() {
         let mut at = __is1.unwrap();
         println(&mut console, &(format!("6. found 30 at {}", at)));
     }
-    let mut live: Vec<i32> = { let mut __v = vec![10, 30].clone(); __v.sort(); __v };
-    { let __e = 20; let __at = live.partition_point(|__x| __x < &__e); live.insert(__at, __e); };
-    { let __e = 5; let __at = live.partition_point(|__x| __x < &__e); live.insert(__at, __e); };
+    let mut live: Vec<i32> = mut_sort::<i32>(&(vec![10, 30]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
+    add_sorted::<i32>(&mut live, 20, &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
+    add_sorted::<i32>(&mut live, 5, &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     println(&mut console, &(format!("6. still sorted {}", format!("[{}]", live.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    let mut bylen = sort::<String>(&(vec!["alpha".to_string(), "be".to_string(), "z".to_string()]), &mut |__i0, __i1| by_len(__i0, __i1));
+    println(&mut console, &(format!("6. by length {}", format!("[{}]", bylen.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    let mut __is2 = binary_search::<String>(&bylen, &("hi".to_string()), &mut |__i0, __i1| by_len(__i0, __i1));
+    if __is2.is_some() {
+        let mut at_len = __is2.unwrap();
+        println(&mut console, &(format!("6. a two-letter word at {}", at_len)));
+    }
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
     println(&mut console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
     let mut __loop1_pass = iter__5(&vowels);

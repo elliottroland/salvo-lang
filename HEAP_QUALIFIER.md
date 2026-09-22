@@ -41,25 +41,26 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 
 | # | TODO (file location) | Kind | Status today |
 |---|---|---|---|
-| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round: **ORDERING.md** | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
+| 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round, now complete (COMPLETED.md's log) | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
 | 3 | `val: proj proj T?` (line 28) | defect | plausible root cause found |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | neither exists for `List` |
 | 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) + verification | `!is` does not parse |
 | 6 | `+=` (line 76) | **DECISION** (small) | only `++`/`--` exist [inc-dec] |
-| 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (ORDERING.md step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
+| 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (the ordering round's step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
 
-Suggested order: **3, then ORDERING.md's steps (which subsume 1 and 7),
-2, 4, 5, 6** — rationale at the end.
+Suggested order: **3, then the ordering round's steps (which subsumed 1 and 7
+and are now complete), 2, 4, 5, 6** — rationale at the end.
 
 ---
 
-## 1. Constraining `Heap` to orderable `T` → **ORDERING.md** (part-built)
+## 1. Constraining `Heap` to orderable `T` → the ordering round (**done**)
 
 The 2026-09-21 design discussion grew this item into a redesign of how
 comparison, equality and hashing work in the language, and it now lives in
-its own round document: **ORDERING.md** (the OPTIONALS.md pattern — deleted
-when the last step lands). In brief:
+its own round document, ORDERING.md — which has since been built out in full
+and deleted (the OPTIONALS.md pattern), its record in COMPLETED.md's decision
+log. In brief:
 
 **Landed 2026-09-21**, which changes what this item still needs: the *bound*
 half is done — `Ordered`/`Eq`/`Hashed` are params groups, the operators resolve
@@ -88,9 +89,9 @@ In outline, as decided:
   structures refuse to mix.
 - `canbe ordered` / `canbe hashed` are deleted.
 
-Decisions (all fourteen made 2026-09-21), lowering, rejected options, and the
-build plan are all in ORDERING.md. For *this* plan: the heap's declaration
-line and its comparisons are unblocked by ORDERING.md steps 1–2 and 5.
+Decisions (fourteen made 2026-09-21, eight more 2026-09-22), lowering, rejected
+options and the build plan are in COMPLETED.md's decision log. For *this* plan:
+the heap's declaration line and its comparisons are unblocked.
 
 ---
 
@@ -117,7 +118,8 @@ argument carries). `NonEmpty` comes back via its refinement
   only because an intrinsic has no body to validate. `heap_push` has one.
 - **A `qualifies` at exit** — `Heap` as written has no body (constructive,
   [qual-constructive]), and even with one, an O(n) re-check per push defeats
-  the point. Also `qualifies` needs the elements compared → ORDERING.md.
+  the point. Also `qualifies` needs the elements compared, which the ordering round
+  supplied.
 
 **What works *today*, as a stopgap:** the consume-and-return shape —
 
@@ -325,7 +327,7 @@ tests + spec rule.
 
 ---
 
-## 7. Comparisons on unconstrained `T` compile silently → fixed by ORDERING.md
+## 7. Comparisons on unconstrained `T` compile silently → fixed by the round
 
 **Confirmed.** `check_comparison_operands` and `check_arith` bail out for
 any operand where `op_lenient` holds, and `op_lenient` includes
@@ -338,7 +340,7 @@ worse than a missing diagnostic: the Rust emitter would produce `a <= b` on
 a bound-less generic — code `rustc` rejects at best ([backend-never-wrong]
 survives only by accident of the target refusing it).
 
-**Fixed 2026-09-21** (ORDERING.md step 2, landed): operators resolve through
+**Fixed 2026-09-21** (the ordering round's step 2, landed): operators resolve through
 the `Ordered`/`Eq` groups, so a comparison on a `T` with no `?cmp`/`?eq` in
 scope is the ordinary missing-capability error naming `?Ordered<T>`, and
 `Ty::Var` left `op_lenient` for comparisons. Equality went the same way —
@@ -352,10 +354,9 @@ step 5.
 
 1. **#3 (`proj proj`)** — a plain defect, no decision needed, and its fix
    de-noises every later hover/test while working on the file.
-2. ✅ **ORDERING.md's steps** — subsumed #1 and #7, and are done as far as this
-   file is concerned (2026-09-21/22): the declaration line and every comparison
-   in `heap.sv` now check. Only ORDERING.md's keyed-container item is left, and
-   nothing here waits on it.
+2. ✅ **The ordering round's steps** — subsumed #1 and #7, and the round is
+   **complete** (2026-09-21/22): the declaration line and every comparison in
+   `heap.sv` now check, and nothing here waits on anything.
 3. **#2 (D2)** — the establishment rule; after it, `heap_push` keeps its
    natural `Mut`-parameter shape. (Meanwhile: rewrite the demo to
    consume-and-return `as Heap`, which works today.)
@@ -372,6 +373,6 @@ from `heap_pop` directly.
 When the decisions land: record each in COMPLETED.md's log, move the
 settled items out of this file, and fold the surviving rules into
 LANGUAGE_SPEC.md with labels ([deduce-syntax]/D2's successor, `!is`, `+=`,
-`swap` under the collections rules; the ordering rules per ORDERING.md).
+`swap` under the collections rules; the ordering rules are already there).
 This document is a working plan, not a spec — it should be deleted once
 `demo/heap.sv` compiles and its lessons are in the permanent documents.

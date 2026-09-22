@@ -1,7 +1,7 @@
 //! [cmp-carry] Structures that **hold** an ordering: the identity in the
 //! type, the fn slot that declares where it goes, and the `?cmp` binder.
 //!
-//! The ordering round's last step (user decisions 2026-09-21, ORDERING.md
+//! The ordering round's last step (user decisions 2026-09-21, the ordering round
 //! decisions 1, 11 and 12). What these tests pin down is that the identity
 //! travels *in the type* — two heaps ordered differently are different types
 //! and refuse to mix — and that a signature's `?cmp` is one binding: filled by
@@ -210,7 +210,7 @@ fn run() [] -> Int {
 }
 
 /// [cmp-binder] The same signature's `?cmp` twice is **one** binding, so two arguments must
-/// carry the same ordering: `heap_merge`'s rule (ORDERING.md decision 11).
+/// carry the same ordering: `heap_merge`'s rule (the ordering round's decision 11).
 #[test]
 fn one_binder_forces_two_arguments_to_agree() {
     let errs = errors_with_heap(
@@ -414,6 +414,173 @@ fn pick<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T)
     );
 }
 
+// ===== the `Sorted` claim [col-sorted-list] =====
+
+/// The `Sorted` tests run against **std's own** declarations rather than a
+/// mirror of them: what is under test is the shape `core.list` gives
+/// `sort`/`add_sorted`/`binary_search`, which a hand-written prelude could only
+/// restate. (The precedent for loading std in a `salvo-core` test is
+/// `diag_tests`' `check_errors`.)
+fn std_errors(src: &str) -> Vec<String> {
+    let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let mut sources = SourceSet::default();
+    let io_errors = sources.add_dir(&std_dir, "rs", true);
+    assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::with_capacity(sources.files.len());
+    for file in &sources.files {
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(
+            errors.is_empty(),
+            "parse errors in {}: {errors:?}",
+            file.name
+        );
+        modules.push(ast);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    resolution
+        .errors
+        .iter()
+        .chain(checked.errors.iter())
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// The ordering a program of its own: `sort` publishes it into the claim, and
+/// the two operations that read the claim capture it [cmp-binder] — so the
+/// search and the insert are computed with the ordering the list actually
+/// carries rather than with whatever is visible at the call.
+#[test]
+fn a_sorted_list_carries_the_ordering_it_was_sorted_by() {
+    let errs = std_errors(
+        r#"
+fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
+fn run() [] -> Int? {
+    let ordered = sort(list_of("pear", "fig"), cmp = by_len)
+    let growing = mut_sort(list_of("pear", "fig"), cmp = by_len)
+    add_sorted(growing, "durian")
+    return binary_search(ordered, "kiwi")
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-carry] Two orderings are two types here too: a list sorted by `by_len`
+/// does not fit a position demanding the canonical `cmp`, and the diagnostic
+/// reads the ordering out of the type — which is the whole reason the claim
+/// carries it. Before step 5 the claim said only "sorted", so this call was
+/// accepted and the search ran under the wrong ordering.
+#[test]
+fn a_list_sorted_by_one_ordering_does_not_fit_another() {
+    let errs = std_errors(
+        r#"
+fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
+fn needs_canonical(xs: Sorted<Str, cmp> List<Str>) [] -> Int? => xs {
+    return binary_search(xs, "x")
+}
+
+fn run() [] -> Int? {
+    let by = sort(list_of("pear"), cmp = by_len)
+    return needs_canonical(by)
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("Sorted<Str, by_len>")),
+        "expected the carried ordering named: {errs:?}"
+    );
+}
+
+/// [cmp-binder] One binder twice is one binding, so two sorted lists in one
+/// signature must have been sorted the same way.
+#[test]
+fn two_sorted_lists_under_one_binder_must_agree() {
+    let src = r#"
+fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
+fn merge<T>(a: Sorted<T, ?cmp> List<T>, b: Sorted<T, ?cmp> List<T>, probe: T) [] -> Int?
+    => a, b, probe {
+    return binary_search(a, probe)
+}
+
+fn run() [] -> Int? {
+    let one = sort(list_of("pear"))
+    let other = sort(list_of("fig"), cmp = REPLACE)
+    return merge(one, other, "x")
+}
+"#;
+    let mixed = std_errors(&src.replace("REPLACE", "by_len"));
+    assert!(
+        mixed
+            .iter()
+            .any(|e| e.contains("Sorted<Str, cmp>") && e.contains("Sorted<Str, by_len>")),
+        "expected both orderings named: {mixed:?}"
+    );
+    // The same source with both lists sorted the same way needs no annotation
+    // anywhere: the binder is filled from the argument types.
+    let agreeing = std_errors(&src.replace("REPLACE", "cmp"));
+    assert!(agreeing.is_empty(), "unexpected errors: {agreeing:?}");
+}
+
+/// [cmp-carry] A **written type is a pattern for its slots**, an annotation
+/// included: `Mut Sorted List<Int>` names the claim without naming its
+/// ordering, and the value keeps carrying the one `mut_sort` published — which
+/// is what lets `add_sorted` capture it. An annotation that *does* name an
+/// ordering is a demand like any other, and the wrong one is refused.
+#[test]
+fn an_annotation_keeps_an_ordering_it_does_not_name() {
+    let errs = std_errors(
+        r#"
+fn run() [] -> None {
+    let live: Mut Sorted List<Int> = mut_sort(list_of(10, 40))
+    add_sorted(live, 20)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+
+    let errs = std_errors(
+        r#"
+fn by_size(a: Int, b: Int) [] -> Int => a, b {
+    return cmp(b, a)
+}
+
+fn run() [] -> None {
+    let live: Mut Sorted<Int, by_size> List<Int> = mut_sort(list_of(10, 40))
+    add_sorted(live, 20)
+}
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("Sorted<Int, by_size>") && e.contains("Sorted<Int, cmp>")),
+        "expected both orderings named: {errs:?}"
+    );
+}
+
 // ===== static identity =====
 /// [cmp-carry] A fn bound into a type must be **named, top-level and
 /// capture-free** (decision 12): a lambda has no identity a type can carry,
@@ -518,7 +685,7 @@ qualifier Bad<T, ?cmp: Int> of List<T>
 }
 
 /// Only a qualifier or an `intrinsic type` may declare one: on a fn the
-/// binder binds bare in the signature instead (ORDERING.md decision 11).
+/// binder binds bare in the signature instead (the ordering round's decision 11).
 #[test]
 fn a_fn_declares_no_slot() {
     let errs = errors(

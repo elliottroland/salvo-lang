@@ -174,35 +174,39 @@ pub fn fn_call(
         ("mut_list_of", Some("[]")) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
-        // [col-sorted-list] `sortedWith` over Salvo's own comparator, never
-        // natural ordering: `String.compareTo` is UTF-16 code-unit order,
-        // where Rust's `String: Ord` is code-point order [kt-ordered].
-        ("sort", Some("List")) => format!(
-            "{}.sortedWith(Comparator {{ __a, __b -> salvo.__salvoCompare(__a, __b) }})",
-            a(0)
-        ),
-        ("mut_sort", Some("List")) => format!(
-            "{}.sortedWith(Comparator {{ __a, __b -> salvo.__salvoCompare(__a, __b) }})\
-             .toMutableList()",
-            a(0)
+        // [col-sorted-list] [cmp-carry] The sorted-list primitives take the
+        // ordering as an ordinary fn-typed argument, so the comparator is
+        // whatever the `Sorted` claim names — never natural ordering, which
+        // would put `String` in UTF-16 code-unit order where Salvo's `Str`
+        // order is code point [kt-ordered]. The canonical `cmp(Str, Str)` is
+        // the runtime helper, so that correction still happens; it arrives
+        // here already wrapped.
+        ("sort_by", Some("List")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __c -> __l.sortedWith(\
+             Comparator {{ __a, __b -> __c(__a, __b) }}).toMutableList() }} }}",
+            a(0),
+            a(1)
         ),
         // A **lower bound**, by scan: the first index whose element is not
-        // below `elem`. `binarySearch` would answer an arbitrary index within
-        // an equal run, which would diverge from Rust [col-sorted-list].
-        ("add_sorted", Some("List")) => format!(
-            "{}.let {{ __l -> {}.let {{ __e -> __l.add(\
-             __l.indexOfFirst {{ salvo.__salvoCompare(it, __e) >= 0 }}\
-             .let {{ if (it < 0) __l.size else it }}, __e) }} }}",
+        // below `elem` in that ordering. `binarySearch` would answer an
+        // arbitrary index within an equal run, which would diverge from Rust
+        // [col-sorted-list].
+        ("insert_sorted_by", Some("List")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __e -> ({}).let {{ __c -> __l.add(\
+             __l.indexOfFirst {{ __c(it, __e) >= 0 }}\
+             .let {{ if (it < 0) __l.size else it }}, __e) }} }} }}",
             a(0),
-            a(1)
+            a(1),
+            a(2)
         ),
-        ("binary_search", Some("List")) => format!(
-            "{}.let {{ __l -> {}.let {{ __e -> __l.indexOfFirst \
-             {{ salvo.__salvoCompare(it, __e) >= 0 }}\
-             .let {{ if (it >= 0 && salvo.__salvoCompare(__l[it], __e) == 0) it \
-             else null }} }} }}",
+        // Lower bound, then a *tie* test in the same ordering [col-membership].
+        ("search_sorted_by", Some("List")) => format!(
+            "({}).let {{ __l -> ({}).let {{ __e -> ({}).let {{ __c -> \
+             __l.indexOfFirst {{ __c(it, __e) >= 0 }}\
+             .let {{ if (it >= 0 && __c(__l[it], __e) == 0) it else null }} }} }} }}",
             a(0),
-            a(1)
+            a(1),
+            a(2)
         ),
         ("get", Some("List")) => format!("{}.getOrNull({})", a(0), a(1)),
         ("add", Some("List")) => format!("{}.add({})", a(0), a(1)),

@@ -32,6 +32,13 @@ struct Note : auto Eq<self> {
     text: Str
 }
 
+// [cmp-carry] An ordering of this program's own, to sort by below. Nothing
+// declares it special: an ordering is a function of the right shape, and a
+// `sort` that is handed one publishes it into the `Sorted` claim it mints.
+fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
 // [col-distinct] A position that *demands* the claim: only a list that came
 // from a set (or was otherwise minted) can be passed here, so the body needs
 // no duplicate check.
@@ -154,6 +161,16 @@ fn main() [use] -> None {
     add_sorted(live, 20)
     add_sorted(live, 5)
     println("6. still sorted ${to_str(live)}")
+
+    // The claim names the ordering it was sorted by, because orderings are
+    // plural: `sort` publishes what it used, and `binary_search` reads it out
+    // of the list's type rather than resolving one of its own — so searching
+    // this list asks how long a word is, not where it falls alphabetically.
+    let bylen = sort(list_of("alpha", "be", "z"), cmp = by_len)
+    println("6. by length ${to_str(bylen)}")
+    if binary_search(bylen, "hi") is Int at_len {
+        println("6. a two-letter word at ${at_len}")
+    }
 
     // `Distinct` comes from a set: it is the one thing a set can honestly
     // promise about the list it converts to.

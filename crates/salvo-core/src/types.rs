@@ -151,7 +151,7 @@ pub struct FnParamContract {
 ///
 /// Not a function *value*. A fn bound into a type must have **static
 /// identity** — named, top-level, capture-free (user decision 2026-09-21,
-/// ORDERING.md decision 12) — which is exactly what makes it something a
+/// the ordering round's decision 12) — which is exactly what makes it something a
 /// type can print, compare and substitute: `Heap<min_by_age>` and
 /// `Heap<max_by_age>` are different types that refuse to mix, and no
 /// closure, capture or value representation is implied anywhere.
@@ -163,7 +163,7 @@ pub enum FnId {
     /// [cmp-binder] `?cmp` — the **binder**: one binding per signature, in the identity
     /// domain what `Ty::Var` is in the type domain. Filled at the call site
     /// by the resolved implicit, or captured from an argument's type
-    /// (ORDERING.md decision 11).
+    /// (the ordering round's decision 11).
     Binder(String),
 }
 
@@ -280,7 +280,7 @@ impl Ty {
 
     /// [cmp-carry] Every binder name appearing anywhere in this type — the
     /// occurrences one signature's single binding is shared between
-    /// (ORDERING.md decision 11).
+    /// (the ordering round's decision 11).
     pub fn binders(&self) -> Vec<String> {
         let mut out = Vec::new();
         self.collect_binders(&mut out);

@@ -61,6 +61,12 @@ than re-checking it.
   elements. It is what makes `binary_search` honest: over an unordered list the
   answer would be meaningless, not merely absent. `add_sorted` is the insert
   that *keeps* the claim, placing the element where the order survives.
+  The claim also **names the ordering it was sorted by**, since orderings are
+  plural: `sort(words, cmp = by_len)` publishes `by_len` into the claim, and
+  the search and the insert read it out of the list's type rather than
+  resolving an ordering of their own. Two lists sorted differently are two
+  types, and a signature that takes either writes `Sorted List<T>` — an
+  argument nobody writes is unconstrained.
 - `Distinct` comes from a set, the one thing a set can honestly promise about
   the list it converts to. `count_unique` demands it and needs no duplicate
   check.

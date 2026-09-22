@@ -414,25 +414,50 @@ Conventions:
     *and* across the implicitly visible `core` modules, so there is no
     `NonEmpty` over `Set`/`Map`/`SortedSet`/`SortedMap`; that needs same-name
     different-subject qualifiers, a DECISION in ROADMAP.md.
-* [col-sorted-list] std declares `qualifier Sorted<T> of List<T>` in
+* [col-sorted-list] std declares
+  `qualifier Sorted<T, ?cmp: (T, T) -> Int> of List<T>` in
   `core.list` — a **state claim** over a list, and a different mechanic from
   the `SortedSet`/`SortedMap` types [col-sorted], which are a representation.
   A `Sorted List<T>` still reaches the whole list surface.
+  * **The claim names the ordering it was sorted by** (user decision
+    2026-09-22, the ordering round's decision 22): orderings are plural [cmp-groups], so
+    "sorted" alone does not say enough — an `add_sorted` under a different `cmp`
+    than the sort used inserts at a position that is a lower bound for one
+    ordering and nonsense for the other. The slot is the same mechanism a
+    structure that *holds* an ordering uses [cmp-carry], and the identity is the
+    only thing in the claim: a qualifier erases, so nothing holds the comparator
+    at run time and it arrives at each operation as the implicit parameter the
+    binder lowers to [cmp-binder].
   * **No `qualifies`**, so no `is Sorted`: deciding whether a list happens to
     be sorted compares its elements, which nothing can do over an
     unconstrained `T`. It is minted by `sort` / `mut_sort` and nowhere else.
-  * `add_sorted(list: Mut Sorted List<T>, elem: T) => list: Mut Sorted, !elem`
+  * `sort(list: List<T>, ?Ordered<T>) -> List<T> as Sorted<T, ?cmp>` (and
+    `mut_sort`) **publishes** what resolution found; `add_sorted` and
+    `binary_search` **capture** it from the argument's type, so each is computed
+    with the ordering the list is actually in. Before this, both backends sorted
+    and searched by the *host's* ordering — Rust's derived `Ord`, Kotlin's
+    `__salvoCompare` — so a hand-written `cmp@Person` was ignored by all three.
+  * `add_sorted(list: Mut Sorted<T, ?cmp> List<T>, elem: T) => list: Mut Sorted, !elem`
     inserts at the position that keeps the order, and names `Sorted` in its
-    **own** exhaustive deduction list rather than needing a refinement — it is
-    the one function that genuinely knows the claim survives. Its parameter
-    *demands* the claim, since inserting in order into an unordered list would
-    not make it ordered.
-  * `binary_search(list: Sorted List<T>, elem: T) -> Int?` is honest only
-    because of the parameter's claim. With equal elements both backends answer
-    the **lowest** matching index: each lowers to an explicit lower bound
-    (Rust `partition_point` plus an equality test — not `Vec::binary_search`,
-    which may answer any index in an equal run; Kotlin an `indexOfFirst` over
-    `__salvoCompare`).
+    **own** exhaustive deduction list. Its parameter *demands* the claim, since
+    inserting in order into an unordered list would not make it ordered.
+  * `binary_search(list: Sorted<T, ?cmp> List<T>, elem: T) -> Int?` is honest
+    only because of the parameter's claim. With equal elements both backends
+    answer the **lowest** matching index, and "matching" is a **tie in that
+    ordering** (`cmp(a, b) == 0`), never the host's equality [col-membership]:
+    each lowers to an explicit lower bound (Rust `partition_point`, not
+    `Vec::binary_search`, which may answer any index in an equal run; Kotlin an
+    `indexOfFirst`).
+  * **The four are ordinary Salvo fns over three private primitives**
+    (`sort_by`, `insert_sorted_by`, `search_sorted_by`), because no
+    `intrinsic fn` takes an implicit parameter: a lowering is a template over
+    rendered arguments, so the binding happens in Salvo and the primitive is
+    handed the comparator as an ordinary fn-typed argument. The alternative —
+    teaching the intrinsic path to pass implicit arguments — was rejected as
+    emitter surgery for a three-line body. `insert_sorted_by` carries a
+    module-scoped `refn` re-establishing `Sorted` [qual-refn], which is what
+    lets `add_sorted` promise the claim across the mutation; the qualifier has
+    no `qualifies` to host it, so it is written top-level [qual-refn-scope].
   * The elements must be **orderable**, on the same terms a `SortedSet` key is
     [col-key-eligible] — checked where the claim is written, and where a call
     infers it (a constructor's `as Q` lives beside the return type rather than
@@ -491,14 +516,14 @@ Conventions:
     keys grows an argument to say it in. What makes that stable for the canonical
     case is [cmp-canonical] — a canonical travels with its type, so the `cmp` an
     unwritten slot resolves to is the same one everywhere the type is usable.
-  * **A non-canonical identity is refused for now**, at the written type, naming
-    what it waits for: a keyed container has to carry the function at run time and
-    neither host's container has a slot for one, so the containers must become
-    Salvo-runtime ones first (`SalvoSet`/`SalvoMap` keyed by the slots on Rust, a
-    hash container on Kotlin). The declarations are the language half of
-    ORDERING.md's step 4; the runtimes are the other half, still open in
-    ROADMAP.md. An error rather than wrong output [backend-never-wrong], and the
-    type then degrades to the canonical form so one mistake stays one diagnostic.
+  * **A non-canonical identity is kept at run time**, which is what the
+    containers' runtimes were rewritten for (landed 2026-09-22, the ordering
+    round's step 4b): neither host's container has a slot for a pair of
+    functions, so Rust keys `SalvoSet`/`SalvoMap` and the sorted pair through
+    zero-sized markers behind a boxed store [rs-collections], and Kotlin builds
+    its `TreeSet`/`TreeMap` with the identity as the comparator and its hash
+    containers over the pair as values [kt-ordered]. `Set<Str>` is unchanged
+    either way: the canonical path is the host's own hashing and ordering.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the
@@ -2892,7 +2917,7 @@ Conventions:
     visibility exists — so the two must be kept in step by hand.
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
-  (user decision 2026-09-21, ORDERING.md decision 1). The identity lands *in
+  (user decision 2026-09-21, the ordering round's decision 1). The identity lands *in
   the type*: `Heap<min_by_age> Mut List<Person>` and
   `Heap<max_by_age> Mut List<Person>` are different types that refuse to mix,
   and [implicit-resolve]'s per-call-site locality stops being a hazard because
@@ -2944,6 +2969,14 @@ Conventions:
     `Heap<T, ?eq> …` constrains the `eq` slot while saying nothing about `cmp`.
     `Heap<Person, f>` as a *parameter* demands exactly `f`. That makes the bare
     form the empty case of one rule rather than a special case of its own.
+    * **A `let` annotation is a pattern too** (2026-09-22, step 5): an
+      unwritten argument is filled from the value, so
+      `let live: Mut Sorted List<Int> = mut_sort(xs)` keeps the ordering the
+      sort published and `add_sorted(live, 20)` can capture it. Written
+      positions are demands as ever — an annotation naming *another* ordering
+      fails the ordinary subtype check, naming both. Without this the one way
+      to write a local's type would be to name an intrinsic `cmp` in it, and
+      annotating would silently throw the identity away.
   * **A bare name is resolved where the type is used**, like any implicit
     [implicit-resolve]: `Heap<Person, min_by_age>` names "the `min_by_age` visible
     here", and an *unwritten* slot is resolved by the slot's own name — which is
@@ -2952,7 +2985,7 @@ Conventions:
     does not depend on the reader's imports [cmp-canonical], and it is what a
     resolved identity is published as when the declaration has one.
 * [cmp-binder] **The binder binds bare in the signature** (user decision
-  2026-09-21, ORDERING.md decision 11): all `?name` occurrences in one
+  2026-09-21, the ordering round's decision 11): all `?name` occurrences in one
   signature denote **one binding**. It is filled either way round:
   * by an **explicit implicit parameter** when the fn declares one —
     `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp>`, where

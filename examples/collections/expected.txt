@@ -18,6 +18,8 @@
 6. sorted [10, 20, 30, 40]
 6. found 30 at 2
 6. still sorted [5, 10, 20, 30]
+6. by length [z, be, alpha]
+6. a two-letter word at 1
 6. distinct [2, 3, 5, 7] of 4
 aeiou
 7. ada is 36

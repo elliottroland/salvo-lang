@@ -12947,7 +12947,7 @@ impl<'p> Emitter<'p> {
         // no body, so its written clause is the whole truth — and it must
         // mention every non-Copy, non-variadic parameter, so an unmentioned
         // one is genuinely kept. Six-odd std declarations are in this set
-        // (`send`, `discard`, `add`, `add_sorted`, `put`, `reduce`'s seed),
+        // (`send`, `discard`, `add`, `insert_sorted_by`, `put`, `reduce`'s seed),
         // and each of them needs its argument *owned* rather than borrowed.
         let consumed: Vec<bool> = fixed
             .iter()

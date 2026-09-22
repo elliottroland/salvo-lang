@@ -236,74 +236,19 @@ out to cost more than it buys. (a) is the one to avoid: it makes the two sides o
 the compiler disagree about what a signature means, which is how the original
 defect happened.
 
-## Ordering, equality and hashing — the last five steps (decided 2026-09-22, see ORDERING.md)
+## Ordering, equality and hashing — the round, and what it left
 
-What landed already: the three capabilities as params groups, `@`-scoped
-canonicals, `default` obligations, the operators through the groups
-(2026-09-21), and identities in types, the written forms, the `?cmp` binder and
-a worked example on both backends (2026-09-22). Their record is COMPLETED.md's
-decision log; the rules are [cmp-groups], [cmp-canonical], [cmp-auto],
-[op-order], [op-equality], [cmp-carry] and [cmp-binder], plus "A structure that
-holds an ordering" in LANGUAGE.md.
-
-**The remainder is decided** (user decisions 15–22, 2026-09-22 — no DECISION is
-outstanding) and written up as a five-step sequence in **ORDERING.md**, which
-holds the reasoning, the rejected alternatives and the container lowering.
-In brief:
-
-1. ✅ **`default` → `auto`, at the function level** — **landed 2026-09-22**: a bodiless `auto fn
-   cmp@Person(…)` is the structural implementation, `auto Group<self>` is sugar
-   for one per member, and the obligation clause goes back to being only a
-   promise. What it buys is *some* members generated beside others written by
-   hand — a custom `eq` over a structural `cmp`, which `default` could not
-   express.
-2. ✅ **`Hashed<T>` gains `eq`** — **landed 2026-09-22** (a hash container buckets by `hash` and confirms
-   by `eq`, so the pair is the unit); overlapping spreads **merge** to one
-   position; a spread resolves **every** member, used or not.
-3. ✅ **Group spreads in a slot list** — **landed 2026-09-22** (`qualifier Heap<T, ?Ordered<T>>`), slots
-   optional at a use site, aliasing with the destructuring syntax
-   (`Heap<T, ?cmp: cmp2>`), and an alias that **remembers its slot** so two
-   in-scope candidates for one capability are refused whatever they are called.
-4. ✅ **The keyed containers** — **complete 2026-09-22**. 4a: — the four
-   types' slots with membership named per container ([col-membership],
-   [col-keyed-slots]), the canonical default left unmaterialized so `Set<Str>` is
-   unchanged, and a non-canonical identity refused with a message naming what it
-   waits for. **4b is the runtimes**, and its lowering is settled (user decision
-   2026-09-22): keep ORDERING.md's **ZST markers**, but erase them at the
-   container's edge behind a `Box<dyn SortedStore<T>>` — so comparisons stay
-   direct and inlinable while `SalvoSortedSet<Person>` is one Rust type whatever
-   it is ordered by, and no emitted signature grows a marker parameter. A
-   `repr(transparent)` `OrdBy<C, T>` makes lookups clone-free through one
-   `unsafe` cast whose precondition the compiler enforces. **The Rust sorted pair
-   landed 2026-09-22** (runtime only — see COMPLETED.md). What is left:
-   - ✅ **the Rust sorted pair, wired** — **landed 2026-09-22**: markers at
-     construction, `HostOrd` for the canonical path, the identity flowing from the
-     position into the construction, and `carried_identities` recording what each
-     identity resolves to (COMPLETED.md has the shape and the two traps);
-   - ✅ **the Rust hash pair** — **landed 2026-09-22**, and it closed the
-     pre-existing defect it was going to inherit: a generic fn over a `Set<T>` that
-     hashes used to type-check and then fail in rustc, because the runtime's hashing
-     operations needed bounds the emitter does not write. Behind the store every
-     operation is bound-free (COMPLETED.md has the two resolution traps);
-   - ✅ **Kotlin, both halves** — **landed 2026-09-22**: the `TreeSet`/`TreeMap`
-     comparator comes from the identity, and `SalvoHashMap`/`SalvoHashSet` extend
-     the JVM's abstract collections so a named hash pair costs the construction
-     sites and nothing else;
-   - **the checker**: lift the not-yet gate in `check_key_eligibility`, and let a
-     signature that omits a container's identity arguments accept a value that
-     carries them (`size(set: Set<T>)` over a `Set<Str, my_hash>`) — the same
-     pattern rule qualifiers already have;
-   - ✅ **`binary_search`'s confirm** — **fixed 2026-09-22** (it was independent
-     of the runtimes): it was the *host's* `==` on both backends, and is now a tie
-     test in the ordering the bound used, so it depends on exactly the capability
-     its parameter's `Sorted` claim is about.
-5. **`Sorted<?cmp>`** — **the only item left in the round**, written out in full
-   under "Step 5 in full" in ORDERING.md (the problem, the four signatures, the
-   crux that a qualifier has nothing to hold an ordering in, the snag that no
-   `intrinsic fn` takes an implicit today with two ways out and a recommendation,
-   the file and line references, and what done looks like). In brief: the list
-   claim carrying its ordering, with
-   `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
+**The round is complete** (2026-09-22). Its five steps landed in order and
+ORDERING.md, which held the sequence and the reasoning, is deleted; the record is
+COMPLETED.md's decision log, and the rules are [cmp-groups], [cmp-hash-values],
+[cmp-canonical], [cmp-auto], [op-order], [op-equality], [cmp-carry], [cmp-binder],
+[col-membership], [col-keyed-slots], [col-sorted-list], plus "A structure that
+holds an ordering" in LANGUAGE.md. In one line each: the three capabilities are
+`params` groups, a canonical is `@`-scoped to its type, `auto fn` generates a
+structural member beside hand-written ones, the operators resolve through the
+groups, a structure or a claim **names the ordering it holds** as a type argument,
+and the four keyed containers plus the `Sorted` list claim keep their keys by the
+ordering or hash their type names — on both backends.
 
 `Ordered<T>` deliberately does **not** carry an `eq`: neither host's sorted
 container consults equality, so the slot would be read by nothing — and keeping
@@ -311,10 +256,13 @@ the two apart is what lets one program hold a `Set<Person>` by all fields beside
 a `SortedSet<Person, by_age>` by rank without either being a lie. The
 `cmp`/`eq`/`hash` contracts stay **trusted**, as [cmp-groups] already has them.
 
-A noted follow-on from the round, separately decided when raised: migrating
-qualifier bodies' `fn qualifies` to the same `@`-scoped shape
-(`fn qualifies@Positive`); handler members stay put — they interact with handler
-state.
+What the round left open:
+
+- **`fn qualifies@Positive`** — migrating qualifier bodies' `fn qualifies` to the
+  same `@`-scoped shape the canonicals use (separately decided when raised).
+  Handler members stay put: they interact with handler state.
+- **Recursive implicit resolution**, so a tuple or a list can have a `cmp` of its
+  own — its own section below.
 
 The heap demo's remaining plan (D2's motivating example, the `proj proj T?`
 defect, `swap`, `!is`, `+=`) is **HEAP_QUALIFIER.md**, with its own suggested
@@ -341,10 +289,10 @@ ordering, which agrees with a generated `auto fn cmp` by construction.
 
 ## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
 
-The user's intent, stated while deciding ORDERING.md's canonical
+The user's intent, stated while deciding the ordering round's canonical
 placement: **reject scope-based silent winners everywhere** — ambiguity
 between fitting candidates should be an error naming the selector
-spellings, not a resolution by rung. ORDERING.md's decision 9 (ambiguity
+spellings, not a resolution by rung. The round's decision 9 (ambiguity
 around an `@`-scoped canonical always errors, explicit and implicit
 alike) is the first installment; the rest is deferred to this item so it
 can be designed as a **consistency pass across features** rather than
@@ -366,7 +314,8 @@ piecemeal. What it revisits:
 
 ## Value-level backend parity for hash and random (recorded, not scheduled)
 
-Decided 2026-09-21 (ORDERING.md decision 13): callable `hash` lowers to
+Decided 2026-09-21 (the ordering round's decision 13, COMPLETED.md's log):
+callable `hash` lowers to
 each backend's **native** hashing, so hash *values* diverge across
 backends — accepted deliberately, on the analogy of the two backends
 generating different random numbers. The shape and the high-level

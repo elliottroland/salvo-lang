@@ -784,7 +784,7 @@ impl<'s> Parser<'s> {
         for slot in &slots {
             // [cmp-carry] A fn slot belongs to a declaration whose *values*
             // can carry an identity — a qualifier or an intrinsic type. On a
-            // fn the binder binds bare in the signature instead (ORDERING.md
+            // fn the binder binds bare in the signature instead (the ordering round
             // decision 11): it is an indirect way of declaring a fn in the
             // parameter scope, so it does not belong in the generics list.
             let (name, span) = slot_name_span(slot);

@@ -28,6 +28,10 @@ data class Note(
     val text: String,
 )
 
+fun by_len(a: String, b: String): Int {
+    return (a.length).compareTo(b.length)
+}
+
 fun count_unique(xs: List<Int>): Int {
     return xs.size
 }
@@ -88,17 +92,24 @@ fun main() {
     val growing: MutableList<Int> = mutableListOf<Int>()
     growing.add(7)
     println(console, "6. after add, first is ${first(growing)}")
-    val ordered = listOf<Int>(40, 10, 30, 20).sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) })
+    val ordered = sort(listOf<Int>(40, 10, 30, 20), { __i0, __i1 -> (__i0).compareTo(__i1) })
     println(console, "6. sorted ${ordered.joinToString(", ", "[", "]")}")
-    var __is1 = ordered.let { __l -> 30.let { __e -> __l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it >= 0 && salvo.__salvoCompare(__l[it], __e) == 0) it else null } } }
+    var __is1 = binary_search(ordered, 30, { __i0, __i1 -> (__i0).compareTo(__i1) })
     if (__is1 != null) {
         val at = __is1 as Int
         println(console, "6. found 30 at $at")
     }
-    val live: MutableList<Int> = listOf<Int>(10, 30).sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) }).toMutableList()
-    live.let { __l -> 20.let { __e -> __l.add(__l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } }
-    live.let { __l -> 5.let { __e -> __l.add(__l.indexOfFirst { salvo.__salvoCompare(it, __e) >= 0 }.let { if (it < 0) __l.size else it }, __e) } }
+    val live: MutableList<Int> = mut_sort(listOf<Int>(10, 30), { __i0, __i1 -> (__i0).compareTo(__i1) })
+    add_sorted(live, 20, { __i0, __i1 -> (__i0).compareTo(__i1) })
+    add_sorted(live, 5, { __i0, __i1 -> (__i0).compareTo(__i1) })
     println(console, "6. still sorted ${live.joinToString(", ", "[", "]")}")
+    val bylen = sort(listOf<String>("alpha", "be", "z"), ::by_len)
+    println(console, "6. by length ${bylen.joinToString(", ", "[", "]")}")
+    var __is2 = binary_search(bylen, "hi", ::by_len)
+    if (__is2 != null) {
+        val at_len = __is2 as Int
+        println(console, "6. a two-letter word at $at_len")
+    }
     val unique = deduped.toMutableList()
     println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${count_unique(unique)}")
     var __loop1_pass = iter__5(vowels)

@@ -2285,6 +2285,13 @@ export fn count_unique(xs: Distinct List<Int>) [] -> Int => xs {
     return size(xs)
 }
 
+// [cmp-carry] An ordering of the program's own, which is nothing like the
+// code-point order `cmp(Str, Str)` gives: what `sort` publishes into the
+// `Sorted` claim is *this* one, so the search and the insert below use it too.
+export fn by_len(a: Str, b: Str) [] -> Int => a, b {
+    return cmp(size(a), size(b))
+}
+
 export fn main() [use] {
     use StdOutConsole()
 
@@ -2323,6 +2330,19 @@ export fn main() [use] {
     // Strings order by code point on both backends.
     let words = sort(list_of("pear", "Apple", "fig"))
     println("words ${to_str(words)}")
+
+    // [cmp-carry] …unless the claim names another ordering, which is what the
+    // slot is for: `by_len` sorts, and `binary_search` and `add_sorted` are
+    // computed with it because the list's *type* carries it. Under the
+    // code-point order none of these three lines would come out this way.
+    let bylen = sort(list_of("pear", "fig", "Apple"), cmp = by_len)
+    println("by length ${to_str(bylen)}")
+    if binary_search(bylen, "kiwi") is Int at {
+        println("a 4-letter word at ${at}")
+    }
+    let growing: Mut Sorted List<Str> = mut_sort(list_of("pear", "fig", "Apple"), cmp = by_len)
+    add_sorted(growing, "durian")
+    println("still by length ${to_str(growing)}")
 
     // Distinct, minted by a set.
     let unique = to_list(set_of(3, 1, 3, 2))
@@ -2365,6 +2385,9 @@ export fn main() [use] {
      9 absent\n\
      still sorted [5, 10, 20, 40]\n\
      words [Apple, fig, pear]\n\
+     by length [fig, pear, Apple]\n\
+     a 4-letter word at 1\n\
+     still by length [fig, pear, Apple, durian]\n\
      distinct [3, 1, 2] of 3\n\
      set claim 1\n\
      map claim 1\n\
@@ -2776,7 +2799,7 @@ fn main() [use] {
 /// [cmp-carry] [cmp-binder] A structure that **holds** an ordering: fixed at
 /// construction, carried in the type, and what the body compares with — so one
 /// generic function answers differently for two lists built with two orderings
-/// (user decisions 2026-09-21, ORDERING.md step 5).
+/// (user decisions 2026-09-21, the ordering round's step 5).
 ///
 /// Source and expected stdout are **verbatim** the Rust backend's
 /// `rustc_compiles_and_runs_a_carried_ordering`. That equality is the

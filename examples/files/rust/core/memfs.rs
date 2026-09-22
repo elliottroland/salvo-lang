@@ -132,7 +132,7 @@ impl Fs for MemFs {
                 Some(names.insert(name.clone()));
             }
         }
-        let mut sorted: Vec<String> = { let mut __v = names.iter().cloned().collect::<Vec<_>>().clone(); __v.sort(); __v };
+        let mut sorted: Vec<String> = sort::<String>(&(names.iter().cloned().collect::<Vec<_>>()), &mut |__i0, __i1| (Ord::cmp(&__i0[..], &__i1[..]) as i32));
         return Union2::<Vec<String>, FsError>::U1(ok(sorted));
     }
 

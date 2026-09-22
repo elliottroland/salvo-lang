@@ -116,7 +116,7 @@ class MemFs : Fs {
                 names.add(name)
             }
         }
-        val sorted: List<String> = names.toMutableList().sortedWith(Comparator { __a, __b -> salvo.__salvoCompare(__a, __b) })
+        val sorted: List<String> = sort(names.toMutableList(), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
         return U2_1<List<String>, FsError>(ok(sorted))
     }
 

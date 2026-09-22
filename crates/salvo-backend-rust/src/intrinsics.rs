@@ -233,30 +233,42 @@ pub fn fn_call(
         // Cloned, not moved: Salvo does not track a variadic position, so
         // the spread array stays usable afterwards — which is what Kotlin's
         // `listOf(*arr)` does too.
-        // [col-sorted-list] `sort` uses Rust's own ordering, which for `String`
-        // is byte-wise UTF-8 = code-point order — the language's rule
-        // [col-sorted]. Kotlin has to be told; here it is free.
-        ("sort", Some("List")) | ("mut_sort", Some("List")) => format!(
-            "{{ let mut __v = {}.clone(); __v.sort(); __v }}",
+        // [col-sorted-list] [cmp-carry] The sorted-list primitives take the
+        // ordering as an ordinary fn-typed argument — `sort`/`add_sorted`/
+        // `binary_search` are ordinary Salvo over these, which is how they get
+        // to take it as an *implicit* parameter (a template cannot). So the
+        // comparator is whatever the claim names, never Rust's own `Ord`: a
+        // hand-written `cmp@Person` sorts here.
+        //
+        // `sort_by` is Rust's stable sort, and the `i32` the comparator answers
+        // becomes an `Ordering` by comparing it against zero.
+        ("sort_by", Some("List")) => format!(
+            "{{ let mut __cmp = {}; let mut __v = {}.clone(); \
+             __v.sort_by(|__a, __b| __cmp(__a, __b).cmp(&0)); __v }}",
+            a(1),
             a(0)
         ),
-        // A **lower bound**: the count of elements strictly below `elem`, so
-        // an equal run is entered from the front and both backends land on the
-        // same index.
-        ("add_sorted", Some("List")) => format!(
-            "{{ let __e = {}; let __at = {}.partition_point(|__x| __x < &__e); \
+        // A **lower bound**: the count of elements strictly below `elem` in
+        // *that* ordering, so an equal run is entered from the front and both
+        // backends land on the same index.
+        ("insert_sorted_by", Some("List")) => format!(
+            "{{ let mut __cmp = {}; let __e = {}; \
+             let __at = {}.partition_point(|__x| __cmp(__x, &__e) < 0); \
              {}.insert(__at, __e); }}",
+            a(2),
             a(1),
             a(0),
             a(0)
         ),
-        // Lower bound, then a *tie* test — not an equality test, and not
-        // `Vec::binary_search`, which
-        // may answer any index within an equal run [col-sorted-list].
-        ("binary_search", Some("List")) => format!(
-            "{{ let __e = {}; let __at = {}.partition_point(|__x| __x < &__e); \
-             if __at < {}.len() && !(__e < {}[__at]) {{ Some(__at as i32) }} \
+        // Lower bound, then a *tie* test in the same ordering — not an equality
+        // test, and not `Vec::binary_search`, which may answer any index within
+        // an equal run [col-sorted-list].
+        ("search_sorted_by", Some("List")) => format!(
+            "{{ let mut __cmp = {}; let __e = {}; \
+             let __at = {}.partition_point(|__x| __cmp(__x, &__e) < 0); \
+             if __at < {}.len() && __cmp(&{}[__at], &__e) == 0 {{ Some(__at as i32) }} \
              else {{ None }} }}",
+            a(2),
             a(1),
             a(0),
             a(0),

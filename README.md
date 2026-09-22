@@ -118,7 +118,8 @@ fn main() [use] {
   declared. A structure that *stays* ordered names the ordering it holds as a
   type argument (`Heap<T, ?cmp: (T, T) -> Int>`), so a heap built under one
   ordering is a different type from one built under another and the two refuse
-  to mix. Arrays stay for fixed-size data and the variadic boundary.
+  to mix — and a claim does the same, so a `Sorted` list is searched by the
+  ordering that sorted it rather than by the host's. Arrays stay for fixed-size data and the variadic boundary.
 - **Unions & nullability**: `A | B` types, `T?` as `T | None` (no null
   value), flow-sensitive narrowing via `is` — of variables and of field
   chains (`p.address.city`) — and exhaustive `when`.

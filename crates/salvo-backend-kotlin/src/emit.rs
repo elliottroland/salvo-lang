@@ -7601,19 +7601,13 @@ impl<'p> Emitter<'p> {
                 self.needs_scheduler = true;
             }
             // [col-sorted] [kt-ordered] The sorted constructors build their
-            // tree with Salvo's comparator, and the `Sorted List` surface
-            // compares with it too [col-sorted-list], so both need its
-            // runtime file.
+            // tree with Salvo's comparator. The `Sorted List` surface no
+            // longer needs it: its primitives are handed the ordering the
+            // claim names [col-sorted-list], and where that is the canonical
+            // `cmp(Str, Str)` the case below asks for the file.
             if matches!(
                 f.name.name.as_str(),
-                "sorted_set_of"
-                    | "mut_sorted_set_of"
-                    | "sorted_map_of"
-                    | "mut_sorted_map_of"
-                    | "sort"
-                    | "mut_sort"
-                    | "add_sorted"
-                    | "binary_search"
+                "sorted_set_of" | "mut_sorted_set_of" | "sorted_map_of" | "mut_sorted_map_of"
             ) {
                 self.needs_compare = true;
             }

@@ -455,8 +455,8 @@ the blanket rule:
     scalars in casts (`(i) as usize`), which a `&i32` place fails
     (E0606; found live 2026-09-12).
   * An intrinsic argument whose parameter the declaration **consumes**
-    (`=> !value` — `send`, `discard`, `add`, `add_sorted`, `put`, `reduce`'s
-    seed) renders **owned**, not as a place: the lowering takes ownership, so
+    (`=> !value` — `send`, `discard`, `add`, `insert_sorted_by`, `put`,
+    `reduce`'s seed) renders **owned**, not as a place: the lowering takes ownership, so
     the same rendering an ordinary consuming call gets applies (a real partial
     move stays a move [fate-move-mode], a read the caller keeps clones).
     Without it the intrinsic path was the *only* consuming position emitting a
