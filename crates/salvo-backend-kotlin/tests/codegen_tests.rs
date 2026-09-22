@@ -2769,7 +2769,105 @@ fn main() [use] {
     )
 }
 
+/// [cmp-carry] [cmp-binder] A structure that **holds** an ordering: fixed at
+/// construction, carried in the type, and what the body compares with — so one
+/// generic function answers differently for two lists built with two orderings
+/// (user decisions 2026-09-21, ORDERING.md step 5).
+///
+/// Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_a_carried_ordering`. That equality is the
+/// assertion, and it is an easy one to keep: a qualifier erases
+/// [qual-erasure], so the carried identity lowers as the **implicit
+/// parameter** it is resolved as [implicit-param] — an ordinary trailing
+/// argument on both targets. What the program proves is that the *checker*
+/// filled it from the type rather than from what is visible at the call.
+fn kotlinc_compiles_and_runs_a_carried_ordering() -> KotlinCase {
+    let src = r#"
+// The claim a ranked list carries: the ordering it is ranked by, named in the
+// qualifier's own **fn slot**.
+qualifier Ranked<T, ?cmp: (T, T) -> Int> of List<T>
+
+struct Person { name: Str, age: Int }
+
+// [cmp-canonical] The canonical ordering for a `Person`: by age.
+fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+// A second ordering a ranked list may be built with instead.
+fn by_name(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.name, b.name)
+}
+
+// [cmp-binder] Here the binder is an implicit parameter the fn declares, so
+// resolution fills it and the result type publishes what it chose.
+fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<?cmp> {
+    return mut_list_of()
+}
+
+// [cmp-binder] And here it is captured from the argument's type: nothing is
+// written but `?cmp`, and the slot it fills states its type. The claim is
+// re-minted on the way out, which is what a constructor fn may do today —
+// keeping it across a `Mut` parameter is ROADMAP's D2.
+fn rank_add<T>(r: Ranked<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Ranked<?cmp> => !r, !elem {
+    add(r, elem)
+    return r
+}
+
+// One body, two answers: it compares with whatever ordering its argument was
+// built with.
+fn least_index<T>(r: Ranked<?cmp> List<T>) -> Int => r {
+    let best = 0
+    let i = 1
+    while i < size(r) {
+        if cmp(get(r, i)!, get(r, best)!) < 0 {
+            best = copy(i)
+        }
+        i = i + 1
+    }
+    return best
+}
+
+// A body that never needs the identity takes the claim bare.
+fn ranked_size<T>(r: Ranked List<T>) -> Int => r {
+    return size(r)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    // Built with the canonical ordering: the youngest ranks first.
+    let by_age = rank_add(
+        rank_add(
+            rank_add(empty_ranked<Person>(), Person {name: "Ada", age: 36}),
+            Person {name: "Bob", age: 24}
+        ),
+        Person {name: "Cyd", age: 31}
+    )
+    let youngest = get(by_age, least_index(by_age))!
+    println("by age: ${youngest.name} of ${ranked_size(by_age)}")
+
+    // Built with another ordering: the same code, a different answer.
+    let alpha = rank_add(
+        rank_add(
+            rank_add(empty_ranked<Person>(cmp = by_name), Person {name: "Cyd", age: 31}),
+            Person {name: "Bob", age: 24}
+        ),
+        Person {name: "Ada", age: 36}
+    )
+    let first = get(alpha, least_index(alpha))!
+    println("by name: ${first.name} of ${ranked_size(alpha)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "carried-ordering", "by age: Bob of 3\nby name: Ada of 3\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_carried_ordering,
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,
     kotlinc_compiles_and_runs_a_mixed_handler,

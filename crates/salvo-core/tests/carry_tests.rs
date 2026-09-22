@@ -273,8 +273,38 @@ fn run() [] -> Int {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-// ===== static identity =====
+/// [cmp-binder] A deduction entry names qualifiers, not their arguments — and
+/// keeping the qualifier keeps the **identity**, since it lives in the type and
+/// the fn could not have changed it. The proof is the second call: it demands
+/// the identity by name, which a claim that had lost its argument could not
+/// satisfy.
+#[test]
+fn keeping_the_qualifier_keeps_the_identity() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+import heap.empty_heap
 
+fn only_canonical(r: Heap<cmp@Person> Mut List<Person>) [] -> Int => r {
+    return 0
+}
+
+fn touch<T>(r: Heap<?cmp> Mut List<T>) [] -> Int => r: Heap Mut {
+    return size(r)
+}
+
+fn run() [] -> Int {
+    let h = empty_heap<Person>()
+    let n = touch(h)
+    return n + only_canonical(h)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+// ===== static identity =====
 /// [cmp-carry] A fn bound into a type must be **named, top-level and
 /// capture-free** (decision 12): a lambda has no identity a type can carry,
 /// and the error says so rather than losing the claim silently.

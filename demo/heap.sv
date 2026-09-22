@@ -1,31 +1,41 @@
 // An implementation of a binary heap qualifier for the List<T> type when T is orderable. Used as an
 // exercise in a more complicated qualifier that the language should be able to support.
+//
+// STATUS (2026-09-22): the *ordering* half now compiles — the heap names the
+// ordering it is kept by in a fn slot [cmp-carry], every function binds it with
+// the bare `?cmp` binder [cmp-binder], and the comparisons in the bodies go
+// through it. What is still missing is listed at the bottom of this file; until
+// those land, this file does not compile as a whole, which is why it lives in
+// `demo/` and no test builds it. A smaller worked example of the same shape
+// *is* built and run on both backends — see
+// `rustc_compiles_and_runs_a_carried_ordering` and its Kotlin twin.
 
-// Indicates that the list is organized like a succinct binary heap.
-// TODO: `export` is not highlighted as a keyword in the LSP
-// TODO: we need a way of saying that Heaps only make sense for ordereable types. Maybe the right answer is to
-//       require each function to take a `?cmp: (T, T) -> Int` implicit parameter instead?
-export qualifier Heap<T canbe ordered> of List<T> with NonEmpty
+// Indicates that the list is organized like a succinct binary heap, ordered by
+// the `cmp` the heap was built with: `Heap<min_by_age>` and `Heap<max_by_age>`
+// are different types that refuse to mix [cmp-carry].
+export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
 
-// Returns an empty List which trivially supports the heap property.
-export fn empty_heap<T>() -> Mut List<T> as Heap {
+// Returns an empty List which trivially supports the heap property. The
+// ordering arrives as an ordinary implicit parameter, and the return type
+// publishes the one resolution chose [cmp-binder].
+export fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp> {
     return mut_list_of()
 }
 
-fn as_heap<T>(h: Mut List<T>) -> Mut List<T> as Heap {
-    return h
-}
-
 // Pushes the [elem] into the [heap], preserving the heap property.
-// TODO: Need a way of asserting that the Heap qualifier still applies.
-//       Maybe we should be able to say `+Heap` in the deductions as a way of explicitly "reapplying" it?
-//       This is effectively what the `qualifies` function does, but as a preserving property -- running the qualifies again would be another O(n) which is unnecessary
-export fn heap_push<T>(heap: Heap Mut List<T>, elem: T) => heap: Heap Mut {
+//
+// Written as a *constructor* fn — it consumes the heap and re-mints the claim —
+// because keeping a user qualifier across a `Mut` parameter needs ROADMAP's D2
+// (`=> heap: Heap<?cmp> Mut` fails body validation today: `add`'s own clause
+// strips the claim, and nothing brings it back).
+export fn heap_push<T>(heap: Heap<?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<?cmp>
+    => !heap, !elem {
     add(heap, elem)
     // The index where the value currently is
     let i = size(heap) - 1
     while i > 0 {
         // TODO: Why is val: `proj proj T?`, rather than just `proj T?`?
+        //       (HEAP_QUALIFIER.md item 3, an open defect.)
         let val = heap.get(i)
         if val is None {
             break
@@ -33,30 +43,33 @@ export fn heap_push<T>(heap: Heap Mut List<T>, elem: T) => heap: Heap Mut {
 
         let i_parent = i / 2
         let parent = heap.get(i_parent)
-        if parent is None || parent <= val {
+        if parent is None || cmp(parent, val) <= 0 {
             break
         }
 
-        // TODO: need the ability to swap, or set specific indices.
-        //       Presumably setting specific indices means we would need to _take_ from the list as well?
-        // Otherwise we need to swap
+        // TODO: `swap` does not exist for `List` yet (HEAP_QUALIFIER.md item 4).
         heap.swap(i, i_parent)
-        i = i_parent
+        i = copy(i_parent)
     }
+    return heap
 }
 
 // Pops the smallest element in the heap, preserving the heap property.
-export fn heap_pop<T>(heap: Heap Mut List<T>) -> T? {
-    if heap !is NonEmpty {
+export fn heap_pop<T>(heap: Heap<?cmp> Mut List<T>) -> T? {
+    if !(heap is NonEmpty) {
         return None
     }
-    // TODO: `heap` should be `NonEmpty` here, and this should route to the NonEmpty overload
+    // TODO: `heap` should be `NonEmpty` here, and this should route to the
+    //       NonEmpty overload (HEAP_QUALIFIER.md item 5).
     return heap_pop(heap)
 }
 
-export fn heap_pop<T>(heap: NonEmpty Heap Mut List<T>) -> T => heap: Heap Mut {
+// A deduction entry names qualifiers, not their arguments: keeping `Heap` keeps
+// the ordering too, since the identity lives in the type and this fn could not
+// have changed it [cmp-binder].
+export fn heap_pop<T>(heap: NonEmpty Heap<?cmp> Mut List<T>) -> T => heap: Heap Mut {
     if heap.size() == 1 {
-        return heap.remove_first()
+        return remove_first@core.list(heap)!
     }
     // Swap them, so that we don't have to shift everything
     heap.swap(0, heap.size() - 1)
@@ -71,25 +84,41 @@ export fn heap_pop<T>(heap: NonEmpty Heap Mut List<T>) -> T => heap: Heap Mut {
         }
 
         // We want to compare with the smallest of the two child indices, because if we swap this child will become the root
-        if i_child + 1 < heap.size() && heap.get(i_child)! > heap.get(i_child + 1)! {
-            // TODO: Should support += syntax
+        if i_child + 1 < heap.size() && cmp(heap.get(i_child)!, heap.get(i_child + 1)!) > 0 {
+            // TODO: Should support += syntax (HEAP_QUALIFIER.md item 6).
             i_child = i_child + 1
         }
 
         // If the parent is already smaller than the smallest child, then the heap property is preserved
-        if heap.get(i)! <= heap.get(i_child)! {
+        if cmp(heap.get(i)!, heap.get(i_child)!) <= 0 {
             break
         }
 
         // Otherwise, we swap and proceed down the new path
         heap.swap(i, i_child)
-        i = i_child
+        i = copy(i_child)
     }
     return elem
 }
 
-fn remove_first<T canbe linear>(list: NonEmpty Mut List<T>) [] -> T => list: Mut {
-    // TODO: Need to be able to elide the NonEmpty qualifier here to reach to the function in core.list.
-    //       Does `-NonEmpty` make more sense, or `^NonEmpty` ?
-    // return remove_first(-NonEmpty l)!
-}
+// What this file still waits for, all of it tracked in HEAP_QUALIFIER.md.
+// `salvo analyze` on it reports **exactly four** errors as of 2026-09-22, and
+// they are these two items and nothing else:
+//
+//   * item 4 — `swap` (and set-at-index) for `Mut List<T>`: three of the four
+//     ("no function named `swap` is in scope").
+//   * item 2 / ROADMAP **D2** — the fourth: "deduction promises qualifier
+//     `Heap` on `heap`, but the body may remove it". A mutator cannot yet keep
+//     a claim it re-establishes, which is why `heap_push` above consumes and
+//     returns instead.
+//
+// Two more TODOs are noted inline and cost no errors here:
+//
+//   * item 3 — the `proj proj T?` defect on `heap.get(i)`.
+//   * item 5 — `!is` as sugar, and the fall-through narrowing that would route
+//     the bare `heap_pop` to the `NonEmpty` overload.
+//   * item 6 — `+=`.
+//
+// The ordering itself needs nothing further: `?cmp` is bound once per
+// signature, the two `heap_pop` overloads share it, and a caller that never
+// names an ordering gets the canonical one for its element type.
