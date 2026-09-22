@@ -264,13 +264,15 @@ What the round left open:
 - **Recursive implicit resolution**, so a tuple or a list can have a `cmp` of its
   own — its own section below.
 
-The heap demo's remaining plan is **HEAP_QUALIFIER.md**, and it is down to two
-sugar items: `!is` (item 5) and `+=` (item 6). **`demo/heap.sv` compiles and
-runs** as of 2026-09-22 — a binary heap in user space, on both backends — which
-was the exercise. Items 1–4 and 5's two verified behaviours all closed that day
-(COMPLETED.md's log has each), and three defects fell out of them: a hover-only
-`proj proj`, a literal index on the Rust backend, and implicit arguments dropped
-for a callee the checker had not yet walked.
+The heap plan is **finished** (2026-09-22) and HEAP_QUALIFIER.md is deleted:
+`demo/heap.sv` — a binary heap in user space, which is what the plan existed to
+make possible — compiles and runs on both backends, and every item on its list
+landed that day (COMPLETED.md's log has each: the ordering round, `+Q`
+[deduce-reapply], `swap` [col-bounds], `!is` [is-not], `+=` [op-compound]). Five
+defects fell out of building them, all closed: a hover-only `proj proj`, a
+literal index on the Rust backend, implicit arguments dropped for a callee the
+checker had not yet walked, a forwarded implicit needing a convention adapter,
+and an assignment to a non-place reaching rustc.
 
 ## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
 
@@ -951,7 +953,6 @@ links to the section that states the options.
 |---|---|---|
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| **The heap plan's small calls** — `!is` sugar, `+=` compound assignment (`swap`'s out-of-range answer was decided 2026-09-22: a `Bool`) | next | HEAP_QUALIFIER.md items 5–6 |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |

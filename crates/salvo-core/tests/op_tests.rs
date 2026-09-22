@@ -277,3 +277,62 @@ fn unknown_operands_stay_lenient() {
     let msgs = messages(&body("    let a = missing()\n    let b = a + 1\n    let c = b < 2"));
     assert_eq!(msgs.len(), 1, "only the unresolved call reports: {msgs:?}");
 }
+
+// ===== [op-compound] `+=` `-=` `*=` `/=` =====
+
+/// Pure desugar (user decision 2026-09-22, the heap plan's item 6): `x += e` is
+/// `x = x + e`, so the arithmetic rules, the place rules and the narrowing reset
+/// are the ones the two halves already have — nothing in the checker or the
+/// emitters knows the spelling exists.
+#[test]
+fn compound_assignment_is_the_arithmetic_it_desugars_to() {
+    assert_ok(&body(
+        "    let n = 1\n    n += 2\n    n -= 1\n    n *= 3\n    n /= 2",
+    ));
+}
+
+/// …which means its operands are checked like any other arithmetic: no `Str +`
+/// [op-arith], so `+=` on a string is refused with the same message, naming
+/// interpolation.
+#[test]
+fn compound_assignment_inherits_the_no_string_plus_rule() {
+    let msgs = messages(&body("    let s = \"a\"\n    s += \"b\""));
+    assert!(
+        msgs.iter().any(|m| m.contains("does not concatenate strings")),
+        "got {msgs:?}"
+    );
+}
+
+/// And across the numeric classes it is the same explicit-conversion error.
+#[test]
+fn compound_assignment_inherits_the_class_rule() {
+    let msgs = messages(&body("    let n = 1\n    n += to_double(2)"));
+    assert!(
+        !msgs.is_empty(),
+        "an int-float mix should be refused, got {msgs:?}"
+    );
+}
+
+/// [op-assign] A target must be a **place**. This was accepted before 2026-09-22
+/// and then rejected by the target compiler (rustc's E0070) — a
+/// [backend-never-wrong] violation `+=` would have inherited.
+#[test]
+fn a_call_is_not_an_assignment_target() {
+    let msgs = messages(
+        "fn size_of(s: Str) -> Int => s {\n    return 1\n}\n\n\
+         fn probe(s: Str) -> None => s {\n    size_of(s) = 2\n    return None\n}\n",
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("this is not a place")),
+        "got {msgs:?}"
+    );
+    // The compound spelling is the same statement, so it is refused too.
+    let msgs = messages(
+        "fn size_of(s: Str) -> Int => s {\n    return 1\n}\n\n\
+         fn probe(s: Str) -> None => s {\n    size_of(s) += 2\n    return None\n}\n",
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("this is not a place")),
+        "got {msgs:?}"
+    );
+}

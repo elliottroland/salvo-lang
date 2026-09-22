@@ -199,7 +199,7 @@ fn an_assignment_in_the_exiting_branch_does_not_reset() {
 
 /// [is-qualifies] [fn-overload-rank] The same rule through a **negated** guard
 /// over a *predicate qualifier*, which is the shape `demo/heap.sv` reaches for
-/// (HEAP_QUALIFIER.md item 5): `if !(xs is NonEmpty) { return … }` puts the
+/// (the heap plan's item 5, COMPLETED.md's log): `if !(xs is NonEmpty) { return … }` puts the
 /// claim in the condition's else-narrows — `Not` swaps them — so the rest of the
 /// block holds it, and the call below routes to the overload that *demands* it.
 ///

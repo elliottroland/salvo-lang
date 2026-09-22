@@ -447,6 +447,25 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::MinusMinus
             }
+            // [op-compound] One token each, and after `++`/`--` so the
+            // step operators keep their spelling. `/=` cannot collide with a
+            // comment: `//` and `/*` are consumed before this dispatch.
+            ('+', Some('=')) => {
+                self.bump();
+                TokenKind::PlusEq
+            }
+            ('-', Some('=')) => {
+                self.bump();
+                TokenKind::MinusEq
+            }
+            ('*', Some('=')) => {
+                self.bump();
+                TokenKind::StarEq
+            }
+            ('/', Some('=')) => {
+                self.bump();
+                TokenKind::SlashEq
+            }
             // [elvis] [safe-call] `?:` and `?.` are one token each, and only
             // when the characters are adjacent — a nullable type followed by a
             // colon or a dot never occurs, and requiring adjacency keeps

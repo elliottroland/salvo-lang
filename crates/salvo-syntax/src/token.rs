@@ -118,6 +118,11 @@ pub enum TokenKind {
     Percent,  // %
     PlusPlus, // ++
     MinusMinus, // --
+    // [op-compound] Compound assignment: `x += 1` is `x = x + 1`.
+    PlusEq,   // +=
+    MinusEq,  // -=
+    StarEq,   // *=
+    SlashEq,  // /=
     Caret,    // ^ — the qualifier-widening check [qual-lift]
     At,       // @ — the scope selector on a call [fn-overload-at]
 
@@ -249,6 +254,10 @@ impl TokenKind {
             TokenKind::Percent => "%",
             TokenKind::PlusPlus => "++",
             TokenKind::MinusMinus => "--",
+            TokenKind::PlusEq => "+=",
+            TokenKind::MinusEq => "-=",
+            TokenKind::StarEq => "*=",
+            TokenKind::SlashEq => "/=",
             TokenKind::Caret => "^",
             TokenKind::At => "@",
             _ => unreachable!("symbol() called on non-symbol token"),

@@ -2643,6 +2643,30 @@ impl<'s> Parser<'s> {
                         span,
                     });
                 }
+                // [op-compound] `x += e` is `x = x + e`, desugared here: the
+                // arithmetic rules [op-arith], the place rules and the
+                // narrowing reset all come from the two forms it is made of,
+                // so no checker or emitter knows this spelling exists. Safe to
+                // duplicate the target because a Salvo place is an identifier
+                // or a field path — there is nothing in one to evaluate twice.
+                if let Some(op) = compound_op(self.kind()) {
+                    if self.same_line() {
+                        let op_span = self.bump().span;
+                        let rhs = self.parse_expr()?;
+                        let span = expr.span().to(rhs.span());
+                        let value = Expr::Binary {
+                            op,
+                            lhs: Box::new(expr.clone()),
+                            rhs: Box::new(rhs),
+                            span: op_span.to(span),
+                        };
+                        return Some(Stmt::Assign {
+                            target: expr,
+                            value,
+                            span,
+                        });
+                    }
+                }
                 Some(Stmt::Expr(expr))
             }
         }
@@ -4595,5 +4619,19 @@ fn slot_name_span(slot: &SlotDecl) -> (String, Span) {
     match slot {
         SlotDecl::One(s) => (s.name.name.clone(), s.span),
         SlotDecl::Group(g) => (g.name.name.clone(), g.span),
+    }
+}
+
+/// [op-compound] The arithmetic operator a compound assignment carries, or
+/// `None` for anything else. Four of them, matching the four arithmetic
+/// operators that take two operands: `%=` is deliberately absent, since a
+/// remainder-in-place has no reading a reader would guess.
+fn compound_op(kind: &TokenKind) -> Option<BinaryOp> {
+    match kind {
+        TokenKind::PlusEq => Some(BinaryOp::Add),
+        TokenKind::MinusEq => Some(BinaryOp::Sub),
+        TokenKind::StarEq => Some(BinaryOp::Mul),
+        TokenKind::SlashEq => Some(BinaryOp::Div),
+        _ => None,
     }
 }

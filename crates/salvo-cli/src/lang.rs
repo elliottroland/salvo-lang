@@ -351,8 +351,13 @@ pub fn tm_grammar() -> String {
           "match": "\\?"
         }},
         {{
+          "comment": "[op-compound] before the arithmetic operators, so `+=` is one token-shaped thing rather than a `+` beside an `=`",
+          "name": "keyword.operator.assignment.salvo",
+          "match": "\\+=|-=|\\*=|/="
+        }},
+        {{
           "name": "keyword.operator.arithmetic.salvo",
-          "match": "\\+\\+|\\+|-|\\*|/|%"
+          "match": "\\+\\+|--|\\+|-|\\*|/|%"
         }},
         {{
           "name": "keyword.operator.assignment.salvo",

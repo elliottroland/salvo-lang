@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1330 tests, complete: the toolchain tests are
+cargo test                  # 1337 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,34 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Compound assignment, and the assignment rule it exposed (user decision
+2026-09-22).** `x += e`, `-=`, `*=`, `/=` are **pure desugar** to `x = x op e` in
+the parser [op-compound] — four tokens, one helper, and nothing downstream knows
+the spelling exists. HEAP_QUALIFIER.md item 6, the last of its list.
+
+- **Everything comes from the two halves**: the operand rules are [op-arith]'s (so
+  `+=` on a `Str` is refused naming interpolation, and an int-float mix is the
+  same conversion error), and the place rules, the narrowing reset and the fate
+  analysis are the assignment's. Duplicating the target in the AST is sound
+  because a Salvo place is an identifier, a field path or a subscript: nothing in
+  one is evaluated twice. `%=` was left out — a remainder-in-place has no reading
+  a reader would guess — and `++` keeps its own node, since it is also an
+  expression where fixity decides the value.
+- **It could not be a parser-only trick without tokens.** `x += 1` had to lex as
+  one token, because the expression parser would otherwise consume `x + …` and
+  hit the `=`. The four tokens sit after `++`/`--` in the lexer's dispatch, and
+  `/=` cannot collide with a comment since `//` and `/*` are consumed earlier.
+- **The defect it exposed**: an assignment whose target was *not a place* was
+  accepted and reached the backend, where `f(x) = 1` became rustc's E0070 — a
+  [backend-never-wrong] violation [op-assign]. The fix needed a predicate of its
+  own rather than the existing `is_place_expr`, which also requires a subscript's
+  *index* to be a place (a narrowing needs that; an assignment does not:
+  `xs[i + 1] = v` writes a place).
+- The alternative was not adding it, on the grounds that `++` covers the
+  step-of-one case. What decided it: the demo hit the want inside twenty lines of
+  ordinary index arithmetic, and the sugar costs no checker or emitter surface.
+  `demo/heap.sv` and both backends' heap e2e cases now use it.
 
 **`!is`, which was not missing but misparsed (user decision 2026-09-22).**
 `x !is Q` is sugar for `!(x is Q)` [is-not] — one `Expr::Is` under a `Not`, so
@@ -14568,7 +14596,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1330)
+## Test inventory (all green: 1337)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15733,6 +15761,15 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **The editor grammar is generated; edit `lang.rs`.**
+  `vscode/syntaxes/salvo.tmLanguage.json` says so in its own header and a test
+  enforces it, but the file is the obvious place to look and the diff looks right
+  when you edit it by hand — until `salvo lang tm-grammar` overwrites the change.
+  Add the pattern to the generator, regenerate, and check the *decoded* regex
+  (`json.loads`), because the escaping goes through a Rust string and then
+  through JSON: `\\+=` in the generator is the regex `\+=`, and one backslash
+  too many silently matches a literal backslash instead of a `+`.
 
 - **A side table filled as the walk goes is a rule about declaration order.**
   `implicit_params` was written per fn as the checker reached it and read at every

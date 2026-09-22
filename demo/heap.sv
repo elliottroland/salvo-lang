@@ -1,14 +1,10 @@
 // An implementation of a binary heap qualifier for the List<T> type when T is orderable. Used as an
 // exercise in a more complicated qualifier that the language should be able to support.
 //
-// STATUS (2026-09-22): the *ordering* half now compiles — the heap names the
-// ordering it is kept by in a fn slot [cmp-carry], every function binds it with
-// the bare `?cmp` binder [cmp-binder], and the comparisons in the bodies go
-// through it. What is still missing is listed at the bottom of this file; until
-// those land, this file does not compile as a whole, which is why it lives in
-// `demo/` and no test builds it. A smaller worked example of the same shape
-// *is* built and run on both backends — see
-// `rustc_compiles_and_runs_a_carried_ordering` and its Kotlin twin.
+// STATUS (2026-09-22): **it compiles.** Every gap this file was written to find
+// is closed — see the notes at the bottom. It still lives in `demo/` and no test
+// builds it; what is tested is the same shape with a driver and asserted output
+// on both backends (`rustc_compiles_and_runs_a_heap` and its Kotlin twin).
 
 // Indicates that the list is organized like a succinct binary heap, ordered by
 // the `cmp` the heap was built with: `Heap<min_by_age>` and `Heap<max_by_age>`
@@ -37,8 +33,7 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
     while i > 0 {
         // `val` is `proj T?` — a borrow of the element, so reading it is free
         // and moving it is refused. (It hovered as `proj proj T?` until
-        // 2026-09-22, which was a hover bug, not a type: HEAP_QUALIFIER.md
-        // item 3.)
+        // 2026-09-22, which was a hover bug rather than a type.)
         let val = heap.get(i)
         if val is None {
             break
@@ -90,8 +85,7 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
 
         // We want to compare with the smallest of the two child indices, because if we swap this child will become the root
         if i_child + 1 < heap.size() && cmp(heap.get(i_child)!, heap.get(i_child + 1)!) > 0 {
-            // TODO: Should support += syntax (HEAP_QUALIFIER.md item 6).
-            i_child = i_child + 1
+            i_child += 1
         }
 
         // If the parent is already smaller than the smallest child, then the heap property is preserved
@@ -106,21 +100,23 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
     return elem
 }
 
-// What this file still waits for, all of it tracked in HEAP_QUALIFIER.md.
-// `salvo analyze` on it reports **exactly one** error as of 2026-09-22:
+// **This file compiles and runs** as of 2026-09-22, which is what it was
+// written to test: whether a heap — a claim on an ordinary list, kept in order
+// by mutators — can be written *outside* std, in ordinary Salvo. It can, and
+// every TODO it was written around is closed:
 //
-//   * item 2 / ROADMAP **D2** — the only one left: "deduction promises
-//     qualifier `Heap` on `heap`, but the body may remove it". A mutator cannot
-//     yet keep a claim it re-establishes, which is why `heap_push` above
-//     consumes and returns instead.
+//   * the ordering it is kept by lives in the type, bound once per signature
+//     with `?cmp` [cmp-carry] [cmp-binder], so two differently-ordered heaps are
+//     two types and a caller that never names an ordering gets the canonical one
+//     for its element type;
+//   * `+Heap<T, ?cmp>` is how a mutator keeps a claim it re-establishes
+//     [deduce-reapply], which is what lets `heap_push` and `heap_pop` take `Mut`
+//     parameters instead of consuming and returning;
+//   * `swap` exists, and answers `false` out of range [col-bounds];
+//   * `!is` reads as a guard [is-not], and the narrowing it leaves behind routes
+//     the bare `heap_pop` to the `NonEmpty` overload [fn-overload-rank];
+//   * `+=` is ordinary arithmetic on a place [op-compound].
 //
-// Two more TODOs are noted inline and cost no errors here:
-//
-//   * item 6 — `+=`.
-//
-// Item 3 (the `proj proj T?` hover) and item 5 (`!is`, used above) are both
-// **fixed** (2026-09-22).
-//
-// The ordering itself needs nothing further: `?cmp` is bound once per
-// signature, the two `heap_pop` overloads share it, and a caller that never
-// names an ordering gets the canonical one for its element type.
+// The smaller worked version of the same shape, with a driver and asserted
+// output on both backends, is `rustc_compiles_and_runs_a_heap` and its Kotlin
+// twin. COMPLETED.md's decision log has the reasoning for each rule above.

@@ -8981,10 +8981,9 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) [] -> T
         if child >= size(heap) {
             break
         }
-        let smaller = if child + 1 < size(heap) && cmp(heap.get(child + 1)!, heap.get(child)!) < 0 {
-            child + 1
-        } else {
-            child
+        let smaller = copy(child)
+        if child + 1 < size(heap) && cmp(heap.get(child + 1)!, heap.get(child)!) < 0 {
+            smaller += 1
         }
         if cmp(heap.get(i)!, heap.get(smaller)!) <= 0 {
             break

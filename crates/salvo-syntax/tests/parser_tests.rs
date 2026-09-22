@@ -2354,3 +2354,60 @@ fn not_is_refuses_a_widening() {
         "got {errors:?}"
     );
 }
+
+// ===== [op-compound] `x += e` =====
+
+/// Pure desugar (user decision 2026-09-22): the AST holds an ordinary
+/// assignment whose value is the binary operation, so nothing downstream knows
+/// the spelling exists. Duplicating the target is safe because a place is an
+/// identifier or a field path — there is nothing in one to evaluate twice.
+#[test]
+fn compound_assignment_desugars_to_assignment() {
+    let source = "fn f() -> None {\n    let n = 1\n    n += 2\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "parse errors: {errors:?}");
+    let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
+        panic!("expected a fn");
+    };
+    let stmts = &f.body.as_ref().unwrap().stmts;
+    match &stmts[1] {
+        salvo_syntax::ast::Stmt::Assign { target, value, .. } => {
+            assert!(matches!(target, salvo_syntax::ast::Expr::Ident(_)));
+            match value {
+                salvo_syntax::ast::Expr::Binary { op, lhs, .. } => {
+                    assert!(matches!(op, salvo_syntax::ast::BinaryOp::Add), "got {op:?}");
+                    assert!(
+                        matches!(**lhs, salvo_syntax::ast::Expr::Ident(_)),
+                        "the target is read on the left, got {lhs:?}"
+                    );
+                }
+                other => panic!("expected a binary value, got {other:?}"),
+            }
+        }
+        other => panic!("expected an assignment, got {other:?}"),
+    }
+}
+
+/// `++` keeps its own node: the two forms mean the same thing for `+= 1` in
+/// statement position, but `++` is also an *expression* [inc-dec], so it could
+/// not be desugared the same way.
+#[test]
+fn the_step_operators_are_untouched() {
+    let expr = parse_expr_stmt("i++");
+    assert!(
+        matches!(expr, salvo_syntax::ast::Expr::IncDec { .. }),
+        "got {expr:?}"
+    );
+}
+
+/// A compound assignment is a **statement**, so the operator does not chain and
+/// does not cross a line break.
+#[test]
+fn compound_assignment_does_not_cross_a_line() {
+    let errors = errors_of("fn f() -> None {\n    let n = 1\n    n\n    += 2\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("expected expression, found `+=`")),
+        "got {errors:?}"
+    );
+}

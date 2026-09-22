@@ -122,6 +122,36 @@ Conventions:
     is accepted, because field chains flow-narrow [flow-place]. Element
     reads (`arr[i]`) do not narrow, so those still need the
     `is Str name` binding form.
+* [op-compound] `x += e`, `-=`, `*=`, `/=`: **pure desugar** to
+  `x = x op e`, in the parser (user decision 2026-09-22, the heap plan's item 6).
+  Four of them, one per two-operand arithmetic operator; `%=` is deliberately
+  absent, since a remainder-in-place has no reading a reader would guess.
+  * Nothing downstream knows the spelling exists: the operand rules come from
+    [op-arith] (so `+=` on a `Str` is refused naming interpolation, and an
+    int-float mix is the same explicit-conversion error), and the place rules,
+    the narrowing reset [narrow-assign-reset] and the fate analysis all come
+    from the assignment it becomes.
+  * **The target is duplicated** in the AST — once as the target, once as the
+    left operand — which is sound because a Salvo place is an identifier, a
+    field path or a subscript: there is nothing in one to evaluate twice.
+  * A **statement**, not an expression: no chaining (`a += b += c`), and the
+    operator does not cross a line break (`same_line`, as `++` requires).
+  * One token each in the lexer, after `++`/`--` so the step operators keep
+    their spelling. `/=` cannot collide with a comment: `//` and `/*` are
+    consumed earlier.
+  * `++` is **not** re-expressed as `+= 1`: it is also an *expression*, where
+    the fixity decides the value [inc-dec], so it keeps its own node.
+* [op-assign] An assignment's target must be a **place**: a variable, a field
+  path (`p.name`), or a subscript (`xs[i]`, whose *index* is an ordinary
+  expression). Anything else — a call above all — is an error naming the three
+  forms.
+  * Before 2026-09-22 a non-place target was accepted and reached the backend,
+    where `f(x) = 1` became rustc's E0070: a [backend-never-wrong] violation,
+    found while adding [op-compound], which inherits every rule of the
+    assignment it desugars to.
+  * A **tuple element** is refused by its own rule instead
+    ([expr-tuple-index]: `Mut` cannot apply to a tuple, so its elements are
+    read-only), so one mistake stays one diagnostic.
 * [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on an `Int` place, in
   either fixity (user request 2026-09-11 added all but `i++`). The operand
   must be a place; all four forms do the same thing to it — which is why the

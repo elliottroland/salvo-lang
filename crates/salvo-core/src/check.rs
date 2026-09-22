@@ -16660,6 +16660,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     },
                     other => {
+                        // [op-assign] A target has to be a **place** — a
+                        // variable, a field path, a subscript. Assigning to
+                        // anything else used to be accepted here and then
+                        // rejected by the target compiler (rustc's E0070 for
+                        // `f(x) = 1`), a [backend-never-wrong] violation found
+                        // 2026-09-22 while adding `+=`, which inherits every
+                        // rule of the assignment it desugars to.
+                        if !is_assignable_place(other) {
+                            self.error(
+                                other.span(),
+                                "this is not a place, so it cannot be assigned \
+                                 to: an assignment writes a variable, a field \
+                                 path (`p.name`) or a subscript (`xs[i]`). A \
+                                 call answers a value, and writing to it would \
+                                 write to nothing",
+                            );
+                        }
                         // [fate-partial-move] A target is written, not read.
                         let saved_target = std::mem::replace(&mut self.assign_target, true);
                         let ty = self.check_expr(other, None);
@@ -24154,6 +24171,22 @@ fn member_consumes_type(member: &FnDecl, type_name: &str) -> bool {
 /// [is-bind-once] Whether an expression is a **place** — a name, or a
 /// field/tuple/index chain over one — and so free of side effects to read
 /// twice. Everything else has to be evaluated once into a temporary.
+/// [op-assign] What an **assignment** may write: a variable, a field path, a
+/// subscript. Looser than [`is_place_expr`] in one way on purpose — the
+/// *index* of a subscript is an ordinary expression (`xs[i + 1] = v` writes a
+/// place), where a narrowing needs the index itself to be stable.
+fn is_assignable_place(expr: &Expr) -> bool {
+    match expr {
+        Expr::Ident(_) => true,
+        // A tuple element is rejected with its own message, so it is
+        // "shaped like" a place here and one mistake stays one diagnostic.
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => {
+            is_assignable_place(base)
+        }
+        _ => false,
+    }
+}
+
 fn is_place_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Ident(_) => true,
