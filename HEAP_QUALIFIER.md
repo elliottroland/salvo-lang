@@ -43,14 +43,14 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 |---|---|---|---|
 | 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round, now complete (COMPLETED.md's log) | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
 | 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
-| 3 | `val: proj proj T?` (line 28) | defect | plausible root cause found |
+| 3 | `val: proj proj T?` (line 28) | defect | ✅ **fixed 2026-09-22**: a hover-only display bug in the LSP, not the type system |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | neither exists for `List` |
-| 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) + verification | `!is` does not parse |
+| 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) | narrowing and routing **verified working** 2026-09-22; only `!is` is missing |
 | 6 | `+=` (line 76) | **DECISION** (small) | only `++`/`--` exist [inc-dec] |
 | 7 | *(steering, 2026-09-21)* `<`/`>` on unconstrained `T` compiles silently | defect / posture gap | **fixed 2026-09-21** (the ordering round's step 2: the comparison resolves `cmp`, and a `T` with no `?Ordered<T>` is an error naming the remedy) |
 
-Suggested order: **3, then the ordering round's steps (which subsumed 1 and 7
-and are now complete), 2, 4, 5, 6** — rationale at the end.
+Suggested order: **3 ✅, the ordering round's steps ✅ (which subsumed 1 and 7),
+then 2, 4, 5, 6** — rationale at the end.
 
 ---
 
@@ -162,40 +162,38 @@ in `heap.sv` legal as written. Options to put to the user:
 
 ---
 
-## 3. `heap.get(i)` hovers as `proj proj T?` — defect
+## 3. `heap.get(i)` hovers as `proj proj T?` — **fixed 2026-09-22**
 
-**What the file sees:** `let val = heap.get(i)` reports
-`proj proj T?` where `(proj T)?` is expected — `get` is declared
-`-> (proj[from: list] T)? => list, index` (std/core/list.sv:30).
+**It was a hover bug, and the plan's hypothesis was wrong.** Reproduced in six
+lines (`fn probe(xs: List<Str>) => xs { let first = xs.get(0) }`, hover on
+`first`), and the checker's own type was right the whole time: an error at the
+same binding prints `proj Str?`, one `proj`. Only the *hover* doubled it.
 
-**Plausible root cause (read, not yet reproduced):** `Ty::qualify` merges
-qualifier lists with `sort` + `dedup` (types.rs:283–285), and `dedup` uses
-full `Qual` equality — **two `proj` quals whose `from` args differ both
-survive**. The `[proj-type]` comment right above it claims "`proj proj X`
-dedups to `proj X`", which is only true when the two quals are
-byte-identical. Projections get applied along more than one route at a call
-(the declared return's substituted `proj[from: list]`, and the
-caller-side re-pointing/linking of [proj-infer] with the *actual* argument
-name), so two textually different `proj` quals on one type is reachable.
+**The cause**: `lsp.rs`'s hover writes the compiler qualifier itself for a
+fate-linked variable — `format!("proj {ty}")` [fate-link] — and `get` is declared
+`-> (proj[from: list] T)?`, so the borrow was already on the type line. The fate
+link and the declared projection are the same claim about the same value, said
+twice.
 
-**Plan:**
-1. Reproduce: minimal file (a fn taking `Mut List<T>`, calling `.get(i)`),
-   hover via LSP or a checker unit test asserting the recorded `expr_ty`.
-2. Confirm where the second `proj` is appended (instrument or trace
-   `qualify` calls at the `get` call site).
-3. Fix direction: in `qualify`, dedupe `proj` **by name**, merging the
-   `from` argument lists (a borrow of a borrow of `x` is a borrow of `x`;
-   the union of sources is the honest summary). Check `lends.rs` /
-   `deduce.rs` consumers of `proj` args still read the merged form.
-4. Regression test tagged [proj-type], plus an insta snapshot if hover
-   output is covered there.
+**The fix**: `Ty::presents_proj()` (types.rs) answers whether a type's *rendering*
+leads with a `proj` — a `proj` qualifier of its own, or an optional printed as
+`X?` whose `X` leads with one — and the hover prefixes only when it does not. The
+detail line still names the roots, which is the part the type does not carry.
+Tested at both levels: a unit test on the predicate (including the buried-in-a-
+multi-arm-union case, where a prefix is still informative) and an LSP hover
+assertion in `diagnostics_hover_and_shutdown`.
 
-Not a display bug to paper over: downstream fate-linking reads those
-`from` args, so a duplicated qual with divergent sources may also
-double-link or mis-link. Worth adding to ROADMAP's Open defects with the
-repro once reproduced.
-
-**Effort:** small once reproduced.
+**What the plan had guessed, recorded so nobody re-chases it**: that
+`Ty::qualify`'s `sort` + `dedup` keeps two `proj` quals whose `from` args differ
+(types.rs), and that a call applies projections along two routes. The first half is
+true as written — `dedup` compares whole `Qual`s — but nothing reachable produces
+two differing `proj` quals on one type: the language's own spelling for a borrow of
+several sources is *one* qual with several arguments (`proj[from: a, b]`
+[deduce-syntax]), and every `proj` in a checked type comes from lowering a written
+one. So the dedup is latent at most, and merging `from` lists by name is a fix
+waiting for a defect. The lesson: a type *shown* wrongly is not evidence that the
+type *is* wrong — compare a diagnostic's rendering against the hover's before
+reaching for the type system.
 
 ---
 
@@ -268,35 +266,33 @@ return heap_pop(heap)
 1. **`!is` does not parse.** No token, no arm in `parse_comparison`
    (parser.rs:2630ff) — `heap !is NonEmpty` is a parse error. The written
    form today is `!(heap is NonEmpty)`.
-2. **The narrowing machinery already exists.** `analyze_cond`'s
-   `UnaryOp::Not` arm swaps then/else narrows (check.rs:17383), and
-   [is-narrow-guard] installs a condition's else-narrows after an `if`
-   whose branches all exit (check.rs:17812). A predicate `is` puts
-   "subject + Q" in its *then*-narrows [is-qualifies]; through `Not` that
-   becomes the *else*-narrows, which is precisely the fall-through. So
-   `if !(heap is NonEmpty) { return None }` should already narrow `heap`
-   to `NonEmpty Heap Mut List<T>` below — **needs verifying**, since the
-   "no else information" note on [is-qualifies] suggests nobody has tested
-   the negated-guard path for predicate qualifiers.
-3. **Overload routing then comes free**: overload rank prefers the
-   signature demanding more of its argument [fn-overload-rank] — std's
-   `first`/`NonEmpty first` pair is the exact precedent (list.sv:100ff).
-   One trap to test for: the recursion is intentional here
-   (`heap_pop` → `NonEmpty heap_pop`), and the std comment warns how
-   same-name delegation can pick itself — with the *narrowed* argument the
-   rank rule picks the `NonEmpty` overload, but a test must pin that.
+2. ✅ **The narrowing works** (verified 2026-09-22). `analyze_cond`'s
+   `UnaryOp::Not` arm swaps then/else narrows, and [is-narrow-guard] installs a
+   condition's else-narrows after an `if` whose branches all exit; a predicate
+   `is` puts "subject + Q" in its then-narrows [is-qualifies], so through `Not`
+   it lands exactly on the fall-through. Hovering the demo's own
+   `return heap_pop(heap)` reports `Heap<T, ?cmp> Mut NonEmpty List<T>`,
+   "narrowed here by an `is` test". The "no else information" note on
+   [is-qualifies] had made this look untested; it now has two tests in
+   `guard_tests.rs`.
+3. ✅ **Overload routing comes free, self-delegation included** (verified
+   2026-09-22). Rank prefers the signature demanding more of its argument
+   [fn-overload-rank], and the trap the std comment warns about — a same-name
+   call picking *itself* — does not fire with a narrowed argument: a program of
+   the demo's exact shape (`pick` guarding, then calling `pick`) prints
+   `empty` / `nonempty with 7` on **both** backends rather than recursing. The
+   checker test pins the routing and a negative twin pins that it is the guard
+   doing the work.
 
-**Plan:**
-- First verify layer 2–3 with the parenthesized spelling; fix whatever
-  narrow/rank gap shows up (each is a small checker change, tagged
-  [is-qualifies] / [is-narrow-guard] / [fn-overload-rank]).
-- Then the **DECISION**: add `!is` as sugar? Options:
+**Plan:** layers 2–3 are done and needed no compiler change — no narrow or rank
+gap existed. What is left is the **DECISION**: add `!is` as sugar? Options:
   - **A.** `expr !is Type` sugar → `Unary Not (Is …)` in the parser's
     comparison tier. Kotlin precedent, reads well, ~20 lines + tests. No
     binding form (`!is Q name` binds nothing — there is no narrowed value).
   - **B.** Keep `!(x is Q)` as the only spelling. Zero work, but the demo's
     intuition (author reached for `!is` without checking) is evidence for A.
-- Recommendation: **A**, after the verification lands.
+- Recommendation: **A**. The verification has landed, so this is now the whole
+  of item 5.
 
 **Effort:** small.
 
@@ -352,8 +348,8 @@ step 5.
 
 ## Suggested sequence and why
 
-1. **#3 (`proj proj`)** — a plain defect, no decision needed, and its fix
-   de-noises every later hover/test while working on the file.
+1. ✅ **#3 (`proj proj`)** — **fixed 2026-09-22**, and it was a hover bug rather
+   than a type-system one, so it de-noised the file for free.
 2. ✅ **The ordering round's steps** — subsumed #1 and #7, and the round is
    **complete** (2026-09-21/22): the declaration line and every comparison in
    `heap.sv` now check, and nothing here waits on anything.
@@ -362,7 +358,8 @@ step 5.
    consume-and-return `as Heap`, which works today.)
 4. **#4 (`swap`)** — small std intrinsic; after the above the heap
    actually compiles and runs, making it a real e2e case.
-5. **#5 (`!is` + guard narrowing)** — verification first, sugar second.
+5. **#5 (`!is`)** — the guard narrowing and the routing are verified working
+   (2026-09-22); only the sugar is left, and it is a parser change.
 6. **#6 (`+=`)** — independent, small, any time.
 
 The demo rewrite (whenever the heap first compiles) also folds in the

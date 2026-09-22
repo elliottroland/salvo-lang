@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1315 tests, complete: the toolchain tests are
+cargo test                  # 1318 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -128,7 +128,54 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**Ordering round (second plan), step 5 — `Sorted<?cmp>`, which finishes the round
+**A negated guard narrows a predicate qualifier, and a same-name overload does
+not eat itself — verified, not changed (2026-09-22).** HEAP_QUALIFIER.md item 5
+bundled a spelling (`!is`) with two behaviours nobody had tested, and the two
+behaviours were already right: `if !(xs is NonEmpty) { return … }` leaves the
+claim in force below ([is-qualifies] through `Not` into [is-narrow-guard]'s
+fall-through), and the call after the guard routes to the overload that *demands*
+the claim rather than recursing into the one making it [fn-overload-rank].
+
+- Evidence: hovering `demo/heap.sv`'s own `return heap_pop(heap)` reports
+  `Heap<T, ?cmp> Mut NonEmpty List<T>`, "narrowed here by an `is` test"; and a
+  program of that exact shape prints `empty` / `nonempty with 7` on both backends.
+- Two tests in `guard_tests.rs` now pin it, the second one negative — without the
+  guard the plain overload wins — so the first is about the guard rather than about
+  overload luck. Nothing in the compiler changed.
+- Why it looked untested: [is-qualifies]' "no else information" note reads as a
+  gap in the *else* direction, and no test had gone through `Not`. A note about a
+  rule's limits is not a statement about coverage; check before planning around it.
+  What item 5 still waits on is only the `!is` sugar, which is a parser change and
+  the user's call.
+
+**The `proj proj T?` hover — a display defect wearing a type-system defect's
+clothes (2026-09-22).** `demo/heap.sv`'s `let val = heap.get(i)` hovered as
+`proj proj T?` (HEAP_QUALIFIER.md item 3, the heap plan's first sequenced item).
+Fixed in five lines, in the **LSP**: hover writes the compiler qualifier itself
+for a fate-linked variable (`format!("proj {ty}")` [fate-link]), and `get` is
+declared `-> (proj[from: list] T)?`, so the borrow was already on the type line.
+`Ty::presents_proj()` now answers whether a rendering leads with a `proj` — its own
+qualifier, or an optional printed `X?` whose `X` leads with one — and the prefix is
+added only when it does not; the detail line still names the roots.
+
+- **The plan's root-cause hypothesis was wrong, which is the entry's point.** It
+  read `Ty::qualify`'s `sort` + `dedup` and concluded that two `proj` quals with
+  differing `from` args both survive, with a fix (merge the `from` lists by name)
+  and a warning that fate-linking might double-link off the back of it. The
+  premise about `dedup` is true; the conclusion is not reachable — the language's
+  spelling for a borrow of several sources is **one** qual with several arguments
+  (`proj[from: a, b]`), and every `proj` in a checked type comes from lowering a
+  written one. Six lines reproduced it, and an *error* at the same binding printed
+  `proj Str?` — one `proj` — which is what said the checker was right and the
+  renderer was not.
+- **The tell was free and nobody had used it**: the same type, rendered by a
+  diagnostic and by a hover, disagreed. Compare the two before opening the type
+  system.
+- Tested at both levels: a unit test on the predicate (including a `proj` buried
+  in a multi-arm union, where a prefix is still informative) and an LSP hover
+  assertion in `diagnostics_hover_and_shutdown`.
+
+
 and closed a defect worse than the one it was named after (2026-09-22).** The
 claim on a list now **names the ordering it was sorted by** (user decision 22):
 `sort`/`mut_sort` publish what resolution found, `add_sorted`/`binary_search`
@@ -14408,7 +14455,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1315)
+## Test inventory (all green: 1318)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15573,6 +15620,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A type *shown* wrongly is not evidence that the type *is* wrong.** The
+  `proj proj T?` the heap demo reported was the LSP prefixing a `proj` onto a type
+  that already had one, and the plan written from reading the code had gone looking
+  in `Ty::qualify`'s dedup instead. The free check is that two renderers see the
+  same type: a diagnostic at the same binding printed `proj Str?` while hover
+  printed `proj proj T?`, which locates the bug in the renderer without
+  instrumenting anything. Do that before opening the type system.
 
 - **A std function that stops being an `intrinsic fn` starts being *emitted*, and
   every golden moves.** Turning `sort`/`mut_sort`/`add_sorted`/`binary_search`

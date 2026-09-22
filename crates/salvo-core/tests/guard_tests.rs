@@ -196,3 +196,45 @@ fn an_assignment_in_the_exiting_branch_does_not_reset() {
     );
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
+
+/// [is-qualifies] [fn-overload-rank] The same rule through a **negated** guard
+/// over a *predicate qualifier*, which is the shape `demo/heap.sv` reaches for
+/// (HEAP_QUALIFIER.md item 5): `if !(xs is NonEmpty) { return … }` puts the
+/// claim in the condition's else-narrows — `Not` swaps them — so the rest of the
+/// block holds it, and the call below routes to the overload that *demands* it.
+///
+/// Verified rather than assumed (2026-09-22): [is-qualifies]' "no else
+/// information" note reads as though nobody had tested the negated path. Both
+/// halves already worked; what the demo still waits for is only the `!is`
+/// spelling.
+#[test]
+fn a_negated_guard_narrows_a_predicate_qualifier_and_routes_the_call() {
+    let errs = errors(
+        "qualifier NonEmpty of Str {\n    \
+         fn qualifies(s: Str) -> Bool {\n        return true\n    }\n}\n\n\
+         fn taste(s: Str) -> Int => s {\n    return 0\n}\n\n\
+         fn taste(s: NonEmpty Str) -> Str => s {\n    return \"nonempty\"\n}\n\n\
+         fn probe(s: Str) -> Str => s {\n    \
+         if !(s is NonEmpty) {\n        return \"empty\"\n    }\n    \
+         let text: Str = taste(s)\n    return text\n}\n",
+    );
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// The negative half, so the test above is about the *guard* and not about
+/// overload luck: without it, `taste` answers the plain overload's `Int`.
+#[test]
+fn without_the_guard_the_plain_overload_wins() {
+    let errs = errors(
+        "qualifier NonEmpty of Str {\n    \
+         fn qualifies(s: Str) -> Bool {\n        return true\n    }\n}\n\n\
+         fn taste(s: Str) -> Int => s {\n    return 0\n}\n\n\
+         fn taste(s: NonEmpty Str) -> Str => s {\n    return \"nonempty\"\n}\n\n\
+         fn probe(s: Str) -> Str => s {\n    \
+         let text: Str = taste(s)\n    return text\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("expected `Str`, found `Int`")),
+        "got {errs:?}"
+    );
+}

@@ -34,8 +34,10 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> 
     // The index where the value currently is
     let i = size(heap) - 1
     while i > 0 {
-        // TODO: Why is val: `proj proj T?`, rather than just `proj T?`?
-        //       (HEAP_QUALIFIER.md item 3, an open defect.)
+        // `val` is `proj T?` — a borrow of the element, so reading it is free
+        // and moving it is refused. (It hovered as `proj proj T?` until
+        // 2026-09-22, which was a hover bug, not a type: HEAP_QUALIFIER.md
+        // item 3.)
         let val = heap.get(i)
         if val is None {
             break
@@ -59,8 +61,10 @@ export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
     if !(heap is NonEmpty) {
         return None
     }
-    // TODO: `heap` should be `NonEmpty` here, and this should route to the
-    //       NonEmpty overload (HEAP_QUALIFIER.md item 5).
+    // The guard narrows `heap` to `NonEmpty` on the way out of the `if`
+    // [is-narrow-guard], so this routes to the overload below rather than
+    // recursing into this one [fn-overload-rank] — verified 2026-09-22. What
+    // item 5 still wants is only the `!is` spelling of the guard.
     return heap_pop(heap)
 }
 
@@ -114,10 +118,12 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T => heap: He
 //
 // Two more TODOs are noted inline and cost no errors here:
 //
-//   * item 3 — the `proj proj T?` defect on `heap.get(i)`.
-//   * item 5 — `!is` as sugar, and the fall-through narrowing that would route
-//     the bare `heap_pop` to the `NonEmpty` overload.
+//   * item 5 — `!is` as sugar. The narrowing and the routing it was bundled
+//     with already work (verified 2026-09-22).
 //   * item 6 — `+=`.
+//
+// Item 3 — the `proj proj T?` hover on `heap.get(i)` — is **fixed**
+// (2026-09-22).
 //
 // The ordering itself needs nothing further: `?cmp` is bound once per
 // signature, the two `heap_pop` overloads share it, and a caller that never

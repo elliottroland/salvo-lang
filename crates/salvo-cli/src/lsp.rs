@@ -434,8 +434,19 @@ impl Server<'_> {
                  independent value.",
                 roots.join(", ")
             );
+            // [proj-type] The prefix is skipped when the *type* already leads
+            // with a `proj` — a `get` result is `(proj[from: list] T)?`, and
+            // the fate link and the declared borrow are the same claim, so
+            // prefixing one anyway read `proj proj T?` (the heap demo's item 3,
+            // fixed 2026-09-22). The detail line still names the roots, which
+            // is the part the type does not carry.
+            let line = if ty.presents_proj() {
+                ty.to_string()
+            } else {
+                format!("proj {ty}")
+            };
             return Some(markdown_hover(
-                docs::hover_markdown(&format!("proj {ty}"), &[Some(detail)]),
+                docs::hover_markdown(&line, &[Some(detail)]),
                 span_to_range(content, span),
             ));
         }

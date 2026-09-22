@@ -368,6 +368,50 @@ fn diagnostics_hover_and_shutdown() {
         "hover should name the projection, not the whole root: {value}"
     );
 
+    // [proj-type] A value whose *declared* type already leads with a `proj`
+    // gets **one**, not two: `get` answers `(proj[from: list] T)?`, and the
+    // fate link says the same thing the type says. Reported by
+    // `demo/heap.sv` as `proj proj T?` (HEAP_QUALIFIER.md item 3, fixed
+    // 2026-09-22) — a hover-only defect, since the checker's own type was
+    // right all along.
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 6},
+                "contentChanges": [{
+                    "text": "fn probe(xs: List<Str>) -> None => xs {\n    let first = xs.get(0)\n    let _seen = first\n}\n"
+                }]
+            }
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(params["diagnostics"].as_array().unwrap().len(), 0);
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 9, "method": "textDocument/hover",
+            "params": {
+                "textDocument": {"uri": uri},
+                "position": {"line": 1, "character": 9}
+            }
+        }),
+    );
+    let response = expect_response(&lsp.rx, 9);
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .unwrap_or_else(|| panic!("hover contents not markdown: {response}"));
+    assert!(
+        value.starts_with("```salvo\nproj Str?\n```"),
+        "the borrow should be stated once: {value}"
+    );
+    // …and the link is still named, which is the part the type does not carry.
+    assert!(
+        value.contains("shares fate with `xs`"),
+        "hover should still carry the fate link: {value}"
+    );
+
     // Clean shutdown.
     send(
         &mut lsp.stdin,

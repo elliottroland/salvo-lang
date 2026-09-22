@@ -388,6 +388,27 @@ impl Ty {
         }
     }
 
+    /// [proj-type] [fate-link] Whether this type's **rendering leads with a
+    /// `proj`**, which is what a hover has to know before prefixing one of its
+    /// own: `get` answers `(proj[from: list] T)?`, so the borrow is already on
+    /// the type line and a second `proj` would be the same claim written twice
+    /// (the `proj proj T?` the heap demo reported).
+    ///
+    /// Display-shaped on purpose, because that is the question: a `proj` leads
+    /// when it is a qualifier of this type, or when this is an optional printed
+    /// as `X?` whose `X` leads with one. Anywhere deeper it appears inside the
+    /// rendering rather than in front of it, and a prefix is still informative.
+    pub fn presents_proj(&self) -> bool {
+        match self {
+            Ty::Qualified { quals, .. } => quals.iter().any(|q| q.name == "proj"),
+            Ty::Union(arms) => {
+                let value: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
+                value.len() == 1 && arms.len() == 2 && value[0].presents_proj()
+            }
+            _ => false,
+        }
+    }
+
     /// The type with the named qualifiers removed (a no-op when none
     /// match); collapses to the base type when no qualifiers remain
     /// [deduce-consume].
@@ -1206,6 +1227,32 @@ mod tests {
         assert_eq!(opt.to_string(), "Str?");
         let res = Ty::union_of(vec![ok(Ty::named("Int")), err(Ty::named("Str"))]);
         assert_eq!(res.to_string(), "Ok Int | Err Str");
+    }
+
+    /// [proj-type] [fate-link] What a hover asks before adding a `proj` of its
+    /// own: does the *rendering* already lead with one? A `get` result
+    /// (`(proj Str)?`) does, through the optional; an unprojected type does
+    /// not; and a `proj` buried in a multi-arm union is not in front of
+    /// anything, so a prefix there still tells the reader something.
+    #[test]
+    fn a_projection_is_visible_in_the_type_line() {
+        let proj = |ty: Ty| {
+            ty.qualify(vec![Qual {
+                effect: false,
+                name: "proj".into(),
+                args: vec![],
+            }])
+        };
+        let projected = proj(Ty::named("Str"));
+        assert_eq!(projected.to_string(), "proj Str");
+        assert!(projected.presents_proj());
+        let optional = Ty::union_of(vec![projected.clone(), Ty::none()]);
+        assert_eq!(optional.to_string(), "proj Str?");
+        assert!(optional.presents_proj());
+        assert!(!Ty::named("Str").presents_proj());
+        assert!(!Ty::union_of(vec![Ty::named("Str"), Ty::none()]).presents_proj());
+        let two_arms = Ty::union_of(vec![projected, Ty::named("Int"), Ty::none()]);
+        assert!(!two_arms.presents_proj());
     }
 
     #[test]

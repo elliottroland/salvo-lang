@@ -264,10 +264,11 @@ What the round left open:
 - **Recursive implicit resolution**, so a tuple or a list can have a `cmp` of its
   own — its own section below.
 
-The heap demo's remaining plan (D2's motivating example, the `proj proj T?`
-defect, `swap`, `!is`, `+=`) is **HEAP_QUALIFIER.md**, with its own suggested
-sequence. `demo/heap.sv` is written in the new syntax and reports exactly four
-errors: three missing `swap` (item 4) and one D2 body validation (item 2).
+The heap demo's remaining plan (D2's motivating example, `swap`, `!is`, `+=`) is
+**HEAP_QUALIFIER.md**, with its own suggested sequence. `demo/heap.sv` is written
+in the new syntax and reports exactly four errors: three missing `swap` (item 4)
+and one D2 body validation (item 2). Its `proj proj T?` item closed 2026-09-22 —
+a hover-only defect, and not where the plan guessed (COMPLETED.md's log).
 
 ## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
 
