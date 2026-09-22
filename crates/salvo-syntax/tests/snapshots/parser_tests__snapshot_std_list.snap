@@ -969,8 +969,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -984,7 +984,8 @@ Module {
                                         span: 1778..1781,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 1772..1781,
                         },
                         Deduction {
@@ -1142,8 +1143,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -1157,7 +1158,8 @@ Module {
                                         span: 2438..2441,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 2432..2441,
                         },
                     ],
@@ -1325,8 +1327,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -1340,7 +1342,8 @@ Module {
                                         span: 2706..2709,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 2700..2709,
                         },
                         Deduction {
@@ -1550,8 +1553,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -1565,7 +1568,8 @@ Module {
                                         span: 3493..3496,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 3487..3496,
                         },
                         Deduction {
@@ -3276,8 +3280,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -3291,7 +3295,8 @@ Module {
                                         span: 8315..8318,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 8312..8318,
                         },
                     ],
@@ -4209,8 +4214,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -4224,7 +4229,8 @@ Module {
                                         span: 11105..11108,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 11099..11108,
                         },
                         Deduction {
@@ -5351,8 +5357,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -5378,7 +5384,8 @@ Module {
                                         span: 14101..14107,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 14091..14107,
                         },
                         Deduction {

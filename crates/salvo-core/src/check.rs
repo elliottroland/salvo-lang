@@ -1139,61 +1139,49 @@ fn check_once<'p>(
     // diagnostics are replayed here so they land with everything else.
     out.errors.extend(refinements.errors.iter().cloned());
     out.refinements = refinements.clone();
-    for (file_idx, (_file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
-        let mut checker = Checker {
-            scope: &resolution.scopes[file_idx],
+    // [implicit-param] Every fn's implicit parameters are recorded **before**
+    // any body is checked. A call reads the callee's list from that table, so
+    // a callee this walk had not reached yet silently lost its implicit
+    // arguments: the checker accepted the call and the target compiler then
+    // rejected the emitted one ([backend-never-wrong]), for nothing but
+    // declaration order — within a file or across files (found while making
+    // `demo/heap.sv` run, fixed 2026-09-22). The pre-pass's diagnostics are
+    // dropped: the signature check re-derives them in the file they belong to,
+    // where a reader is.
+    let mark = out.errors.len();
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        let mut checker = Checker::new(
+            file_idx,
+            file.is_std,
+            &resolution.scopes[file_idx],
             resolution,
             symbols,
             inferred,
             refinements,
-            refn_warned: HashSet::new(),
-            file_idx,
-            out: &mut out,
-            locals: Vec::new(),
-            generics: HashSet::new(),
-            ret_ty: Ty::none(),
-            own_qualifiers: HashSet::new(),
-            effect_env: Vec::new(),
-            handler_deps: Vec::new(),
-            handler_ofs: Vec::new(),
-            own_handler: None,
-            handler_spawns: false,
-            facade_handler: None,
-            confined_state: Vec::new(),
-            servant_reply_params: None,
-            own_task: None,
-            can_use: false,
-            placeholder_ty: None,
-            can_spawn: false,
-            loop_stack: Vec::new(),
-            driven_origins: Vec::new(),
-            next_var_id: 0,
+            &mut out,
             move_candidates,
             param_claims,
-            parking_handlers,
             param_mutations,
-            own_fn: None,
-            own_contract: None,
-            own_discharges: std::collections::HashSet::new(),
-            own_written: Vec::new(),
-            lambda_ctx: Vec::new(),
-            lambda_links: HashMap::new(),
-            assign_target: false,
-            projection_base: 0,
-            is_std: _file.is_std,
-            own_linear_generics: HashSet::new(),
-            own_derived_return: None,
-            own_derived_sources: Vec::new(),
-            lends_memo: HashMap::new(),
-            own_lends: Vec::new(),
-            own_lends_declared: false,
-            own_proj_arms: Vec::new(),
-            lending_ctor: None,
-            own_implicits: Vec::new(),
-            renames: Vec::new(),
-            try_stack: Vec::new(),
-            effect_uses: Vec::new(),
-        };
+            parking_handlers,
+        );
+        checker.collect_implicit_signatures(ast);
+    }
+    out.errors.truncate(mark);
+    for (file_idx, (file, ast)) in program.files.iter().zip(&program.modules).enumerate() {
+        let mut checker = Checker::new(
+            file_idx,
+            file.is_std,
+            &resolution.scopes[file_idx],
+            resolution,
+            symbols,
+            inferred,
+            refinements,
+            &mut out,
+            move_candidates,
+            param_claims,
+            param_mutations,
+            parking_handlers,
+        );
         checker.check_module(ast);
     }
     check_intrinsic_is_std_only(program, &mut out);
@@ -1762,6 +1750,146 @@ struct CondInfo {
     else_narrows: Vec<Narrow>,
     /// `is T name` bindings introduced in the true branch.
     bindings: Vec<Binding>,
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    /// [implicit-param] Records every declaration's implicit parameters, with
+    /// nothing else checked. Run over the whole program before any body is,
+    /// because a call site reads the **callee's** list out of this table: a
+    /// callee the check had not reached yet looked like a fn with no implicits,
+    /// so the call was accepted with none filled and the emitted call was short
+    /// an argument — a [backend-never-wrong] violation decided by nothing but
+    /// declaration order, within a file or across them.
+    ///
+    /// Mirrors the generic scopes the real walk enters, since `?cmp: (T, T) ->
+    /// Int` must lower to a variable rather than a nominal `T`, and mirrors
+    /// which declarations have an `FnKey` (only a top-level fn does; the rest
+    /// key by their name span). Its diagnostics are dropped by the caller.
+    fn collect_implicit_signatures(&mut self, module: &'p Module) {
+        for (item_idx, item) in module.items.iter().enumerate() {
+            match item {
+                Item::Fn(f) => {
+                    self.own_fn = Some(FnKey {
+                        file: self.file_idx,
+                        item: item_idx,
+                    });
+                    let saved = self.enter_generics(&f.generics);
+                    self.expand_implicits(f);
+                    self.generics = saved;
+                    self.own_fn = None;
+                }
+                Item::Qualifier(q) => {
+                    let saved = self.enter_generics(&q.generics);
+                    for f in &q.fns {
+                        let inner = self.enter_generics(&f.generics);
+                        self.expand_implicits(f);
+                        self.generics = inner;
+                    }
+                    self.generics = saved;
+                }
+                Item::Effect(e) => {
+                    let saved = self.enter_generics(&e.generics);
+                    for f in &e.fns {
+                        let inner = self.enter_generics(&f.generics);
+                        let implicits = self.collect_implicits(f);
+                        if !implicits.is_empty() {
+                            self.out
+                                .implicit_members
+                                .insert(self.key(f.name.span), implicits);
+                        }
+                        self.generics = inner;
+                    }
+                    self.generics = saved;
+                }
+                Item::Handler(h) => {
+                    let saved = self.enter_generics(&h.generics);
+                    for f in &h.fns {
+                        let inner = self.enter_generics(&f.generics);
+                        self.expand_implicits(f);
+                        self.generics = inner;
+                    }
+                    self.generics = saved;
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl<'p, 'r> Checker<'p, 'r> {
+    /// One file's checker. Every field that is not a borrow from outside
+    /// starts empty, so the two walks over the program — the signature
+    /// pre-pass and the check itself — differ only in what they call.
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        file_idx: usize,
+        is_std: bool,
+        scope: &'r ModuleScope<'p>,
+        resolution: &'r Resolution<'p>,
+        symbols: &'r Symbols<'p>,
+        inferred: Option<&'r HashMap<FnKey, Vec<crate::deduce::ParamDeduction>>>,
+        refinements: &'r crate::refine::Refinements,
+        out: &'r mut Checked,
+        move_candidates: &'r mut HashSet<Key>,
+        param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
+        param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+        parking_handlers: &'r mut HashSet<String>,
+    ) -> Checker<'p, 'r> {
+        Checker {
+            scope,
+            resolution,
+            symbols,
+            inferred,
+            refinements,
+            refn_warned: HashSet::new(),
+            file_idx,
+            out,
+            locals: Vec::new(),
+            generics: HashSet::new(),
+            ret_ty: Ty::none(),
+            own_qualifiers: HashSet::new(),
+            effect_env: Vec::new(),
+            handler_deps: Vec::new(),
+            handler_ofs: Vec::new(),
+            own_handler: None,
+            handler_spawns: false,
+            facade_handler: None,
+            confined_state: Vec::new(),
+            servant_reply_params: None,
+            own_task: None,
+            can_use: false,
+            placeholder_ty: None,
+            can_spawn: false,
+            loop_stack: Vec::new(),
+            driven_origins: Vec::new(),
+            next_var_id: 0,
+            move_candidates,
+            param_claims,
+            parking_handlers,
+            param_mutations,
+            own_fn: None,
+            own_contract: None,
+            own_discharges: std::collections::HashSet::new(),
+            own_written: Vec::new(),
+            lambda_ctx: Vec::new(),
+            lambda_links: HashMap::new(),
+            assign_target: false,
+            projection_base: 0,
+            is_std,
+            own_linear_generics: HashSet::new(),
+            own_derived_return: None,
+            own_derived_sources: Vec::new(),
+            lends_memo: HashMap::new(),
+            own_lends: Vec::new(),
+            own_lends_declared: false,
+            own_proj_arms: Vec::new(),
+            lending_ctor: None,
+            own_implicits: Vec::new(),
+            renames: Vec::new(),
+            try_stack: Vec::new(),
+            effect_uses: Vec::new(),
+        }
+    }
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
@@ -5284,6 +5412,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         if f.constructs.is_some() {
             self.check_constructor_sig(f);
         }
+        // [deduce-reapply] `=> p: +Q Mut` — the claims this fn establishes.
+        self.check_reapplied_deductions(f);
         // [readonly-return] `-> proj[from: p] T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
@@ -13411,8 +13541,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 ast::DeductionKind::KeepAll | ast::DeductionKind::Proj(_) => {
                                     (true, QualEffect::KeepAll)
                                 }
-                                ast::DeductionKind::Exhaustive(items) => {
-                                    (true, QualEffect::Exhaustive(names(items)))
+                                ast::DeductionKind::Exhaustive { quals, reapplied } => {
+                                    // [deduce-reapply] A fn *type*'s contract is
+                                    // a claim about a value someone else wrote,
+                                    // so it has no body to trust or check and
+                                    // `+Q` is refused at the signature (below).
+                                    // The names still union, so a refused one
+                                    // stays one diagnostic.
+                                    let mut keep = names(quals);
+                                    keep.extend(names(reapplied));
+                                    (true, QualEffect::Exhaustive(keep))
                                 }
                                 ast::DeductionKind::Remove(items) => {
                                     (true, QualEffect::Remove(names(items)))
@@ -15172,6 +15310,151 @@ impl<'p, 'r> Checker<'p, 'r> {
                             );
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// [deduce-reapply] Validates the `+Q` entries of a fn's own deduction
+    /// clause (user decision 2026-09-22, ROADMAP's D2): a claim the function
+    /// **re-establishes** rather than preserves, which is what lets a mutator
+    /// keep a qualifier its own body strips. Trusted — no `qualifies` runs, as
+    /// with `-> T as Q` [qual-ctor-fn] and a refinement [qual-refn] — so the
+    /// rules here are the ones that keep the trust honest:
+    ///
+    /// * the qualifier must be declared **in this file** [qual-ctor-same-file],
+    ///   which is the same party we already trust to mint the claim;
+    /// * it must be a qualifier the *parameter* declares (that is checked in
+    ///   `deduce.rs`, against the written type): re-establishing is not adding;
+    /// * written arguments must **agree** with the parameter's, since the claim
+    ///   the caller ends up with is the parameter's own [cmp-binder] — a
+    ///   different identity would be a different type and belongs in the return
+    ///   type, which is what a constructor fn is for;
+    /// * a compiler qualifier (`Mut`, `proj`) cannot be re-applied: it is a
+    ///   representation choice rather than a claim, and it is not erased.
+    fn check_reapplied_deductions(&mut self, f: &'p FnDecl) {
+        // [deduce-reapply] [fn-contract] A `=>[g]` group states a *callback's*
+        // contract — a claim about a value someone else wrote, with no body here
+        // to trust and none there to check. Re-establishing is the declarer's to
+        // claim, so it is refused in a group and the remedy is the one that
+        // already exists for someone else's function: a refinement.
+        for p in &f.params {
+            let ast::Type::Fn {
+                deductions: Some(list),
+                ..
+            } = &p.ty
+            else {
+                continue;
+            };
+            for d in list {
+                let ast::DeductionKind::Exhaustive { reapplied, .. } = &d.kind else {
+                    continue;
+                };
+                for q in reapplied {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`+{}` cannot appear in `{}`'s contract: a `=>[{}]` \
+                             group says what *that* function does, and nothing \
+                             here could establish the claim on its behalf. State \
+                             what a call of someone else's function leaves behind \
+                             with a `refn` in the qualifier",
+                            q.name.name, p.name.name, p.name.name
+                        ),
+                    );
+                }
+            }
+        }
+        for d in f.deductions.iter().flatten() {
+            let ast::DeductionKind::Exhaustive { reapplied, .. } = &d.kind else {
+                continue;
+            };
+            if reapplied.is_empty() {
+                continue;
+            }
+            let Some(param_name) = d.param_name() else {
+                for q in reapplied {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`+{}` states what this function establishes about a \
+                             *parameter*, so it needs one: write it on the \
+                             parameter's entry (`=> p: +{} Mut`)",
+                            q.name.name, q.name.name
+                        ),
+                    );
+                }
+                continue;
+            };
+            let param = f
+                .params
+                .iter()
+                .find(|p| p.name.name == param_name.name)
+                .map(|p| self.lower_type(&p.ty));
+            for q in reapplied {
+                let name = q.name.name.as_str();
+                if matches!(name, "Mut" | "proj" | "linear" | "once") {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`{name}` cannot be re-established: it is the \
+                             compiler's own qualifier — a representation choice \
+                             rather than a claim about the value — and nothing \
+                             could establish it. Only a qualifier declared in \
+                             this file may be written `+{name}`"
+                        ),
+                    );
+                    continue;
+                }
+                if !self.own_qualifiers.contains(name) {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`+{name}` re-establishes `{name}`, which this file \
+                             does not declare: a function may only claim to \
+                             establish a qualifier its own file owns, the same \
+                             rule a constructor fn and a refinement follow. \
+                             Declare a constructor there, or consume the value \
+                             and return it as `{name}`"
+                        ),
+                    );
+                    continue;
+                }
+                // The arguments, when written: they must be the parameter's own.
+                if q.args.is_empty() {
+                    continue;
+                }
+                let Some(param_ty) = &param else { continue };
+                let want = param_ty
+                    .quals()
+                    .iter()
+                    .find(|pq| pq.name == name)
+                    .map(|pq| pq.args.clone());
+                let Some(want) = want else { continue };
+                let empty = HashMap::new();
+                let got = self.lower_quals(std::slice::from_ref(q), &empty, 0);
+                let got = got.first().map(|g| g.args.clone()).unwrap_or_default();
+                if got != want {
+                    let show = |args: &[Ty]| {
+                        args.iter()
+                            .map(|a| a.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    self.error(
+                        q.span,
+                        format!(
+                            "`+{name}<{}>` does not match the claim on `{}`, \
+                             which is `{name}<{}>`: a re-established claim is \
+                             the parameter's own, so its arguments cannot \
+                             differ — a *different* one is a new value, and \
+                             belongs in the return type (`-> … as {name}<{}>`)",
+                            show(&got),
+                            param_name.name,
+                            show(&want),
+                            show(&got)
+                        ),
+                    );
                 }
             }
         }

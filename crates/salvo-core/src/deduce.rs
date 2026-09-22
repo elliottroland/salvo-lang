@@ -510,10 +510,21 @@ pub(crate) fn from_written(
                     }
                     QualEffect::Remove(drop)
                 }
-                DeductionKind::Exhaustive(items) => {
+                DeductionKind::Exhaustive { quals, reapplied } => {
                     let mut keep = Vec::new();
-                    for q in items {
-                        if !q.args.is_empty() {
+                    // [deduce-reapply] A re-applied entry may carry the
+                    // qualifier's arguments (`+Heap<T, ?cmp>`), which is the
+                    // point of the spelling: it names the claim it establishes.
+                    // A plain entry may not — there the identity travels with
+                    // the type and restating it would be a second source of
+                    // truth [cmp-binder]. The checker validates the arguments
+                    // and the same-file rule, where the lowered types are.
+                    for (q, is_reapplied) in quals
+                        .iter()
+                        .map(|q| (q, false))
+                        .chain(reapplied.iter().map(|q| (q, true)))
+                    {
+                        if !q.args.is_empty() && !is_reapplied {
                             error(
                                 q.span,
                                 "a deduction entry may only name qualifiers (and \
@@ -527,10 +538,15 @@ pub(crate) fn from_written(
                             error(
                                 q.span,
                                 format!(
-                                    "deduction keeps qualifier `{}`, which is not \
+                                    "deduction {} qualifier `{}`, which is not \
                                      declared on parameter `{name}` (a deduction \
-                                     may preserve or drop qualifiers, not add \
-                                     them)",
+                                     may preserve, drop or re-establish the \
+                                     parameter's own qualifiers, not add others)",
+                                    if is_reapplied {
+                                        "re-establishes"
+                                    } else {
+                                        "keeps"
+                                    },
                                     q.name.name
                                 ),
                             );
@@ -619,8 +635,19 @@ fn validate_written(
         let declared = declared_quals(&p.ty);
         let promised = w.effect.kept_quals(&declared);
         let survives = i.effect.kept_quals(&declared);
+        // [deduce-reapply] A claim written `+Q` is **established by this
+        // function**, so the body is not asked whether it survived — that is
+        // the whole difference between the two spellings. Trusted like `as Q`
+        // and like a refinement, and gated to the qualifier's own file by the
+        // checker.
+        let reapplied: Vec<&str> = match &entry.kind {
+            DeductionKind::Exhaustive { reapplied, .. } => {
+                reapplied.iter().map(|q| q.name.name.as_str()).collect()
+            }
+            _ => Vec::new(),
+        };
         for q in &promised {
-            if w.kept && !survives.contains(q) {
+            if w.kept && !survives.contains(q) && !reapplied.contains(&q.as_str()) {
                 errors.push(FileDiagnostic::error(
                     file,
                     entry.span,

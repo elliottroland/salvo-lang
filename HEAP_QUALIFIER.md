@@ -12,11 +12,18 @@ the code, not verified by compiling — the verification steps are listed per
 item. `demo/` is referenced by no test or build target, so the file
 currently compiles nothing and breaks nothing.
 
-**The one-line summary**: std's own `Sorted<T> of List<T>`
-(`std/core/list.sv:160–195`) is the same shape as `Heap` and dodges every
-hard problem here by being `intrinsic` — no body to validate, ordering
-delegated to the backend. `Heap` is the test of whether ordinary Salvo can do
-what only intrinsics can today, and the TODOs are exactly the gaps.
+**The one-line summary, as it started**: std's own `Sorted<T> of List<T>` is the
+same shape as `Heap` and dodged every hard problem here by being `intrinsic` — no
+body to validate, ordering delegated to the backend. `Heap` was the test of
+whether ordinary Salvo could do what only intrinsics could, and the TODOs were
+exactly the gaps.
+
+**Where it ended (2026-09-22): it can.** `demo/heap.sv` compiles and runs on both
+backends, and `Sorted` is no longer the privileged one — it carries its ordering
+like `Heap` does, and its operations are ordinary Salvo over three primitives.
+Items 1–4 are closed, and **what is left is two pieces of sugar**: `!is` (item 5)
+and `+=` (item 6), both decided and both a parser change. Delete this file when
+they land.
 
 Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 
@@ -42,7 +49,7 @@ Two of the original TODOs are already resolved and carry no plan (2026-09-21):
 | # | TODO (file location) | Kind | Status today |
 |---|---|---|---|
 | 1 | `Heap<T canbe ordered>` — ordering bound on `T` (lines 6–7) | **DECISION** — grew into its own design round, now complete (COMPLETED.md's log) | ✅ **done**: the bound half landed 2026-09-21 (a `cmp` in scope *is* the bound) and the holding half 2026-09-22 (`Heap<T, ?cmp: (T, T) -> Int>`, [cmp-carry] [cmp-binder]). `demo/heap.sv` is rewritten to it and its ordering half compiles; what is left there is items 2 and 4 |
-| 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | written entry fails body validation |
+| 2 | `+Heap` — re-asserting the claim after mutation (lines 20–22) | **DECISION** (= ROADMAP **D2**) | ✅ **landed 2026-09-22**: `=> heap: +Heap<T, ?cmp> Mut`, trusted in the qualifier's own file |
 | 3 | `val: proj proj T?` (line 28) | defect | ✅ **fixed 2026-09-22**: a hover-only display bug in the LSP, not the type system |
 | 4 | `swap` / set-at-index on `Mut List<T>` (lines 39–40) | std API (**DECISION** on shape) | ✅ **`swap` landed 2026-09-22**, answering `Bool`; the positional write stays deliberately absent |
 | 5 | `!is NonEmpty` + fall-through narrowing + overload routing (lines 51, 54) | **DECISION** (small) | narrowing and routing **verified working** 2026-09-22; only `!is` is missing |
@@ -95,70 +102,48 @@ the heap's declaration line and its comparisons are unblocked.
 
 ---
 
-## 2. Re-asserting `Heap` after mutation — **DECISION** (this is ROADMAP D2)
+## 2. Re-asserting `Heap` after mutation — **landed 2026-09-22** (ROADMAP D2)
 
-**What the file writes:** `fn heap_push<T>(heap: Heap Mut List<T>, elem: T) => heap: Heap Mut`,
-with the comment asking for `+Heap` in deductions.
-
-**Today:** the written exhaustive entry `heap: Heap Mut` is *shape*-legal
-(it keeps only qualifiers the parameter declares, [deduce-syntax]) but fails
-**body validation**: "promising … a qualifier the body may remove, is an
-error" [deduce-infer]. The body calls `add(heap, elem)`, whose exhaustive
-`=> list: Mut` strips `Heap` (the removal set is computed against what the
-argument carries). `NonEmpty` comes back via its refinement
-(`refn add … => list: +NonEmpty`); nothing brings `Heap` back.
-
-**Why each existing mechanism fails here:**
-- **A refinement** (`refn add(…) => list: +Heap` inside `Heap`) would be a
-  *false* claim: appending to the tail of a heap-ordered list breaks the
-  heap property in general. Refinements state what *someone else's* call
-  preserves; here nothing but `heap_push` as a whole preserves it. The TODO
-  itself sees this ("running the qualifies again would be another O(n)").
-- **`add_sorted`'s trick** (writing the keep in an intrinsic's clause) works
-  only because an intrinsic has no body to validate. `heap_push` has one.
-- **A `qualifies` at exit** — `Heap` as written has no body (constructive,
-  [qual-constructive]), and even with one, an O(n) re-check per push defeats
-  the point. Also `qualifies` needs the elements compared, which the ordering round
-  supplied.
-
-**What works *today*, as a stopgap:** the consume-and-return shape —
+**The decision** (the user's): option A — a fn in the qualifier's own file may
+keep a claim it re-establishes — **with the refinement that the re-application is
+spelled differently** from a claim checked as usual, so a reader can tell which is
+which. `+Heap<T, ?cmp>`, on the model of a `refn`'s additions:
 
 ```
-fn heap_push<T>(heap: Heap Mut List<T>, elem: T) -> Mut List<T> as Heap => !heap
+export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+    => heap: +Heap<T, ?cmp> Mut, !elem {
+    add(heap, elem)     // strips the claim, as any mutating call must
+    …                   // sift it back
+}
 ```
 
-— a constructor fn [qual-ctor-fn], trusted by construction, same-file rule
-satisfied [qual-ctor-same-file]. Cost: callers write `h = heap_push(h, e)`,
-and the demo's own `as_heap` helper shows the shape was already being
-groped for. Worth rewriting the demo this way regardless, so it compiles
-while D2 waits.
+A plain `Heap` in that position still fails body validation, which is what makes
+the `+` mean something. The rule is [deduce-reapply]; what it refuses: another
+file's qualifier, a compiler qualifier (`+Mut`), a qualifier the parameter does
+not declare (re-establishing is not adding), arguments that disagree with the
+parameter's, and `+Q` inside a `=>[f]` group (a callback's contract is not yours
+to vouch for — that is what a `refn` is for). No emitter work: qualifiers erase.
 
-**The real fix is D2** ("Decisions waiting on the user", unscheduled):
-`+Q` in a function's own deduction clause needs an *establishment rule* —
-what entitles a body to claim it established `Q`. The heap gives D2 its
-motivating example and suggests a narrow, honest rule:
+**What it unblocked, and what it cost.** `demo/heap.sv` reached *zero* errors —
+and then failed to *run*, twice, on defects the checker could not see:
 
-> A fn declared **in the qualifier's own file** may write the qualifier in
-> a parameter's exhaustive entry (or as `+Q`), trusted — the same trust and
-> the same scoping as constructor fns [qual-ctor-same-file] and
-> refinements-by-the-owner [qual-refn]. Outside that file it stays
-> rejected.
+- **Implicit arguments were dropped for a callee the checker had not walked yet.**
+  A call read the callee's implicit-parameter list out of a table filled as the
+  walk went, so a callee declared *later in the file* — or in a file sorted after
+  the caller's — looked like a fn with no implicits: the call was accepted with
+  none filled, and the emitted call was short an argument on **both** backends.
+  Order-dependent, silent in Salvo, fatal in the target. Fixed by a program-wide
+  signature pre-pass before any body is checked.
+- **A forwarded implicit needed an adapter.** `drain(heap: Heap<Int, ?cmp> …)`
+  holds `&mut dyn FnMut(i32, i32) -> i32` (a Copy scalar goes by value) while the
+  generic `heap_pop<T>` it calls wants `FnMut(&T, &T)` (a type variable is never
+  known to be Copy) — the disagreement [rs-fn-param-convention] already records
+  one level out, for a lambda. The Rust emitter now bridges them, with the modes
+  read off the one function that renders a fn type's parameters, so the two
+  answers cannot drift.
 
-That is weaker than general `+Q` (no establishment proof, but the same
-party we already trust to mint the claim), and it makes `=> heap: Heap Mut`
-in `heap.sv` legal as written. Options to put to the user:
-- **A.** The same-file trusted keep/`+Q` above (recommended — consistent
-  with every existing trust boundary: `as Q`, `refn`, field overrides).
-- **B.** Full D2 with an establishment rule (verify the body ends every
-  path having called something that establishes `Q`) — much heavier, and
-  the machinery (a per-qualifier establishment relation) doesn't exist.
-- **C.** Stay with consume-and-return permanently — zero compiler work,
-  but `Mut`-parameter APIs (the language's own idiom for mutators) can
-  never preserve a user qualifier, which will keep hurting.
-
-**Effort (A):** moderate — deduce.rs validation carve-out, spec rule under
-[deduce-syntax]/[qual-refn], tests; no emitter work (qualifiers erase,
-[qual-erasure]).
+Both are in COMPLETED.md's log. The heap now runs on both backends and is an e2e
+case on each, from verbatim one source.
 
 ---
 
@@ -340,9 +325,8 @@ step 5.
 2. ✅ **The ordering round's steps** — subsumed #1 and #7, and the round is
    **complete** (2026-09-21/22): the declaration line and every comparison in
    `heap.sv` now check, and nothing here waits on anything.
-3. **#2 (D2)** — the establishment rule; after it, `heap_push` keeps its
-   natural `Mut`-parameter shape. (Meanwhile: rewrite the demo to
-   consume-and-return `as Heap`, which works today.)
+3. ✅ **#2 (D2)** — **landed 2026-09-22**: `heap_push` and `heap_pop` keep their
+   natural `Mut`-parameter shape, and `demo/heap.sv` compiles *and runs*.
 4. ✅ **#4 (`swap`)** — **landed 2026-09-22**, which took `demo/heap.sv` down to
    **one** error: item 2's.
 5. **#5 (`!is`)** — the guard narrowing and the routing are verified working

@@ -10,7 +10,7 @@ use salvo_syntax::ast::Item;
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn copy<T>(value: T) [] -> T => value\nexport intrinsic type Store<T> canbe Mut\nexport intrinsic fn fresh() [] -> List<Int>\nexport intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n";
 
 /// Parses + resolves + checks a single-file program (no std).
 fn check_src(src: &str) -> (Program, Checked) {
@@ -1360,4 +1360,142 @@ fn leak<T>(list: List<T>) -> proj[from: list] List<T> {{
         .filter(|d| d.message.contains("so every returned value must be derived from"))
         .all(|d| src[d.span.start as usize..d.span.end as usize].starts_with("owned("));
     assert!(span_ok, "the error must point at the returned call itself");
+}
+
+// ===== [deduce-reapply] a claim the function re-establishes =====
+
+/// The whole point (user decision 2026-09-22, ROADMAP's D2): a mutator keeps a
+/// user qualifier across a `Mut` parameter by saying it **establishes** it.
+/// Plain `Q` stays what it always was — a claim the body must have preserved —
+/// and that is the distinction the spelling exists to draw.
+fn reapply_errors(src: &str) -> Vec<String> {
+    let (_, checked) = check_src(src);
+    checked
+        .errors
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// The same over several files, for the same-file rule — which can only be
+/// tested by putting the qualifier somewhere else.
+fn reapply_errors_in(files: &[(&str, &str)]) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        STD_PRELUDE.to_string(),
+        true,
+    );
+    for (name, src) in files {
+        sources.add(
+            *name,
+            SourceSet::classify(Path::new(name)).unwrap(),
+            src.to_string(),
+            false,
+        );
+    }
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked
+        .errors
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect()
+}
+
+/// The shared shape: a qualifier whose file owns a mutator over it. `push`
+/// mutates through `add`, whose own exhaustive clause strips the claim, and
+/// nothing but `push` knows it is re-established.
+const HEAPISH: &str = r#"
+qualifier H<T> of List<T>
+
+fn push<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
+    => heap: +H<T> Mut, !elem {
+    add(heap, elem)
+}
+"#;
+
+#[test]
+fn a_reapplied_claim_survives_a_mutation() {
+    let errs = reapply_errors(HEAPISH);
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// …and the plain spelling of the same signature still fails, which is what
+/// makes `+` mean something.
+#[test]
+fn the_plain_spelling_of_the_same_claim_still_fails() {
+    let errs = reapply_errors(&HEAPISH.replace("+H<T> Mut", "H Mut"));
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("promises qualifier `H` on `heap`, but the body may remove it")),
+        "expected the body-validation error: {errs:?}"
+    );
+}
+
+/// The trust is gated to the qualifier's **own file** [qual-ctor-same-file]:
+/// the same party already trusted to mint the claim, and nobody else.
+#[test]
+fn only_the_qualifiers_own_file_may_reestablish_it() {
+    let mut sources = vec![("q.sv", "export qualifier H<T> of List<T>\n")];
+    let other = r#"
+import q.H
+
+fn push<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
+    => heap: +H<T> Mut, !elem {
+    add(heap, elem)
+}
+"#;
+    sources.push(("main.sv", other));
+    let errs = reapply_errors_in(&sources);
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("which this file does not declare")),
+        "expected the same-file refusal: {errs:?}"
+    );
+}
+
+/// A compiler qualifier is not a claim about the value and nothing could
+/// establish it, so `+Mut` is refused outright rather than ignored.
+#[test]
+fn a_compiler_qualifier_cannot_be_reestablished() {
+    let errs = reapply_errors(
+        "fn f(xs: Mut List<Int>) [] -> None => xs: +Mut {\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`Mut` cannot be re-established")),
+        "expected the compiler-qualifier refusal: {errs:?}"
+    );
+}
+
+/// Re-establishing is not *adding*: the qualifier has to be one the parameter
+/// declares, so the claim the caller ends up with is the parameter's own.
+#[test]
+fn reestablishing_is_not_adding() {
+    let errs = reapply_errors(
+        "qualifier H<T> of List<T>\n\n\
+         fn f(xs: Mut List<Int>) [] -> None => xs: +H Mut {\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e
+            .contains("re-establishes qualifier `H`, which is not declared on parameter `xs`")),
+        "expected the not-declared refusal: {errs:?}"
+    );
 }

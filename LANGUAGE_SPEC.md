@@ -1080,10 +1080,12 @@ Conventions:
     errors: whether a parameter is kept is the function's own deduction to
     make. The AST carries additions and removals as separate lists rather
     than reusing `Deduction`, so the restriction is structural.
-  * **`+Q` is legal only here.** In a *function's* own deduction clause it
-    stays rejected (roadmap D2): there it would be a claim about the
-    body, which needs an establishment rule; in a refinement it is the
-    qualifier author's claim about someone else's call.
+  * **`+Q` also appears in a function's own clause**, as of 2026-09-22
+    [deduce-reapply] — the same word for the same trust, differing in who it is
+    about: a refinement is the qualifier author's claim about *someone else's*
+    call, while `=> p: +Q` is a claim about *this* body. Both are gated to the
+    qualifier's own file, and neither proves anything: what a refinement is for
+    is a call the author of `Q` does not own, which is why both exist.
   * **Applied after the callee's own list** at each call site
     [deduce-consume]: `add`'s exhaustive `=> list: Mut` drops `NonEmpty`,
     then the refinement puts it back. Only on the *kept* path — nothing is
@@ -1161,10 +1163,11 @@ Conventions:
   [deduce-infer], so the fact survives one frame outward: a fn whose
   parameter declares the qualifier and whose body makes a refined call
   may promise it back, and a *written* list promising it validates against
-  the same body facts. Two limits keep this sound and keep D2 deferred:
+  the same body facts. Two limits keep this sound:
   * An addition contributes only for a qualifier the parameter itself
-    **declares** — it can cancel a removal, never invent a claim. Adding
-    one a signature never made is `+Q` in a fn's own list, which is D2.
+    **declares** — it can cancel a removal, never invent a claim. The same
+    limit holds for a fn's own `+Q` [deduce-reapply]: re-establishing is not
+    adding.
   * An addition is honored only when the refined call is **unconditional**
     in the body (not inside an `if`/`when` branch, a loop body, a lambda
     or a `try`). The deduction walk is a meet over all
@@ -4473,6 +4476,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     | `=> list: A B` | **exhaustive**: afterwards *only* `A B` apply |
     | `=> list: None` | exhaustive and empty: every qualifier stripped |
     | `=> list: -A` | **delta**: drop `A`, everything else survives |
+    | `=> list: +A B` | exhaustive, with `A` **re-established by this function** [deduce-reapply] |
     | `=> .f: proj[from: a]` | the result's field `f` projects `a` [proj-infer] |
     | `=> v.f: proj[from: a]` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
     | `=> proj[from: a, b]` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
@@ -4523,9 +4527,9 @@ the same day. **Not part of `core`**: the surface is imported, and one
     too.
   * Written entries are shape-checked: a plain entry names a parameter
     (once); an exhaustive entry may only keep qualifiers declared on that
-    parameter (a deduction preserves or drops, it never *adds* — `+Qual`
-    is rejected in a *function's* clause, see D2; it is how a **refinement**
-    states what a call establishes [qual-refn]); an entry is either
+    parameter (a deduction preserves, drops or **re-establishes** one of the
+    parameter's own qualifiers — `+Qual` [deduce-reapply] — and never adds
+    another); an entry is either
     exhaustive or a delta, never both; `Never` is the only type form
     (other type narrowings are D1b); a result path or a parameter's field
     path can only state a projection; a parameter both consumed and named
@@ -4543,6 +4547,47 @@ the same day. **Not part of `core`**: the surface is imported, and one
     [qual-refn]. The LSP hover renders the *effective* clause — written and
     inferred entries alike, Copy scalars and keep-all entries omitted —
     and any `=>[f]` groups.
+* [deduce-reapply] **`+Q` in a function's own clause says the function
+  *establishes* `Q`**, rather than that the body preserved it (user decision
+  2026-09-22, which is ROADMAP's D2 answered). It is what lets a **mutator keep a
+  user qualifier**: a mutating callee's exhaustive entry must strip the claim
+  [deduce-syntax], and before this the only shape that could keep one was
+  consume-and-return through a constructor fn — so `Mut`-parameter APIs, the
+  language's own idiom for mutators, could never preserve a qualifier while
+  std's `intrinsic fn`s could (they have no body to validate).
+  * **Written `+Q` inside an exhaustive list**, beside the claims that merely
+    survived: `=> heap: +Heap<T, ?cmp> Mut`. The caller sees the union — an
+    exhaustive list is still *these and nothing else* — and the distinction is
+    about who vouches for each: a plain name is checked against the body, a `+`
+    name is trusted. Two spellings because they are two different statements, and
+    the reader can tell which is which (the user's refinement of the proposal).
+  * **Only in the file that declares `Q`** [qual-ctor-same-file], which is the
+    same party already trusted to mint the claim with `-> T as Q` [qual-ctor-fn]
+    and to speak for someone else's call with a `refn` [qual-refn]. Elsewhere it
+    is an error naming both remedies.
+  * **Re-establishing is not adding**: `Q` must be a qualifier the *parameter*
+    declares, so the claim the caller ends up with is the parameter's own. A
+    qualifier the parameter never had is the ordinary not-declared error.
+  * **Arguments may be written and must agree.** `+Heap<T, ?cmp>` names the claim
+    precisely — the spelling the decision asked for — and a *different* identity
+    is refused: that would be a different type, and a value of a different type
+    belongs in the return type, which is what a constructor fn is for. Omitted
+    arguments mean the parameter's own, as for any kept qualifier [cmp-binder].
+  * **A compiler qualifier cannot be re-established** (`+Mut`, `+proj`): those
+    are representation choices rather than claims about the value, nothing could
+    establish one, and `Mut` is not even erased.
+  * **Not in a `=>[f]` group** [fn-contract]: that states what a *callback* does,
+    and neither side of it could earn the trust — the declarer of the callback's
+    own fn is who may claim it, with a `refn`.
+  * **No emitter work**, and none possible: qualifiers erase [qual-erasure], so
+    the whole feature is a checker rule. `demo/heap.sv` is what it was decided
+    for — a heap in user space whose `heap_push`/`heap_pop` take `Mut` parameters
+    — and that program now compiles and runs on both backends.
+  * Rejected: **full D2** (an establishment *proof* — verify every path called
+    something that establishes `Q`) needs a per-qualifier establishment relation
+    that does not exist, for a rule the same file could simply assert; and
+    **staying with consume-and-return**, which was the status quo the decision
+    overturned.
 * [deduce-infer] A parameter the clause does not mention is inferred as the
   strictest deduction over all uses of it in the body;
   deductions never depend on the return value. If inference is impossible,

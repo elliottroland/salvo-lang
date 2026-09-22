@@ -24,12 +24,13 @@ export fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<T, ?cmp> {
 
 // Pushes the [elem] into the [heap], preserving the heap property.
 //
-// Written as a *constructor* fn — it consumes the heap and re-mints the claim —
-// because keeping a user qualifier across a `Mut` parameter needs ROADMAP's D2
-// (`=> heap: Heap<?cmp> Mut` fails body validation today: `add`'s own clause
-// strips the claim, and nothing brings it back).
-export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<T, ?cmp>
-    => !heap, !elem {
+// An ordinary mutator: the claim is **re-established** by this function, which
+// `+Heap<T, ?cmp>` is how a deduction says so [deduce-reapply]. `add`'s own
+// clause strips the claim — a mutating callee must — and nothing but this
+// function knows the sift below puts it back. Trusted because this is the file
+// that declares `Heap`, the same party a constructor fn and a refinement trust.
+export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+    => heap: +Heap<T, ?cmp> Mut, !elem {
     add(heap, elem)
     // The index where the value currently is
     let i = size(heap) - 1
@@ -54,7 +55,6 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> 
         heap.swap(i, i_parent)
         i = copy(i_parent)
     }
-    return heap
 }
 
 // Pops the smallest element in the heap, preserving the heap property.
@@ -72,7 +72,8 @@ export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
 // A deduction entry names qualifiers, not their arguments: keeping `Heap` keeps
 // the ordering too, since the identity lives in the type and this fn could not
 // have changed it [cmp-binder].
-export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T => heap: Heap Mut {
+export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
+    => heap: +Heap<T, ?cmp> Mut {
     if heap.size() == 1 {
         return remove_first@core.list(heap)!
     }

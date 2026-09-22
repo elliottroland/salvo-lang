@@ -636,7 +636,16 @@ pub enum DeductionKind {
     /// Bare `=> list`: the parameter is kept and *nothing* is stripped.
     KeepAll,
     /// `=> list: A B` / `=> list: None`: afterwards exactly these apply.
-    Exhaustive(Vec<TypeRef>),
+    /// `reapplied` holds the ones written `+Q` — the claims this function
+    /// **re-establishes** rather than merely preserves [deduce-reapply], which
+    /// is what lets a mutator keep a qualifier its own body strips. Trusted,
+    /// and only legal in the file declaring the qualifier; the rest of the list
+    /// is validated against the body as ever. The caller sees the union: an
+    /// exhaustive list means *these and nothing else*, however each got there.
+    Exhaustive {
+        quals: Vec<TypeRef>,
+        reapplied: Vec<TypeRef>,
+    },
     /// `=> list: -A -B`: these are dropped, everything else survives.
     Remove(Vec<TypeRef>),
     /// `=> !list` / `=> list: Never`: moved (the caller loses access).

@@ -1763,11 +1763,14 @@ fn deduction_entry_forms_are_validated() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("either exhaustive (plain qualifier names) or a delta"),
+        stderr.contains("either exhaustive (plain qualifier names"),
         "stderr: {stderr}"
     );
 
-    // `+Qual` is not supported yet (D2).
+    // [deduce-reapply] `+Qual` **re-establishes** a claim (user decision
+    // 2026-09-22): legal in the qualifier's own file, and only for a qualifier
+    // the parameter declares — this one declares none, so it is refused as an
+    // *addition* rather than as unsupported syntax.
     fs::write(
         dir.join("main.sv"),
         "qualifier A of Int\n\nfn f(x: Int) -> None => x: +A {\n}\n",
@@ -1777,7 +1780,7 @@ fn deduction_entry_forms_are_validated() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains("adding qualifiers in a deduction (`+Qual`) is not supported yet"),
+        stderr.contains("re-establishes qualifier `A`, which is not declared on parameter `x`"),
         "stderr: {stderr}"
     );
 

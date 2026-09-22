@@ -8923,6 +8923,125 @@ fn rustc_compiles_and_runs_bounds() {
     run_rust_files(&files, "bounds", BOUNDS_OUTPUT);
 }
 
+// ===== [deduce-reapply] [cmp-carry] a binary heap in user space =====
+
+/// Shared verbatim with the Kotlin backend's `kotlinc_compiles_and_runs_a_heap`
+/// (bar `export` on `main`). **The exercise the whole qualifier round was for**:
+/// a heap written outside std — a claim on an ordinary list, carrying the
+/// ordering it is kept by, mutated through `Mut` parameters that *re-establish*
+/// the claim. Every piece is a rule this repository decided: `Heap<T, ?cmp>`
+/// [cmp-carry], the `?cmp` binder [cmp-binder], `+Heap<T, ?cmp>`
+/// [deduce-reapply], `swap` [col-bounds], and the negated guard that routes the
+/// bare `heap_pop` to the `NonEmpty` overload [is-narrow-guard].
+///
+/// Two heaps, one ordered canonically and one by a function of the program's
+/// own, drained by the *same* generic function — which is the point of the
+/// ordering living in the type.
+pub const HEAP_DEMO: &str = r#"
+// [cmp-carry] A binary heap in **user space**: a claim on an ordinary list,
+// carrying the ordering it is kept by, with mutators that keep the claim.
+export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
+
+export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<T, ?cmp> {
+    return mut_list_of()
+}
+
+// [deduce-reapply] `add` strips the claim — a mutating callee must — and this
+// function is the one that knows the sift puts it back.
+export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
+    => heap: +Heap<T, ?cmp> Mut, !elem {
+    add(heap, elem)
+    let i = size(heap) - 1
+    while i > 0 {
+        let parent = (i - 1) / 2
+        if cmp(heap.get(parent)!, heap.get(i)!) <= 0 {
+            break
+        }
+        heap.swap(i, parent)
+        i = copy(parent)
+    }
+}
+
+export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) [] -> T?
+    => heap: +Heap<T, ?cmp> Mut {
+    if !(heap is NonEmpty) {
+        return None
+    }
+    return heap_pop(heap)
+}
+
+export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) [] -> T
+    => heap: +Heap<T, ?cmp> Mut {
+    let last = size(heap) - 1
+    heap.swap(0, last)
+    let least = heap.remove_at(last)!
+    let i = 0
+    while i < size(heap) {
+        let child = i * 2 + 1
+        if child >= size(heap) {
+            break
+        }
+        let smaller = if child + 1 < size(heap) && cmp(heap.get(child + 1)!, heap.get(child)!) < 0 {
+            child + 1
+        } else {
+            child
+        }
+        if cmp(heap.get(i)!, heap.get(smaller)!) <= 0 {
+            break
+        }
+        heap.swap(i, smaller)
+        i = copy(smaller)
+    }
+    return least
+}
+
+fn by_last_digit(a: Int, b: Int) [] -> Int => a, b {
+    return cmp(a % 10, b % 10)
+}
+
+// The binder again, on a concrete element type: this drains *either* heap
+// below, each in the ordering its own type carries [cmp-binder].
+fn drain_heap(heap: Heap<Int, ?cmp> Mut List<Int>) [Console] -> None
+    => heap: +Heap<Int, ?cmp> Mut {
+    let out = mut_str()
+    while heap_pop(heap) is Int n {
+        append(out, "${n} ")
+    }
+    println("${out}")
+}
+
+fn main() [use] {
+    use StdOutConsole()
+
+    let h = empty_heap<Int>()
+    heap_push(h, 5)
+    heap_push(h, 3)
+    heap_push(h, 9)
+    heap_push(h, 1)
+    heap_push(h, 7)
+    println("root ${first(h)!}")
+    drain_heap(h)
+
+    // A second heap under an ordering of the program's own: the claim carries
+    // it, so the same functions pop in *that* order.
+    let byDigit = empty_heap<Int>(cmp = by_last_digit)
+    heap_push(byDigit, 25)
+    heap_push(byDigit, 13)
+    heap_push(byDigit, 41)
+    drain_heap(byDigit)
+}
+"#;
+
+pub const HEAP_OUTPUT: &str = "root 1\n\
+     1 3 5 7 9 \n\
+     41 13 25 \n";
+
+#[test]
+fn rustc_compiles_and_runs_a_heap() {
+    let files = generate(&[("main.sv", HEAP_DEMO)]);
+    run_rust_files(&files, "heap", HEAP_OUTPUT);
+}
+
 
 // ===== [fn-variadic] mixing plain arguments with a `...spread` =====
 

@@ -2130,8 +2130,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -2145,7 +2145,8 @@ Module {
                                         span: 1990..1993,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 1984..1993,
                         },
                     ],

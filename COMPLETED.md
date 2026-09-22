@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1319 tests, complete: the toolchain tests are
+cargo test                  # 1325 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,73 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A mutator may keep a claim it re-establishes — D2, answered and built (user
+decision 2026-09-22).** `=> p: +Q` in a function's own deduction clause says the
+function **establishes** `Q` rather than that the body preserved it
+[deduce-reapply]. Trusted, and only in the file declaring `Q` — the same party
+already trusted by `-> T as Q` and by a `refn`. HEAP_QUALIFIER.md item 2, ROADMAP
+D2, and the last thing between `demo/heap.sv` and running.
+
+- **The user's refinement is what makes it readable**: a re-application is
+  *spelled* differently from a claim checked as usual (`+Heap<T, ?cmp>`, on the
+  model of a refinement's additions), rather than the same exhaustive list being
+  silently trusted in one file and checked in another. A plain `Heap` in that
+  position still fails body validation, which is what gives the `+` meaning.
+- What it refuses, each with its own message: another file's qualifier, a compiler
+  qualifier (`+Mut` — a representation choice, not a claim, and nothing could
+  establish it), a qualifier the parameter does not declare (re-establishing is
+  not adding, so the claim the caller gets is the parameter's own), arguments that
+  disagree with the parameter's (a *different* claim is a different value and
+  belongs in the return type), and `+Q` inside a `=>[f]` group (a callback's
+  contract is not the caller's to vouch for — that is what a `refn` is for).
+- **`Exhaustive` became a struct variant** carrying `quals` and `reapplied`, which
+  is eleven consumer sites and one re-accepted parser snapshot. Keeping the two
+  lists apart is structural rather than conventional, the same reason `refn`
+  carries additions and removals separately.
+- No emitter work and none possible: qualifiers erase [qual-erasure]. Five checker
+  tests in `deduce_tests.rs`, one of them the negative twin that keeps the first
+  honest, plus the heap as an e2e case on each backend from verbatim one source.
+- **The payoff, measured**: `demo/heap.sv` — a binary heap written outside std,
+  the exercise HEAP_QUALIFIER.md exists for — compiles and runs on both backends,
+  draining `1 3 5 7 9`. Two heaps under two orderings, drained by the same
+  function, is the e2e case.
+
+**Implicit arguments were dropped for a callee the walk had not reached
+(2026-09-22).** Found while making the heap demo run, and much broader than the
+heap: a call read the callee's implicit-parameter list out of a table filled *as
+the check walked*, so a callee declared **later in the file** — or in a file
+sorted after the caller's — looked like a fn with no implicits. The call was
+accepted with none filled, and the emitted call was short an argument on **both**
+backends. A [backend-never-wrong] violation decided by nothing but declaration
+order.
+
+- The fix is a **program-wide signature pre-pass**: every declaration's implicit
+  parameters are recorded before any body is checked, mirroring the generic scopes
+  the real walk enters (a `?cmp: (T, T) -> Int` must lower to a variable, not a
+  nominal `T`) and mirroring which declarations have an `FnKey`. Its diagnostics
+  are dropped — the signature check re-derives them in the file they belong to.
+- It cost a `Checker::new`, since the file walk now happens twice and the struct
+  literal was sixty lines inline.
+- **Why it had gone unnoticed**: std is checked before user code and declares its
+  helpers above their callers, and implicit parameters only became common with the
+  ordering round. A rule that depends on declaration order fails exactly where
+  nobody writes code.
+
+**A forwarded implicit needs an adapter when the two sides render it differently
+(2026-09-22).** The second thing between the heap and running.
+`drain(heap: Heap<Int, ?cmp> …)` holds `&mut dyn FnMut(i32, i32) -> i32` — a Copy
+scalar goes by value — while the generic `heap_pop<T>` it calls wants
+`FnMut(&T, &T)`, because a type variable is never known to be Copy. The checker
+sees one capability and is right to; the *rendering* is where they part, and the
+emitted call was rustc's E0308.
+
+- Fixed in the Rust emitter with an adapter closure, and the per-position modes
+  are read off `fn_ty_param_renderings` — the one function that renders a fn
+  type's parameters — rather than recomputed. That is the same lesson
+  [rs-fn-param-convention] already records one level out, for a *lambda* argument:
+  when two sides decide a convention from different types, they disagree exactly
+  where one of them is generic.
 
 **`swap` for a list, and the index rule it made someone write down (user decision
 2026-09-22).** `swap(list, i, j) -> Bool` in `core.list`, `false` when either index
@@ -14485,7 +14552,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1319)
+## Test inventory (all green: 1325)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15650,6 +15717,22 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A side table filled as the walk goes is a rule about declaration order.**
+  `implicit_params` was written per fn as the checker reached it and read at every
+  call site, so a callee further down the file was indistinguishable from a callee
+  with no implicits — and the call silently lost its arguments. Anything a *call*
+  needs about a *callee* has to be complete before the first body is checked; if a
+  table is consulted across declarations, fill it in a pre-pass. The symptom to
+  watch for is a program that type-checks and then fails in the target compiler
+  with an arity or type error, since that is the shape of a missing side-table
+  entry.
+- **A 1.8-second test run is a failed one.** `cargo test` compiles the test
+  binaries first, and a compile error there prints `error:` without any
+  `test result:` line — so a grep for failures finds nothing and the suite looks
+  green. The wall time is the tell (the budget is ~15s warm), which is exactly why
+  AGENTS.md says to `time` the runs; when in doubt read the tail rather than the
+  grep.
 
 - **A type *shown* wrongly is not evidence that the type *is* wrong.** The
   `proj proj T?` the heap demo reported was the LSP prefixing a `proj` onto a type

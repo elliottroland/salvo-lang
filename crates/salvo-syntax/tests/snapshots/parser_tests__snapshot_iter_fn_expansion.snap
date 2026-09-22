@@ -387,8 +387,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -402,7 +402,8 @@ Module {
                                         span: 44..48,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 44..48,
                         },
                     ],

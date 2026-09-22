@@ -1718,8 +1718,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -1733,7 +1733,8 @@ Module {
                                         span: 1071..1075,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 1071..1075,
                         },
                     ],
@@ -2279,8 +2280,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -2294,7 +2295,8 @@ Module {
                                         span: 1547..1550,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 1544..1550,
                         },
                     ],
@@ -2827,8 +2829,8 @@ Module {
                                 },
                                 path: [],
                             },
-                            kind: Exhaustive(
-                                [
+                            kind: Exhaustive {
+                                quals: [
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
@@ -2842,7 +2844,8 @@ Module {
                                         span: 1901..1904,
                                     },
                                 ],
-                            ),
+                                reapplied: [],
+                            },
                             span: 1895..1904,
                         },
                     ],

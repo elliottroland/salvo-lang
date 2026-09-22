@@ -264,12 +264,13 @@ What the round left open:
 - **Recursive implicit resolution**, so a tuple or a list can have a `cmp` of its
   own — its own section below.
 
-The heap demo's remaining plan (D2's motivating example, `swap`, `!is`, `+=`) is
-**HEAP_QUALIFIER.md**, with its own suggested sequence. `demo/heap.sv` is written
-in the new syntax and reports **one** error: item 2's D2 body validation. Items 3
-(a hover-only defect, not where the plan guessed), 4 (`swap`, which also closed a
-literal-index defect on the Rust backend) and 5's two verified behaviours all
-closed 2026-09-22 — COMPLETED.md's log has each.
+The heap demo's remaining plan is **HEAP_QUALIFIER.md**, and it is down to two
+sugar items: `!is` (item 5) and `+=` (item 6). **`demo/heap.sv` compiles and
+runs** as of 2026-09-22 — a binary heap in user space, on both backends — which
+was the exercise. Items 1–4 and 5's two verified behaviours all closed that day
+(COMPLETED.md's log has each), and three defects fell out of them: a hover-only
+`proj proj`, a literal index on the Rust backend, and implicit arguments dropped
+for a callee the checker had not yet walked.
 
 ## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
 
@@ -949,9 +950,8 @@ links to the section that states the options.
 | Question | Due | Where |
 |---|---|---|
 | `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
-| **D2** — `+Q` in a function's own deduction list (needs an establishment rule) — now has its motivating example: `heap_push` re-asserting `Heap`, with a proposed narrow rule (same-file trusted keep) | unscheduled | "Deductions and qualifier reasoning"; HEAP_QUALIFIER.md item 2 |
 | **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| **The heap plan's small calls** — `swap`'s out-of-range answer, `!is` sugar, `+=` compound assignment | unscheduled | HEAP_QUALIFIER.md items 4–6 |
+| **The heap plan's small calls** — `!is` sugar, `+=` compound assignment (`swap`'s out-of-range answer was decided 2026-09-22: a `Bool`) | next | HEAP_QUALIFIER.md items 5–6 |
 | **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
@@ -1537,33 +1537,21 @@ D1 (exhaustive and delta deductions) and D3 (refinements) are built; D5
 (qualifier subjects) and D8 (a producer's effects) were decided and landed. See
 COMPLETED.md. What is left:
 
-### D2 — Qualifier asserts (`+Q`)
+### D2 — Qualifier asserts (`+Q`) — **decided and built 2026-09-22**
 
-Still deferred for a *function's own* deduction list (user decision
-2026-09-02: not even in the grammar there — the parser reports "adding
-qualifiers in a deduction (`+Qual`) is not supported yet" and names this
-item). `+Q` asserts that the body *establishes* `Q`, which is what
-`-> T as Q` does for return values — the parameter-position analogue. A
-predicate qualifier cannot be proven statically (that means reasoning
-about the algorithm), so establishment is trust (like `as Q`) or a runtime
-`qualifies` check.
+`=> p: +Q` in a function's own deduction list says the function
+**re-establishes** `Q`, trusted, and only in the file declaring `Q` (user
+decision 2026-09-22 — the narrow rule this section proposed, with the user's
+refinement that the re-application is *spelled* differently from a claim checked
+as usual, so a reader can tell which is which). The rule is [deduce-reapply];
+the record is COMPLETED.md's log. `demo/heap.sv` — the motivating example — now
+compiles and runs on both backends.
 
-**D3 gave `+Q` exactly one home, and it is not this one** (2026-09-06):
-inside a `refn` [qual-refn], where it is the *qualifier author's* claim
-about someone else's call rather than a claim about your own body. That
-distinction is what kept D2 deferred through D3's implementation, and it
-is also why an inferred deduction may only re-establish a qualifier the
-parameter *declares* [qual-refn-infer] — letting inference add a new one
-would have implemented D2 by the back door, without ever deciding its
-establishment rule.
-
-- **DECISION D2a** — whether `+Q` and `as Q` unify into one notion of
-  "this function establishes a qualifier", and whether establishment is
-  trusted, runtime-checked, or restricted to fns declared in the
-  qualifier's own file (as `as Q` is today). D3's answer for refinements
-  was *trusted*, which is the precedent but not the decision: a
-  refinement is written by the party that owns the claim's meaning, and a
-  function asserting `+Q` about its own body is not.
+**D2a is answered**: `+Q` and `as Q` stay two notions, both trusted and both
+scoped to the qualifier's own file. Establishment is *not* proven and not
+runtime-checked: a per-qualifier establishment relation would be needed to prove
+what the declaring file can simply assert, and `qualifies` cannot express a heap
+property in the first place.
 
 ### D4 — Predicate `is` on union subjects (and qualifiers over unions)
 

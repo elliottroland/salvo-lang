@@ -2177,6 +2177,7 @@ The entries, by shape:
 | `=> list: Mut` | **exhaustive**: afterwards `Mut` is the *only* thing still known about the argument |
 | `=> list: None` | exhaustive and empty: every qualifier stripped |
 | `=> list: -NonEmpty` | **delta**: drops `NonEmpty`, leaves everything else intact |
+| `=> list: +Sorted Mut` | exhaustive, and `Sorted` is **re-established by this function** — only in the file that declares it |
 | `=> .items: proj[from: list]` | the result's field `items` projects `list` (see "Projections") |
 | `=> v.items: proj[from: other]` | the call re-points the parameter `v`'s field to project `other` |
 | `=> proj[from: list]` | opaque: the result *holds* a borrow of `list` somewhere inside |
@@ -2185,6 +2186,19 @@ The entries, by shape:
 Why does an exhaustive entry drop "qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
 
 The flip side is deliberate over-strictness: `add` cannot promise to preserve `NonEmpty` either, even though appending to a list can never empty it. The function is the wrong party to ask — it has never heard of `NonEmpty` — so the claim's *owner* states it instead, in a **refinement** (see "Refinements" below). Without one, re-test with `is NonEmpty` after a mutating call.
+
+Sometimes the mutating function *is* the right party: it knows the claim survives because it is the code that re-establishes it. A heap's `push` breaks the heap order by appending and then restores it by sifting, and nothing outside it can say so. That is written with a `+`:
+
+```
+// In the file that declares `Heap`:
+fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+    => heap: +Heap<T, ?cmp> Mut, !elem {
+    add(heap, elem)         // strips the claim, as any mutating call must
+    …                       // sift it back into order
+}
+```
+
+`+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> T as Q`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it back. It must be a qualifier the parameter already has — re-establishing is not adding — and if you write its arguments they have to be the parameter's own, since a value with a *different* claim is a different value and belongs in the return type.
 
 These are enforced at each call site: passing a variable to `take_head` above removes `NonEmpty` from what the compiler knows about it, so a second `take_head(list)` without an intervening `is NonEmpty` check fails overload resolution:
 

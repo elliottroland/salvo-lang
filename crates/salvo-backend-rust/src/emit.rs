@@ -5764,6 +5764,69 @@ impl<'p> Emitter<'p> {
         self.implicit_param_type_borrowing(&imp.ty, &imp.borrowed_arms)
     }
 
+    /// [implicit-forward] [rs-fn-param-convention] An implicit parameter passed
+    /// straight through to an inner call — `&mut *cmp` — **unless the two sides
+    /// render it differently**, in which case an adapter closure bridges them.
+    ///
+    /// The conventions can differ because they are computed from *types*, and
+    /// the two fns may be generic to different degrees: a
+    /// `drain(heap: Heap<Int, ?cmp> …)` holds `&mut dyn FnMut(i32, i32) -> i32`
+    /// (a Copy scalar goes by value) while the generic `heap_pop<T>` it calls
+    /// wants `FnMut(&T, &T)` (a type variable is never known to be Copy). The
+    /// checker sees one capability and is right to; the rendering is where they
+    /// part. Without the bridge the emitted call was rustc's E0308 — a
+    /// [backend-never-wrong] violation, found 2026-09-22 while making the heap
+    /// demo run, and the same disagreement [rs-fn-param-convention] records for
+    /// a *lambda* argument, one level further out.
+    fn forwarded_implicit(&mut self, name: &str, span: salvo_syntax::Span) -> String {
+        let local = rs_ident(name);
+        let want = self
+            .checked
+            .call_fn
+            .get(&(self.file_idx, span))
+            .and_then(|k| self.checked.implicit_params.get(k))
+            .and_then(|ps| ps.iter().find(|p| p.name == name))
+            .map(|p| p.ty.clone());
+        let have = self
+            .implicits
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.ty.clone());
+        let (Some(want), Some(have)) = (want, have) else {
+            return format!("&mut *{local}");
+        };
+        // Derived from the one function that renders a fn type's parameters, so
+        // the two answers cannot drift apart the way the conventions did.
+        let by_ref = |r: &[String]| -> Vec<bool> {
+            r.iter().map(|s| s.starts_with('&')).collect()
+        };
+        let wanted = by_ref(&self.fn_ty_param_renderings(&want));
+        let held = by_ref(&self.fn_ty_param_renderings(&have));
+        if wanted == held {
+            return format!("&mut *{local}");
+        }
+        let args: Vec<String> = wanted
+            .iter()
+            .enumerate()
+            .map(|(i, want_ref)| {
+                let hold_ref = held.get(i).copied().unwrap_or(*want_ref);
+                match (*want_ref, hold_ref) {
+                    // Handed a borrow, wanted by value: by-value means the type
+                    // is a Copy scalar, so a deref is the whole conversion.
+                    (true, false) => format!("*__i{i}"),
+                    (false, true) => format!("&__i{i}"),
+                    _ => format!("__i{i}"),
+                }
+            })
+            .collect();
+        let params: Vec<String> = (0..wanted.len()).map(|i| format!("__i{i}")).collect();
+        format!(
+            "&mut |{}| {local}({})",
+            params.join(", "),
+            args.join(", ")
+        )
+    }
+
     fn implicit_param_type_borrowing(&mut self, ty: &Ty, borrowed_arms: &[usize]) -> String {
         let Ty::Fn { params, ret, .. } = ty.strip_quals() else {
             return self.rust_ty(ty);
@@ -13377,7 +13440,7 @@ impl<'p> Emitter<'p> {
                         };
                         out.push(format!("{held}.clone()"));
                     } else {
-                        out.push(format!("&mut *{}", rs_ident(name)));
+                        out.push(self.forwarded_implicit(name, span));
                     }
                 }
                 salvo_core::ImplicitArg::Resolved { name, key, .. } => {

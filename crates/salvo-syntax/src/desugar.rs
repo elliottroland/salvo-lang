@@ -675,7 +675,10 @@ fn expand(
                 },
                 path: Vec::new(),
             },
-            kind: DeductionKind::Exhaustive(vec![type_ref("Mut", next_span)]),
+            kind: DeductionKind::Exhaustive {
+                quals: vec![type_ref("Mut", next_span)],
+                reapplied: Vec::new(),
+            },
             span: next_span,
         }]),
         return_type: next_return.clone(),

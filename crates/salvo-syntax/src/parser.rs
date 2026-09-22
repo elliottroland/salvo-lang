@@ -1998,73 +1998,77 @@ impl<'s> Parser<'s> {
                 DeductionKind::Proj(r.from)
             } else {
                 // Plain names are *exhaustive* (only these survive); `-`-
-                // prefixed names are a delta (drop these, keep the rest).
-                // Mixing the two in one entry is an error [deduce-syntax].
+                // prefixed names are a delta (drop these, keep the rest);
+                // `+`-prefixed names are **re-applied** — claims this function
+                // establishes afresh, trusted, and only in the qualifier's own
+                // file [deduce-reapply]. A delta may not mix with either, since
+                // an exhaustive list already drops what it does not name
+                // [deduce-syntax].
                 let mut plain: Vec<TypeRef> = Vec::new();
                 let mut removed: Vec<TypeRef> = Vec::new();
+                let mut reapplied: Vec<TypeRef> = Vec::new();
                 loop {
-                    let negated = if self.at(&TokenKind::Minus) {
+                    let sign = if self.at(&TokenKind::Minus) {
                         end = self.bump().span;
-                        true
+                        Some(false)
                     } else if self.at(&TokenKind::Plus) {
-                        let span = self.bump().span;
-                        self.error(
-                            "adding qualifiers in a deduction (`+Qual`) is not \
-                             supported yet: a deduction may only preserve or \
-                             drop qualifiers",
-                            span,
-                        );
-                        if self.at_ident() {
-                            if let Some(r) = self.parse_type_ref() {
-                                end = r.span;
-                            }
-                        }
-                        continue;
+                        end = self.bump().span;
+                        Some(true)
                     } else {
-                        false
+                        None
                     };
                     if !self.at_ident() || self.at_contextual_decl_modifier() {
                         break;
                     }
                     let Some(r) = self.parse_type_ref() else { break };
                     end = r.span;
-                    if negated {
-                        removed.push(r);
-                    } else {
-                        plain.push(r);
+                    match sign {
+                        Some(false) => removed.push(r),
+                        Some(true) => reapplied.push(r),
+                        None => plain.push(r),
                     }
                 }
-                match (plain.is_empty(), removed.is_empty()) {
+                let exhaustive = |quals: Vec<TypeRef>, reapplied: Vec<TypeRef>| {
+                    DeductionKind::Exhaustive { quals, reapplied }
+                };
+                match (
+                    plain.is_empty() && reapplied.is_empty(),
+                    removed.is_empty(),
+                ) {
                     (true, true) => {
                         self.error(
                             "expected qualifiers after `:` — `None` to strip every \
                              qualifier, `Never` to consume the value",
                             end,
                         );
-                        DeductionKind::Exhaustive(Vec::new())
+                        exhaustive(Vec::new(), Vec::new())
                     }
                     (false, true) => {
                         let lone = |what: &str| {
-                            plain.len() == 1 && plain[0].name.name == what && plain[0].args.is_empty()
+                            reapplied.is_empty()
+                                && plain.len() == 1
+                                && plain[0].name.name == what
+                                && plain[0].args.is_empty()
                         };
                         if lone("Never") {
                             DeductionKind::Moved
                         } else if lone("None") {
-                            DeductionKind::Exhaustive(Vec::new())
+                            exhaustive(Vec::new(), Vec::new())
                         } else {
-                            DeductionKind::Exhaustive(plain)
+                            exhaustive(plain, reapplied)
                         }
                     }
                     (true, false) => DeductionKind::Remove(removed),
                     (false, false) => {
                         self.error(
                             "a deduction entry is either exhaustive (plain \
-                             qualifier names) or a delta (`-Qual`), not both: \
+                             qualifier names, `+Qual` for one this function \
+                             re-establishes) or a delta (`-Qual`), not both: \
                              an exhaustive list already drops everything it \
                              does not name",
                             start.to(end),
                         );
-                        DeductionKind::Exhaustive(plain)
+                        exhaustive(plain, reapplied)
                     }
                 }
             }

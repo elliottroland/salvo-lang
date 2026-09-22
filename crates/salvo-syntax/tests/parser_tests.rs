@@ -1459,8 +1459,13 @@ fn the_deduction_clause_parses_every_entry_form() {
             DeductionKind::KeepAll => "KeepAll".into(),
             DeductionKind::Moved => "Moved".into(),
             DeductionKind::Deferred => "Deferred".into(),
-            DeductionKind::Exhaustive(q) => {
-                format!("Exhaustive[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
+            // [deduce-reapply] A re-applied claim shows its `+`: it is a
+            // different statement from one that merely survived.
+            DeductionKind::Exhaustive { quals, reapplied } => {
+                let mut shown: Vec<String> =
+                    quals.iter().map(|r| r.name.name.clone()).collect();
+                shown.extend(reapplied.iter().map(|r| format!("+{}", r.name.name)));
+                format!("Exhaustive[{}]", shown.join(" "))
             }
             DeductionKind::Remove(q) => {
                 format!("Remove[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))

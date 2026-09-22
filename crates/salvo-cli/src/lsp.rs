@@ -1590,8 +1590,19 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
                 DeductionKind::KeepAll => t,
                 DeductionKind::Moved => format!("!{t}"),
                 DeductionKind::Deferred => format!("defer {t}"),
-                DeductionKind::Exhaustive(items) if items.is_empty() => format!("{t}: None"),
-                DeductionKind::Exhaustive(items) => format!("{t}: {}", names(items).join(" ")),
+                DeductionKind::Exhaustive { quals, reapplied }
+                    if quals.is_empty() && reapplied.is_empty() =>
+                {
+                    format!("{t}: None")
+                }
+                // [deduce-reapply] The `+` is part of the contract a reader
+                // needs: it says this function *establishes* the claim rather
+                // than passing one along.
+                DeductionKind::Exhaustive { quals, reapplied } => {
+                    let mut shown = names(quals);
+                    shown.extend(names(reapplied).iter().map(|q| format!("+{q}")));
+                    format!("{t}: {}", shown.join(" "))
+                }
                 DeductionKind::Remove(items) => format!(
                     "{t}: {}",
                     names(items).iter().map(|q| format!("-{q}")).collect::<Vec<_>>().join(" ")

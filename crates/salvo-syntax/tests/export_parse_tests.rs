@@ -118,7 +118,7 @@ actor effect Mailer {
     for item in &module.items {
         if let Item::Fn(f) = item {
             for d in f.deductions.iter().flatten() {
-                if let DeductionKind::Exhaustive(quals) = &d.kind {
+                if let DeductionKind::Exhaustive { quals, .. } = &d.kind {
                     let names: Vec<&str> = quals.iter().map(|q| q.name.name.as_str()).collect();
                     assert_eq!(names, vec!["Mut"], "in `{}`", f.name.name);
                 }
