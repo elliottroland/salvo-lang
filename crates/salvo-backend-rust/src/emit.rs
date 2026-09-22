@@ -5280,7 +5280,7 @@ impl<'p> Emitter<'p> {
         // [name-casing] reserves uppercase for types.
         let mut arg_strs: Vec<String> = args
             .iter()
-            .filter(|a| !written_identity_arg(a))
+            .filter(|a| !salvo_syntax::ast::is_identity_arg(a))
             .map(|a| self.emit_type(a))
             .collect();
         // [rs-proj-struct] A borrowing struct carries its source's lifetime
@@ -15196,22 +15196,5 @@ fn strip_proj(ty: &Type) -> Type {
             }
         }
         other => other.clone(),
-    }
-}
-
-/// [cmp-carry] Whether a written type argument is a function **identity** rather
-/// than a type: the signature's binder (`?cmp`), a selector (`cmp@Person`), or a
-/// bare lowercase name — [name-casing] reserves uppercase for types, so a
-/// lowercase bare name in a type-argument position is a function.
-fn written_identity_arg(arg: &Type) -> bool {
-    match arg {
-        Type::Named { qualifiers, base } => {
-            qualifiers.is_empty()
-                && base.args.is_empty()
-                && (base.binder
-                    || base.at.is_some()
-                    || base.name.name.starts_with(|c: char| c.is_lowercase()))
-        }
-        _ => false,
     }
 }

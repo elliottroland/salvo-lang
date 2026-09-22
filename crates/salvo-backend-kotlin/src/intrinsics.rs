@@ -33,9 +33,16 @@ pub fn fn_call(
     recv: Option<&str>,
     args: &[String],
     type_args: &[String],
+    ordering: Option<&str>,
 ) -> Option<String> {
     let elem = || type_args.first().map(String::as_str).unwrap_or("Any");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("TODO()");
+    // [cmp-carry] The comparison a sorted collection is kept by: the function its
+    // type names, or the language's structural comparison when it names none.
+    let cmp_body = || match ordering {
+        Some(target) => format!("{target}(__a, __b)"),
+        None => "salvo.__salvoCompare(__a, __b)".to_string(),
+    };
     Some(match (name, recv) {
         // core.basic -----------------------------------------------------
         // [op-convert] The explicit numeric conversions. Kotlin's `toX()`
@@ -311,6 +318,11 @@ pub fn fn_call(
         }
 
         // core.sorted ----------------------------------------------------
+        // [cmp-carry] The comparator a sorted collection is built with: the
+        // ordering its *type* names, or the language's structural comparison when
+        // it names none — which is the canonical path and what `__salvoCompare`
+        // has always provided.
+
         // [col-sorted] [kt-ordered] A `TreeSet`/`TreeMap` built with **our**
         // comparator rather than natural ordering: Salvo orders a `List` or a
         // tuple by its elements (neither is `Comparable` on the JVM) and a
@@ -318,9 +330,10 @@ pub fn fn_call(
         // so natural ordering would disagree with Rust [backend-parity].
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
             "java.util.TreeSet<{}>(java.util.Comparator {{ __a, __b -> \
-             salvo.__salvoCompare(__a, __b) }}).also {{ __s -> \
+             {} }}).also {{ __s -> \
              __s.addAll(listOf({})) }}",
             elem(),
+            cmp_body(),
             args.join(", ")
         ),
         ("add", Some("SortedSet")) => format!("{}.add({})", a(0), a(1)),
@@ -337,10 +350,11 @@ pub fn fn_call(
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
             "java.util.TreeMap<{}, {}>(java.util.Comparator {{ __a, __b -> \
-             salvo.__salvoCompare(__a, __b) }}).also {{ __m -> \
+             {} }}).also {{ __m -> \
              __m.putAll(listOf({})) }}",
             type_args.first().map(String::as_str).unwrap_or("Any"),
             type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            cmp_body(),
             args.join(", ")
         ),
         ("get", Some("SortedMap")) => format!("{}[{}]", a(0), a(1)),

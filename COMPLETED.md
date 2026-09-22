@@ -128,6 +128,34 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b, fourth slice — the sorted pair on
+Kotlin, so a named ordering runs on both backends (2026-09-22).** One rule, two
+lowerings, and the same stdout from the same source: on Rust the ordering is a
+zero-sized marker threaded into a boxed store, on Kotlin it is the comparator the
+`TreeSet`/`TreeMap` was always built with — the backend that already had a slot
+for one needed only to fill it from the identity rather than from
+`__salvoCompare`.
+
+- **Both emitters drop identity arguments when rendering a type**, through one
+  shared predicate (`salvo_syntax::ast::is_identity_arg`): a binder, a selector, or
+  a bare lowercase name, since [name-casing] reserves uppercase for types. Written
+  in one place so the two backends cannot drop different things.
+- **It took three attempts to find the right place on Kotlin**, which is worth
+  recording: `emit_ty` (the checker-type path) was not enough, nor was the `Mut`
+  branch of `emit_named_type` — the annotation on a `let` reaches
+  `emit_type_ref_named`, and *that* is the single funnel every written argument
+  list passes through. The lesson is the one this document already carries about
+  the emitters: when a new form has to be invisible, find the funnel rather than
+  patching the paths you happen to hit, or you fix three of four and the fourth
+  emits `java.util.SortedSet<Person, by_age>`.
+- The **hash** pair is still refused on Kotlin, now with a message about hashing
+  rather than ordering: `LinkedHashSet` keys off `hashCode`/`equals` with no slot
+  for a function, so it needs the runtime container Rust's `SalvoMap` will also
+  need.
+- Two e2e cases, one per backend, from **verbatim** the same source: two sorted
+  sets of the same people under two orderings, one generic fn over either, and
+  `cmp`-distinct membership.
+
 **Ordering round (second plan), step 4b, third slice — a sorted collection is
 kept by the ordering its type names, on Rust (2026-09-22).** The emitter reaches
 the runtime, so `SortedSet<Person, by_age>` now compiles and runs.

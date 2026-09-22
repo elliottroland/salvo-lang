@@ -2949,6 +2949,7 @@ impl<'p> Emitter<'p> {
                 recv,
                 &[code.clone()],
                 &[],
+                None,
             ) {
                 Some(rendered) => rendered,
                 None => {
@@ -3256,7 +3257,7 @@ impl<'p> Emitter<'p> {
         // lowering [type-canbe-mut] (e.g. `Mut List<T>` ->
         // `MutableList<T>`).
         if has_mut {
-            let arg_strs: Vec<String> = base.args.iter().map(|a| self.emit_type(a)).collect();
+            let arg_strs: Vec<String> = self.type_arg_strs(&base.args);
             if let Some(code) = self.expand_mut_type(&name, &arg_strs) {
                 return code;
             }
@@ -3275,6 +3276,17 @@ impl<'p> Emitter<'p> {
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
         self.emit_type_ref_named(&r.name.name, &r.args)
+    }
+
+    /// [cmp-carry] The rendered type arguments, **identities dropped**: an
+    /// identity is carried by the checker and by the container's own comparator,
+    /// never by the emitted type. One helper, so every path that renders a written
+    /// argument list drops the same thing.
+    fn type_arg_strs(&mut self, args: &[Type]) -> Vec<String> {
+        args.iter()
+            .filter(|a| !salvo_syntax::ast::is_identity_arg(a))
+            .map(|a| self.emit_type(a))
+            .collect()
     }
 
     fn emit_type_ref_named(&mut self, name: &str, args: &[Type]) -> String {
@@ -3313,7 +3325,7 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        let arg_strs: Vec<String> = args.iter().map(|a| self.emit_type(a)).collect();
+        let arg_strs: Vec<String> = self.type_arg_strs(args);
         self.emit_named_parts(name, &arg_strs)
     }
 
@@ -3392,6 +3404,13 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_type_args(&mut self, args: &[Type]) -> String {
+        // [cmp-carry] A written identity is not a type argument: the container's
+        // own comparator holds the ordering, so it is dropped here — the one place
+        // every written argument list passes through.
+        let args: Vec<&Type> = args
+            .iter()
+            .filter(|a| !salvo_syntax::ast::is_identity_arg(a))
+            .collect();
         if args.is_empty() {
             String::new()
         } else {
@@ -3523,28 +3542,51 @@ impl<'p> Emitter<'p> {
 
     // ================= checker-type (Ty) rendering =================
 
-    /// [cmp-carry] Reports a keyed container kept by an ordering or hash this
-    /// backend cannot carry yet — a *named* identity. The canonical path (no
-    /// identity in the type) is what every program took before orderings could be
-    /// named and is unaffected.
-    fn refuse_named_container_ordering(&mut self, span: Span) {
-        let Some(ty) = self.checked.expr_ty.get(&(self.file_idx, span)).cloned() else {
-            return;
-        };
+    /// [cmp-carry] The Kotlin function a keyed container's named ordering is kept
+    /// by, when this expression builds one — a `TreeSet`/`TreeMap` takes a
+    /// comparator, so the identity needs no marker here, only a name.
+    ///
+    /// `None` means "the canonical path", which is `__salvoCompare` and what every
+    /// sorted collection was built with before an ordering could be named. The
+    /// **hash** pair is refused instead: `LinkedHashSet` keys off
+    /// `hashCode`/`equals` with no slot for a function, so it needs a runtime
+    /// container this backend does not have yet [backend-never-wrong].
+    fn container_ordering(&mut self, span: Span) -> Option<String> {
+        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
         let Ty::Named { name, args } = ty.strip_quals() else {
-            return;
+            return None;
         };
         if !matches!(name.as_str(), "Set" | "Map" | "SortedSet" | "SortedMap") {
-            return;
+            return None;
         }
-        if let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) {
-            let name = name.clone();
-            let id = id.clone();
+        let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) else {
+            return None;
+        };
+        let (id, name) = (id.clone(), name.clone());
+        if matches!(name.as_str(), "Set" | "Map") {
             self.error(format!(
-                "the kotlin backend cannot keep a `{name}` by `{id}` yet: a keyed \
+                "the kotlin backend cannot key a `{name}` by `{id}` yet: a hash \
                  container has to carry the function at run time, and this backend's \
-                 hash container is still the JVM's own — see ROADMAP's ordering entry"
+                 is still the JVM's own — see ROADMAP's ordering entry"
             ));
+            return None;
+        }
+        let subject = args.first()?.clone();
+        let key = (id.clone(), subject);
+        let decl = self
+            .checked
+            .carried_identities
+            .get(&key)
+            .copied()
+            .and_then(|k| self.fn_by_key(k));
+        match decl {
+            Some(decl) => Some(self.kotlin_fn_name(decl)),
+            None => {
+                self.error(format!(
+                    "the ordering `{id}` of this collection has no resolved declaration"
+                ));
+                None
+            }
         }
     }
 
@@ -7506,9 +7548,14 @@ impl<'p> Emitter<'p> {
             // `hashCode`/`equals`, so the pair has to be built together). Refused
             // rather than emitted as a container that ignores the ordering it was
             // told to keep [backend-never-wrong].
-            self.refuse_named_container_ordering(span);
-            if let Some(code) =
-                crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &type_args)
+            let ordering = self.container_ordering(span);
+            if let Some(code) = crate::intrinsics::fn_call(
+                &f.name.name,
+                recv,
+                &arg_code,
+                &type_args,
+                ordering.as_deref(),
+            )
             {
                 return code;
             }
@@ -7961,7 +8008,7 @@ impl<'p> Emitter<'p> {
         if decl.name.name == "cmp" && recv == Some("Str") {
             self.needs_compare = true;
         }
-        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[]) {
+        match crate::intrinsics::fn_call(&decl.name.name, recv, &params, &[], None) {
             Some(body) => format!("{{ {} -> {body} }}", params.join(", ")),
             None => {
                 self.error(format!(

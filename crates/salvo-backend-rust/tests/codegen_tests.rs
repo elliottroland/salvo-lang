@@ -5516,8 +5516,10 @@ pub const CARRY_OUTPUT: &str = "by age: Bob of 3\nby name: Ada of 3\n";
 ///
 /// Membership is `cmp`-distinct, so a second person of an age already present is
 /// not a new member under the ordering by age, and is one under the canonical
-/// ordering. No Kotlin twin yet: that backend refuses a named ordering until its
-/// hash container exists.
+/// ordering. Source and expected stdout are **verbatim** the Kotlin backend's
+/// `kotlinc_compiles_and_runs_a_keyed_container_ordering`, where the same ordering
+/// becomes a `TreeSet` comparator rather than a marker — two lowerings of one
+/// rule, and the equality of the output is the assertion.
 pub const KEYED_DEMO: &str = r#"
 struct Person { name: Str, age: Int }
 

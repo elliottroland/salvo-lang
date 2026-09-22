@@ -2870,7 +2870,65 @@ fn main() [use] {
     kotlin_case(files, "carried-ordering", "by age: Bob of 3\nby name: Ada of 3\n")
 }
 
+/// [cmp-carry] [col-membership] A **keyed container** kept by the ordering its
+/// type names. Source and expected stdout are **verbatim** the Rust backend's
+/// `rustc_compiles_and_runs_a_keyed_container_ordering`; here the ordering becomes
+/// the `TreeSet`'s comparator, where on Rust it is a zero-sized marker — two
+/// lowerings of one rule, and the equality of the output is the assertion.
+fn kotlinc_compiles_and_runs_a_keyed_container_ordering() -> KotlinCase {
+    let src = r#"
+struct Person { name: Str, age: Int }
+
+auto fn cmp@Person(a: Person, b: Person) -> Int
+auto fn eq@Person(a: Person, b: Person) -> Bool
+
+fn by_age(a: Person, b: Person) -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+// One body, either ordering: the identity is the container's, not the caller's.
+fn lowest<T>(s: SortedSet<T>) -> T? => s {
+    return min(s)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let byname = sorted_set_of(
+        Person {name: "Cyd", age: 31},
+        Person {name: "Ada", age: 36},
+        Person {name: "Bob", age: 24}
+    )
+    let byage: SortedSet<Person, by_age> = sorted_set_of(
+        Person {name: "Cyd", age: 31},
+        Person {name: "Ada", age: 36},
+        Person {name: "Bob", age: 24}
+    )
+    println("byname ${lowest(byname)!.name} of ${size(byname)}")
+    println("byage ${lowest(byage)!.name} of ${size(byage)}")
+
+    // `cmp`-distinct membership: a second 24-year-old is the same member under
+    // `by_age`, and its own member under the canonical ordering.
+    let twin = Person {name: "Eve", age: 24}
+    let grown_age: Mut SortedSet<Person, by_age> = mut_sorted_set_of()
+    let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
+    add(grown_age, Person {name: "Bob", age: 24})
+    add(grown_name, Person {name: "Bob", age: 24})
+    println("twin ${add(grown_age, copy(twin))} ${add(grown_name, twin)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "keyed-ordering",
+        "byname Ada of 3\nbyage Bob of 3\ntwin false true\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
     kotlinc_compiles_and_runs_an_actor,
     kotlinc_compiles_and_runs_a_monitor,

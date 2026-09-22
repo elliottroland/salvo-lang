@@ -281,10 +281,16 @@ In brief:
      position into the construction, and `carried_identities` recording what each
      identity resolves to (COMPLETED.md has the shape and the two traps);
    - **the hash pair**: `SalvoSet`/`SalvoMap` keyed by the slots' `hash`/`eq`
-     (through a `HashBy<H, E, T>` wrapper) instead of the host's `Hash`/`Eq`;
-   - **Kotlin**: the `TreeSet`/`TreeMap` comparator from the slot's identity, and
-     a runtime hash container, since `LinkedHashSet` keys off
-     `hashCode`/`equals` with no pluggable slot;
+     (through a `HashBy<H, E, T>` wrapper and a boxed store, exactly as the sorted
+     pair) instead of the host's `Hash`/`Eq`. It also closes a **pre-existing
+     defect** found 2026-09-22: a generic fn over a `Set<T>` that *hashes* does not
+     compile on Rust today — the emitter writes `<T: Clone>` while the runtime's
+     hashing operations need `T: Hash + Eq`. Moving them behind a store makes every
+     operation bound-free, which removes the requirement instead of adding one;
+   - ✅ **Kotlin's sorted half** — **landed 2026-09-22**: the `TreeSet`/`TreeMap`
+     comparator comes from the identity, so a named ordering now runs on both
+     backends from one source. Its **hash** half still needs a runtime container,
+     since `LinkedHashSet` keys off `hashCode`/`equals` with no pluggable slot;
    - **the checker**: lift the not-yet gate in `check_key_eligibility`, and let a
      signature that omits a container's identity arguments accept a value that
      carries them (`size(set: Set<T>)` over a `Set<Str, my_hash>`) — the same

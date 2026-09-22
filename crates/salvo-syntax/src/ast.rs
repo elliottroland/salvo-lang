@@ -714,6 +714,27 @@ impl Type {
     }
 }
 
+/// [cmp-carry] Whether a written type argument is a function **identity** rather
+/// than a type: the signature's binder (`?cmp`), a selector (`cmp@Person`), or a
+/// bare lowercase name — [name-casing] reserves uppercase for types, so a
+/// lowercase bare name in a type-argument position is a function.
+///
+/// Both backends need this: an identity is carried by the checker and by the
+/// container's own machinery, never by the emitted type, so it is dropped when a
+/// type is rendered. One definition, so the two cannot drop different things.
+pub fn is_identity_arg(arg: &Type) -> bool {
+    match arg {
+        Type::Named { qualifiers, base } => {
+            qualifiers.is_empty()
+                && base.args.is_empty()
+                && (base.binder
+                    || base.at.is_some()
+                    || base.name.name.starts_with(|c: char| c.is_lowercase()))
+        }
+        _ => false,
+    }
+}
+
 /// [cmp-carry] One entry of a declaration's **slot list**: a slot written out,
 /// or a `params` group spread into one slot per member (user decision
 /// 2026-09-22).
