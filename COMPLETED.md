@@ -128,6 +128,50 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b, first slice — the Rust sorted
+collections carry their ordering (2026-09-22).** User decision after a design
+exchange that improved on ORDERING.md's plan: keep the **ZST markers** (so no
+per-element cost and comparisons the optimizer can inline) but **erase them at
+the container's edge**, behind a boxed store.
+
+- **The synthesis.** ORDERING.md's marker design put the ordering in the
+  container's *type*, which leaks a `C: SalvoCmp<T>` parameter into every
+  signature mentioning a keyed container. The alternative — a `fn` pointer in the
+  container — keeps signatures clean but costs a word per element and a clone per
+  `contains` probe (a `BTreeSet` needs an owned key to look one up). Putting the
+  marker in a `Box<dyn SortedStore<T>>` gets both: `SalvoSortedSet<Person>` is one
+  Rust type whatever it is ordered by, so a Salvo fn generic over a sorted set is
+  emitted exactly as it is today, while the marker inside `BTreeStore<C, T>` keeps
+  comparisons direct. The emitter names a marker only at a *construction* site.
+  One virtual call per operation, and an operation performs O(log n) comparisons —
+  so the indirection lands on the cheap half.
+- **The `unsafe`, and why it is worth it** (user decision, after asking for the
+  justification): `OrdBy<C, T>` is `#[repr(transparent)]` over `T`, so a
+  borrowed element can be *viewed* as a borrowed wrapper — which is what makes
+  `contains`/`remove`/`get` clone-free. The cast is sound because transparent
+  guarantees identical size, alignment and validity, and the compiler **enforces**
+  the precondition: adding a second non-zero-sized field to `OrdBy` is a compile
+  error, not silent UB. It is the first `unsafe` in the Rust runtime, with a
+  `SAFETY` comment naming the attribute it rests on, and there is deliberately no
+  `probe_mut` — writing through such a reference could break the tree's order.
+  (`bytemuck`/`ref-cast` formalise exactly this, but the runtime is compiled by
+  bare `rustc` with no Cargo, so a dependency was never available.)
+- **Membership is the host's own rule**, now stated: a `BTreeSet` decides
+  duplicates by `Ord` alone, so `cmp(a, b) == 0` *is* one member
+  [col-membership]. The runtime test pins it — a second person aged 24 is not a
+  new member under an ordering by age, and is one under the canonical ordering.
+- The store choice is now internal: swapping the B-tree for a sorted `Vec` (or
+  back) is a one-file change that nothing outside the runtime can observe, which
+  is the property the trait object buys and the reason it was worth the design
+  detour.
+- Landed: `runtime/collections.rs` gains `SalvoCmp`, `OrdBy`, `SortedStore`,
+  `BTreeStore`, `SalvoSortedSet` and `SalvoSortedMap`; a `run_runtime_program`
+  helper and one behaviour test drive them as the emitter will. **Not yet wired**:
+  the emitter still lowers the sorted pair to bare `BTreeSet`/`BTreeMap`, so this
+  slice changes no emitted program — the marker generation, the construction
+  sites, the hash pair, Kotlin, std's signatures and lifting the checker's gate
+  are the rest of 4b, listed in ROADMAP.md.
+
 **Ordering round (second plan), step 4a — the keyed containers declare their
 slots (2026-09-22).** The language half of ORDERING.md's step 4: `SortedSet<T,
 ?cmp = cmp>`, `SortedMap<K, V, ?cmp = cmp>`, `Set<T, ?hash = hash, ?eq = eq>` and

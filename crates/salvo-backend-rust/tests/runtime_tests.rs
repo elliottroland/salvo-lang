@@ -102,6 +102,149 @@ fn every_runtime_module_compiles_warning_free() {
 /// emitter uses `include_str!`, so a stale copy cannot drift silently, but a
 /// *renamed* or accidentally rewritten module would slip past that. Reading
 /// both here keeps the list above honest.
+/// Compiles and runs a driver against one or more runtime modules, each mounted
+/// under its own module name exactly as the emitter mounts it. The generic form
+/// of `run_scheduler_program`, for a module whose behaviour is worth running
+/// rather than only compiling.
+fn run_runtime_program(tag: &str, modules: &[&str], driver: &str, expected_stdout: &str) {
+    let rustc = salvo_testkit::rustc();
+    if !rustc.available {
+        return;
+    }
+    let mut source = String::from("#![allow(dead_code)]\n");
+    for file in modules {
+        let name = file.trim_end_matches(".rs");
+        source.push_str(&format!("pub mod {name} {{\n{}\n}}\n", runtime_source(file)));
+    }
+    source.push_str(driver);
+    let parts: Vec<&[u8]> = vec![
+        b"rust-runtime-behaviour",
+        rustc.version.as_bytes(),
+        tag.as_bytes(),
+        source.as_bytes(),
+        expected_stdout.as_bytes(),
+    ];
+    let Some(stamp) = salvo_testkit::cached(
+        env!("CARGO_TARGET_TMPDIR"),
+        &format!("rust-runtime-run {tag}"),
+        &parts,
+    ) else {
+        return;
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rtrun-{tag}"));
+    let src = dir.join("main.rs");
+    std::fs::write(&src, &source).expect("failed to write the runtime program");
+    let bin = dir.join("program");
+    let compile = Command::new("rustc")
+        .arg("--edition")
+        .arg("2021")
+        .arg(&src)
+        .arg("-o")
+        .arg(&bin)
+        .output()
+        .expect("failed to run rustc");
+    assert!(
+        compile.status.success(),
+        "rustc rejected the runtime program {tag}:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&bin).output().expect("failed to run the program");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        stdout,
+        expected_stdout,
+        "unexpected stdout from the runtime program {tag}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(run.status.success(), "the runtime program {tag} failed");
+    stamp.verified();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// [cmp-carry] [col-membership] The sorted collections, driven as the emitter
+/// will drive them: a **zero-sized marker** per ordering, two sets of the same
+/// elements under two orderings, and membership decided by `cmp == 0` — so a
+/// second person of an age already present is *not* a new member under an
+/// ordering by age, and *is* one under the canonical ordering.
+///
+/// Also exercises the clone-free probe (`contains` on a `&T`) and that a
+/// container is `Send` when its elements are, which is what an actor holding one
+/// needs.
+#[test]
+fn the_sorted_collections_are_kept_by_the_ordering_their_type_names() {
+    let program = r#"
+#[derive(Clone, PartialEq)]
+struct Person { name: String, age: i32 }
+
+impl std::fmt::Display for Person {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+fn cmp__Person(a: &Person, b: &Person) -> i32 {
+    match a.name.cmp(&b.name) {
+        std::cmp::Ordering::Less => -1,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+fn by_age(a: &Person, b: &Person) -> i32 { (a.age - b.age).signum() }
+
+pub struct __Cmp_cmp__Person;
+impl collections::SalvoCmp<Person> for __Cmp_cmp__Person {
+    fn cmp(a: &Person, b: &Person) -> i32 { cmp__Person(a, b) }
+}
+pub struct __Cmp_by_age;
+impl collections::SalvoCmp<Person> for __Cmp_by_age {
+    fn cmp(a: &Person, b: &Person) -> i32 { by_age(a, b) }
+}
+
+// A Salvo fn generic over any sorted set: no marker in the signature.
+fn lowest<T: Clone + Send + 'static>(s: &collections::SalvoSortedSet<T>) -> Option<T> {
+    s.min().cloned()
+}
+
+fn main() {
+    let ada = Person { name: "Ada".to_string(), age: 36 };
+    let bob = Person { name: "Bob".to_string(), age: 24 };
+    let cyd = Person { name: "Cyd".to_string(), age: 31 };
+    let elems = vec![cyd.clone(), ada.clone(), bob.clone()];
+
+    let byname = collections::SalvoSortedSet::from_elements::<__Cmp_cmp__Person, _>(elems.clone());
+    let byage = collections::SalvoSortedSet::from_elements::<__Cmp_by_age, _>(elems);
+    println!("byname {byname}");
+    println!("byage {byage}");
+    println!("lowest {} {}", lowest(&byname).unwrap(), lowest(&byage).unwrap());
+    println!("contains {} {}", byname.contains(&ada), byage.contains(&ada));
+
+    let twin = Person { name: "Eve".to_string(), age: 24 };
+    let mut under_age = byage.clone();
+    let mut under_name = byname.clone();
+    println!("twin {} {}", under_age.insert(twin.clone()), under_name.insert(twin));
+
+    let mut ranks = collections::SalvoSortedMap::from_entries::<__Cmp_by_age, _>(vec![
+        (ada.clone(), "oldest".to_string()),
+        (bob.clone(), "youngest".to_string()),
+    ]);
+    println!("map {ranks} first {} last {}", ranks.first_key().unwrap(), ranks.last_key().unwrap());
+    let replaced = ranks.insert(Person { name: "Eve".to_string(), age: 24 }, "twin".to_string());
+    println!("replaced {:?} map {ranks}", replaced);
+
+    fn assert_send<X: Send>(_: &X) {}
+    assert_send(&byname);
+}
+"#;
+    let expected = "byname {Ada, Bob, Cyd}\n\
+                    byage {Bob, Cyd, Ada}\n\
+                    lowest Ada Bob\n\
+                    contains true true\n\
+                    twin false true\n\
+                    map {Bob: youngest, Ada: oldest} first Bob last Ada\n\
+                    replaced Some(\"youngest\") map {Bob: twin, Ada: oldest}\n";
+    run_runtime_program("sorted-collections", &["collections.rs"], program, expected);
+}
+
 #[test]
 fn runtime_modules_are_not_empty_and_are_generated_headers() {
     for file in RUNTIME_MODULES {

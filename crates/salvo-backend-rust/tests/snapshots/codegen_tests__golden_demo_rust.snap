@@ -577,9 +577,11 @@ where
 // all — a bound on the struct would have to be repeated by every generated
 // signature that so much as mentions the type.
 
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 pub struct SalvoMap<K, V> {
     slots: Vec<Option<(K, V)>>,
@@ -854,5 +856,353 @@ impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
 impl<T: fmt::Display> fmt::Debug for SalvoSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
+    }
+}
+
+// ===== the sorted collections, and the ordering they are kept by =====
+//
+// [cmp-carry] [col-membership] A `SortedSet<T, ?cmp>` / `SortedMap<K, V, ?cmp>`
+// is kept by the ordering its type names, and its members are **`cmp`-distinct**:
+// two elements are one member when `cmp(a, b) == 0`. That is what both hosts do
+// natively — `BTreeSet` decides duplicates by `Ord` alone — so it is the rule
+// the language states rather than one this file invents.
+//
+// The ordering is a **type**, not a value: the compiler emits a zero-sized
+// marker per bound identity (`__Cmp_by_age`) and implements `SalvoCmp` for it,
+// so comparisons are direct calls the optimizer can inline and no element pays
+// to store a comparator. The marker then stops at the container's edge, behind a
+// boxed store — which is why a Salvo fn generic over a sorted collection is
+// emitted with no extra type parameter, and why swapping the store (a B-tree
+// today) changes nothing outside this file.
+
+// ===== the ordering as a type [cmp-carry] =====
+
+/// One Salvo ordering, as a **type**: the compiler generates a zero-sized
+/// marker per bound identity and implements this for it, so a comparison is a
+/// direct call the optimizer can inline and no element pays for storing one.
+pub trait SalvoCmp<T> {
+    fn cmp(a: &T, b: &T) -> i32;
+}
+
+/// An element wearing an ordering. `#[repr(transparent)]` is load-bearing:
+/// with exactly one non-zero-sized field this type has `T`'s size, alignment
+/// and validity, which is what lets `probe` view a borrowed `T` as a borrowed
+/// wrapper without copying it.
+#[repr(transparent)]
+pub struct OrdBy<C, T>(T, PhantomData<C>);
+
+impl<C, T> OrdBy<C, T> {
+    fn wrap(value: T) -> Self {
+        OrdBy(value, PhantomData)
+    }
+
+    fn get(&self) -> &T {
+        &self.0
+    }
+
+    /// A borrowed element as a borrowed wrapper, for probing a tree without
+    /// building an owned wrapper (which would mean cloning the element).
+    fn probe(value: &T) -> &Self {
+        // SAFETY: `OrdBy` is `#[repr(transparent)]` over `T` — `PhantomData<C>`
+        // is zero-sized, so `T` is the only non-zero-sized field. The language
+        // therefore guarantees this type has `T`'s size, alignment and validity
+        // invariant, so the memory behind a live `&T` is a valid `OrdBy<C, T>`.
+        // The returned reference borrows that same memory for the same lifetime
+        // (tied by the signature), and both references are shared, so no
+        // `&mut` aliasing is created. There is deliberately no `probe_mut`:
+        // writing through such a reference could break the tree's ordering.
+        unsafe { &*(value as *const T as *const OrdBy<C, T>) }
+    }
+}
+
+impl<C: SalvoCmp<T>, T> PartialEq for OrdBy<C, T> {
+    fn eq(&self, other: &Self) -> bool {
+        C::cmp(&self.0, &other.0) == 0
+    }
+}
+
+impl<C: SalvoCmp<T>, T> Eq for OrdBy<C, T> {}
+
+impl<C: SalvoCmp<T>, T> PartialOrd for OrdBy<C, T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(Ord::cmp(self, other))
+    }
+}
+
+impl<C: SalvoCmp<T>, T> Ord for OrdBy<C, T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        C::cmp(&self.0, &other.0).cmp(&0)
+    }
+}
+
+// ===== the store, generic over the ordering =====
+
+trait SortedStore<T>: Send {
+    fn insert(&mut self, value: T) -> bool;
+    fn remove(&mut self, value: &T) -> bool;
+    fn contains(&self, value: &T) -> bool;
+    fn len(&self) -> usize;
+    fn min(&self) -> Option<&T>;
+    fn max(&self) -> Option<&T>;
+    fn to_vec(&self) -> Vec<T>;
+    fn clone_box(&self) -> Box<dyn SortedStore<T>>;
+}
+
+struct BTreeStore<C, T> {
+    inner: BTreeSet<OrdBy<C, T>>,
+}
+
+impl<C, T> BTreeStore<C, T> {
+    fn new() -> Self {
+        BTreeStore {
+            inner: BTreeSet::new(),
+        }
+    }
+}
+
+impl<C, T> SortedStore<T> for BTreeStore<C, T>
+where
+    C: SalvoCmp<T> + Send + 'static,
+    T: Clone + Send + 'static,
+{
+    fn insert(&mut self, value: T) -> bool {
+        self.inner.insert(OrdBy::wrap(value))
+    }
+
+    fn remove(&mut self, value: &T) -> bool {
+        self.inner.remove(OrdBy::<C, T>::probe(value))
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        self.inner.contains(OrdBy::<C, T>::probe(value))
+    }
+
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn min(&self) -> Option<&T> {
+        self.inner.iter().next().map(OrdBy::get)
+    }
+
+    fn max(&self) -> Option<&T> {
+        self.inner.iter().next_back().map(OrdBy::get)
+    }
+
+    fn to_vec(&self) -> Vec<T> {
+        self.inner.iter().map(|w| w.get().clone()).collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedStore<T>> {
+        Box::new(BTreeStore::<C, T> {
+            inner: self
+                .inner
+                .iter()
+                .map(|w| OrdBy::wrap(w.get().clone()))
+                .collect(),
+        })
+    }
+}
+
+// ===== the container the emitted code sees =====
+
+pub struct SalvoSortedSet<T> {
+    store: Box<dyn SortedStore<T>>,
+}
+
+impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
+    pub fn new<C: SalvoCmp<T> + Send + 'static>() -> Self {
+        SalvoSortedSet {
+            store: Box::new(BTreeStore::<C, T>::new()),
+        }
+    }
+
+    pub fn from_elements<C: SalvoCmp<T> + Send + 'static, I: IntoIterator<Item = T>>(
+        elems: I,
+    ) -> Self {
+        let mut set = SalvoSortedSet::new::<C>();
+        for e in elems {
+            set.insert(e);
+        }
+        set
+    }
+
+    pub fn insert(&mut self, value: T) -> bool {
+        self.store.insert(value)
+    }
+    pub fn remove(&mut self, value: &T) -> bool {
+        self.store.remove(value)
+    }
+    pub fn contains(&self, value: &T) -> bool {
+        self.store.contains(value)
+    }
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+    pub fn min(&self) -> Option<&T> {
+        self.store.min()
+    }
+    pub fn max(&self) -> Option<&T> {
+        self.store.max()
+    }
+    pub fn to_vec(&self) -> Vec<T> {
+        self.store.to_vec()
+    }
+}
+
+impl<T> Clone for SalvoSortedSet<T> {
+    fn clone(&self) -> Self {
+        SalvoSortedSet {
+            store: self.store.clone_box(),
+        }
+    }
+}
+
+impl<T: fmt::Display> fmt::Display for SalvoSortedSet<T>
+where
+    T: Clone + Send + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let items: Vec<String> = self.to_vec().iter().map(|e| e.to_string()).collect();
+        write!(f, "{{{}}}", items.join(", "))
+    }
+}
+
+// ===== the sorted map, the same way =====
+
+trait SortedMapStore<K, V>: Send {
+    fn get(&self, key: &K) -> Option<&V>;
+    fn insert(&mut self, key: K, value: V) -> Option<V>;
+    fn remove(&mut self, key: &K) -> Option<V>;
+    fn contains_key(&self, key: &K) -> bool;
+    fn len(&self) -> usize;
+    fn first_key(&self) -> Option<&K>;
+    fn last_key(&self) -> Option<&K>;
+    fn keys(&self) -> Vec<K>;
+    fn entries(&self) -> Vec<(K, V)>;
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V>>;
+}
+
+struct BTreeMapStore<C, K, V> {
+    inner: BTreeMap<OrdBy<C, K>, V>,
+}
+
+impl<C, K, V> SortedMapStore<K, V> for BTreeMapStore<C, K, V>
+where
+    C: SalvoCmp<K> + Send + 'static,
+    K: Clone + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        self.inner.get(OrdBy::<C, K>::probe(key))
+    }
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.inner.insert(OrdBy::wrap(key), value)
+    }
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.inner.remove(OrdBy::<C, K>::probe(key))
+    }
+    fn contains_key(&self, key: &K) -> bool {
+        self.inner.contains_key(OrdBy::<C, K>::probe(key))
+    }
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+    fn first_key(&self) -> Option<&K> {
+        self.inner.keys().next().map(OrdBy::get)
+    }
+    fn last_key(&self) -> Option<&K> {
+        self.inner.keys().next_back().map(OrdBy::get)
+    }
+    fn keys(&self) -> Vec<K> {
+        self.inner.keys().map(|k| k.get().clone()).collect()
+    }
+    fn entries(&self) -> Vec<(K, V)> {
+        self.inner
+            .iter()
+            .map(|(k, v)| (k.get().clone(), v.clone()))
+            .collect()
+    }
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V>> {
+        Box::new(BTreeMapStore::<C, K, V> {
+            inner: self
+                .inner
+                .iter()
+                .map(|(k, v)| (OrdBy::wrap(k.get().clone()), v.clone()))
+                .collect(),
+        })
+    }
+}
+
+pub struct SalvoSortedMap<K, V> {
+    store: Box<dyn SortedMapStore<K, V>>,
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> {
+    pub fn new<C: SalvoCmp<K> + Send + 'static>() -> Self {
+        SalvoSortedMap {
+            store: Box::new(BTreeMapStore::<C, K, V> {
+                inner: BTreeMap::new(),
+            }),
+        }
+    }
+    pub fn from_entries<C: SalvoCmp<K> + Send + 'static, I: IntoIterator<Item = (K, V)>>(
+        entries: I,
+    ) -> Self {
+        let mut map = SalvoSortedMap::new::<C>();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
+    }
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.store.get(key)
+    }
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.store.insert(key, value)
+    }
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.store.remove(key)
+    }
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.store.contains_key(key)
+    }
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+    pub fn first_key(&self) -> Option<&K> {
+        self.store.first_key()
+    }
+    pub fn last_key(&self) -> Option<&K> {
+        self.store.last_key()
+    }
+    pub fn keys(&self) -> Vec<K> {
+        self.store.keys()
+    }
+    pub fn entries(&self) -> Vec<(K, V)> {
+        self.store.entries()
+    }
+}
+
+impl<K, V> Clone for SalvoSortedMap<K, V> {
+    fn clone(&self) -> Self {
+        SalvoSortedMap {
+            store: self.store.clone_box(),
+        }
+    }
+}
+
+impl<K, V> fmt::Display for SalvoSortedMap<K, V>
+where
+    K: Clone + Send + fmt::Display + 'static,
+    V: Clone + Send + fmt::Display + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let items: Vec<String> = self
+            .entries()
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect();
+        write!(f, "{{{}}}", items.join(", "))
     }
 }
