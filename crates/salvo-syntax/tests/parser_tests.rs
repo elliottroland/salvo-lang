@@ -303,8 +303,8 @@ fn a_struct_declares_obligations_before_canbe() {
     assert_eq!(names, vec!["Linear", "Yield"]);
     assert!(s.obligations[0].group.args.is_empty());
     assert_eq!(s.obligations[1].group.args.len(), 1);
-    // [cmp-default] Neither entry wrote `default`.
-    assert!(s.obligations.iter().all(|o| !o.default));
+    // [cmp-auto] Neither entry wrote `auto`.
+    assert!(s.obligations.iter().all(|o| !o.auto));
     let quals: Vec<&str> = s.auto_qualifiers.iter().map(|q| q.name.name.as_str()).collect();
     assert_eq!(quals, vec!["Mut"]);
     // The group member's `Self` is a plain named type to the parser.

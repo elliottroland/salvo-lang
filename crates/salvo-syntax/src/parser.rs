@@ -521,6 +521,23 @@ impl<'s> Parser<'s> {
                 self.bump();
                 self.parse_fn_flavored(false, FnFlavor::Send).map(Item::Fn)
             }
+            // [cmp-auto] `auto fn cmp@Person(a: Person, b: Person) -> Int` — a
+            // bodiless declaration whose body the *compiler* writes,
+            // structurally, from the type's fields. Contextual for the same
+            // reason `iter fn` is: `auto` is an ordinary name everywhere else,
+            // and at item level a bare identifier is otherwise a parse error.
+            TokenKind::Ident(name)
+                if name == "auto" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
+            {
+                self.bump();
+                let mut f = self.parse_fn(false)?;
+                f.structural = true;
+                // A body is refused by the *checker*, beside the other `auto`
+                // rules: it is a semantic mistake about what `auto` means, and
+                // keeping the family of diagnostics in one place is what lets
+                // them share wording.
+                Some(Item::Fn(f))
+            }
             TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
             // [linear-group] [obligation-spelling] `linear struct X { … }`:
             // the exactly-once obligation as a declaration modifier.
@@ -962,21 +979,21 @@ impl<'s> Parser<'s> {
         let mut obligations = Vec::new();
         if self.eat(&TokenKind::Colon).is_some() {
             loop {
-                // [cmp-default] `: default Ordered<self>` — the compiler writes
-                // the structural implementation. Contextual, like `iter fn`
-                // (`default` is not a reserved word): inside an obligation
-                // clause a bare `default` followed by a capitalized name can
-                // only be this.
-                let is_default = self.at_word("default")
+                // [cmp-auto] `: auto Ordered<self>` — sugar for one bodiless
+                // `auto fn` per member of the group. Contextual, like
+                // `iter fn` (`auto` is not a reserved word): inside an
+                // obligation clause a bare `auto` followed by a capitalized
+                // name can only be this.
+                let is_auto = self.at_word("auto")
                     && matches!(
                         &self.peek_at(1).kind,
                         TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase())
                     );
-                if is_default {
+                if is_auto {
                     self.bump();
                 }
                 obligations.push(Obligation {
-                    default: is_default,
+                    auto: is_auto,
                     group: self.parse_type_ref()?,
                 });
                 if self.eat(&TokenKind::Comma).is_none() {

@@ -145,14 +145,14 @@ pub fn cmp__4(a: &Point, b: &Point) -> i32 {
     (Ord::cmp(a, b) as i32)
 }
 
-pub fn eq__4(a: &Point, b: &Point) -> bool {
-    (a == b)
-}
-
 pub fn hash__4(value: &Point) -> i64 {
     let mut __h = std::hash::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut __h);
     (std::hash::Hasher::finish(&__h) as i64)
+}
+
+pub fn eq__4(a: &Point, b: &Point) -> bool {
+    (a == b)
 }
 
 pub fn eq__5(a: &Note, b: &Note) -> bool {

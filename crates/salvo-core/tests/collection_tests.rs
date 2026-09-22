@@ -120,7 +120,7 @@ fn a_float_value_is_fine() {
     assert_ok("fn probe(m: Map<Str, Double>) -> Int => m {\n    return size(m)\n}\n");
 }
 
-/// [col-key-eligible] [cmp-default] A struct with no `hash` is not a key, and
+/// [col-key-eligible] [cmp-auto] A struct with no `hash` is not a key, and
 /// the diagnostic names the clause that makes it one.
 #[test]
 fn a_struct_key_names_the_default_hashed_clause() {
@@ -130,7 +130,7 @@ fn a_struct_key_names_the_default_hashed_clause() {
     );
     assert_eq!(msgs.len(), 1, "expected exactly one error: {msgs:?}");
     assert!(
-        msgs[0].contains("default Hashed<self>"),
+        msgs[0].contains("auto Hashed<self>"),
         "the message should name the clause: {}",
         msgs[0]
     );
@@ -447,12 +447,12 @@ fn a_map_literal_wants_a_value_for_every_entry() {
 /// [op-equality] Equality **ignores qualifiers** — it is about the data at the
 /// moment of the check, so `Tagged Point == Point` resolves the same
 /// `eq(Point, Point)`. (Since 2026-09-21 the struct has to *have* one: equality
-/// is opt-in, and `default Eq<self>` is the one-token way to ask.)
+/// is opt-in, and `auto Eq<self>` is the one-token way to ask.)
 #[test]
 fn equality_ignores_qualifiers() {
     let msgs = lit_messages(
         "qualifier Tagged of Point\n\n\
-         struct Point : default Eq<self> {\n    x: Int,\n    y: Int\n}\n\n\
+         struct Point : auto Eq<self> {\n    x: Int,\n    y: Int\n}\n\n\
          fn tagged(p: Point) -> Point as Tagged {\n    return p\n}\n\n\
          fn probe(a: Point, b: Point) -> Bool => !a, b {\n    \
          let t = tagged(a)\n    return t == b\n}\n",
@@ -472,7 +472,7 @@ fn a_struct_without_an_eq_cannot_be_compared() {
     );
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
-        msgs[0].contains("`fn eq@Point(…)`") && msgs[0].contains("default Eq<self>"),
+        msgs[0].contains("`fn eq@Point(…)`") && msgs[0].contains("auto fn eq@Point"),
         "unexpected message: {}",
         msgs[0]
     );
@@ -494,7 +494,7 @@ fn comparing_different_struct_types_is_refused() {
     );
 }
 
-/// [cmp-default] A fn-typed field bars the **structural** `eq`: no answer exists
+/// [cmp-auto] A fn-typed field bars the **structural** `eq`: no answer exists
 /// that both backends can give. It no longer bars the *struct* from equality
 /// though — which is the new capability decision 6 names: declare an `eq` that
 /// ignores the field, and the type is comparable (and hashable, with a `hash` to
@@ -502,11 +502,11 @@ fn comparing_different_struct_types_is_refused() {
 #[test]
 fn a_fn_field_bars_the_structural_eq_but_not_a_hand_written_one() {
     let structural = lit_messages(
-        "struct Holder : default Eq<self> {\n    f: (Int) -> Int\n}\n",
+        "struct Holder : auto Eq<self> {\n    f: (Int) -> Int\n}\n",
     );
     assert_eq!(structural.len(), 1, "expected one error: {structural:?}");
     assert!(
-        structural[0].contains("default Eq<self>")
+        structural[0].contains("auto fn eq@Holder")
             && structural[0].contains("function value has no equality"),
         "unexpected message: {}",
         structural[0]
@@ -526,7 +526,7 @@ fn a_fn_field_bars_the_structural_eq_but_not_a_hand_written_one() {
 #[test]
 fn ordering_needs_a_cmp() {
     let generated = lit_messages(
-        "struct P : default Ordered<self> {\n    x: Int\n}\n\n\
+        "struct P : auto Ordered<self> {\n    x: Int\n}\n\n\
          fn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n",
     );
     assert!(generated.is_empty(), "expected no errors, got: {generated:?}");
@@ -544,13 +544,13 @@ fn ordering_needs_a_cmp() {
     );
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
-        msgs[0].contains("`fn cmp@P(…)`") && msgs[0].contains("default Ordered<self>"),
+        msgs[0].contains("`fn cmp@P(…)`") && msgs[0].contains("auto fn cmp@P"),
         "unexpected message: {}",
         msgs[0]
     );
 }
 
-/// [cmp-default] The `default` clauses are validated where they are written: a
+/// [cmp-auto] The `default` clauses are validated where they are written: a
 /// mutable struct cannot be a key, and every field has to qualify for the
 /// structural implementation — the rules `canbe hashed`/`canbe ordered` used to
 /// carry, inherited along with the derive-based lowering.
@@ -558,7 +558,7 @@ fn ordering_needs_a_cmp() {
 fn the_default_clauses_are_validated_at_the_declaration() {
     // A `canbe Mut` struct could change under the collection holding it.
     let mutable =
-        lit_messages("struct K : default Hashed<self> canbe Mut {\n    v: Int\n}\n");
+        lit_messages("struct K : auto Hashed<self> canbe Mut {\n    v: Int\n}\n");
     assert_eq!(mutable.len(), 1, "expected one error: {mutable:?}");
     assert!(
         mutable[0].contains("canbe Mut") && mutable[0].contains("Only an immutable struct"),
@@ -567,7 +567,7 @@ fn the_default_clauses_are_validated_at_the_declaration() {
     );
 
     // A float field is hashable by neither backend...
-    let float_hash = lit_messages("struct K : default Hashed<self> {\n    v: Double\n}\n");
+    let float_hash = lit_messages("struct K : auto Hashed<self> {\n    v: Double\n}\n");
     assert_eq!(float_hash.len(), 1, "expected one error: {float_hash:?}");
     assert!(
         float_hash[0].contains("field `v`") && float_hash[0].contains("not hashable"),
@@ -576,7 +576,7 @@ fn the_default_clauses_are_validated_at_the_declaration() {
     );
 
     // ... nor orderable.
-    let float_ord = lit_messages("struct K : default Ordered<self> {\n    v: Double\n}\n");
+    let float_ord = lit_messages("struct K : auto Ordered<self> {\n    v: Double\n}\n");
     assert_eq!(float_ord.len(), 1, "expected one error: {float_ord:?}");
     assert!(
         float_ord[0].contains("not orderable"),
@@ -585,14 +585,14 @@ fn the_default_clauses_are_validated_at_the_declaration() {
     );
 
     // A float field is fine for **equality**, which Salvo owns [kt-float-eq].
-    let float_eq = lit_messages("struct K : default Eq<self> {\n    v: Double\n}\n");
+    let float_eq = lit_messages("struct K : auto Eq<self> {\n    v: Double\n}\n");
     assert!(float_eq.is_empty(), "expected no errors, got: {float_eq:?}");
 
     // A nested struct must itself be hashable — which now means *having* a
     // `hash`, not declaring an opt-in.
     let nested = lit_messages(
         "struct Inner {\n    v: Int\n}\n\n\
-         struct K : default Hashed<self> {\n    i: Inner\n}\n",
+         struct K : auto Hashed<self> {\n    i: Inner\n}\n",
     );
     assert_eq!(nested.len(), 1, "expected one error: {nested:?}");
     assert!(
@@ -603,18 +603,18 @@ fn the_default_clauses_are_validated_at_the_declaration() {
 
     // Lists and tuples qualify when their elements do (user, 2026-09-12).
     let containers = lit_messages(
-        "struct K : default Hashed<self>, default Ordered<self> {\n    \
+        "struct K : auto Hashed<self>, auto Ordered<self> {\n    \
          parts: List<Int>,\n    pair: (Str, Int)\n}\n",
     );
     assert!(containers.is_empty(), "expected no errors, got: {containers:?}");
 }
 
-/// [col-key-eligible] [cmp-default] A struct with the structural pair *is* a
+/// [col-key-eligible] [cmp-auto] A struct with the structural pair *is* a
 /// valid key — the whole point of asking for it.
 #[test]
 fn a_hashed_struct_is_a_valid_key() {
     let msgs = lit_messages(
-        "struct Point : default Hashed<self> {\n    x: Int,\n    y: Int\n}\n\n\
+        "struct Point : auto Hashed<self> {\n    x: Int,\n    y: Int\n}\n\n\
          fn probe(s: Set<Point>, m: Map<Point, Str>) -> Int => s, m {\n    \
          return size(s) + size(m)\n}\n",
     );
@@ -623,7 +623,7 @@ fn a_hashed_struct_is_a_valid_key() {
 
 /// [canbe-optin] The `canbe` list is closed — and since 2026-09-21 it holds only
 /// `Mut` and `once`: `hashed`/`ordered` were deleted, with a message naming the
-/// obligation that replaced them [cmp-default].
+/// obligation that replaced them [cmp-auto].
 #[test]
 fn canbe_rejects_an_unknown_optin() {
     let msgs = lit_messages("struct K canbe Sorted {\n    v: Int\n}\n");
@@ -637,7 +637,7 @@ fn canbe_rejects_an_unknown_optin() {
     assert!(
         deleted
             .iter()
-            .any(|m| m.contains("no longer exists") && m.contains("default Hashed<self>")),
+            .any(|m| m.contains("no longer exists") && m.contains("auto fn hash@")),
         "the message should name the replacement, got: {deleted:?}"
     );
 }
@@ -715,7 +715,7 @@ fn sorted_messages(src: &str) -> Vec<String> {
 #[test]
 fn a_sorted_key_must_be_orderable() {
     let ok = sorted_messages(
-        "struct P : default Ordered<self> {\n    x: Int\n}\n\n\
+        "struct P : auto Ordered<self> {\n    x: Int\n}\n\n\
          fn probe(a: SortedSet<Str>, b: SortedMap<Int, Str>, c: SortedSet<P>) -> Int \
          => a, b, c {\n    return size(a) + size(b) + size(c)\n}\n",
     );
@@ -724,13 +724,13 @@ fn a_sorted_key_must_be_orderable() {
     // A struct with only the hashing pair is a `Set` key but not a `SortedSet`
     // one: the two axes are separate.
     let hashed_only = sorted_messages(
-        "struct P : default Hashed<self> {\n    x: Int\n}\n\n\
+        "struct P : auto Hashed<self> {\n    x: Int\n}\n\n\
          fn probe(a: SortedSet<P>) -> Int => a {\n    return size(a)\n}\n",
     );
     assert_eq!(hashed_only.len(), 1, "expected one error: {hashed_only:?}");
     assert!(
         hashed_only[0].contains("sorted collection's key")
-            && hashed_only[0].contains("default Ordered<self>"),
+            && hashed_only[0].contains("auto Ordered<self>"),
         "unexpected message: {}",
         hashed_only[0]
     );

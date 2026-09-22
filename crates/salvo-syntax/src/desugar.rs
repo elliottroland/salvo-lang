@@ -92,11 +92,11 @@ pub fn expand_iter_fns_with(
     module: &mut Module,
     extern_structs: &[StructDecl],
 ) -> Vec<Diagnostic> {
-    // [cmp-default] The other desugaring, run here because this is the one
+    // [cmp-auto] The other desugaring, run here because this is the one
     // entry point every consumer of a parsed module already calls — so no path
     // can forget it. It needs no declarations but the module's own: a `default`
     // obligation and the type it is written on are the same declaration.
-    expand_default_obligations(module);
+    expand_auto_obligations(module);
     let mut diags = Vec::new();
     // The subject's own declaration: that is what makes a *per-field*
     // snapshot possible, since a generated field needs the field's written
@@ -471,7 +471,7 @@ fn expand(
         generic_canbe: Vec::new(),
         generics: f.generics.clone(),
         obligations: vec![Obligation {
-            default: false,
+            auto: false,
             group: TypeRef {
                 at: None,
                 binder: false,
@@ -1344,45 +1344,86 @@ fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
     }
 }
 
-// ===== [cmp-default] `default` obligations =====
+// ===== [cmp-auto] `auto` obligations and `auto fn` =====
 
-/// The capability groups the compiler has a generator for, and the member each
-/// one contributes. `Ordered` and `Hashed` **bring `eq` with them** (user
-/// decision 2026-09-21): everything generated is structural, so consistency
-/// between `cmp`, `eq` and `hash` is by construction rather than by trust —
-/// which is exactly what a hand-written implementation cannot promise, and why
-/// hand-written ones are declared piece by piece.
-const DEFAULTABLE: [(&str, &[&str]); 3] = [
-    ("Ordered", &["cmp", "eq"]),
+/// [cmp-auto] The capability groups the compiler can generate, and the members
+/// each one asks for — the expansion of `: auto Group<self>` into one bodiless
+/// `auto fn` per member.
+///
+/// It duplicates what `core.compare` declares, and has to: this pass runs per
+/// module, before any cross-module visibility exists, so the group's own member
+/// list is not available here. **Keep the two in step** — the checker reads this
+/// same table for its "can the compiler generate this member" test, so the
+/// compiler cannot disagree with itself, only with std.
+///
+/// `Hashed` **brings `eq` with it** (user decision 2026-09-22): a hash
+/// container buckets by `hash` and confirms by `eq`, so the pair is the unit and
+/// a `hash` without its `eq` is useless. `Ordered` does **not**: no sorted
+/// container consults equality — both hosts collapse by the comparator — so an
+/// `eq` there would be a member nothing reads.
+const AUTO_GROUPS: [(&str, &[&str]); 3] = [
+    ("Ordered", &["cmp"]),
     ("Eq", &["eq"]),
     ("Hashed", &["hash", "eq"]),
 ];
 
-/// [cmp-default] Expands every `: default Group<self>` into the **canonical**
-/// implementations it promises: one `@`-scoped fn per member [cmp-canonical],
-/// bodyless and marked `structural`, which each backend lowers to the host's
-/// own derived comparison, equality or hash.
+/// [cmp-auto] The members `auto Group<self>` generates, if the compiler has a
+/// generator for that group at all.
+pub fn auto_members(group: &str) -> Option<&'static [&'static str]> {
+    AUTO_GROUPS
+        .iter()
+        .find(|(g, _)| *g == group)
+        .map(|(_, ms)| *ms)
+}
+
+/// [cmp-auto] Whether the compiler can write this member's body — the whole
+/// list, which is what an `auto fn` of another name is refused against.
+pub fn is_auto_member(member: &str) -> bool {
+    AUTO_GROUPS.iter().any(|(_, ms)| ms.contains(&member))
+}
+
+/// [cmp-auto] Every member the compiler can generate, for a diagnostic that
+/// names them.
+pub fn auto_member_names() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for (_, ms) in AUTO_GROUPS {
+        for m in ms {
+            if !out.contains(m) {
+                out.push(m);
+            }
+        }
+    }
+    out
+}
+
+/// [cmp-auto] Expands every `: auto Group<self>` into the `auto fn`
+/// declarations it is sugar for: one `@`-scoped fn per member
+/// [cmp-canonical], bodiless and marked `structural`, which each backend lowers
+/// to the host's own derived comparison, equality or hash.
 ///
 /// Done here, beside the `iter fn` expansion and for the same three reasons:
-/// nothing downstream learns the form exists (the generated fns are ordinary
+/// nothing downstream learns the form exists (the expansions are ordinary
 /// overloads, so resolution, implicit filling, the canonical rules and the
 /// duplicate check all apply unchanged), a hand-written member colliding with a
 /// generated one *is* the ordinary duplicate error, and the emitters need no
-/// notion of a `default` clause — only of a structural fn.
+/// notion of an obligation clause — only of a structural fn.
 ///
-/// A `default` on a group with no generator generates nothing; the checker
-/// reports it, naming the three that have one.
-pub fn expand_default_obligations(module: &mut Module) {
+/// The written `auto fn` form needs no expansion at all: it *is* what this
+/// produces, which is why the clause is sugar rather than a second mechanism.
+///
+/// An `auto` on a group with no generator expands to nothing; the checker
+/// reports it, naming the members it can write.
+pub fn expand_auto_obligations(module: &mut Module) {
     let mut generated: Vec<Item> = Vec::new();
     for item in &module.items {
         let Item::Struct(s) = item else { continue };
         let mut members: Vec<&str> = Vec::new();
         for ob in &s.obligations {
-            if !ob.default {
+            if !ob.auto {
                 continue;
             }
-            // `self` is what the generator writes the signature over; a
-            // `default` naming someone else's type is the checker's error.
+            // `self` is what the generator writes the signature over; an
+            // `auto` naming someone else's type is the checker's error.
             if !ob
                 .group
                 .args
@@ -1391,8 +1432,11 @@ pub fn expand_default_obligations(module: &mut Module) {
             {
                 continue;
             }
-            if let Some((_, ms)) = DEFAULTABLE.iter().find(|(g, _)| *g == ob.group.name.name) {
-                for m in *ms {
+            // [cmp-auto] Two groups asking for the same member ask for one
+            // declaration, not two: `auto Eq<self>` beside `auto Hashed<self>`
+            // is one `eq`, the same merge an overlapping spread gets.
+            if let Some(ms) = auto_members(&ob.group.name.name) {
+                for m in ms {
                     if !members.contains(m) {
                         members.push(m);
                     }
@@ -1473,8 +1517,8 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
     };
     FnDecl {
         docs: vec![format!(
-            "The structural `{member}` for [{}], generated from its `default` \
-             obligation [cmp-default].",
+            "The structural `{member}` for [{}], generated from its `auto` \
+             obligation [cmp-auto].",
             s.name.name
         )],
         // [mod-export] A generated canonical carries the struct's own

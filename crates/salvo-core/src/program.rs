@@ -36,6 +36,25 @@ impl Program {
             .zip(&self.modules)
             .map(|(file, ast)| Unit { file, ast })
     }
+
+    /// [cmp-auto] Whether a **structural** implementation of `member` exists for
+    /// the type named `ty` — an `auto fn member@Ty`, written or expanded from an
+    /// `auto Group<self>` clause.
+    ///
+    /// This is what a backend's derive hangs on: a generated member is defined
+    /// in terms of the host's own derived operation, so the derive must be
+    /// present exactly when the member is. Before `auto` moved to the function
+    /// level (user decision 2026-09-22) both emitters asked the *obligation
+    /// clause* instead, which now answers the wrong question — a struct may have
+    /// `auto fn cmp@Person` and no clause at all.
+    pub fn has_auto_member(&self, ty: &str, member: &str) -> bool {
+        self.modules.iter().flat_map(|m| &m.items).any(|item| {
+            matches!(item, Item::Fn(f)
+                if f.structural
+                    && f.name.name == member
+                    && f.scoped_to.as_ref().is_some_and(|t| t.name == ty))
+        })
+    }
 }
 
 /// Global symbol tables, keyed by simple name.

@@ -26,7 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
-use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
+use crate::types::{compatible, is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
@@ -824,7 +824,7 @@ enum ImplicitMiss {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompareVia {
     /// A declared `cmp`/`eq` — a canonical [cmp-canonical], a generated
-    /// structural member [cmp-default], or any other visible overload that
+    /// structural member [cmp-auto], or any other visible overload that
     /// fits. Intrinsic declarations included, which is how `Str` ordering
     /// reaches the backends' code-point comparison.
     Call(FnKey),
@@ -1870,6 +1870,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [free-send-fn] The send kind's refusal list, at the
                     // declaration where the author is deciding.
                     self.check_free_send_fn(f);
+                    // [cmp-auto] `auto fn cmp@Person(…)`: the compiler writes
+                    // this body, so what it may be written over is checked
+                    // here — the member it names, the type it is scoped to, and
+                    // that type's fields.
+                    if f.structural {
+                        self.check_auto_fn(f);
+                    }
                     // [task-mint] What this body's sends are attributed to in
                     // the deadlock graph.
                     self.own_task = f.is_send.then(|| f.name.name.clone());
@@ -2261,11 +2268,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Struct(s) => {
                     let saved = self.enter_generics(&s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
-                    // [col-hashed-ordered] The key claims
-                    // are checked *here*, where the mistake is: the error
-                    // names the field that is not hashable or orderable
-                    // rather than surfacing at some distant `Set<Point>`.
-                    self.check_key_optins(s);
                     self.check_obligations(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
@@ -2351,18 +2353,23 @@ impl<'p, 'r> Checker<'p, 'r> {
         let scope = self.scope;
         for (i, entry) in s.obligations.iter().enumerate() {
             let ob = &entry.group;
-            // [cmp-default] `default` is legal only where the compiler has a
-            // generator. Elsewhere the word would promise an implementation
-            // nothing provides, so it is an error naming the three groups that
-            // have one (user decision 2026-09-21).
-            if entry.default {
-                if !matches!(ob.name.name.as_str(), "Ordered" | "Eq" | "Hashed") {
+            // [cmp-auto] `auto` is legal only where the compiler can write
+            // every member of the group. Elsewhere the word would promise an
+            // implementation nothing provides, so it is an error naming what it
+            // *can* write (user decisions 2026-09-21, 2026-09-22).
+            if entry.auto {
+                if salvo_syntax::auto_members(&ob.name.name).is_none() {
+                    let can: Vec<String> = salvo_syntax::auto_member_names()
+                        .iter()
+                        .map(|m| format!("`{m}`"))
+                        .collect();
                     self.error(
                         ob.span,
                         format!(
-                            "`default` generates an implementation, and the compiler has \
-                             one only for `Ordered`, `Eq` and `Hashed` — not for `{}`. \
-                             Drop `default` and declare the members [cmp-default]",
+                            "`auto` asks the compiler to write every member of the \
+                             group, and it can write {} — not the members of `{}`. \
+                             Drop `auto` and declare them [cmp-auto]",
+                            can.join(", "),
                             ob.name.name
                         ),
                     );
@@ -2374,9 +2381,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         ob.span,
                         format!(
-                            "`default {}` generates the implementation for the type it \
+                            "`auto {}` generates the implementation for the type it \
                              is written on, so its argument is `self`: write \
-                             `: default {}<self>` [cmp-default]",
+                             `: auto {}<self>` [cmp-auto]",
                             ob.name.name, ob.name.name
                         ),
                     );
@@ -2571,7 +2578,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if matches!(q.name.name.as_str(), "Mut" | "once") {
                 continue;
             }
-            // [cmp-default] `canbe hashed` / `canbe ordered` are **gone** (user
+            // [cmp-auto] `canbe hashed` / `canbe ordered` are **gone** (user
             // decision 2026-09-21): a type is hashable or orderable exactly when
             // a `hash`/`cmp` for it exists, so the opt-in became the
             // implementation — one token where the type wants the structural one.
@@ -2585,11 +2592,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     q.span,
                     format!(
                         "`canbe {}` no longer exists: being hashable or orderable is \
-                         *having the function*, so write the obligation instead — \
-                         `: default {group}<self>` for the structural one, or declare \
-                         `fn {}@…` yourself [cmp-default] [cmp-canonical]",
+                         *having the function*, so declare it — `auto fn {member}@\
+                         <the type>(…)` for the structural one, or write the body \
+                         yourself [cmp-auto] [cmp-canonical]. `: {group}<self>` \
+                         states the promise",
                         q.name.name,
-                        if q.name.name == "hashed" { "hash" } else { "cmp" }
+                        member = if q.name.name == "hashed" { "hash" } else { "cmp" }
                     ),
                 );
                 continue;
@@ -8468,7 +8476,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   `Eq` nor `Hash` (`NaN != NaN`), so a float-keyed map is not
     ///   representable there at all, while Kotlin would take it happily —
     ///   a divergence closed by restriction [backend-parity].
-    /// * a struct is not a key *yet*: `: default Hashed<self>` is the clause, and it
+    /// * a struct is not a key *yet*: `: auto Hashed<self>` is the clause, and it
     ///   is what the diagnostic points at.
     ///
     /// A type *variable* is eligible: a generic fn's `K` is checked where
@@ -8527,7 +8535,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   story.
     /// * **Everything else needs a function.** Ordering resolves `cmp` at the
     ///   operand type, equality resolves `eq` — a canonical [cmp-canonical], a
-    ///   generated structural member [cmp-default], or any other fitting
+    ///   generated structural member [cmp-auto], or any other fitting
     ///   overload. With none in scope the operator is an **error naming the
     ///   remedy**, which is what makes equality opt-in for a type of your own
     ///   and closes the silent comparison of unconstrained generics.
@@ -8540,7 +8548,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// * A **fn-typed field** no longer bars a struct from equality by itself:
     ///   a struct holding one becomes comparable by declaring an `eq` that
     ///   ignores it (new capability, decision 6). What is refused is the
-    ///   *structural* `default Eq`, where the field has no answer either
+    ///   *structural* `auto Eq`, where the field has no answer either
     ///   backend can give.
     ///
     /// Unknown and `Never` operands stay lenient [type-unknown-lenient].
@@ -8703,11 +8711,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             ),
             Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
                 " — declare `fn {member}@{name}(…)` in `{name}`'s file, or ask for the \
-                 structural one with `: default {group}<self>` [cmp-default]"
+                 structural one with `auto fn {member}@{name}(…)` [cmp-auto]"
             ),
             _ => format!(
                 " — declare a `{member}` for it, or ask for the structural one with \
-                 `: default {group}<self>` where the type is declared [cmp-default]"
+                 `auto fn {member}@…(…)` where the type is declared [cmp-auto]"
             ),
         }
     }
@@ -8823,7 +8831,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.promotions.insert(self.key(span), target.clone());
     }
 
-    /// [cmp-default] Why a field bars the **structural** `eq`: only a function
+    /// [cmp-auto] Why a field bars the **structural** `eq`: only a function
     /// value does. Neither backend can compare one (Rust has no equality for a
     /// closure at all, Kotlin would compare by reference), which is exactly the
     /// case decision 6 leaves to a hand-written `eq` that ignores the field.
@@ -8845,7 +8853,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// resolved). It replaced `canbe hashed`/`canbe ordered`, which asked
     /// whether the *declaration* said so: a type is orderable now exactly when
     /// an ordering for it exists, whether hand-written [cmp-canonical] or
-    /// generated [cmp-default].
+    /// generated [cmp-auto].
     fn has_member_for(&self, member: &str, name: &str) -> bool {
         self.scope.fns.get(member).is_some_and(|entries| {
             entries.iter().any(|e| {
@@ -8891,7 +8899,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(format!(
                             "`{name}` has no `hash`: declare one (with an `eq`) in its \
                              file, or ask for the structural pair with \
-                             `: default Hashed<self>` [cmp-default]"
+                             `: auto Hashed<self>` [cmp-auto]"
                         ))
                     }
                 }
@@ -8945,8 +8953,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     } else {
                         Some(format!(
                             "`{name}` has no `cmp`: declare one in its file, or ask for \
-                             the structural one with `: default Ordered<self>` \
-                             [cmp-default]"
+                             the structural one with `: auto Ordered<self>` \
+                             [cmp-auto]"
                         ))
                     }
                 }
@@ -8971,8 +8979,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [cmp-default] Validates a struct's `default Hashed<self>` /
-    /// `default Ordered<self>` obligations where they are written.
+    /// [cmp-auto] Validates a struct's `auto Hashed<self>` /
+    /// `auto Ordered<self>` obligations where they are written.
     ///
     /// Two conditions, both the user's rule (2026-09-12, inherited by `default`
     /// 2026-09-21): the struct must be **immutable** — a `canbe Mut` struct
@@ -8980,79 +8988,183 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// silent corruption — and every field must itself be hashable/orderable,
     /// because the generated member is the host's *derived* operation over
     /// them.
-    fn check_key_optins(&mut self, s: &'p ast::StructDecl) {
-        let mutable = s.auto_qualifiers.iter().any(|q| q.name.name == "Mut");
-        // A float field is refused at the `default`, where it is easy to see,
-        // rather than at a distant `SortedSet<Point>`.
-        // (what the claim is called, which eligibility test it uses, where it is
-        // written, how it reads back).
-        let mut claims: Vec<(&str, u8, Span, String)> = Vec::new();
-        for ob in &s.obligations {
-            if !ob.default {
-                continue;
-            }
-            match ob.group.name.name.as_str() {
-                "Hashed" => claims.push((
-                    "hashed",
-                    0,
-                    ob.group.span,
-                    "default Hashed<self>".to_string(),
-                )),
-                "Ordered" => claims.push((
-                    "ordered",
-                    1,
-                    ob.group.span,
-                    "default Ordered<self>".to_string(),
-                )),
-                // [cmp-default] The structural `eq` compares the fields, so a
-                // **fn-typed** field bars it: `Rc<dyn Fn>` has no equality on
-                // Rust and Kotlin would compare by reference. Floats are fine
-                // here, where they are not for hashing or ordering — Salvo owns
-                // float equality [kt-float-eq].
-                "Eq" => claims.push((
-                    "comparable",
-                    2,
-                    ob.group.span,
-                    "default Eq<self>".to_string(),
-                )),
-                _ => {}
-            }
+    fn check_auto_fn(&mut self, f: &'p FnDecl) {
+        // [cmp-auto] The compiler writes the body, so writing one is a
+        // contradiction rather than an extra.
+        if f.body.is_some() {
+            self.error(
+                f.name.span,
+                format!(
+                    "`auto fn {}` writes its own body from the type's fields, so it \
+                     takes none: drop `auto` to write the body yourself, or drop the \
+                     body",
+                    f.name.name
+                ),
+            );
         }
-        for (claim, kind, span, written) in claims {
-            // Only a key can be corrupted by mutation; plain equality cannot.
-            let mutable = mutable && kind != 2;
-            if mutable {
+        // [cmp-auto] The compiler writes the body from a *type's fields*, so an
+        // `auto fn` has to say which type: the `@` scope it would be the
+        // canonical of [cmp-canonical]. Without it there is nothing to read.
+        let Some(owner) = &f.scoped_to else {
+            self.error(
+                f.name.span,
+                format!(
+                    "`auto fn {}` writes the implementation for a type, so it names \
+                     one: write `auto fn {}@<the type>(…)` [cmp-auto] [cmp-canonical]",
+                    f.name.name, f.name.name
+                ),
+            );
+            return;
+        };
+        // Only the members the compiler has a generator for.
+        if !salvo_syntax::is_auto_member(&f.name.name) {
+            let can: Vec<String> = salvo_syntax::auto_member_names()
+                .iter()
+                .map(|m| format!("`{m}`"))
+                .collect();
+            self.error(
+                f.name.span,
+                format!(
+                    "the compiler can write {} and nothing else, so `auto fn {}` \
+                     promises an implementation it does not have: write the body \
+                     yourself [cmp-auto]",
+                    can.join(", "),
+                    f.name.name
+                ),
+            );
+            return;
+        }
+        let Some(s) = self.scope.structs.get(owner.name.as_str()).copied() else {
+            // A generated member is scoped to its own struct, so this is only
+            // reachable from a written `auto fn`.
+            let hint = if self.type_name_exists(&owner.name) {
+                " — and the compiler can only read the fields of a `struct`"
+            } else {
+                ""
+            };
+            self.error(
+                owner.span,
+                format!(
+                    "`auto fn {}@{}` names no visible struct{hint}",
+                    f.name.name, owner.name
+                ),
+            );
+            return;
+        };
+        // [cmp-auto] The signature is the group member's, over the scoped type:
+        // a mismatch would have the compiler write a body for a shape it never
+        // agreed to.
+        self.check_auto_signature(f, s);
+        // [col-hashed-ordered] What the generated body needs of the type. The
+        // claim is checked *here*, where the mistake is: the error names the
+        // field that is not hashable or orderable rather than surfacing at some
+        // distant `Set<Point>`. Spans point at the struct for a clause
+        // expansion and at the declaration for a written `auto fn`, so either
+        // way the report lands where the author wrote something.
+        let (claim, kind) = match f.name.name.as_str() {
+            "hash" => ("hashed", 0u8),
+            "cmp" => ("ordered", 1),
+            // [cmp-auto] The structural `eq` compares the fields, so a
+            // **fn-typed** field bars it: `Rc<dyn Fn>` has no equality on Rust
+            // and Kotlin would compare by reference. Floats are fine here,
+            // where they are not for hashing or ordering — Salvo owns float
+            // equality [kt-float-eq].
+            _ => ("comparable", 2),
+        };
+        let written = format!("auto fn {}@{}", f.name.name, owner.name);
+        // Only a key can be corrupted by mutation; plain equality cannot.
+        if kind != 2 && s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
+            self.error(
+                f.name.span,
+                format!(
+                    "`{}` cannot have `{written}`: it is also `canbe Mut`, and a \
+                     value that can change while a collection holds it would \
+                     corrupt the collection's order or lookup. Only an immutable \
+                     struct can be a key",
+                    s.name.name
+                ),
+            );
+            return;
+        }
+        for field in &s.fields {
+            let empty = HashMap::new();
+            let ty = self.lower_type_subst(&field.ty, &empty, 0);
+            let bad = match kind {
+                1 => self.order_ineligible(&ty, 0),
+                2 => self.eq_ineligible(&ty),
+                _ => self.hash_ineligible(&ty, 0),
+            };
+            if let Some(reason) = bad {
                 self.error(
-                    span,
+                    f.name.span,
                     format!(
-                        "`{}` cannot be `{written}`: it is also `canbe Mut`, \
-                         and a value that can change while a collection holds \
-                         it would corrupt the collection's order or lookup. \
-                         Only an immutable struct can be a key",
-                        s.name.name
+                        "`{}` cannot have `{written}`: its field `{}` is not \
+                         {claim} — {reason}",
+                        s.name.name, field.name.name
                     ),
                 );
-                continue;
             }
-            for field in &s.fields {
-                let empty = HashMap::new();
-                let ty = self.lower_type_subst(&field.ty, &empty, 0);
-                let bad = match kind {
-                    1 => self.order_ineligible(&ty, 0),
-                    2 => self.eq_ineligible(&ty),
-                    _ => self.hash_ineligible(&ty, 0),
-                };
-                if let Some(reason) = bad {
-                    self.error(
-                        field.ty.span(),
-                        format!(
-                            "`{}` cannot be `{written}`: its field `{}` is \
-                             not {claim} — {reason}",
-                            s.name.name, field.name.name
-                        ),
-                    );
-                }
-            }
+        }
+    }
+
+    /// [cmp-auto] An `auto fn`'s signature must be the group member's, over the
+    /// type it is scoped to: `cmp` and `eq` take two of it, `hash` one, and each
+    /// answers what the group declares. Checked rather than assumed, because the
+    /// author writes it and the compiler writes the body.
+    fn check_auto_signature(&mut self, f: &'p FnDecl, s: &'p ast::StructDecl) {
+        let (arity, ret) = match f.name.name.as_str() {
+            "hash" => (1usize, "Long"),
+            "cmp" => (2, "Int"),
+            _ => (2, "Bool"),
+        };
+        let self_ty = Ty::Named {
+            name: s.name.name.clone(),
+            args: s.generics.iter().map(|g| Ty::Var(g.name.clone())).collect(),
+        };
+        let shown = |arity: usize| -> String {
+            let names = if arity == 1 { vec!["value"] } else { vec!["a", "b"] };
+            let params: Vec<String> = names
+                .iter()
+                .map(|n| format!("{n}: {}", s.name.name))
+                .collect();
+            format!("fn {}@{}({}) -> {ret}", f.name.name, s.name.name, params.join(", "))
+        };
+        let ordinary: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+        if ordinary.len() != arity || ordinary.len() != f.params.len() {
+            self.error(
+                f.name.span,
+                format!(
+                    "`auto fn {}` takes {arity} parameter(s) of `{}` and no implicits: \
+                     `{}` [cmp-auto]",
+                    f.name.name,
+                    s.name.name,
+                    shown(arity)
+                ),
+            );
+            return;
+        }
+        let saved = self.enter_generics(&f.generics);
+        let params: Vec<Ty> = ordinary.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let declared_ret = f
+            .return_type
+            .as_ref()
+            .map(|t| self.lower_type(t))
+            .unwrap_or_else(Ty::none);
+        self.generics = saved;
+        let want_ret = Ty::named(ret);
+        let fits = params.iter().all(|p| compatible(p, &self_ty))
+            && compatible(&declared_ret, &want_ret);
+        if !fits {
+            self.error(
+                f.name.span,
+                format!(
+                    "`auto fn {}@{}` must be declared `{}`, since that is what the \
+                     compiler writes [cmp-auto]",
+                    f.name.name,
+                    s.name.name,
+                    shown(arity)
+                ),
+            );
         }
     }
 

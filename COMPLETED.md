@@ -128,6 +128,55 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 1 — `auto` replaces `default`, at the
+function level (2026-09-22).** User decision 15. A capability's structural
+implementation is now a bodiless **`auto fn`** `@`-scoped to its type
+(`auto fn cmp@Person(a: Person, b: Person) -> Int`), and `auto Group<self>` on an
+obligation clause is sugar for one per member. The obligation clause goes back to
+being only a promise. What it buys is the thing `default` could not express:
+*some* members generated beside others written by hand — a `Person` ordered by
+name whose `eq` is `cmp(a, b) == 0`.
+
+- **The mechanism was already there.** `FnDecl.structural` existed and already
+  drove both emitters' derive path, so a written `auto fn` *is* a structural fn
+  and needs no desugaring at all; the clause expansion keeps producing exactly
+  what it produced before. That is why a change to the language's surface cost no
+  new lowering.
+- **What did cost work is the question the emitters were asking.** Both read the
+  *obligation clause* to decide their derives (`#[derive(Ord)]`, Kotlin's
+  `Comparable`), which since this change answers the wrong question: a struct may
+  have `auto fn cmp@Person` and no clause. They now ask
+  `Program::has_auto_member(ty, member)` instead — one shared definition, so the
+  two cannot drift. Exactly the "grep the emitters for the *old* form's name"
+  gotcha this document already carried.
+- **`Ordered` stopped bringing `eq`** (decision 17, landing early because it is
+  the generator table that decides): the table is `Ordered → cmp`,
+  `Eq → eq`, `Hashed → hash, eq`. Sorted containers never consult equality — both
+  hosts collapse by the comparator — so an `eq` in `Ordered` is a member nothing
+  reads. Step 2 makes `core.compare` say so.
+- **The table is the compiler's, in one place** (`salvo_syntax::auto_members`):
+  the desugar pass expands a clause from it and the checker tests a member
+  against it. It duplicates what std declares because the expansion runs per
+  module, before cross-module visibility exists — so the duplication is
+  structural, and the comment says to keep the two in step.
+- **Validation moved from the clause to the declaration.** `check_key_optins`
+  (driven by `default` entries) became `check_auto_fn`, driven by the structural
+  fns themselves — so one code path serves both spellings, and the generated
+  expansions still report at the struct because their spans point there. The
+  `auto fn` rules it adds: `@`-scoped, a visible struct, a member the compiler can
+  write, the member's own signature, no body.
+- **The sweep** was ~120 sites: std (`time.sv` and three doc comments), both
+  emitters, the checker, the parser, five test files, the specs, the editor
+  grammar (`\bauto(?=\s+(fn\b|[A-Z]))` now, since the word appears in two
+  positions), `examples/collections` (source, README and both regenerated
+  outputs) and `examples/time`'s regenerated output. The generated-code diff is
+  member *order* only — `eq` now arrives with `hash` rather than with `cmp`.
+- Rule [cmp-default] became **[cmp-auto]** and was rewritten; LANGUAGE.md's
+  section on generation was rewritten around the mixed example. Three new tests
+  in `compare_tests.rs` (the mixed form, the two spellings being one thing, and
+  the six refusals), and one e2e demo struct converted to the clause-less form so
+  the derive path is exercised end to end on both backends.
+
 **Ordering round, step 5 — a structure holds its ordering: the identity is in
 the type (2026-09-22).** Option G of the original exploration, adopted as
 ORDERING.md decision 1 and built in the four steps its build order prescribes,
@@ -240,7 +289,7 @@ struct.
   user would, and `@`-scoping it to `Bytes` in `core.bytes` is exactly the shape
   a std canonical should have.
 - **A fn-typed field no longer bars a struct from equality**, only from the
-  *structural* one: `: default Eq<self>` names the field and refuses, and
+  *structural* one: `: auto Eq<self>` names the field and refuses, and
   declaring an `eq` that ignores it makes the type comparable. That is decision
   6's new capability, and it needed a third validation kind (`eq_ineligible`)
   beside the hashable/orderable pair — floats pass it, since Salvo owns float
@@ -258,8 +307,8 @@ struct.
   generated canonical, a hand-written one, `Str` ordering and a generic.
 
 **Ordering round, step 3b — `default` obligations generate the structural
-implementations (2026-09-21, night).** `struct Point : default Ordered<self>,
-default Hashed<self>` [cmp-default] writes `cmp@Point`, `hash@Point` *and*
+implementations (2026-09-21, night).** `struct Point : auto Ordered<self>,
+auto Hashed<self>` [cmp-auto] writes `cmp@Point`, `hash@Point` *and*
 `eq@Point` — decision 7's "the `default` forms bring `eq` with them", which is
 what makes the generated bundle consistent by construction where a hand-written
 pair could only be trusted.
@@ -282,11 +331,11 @@ pair could only be trusted.
   disagree — and the same derives are now requested by either spelling, which is
   what lets the next step delete the `canbe` pair.
 - **`default` inherits today's validation**: not `canbe Mut`, every field
-  hashable/orderable, reported *at the clause* (`default Hashed<self>` names
+  hashable/orderable, reported *at the clause* (`auto Hashed<self>` names
   itself in the message, so the two spellings read the same). Plus two rules of
   its own: the whitelist (`Ordered`, `Eq`, `Hashed` — anything else is an error
   naming them) and the `self` argument.
-- **One real bug caught by its own e2e case**: three `default Eq` structs in one
+- **One real bug caught by its own e2e case**: three `auto Eq` structs in one
   program all emitted Rust `eq`, because overload *mangling* filtered to
   body-bearing fns. Both backends' `rust_fn_name`/`kotlin_fn_name` now count a
   structural fn as an overload — which it is.
@@ -295,7 +344,7 @@ pair could only be trusted.
   and `canbe Mut` refusals; the duplicate; a generic struct; and `default`
   satisfying the obligation it is written on beside a bare one that fails), one
   codegen assertion on the derives, and one e2e program on both backends
-  covering `default Ordered`+`default Hashed`, `default Eq` alone, and a generic
+  covering `auto Ordered`+`auto Hashed`, `auto Eq` alone, and a generic
   struct.
 
 **Ordering round, step 3a — `@`-scoped canonical implementations (2026-09-21,
@@ -484,7 +533,7 @@ error, explicit and implicit alike (the wider no-silent-scope-winners
 intent is a ROADMAP item), and `export` on them explicit and
 match-checked against the type's; a
 **`default` keyword on compiler-known obligation groups**
-(`struct Point : default Ordered<self>`) generates the structural implementation,
+(`struct Point : auto Ordered<self>`) generates the structural implementation,
 and the `default` forms bring `eq` with them; operators resolve through the
 groups, so **equality becomes opt-in** (overturning [col-equality]'s
 "every struct, structurally", 2026-09-12) and comparisons on unconstrained
@@ -14002,7 +14051,7 @@ cache, with per-test timings.
   imported with its type, the same-file and export-match refusals, ambiguity on
   every rung explicit *and* implicit, the selector as the remedy, an unrelated
   overload staying unambiguous, and the lowercase-after-`@` parse error) and the
-  eight [cmp-default] ones (generation and its use through an implicit, `eq`
+  eight [cmp-auto] ones (generation and its use through an implicit, `eq`
   riding along with `Ordered`, the whitelist, the `self` rule, the float-field
   and `canbe Mut` refusals, the hand-written duplicate, a generic struct, and
   `default` satisfying its own obligation) and the five [op-order]/[op-equality]
@@ -14899,7 +14948,7 @@ cache, with per-test timings.
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
 - `salvo-backend-rust`: 232 - including the two [cmp-groups] tests, the
-  two-module [cmp-canonical] one, the two [cmp-default] ones and the
+  two-module [cmp-canonical] one, the two [cmp-auto] ones and the
   [op-order]/[op-equality] operator program (the
   comparison groups compiled and run to the stdout the Kotlin backend prints,
   and the host lowerings read off the generated source: `Ord::cmp(&a, &b) as
@@ -15168,7 +15217,7 @@ snapshot diffs.
   backends had baked in: `canbe hashed`/`canbe ordered` read directly in two
   emitters, implicit positions rendering by value on Rust
   ([rs-fn-param-convention]), and overload *mangling* filtering to body-bearing
-  fns (three `default Eq` structs all emitted `eq`). When adding a declaration
+  fns (three `auto Eq` structs all emitted `eq`). When adding a declaration
   form, grep the emitters for the *old* form's name before estimating.
 - **A generated declaration must be a real item, or half the language stops
   applying to it.** `default`'s members are `FnDecl`s appended to the module in

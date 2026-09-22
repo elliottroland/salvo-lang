@@ -493,7 +493,7 @@ Conventions:
     encoding units — so the Kotlin comparator compares code points.
 * [col-equality] **Equality is a capability**: `a == b` is `eq(a, b)`, so a
   struct supports `==` and `!=` exactly when an `eq` for it is in scope —
-  generated with `: default Eq<self>` [cmp-default], or hand-written and
+  generated with `: auto Eq<self>` [cmp-auto], or hand-written and
   `@`-scoped [cmp-canonical]. That **overturns** the 2026-09-12 decision that
   every struct compares structurally (user decision 2026-09-21): the operator
   now resolves like any call [op-equality], and a type with no `eq` says so.
@@ -505,7 +505,7 @@ Conventions:
     handle. State, provenance and `Mut` alike.
   * A **fn-typed field bars the *structural* `eq`**: `Rc<dyn Fn>` has none on
     Rust and Kotlin would compare by reference, so no answer exists that both
-    backends can give — `: default Eq<self>` is refused, naming the field. It no
+    backends can give — `: auto Eq<self>` is refused, naming the field. It no
     longer bars the *struct*, which is the capability decision 6 opened: declare
     an `eq` that ignores the field and the type is comparable (and hashable,
     with a `hash` to match).
@@ -529,8 +529,8 @@ Conventions:
   `SortedSet` element or a `SortedMap` key. `canbe hashed` and `canbe ordered`
   are **deleted** (user decision 2026-09-21) — the opt-in became the
   implementation, since there was never anything a declaration could opt into
-  beyond having an ordering. `: default Hashed<self>` / `: default Ordered<self>`
-  generate the structural ones [cmp-default] and are **validated where they are
+  beyond having an ordering. `: auto Hashed<self>` / `: auto Ordered<self>`
+  generate the structural ones [cmp-auto] and are **validated where they are
   written**, so the error names the field rather than surfacing at a distant
   `Set<Point>`:
   * the struct may not be `canbe Mut` — a value that can change while a
@@ -538,7 +538,7 @@ Conventions:
     the classic silent-corruption bug made a compile error;
   * every field must itself be hashable / orderable. `Int`, `Long`, `Str`,
     `Char` and `Bool` are both; `Double`/`Float` are **neither** (Rust's
-    `f64` is not `Eq`, `Hash` or `Ord`) while `: default Eq<self>` on a struct
+    `f64` is not `Eq`, `Hash` or `Ord`) while `: auto Eq<self>` on a struct
     holding one still works; a nested struct must have the same members; a
     `List` or a tuple qualifies exactly when its elements do (user decision
     2026-09-12), ordering **lexicographically**, with a shorter list that is
@@ -1173,7 +1173,7 @@ Conventions:
     the JVM's `<` does not), a struct orders when it has a `cmp`, and a tuple,
     a container or a fn value orders when someone declares one. With none in
     scope the operator is an error naming the remedy — `fn cmp@T(…)`, or
-    `: default Ordered<self>`.
+    `: auto Ordered<self>`.
   * **At a generic `T`** the only candidate is an enclosing implicit parameter
     [implicit-forward], so a comparison in generic code publishes the
     capability in the signature (`?Ordered<T>`). Comparing an unconstrained `T`
@@ -2780,39 +2780,64 @@ Conventions:
     declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so the
     same-file rule could not hold — and `core.*` is implicitly visible
     everywhere, which is the property `@`-scoping exists to provide.
-* [cmp-default] **`default` on an obligation generates the structural
-  implementation**: `struct Point : default Ordered<self>, default Hashed<self>`
-  writes `cmp@Point`, `hash@Point` and `eq@Point` [cmp-canonical] (user decision
-  2026-09-21). One token where a hand-written bundle would be three functions of
-  boilerplate, and the reason `canbe ordered`/`canbe hashed` can be deleted.
-  * **Only where the compiler has a generator**: `Ordered`, `Eq`, `Hashed`.
-    `default` on any other group is an error naming those three — the word would
-    otherwise promise an implementation nothing provides. The argument must be
-    `self` [group-self]: the generator writes the signature over the declaring
-    type.
-  * **The `default` forms bring `eq` with them** (decision 7): `default Ordered`
-    and `default Hashed` generate `eq` too. Everything generated is structural,
-    so `cmp(a, b) == 0`, `eq(a, b)` and equal hashes agree *by construction* —
-    which is exactly what a hand-written pair cannot promise, and why
-    hand-written implementations are declared piece by piece instead.
+* [cmp-auto] **`auto` asks the compiler for a structural implementation**, and
+  it is a modifier on the **function** (user decisions 2026-09-21 for the
+  mechanism, 2026-09-22 for the form):
+
+  ```
+  auto fn cmp@Person(a: Person, b: Person) -> Int
+  auto fn hash@Person(value: Person) -> Long
+  ```
+
+  A bodiless declaration whose body the compiler writes from the type's fields —
+  the third legal bodiless form, after `intrinsic` [intrinsic-fn] and an effect
+  member. `auto Group<self>` on an obligation clause is **sugar** for one such
+  declaration per member of the group, so the two spellings produce the very same
+  item and nothing downstream distinguishes them.
+  * **What the function level buys** is what the clause could not express: *some*
+    members generated and others written by hand. A `Person` ordered by name
+    whose equality is "same rank" writes `auto fn cmp@Person` beside
+    `fn eq@Person { return cmp(a, b) == 0 }`, which is a bundle-shaped promise
+    no single clause can make.
+  * **Only the members the compiler can write**: `cmp`, `eq`, `hash`. `auto` on
+    any other name is an error naming those three, and `auto Group<self>` is an
+    error unless *every* member of the group has a generator — the word would
+    otherwise promise an implementation nothing provides.
+  * **An `auto fn` is `@`-scoped** [cmp-canonical]: the generator reads the
+    fields of the type it is scoped to, so a bodiless `auto fn cmp(…)` has
+    nothing to read and says so. The type must be a visible `struct` for the same
+    reason.
+  * **Its signature is the group member's**, over the scoped type — two
+    parameters for `cmp` and `eq`, one for `hash`, answering `Int`/`Bool`/`Long`
+    — and a mismatch is an error rather than a body written for a shape nobody
+    agreed to.
+  * **The obligation clause without `auto` is only a promise**, checked at the
+    declaration [group-obligation]: what satisfies it may be an `auto fn` or an
+    ordinary one. `: Ordered<self>` with no `cmp` anywhere is the ordinary
+    unsatisfied-obligation error.
   * **Generated members are `@`-scoped canonicals** and carry the struct's own
     `export` — which is also what [cmp-canonical] demands of a hand-written one.
-    They satisfy the obligation they were generated from, so the clause is both
-    the request and the promise.
   * **A hand-written member of the same shape beside a generated one is the
-    ordinary duplicate** [fn-overload-duplicate], with a message naming the two
-    remedies (remove `default`, or delete the fn). A bare obligation with no
-    implementation gets the reverse hint.
-  * **`default` inherits today's validation**, because it inherits today's
-    lowering (decision 4): the struct may not be `canbe Mut`, and every field
-    must be hashable/orderable — the `canbe hashed`/`canbe ordered` rules of
-    [col-hashed-ordered], reported at the clause. A type variable is not checked
-    at the declaration; the instantiation is where the key rule bites.
-  * **Lowering is by author, not by spelling**: a `default` member *is* the
-    host's derived operation (`#[derive(PartialOrd, Ord)]` / `Hash` on Rust, the
+    ordinary duplicate** [fn-overload-duplicate]: remove the `auto`, or delete
+    the fn.
+  * **What the generator needs of the type**, checked at the `auto fn` (and so at
+    the clause, for an expansion, since the expansion's spans point at the
+    struct): the struct may not be `canbe Mut` for `cmp` or `hash` — a value that
+    changed while a collection held it would corrupt the collection — and every
+    field must be orderable/hashable/comparable, the [col-hashed-ordered] rules,
+    reported at the declaration rather than at a distant `Set<Point>`. A type
+    variable is not checked here; the instantiation is where the key rule bites.
+  * **Lowering is by author, not by spelling**: an `auto` member *is* the host's
+    derived operation (`#[derive(PartialOrd, Ord)]` / `Hash` on Rust, the
     generated `compareTo` and the data class's `equals`/`hashCode` on Kotlin), so
-    the generated member and the type's own ordering cannot disagree. A
-    hand-written implementation is an ordinary Salvo fn and travels its own path.
+    a generated member and the type's own ordering cannot disagree. Each backend
+    therefore asks *which members are `auto`* — not what the obligation clause
+    says, which since 2026-09-22 answers a different question.
+  * **The generator map is the compiler's, and it is one table**
+    (`salvo_syntax::auto_members`): the desugar pass expands a clause from it and
+    the checker tests a member against it. It duplicates what `core.compare`
+    declares because the expansion runs per module, before any cross-module
+    visibility exists — so the two must be kept in step by hand.
 * [cmp-carry] A structure that **holds** an ordering (or a hash, or an
   equality) names it as a **fn-valued type argument**, fixed at construction
   (user decision 2026-09-21, ORDERING.md decision 1). The identity lands *in
@@ -4135,7 +4160,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
   `Instant` (a point on the wall clock, nanoseconds since the Unix epoch) and
   `Tick` (a point on the monotonic clock, from an arbitrary origin). Each is a
   plain std struct with a single `nanos: Long` field,
-  `: default Ordered<self>, default Hashed<self>` [cmp-default].
+  `: auto Ordered<self>, auto Hashed<self>` [cmp-auto].
   * **One field, deliberately.** Struct equality is structural
     [col-equality] and fields are public, so a `{secs, nanos}` pair would make
     non-canonical values constructible — `{secs: 1, nanos: 0}` and `{secs: 0,

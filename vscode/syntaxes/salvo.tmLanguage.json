@@ -131,9 +131,9 @@
           "match": "\\biter(?=\\s+fn\\b)"
         },
         {
-          "comment": "the structural-implementation modifier of an obligation — a keyword by position, not a reserved word",
+          "comment": "the structural-implementation modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
-          "match": "\\bdefault(?=\\s+[A-Z])"
+          "match": "\\bauto(?=\\s+(fn\\b|[A-Z]))"
         },
         {
           "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",

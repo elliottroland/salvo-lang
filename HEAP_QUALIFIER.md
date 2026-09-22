@@ -75,7 +75,7 @@ In outline, as decided:
   type and the default for implicits — `cmp = cmp@Person` selects one
   explicitly, and any ambiguity around a canonical errors, explicit or
   implicit (user decisions 2026-09-21) — with intrinsic `cmp`/`eq`/`hash`
-  overloads for primitives; `: default Ordered<self>` (etc.) on the
+  overloads for primitives; `: auto Ordered<self>` (etc.) on the
   obligation clause generates the structural one, and the `default` forms
   bring `eq` with them.
 - Operators resolve through the groups; **equality becomes opt-in**

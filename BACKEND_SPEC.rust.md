@@ -391,8 +391,8 @@ derives them mechanically:
   type. Structs additionally `#[derive(Clone, Debug, PartialEq)]` — `PartialEq`
   unconditionally, since it is what the generated `eq` stands on and costs
   nothing where Salvo refuses `==` anyway [col-equality] — plus `Eq` and `Hash`
-  for `: default Hashed<self>`, and `Eq, PartialOrd, Ord` for
-  `: default Ordered<self>` [cmp-default] (the `canbe hashed`/`canbe ordered`
+  for `: auto Hashed<self>`, and `Eq, PartialOrd, Ord` for
+  `: auto Ordered<self>` [cmp-auto] (the `canbe hashed`/`canbe ordered`
   opt-ins those replaced are gone). A struct with a fn-typed field derives only `Clone`:
   `Rc<dyn Fn>` has neither `Debug` nor equality [rs-fn-field].
   Generated union enums derive `PartialEq` too, conditionally on their
@@ -851,7 +851,7 @@ the blanket rule:
   its own `Ord`, delegating to `T`'s). `eq` is `==`. A `Str` is compared and
   hashed as `str` (`&s[..]`), which is byte-wise UTF-8 and therefore
   code-point order [kt-ordered] — no runtime helper needed on this side.
-  * [cmp-default] A member **generated** by a `default` obligation is emitted as
+  * [cmp-auto] A member **generated** by a `default` obligation is emitted as
     an ordinary Rust fn over the *derive*: `pub fn cmp__n(a: &Point, b: &Point)
     -> i32 { (Ord::cmp(a, b) as i32) }`, with `#[derive(PartialOrd, Ord)]` /
     `Hash` on the struct — the derives the `default` clause asks for, which is

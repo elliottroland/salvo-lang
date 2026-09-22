@@ -2634,30 +2634,34 @@ fn main() [use] {
     )
 }
 
-/// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
+/// [cmp-auto] `: auto Ordered<self>` and friends: the compiler writes the
 /// structural implementations and lowers them to what this backend already
 /// emits for an ordered struct — `compareTo` through the runtime comparator, the
 /// data class's `equals`, and `hashCode()`.
 ///
 /// Source and expected stdout are **verbatim** the Rust backend's
-/// `rustc_compiles_and_runs_default_obligations`, which is the assertion: the
+/// `rustc_compiles_and_runs_auto_members`, which is the assertion: the
 /// two hosts derive the same order from the same field declaration order.
-fn kotlinc_compiles_and_runs_default_obligations() -> KotlinCase {
+fn kotlinc_compiles_and_runs_auto_members() -> KotlinCase {
     let src = r#"
 // Ordering is lexicographic by field declaration order, which is the language's
 // rule on both backends.
-struct Point : default Ordered<self>, default Hashed<self> {
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 
-// `default Eq` alone: equality without an order.
-struct Tag : default Eq<self> {
+// [cmp-auto] The **function-level** form, with no obligation clause at all:
+// `auto` is a modifier on the declaration, so this is what the clause above is
+// sugar for — and it is what a backend's derive hangs on.
+struct Tag {
     label: Str
 }
 
+auto fn eq@Tag(a: Tag, b: Tag) [] -> Bool => a, b
+
 // A generic struct's generated members are generic too.
-struct Box<T> : default Eq<self> {
+struct Box<T> : auto Eq<self> {
     item: T
 }
 
@@ -2697,7 +2701,7 @@ fn main() [use] {
     });
     kotlin_case(
         files,
-        "default-obligations",
+        "auto-members",
         "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n",
     )
 }
@@ -2709,7 +2713,7 @@ fn main() [use] {
 /// units where Salvo's `cmp(Str, Str)` compares code points [kt-ordered].
 fn kotlinc_compiles_and_runs_operators_through_the_groups() -> KotlinCase {
     let src = r#"
-struct Point : default Ordered<self> {
+struct Point : auto Ordered<self>, auto Eq<self> {
     x: Int,
     y: Int
 }
@@ -2952,7 +2956,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_user_variadics,
     kotlinc_compiles_and_runs_the_comparison_groups,
     kotlinc_compiles_and_runs_a_canonical_implementation,
-    kotlinc_compiles_and_runs_default_obligations,
+    kotlinc_compiles_and_runs_auto_members,
     kotlinc_compiles_and_runs_operators_through_the_groups,
     kotlinc_compiles_and_runs_handler_dependencies,
     kotlinc_compiles_and_runs_interception,
@@ -4793,18 +4797,18 @@ export fn main() [use] -> None {
 /// class's own `equals` would have reported as `true`.
 fn kotlinc_compiles_and_runs_equality_and_ordering() -> KotlinCase {
     let src = r#"
-export struct Point : default Ordered<self>, default Hashed<self> {
+export struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 
-export struct Version : default Ordered<self>, default Hashed<self> {
+export struct Version : auto Ordered<self>, auto Hashed<self> {
     parts: List<Int>,
     label: (Str, Int)
 }
 
 // Equality only — and a float field, which is fine for `eq` and not for a key.
-export struct Measure : default Eq<self> {
+export struct Measure : auto Eq<self> {
     value: Double
 }
 

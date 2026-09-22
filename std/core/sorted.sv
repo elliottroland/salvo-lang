@@ -13,8 +13,8 @@
 // bar from the hashability `Set`/`Map` ask for: the intrinsic ordered types
 // (`Int`, `Long`, `Str`, `Char`, `Bool`), a `List` or tuple of orderable
 // things (compared lexicographically), or a struct with a `cmp` — one token
-// with `: default Ordered<self>`, or hand-written and `@`-scoped
-// [cmp-default] [cmp-canonical]. `Double`/`Float` are excluded — Rust's `f64`
+// with `: auto Ordered<self>`, or hand-written and `@`-scoped
+// [cmp-auto] [cmp-canonical]. `Double`/`Float` are excluded — Rust's `f64`
 // has no total order — and a **union** is excluded on principle: comparing
 // values of different types has no obvious meaning, where hashing them would
 // have been fine.

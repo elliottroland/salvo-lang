@@ -13,8 +13,8 @@
 // and `Float` are deliberately excluded — Rust's `f64` is neither `Eq` nor
 // `Hash`, so a float-keyed set is not representable on both backends
 // [backend-parity]. A struct joins in by having a `hash` and an `eq` — one
-// token with `: default Hashed<self>`, or hand-written and `@`-scoped
-// [cmp-default] [cmp-canonical].
+// token with `: auto Hashed<self>`, or hand-written and `@`-scoped
+// [cmp-auto] [cmp-canonical].
 //
 // Own module rather than part of `core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].

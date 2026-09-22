@@ -13,8 +13,8 @@
 // `Double`/`Float` deliberately excluded (Rust's `f64` is neither `Eq` nor
 // `Hash`, so a float-keyed map is not representable on both backends
 // [backend-parity]). A struct joins in by having a `hash` and an `eq` — one
-// token with `: default Hashed<self>`, or hand-written and `@`-scoped
-// [cmp-default] [cmp-canonical]. **Values** are
+// token with `: auto Hashed<self>`, or hand-written and `@`-scoped
+// [cmp-auto] [cmp-canonical]. **Values** are
 // unrestricted — and, with `<V canbe linear>`, may be **obligations**
 // [linear-container]: `Map<Int, Reply<Str>>` is a linear type whose terminal
 // is [drain], while a key never can be (keys are compared and retained, and

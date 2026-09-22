@@ -396,13 +396,13 @@ for name in iter(ages) {
 Not every type can be a key. A key has to be hashable, which for now means one of `Int`, `Long`, `Str`, `Char` and `Bool` — `Double` and `Float` are deliberately excluded, since floating-point equality would not mean the same thing on both backends. A struct joins in by *having the functions*:
 
 ```
-struct Point : default Ordered<self>, default Hashed<self> {
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 ```
 
-`default Hashed<self>` generates the `hash` and `eq` that make it a `Set` element and a `Map` key; `default Ordered<self>` generates the `cmp` that gives it `<`, `<=`, `>` and `>=` and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically. See [Comparison, equality and hashing](#comparison-equality-and-hashing) for the whole story, including hand-written implementations.
+`auto Hashed<self>` generates the `hash` and `eq` that make it a `Set` element and a `Map` key; `auto Ordered<self>` generates the `cmp` that gives it `<`, `<=`, `>` and `>=` and makes it a key of the sorted collections. Both are checked where they are written: the struct may not be `canbe Mut` (a value that changed while a collection held it would corrupt that collection), and every field has to qualify too. A `List` or a tuple qualifies exactly when its elements do, comparing lexicographically. See [Comparison, equality and hashing](#comparison-equality-and-hashing) for the whole story, including hand-written implementations.
 
 **Equality is opt-in, and compares field by field when generated:**
 
@@ -1296,27 +1296,55 @@ A type can also promise the capability at its declaration,
 exists rather than failing at some distant use.
 
 For the everyday case — compare the fields, in order — you do not write the
-functions at all. `default` on the obligation asks the compiler for them:
+bodies at all. `auto` asks the compiler for them, on the function:
 
 ```
-struct Point : default Ordered<self>, default Hashed<self> {
-    x: Int,
-    y: Int
+struct Point { x: Int, y: Int }
+
+auto fn cmp@Point(a: Point, b: Point) -> Int
+auto fn eq@Point(a: Point, b: Point) -> Bool
+auto fn hash@Point(value: Point) -> Long
+```
+
+An `auto fn` has no body: the compiler writes one from the fields. Ordering is
+lexicographic by field declaration order (so field order is significant), and
+everything generated is structural, so a generated `cmp`, `eq` and `hash` agree
+with each other by construction.
+
+On an obligation clause, `auto` is shorthand for exactly those declarations —
+one per member of the group:
+
+```
+struct Point : auto Ordered<self>, auto Hashed<self> { x: Int, y: Int }
+```
+
+The point of `auto` being a modifier on the function is that a type can mix.
+Suppose `Person` should be ordered by name, with equality meaning "same rank":
+
+```
+struct Person : Ordered<self>, Hashed<self> { name: Str, age: Int }
+
+auto fn cmp@Person(a: Person, b: Person) -> Int
+auto fn hash@Person(value: Person) -> Long
+
+fn eq@Person(a: Person, b: Person) -> Bool {
+    return cmp(a, b) == 0
 }
 ```
 
-That generates `cmp@Point`, `hash@Point` and `eq@Point`: ordering is
-lexicographic by field declaration order (so field order is significant), and
-`eq` comes along with either form, because everything generated is structural
-and therefore consistent by construction. `default` works on the three groups
-the compiler has a generator for — `Ordered`, `Eq`, `Hashed` — and says so if you
-write it on another. A field it cannot compare (a `Double`, a function) is an
-error at the clause, where the mistake is, not at a distant `SortedSet<Point>`;
-so is a `canbe Mut` struct, which could change while a collection holds it.
+`auto Hashed<self>` is not available here, because it would generate the `eq`
+this type writes by hand — and a bare `: Hashed<self>` is still the promise,
+checked at the declaration, that a `hash` and an `eq` exist.
 
-Writing a member by hand *and* asking for it with `default` is a duplicate: keep
-one. Mixing is fine the other way round — a hand-written `cmp@Point` with no
-`default` is simply the canonical.
+The compiler can write `cmp`, `eq` and `hash`, and says so if you write `auto`
+on anything else. An `auto fn` names its type with `@`, because that is where
+the fields come from. A field it cannot compare (a `Double`, a function) is an
+error at the declaration, where the mistake is, not at a distant
+`SortedSet<Point>`; so is a `canbe Mut` struct, which could change while a
+collection holds it.
+
+Writing a member by hand *and* asking for it with `auto` is a duplicate: keep
+one.
 
 A *generic* function has to ask, because nothing about an opaque `T` is
 knowable:

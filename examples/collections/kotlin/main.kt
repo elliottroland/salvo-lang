@@ -125,12 +125,12 @@ fun cmp__4(a: Point, b: Point): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun eq__4(a: Point, b: Point): Boolean {
-    return a == b
-}
-
 fun hash__4(value: Point): Long {
     return value.hashCode().toLong()
+}
+
+fun eq__4(a: Point, b: Point): Boolean {
+    return a == b
 }
 
 fun eq__5(a: Note, b: Note): Boolean {

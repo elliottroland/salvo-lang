@@ -226,9 +226,9 @@ Conventions:
     semantics [col-equality], and `==` on statically-`Double` operands is
     IEEE, so comparing the fields that way makes the backends agree.
   * `hashCode` is left to the data class: a float-bearing struct is barred
-    from `: default Hashed<self>`, so it never reaches a hash table where the
+    from `: auto Hashed<self>`, so it never reaches a hash table where the
     (NaN-only) inconsistency could be observed.
-* [kt-ordered] A struct declaring `: default Ordered<self>` [cmp-default] emits
+* [kt-ordered] A struct declaring `: auto Ordered<self>` [cmp-auto] emits
   `: Comparable<Self>` with a generated `compareTo`, lexicographic by field
   declaration order. A data class gets `equals`/`hashCode` for free but *not*
   comparison, so the generated `cmp@T` would otherwise have no `compareTo` to
@@ -940,7 +940,7 @@ where Rust had to build the fusion to get the same programs running
   shorter prefix ordering first), `Pair` and `Triple`, compares strings by
   code point, and defers to `Comparable` otherwise.
   * It is emitted when a module declares a struct with
-    `: default Ordered<self>` or builds a sorted collection, and the sorted
+    `: auto Ordered<self>` or builds a sorted collection, and the sorted
     constructors pass it as an explicit `Comparator` rather than relying on
     natural ordering.
   * [kt-cmp-groups] [cmp-groups] The canonical `cmp(Str, Str)` reaches it too,
@@ -953,11 +953,11 @@ where Rust had to build the fusion to get the same programs running
     `hashCode().toLong()`.
     * [cmp-hash-values] That last one is this host's digest and not Rust's,
       deliberately: only the agreement with `eq` crosses the backends.
-  * [cmp-default] A member **generated** by a `default` obligation is emitted as
+  * [cmp-auto] A member **generated** by a `default` obligation is emitted as
     an ordinary Kotlin fn over what this backend already produces for the
     `canbe` opt-ins: `fun cmp__n(a: Point, b: Point): Int =
     salvo.__salvoCompare(a, b)` (landing on the struct's generated `compareTo`,
-    which `default Ordered<self>` is what asks for), `a == b` for `eq` (the data
+    which `auto Ordered<self>` is what asks for), `a == b` for `eq` (the data
     class's `equals`, float-aware where a field needs it [kt-float-eq]), and
     `value.hashCode().toLong()` for `hash`. A generic struct's member is generic;
     no bounds are needed here, since `__salvoCompare` takes `Any?`.

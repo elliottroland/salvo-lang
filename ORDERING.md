@@ -7,7 +7,7 @@ language. **Decisions 1–14 were made 2026-09-21 and 15–22 on 2026-09-22.** W
 has landed so far: steps 1–4 of the first plan (2026-09-21) and step 5's own
 first four build items (2026-09-22) — their record is in COMPLETED.md's decision
 log, and the rules are in LANGUAGE_SPEC.md ([cmp-groups], [cmp-hash-values],
-[cmp-canonical], [cmp-default], [op-order], [op-equality], [cmp-carry],
+[cmp-canonical], [cmp-auto], [op-order], [op-equality], [cmp-carry],
 [cmp-binder], with [col-equality] and [col-hashed-ordered] rewritten).
 
 **What is left is the five-step sequence below**, agreed 2026-09-22. Delete this
@@ -25,7 +25,7 @@ params Hashed<T>  { fn hash(value: T) -> Long }
 fn cmp@Person(a: Person, b: Person) -> Int { return cmp(a.age, b.age) }
 
 // Or generated, structurally, from the fields.
-struct Point : default Ordered<self>, default Hashed<self> { x: Int, y: Int }
+struct Point : auto Ordered<self>, auto Hashed<self> { x: Int, y: Int }
 
 // The operators are those functions: `a < b` is `cmp(a, b) < 0`, `a == b` is
 // `eq(a, b)`. Generic code asks for the capability and forwards it.
@@ -72,7 +72,7 @@ others written, which is what a type wanting a custom `eq` over a structural
 gains `eq`, because a hash container buckets by `hash` and confirms by `eq`: a
 `hash` without its `eq` is useless, and a pair that disagrees is a silently
 broken container on both hosts. `Ordered<T>` does **not** gain `eq` (decision
-17). This is what makes [cmp-default]'s "the `default` forms bring `eq` with
+17). This is what makes [cmp-auto]'s "the `default` forms bring `eq` with
 them" stop being a special rule: it becomes group membership, visible in
 `core.compare`.
 
@@ -154,7 +154,8 @@ after the containers.
 Steps 1–3 are language surface with no emitter work; step 4 is where the backend
 work is. Each step is one commit.
 
-1. **`default` → `auto`, at the function level.** The word, the bodiless `auto
+1. ✅ **`default` → `auto`, at the function level** — **landed 2026-09-22**
+   (COMPLETED.md's log). The word, the bodiless `auto
    fn` (the third legal bodiless form after `intrinsic` and an effect member),
    the `@`-scoping requirement, the generable-member whitelist (`cmp`, `eq`,
    `hash`), the signature check against the member, and `auto Group<self>` as

@@ -8,6 +8,10 @@ pub mod parser;
 pub mod span;
 pub mod token;
 
+// [cmp-auto] The compiler's generator map: which members `auto` can write, and
+// which groups `auto Group<self>` expands. Read by the checker too, so the two
+// halves cannot drift.
+pub use desugar::{auto_member_names, auto_members, is_auto_member};
 pub use diag::Diagnostic;
 pub use span::Span;
 

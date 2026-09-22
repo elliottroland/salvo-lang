@@ -42,7 +42,7 @@
 // **Signed**, which is what makes `between` total: arguments in the wrong
 // order answer a negative span rather than trapping or clamping at zero.
 // A `Long` of nanoseconds spans ±292 years.
-export struct Duration : default Ordered<self>, default Hashed<self> {
+export struct Duration : auto Ordered<self>, auto Hashed<self> {
     nanos: Long
 }
 
@@ -52,7 +52,7 @@ export struct Duration : default Ordered<self>, default Hashed<self> {
 // It is what a program records, logs and compares against a deadline it was
 // *given*; it is the wrong thing to measure an interval with, because the
 // clock under it can be adjusted between two readings. Measure with [Tick].
-export struct Instant : default Ordered<self>, default Hashed<self> {
+export struct Instant : auto Ordered<self>, auto Hashed<self> {
     nanos: Long
 }
 
@@ -65,7 +65,7 @@ export struct Instant : default Ordered<self>, default Hashed<self> {
 // and [Fired] payloads are expressed in ticks. To learn the wall time a tick
 // happened at, ask a [Clock] with [to_instant] — an estimate, for the reasons
 // documented there.
-export struct Tick : default Ordered<self>, default Hashed<self> {
+export struct Tick : auto Ordered<self>, auto Hashed<self> {
     nanos: Long
 }
 

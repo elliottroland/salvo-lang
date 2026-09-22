@@ -29,9 +29,9 @@ qualifier on `Set`/`Map`: sortedness changes how a collection behaves, and a
 qualifier can be dropped on the way into a function that relied on it.
 
 **What may be a key.** A key has to be hashable — the intrinsic key types, or a
-struct with a `hash` and an `eq`. `: default Hashed<self>` is the one-token way
+struct with a `hash` and an `eq`. `: auto Hashed<self>` is the one-token way
 to get both, generated from the fields; the sorted collections need a `cmp`
-instead (`: default Ordered<self>`), which is a slightly different bar. The
+instead (`: auto Ordered<self>`), which is a slightly different bar. The
 clause is validated where it is written, so a mutable struct or a float field is
 refused at the declaration rather than at some distant `Set<Point>`. Once a
 struct has the pair, it is a key **by value**: two equal points are the same key,

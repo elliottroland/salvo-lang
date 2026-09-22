@@ -242,7 +242,7 @@ What landed already: the three capabilities as params groups, `@`-scoped
 canonicals, `default` obligations, the operators through the groups
 (2026-09-21), and identities in types, the written forms, the `?cmp` binder and
 a worked example on both backends (2026-09-22). Their record is COMPLETED.md's
-decision log; the rules are [cmp-groups], [cmp-canonical], [cmp-default],
+decision log; the rules are [cmp-groups], [cmp-canonical], [cmp-auto],
 [op-order], [op-equality], [cmp-carry] and [cmp-binder], plus "A structure that
 holds an ordering" in LANGUAGE.md.
 
@@ -251,7 +251,7 @@ outstanding) and written up as a five-step sequence in **ORDERING.md**, which
 holds the reasoning, the rejected alternatives and the container lowering.
 In brief:
 
-1. **`default` → `auto`, at the function level**: a bodiless `auto fn
+1. ✅ **`default` → `auto`, at the function level** — **landed 2026-09-22**: a bodiless `auto fn
    cmp@Person(…)` is the structural implementation, `auto Group<self>` is sugar
    for one per member, and the obligation clause goes back to being only a
    promise. What it buys is *some* members generated beside others written by

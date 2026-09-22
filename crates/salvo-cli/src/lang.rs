@@ -72,12 +72,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the iterator-fn modifier",
     ),
-    // [cmp-default] `: default Ordered<self>`: the generator modifier inside an
-    // obligation clause, recognised by the capitalized group name after it.
+    // [cmp-auto] `auto fn cmp@Person(…)` and `: auto Ordered<self>`: the
+    // generator modifier, recognised by what follows it — `fn`, or the
+    // capitalized group name inside an obligation clause.
     (
-        "\\\\bdefault(?=\\\\s+[A-Z])",
+        "\\\\bauto(?=\\\\s+(fn\\\\b|[A-Z]))",
         "keyword.declaration.salvo",
-        "the structural-implementation modifier of an obligation",
+        "the structural-implementation modifier",
     ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
@@ -138,7 +139,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
 
 /// The lowercase claims a `canbe` clause can name. `hashed`/`ordered` were
 /// deleted with the ordering round (2026-09-21) — being hashable or orderable is
-/// *having the function* now [cmp-default] — leaving `once` on a type and
+/// *having the function* now [cmp-auto] — leaving `once` on a type and
 /// `linear` in a generic's clause.
 const CANBE_WORDS: &[&str] = &["once", "linear"];
 
@@ -521,8 +522,8 @@ mod tests {
             canbe_clause < plain,
             "the `canbe once` pattern must come before the plain keyword alternation"
         );
-        // [cmp-default] The obligation clause's generator modifier.
-        assert!(grammar.contains("\\\\bdefault(?=\\\\s+[A-Z])"));
+        // [cmp-auto] The obligation clause's generator modifier.
+        assert!(grammar.contains("\\\\bauto(?=\\\\s+(fn\\\\b|[A-Z]))"));
     }
 
     // [cli-lang] A `[symbol]` doc reference inside a comment is highlighted,

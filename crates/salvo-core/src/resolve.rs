@@ -594,7 +594,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         for module in sorted_modules {
             let items = &by_module[*module];
             // The span it was first declared at, and whether that one was
-            // *generated* [cmp-default].
+            // *generated* [cmp-auto].
             let mut seen: HashMap<(&str, Vec<String>), (Span, bool)> = HashMap::new();
             for (key, f) in &items.fns {
                 let mut generics: Vec<&str> =
@@ -609,7 +609,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                     seen.get(&(f.name.name.as_str(), sig.clone()))
                 {
                     let shown = sig.join(", ");
-                    // [cmp-default] One of the two is *generated*: the remedy is
+                    // [cmp-auto] One of the two is *generated*: the remedy is
                     // the `default` clause, not the fn. A `default` obligation
                     // and a hand-written member of the same shape are the
                     // ordinary duplicate — nothing at a bare call site could
@@ -620,7 +620,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                             "`{}({shown})` is declared twice in module `{module}`: a \
                              `default` obligation generates it, and this file also \
                              declares it by hand. Keep one — remove `default` from the \
-                             struct, or delete the hand-written fn [cmp-default]",
+                             struct, or delete the hand-written fn [cmp-auto]",
                             f.name.name
                         )
                     } else {

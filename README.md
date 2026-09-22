@@ -113,8 +113,8 @@ fn main() [use] {
   every backend**, so a program's output does not depend on the target it
   was compiled for. Comparison is a **capability**, not a built-in: `a == b` is
   `eq(a, b)` and `a < b` is `cmp(a, b) < 0`, so equality is opt-in and a type
-  joins in by declaring the function — `: default Hashed<self>` generates `hash`
-  and `eq`, `: default Ordered<self>` a `cmp` too, checked where they are
+  joins in by declaring the function — `: auto Hashed<self>` generates `hash`
+  and `eq`, `: auto Ordered<self>` a `cmp` too, checked where they are
   declared. A structure that *stays* ordered names the ordering it holds as a
   type argument (`Heap<T, ?cmp: (T, T) -> Int>`), so a heap built under one
   ordering is a different type from one built under another and the two refuse

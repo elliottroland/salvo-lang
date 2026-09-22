@@ -5244,29 +5244,33 @@ fn rustc_compiles_and_runs_a_canonical_implementation() {
     run_rust_files(&files, "canonical_impl", CANONICAL_OUTPUT);
 }
 
-/// [cmp-default] `: default Ordered<self>` and friends: the compiler writes the
+/// [cmp-auto] `: auto Ordered<self>` and friends: the compiler writes the
 /// structural implementations, `@`-scoped to the type, and lowers them to the
 /// derive the `default` clause asks for — so the generated
 /// member and the type's own `Ord`/`Hash` cannot disagree (user decision
 /// 2026-09-21, lowering split by author).
 ///
 /// Source and expected stdout are **verbatim** the Kotlin backend's
-/// `kotlinc_compiles_and_runs_default_obligations`.
-pub const DEFAULT_DEMO: &str = r#"
+/// `kotlinc_compiles_and_runs_auto_members`.
+pub const AUTO_DEMO: &str = r#"
 // Ordering is lexicographic by field declaration order, which is the language's
 // rule on both backends.
-struct Point : default Ordered<self>, default Hashed<self> {
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 
-// `default Eq` alone: equality without an order.
-struct Tag : default Eq<self> {
+// [cmp-auto] The **function-level** form, with no obligation clause at all:
+// `auto` is a modifier on the declaration, so this is what the clause above is
+// sugar for — and it is what a backend's derive hangs on.
+struct Tag {
     label: Str
 }
 
+auto fn eq@Tag(a: Tag, b: Tag) [] -> Bool => a, b
+
 // A generic struct's generated members are generic too.
-struct Box<T> : default Eq<self> {
+struct Box<T> : auto Eq<self> {
     item: T
 }
 
@@ -5301,21 +5305,21 @@ fn main() [use] {
 }
 "#;
 
-pub const DEFAULT_OUTPUT: &str =
+pub const AUTO_OUTPUT: &str =
     "cmp <=>\neq false true\nhash agrees true\nothers true false\nsmaller 2\n";
 
 /// The lowering: the generated member stands on the derive, and the derive is
 /// what the `default` clause asks for.
 #[test]
 fn default_obligations_lower_to_the_hosts_derives() {
-    let files = generate(&[("main.sv", DEFAULT_DEMO)]);
+    let files = generate(&[("main.sv", AUTO_DEMO)]);
     let src = &files
         .iter()
         .find(|f| f.rel_path == std::path::Path::new("main.rs"))
         .expect("main.rs")
         .content;
     for expected in [
-        // `default Ordered` + `default Hashed` ask for exactly the derives
+        // `auto Ordered` + `auto Hashed` ask for exactly the derives
         // the `default` clauses ask for.
         "#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]\npub struct Point",
         // The generated members are ordinary Rust fns over the derive.
@@ -5329,13 +5333,13 @@ fn default_obligations_lower_to_the_hosts_derives() {
 }
 
 #[test]
-fn rustc_compiles_and_runs_default_obligations() {
+fn rustc_compiles_and_runs_auto_members() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
-    let files = generate(&[("main.sv", DEFAULT_DEMO)]);
-    run_rust_files(&files, "default_obligations", DEFAULT_OUTPUT);
+    let files = generate(&[("main.sv", AUTO_DEMO)]);
+    run_rust_files(&files, "auto_members", AUTO_OUTPUT);
 }
 
 /// [op-order] [op-equality] The **operators** through the groups: `a < b` is
@@ -5347,7 +5351,7 @@ fn rustc_compiles_and_runs_default_obligations() {
 /// `kotlinc_compiles_and_runs_operators_through_the_groups`. The `Str` line is
 /// the parity claim: the JVM's own `<` would compare UTF-16 code units.
 pub const GROUP_OPERATOR_DEMO: &str = r#"
-struct Point : default Ordered<self> {
+struct Point : auto Ordered<self>, auto Eq<self> {
     x: Int,
     y: Int
 }
@@ -8350,7 +8354,7 @@ fn rustc_compiles_and_runs_collection_literals() {
 
 // ===== equality, ordering and struct keys [col-equality] =====
 
-/// [op-equality] [op-order] [cmp-default] Equality and ordering as
+/// [op-equality] [op-order] [cmp-auto] Equality and ordering as
 /// **capabilities**: the structural implementations a `default` obligation
 /// generates, a hashed struct as a set element and a map key, lexicographic
 /// list/tuple order, and Salvo's own float equality.
@@ -8362,18 +8366,18 @@ fn rustc_compiles_and_runs_collection_literals() {
 /// its own `equals` [kt-float-eq]. Shares source and expected output with the
 /// Kotlin case of the same name [backend-parity].
 const EQUALITY_DEMO: &str = r#"
-struct Point : default Ordered<self>, default Hashed<self> {
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 
-struct Version : default Ordered<self>, default Hashed<self> {
+struct Version : auto Ordered<self>, auto Hashed<self> {
     parts: List<Int>,
     label: (Str, Int)
 }
 
 // Equality only — and a float field, which is fine for `eq` and not for a key.
-struct Measure : default Eq<self> {
+struct Measure : auto Eq<self> {
     value: Double
 }
 

@@ -14,19 +14,21 @@
 // Everything here prints identically on both backends, which is the point:
 // the orderings are the language's, not the target's.
 
-// [cmp-default] Comparison, equality and hashing are **capabilities**: having
-// one is having the function. `default` asks the compiler for the structural
-// implementation — `cmp@Point`, `hash@Point` and `eq@Point`, generated from the
-// fields in declaration order — which is what makes a `Point` orderable with
-// `<`, usable as a key, and comparable with `==`. Both clauses are checked
-// here, at the declaration: a `canbe Mut` struct or a float field is refused.
-struct Point : default Ordered<self>, default Hashed<self> {
+// [cmp-auto] Comparison, equality and hashing are **capabilities**: having
+// one is having the function. `auto` asks the compiler for the structural
+// implementation — here `cmp@Point`, `hash@Point` and `eq@Point`, generated from
+// the fields in declaration order — which is what makes a `Point` orderable with
+// `<`, usable as a key, and comparable with `==`. `Hashed` brings `eq` with it
+// (a hash container confirms a bucket hit by equality); `Ordered` does not, since
+// no sorted container consults equality. Both clauses are checked here, at the
+// declaration: a `canbe Mut` struct or a float field is refused.
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
 
 // Equality alone: comparable with `==`, and not a key (no `hash`).
-struct Note : default Eq<self> {
+struct Note : auto Eq<self> {
     text: Str
 }
 
@@ -105,7 +107,7 @@ fn main() [use] -> None {
     let before = a < c
     println("4. equal ${same}, ordered ${before}")
 
-    // `default Eq<self>` alone: `==` without an order and without a hash.
+    // `auto Eq<self>` alone: `==` without an order and without a hash.
     let n1 = Note { text: "same" }
     let n2 = Note { text: "same" }
     let notes_equal = n1 == n2

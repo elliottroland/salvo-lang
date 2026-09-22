@@ -693,16 +693,16 @@ fn a_declaration_selector_must_name_a_type() {
     );
 }
 
-// ===== [cmp-default] the generated structural implementations =====
+// ===== [cmp-auto] the generated structural implementations =====
 
-/// `: default Ordered<self>` writes the members: `cmp` resolves at the type,
+/// `: auto Ordered<self>` writes the members: `cmp` resolves at the type,
 /// fills a `?Ordered<T>` position, and is reached by the canonical selector
 /// like a hand-written one [cmp-canonical].
 #[test]
 fn a_default_obligation_generates_the_members() {
     let errs = errors(
         r#"
-struct Point : default Ordered<self>, default Hashed<self> {
+struct Point : auto Ordered<self>, auto Hashed<self> {
     x: Int,
     y: Int
 }
@@ -732,15 +732,31 @@ fn smaller(p: Point, q: Point) [] -> Point => !p, !q {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// Decision 7: **the `default` forms bring `eq` with them** — everything
-/// generated is structural, so consistency between `cmp`, `eq` and `hash` is by
-/// construction. A struct that asks only for ordering can still be compared for
-/// equality.
+/// [cmp-auto] **`auto Hashed<self>` brings `eq` with it, and `auto
+/// Ordered<self>` does not** (user decision 2026-09-22, revising decision 7): a
+/// hash container buckets by `hash` and confirms by `eq`, so the pair is the
+/// unit — while no sorted container consults equality at all, so an `eq` in
+/// `Ordered` would be a member nothing reads.
 #[test]
-fn the_default_forms_bring_eq_with_them() {
+fn hashing_brings_eq_and_ordering_does_not() {
+    // `auto Hashed<self>` generates `hash` *and* `eq`.
     let errs = errors(
         r#"
-struct Point : default Ordered<self> {
+struct Key : auto Hashed<self> {
+    x: Int
+}
+
+fn same(a: Key, b: Key) [] -> Bool => a, b {
+    return eq(a, b)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+
+    // `auto Ordered<self>` generates only `cmp`, so equality is a separate ask.
+    let errs = errors(
+        r#"
+struct Point : auto Ordered<self> {
     x: Int
 }
 
@@ -749,10 +765,32 @@ fn same(a: Point, b: Point) [] -> Bool => a, b {
 }
 "#,
     );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("no matching overload for `eq(Point, Point)`")),
+        "ordering alone should not supply equality, got: {errs:?}"
+    );
+
+    // …and asking for it is one line, which is what the function-level form is
+    // for: some members generated, others not.
+    let errs = errors(
+        r#"
+struct Point : Ordered<self>, Eq<self> {
+    x: Int
+}
+
+auto fn cmp@Point(a: Point, b: Point) [] -> Int => a, b
+auto fn eq@Point(a: Point, b: Point) [] -> Bool => a, b
+
+fn same(a: Point, b: Point) [] -> Bool => a, b {
+    return eq(a, b) && cmp(a, b) == 0
+}
+"#,
+    );
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-default] `default` is legal only where the compiler has a generator: on
+/// [cmp-auto] `default` is legal only where the compiler has a generator: on
 /// any other group the word would promise an implementation nothing provides.
 #[test]
 fn default_is_refused_on_a_group_with_no_generator() {
@@ -762,15 +800,15 @@ params Step<It, T> {
     fn advance(it: Mut It) -> T
 }
 
-struct Counter : default Step<self, Int> canbe Mut {
+struct Counter : auto Step<self, Int> canbe Mut {
     at: Int
 }
 "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("`Ordered`, `Eq` and `Hashed`")),
-        "expected the whitelist to be named, got: {errs:?}"
+            .any(|e| e.contains("`cmp`, `eq`, `hash`")),
+        "expected the generable members to be named, got: {errs:?}"
     );
 }
 
@@ -780,7 +818,7 @@ struct Counter : default Step<self, Int> canbe Mut {
 fn a_default_obligation_takes_self() {
     let errs = errors(
         r#"
-struct Point : default Ordered<Int> {
+struct Point : auto Ordered<Int> {
     x: Int
 }
 "#,
@@ -791,14 +829,14 @@ struct Point : default Ordered<Int> {
     );
 }
 
-/// [cmp-default] `default` inherits today's validation, because it inherits
+/// [cmp-auto] `default` inherits today's validation, because it inherits
 /// today's lowering: a float field has no hash the two backends agree on, and a
 /// mutable struct cannot be a key. Both are reported at the clause.
 #[test]
 fn a_default_obligation_validates_the_fields() {
     let float_field = errors(
         r#"
-struct Sample : default Hashed<self> {
+struct Sample : auto Hashed<self> {
     at: Double
 }
 "#,
@@ -806,13 +844,13 @@ struct Sample : default Hashed<self> {
     assert!(
         float_field
             .iter()
-            .any(|e| e.contains("default Hashed<self>") && e.contains("not hashed")),
+            .any(|e| e.contains("auto fn hash@Sample") && e.contains("not hashed")),
         "expected the float field to be refused, got: {float_field:?}"
     );
 
     let mutable = errors(
         r#"
-struct Counter : default Ordered<self> canbe Mut {
+struct Counter : auto Ordered<self> canbe Mut {
     at: Int
 }
 "#,
@@ -820,8 +858,161 @@ struct Counter : default Ordered<self> canbe Mut {
     assert!(
         mutable
             .iter()
-            .any(|e| e.contains("default Ordered<self>") && e.contains("canbe Mut")),
+            .any(|e| e.contains("auto fn cmp@Counter") && e.contains("canbe Mut")),
         "expected the mutable struct to be refused, got: {mutable:?}"
+    );
+}
+
+/// [cmp-auto] The **function-level** form, and the reason it exists (user
+/// decision 2026-09-22): a type generates the members it wants generated and
+/// writes the one it wants written. Here `Person` is ordered by name, hashed
+/// structurally, and equal exactly when it ties — which no single obligation
+/// clause can say.
+#[test]
+fn auto_fns_mix_with_hand_written_ones() {
+    let errs = errors(
+        r#"
+struct Person : Ordered<self>, Hashed<self> {
+    name: Str,
+    age: Int
+}
+
+auto fn cmp@Person(a: Person, b: Person) [] -> Int => a, b
+auto fn hash@Person(value: Person) [] -> Long => value
+
+fn eq@Person(a: Person, b: Person) [] -> Bool => a, b {
+    return cmp(a, b) == 0
+}
+
+fn probe(a: Person, b: Person) [] -> Bool => a, b {
+    return a == b && a < b && hash(a) == hash(b)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [cmp-auto] `auto Group<self>` is sugar for exactly those declarations, so
+/// the two spellings are interchangeable — and mixing them on one member is the
+/// ordinary duplicate.
+#[test]
+fn the_clause_and_the_fn_form_are_one_thing() {
+    let errs = errors(
+        r#"
+struct A : auto Hashed<self> {
+    x: Int
+}
+
+struct B {
+    x: Int
+}
+
+auto fn hash@B(value: B) [] -> Long => value
+auto fn eq@B(a: B, b: B) [] -> Bool => a, b
+
+fn probe(p: A, q: A, r: B, s: B) [] -> Bool => p, q, r, s {
+    return eq(p, q) && eq(r, s) && hash(p) == hash(r)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+
+    let dup = errors(
+        r#"
+struct A : auto Hashed<self> {
+    x: Int
+}
+
+auto fn hash@A(value: A) [] -> Long => value
+"#,
+    );
+    assert!(
+        dup.iter().any(|e| e.contains("hash")),
+        "expected the duplicate to be reported: {dup:?}"
+    );
+}
+
+/// [cmp-auto] What an `auto fn` must be: `@`-scoped to a visible struct, named
+/// after a member the compiler can write, bodiless, and of the member's own
+/// shape. Each refusal names the remedy rather than leaving a body unwritten.
+#[test]
+fn an_auto_fn_is_checked_at_its_declaration() {
+    // Not `@`-scoped: there is no type whose fields to read.
+    let errs = errors("auto fn cmp(a: Int, b: Int) [] -> Int => a, b
+");
+    assert!(
+        errs.iter().any(|e| e.contains("names one")),
+        "expected the `@` requirement: {errs:?}"
+    );
+
+    // A member the compiler has no generator for.
+    let errs = errors(
+        r#"
+struct Point {
+    x: Int
+}
+
+auto fn describe@Point(p: Point) [] -> Str => p
+"#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("`cmp`, `eq`, `hash`") && e.contains("describe")),
+        "expected the generable members to be named: {errs:?}"
+    );
+
+    // A body, which the compiler was going to write.
+    let errs = errors(
+        r#"
+struct Point {
+    x: Int
+}
+
+auto fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+    return 0
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("takes none")),
+        "expected the body to be refused: {errs:?}"
+    );
+
+    // The wrong shape for the member it names.
+    let errs = errors(
+        r#"
+struct Point {
+    x: Int
+}
+
+auto fn hash@Point(a: Point, b: Point) [] -> Long => a, b
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("1 parameter")),
+        "expected the arity to be named: {errs:?}"
+    );
+
+    let errs = errors(
+        r#"
+struct Point {
+    x: Int
+}
+
+auto fn cmp@Point(a: Point, b: Point) [] -> Bool => a, b
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("must be declared")),
+        "expected the signature to be named: {errs:?}"
+    );
+
+    // A type with no fields to read.
+    let errs = errors("auto fn cmp@Str(a: Str, b: Str) [] -> Int => a, b
+");
+    assert!(
+        errs.iter().any(|e| e.contains("no visible struct")),
+        "expected the struct requirement: {errs:?}"
     );
 }
 
@@ -831,7 +1022,7 @@ struct Counter : default Ordered<self> canbe Mut {
 fn a_hand_written_member_beside_a_generated_one_is_a_duplicate() {
     let errs = errors(
         r#"
-struct Point : default Eq<self> {
+struct Point : auto Eq<self> {
     x: Int
 }
 
@@ -854,7 +1045,7 @@ fn eq@Point(a: Point, b: Point) [] -> Bool => a, b {
 fn a_generic_struct_generates_generic_members() {
     let errs = errors(
         r#"
-struct Box<T> : default Eq<self> {
+struct Box<T> : auto Eq<self> {
     item: T
 }
 
@@ -873,7 +1064,7 @@ fn same(a: Box<Int>, b: Box<Int>) [] -> Bool => a, b {
 fn default_satisfies_the_obligation_it_is_written_on() {
     let generated = errors(
         r#"
-struct Point : default Eq<self> {
+struct Point : auto Eq<self> {
     x: Int
 }
 "#,
@@ -903,7 +1094,7 @@ struct Point : Eq<self> {
 fn the_operators_resolve_through_the_groups() {
     let errs = errors(
         r#"
-struct Point : default Ordered<self> {
+struct Point : auto Ordered<self>, auto Eq<self> {
     x: Int
 }
 
@@ -976,7 +1167,7 @@ fn same(a: Note, b: Note) [] -> Bool => a, b {
     assert!(
         missing
             .iter()
-            .any(|e| e.contains("`==` on `Note`") && e.contains("default Eq<self>")),
+            .any(|e| e.contains("`==` on `Note`") && e.contains("auto fn eq@Note")),
         "expected the opt-in to be named, got: {missing:?}"
     );
 
@@ -993,13 +1184,13 @@ fn same<T>(a: T, b: T) [] -> Bool => a, b {
     );
 }
 
-/// [cmp-default] `canbe hashed` and `canbe ordered` are **gone**, and the
+/// [cmp-auto] `canbe hashed` and `canbe ordered` are **gone**, and the
 /// diagnostic names what replaced them rather than reporting an unknown opt-in.
 #[test]
 fn the_canbe_optins_are_deleted() {
     for (written, replacement) in [
-        ("canbe hashed", "default Hashed<self>"),
-        ("canbe ordered", "default Ordered<self>"),
+        ("canbe hashed", "auto fn hash@"),
+        ("canbe ordered", "auto fn cmp@"),
     ] {
         let errs = errors(&format!("struct Point {written} {{\n    x: Int\n}}\n"));
         assert!(
@@ -1017,11 +1208,11 @@ fn the_canbe_optins_are_deleted() {
 fn the_operands_must_still_be_one_type() {
     let errs = errors(
         r#"
-struct A : default Eq<self> {
+struct A : auto Eq<self> {
     v: Int
 }
 
-struct B : default Eq<self> {
+struct B : auto Eq<self> {
     v: Int
 }
 

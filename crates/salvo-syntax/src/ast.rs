@@ -234,13 +234,18 @@ pub struct StructDecl {
 /// One entry of a struct's obligation clause [group-obligation].
 #[derive(Clone, Debug, PartialEq)]
 pub struct Obligation {
-    /// [cmp-default] `: default Ordered<self>` — the compiler **generates** the
-    /// structural implementation of every member, `@`-scoped to this type
-    /// (user decision 2026-09-21). Legal only on the groups it has a generator
-    /// for (`Ordered`, `Eq`, `Hashed`); anywhere else it is an error naming
-    /// those, since the word would otherwise promise something no code
+    /// [cmp-auto] `: auto Ordered<self>` — **sugar** for one bodiless
+    /// `auto fn` per member of the group, `@`-scoped to this type (user
+    /// decisions 2026-09-21, 2026-09-22). Legal only where every member has a
+    /// generator (`cmp`, `eq`, `hash`); anywhere else it is an error naming
+    /// them, since the word would otherwise promise something no code
     /// provides.
-    pub default: bool,
+    ///
+    /// Without it the clause is only a *promise*, checked at the declaration
+    /// [group-obligation]: what satisfies it may be an `auto fn` or an
+    /// ordinary one, which is how a type mixes a generated `cmp` with a
+    /// hand-written `eq`.
+    pub auto: bool,
     /// The group and its type arguments, `self` standing for the declaring
     /// type [group-self].
     pub group: TypeRef,
@@ -485,12 +490,19 @@ pub struct FnDecl {
     /// extended from modules and effects to types — on both sides, since
     /// `cmp = cmp@Person` is how a call names one explicitly.
     pub scoped_to: Option<Ident>,
-    /// [cmp-default] **Generated** by a `default` obligation: the structural
-    /// implementation of a capability member for the type it is `@`-scoped to.
-    /// It has no body — each backend lowers it to the host's own derived
-    /// comparison, equality or hash (user decision 2026-09-21, the
-    /// lowering-split-by-author rule), which is also what keeps the `default`
-    /// forms consistent with each other by construction.
+    /// [cmp-auto] `auto fn cmp@Person(a: Person, b: Person) -> Int`: the
+    /// **structural** implementation of a capability member for the type it is
+    /// `@`-scoped to, written by the compiler (user decisions 2026-09-21,
+    /// 2026-09-22). It has no body — each backend lowers it to the host's own
+    /// derived comparison, equality or hash (the lowering-split-by-author
+    /// rule), which is what keeps everything generated consistent with
+    /// everything else generated, by construction.
+    ///
+    /// Set by the `auto` modifier on a declaration, and by the `auto
+    /// Group<self>` obligation sugar, which expands to one such declaration per
+    /// member. Nothing downstream distinguishes the two: an `auto fn` is an
+    /// ordinary overload for resolution, the duplicate check, mangling and
+    /// export.
     pub structural: bool,
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].

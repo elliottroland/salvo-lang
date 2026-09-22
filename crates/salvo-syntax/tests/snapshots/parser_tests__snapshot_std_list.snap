@@ -2691,7 +2691,7 @@ Module {
                 generic_canbe: [],
                 obligations: [
                     Obligation {
-                        default: false,
+                        auto: false,
                         group: TypeRef {
                             name: Ident {
                                 name: "Yield",
