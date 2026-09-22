@@ -146,10 +146,69 @@ pub struct FnParamContract {
     pub lent: bool,
 }
 
+/// [cmp-carry] A **function identity** carried by a type: the `cmp` in
+/// `Heap<cmp@Person>`, the `?cmp` in `Heap<?cmp> Mut List<T>`.
+///
+/// Not a function *value*. A fn bound into a type must have **static
+/// identity** — named, top-level, capture-free (user decision 2026-09-21,
+/// ORDERING.md decision 12) — which is exactly what makes it something a
+/// type can print, compare and substitute: `Heap<min_by_age>` and
+/// `Heap<max_by_age>` are different types that refuse to mix, and no
+/// closure, capture or value representation is implied anywhere.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FnId {
+    /// A named fn: a module fn (`min_by_age`), an `@`-scoped canonical
+    /// (`cmp@Person`) or an intrinsic.
+    Named { name: String, at: Option<String> },
+    /// `?cmp` — the **binder**: one binding per signature, in the identity
+    /// domain what `Ty::Var` is in the type domain. Filled at the call site
+    /// by the resolved implicit, or captured from an argument's type
+    /// (ORDERING.md decision 11).
+    Binder(String),
+}
+
+impl FnId {
+    pub fn named(name: impl Into<String>) -> FnId {
+        FnId::Named {
+            name: name.into(),
+            at: None,
+        }
+    }
+
+    /// The name a binding is keyed by in a substitution map. Binders share
+    /// the map type variables use, and `?` is not an identifier character,
+    /// so the two namespaces cannot collide.
+    pub fn subst_key(name: &str) -> String {
+        format!("?{name}")
+    }
+
+    /// The fn's own name — what a call of it resolves, selector aside.
+    pub fn base_name(&self) -> &str {
+        match self {
+            FnId::Named { name, .. } | FnId::Binder(name) => name,
+        }
+    }
+}
+
+impl fmt::Display for FnId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FnId::Named { name, at: None } => write!(f, "{name}"),
+            FnId::Named { name, at: Some(at) } => write!(f, "{name}@{at}"),
+            FnId::Binder(name) => write!(f, "?{name}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ty {
     /// A nominal type: `Str`, `List<Int>`, a struct, an effect, ...
     Named { name: String, args: Vec<Ty> },
+    /// [cmp-carry] A function identity in a type-argument position — the
+    /// ordering a structure *holds*. Never the type of a value: it inhabits
+    /// a declaration's **fn slot** (`qualifier Heap<T, ?cmp: (T, T) -> Int>`)
+    /// and nothing else.
+    FnName(FnId),
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
@@ -209,6 +268,48 @@ impl Ty {
 
     pub fn is_unknown(&self) -> bool {
         matches!(self, Ty::Unknown)
+    }
+
+    /// [cmp-carry] The function identity this type *is*, if it is one.
+    pub fn fn_id(&self) -> Option<&FnId> {
+        match self {
+            Ty::FnName(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// [cmp-carry] Every binder name appearing anywhere in this type — the
+    /// occurrences one signature's single binding is shared between
+    /// (ORDERING.md decision 11).
+    pub fn binders(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_binders(&mut out);
+        out
+    }
+
+    fn collect_binders(&self, out: &mut Vec<String>) {
+        match self {
+            Ty::FnName(FnId::Binder(name)) => {
+                if !out.iter().any(|n| n == name) {
+                    out.push(name.clone());
+                }
+            }
+            Ty::FnName(_) | Ty::Var(_) | Ty::Any | Ty::Never | Ty::Unknown => {}
+            Ty::Named { args, .. } => args.iter().for_each(|a| a.collect_binders(out)),
+            Ty::Qualified { quals, base } => {
+                for q in quals {
+                    q.args.iter().for_each(|a| a.collect_binders(out));
+                }
+                base.collect_binders(out);
+            }
+            Ty::Union(arms) => arms.iter().for_each(|a| a.collect_binders(out)),
+            Ty::Tuple(elems) => elems.iter().for_each(|e| e.collect_binders(out)),
+            Ty::Array(elem) => elem.collect_binders(out),
+            Ty::Fn { params, ret, .. } => {
+                params.iter().for_each(|p| p.collect_binders(out));
+                ret.collect_binders(out);
+            }
+        }
     }
 
     /// The type without its qualifiers.
@@ -982,6 +1083,11 @@ impl fmt::Display for Ty {
                 write!(f, " -> {ret}")
             }
             Ty::Var(name) => write!(f, "{name}"),
+            // [cmp-carry] A type prints the identity it carries by name,
+            // which is the property that makes the identity carryable:
+            // `Heap<cmp@Person>` reads in a diagnostic exactly as it is
+            // written in a signature.
+            Ty::FnName(id) => write!(f, "{id}"),
             Ty::Any => write!(f, "Any"),
             Ty::Never => write!(f, "Never"),
             Ty::Unknown => write!(f, "?"),
@@ -1167,6 +1273,51 @@ mod tests {
             args: vec![],
         }]);
         assert_eq!(spec_cmp(&mut_str, &proj_mut_str), Some(Greater));
+    }
+
+    /// [cmp-carry] An identity in a type is a *name*, so it prints as one,
+    /// compares by it, and two structures carrying different orderings are
+    /// different types that refuse to mix.
+    #[test]
+    fn identities_in_types() {
+        let heap = |id: FnId| {
+            Ty::Named {
+                name: "List".into(),
+                args: vec![Ty::named("Person")],
+            }
+            .qualify(vec![Qual::plain("Heap", vec![Ty::FnName(id)])])
+        };
+        let canonical = FnId::Named {
+            name: "cmp".into(),
+            at: Some("Person".into()),
+        };
+        assert_eq!(heap(canonical.clone()).to_string(), "Heap<cmp@Person> List<Person>");
+        assert_eq!(
+            heap(FnId::named("max_by_age")).to_string(),
+            "Heap<max_by_age> List<Person>"
+        );
+        assert_eq!(
+            heap(FnId::Binder("cmp".into())).to_string(),
+            "Heap<?cmp> List<Person>"
+        );
+        // Different orderings are different types, in both directions —
+        // which is the whole point of putting the identity in the type.
+        let min = heap(FnId::named("min_by_age"));
+        let max = heap(FnId::named("max_by_age"));
+        assert_ne!(min, max);
+        assert!(!is_subtype(&min, &max) && !is_subtype(&max, &min));
+        assert!(is_subtype(&min, &min));
+        // Dropping the qualifier is what a plain list is, and it never comes
+        // back by subtyping [qual-constructive] — losing access, not
+        // correctness.
+        let plain = Ty::Named {
+            name: "List".into(),
+            args: vec![Ty::named("Person")],
+        };
+        assert!(is_subtype(&min, &plain) && !is_subtype(&plain, &min));
+        // The binders a signature shares one binding between.
+        assert_eq!(heap(FnId::Binder("cmp".into())).binders(), vec!["cmp"]);
+        assert!(heap(canonical).binders().is_empty());
     }
 
     fn ranked(patterns: Vec<Ty>) -> RankedCandidate {

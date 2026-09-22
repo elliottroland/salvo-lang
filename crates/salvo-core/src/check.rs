@@ -26,7 +26,7 @@ use crate::diag::FileDiagnostic;
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::resolve::{DefSite, FnKey, ModuleScope, Resolution};
-use crate::types::{is_subtype, FnParamContract, Qual, QualEffect, Ty};
+use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
 /// Table key: (file index, expression span).
 pub type Key = (usize, Span);
@@ -19421,6 +19421,27 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 }
             }
         }
+        // [cmp-carry] The identity domain. A **binder** binds like a type
+        // variable — one binding per signature, so two occurrences captured
+        // from two arguments must agree (ORDERING.md decision 11) — and two
+        // *named* identities match only by being the same fn, which is what
+        // makes `Heap<min_by_age>` and `Heap<max_by_age>` refuse to mix.
+        (Ty::FnName(FnId::Binder(b)), Ty::FnName(id)) => {
+            let key = FnId::subst_key(b);
+            let bound = Ty::FnName(id.clone());
+            match subst.get(&key) {
+                Some(seen) => *seen == bound,
+                None => {
+                    subst.insert(key, bound);
+                    true
+                }
+            }
+        }
+        (Ty::FnName(a), Ty::FnName(b)) => a == b,
+        // An identity never unifies with a type, in either direction: the
+        // slot decides which of the two a position is, so a mismatch here is
+        // a written-form mistake the lowering has already reported.
+        (Ty::FnName(_), _) | (_, Ty::FnName(_)) => false,
         (
             Ty::Qualified {
                 quals: pq,
@@ -19713,6 +19734,9 @@ fn tys_match_renamed(
             let r = rev.entry(y.clone()).or_insert_with(|| x.clone());
             f == y && r == x
         }
+        // [cmp-carry] An identity is not a variable: there is nothing to
+        // rename, so two identities match only by being the same fn.
+        (Ty::FnName(x), Ty::FnName(y)) => x == y,
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb && all(aa, ab, fwd, rev)
         }
@@ -19755,6 +19779,18 @@ fn tys_match_renamed(
 fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Ty {
     match ty {
         Ty::Var(g) if callee_generics.contains(g) => subst.get(g).cloned().unwrap_or(Ty::Unknown),
+        // [cmp-carry] A binder is substituted by whatever the call site's
+        // resolution bound it to — which is how `empty_heap` publishes the
+        // ordering resolution chose (`-> Mut List<T> as Heap<?cmp>` becomes
+        // `Heap<cmp@Person> Mut List<Person>` at the call). An *unbound*
+        // binder stays itself rather than becoming `Unknown`: inside the
+        // declaring signature `?cmp` is the honest reading, and the missing
+        // binding is reported where implicits are resolved, once
+        // [type-unknown-lenient].
+        Ty::FnName(FnId::Binder(name)) => subst
+            .get(&FnId::subst_key(name))
+            .cloned()
+            .unwrap_or_else(|| ty.clone()),
         Ty::Named { name, args } => Ty::Named {
             name: name.clone(),
             args: args

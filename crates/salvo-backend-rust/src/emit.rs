@@ -5489,6 +5489,19 @@ impl<'p> Emitter<'p> {
                 format!("impl Fn({}) -> {}", ps.join(", "), self.rust_ty(ret))
             }
             Ty::Var(name) => name.clone(),
+            // [cmp-carry] An identity is not a value's type. On a
+            // *qualifier* it erases with the qualifier [qual-erasure], and a
+            // keyed container reads its own slots; reaching the general
+            // renderer means one was written where a type belongs, which the
+            // checker refuses — so this is an error, never output
+            // [backend-never-wrong].
+            Ty::FnName(id) => {
+                self.error(format!(
+                    "the function identity `{id}` reached code generation as a \
+                     type: an identity may only fill a declaration's fn slot"
+                ));
+                "()".to_string()
+            }
             Ty::Any | Ty::Unknown => {
                 self.error(
                     "a value of unknown/`Any` type reached rust code generation \

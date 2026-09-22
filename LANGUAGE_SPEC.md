@@ -2813,6 +2813,36 @@ Conventions:
     generated `compareTo` and the data class's `equals`/`hashCode` on Kotlin), so
     the generated member and the type's own ordering cannot disagree. A
     hand-written implementation is an ordinary Salvo fn and travels its own path.
+* [cmp-carry] A structure that **holds** an ordering (or a hash, or an
+  equality) names it as a **fn-valued type argument**, fixed at construction
+  (user decision 2026-09-21, ORDERING.md decision 1). The identity lands *in
+  the type*: `Heap<min_by_age> Mut List<Person>` and
+  `Heap<max_by_age> Mut List<Person>` are different types that refuse to mix,
+  and [implicit-resolve]'s per-call-site locality stops being a hazard because
+  what one call site resolved is published by the type it produced.
+  * The declaration writes a **fn slot** in its generics list —
+    `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`,
+  `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>` — spelled like the
+    implicit parameter it is resolved as [implicit-param], with an optional
+    `= name` default.
+  * A use site fills the slot with an **identity**: a bare name
+    (`Heap<min_by_age>`), an `@`-scoped canonical (`Heap<cmp@Person>`
+    [cmp-canonical]) or the signature's **binder** (`Heap<?cmp>`, below).
+  * **Static identity is the load-bearing restriction** (decision 12): a fn
+    bound into a type must be **named, top-level and capture-free**. Module
+    fns, `@`-scoped canonicals and intrinsics qualify (the last through
+    [implicit-intrinsic]'s adapters); a lambda or a fn-valued local is refused,
+    with the error naming why — "a lambda or local has no identity a type can
+    carry; declare it as a `fn`". Everything a type can *print* it can carry,
+    so widening this later is purely additive.
+  * Dropping such a qualifier is **fail-safe**: the operations demand it and a
+    plain value never regains it by subtyping [qual-constructive], so a lost
+    `Heap<f>` costs access, never correctness.
+  * Identities live in their own domain, beside types: they compare by name
+    (`min_by_age` is not `max_by_age`), they print by name wherever a type
+    prints, they substitute like type arguments, and no value ever has one as
+    its type — an identity that reached a backend's type renderer is an error,
+    not output [backend-never-wrong].
 * [cmp-hash-values] A hash value holds **within one execution and nowhere
   else** (user decision 2026-09-21). Each backend hashes with its host's own
   algorithm — `hashCode()` on Kotlin, `DefaultHasher` on Rust — so the same
