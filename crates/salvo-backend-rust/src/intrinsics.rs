@@ -53,10 +53,15 @@ pub fn fn_call(
     args: &[String],
     type_args: &[String],
     spread: Spread,
+    ordering: Option<&str>,
 ) -> Option<String> {
     // Unlike Kotlin, rustc infers a `vec![]`'s element type from later
     // use, so pinning it here would churn the output for nothing.
     let _ = type_args;
+    // [cmp-carry] The marker type naming the ordering a keyed container is kept
+    // by, when this call *constructs* one: the emitter reads it off the call's
+    // own type, since that is where the identity lives.
+    let ord = || ordering.unwrap_or("collections::HostOrd");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("todo!()");
     let spread_any = spread != Spread::None;
     // The variadic tail as an **owned** `Vec`: already owned when the emitter
@@ -390,12 +395,14 @@ pub fn fn_call(
         // `from_iter` builds one from anything iterable.
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) if spread_any => {
             format!(
-                "{}.collect::<std::collections::BTreeSet<_>>()",
+                "collections::SalvoSortedSet::from_elements::<{}, _>({})",
+                ord(),
                 owned_iter()
             )
         }
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
-            "vec![{}].into_iter().collect::<std::collections::BTreeSet<_>>()",
+            "collections::SalvoSortedSet::from_elements::<{}, _>(vec![{}])",
+            ord(),
             args.join(", ")
         ),
         ("add", Some("SortedSet")) => format!("{}.insert({})", a(0), a(1)),
@@ -404,27 +411,27 @@ pub fn fn_call(
         ("size", Some("SortedSet")) => format!("({}.len() as i32)", a(0)),
         // Cheap at either end of an ordered tree, which is the reason to use
         // one; cloned because the declaration hands back an owned `T?`.
-        ("min", Some("SortedSet")) => format!("{}.iter().next().cloned()", a(0)),
-        ("max", Some("SortedSet")) => format!("{}.iter().next_back().cloned()", a(0)),
-        ("to_list", Some("SortedSet")) => {
-            format!("{}.iter().cloned().collect::<Vec<_>>()", a(0))
-        }
+        ("min", Some("SortedSet")) => format!("{}.min().cloned()", a(0)),
+        ("max", Some("SortedSet")) => format!("{}.max().cloned()", a(0)),
+        ("to_list", Some("SortedSet")) => format!("{}.to_vec()", a(0)),
         // [col-to-str] The language's format, in key order — written out
         // rather than left to Rust's `Debug` [backend-parity].
         ("to_str", Some("SortedSet")) => format!(
-            "format!(\"{{{{{{}}}}}}\", {}.iter().map(|__e| __e.to_string())\
+            "format!(\"{{{{{{}}}}}}\", {}.to_vec().iter().map(|__e| __e.to_string())\
              .collect::<Vec<_>>().join(\", \"))",
             a(0)
         ),
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) if spread_any => {
             format!(
-                "{}.collect::<std::collections::BTreeMap<_, _>>()",
+                "collections::SalvoSortedMap::from_entries::<{}, _>({})",
+                ord(),
                 owned_iter()
             )
         }
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
-            "vec![{}].into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+            "collections::SalvoSortedMap::from_entries::<{}, _>(vec![{}])",
+            ord(),
             args.join(", ")
         ),
         ("get", Some("SortedMap")) => format!("{}.get(&{})", a(0), a(1)),
@@ -432,17 +439,11 @@ pub fn fn_call(
         ("remove", Some("SortedMap")) => format!("{}.remove(&{})", a(0), a(1)),
         ("contains_key", Some("SortedMap")) => format!("{}.contains_key(&{})", a(0), a(1)),
         ("size", Some("SortedMap")) => format!("({}.len() as i32)", a(0)),
-        ("first_key", Some("SortedMap")) => {
-            format!("{}.keys().next().cloned()", a(0))
-        }
-        ("last_key", Some("SortedMap")) => {
-            format!("{}.keys().next_back().cloned()", a(0))
-        }
-        ("keys", Some("SortedMap")) => {
-            format!("{}.keys().cloned().collect::<Vec<_>>()", a(0))
-        }
+        ("first_key", Some("SortedMap")) => format!("{}.first_key().cloned()", a(0)),
+        ("last_key", Some("SortedMap")) => format!("{}.last_key().cloned()", a(0)),
+        ("keys", Some("SortedMap")) => format!("{}.keys()", a(0)),
         ("to_str", Some("SortedMap")) => format!(
-            "format!(\"{{{{{{}}}}}}\", {}.iter()\
+            "format!(\"{{{{{{}}}}}}\", {}.entries().iter()\
              .map(|(__k, __v)| format!(\"{{}}: {{}}\", __k, __v))\
              .collect::<Vec<_>>().join(\", \"))",
             a(0)
@@ -668,11 +669,12 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // with `LinkedHashMap` semantics [rs-collections].
         "Set" => "SalvoSet",
         "Map" => "SalvoMap",
-        // [col-sorted] The standard library's ordered trees: their iteration
-        // order *is* the key order, which is what these types promise, so no
-        // runtime helper is needed here.
-        "SortedSet" => "std::collections::BTreeSet",
-        "SortedMap" => "std::collections::BTreeMap",
+        // [col-sorted] [cmp-carry] The runtime's ordered collections: a B-tree
+        // behind a store that carries the ordering the *type* names, so two sets
+        // ordered differently are one Rust type and no signature grows a
+        // parameter for the difference [rs-collections].
+        "SortedSet" => "SalvoSortedSet",
+        "SortedMap" => "SalvoSortedMap",
         _ => return None,
     })
 }

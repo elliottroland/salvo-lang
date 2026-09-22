@@ -405,7 +405,7 @@ impl<C: SalvoCmp<T>, T> Ord for OrdBy<C, T> {
 
 // ===== the store, generic over the ordering =====
 
-trait SortedStore<T>: Send {
+trait SortedStore<T> {
     fn insert(&mut self, value: T) -> bool;
     fn remove(&mut self, value: &T) -> bool;
     fn contains(&self, value: &T) -> bool;
@@ -413,7 +413,7 @@ trait SortedStore<T>: Send {
     fn min(&self) -> Option<&T>;
     fn max(&self) -> Option<&T>;
     fn to_vec(&self) -> Vec<T>;
-    fn clone_box(&self) -> Box<dyn SortedStore<T>>;
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send>;
 }
 
 struct BTreeStore<C, T> {
@@ -461,7 +461,7 @@ where
         self.inner.iter().map(|w| w.get().clone()).collect()
     }
 
-    fn clone_box(&self) -> Box<dyn SortedStore<T>> {
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
         Box::new(BTreeStore::<C, T> {
             inner: self
                 .inner
@@ -475,9 +475,15 @@ where
 // ===== the container the emitted code sees =====
 
 pub struct SalvoSortedSet<T> {
-    store: Box<dyn SortedStore<T>>,
+    // `+ Send` on the *box* rather than on the trait: a container is sendable
+    // when its elements are, and stating it here keeps the bound off every
+    // method — so a Salvo fn over a sorted collection is emitted with no bounds
+    // of its own, which is the whole point of hiding the marker.
+    store: Box<dyn SortedStore<T> + Send>,
 }
 
+// Building one names the ordering, which is the only place the marker — and the
+// bounds the boxed store needs — appear.
 impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
     pub fn new<C: SalvoCmp<T> + Send + 'static>() -> Self {
         SalvoSortedSet {
@@ -494,7 +500,10 @@ impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
         }
         set
     }
+}
 
+// Using one needs nothing of `T`: every operation goes through the store.
+impl<T> SalvoSortedSet<T> {
     pub fn insert(&mut self, value: T) -> bool {
         self.store.insert(value)
     }
@@ -526,10 +535,7 @@ impl<T> Clone for SalvoSortedSet<T> {
     }
 }
 
-impl<T: fmt::Display> fmt::Display for SalvoSortedSet<T>
-where
-    T: Clone + Send + 'static,
-{
+impl<T: fmt::Display> fmt::Display for SalvoSortedSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let items: Vec<String> = self.to_vec().iter().map(|e| e.to_string()).collect();
         write!(f, "{{{}}}", items.join(", "))
@@ -538,7 +544,7 @@ where
 
 // ===== the sorted map, the same way =====
 
-trait SortedMapStore<K, V>: Send {
+trait SortedMapStore<K, V> {
     fn get(&self, key: &K) -> Option<&V>;
     fn insert(&mut self, key: K, value: V) -> Option<V>;
     fn remove(&mut self, key: &K) -> Option<V>;
@@ -548,7 +554,7 @@ trait SortedMapStore<K, V>: Send {
     fn last_key(&self) -> Option<&K>;
     fn keys(&self) -> Vec<K>;
     fn entries(&self) -> Vec<(K, V)>;
-    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V>>;
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
 }
 
 struct BTreeMapStore<C, K, V> {
@@ -591,7 +597,7 @@ where
             .map(|(k, v)| (k.get().clone(), v.clone()))
             .collect()
     }
-    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V>> {
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
         Box::new(BTreeMapStore::<C, K, V> {
             inner: self
                 .inner
@@ -603,7 +609,7 @@ where
 }
 
 pub struct SalvoSortedMap<K, V> {
-    store: Box<dyn SortedMapStore<K, V>>,
+    store: Box<dyn SortedMapStore<K, V> + Send>,
 }
 
 impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> {
@@ -623,6 +629,9 @@ impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> 
         }
         map
     }
+}
+
+impl<K, V> SalvoSortedMap<K, V> {
     pub fn get(&self, key: &K) -> Option<&V> {
         self.store.get(key)
     }
@@ -660,11 +669,7 @@ impl<K, V> Clone for SalvoSortedMap<K, V> {
     }
 }
 
-impl<K, V> fmt::Display for SalvoSortedMap<K, V>
-where
-    K: Clone + Send + fmt::Display + 'static,
-    V: Clone + Send + fmt::Display + 'static,
-{
+impl<K: fmt::Display, V: fmt::Display> fmt::Display for SalvoSortedMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let items: Vec<String> = self
             .entries()

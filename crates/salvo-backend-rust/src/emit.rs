@@ -1198,6 +1198,11 @@ struct Emitter<'p> {
     /// Conjunction traits already generated in this file, by name, with
     /// their supertrait list (to catch a name claimed by two effect sets).
     conj_traits: BTreeMap<String, String>,
+    /// [cmp-carry] The ordering markers this module has already generated, name
+    /// -> the element type it orders: one zero-sized struct and `SalvoCmp` impl
+    /// per identity a keyed container here is kept by. Module-local, so nothing
+    /// has to be imported and two modules naming one ordering each get their own.
+    ordering_markers: BTreeMap<String, String>,
     /// Fusion-struct counter for this file.
     fusion_id: usize,
     /// [rs-effect-fusion] Fusion structs emitted in this file, keyed by
@@ -1424,6 +1429,7 @@ impl<'p> Emitter<'p> {
             fusion: false,
             generated_items: Vec::new(),
             conj_traits: BTreeMap::new(),
+            ordering_markers: BTreeMap::new(),
             fusion_id: 0,
             fusion_structs: HashMap::new(),
             platform_hosts: BTreeSet::new(),
@@ -5267,7 +5273,16 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        let mut arg_strs: Vec<String> = args.iter().map(|a| self.emit_type(a)).collect();
+        // [cmp-carry] A written **identity** (`SortedSet<Person, by_age>`) is not
+        // a type and has no rendering: the ordering is carried by the container's
+        // store, so the emitted type mentions only the element. Recognised by
+        // shape — a binder, a selector, or a bare lowercase name, since
+        // [name-casing] reserves uppercase for types.
+        let mut arg_strs: Vec<String> = args
+            .iter()
+            .filter(|a| !written_identity_arg(a))
+            .map(|a| self.emit_type(a))
+            .collect();
         // [rs-proj-struct] A borrowing struct carries its source's lifetime
         // at every mention; `'_` lets rustc infer it in signatures and
         // locals, and the struct's own definition spells it `'s`.
@@ -5297,7 +5312,7 @@ impl<'p> Emitter<'p> {
             // [rs-collections] Naming the type is enough to need its
             // runtime module imported, whether or not this module also
             // calls into it.
-            if matches!(name, "Set" | "Map") {
+            if matches!(name, "Set" | "Map" | "SortedSet" | "SortedMap") {
                 self.needs_collections = true;
             }
             // [rs-actor] The scheduler's handles are *not* generic in Rust:
@@ -5405,12 +5420,73 @@ impl<'p> Emitter<'p> {
         })
     }
 
+    /// [cmp-carry] The marker type naming the ordering the keyed container this
+    /// expression builds is kept by — `collections::HostOrd` when its type names
+    /// none, which is the canonical path every program took before orderings
+    /// could be named, and a generated marker when it names one.
+    ///
+    /// Registers the marker's definition on first use, so the module emits one
+    /// zero-sized struct and one `SalvoCmp` impl per ordering it actually
+    /// mentions.
+    fn ordering_marker_for(&mut self, span: Span) -> Option<String> {
+        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return None;
+        };
+        if !matches!(name.as_str(), "SortedSet" | "SortedMap") {
+            return None;
+        }
+        let subject = args.first()?.clone();
+        let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) else {
+            // No identity in the type: the host's own ordering, as ever.
+            return Some("collections::HostOrd".to_string());
+        };
+        let marker = format!("__Cmp_{}", rs_ident(&id.to_string().replace('@', "__")));
+        if !self.ordering_markers.contains_key(&marker) {
+            // The declaration behind the name is the *checker's* answer
+            // [cmp-carry]: resolving it here could disagree with what the
+            // checker type-checked against.
+            let key = (id.clone(), subject.clone());
+            let Some(decl) = self
+                .checked
+                .carried_identities
+                .get(&key)
+                .copied()
+                .and_then(|k| self.fn_by_key(k))
+            else {
+                self.error(format!(
+                    "the ordering `{id}` of this collection has no resolved declaration"
+                ));
+                return Some("collections::HostOrd".to_string());
+            };
+            let target = self.rust_fn_name(decl);
+            let elem = self.rust_ty(&subject);
+            self.ordering_markers.insert(marker.clone(), elem.clone());
+            self.generated_items.push(format!(
+                "\npub struct {marker};\n\
+                 impl collections::SalvoCmp<{elem}> for {marker} {{\n    \
+                 fn cmp(__a: &{elem}, __b: &{elem}) -> i32 {{ {target}(__a, __b) }}\n\
+                 }}\n"
+            ));
+        }
+        Some(marker)
+    }
+
     /// Renders a checker `Ty` as Rust (qualifiers erased, unions as the
     /// enum encoding). Must agree with `emit_type` on the same source
     /// type — checker-resolved effect types key the effect environment.
     fn rust_ty(&mut self, ty: &Ty) -> String {
         match ty {
             Ty::Named { name, args } => {
+                // [cmp-carry] The identities a keyed container carries are the
+                // checker's, not a rendering: the store holds the ordering, so
+                // the emitted type names only the element.
+                let args: Vec<Ty> = args
+                    .iter()
+                    .filter(|a| !matches!(a, Ty::FnName(_)))
+                    .cloned()
+                    .collect();
+                let args = &args;
                 // [monitor-handler] [rs-monitor] A plain effect's addr is the
                 // effect's lock wrapper, not a scheduler index.
                 if name == "Addr" && args.len() == 1 {
@@ -10949,6 +11025,7 @@ impl<'p> Emitter<'p> {
                 &[arg.clone()],
                 &[],
                 crate::intrinsics::Spread::None,
+                None,
             ) {
                 Some(code) => code,
                 None => {
@@ -12671,6 +12748,9 @@ impl<'p> Emitter<'p> {
             // arguments with a spread was assembled into a fresh vector by
             // `intrinsic_arg_code`, so it arrives owned and must not be
             // cloned again.
+            // [cmp-carry] When this call builds a keyed container, the ordering
+            // it will be kept by is in the call's own type.
+            let ordering = self.ordering_marker_for(span);
             let variadic_at = f.params.iter().position(|p| p.variadic);
             let tail_len = variadic_at.map_or(0, |v| args.len().saturating_sub(v));
             let spread = if !args.iter().any(|a| matches!(a, Expr::Spread { .. })) {
@@ -12681,7 +12761,14 @@ impl<'p> Emitter<'p> {
                 crate::intrinsics::Spread::Borrowed
             };
             if let Some(code) =
-                crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &[], spread)
+                crate::intrinsics::fn_call(
+                    &f.name.name,
+                    recv,
+                    &arg_code,
+                    &[],
+                    spread,
+                    ordering.as_deref(),
+                )
             {
                 return code;
             }
@@ -13087,6 +13174,7 @@ impl<'p> Emitter<'p> {
             params,
             &[],
             crate::intrinsics::Spread::None,
+            None,
         ) {
             Some(code) => code,
             None => {
@@ -15108,5 +15196,22 @@ fn strip_proj(ty: &Type) -> Type {
             }
         }
         other => other.clone(),
+    }
+}
+
+/// [cmp-carry] Whether a written type argument is a function **identity** rather
+/// than a type: the signature's binder (`?cmp`), a selector (`cmp@Person`), or a
+/// bare lowercase name — [name-casing] reserves uppercase for types, so a
+/// lowercase bare name in a type-argument position is a function.
+fn written_identity_arg(arg: &Type) -> bool {
+    match arg {
+        Type::Named { qualifiers, base } => {
+            qualifiers.is_empty()
+                && base.args.is_empty()
+                && (base.binder
+                    || base.at.is_some()
+                    || base.name.name.starts_with(|c: char| c.is_lowercase()))
+        }
+        _ => false,
     }
 }

@@ -3523,12 +3523,44 @@ impl<'p> Emitter<'p> {
 
     // ================= checker-type (Ty) rendering =================
 
+    /// [cmp-carry] Reports a keyed container kept by an ordering or hash this
+    /// backend cannot carry yet — a *named* identity. The canonical path (no
+    /// identity in the type) is what every program took before orderings could be
+    /// named and is unaffected.
+    fn refuse_named_container_ordering(&mut self, span: Span) {
+        let Some(ty) = self.checked.expr_ty.get(&(self.file_idx, span)).cloned() else {
+            return;
+        };
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return;
+        };
+        if !matches!(name.as_str(), "Set" | "Map" | "SortedSet" | "SortedMap") {
+            return;
+        }
+        if let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) {
+            let name = name.clone();
+            let id = id.clone();
+            self.error(format!(
+                "the kotlin backend cannot keep a `{name}` by `{id}` yet: a keyed \
+                 container has to carry the function at run time, and this backend's \
+                 hash container is still the JVM's own — see ROADMAP's ordering entry"
+            ));
+        }
+    }
+
     /// Renders a checker type to Kotlin (qualifiers erased, unions as
     /// sealed wrappers).
     fn emit_ty(&mut self, ty: &Ty) -> String {
         match ty {
             Ty::Named { name, args } => {
-                let arg_strs: Vec<String> = args.iter().map(|a| self.emit_ty(a)).collect();
+                // [cmp-carry] An identity a keyed container carries is the
+                // checker's, not a rendering: the container's own machinery holds
+                // the ordering, so the emitted type names only its elements.
+                let arg_strs: Vec<String> = args
+                    .iter()
+                    .filter(|a| !matches!(a, Ty::FnName(_)))
+                    .map(|a| self.emit_ty(a))
+                    .collect();
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
@@ -7468,6 +7500,13 @@ impl<'p> Emitter<'p> {
             if f.name.name == "fire_after" {
                 self.needs_scheduler = true;
             }
+            // [cmp-carry] A keyed container kept by a *named* ordering needs a
+            // runtime container with a slot for one, which this backend does not
+            // have yet (`TreeSet` takes a comparator, but `LinkedHashSet` keys off
+            // `hashCode`/`equals`, so the pair has to be built together). Refused
+            // rather than emitted as a container that ignores the ordering it was
+            // told to keep [backend-never-wrong].
+            self.refuse_named_container_ordering(span);
             if let Some(code) =
                 crate::intrinsics::fn_call(&f.name.name, recv, &arg_code, &type_args)
             {

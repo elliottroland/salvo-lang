@@ -945,23 +945,30 @@ fn a_signature_may_omit_a_containers_identity() {
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
 
-/// …and a **named** one is refused for now: the Rust runtime that carries an
-/// ordering is written and tested, but no emitter reaches it yet, so this is an
-/// error rather than a container that silently ignores the ordering it was told
-/// to keep [backend-never-wrong]. A *binder* is not refused — it resolves per
-/// call, which is the canonical path.
+/// …and a **named** one is accepted: the ordering is part of the type, and what
+/// a backend does with it is the backend's business — the Rust emitter keeps the
+/// collection by it, and the Kotlin emitter refuses until its runtime can
+/// [backend-never-wrong].
 #[test]
-fn a_non_canonical_key_identity_is_refused_for_now() {
+fn a_keyed_container_may_name_its_ordering() {
     let msgs = sorted_messages(
         "fn by_size(a: Int, b: Int) -> Int => a, b {\n    return 0\n}\n\n\
          fn probe(s: SortedSet<Int, by_size>) -> Int => s {\n    return size(s)\n}\n",
     );
-    assert_eq!(msgs.len(), 1, "expected exactly one error: {msgs:?}");
+    assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
+}
+
+/// …and an identity that does not *fit* the slot is the ordinary mismatch, named
+/// at the type that wrote it.
+#[test]
+fn a_container_identity_must_fit_its_slot() {
+    let msgs = sorted_messages(
+        "fn wrong(a: Int) -> Int => a {\n    return a\n}\n\n\
+         fn probe(s: SortedSet<Int, wrong>) -> Int => s {\n    return size(s)\n}\n",
+    );
     assert!(
-        msgs[0].contains("cannot be keyed by `by_size` yet")
-            && msgs[0].contains("emitters do not reach"),
-        "unexpected message: {}",
-        msgs[0]
+        msgs.iter().any(|m| m.contains("does not fit the `cmp` slot")),
+        "expected the slot mismatch, got: {msgs:?}"
     );
 }
 

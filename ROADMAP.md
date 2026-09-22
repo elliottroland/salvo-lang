@@ -276,15 +276,10 @@ In brief:
    `repr(transparent)` `OrdBy<C, T>` makes lookups clone-free through one
    `unsafe` cast whose precondition the compiler enforces. **The Rust sorted pair
    landed 2026-09-22** (runtime only — see COMPLETED.md). What is left:
-   - **wire the emitter to it**: generate a marker per bound identity, name it at
-     each construction site, and switch the sorted intrinsics off bare
-     `BTreeSet`/`BTreeMap`. The identity comes from the **construction site's
-     recorded type**, not from an implicit argument: giving the constructors a
-     `?Ordered<T>` was tried and backed out 2026-09-22, because a tuple has no
-     Salvo `cmp` and cannot be given one (see COMPLETED.md). The emitter
-     therefore needs a name→declaration step for a written identity, which is
-     worth recording as a checker side table (span → the resolved `FnKey` per
-     identity) rather than re-resolving in the backend;
+   - ✅ **the Rust sorted pair, wired** — **landed 2026-09-22**: markers at
+     construction, `HostOrd` for the canonical path, the identity flowing from the
+     position into the construction, and `carried_identities` recording what each
+     identity resolves to (COMPLETED.md has the shape and the two traps);
    - **the hash pair**: `SalvoSet`/`SalvoMap` keyed by the slots' `hash`/`eq`
      (through a `HashBy<H, E, T>` wrapper) instead of the host's `Hash`/`Eq`;
    - **Kotlin**: the `TreeSet`/`TreeMap` comparator from the slot's identity, and

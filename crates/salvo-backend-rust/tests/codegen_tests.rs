@@ -5509,6 +5509,68 @@ fn main() [use] {
 
 pub const CARRY_OUTPUT: &str = "by age: Bob of 3\nby name: Ada of 3\n";
 
+/// [cmp-carry] [col-membership] A **keyed container** kept by the ordering its
+/// type names: two sorted sets of the same people, one canonical and one by age,
+/// and one generic function over either — which is emitted with no extra
+/// parameter, because the marker stops at the container's edge [rs-collections].
+///
+/// Membership is `cmp`-distinct, so a second person of an age already present is
+/// not a new member under the ordering by age, and is one under the canonical
+/// ordering. No Kotlin twin yet: that backend refuses a named ordering until its
+/// hash container exists.
+pub const KEYED_DEMO: &str = r#"
+struct Person { name: Str, age: Int }
+
+auto fn cmp@Person(a: Person, b: Person) -> Int
+auto fn eq@Person(a: Person, b: Person) -> Bool
+
+fn by_age(a: Person, b: Person) -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+// One body, either ordering: the identity is the container's, not the caller's.
+fn lowest<T>(s: SortedSet<T>) -> T? => s {
+    return min(s)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let byname = sorted_set_of(
+        Person {name: "Cyd", age: 31},
+        Person {name: "Ada", age: 36},
+        Person {name: "Bob", age: 24}
+    )
+    let byage: SortedSet<Person, by_age> = sorted_set_of(
+        Person {name: "Cyd", age: 31},
+        Person {name: "Ada", age: 36},
+        Person {name: "Bob", age: 24}
+    )
+    println("byname ${lowest(byname)!.name} of ${size(byname)}")
+    println("byage ${lowest(byage)!.name} of ${size(byage)}")
+
+    // `cmp`-distinct membership: a second 24-year-old is the same member under
+    // `by_age`, and its own member under the canonical ordering.
+    let twin = Person {name: "Eve", age: 24}
+    let grown_age: Mut SortedSet<Person, by_age> = mut_sorted_set_of()
+    let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
+    add(grown_age, Person {name: "Bob", age: 24})
+    add(grown_name, Person {name: "Bob", age: 24})
+    println("twin ${add(grown_age, copy(twin))} ${add(grown_name, twin)}")
+}
+"#;
+
+pub const KEYED_OUTPUT: &str = "byname Ada of 3\nbyage Bob of 3\ntwin false true\n";
+
+#[test]
+fn rustc_compiles_and_runs_a_keyed_container_ordering() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", KEYED_DEMO)]);
+    run_rust_files(&files, "keyed_ordering", KEYED_OUTPUT);
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_carried_ordering() {
     if !rustc_available() {

@@ -76,9 +76,9 @@ pub fn main() {
     tally.insert("fig".to_string(), 3);
     tally.insert("pear".to_string(), 99);
     println(&mut console, &(format!("2. insertion order kept {}", tally.to_string())));
-    let mut ranked: std::collections::BTreeSet<String> = vec!["pear".to_string(), "apple".to_string(), "fig".to_string()].into_iter().collect::<std::collections::BTreeSet<_>>();
-    println(&mut console, &(format!("2. key order {}", format!("{{{}}}", ranked.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    let mut smallest = ranked.iter().next().cloned();
+    let mut ranked: SalvoSortedSet<String> = collections::SalvoSortedSet::from_elements::<collections::HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
+    println(&mut console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
+    let mut smallest = ranked.min().cloned();
     if smallest.is_some() {
         println(&mut console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
     }

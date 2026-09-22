@@ -17,26 +17,26 @@ pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool
     return (map.len() as i32) > 0;
 }
 
-pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &std::collections::BTreeSet<T>) -> bool {
+pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &SalvoSortedSet<T>) -> bool {
     return (set.len() as i32) > 0;
 }
 
-pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> bool {
+pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> bool {
     return (map.len() as i32) > 0;
 }
 
-pub fn min<T: Clone>(set: &std::collections::BTreeSet<T>) -> T {
-    return set.iter().next().cloned().unwrap();
+pub fn min<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+    return set.min().cloned().unwrap();
 }
 
-pub fn max<T: Clone>(set: &std::collections::BTreeSet<T>) -> T {
-    return set.iter().next_back().cloned().unwrap();
+pub fn max<T: Clone>(set: &SalvoSortedSet<T>) -> T {
+    return set.max().cloned().unwrap();
 }
 
-pub fn first_key<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> K {
-    return map.keys().next().cloned().unwrap();
+pub fn first_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+    return map.first_key().cloned().unwrap();
 }
 
-pub fn last_key<K: Clone, V: Clone>(map: &std::collections::BTreeMap<K, V>) -> K {
-    return map.keys().next_back().cloned().unwrap();
+pub fn last_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
+    return map.last_key().cloned().unwrap();
 }

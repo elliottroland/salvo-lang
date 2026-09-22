@@ -128,6 +128,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b, third slice — a sorted collection is
+kept by the ordering its type names, on Rust (2026-09-22).** The emitter reaches
+the runtime, so `SortedSet<Person, by_age>` now compiles and runs.
+
+- **The emitted shape**: `SalvoSortedSet::from_elements::<__Cmp_by_age, _>(vec![…])`
+  at the construction, `collections::HostOrd` where the type names no ordering
+  (the canonical path every program took before), one module-local marker struct
+  and `SalvoCmp` impl per ordering a module mentions, and — the point —
+  `pub fn lowest<T>(s: &SalvoSortedSet<T>) -> Option<T>` with **no bound and no
+  extra parameter**, whatever it is ordered by.
+- **The bounds nearly leaked, and the fix is where they sit.** `Box<dyn
+  SortedStore<T> + Send>` puts `Send` on the *box* rather than as a supertrait,
+  and the constructors carry `T: Clone + Send + 'static` while the operations sit
+  in a bound-free `impl<T>`. With the bounds on the operations instead, every
+  emitted signature over a sorted collection needed `T: Clone + Send + 'static` —
+  which is the signature complexity the trait object exists to avoid, arriving by
+  the back door. Verified with a standalone program before rewriting: rustc wants
+  `T: 'static` only where the box is *made*.
+- **The identity flows from the position into the construction**, which it had to:
+  `sorted_set_of` cannot publish an ordering (its element may be a tuple, which
+  has no `cmp` — the wall from the last slice), so `let byage: SortedSet<Person,
+  by_age> = sorted_set_of(…)` is where the ordering is chosen. `adopt_carried_identity`
+  adds the position's identities to a keyed-container result that named none —
+  only adding, never overwriting, and only when the element types agree. The same
+  shape as [struct-lit-infer] and the empty-literal rule: an ordering is fixed *at
+  construction*, and the position is what fixes it.
+- **The checker records, the emitter reads**: `carried_identities` maps
+  (identity, element type) → the declaration it resolves to, filled where such a
+  type is *written*. The emitter needs the declaration to name the fn its marker
+  calls, and re-resolving in a backend is how the two would come to disagree.
+- **Kotlin refuses**, once per construction, naming what it waits for. Both
+  backends drop identity arguments when rendering a container's type, since the
+  ordering is carried by the container and not by the type's Rust or Kotlin
+  spelling.
+- One e2e case (`rustc_compiles_and_runs_a_keyed_container_ordering`) proves the
+  three things that matter: two sets of the same people under two orderings, one
+  generic fn over either, and `cmp`-distinct membership — a second 24-year-old is
+  not a new member under `by_age` and is one under the canonical ordering.
+
 **`binary_search` confirmed a hit with the host's equality — fixed
 (2026-09-22).** A defect ORDERING.md found while specifying keyed-container
 membership, closed on its own because it is independent of the runtimes. Both

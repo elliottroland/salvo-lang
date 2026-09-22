@@ -779,6 +779,15 @@ pub struct Checked {
     /// Recorded where a call's callee resolves to a declaration, so it
     /// covers exactly the calls whose requirements a caller must satisfy.
     pub call_edges: Vec<(FnKey, FnKey)>,
+    /// [cmp-carry] What each **carried identity** resolves to: the declaration
+    /// behind the `by_age` in a `SortedSet<Person, by_age>`, keyed by the
+    /// identity and the type it orders.
+    ///
+    /// A backend needs the *declaration* — to name the fn its generated marker
+    /// calls — and resolution is the checker's job, not a thing an emitter should
+    /// redo and possibly disagree about. Recorded where such a type is written,
+    /// which is the only place a named identity can enter.
+    pub carried_identities: HashMap<(FnId, Ty), FnKey>,
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
@@ -9230,6 +9239,62 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [cmp-carry] Resolves and records the identities a written keyed-container
+    /// type carries, so a backend can name the declaration behind each.
+    ///
+    /// Only *named* ones: a binder is filled per call [cmp-binder], and the
+    /// emitters read that from the call's implicit arguments instead.
+    fn record_carried_identities(&mut self, base: &TypeRef, arity: usize) {
+        if base.args.len() <= arity {
+            return;
+        }
+        let empty = HashMap::new();
+        let type_args: Vec<Ty> = base.args[..arity.min(base.args.len())]
+            .iter()
+            .map(|a| self.lower_type_subst(a, &empty, 0))
+            .collect();
+        let subject = match type_args.first() {
+            Some(ty) => ty.clone(),
+            None => return,
+        };
+        let name = base.name.name.clone();
+        for (at, written) in base.args[arity..].iter().enumerate() {
+            let Some(id @ FnId::Named { .. }) = self.written_fn_id(written) else {
+                continue;
+            };
+            let (fname, selector) = match &id {
+                FnId::Named { name, at } => (name.clone(), at.clone()),
+                FnId::Binder(_) => continue,
+            };
+            let Some(want) = self.type_slot_ty(&name, &type_args, at) else {
+                continue;
+            };
+            let key = (id.clone(), subject.clone());
+            if self.out.carried_identities.contains_key(&key) {
+                continue;
+            }
+            match self.resolve_implicit_fn_at(&fname, selector.as_deref(), &want) {
+                Ok((found, _)) => {
+                    self.out.carried_identities.insert(key, found);
+                }
+                Err(_) => {
+                    let slot = self
+                        .type_fn_slots(&name)
+                        .get(at)
+                        .map(|s| s.name.clone())
+                        .unwrap_or_else(|| "?".to_string());
+                    self.error(
+                        written.span(),
+                        format!(
+                            "`{id}` does not fit the `{slot}` slot of `{name}`, which \
+                             needs `{want}`"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
     /// [col-key-eligible] Reports an ineligible key in a written
     /// `Set<T>` / `Map<K, V>`. The *value* side of a map is unrestricted,
     /// so only the first argument is checked.
@@ -9240,32 +9305,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some((arity, ordered)) = keyed_container(&base.name.name) else {
             return;
         };
-        // [cmp-carry] A keyed container may *name* the ordering or hash it keeps
-        // its keys by — the slots are declared, and the Rust runtime that can
-        // honour one is written [col-keyed-slots] — but the emitters do not reach
-        // it yet, so a **named** identity is refused here rather than compiled
-        // into a container that ignores it [backend-never-wrong]. A *binder* is
-        // fine: it is resolved per call and the canonical path is unchanged.
-        if let Some(written) = base.args.get(arity) {
-            let named = !matches!(
-                written,
-                ast::Type::Named { base, .. } if base.binder
-            );
-            if named {
-                self.error(
-                    written.span(),
-                    format!(
-                        "`{}` cannot be keyed by `{written}` yet: the runtime that \
-                         carries an ordering is in place, and the emitters do not reach \
-                         it yet — see ROADMAP's ordering entry. The canonical `{}` is \
-                         what both backends honour today",
-                        base.name.name,
-                        if ordered { "cmp" } else { "hash`/`eq" }
-                    ),
-                );
-                return;
-            }
-        }
+        // [cmp-carry] A keyed container may **name** the ordering or hash it keeps
+        // its keys by. The identity is resolved *here*, where the type is
+        // written, and recorded for the backends: one of them has to name the
+        // declaration behind the name, and redoing resolution in an emitter is
+        // how the two would come to disagree.
+        self.record_carried_identities(base, arity);
+        let _ = ordered;
         if base.args.len() != arity {
             return;
         }
@@ -22504,7 +22550,44 @@ impl<'p, 'r> Checker<'p, 'r> {
         let ret = self.fn_return_ty(decl);
         self.generics = saved;
         let subst = self.settle_type_args(name, decl, &ret, subst, expected, &arg_tys, span);
-        substitute_vars(&ret, &subst, &callee_generics)
+        let result = substitute_vars(&ret, &subst, &callee_generics);
+        // [cmp-carry] An ordering is fixed **at construction**, and a keyed
+        // container's constructor cannot publish one (its element may be a tuple,
+        // which has no `cmp` to resolve — see COMPLETED.md), so the identity flows
+        // the other way: from the position the value is going into. The same
+        // shape as [struct-lit-infer] and the empty-literal rule — a value whose
+        // type the position decides.
+        self.adopt_carried_identity(result, expected)
+    }
+
+    /// [cmp-carry] The call's result, wearing the identities its *position* names
+    /// when the call itself named none. Only for a keyed container, only when the
+    /// element types agree, and only to *add* identities the result lacks — so it
+    /// cannot overwrite an ordering a value really carries.
+    fn adopt_carried_identity(&mut self, result: Ty, expected: Option<&Ty>) -> Ty {
+        let Some(expected) = expected else {
+            return result;
+        };
+        let (Ty::Named { name, args }, Ty::Named { name: en, args: ea }) =
+            (result.strip_quals(), expected.strip_quals())
+        else {
+            return result;
+        };
+        let Some((arity, _)) = keyed_container(name) else {
+            return result;
+        };
+        if name != en || args.len() > arity || ea.len() <= arity {
+            return result;
+        }
+        if args.len() != arity || args[..] != ea[..arity] {
+            return result;
+        }
+        let quals = result.quals().to_vec();
+        Ty::Named {
+            name: name.clone(),
+            args: ea.clone(),
+        }
+        .qualify(quals)
     }
 
     /// [call-type-args] Finishes a generic call's substitution and records
