@@ -35,9 +35,9 @@ pub struct MemFs {
 impl MemFs {
     pub fn new() -> Self {
         Self {
-            files: SalvoMap::from_entries(vec![]),
-            reads: SalvoMap::from_entries(vec![]),
-            writes: SalvoMap::from_entries(vec![]),
+            files: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            reads: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
+            writes: SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]),
             next_handle: 0i64,
         }
     }
@@ -116,7 +116,7 @@ impl Fs for MemFs {
         if !fs_has_children(&self.files, path) {
             return Union2::<Vec<String>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
         }
-        let mut names: SalvoSet<String> = SalvoSet::from_elements(vec![]);
+        let mut names: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
         let mut prefix = format!("{}/", path.clone());
         for mut key in self.files.clone().keys().cloned().collect::<Vec<_>>() {
             if key.starts_with(&prefix[..]) {

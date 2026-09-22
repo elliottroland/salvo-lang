@@ -62,31 +62,31 @@ pub fn count_unique(xs: &Vec<i32>) -> i32 {
 pub fn main() {
     let mut console = StdOutConsole::new();
     let mut primes = vec![2, 3, 5, 7];
-    let mut vowels = SalvoSet::from_elements(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()]);
-    let mut ages = SalvoMap::from_entries(vec![("ada".to_string(), 36), ("grace".to_string(), 45)]);
+    let mut vowels = SalvoSet::from_elements::<HostHash, HostEq, _>(vec!["a".to_string(), "e".to_string(), "i".to_string(), "o".to_string(), "u".to_string()]);
+    let mut ages = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("ada".to_string(), 36), ("grace".to_string(), 45)]);
     println(&mut console, &(format!("1. list {}", format!("[{}]", primes.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     println(&mut console, &(format!("1. set {} of {}", vowels.to_string(), (vowels.len() as i32))));
     println(&mut console, &(format!("1. map {}", ages.to_string())));
     let mut note: Note = Note { text: "still a struct literal".to_string() };
     println(&mut console, &(format!("1. struct {}", note.text.clone())));
-    let mut seen: SalvoSet<String> = SalvoSet::from_elements(vec![]);
+    let mut seen: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
     seen.insert("first".to_string());
     println(&mut console, &(format!("1. empty then filled {}", seen.to_string())));
-    let mut tally: SalvoMap<String, i32> = SalvoMap::from_entries(vec![("pear".to_string(), 1), ("apple".to_string(), 2)]);
+    let mut tally: SalvoMap<String, i32> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![("pear".to_string(), 1), ("apple".to_string(), 2)]);
     tally.insert("fig".to_string(), 3);
     tally.insert("pear".to_string(), 99);
     println(&mut console, &(format!("2. insertion order kept {}", tally.to_string())));
-    let mut ranked: SalvoSortedSet<String> = collections::SalvoSortedSet::from_elements::<collections::HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
+    let mut ranked: SalvoSortedSet<String> = SalvoSortedSet::from_elements::<HostOrd, _>(vec!["pear".to_string(), "apple".to_string(), "fig".to_string()]);
     println(&mut console, &(format!("2. key order {}", format!("{{{}}}", ranked.to_vec().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut smallest = ranked.min().cloned();
     if smallest.is_some() {
         println(&mut console, &(format!("2. min is cheap here {}", smallest.as_ref().unwrap().clone())));
     }
-    let mut corners: SalvoSet<Point> = SalvoSet::from_elements(vec![]);
+    let mut corners: SalvoSet<Point> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
     corners.insert(Point { x: 0, y: 0 });
     let mut again = corners.insert(Point { x: 0, y: 0 });
     println(&mut console, &(format!("3. struct key: size {}, second add {}", (corners.len() as i32), again)));
-    let mut labels: SalvoMap<Point, String> = SalvoMap::from_entries(vec![]);
+    let mut labels: SalvoMap<Point, String> = SalvoMap::from_entries::<HostHash, HostEq, _>(vec![]);
     labels.insert(Point { x: 1, y: 1 }, "diagonal".to_string());
     let mut found = labels.get(&Point { x: 1, y: 1 });
     if found.is_some() {
@@ -104,10 +104,10 @@ pub fn main() {
     println(&mut console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
     println(&mut console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
-    let mut deduped = SalvoSet::from_elements(primes.iter().cloned());
+    let mut deduped = SalvoSet::from_elements::<HostHash, HostEq, _>(primes.iter().cloned());
     println(&mut console, &(format!("5. to_set {}", deduped.to_string())));
     let mut words = vec!["alpha".to_string(), "be".to_string()];
-    let mut lengths = SalvoMap::from_entries(words.iter().map(|w| (w.clone(), (w.chars().count() as i32))));
+    let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), (w.chars().count() as i32))));
     println(&mut console, &(format!("5. to_map with a rule {}", lengths.to_string())));
     let mut filled = non_empty_list(&("ada".to_string()), vec!["grace".to_string()]);
     println(&mut console, &(format!("6. first is {}, no optional", first(&filled))));

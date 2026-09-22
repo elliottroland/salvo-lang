@@ -280,13 +280,11 @@ In brief:
      construction, `HostOrd` for the canonical path, the identity flowing from the
      position into the construction, and `carried_identities` recording what each
      identity resolves to (COMPLETED.md has the shape and the two traps);
-   - **the hash pair**: `SalvoSet`/`SalvoMap` keyed by the slots' `hash`/`eq`
-     (through a `HashBy<H, E, T>` wrapper and a boxed store, exactly as the sorted
-     pair) instead of the host's `Hash`/`Eq`. It also closes a **pre-existing
-     defect** found 2026-09-22: a generic fn over a `Set<T>` that *hashes* does not
-     compile on Rust today — the emitter writes `<T: Clone>` while the runtime's
-     hashing operations need `T: Hash + Eq`. Moving them behind a store makes every
-     operation bound-free, which removes the requirement instead of adding one;
+   - ✅ **the Rust hash pair** — **landed 2026-09-22**, and it closed the
+     pre-existing defect it was going to inherit: a generic fn over a `Set<T>` that
+     hashes used to type-check and then fail in rustc, because the runtime's hashing
+     operations needed bounds the emitter does not write. Behind the store every
+     operation is bound-free (COMPLETED.md has the two resolution traps);
    - ✅ **Kotlin's sorted half** — **landed 2026-09-22**: the `TreeSet`/`TreeMap`
      comparator comes from the identity, so a named ordering now runs on both
      backends from one source. Its **hash** half still needs a runtime container,

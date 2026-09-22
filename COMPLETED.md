@@ -128,6 +128,33 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4b, fifth slice — the Rust hash pair behind
+a store, which closed a defect (2026-09-22).** `SalvoMap`/`SalvoSet` are keyed by
+the `hash` and `eq` their type names, through the same shape the sorted pair
+uses: `SalvoHash`/`SalvoEq` traits, zero-sized markers, a `#[repr(transparent)]`
+`HashBy<H, E, T>` for clone-free probes, and a `Box<dyn MapStore<K, V> + Send>`
+that erases the pair at the container's edge. `HostHash`/`HostEq` are the
+canonical path, so every existing program keeps the host's hashing.
+
+- **It removed bounds rather than adding them, and that fixed a live defect.**
+  `SalvoMap`'s hashing operations used to sit in an `impl<K: Hash + Eq + Clone>`,
+  while the emitter writes `<T: Clone>` on a generic fn — so
+  `fn has<T>(s: Set<T>, e: T) -> Bool { return contains(s, e) }` type-checked and
+  then **failed in rustc**: a program the checker accepted and the backend could
+  not build. Behind the store every operation is bound-free, so it compiles now,
+  and there is an e2e test for it.
+- **Iteration stayed an ordinary iterator.** The store exposes its insertion-order
+  slab (`fn slots(&self) -> &[Option<(K, V)>]`) rather than a boxed iterator, so
+  `SalvoMap::iter` is still `impl Iterator` and nothing downstream — the `for`
+  lowering, `Display`, `keys`, `values` — changed shape.
+- **Two traps, both about *where* a name resolves.** The markers and containers are
+  referenced **bare**, because the emitter's `needs_collections` flag emits
+  `use crate::collections::*;` — a `collections::` prefix breaks inside a
+  submodule (`core/memfs.rs`). And `needs_collections` has to be set when a
+  container is *built*, not only when its type is *named*: a construction whose
+  type is never written (`sorted_set_of("😀", "Ａ")` in a `let` with no annotation)
+  otherwise emitted a reference to an unimported type.
+
 **Ordering round (second plan), step 4b, fourth slice — the sorted pair on
 Kotlin, so a named ordering runs on both backends (2026-09-22).** One rule, two
 lowerings, and the same stdout from the same source: on Rust the ordering is a

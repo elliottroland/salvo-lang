@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use salvo_core::check::{Checked, Coercion, ThrowSite, UnionTest};
-use salvo_core::types::Ty;
+use salvo_core::types::{FnId, Ty};
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
 use salvo_syntax::Span;
@@ -5420,8 +5420,86 @@ impl<'p> Emitter<'p> {
         })
     }
 
+    /// [cmp-carry] The hash/equality **markers** a keyed container built here is
+    /// kept by, rendered as one argument list since the pair always travels
+    /// together [col-membership] — the host's own when its type names neither.
+    fn keyed_markers(&mut self, span: Span) -> String {
+        self.needs_collections = true;
+        match self.container_identity_markers(span) {
+            Some(pair) => pair,
+            None => "HostHash, HostEq".to_string(),
+        }
+    }
+
+    /// [cmp-carry] The generated markers for a `Set`/`Map` whose type names its
+    /// hash and equality. `None` for the canonical path.
+    fn container_identity_markers(&mut self, span: Span) -> Option<String> {
+        let ty = self.checked.expr_ty.get(&(self.file_idx, span))?.clone();
+        let Ty::Named { name, args } = ty.strip_quals() else {
+            return None;
+        };
+        if !matches!(name.as_str(), "Set" | "Map") {
+            return None;
+        }
+        let subject = args.first()?.clone();
+        let ids: Vec<FnId> = args
+            .iter()
+            .filter_map(|a| match a {
+                Ty::FnName(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        if ids.len() != 2 {
+            return None;
+        }
+        let hash = self.identity_marker(&ids[0], &subject, "Hash")?;
+        let eq = self.identity_marker(&ids[1], &subject, "Eq")?;
+        Some(format!("{hash}, {eq}"))
+    }
+
+    /// [cmp-carry] One generated marker: a zero-sized struct and the impl of the
+    /// capability's trait for it, registered on first use. The declaration behind
+    /// the name is the *checker's* answer — resolving it here could disagree with
+    /// what the checker type-checked against.
+    fn identity_marker(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
+        let marker = format!("__{kind}_{}", rs_ident(&id.to_string().replace('@', "__")));
+        if !self.ordering_markers.contains_key(&marker) {
+            let decl = self
+                .checked
+                .carried_identities
+                .get(&(id.clone(), subject.clone()))
+                .copied()
+                .and_then(|k| self.fn_by_key(k));
+            let Some(decl) = decl else {
+                self.error(format!(
+                    "the `{id}` this collection is keyed by has no resolved declaration"
+                ));
+                return None;
+            };
+            let target = self.rust_fn_name(decl);
+            let elem = self.rust_ty(subject);
+            let body = match kind {
+                "Hash" => format!(
+                    "    fn hash(__v: &{elem}) -> i64 {{ {target}(__v) }}"
+                ),
+                "Eq" => format!(
+                    "    fn eq(__a: &{elem}, __b: &{elem}) -> bool {{ {target}(__a, __b) }}"
+                ),
+                _ => format!(
+                    "    fn cmp(__a: &{elem}, __b: &{elem}) -> i32 {{ {target}(__a, __b) }}"
+                ),
+            };
+            self.needs_collections = true;
+            self.ordering_markers.insert(marker.clone(), elem.clone());
+            self.generated_items.push(format!(
+                "\npub struct {marker};\nimpl Salvo{kind}<{elem}> for {marker} {{\n{body}\n}}\n"
+            ));
+        }
+        Some(marker)
+    }
+
     /// [cmp-carry] The marker type naming the ordering the keyed container this
-    /// expression builds is kept by — `collections::HostOrd` when its type names
+    /// expression builds is kept by — `HostOrd` when its type names
     /// none, which is the canonical path every program took before orderings
     /// could be named, and a generated marker when it names one.
     ///
@@ -5436,10 +5514,13 @@ impl<'p> Emitter<'p> {
         if !matches!(name.as_str(), "SortedSet" | "SortedMap") {
             return None;
         }
+        // Building one needs the runtime module, whether or not this module also
+        // names the type [rs-collections].
+        self.needs_collections = true;
         let subject = args.first()?.clone();
         let Some(Ty::FnName(id)) = args.iter().find(|a| matches!(a, Ty::FnName(_))) else {
             // No identity in the type: the host's own ordering, as ever.
-            return Some("collections::HostOrd".to_string());
+            return Some("HostOrd".to_string());
         };
         let marker = format!("__Cmp_{}", rs_ident(&id.to_string().replace('@', "__")));
         if !self.ordering_markers.contains_key(&marker) {
@@ -5457,14 +5538,15 @@ impl<'p> Emitter<'p> {
                 self.error(format!(
                     "the ordering `{id}` of this collection has no resolved declaration"
                 ));
-                return Some("collections::HostOrd".to_string());
+                return Some("HostOrd".to_string());
             };
             let target = self.rust_fn_name(decl);
             let elem = self.rust_ty(&subject);
+            self.needs_collections = true;
             self.ordering_markers.insert(marker.clone(), elem.clone());
             self.generated_items.push(format!(
                 "\npub struct {marker};\n\
-                 impl collections::SalvoCmp<{elem}> for {marker} {{\n    \
+                 impl SalvoCmp<{elem}> for {marker} {{\n    \
                  fn cmp(__a: &{elem}, __b: &{elem}) -> i32 {{ {target}(__a, __b) }}\n\
                  }}\n"
             ));
@@ -9955,21 +10037,29 @@ impl<'p> Emitter<'p> {
                 // `List` position an empty list.
                 match self.ty_of(*span).map(|t| t.strip_quals()) {
                     Some(Ty::Named { name, .. }) if name == "Map" => {
-                        "SalvoMap::from_entries(vec![])".to_string()
+                        "SalvoMap::from_entries::<HostHash, HostEq, _>(vec![])".to_string()
                     }
                     Some(Ty::Named { name, .. }) if name == "List" => {
                         format!("vec![{}]", items.join(", "))
                     }
-                    _ => format!("SalvoSet::from_elements(vec![{}])", items.join(", ")),
+                    _ => format!(
+                        "SalvoSet::from_elements::<{}, _>(vec![{}])",
+                        self.keyed_markers(*span),
+                        items.join(", ")
+                    ),
                 }
             }
-            Expr::MapLit { entries, .. } => {
+            Expr::MapLit { entries, span, .. } => {
                 self.needs_collections = true;
                 let items: Vec<String> = entries
                     .iter()
                     .map(|(k, v)| format!("({}, {})", self.emit_owned(k), self.emit_owned(v)))
                     .collect();
-                format!("SalvoMap::from_entries(vec![{}])", items.join(", "))
+                format!(
+                    "SalvoMap::from_entries::<{}, _>(vec![{}])",
+                    self.keyed_markers(*span),
+                    items.join(", ")
+                )
             }
             Expr::Tuple { elems, .. } => {
                 let items: Vec<String> = elems.iter().map(|e| self.emit_expr(e)).collect();

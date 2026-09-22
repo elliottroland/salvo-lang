@@ -5563,6 +5563,44 @@ fn main() [use] {
 
 pub const KEYED_OUTPUT: &str = "byname Ada of 3\nbyage Bob of 3\ntwin false true\n";
 
+/// [rs-collections] A generic function over a **hash** container that actually
+/// hashes. This did not compile before the keyed containers moved behind a store
+/// (2026-09-22): the emitter writes `<T: Clone>` while the runtime's hashing
+/// operations needed `T: Hash + Eq`, so `contains` inside generic code was a
+/// rustc error in emitted output — a program the checker accepted and the backend
+/// could not build. Every operation is bound-free now, which removed the
+/// requirement rather than adding one.
+#[test]
+fn rustc_compiles_and_runs_a_generic_over_a_hash_container() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let src = r#"
+fn has<T>(s: Set<T>, e: T) -> Bool => s, e {
+    return contains(s, e)
+}
+
+fn tally<K, V>(m: Map<K, V>) -> Int => m {
+    return size(m)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let seen = set_of(1, 2, 3)
+    let ages: Map<Str, Int> = {"ada": 36, "bob": 24}
+    println("has ${has(seen, 2)} ${has(seen, 9)} of ${tally(ages)}")
+    println("map ${to_str(ages)}")
+}
+"#;
+    let files = generate(&[("main.sv", src)]);
+    run_rust_files(
+        &files,
+        "generic_hash_container",
+        "has true false of 2\nmap {ada: 36, bob: 24}\n",
+    );
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_keyed_container_ordering() {
     if !rustc_available() {

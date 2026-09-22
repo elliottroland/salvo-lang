@@ -592,31 +592,265 @@ use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-pub struct SalvoMap<K, V> {
-    slots: Vec<Option<(K, V)>>,
-    index: HashMap<K, usize>,
+// ===== the hash and equality a keyed container is kept by [cmp-carry] =====
+
+/// One Salvo `hash`, as a **type**, exactly as `SalvoCmp` is one ordering: the
+/// compiler emits a zero-sized marker per bound identity and implements this for
+/// it, so hashing is a direct call and no key pays to store a function.
+pub trait SalvoHash<T> {
+    fn hash(value: &T) -> i64;
 }
 
-// Operations that never hash a key: available for any `K`.
-impl<K, V> SalvoMap<K, V> {
-    pub fn new() -> Self {
-        SalvoMap {
+/// …and one `eq`. A hash container buckets by `hash` and confirms the bucket hit
+/// by `eq`, which is why the two travel together [col-membership].
+pub trait SalvoEq<T> {
+    fn eq(a: &T, b: &T) -> bool;
+}
+
+/// The **canonical** pair: the host's own hashing and equality, which is what
+/// every keyed container used before a hash could be named — and for a generated
+/// `auto fn hash`/`auto fn eq` it is the same function [cmp-auto].
+pub struct HostHash;
+
+impl<T: Hash> SalvoHash<T> for HostHash {
+    fn hash(value: &T) -> i64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        value.hash(&mut hasher);
+        std::hash::Hasher::finish(&hasher) as i64
+    }
+}
+
+pub struct HostEq;
+
+impl<T: PartialEq> SalvoEq<T> for HostEq {
+    fn eq(a: &T, b: &T) -> bool {
+        a == b
+    }
+}
+
+/// A key wearing a hash and an equality. `#[repr(transparent)]` for the same
+/// reason `OrdBy` is: it lets a borrowed key be *viewed* as a borrowed wrapper,
+/// so a lookup costs no clone.
+#[repr(transparent)]
+struct HashBy<H, E, T>(T, PhantomData<(H, E)>);
+
+impl<H, E, T> HashBy<H, E, T> {
+    fn wrap(value: T) -> Self {
+        HashBy(value, PhantomData)
+    }
+
+    /// A borrowed key as a borrowed wrapper.
+    fn probe(value: &T) -> &Self {
+        // SAFETY: `HashBy` is `#[repr(transparent)]` over `T` — the
+        // `PhantomData` is zero-sized, so `T` is its only non-zero-sized field.
+        // The language therefore guarantees identical size, alignment and
+        // validity, so the memory behind a live `&T` is a valid
+        // `HashBy<H, E, T>`; the result borrows it for the same lifetime, and
+        // both references are shared. As with `OrdBy`, there is deliberately no
+        // mutable form: writing through one could break the index's invariant.
+        unsafe { &*(value as *const T as *const HashBy<H, E, T>) }
+    }
+}
+
+impl<H: SalvoHash<T>, E, T> Hash for HashBy<H, E, T> {
+    fn hash<S: std::hash::Hasher>(&self, state: &mut S) {
+        state.write_i64(H::hash(&self.0));
+    }
+}
+
+impl<H, E: SalvoEq<T>, T> PartialEq for HashBy<H, E, T> {
+    fn eq(&self, other: &Self) -> bool {
+        E::eq(&self.0, &other.0)
+    }
+}
+
+impl<H, E: SalvoEq<T>, T> Eq for HashBy<H, E, T> {}
+
+// ===== the store, generic over the pair =====
+
+/// The insertion-ordered map behind `SalvoMap`, with the hash and equality its
+/// keys are kept by erased at this boundary — so `SalvoMap<K, V>` is one Rust
+/// type however its keys are hashed, and a Salvo fn over a map is emitted with no
+/// parameter and no bound for the difference.
+trait MapStore<K, V> {
+    fn get(&self, key: &K) -> Option<&V>;
+    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
+    fn insert(&mut self, key: K, value: V);
+    fn replace(&mut self, key: K, value: V) -> Option<V>;
+    fn remove(&mut self, key: &K) -> Option<V>;
+    fn contains_key(&self, key: &K) -> bool;
+    fn len(&self) -> usize;
+    /// The slab, in insertion order: what iteration walks. Exposing it keeps
+    /// `SalvoMap::iter` an ordinary iterator rather than a boxed one.
+    fn slots(&self) -> &[Option<(K, V)>];
+    fn take_values(&mut self) -> Vec<V>;
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send>;
+}
+
+struct HashedStore<H, E, K, V> {
+    slots: Vec<Option<(K, V)>>,
+    index: HashMap<HashBy<H, E, K>, usize>,
+}
+
+impl<H, E, K, V> HashedStore<H, E, K, V> {
+    fn new() -> Self {
+        HashedStore {
             slots: Vec::new(),
             index: HashMap::new(),
         }
     }
+}
 
-    pub fn len(&self) -> usize {
+impl<H, E, K, V> MapStore<K, V> for HashedStore<H, E, K, V>
+where
+    H: SalvoHash<K> + Send + 'static,
+    E: SalvoEq<K> + Send + 'static,
+    K: Clone + Send + 'static,
+    V: Clone + Send + 'static,
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
+        self.slots[i].as_ref().map(|(_, v)| v)
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = *self.index.get(HashBy::<H, E, K>::probe(key))?;
+        self.slots[i].as_mut().map(|(_, v)| v)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
+            Some(&i) => self.slots[i] = Some((key, value)),
+            None => {
+                self.slots.push(Some((key.clone(), value)));
+                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
+            }
+        }
+    }
+
+    fn replace(&mut self, key: K, value: V) -> Option<V> {
+        match self.index.get(HashBy::<H, E, K>::probe(&key)) {
+            Some(&i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
+            None => {
+                self.slots.push(Some((key.clone(), value)));
+                self.index.insert(HashBy::wrap(key), self.slots.len() - 1);
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let i = self.index.remove(HashBy::<H, E, K>::probe(key))?;
+        let taken = self.slots[i].take().map(|(_, v)| v);
+        self.compact_if_sparse();
+        taken
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.index.contains_key(HashBy::<H, E, K>::probe(key))
+    }
+
+    fn len(&self) -> usize {
         self.index.len()
     }
 
+    fn slots(&self) -> &[Option<(K, V)>] {
+        &self.slots
+    }
+
+    fn take_values(&mut self) -> Vec<V> {
+        self.index.clear();
+        std::mem::take(&mut self.slots)
+            .into_iter()
+            .flatten()
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
+        let mut store = HashedStore::<H, E, K, V>::new();
+        store.slots = self.slots.clone();
+        for (i, slot) in store.slots.iter().enumerate() {
+            if let Some((k, _)) = slot {
+                store.index.insert(HashBy::wrap(k.clone()), i);
+            }
+        }
+        Box::new(store)
+    }
+}
+
+impl<H, E, K, V> HashedStore<H, E, K, V>
+where
+    H: SalvoHash<K>,
+    E: SalvoEq<K>,
+    K: Clone,
+{
+    fn compact_if_sparse(&mut self) {
+        let live = self.index.len();
+        if self.slots.len() <= 2 * live + 8 {
+            return;
+        }
+        self.slots.retain(|s| s.is_some());
+        self.index.clear();
+        for (i, slot) in self.slots.iter().enumerate() {
+            if let Some((k, _)) = slot {
+                self.index.insert(HashBy::wrap(k.clone()), i);
+            }
+        }
+    }
+}
+
+pub struct SalvoMap<K, V> {
+    // `+ Send` on the box rather than on the trait: a map is sendable when its
+    // keys and values are, and stating it here keeps every operation bound-free —
+    // so a Salvo fn over a map is emitted with no bounds of its own.
+    store: Box<dyn MapStore<K, V> + Send>,
+}
+
+// Building one names the hash and the equality its keys are kept by, which is the
+// only place the markers appear.
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoMap<K, V> {
+    pub fn new<H, E>() -> Self
+    where
+        H: SalvoHash<K> + Send + 'static,
+        E: SalvoEq<K> + Send + 'static,
+    {
+        SalvoMap {
+            store: Box::new(HashedStore::<H, E, K, V>::new()),
+        }
+    }
+
+    /// The constructor lowering's entry point: `map_of(("a", 1), ...)`.
+    /// A repeated key keeps the position of its first appearance and takes
+    /// the value of its last [col-duplicate-keys].
+    pub fn from_entries<H, E, I>(entries: I) -> Self
+    where
+        H: SalvoHash<K> + Send + 'static,
+        E: SalvoEq<K> + Send + 'static,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        let mut map = SalvoMap::new::<H, E>();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
+    }
+}
+
+// Using one needs nothing of `K` or `V`: every operation goes through the store.
+impl<K, V> SalvoMap<K, V> {
+    pub fn len(&self) -> usize {
+        self.store.len()
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.index.is_empty()
+        self.len() == 0
     }
 
     /// Entries in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.slots
+        self.store
+            .slots()
             .iter()
             .filter_map(|s| s.as_ref().map(|(k, v)| (k, v)))
     }
@@ -628,51 +862,26 @@ impl<K, V> SalvoMap<K, V> {
     pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
         self.iter().map(|(_, v)| v)
     }
-}
-
-// Operations that hash.
-impl<K: Hash + Eq + Clone, V> SalvoMap<K, V> {
-    /// The constructor lowering's entry point: `map_of(("a", 1), ...)`.
-    /// A repeated key keeps the position of its first appearance and takes
-    /// the value of its last [col-duplicate-keys].
-    pub fn from_entries<I: IntoIterator<Item = (K, V)>>(entries: I) -> Self {
-        let mut map = SalvoMap::new();
-        for (k, v) in entries {
-            map.insert(k, v);
-        }
-        map
-    }
 
     /// Inserts or overwrites. An overwrite keeps the key's original
     /// position, so iteration order is stable under updates.
     pub fn insert(&mut self, key: K, value: V) {
-        match self.index.get(&key) {
-            Some(&i) => self.slots[i] = Some((key, value)),
-            None => {
-                self.slots.push(Some((key.clone(), value)));
-                self.index.insert(key, self.slots.len() - 1);
-            }
-        }
+        self.store.insert(key, value)
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
-        let i = *self.index.get(key)?;
-        self.slots[i].as_ref().map(|(_, v)| v)
+        self.store.get(key)
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        let i = *self.index.get(key)?;
-        self.slots[i].as_mut().map(|(_, v)| v)
+        self.store.get_mut(key)
     }
 
     /// Removes the entry and hands its value back — the shape Salvo's
     /// `remove(map, key) -> V?` needs, so a caller can take ownership of
     /// what the map was holding.
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        let i = self.index.remove(key)?;
-        let taken = self.slots[i].take().map(|(_, v)| v);
-        self.compact_if_sparse();
-        taken
+        self.store.remove(key)
     }
 
     /// [linear-container] Inserts and answers what it **displaced** — the
@@ -680,67 +889,39 @@ impl<K: Hash + Eq + Clone, V> SalvoMap<K, V> {
     /// of obligations can have: an overwrite that dropped the old value would
     /// be a silent discard. Like `insert`, an existing key keeps its position.
     pub fn replace(&mut self, key: K, value: V) -> Option<V> {
-        match self.index.get(&key) {
-            Some(&i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
-            None => {
-                self.slots.push(Some((key.clone(), value)));
-                self.index.insert(key, self.slots.len() - 1);
-                None
-            }
-        }
+        self.store.replace(key, value)
     }
 
     /// [linear-container] Consumes the map and answers its values in
     /// insertion order — what `drain(map, each)` hands to its callback, one
     /// at a time.
-    pub fn into_values(self) -> Vec<V> {
-        self.slots.into_iter().flatten().map(|(_, v)| v).collect()
+    pub fn into_values(mut self) -> Vec<V> {
+        self.store.take_values()
     }
 
     pub fn contains_key(&self, key: &K) -> bool {
-        self.index.contains_key(key)
-    }
-
-    fn compact_if_sparse(&mut self) {
-        let live = self.index.len();
-        if self.slots.len() <= 2 * live + 8 {
-            return;
-        }
-        self.slots.retain(|s| s.is_some());
-        self.index.clear();
-        for (i, slot) in self.slots.iter().enumerate() {
-            if let Some((k, _)) = slot {
-                self.index.insert(k.clone(), i);
-            }
-        }
+        self.store.contains_key(key)
     }
 }
 
-impl<K, V> Default for SalvoMap<K, V> {
-    fn default() -> Self {
-        SalvoMap::new()
-    }
-}
-
-// Field-wise, so no key is rehashed and no bound beyond `Clone` is needed.
-impl<K: Clone, V: Clone> Clone for SalvoMap<K, V> {
+// Through the store, so no key is rehashed and no bound is needed here.
+impl<K, V> Clone for SalvoMap<K, V> {
     fn clone(&self) -> Self {
         SalvoMap {
-            slots: self.slots.clone(),
-            index: self.index.clone(),
+            store: self.store.clone_box(),
         }
     }
 }
 
 /// Order-insensitive, matching the JVM's `AbstractMap.equals` so `==` on a
 /// map means the same thing on both backends [col-equality].
-impl<K: Hash + Eq + Clone, V: PartialEq> PartialEq for SalvoMap<K, V> {
+impl<K, V: PartialEq> PartialEq for SalvoMap<K, V> {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().all(|(k, v)| other.get(k) == Some(v))
     }
 }
 
-impl<K: Hash + Eq + Clone, V: Eq> Eq for SalvoMap<K, V> {}
+impl<K, V: Eq> Eq for SalvoMap<K, V> {}
 
 /// `{a: 1, b: 2}` — the language's format, in insertion order, matching
 /// the map literal that would build it [col-to-str]. Walking only, so no
@@ -773,14 +954,34 @@ pub struct SalvoSet<T> {
     entries: SalvoMap<T, ()>,
 }
 
-// Operations that never hash an element.
-impl<T> SalvoSet<T> {
-    pub fn new() -> Self {
+// Building one names the pair its elements are kept by.
+impl<T: Clone + Send + 'static> SalvoSet<T> {
+    pub fn new<H, E>() -> Self
+    where
+        H: SalvoHash<T> + Send + 'static,
+        E: SalvoEq<T> + Send + 'static,
+    {
         SalvoSet {
-            entries: SalvoMap::new(),
+            entries: SalvoMap::new::<H, E>(),
         }
     }
 
+    pub fn from_elements<H, E, I>(elems: I) -> Self
+    where
+        H: SalvoHash<T> + Send + 'static,
+        E: SalvoEq<T> + Send + 'static,
+        I: IntoIterator<Item = T>,
+    {
+        let mut set = SalvoSet::new::<H, E>();
+        for e in elems {
+            set.insert(e);
+        }
+        set
+    }
+}
+
+// Using one needs nothing of `T`.
+impl<T> SalvoSet<T> {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -792,17 +993,6 @@ impl<T> SalvoSet<T> {
     /// Elements in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
         self.entries.keys()
-    }
-}
-
-// Operations that hash.
-impl<T: Hash + Eq + Clone> SalvoSet<T> {
-    pub fn from_elements<I: IntoIterator<Item = T>>(elems: I) -> Self {
-        let mut set = SalvoSet::new();
-        for e in elems {
-            set.insert(e);
-        }
-        set
     }
 
     /// `true` when the element was newly added, which is what Salvo's
@@ -825,13 +1015,7 @@ impl<T: Hash + Eq + Clone> SalvoSet<T> {
     }
 }
 
-impl<T> Default for SalvoSet<T> {
-    fn default() -> Self {
-        SalvoSet::new()
-    }
-}
-
-impl<T: Clone> Clone for SalvoSet<T> {
+impl<T> Clone for SalvoSet<T> {
     fn clone(&self) -> Self {
         SalvoSet {
             entries: self.entries.clone(),
@@ -840,13 +1024,13 @@ impl<T: Clone> Clone for SalvoSet<T> {
 }
 
 /// Order-insensitive, like the JVM's `AbstractSet.equals`.
-impl<T: Hash + Eq + Clone> PartialEq for SalvoSet<T> {
+impl<T> PartialEq for SalvoSet<T> {
     fn eq(&self, other: &Self) -> bool {
         self.len() == other.len() && self.iter().all(|e| other.contains(e))
     }
 }
 
-impl<T: Hash + Eq + Clone> Eq for SalvoSet<T> {}
+impl<T> Eq for SalvoSet<T> {}
 
 /// `{1, 2, 3}` — the set literal that would build it.
 impl<T: fmt::Display> fmt::Display for SalvoSet<T> {
