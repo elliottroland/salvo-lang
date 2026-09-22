@@ -5229,7 +5229,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_fn(&mut self, f: &'p FnDecl, extra_params: &'p [Param], state: &'p [FieldDecl]) {
         let saved_generics = self.enter_generics(&f.generics);
         self.require_explicit_decl(f);
-        if f.body.is_none() {
+        // [cmp-auto] An `auto fn` is bodiless too, but nothing is unknown about
+        // it: the compiler writes the body, and what it writes *reads* its
+        // parameters — comparing or hashing a value keeps it — so the clause is
+        // the keep-everything default rather than something the author has to
+        // state. (Which is also what the group member it implements declares
+        // [fn-contract].)
+        if f.body.is_none() && !f.structural {
             self.require_full_clause(f, "an `intrinsic fn`");
         }
         for p in &f.params {
@@ -9231,13 +9237,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [col-sorted] The sorted collections need an *orderable* key, the
         // unordered ones a *hashable* one — different bars, so the container
         // decides which is checked.
-        let (arity, ordered) = match base.name.name.as_str() {
-            "Set" => (1, false),
-            "Map" => (2, false),
-            "SortedSet" => (1, true),
-            "SortedMap" => (2, true),
-            _ => return,
+        let Some((arity, ordered)) = keyed_container(&base.name.name) else {
+            return;
         };
+        // [cmp-carry] A keyed container may *name* the ordering or hash it keeps
+        // its keys by — the slots are declared — but neither runtime can honour a
+        // non-canonical one yet: a `BTreeSet` takes no comparator and a
+        // `LinkedHashSet` keys off `hashCode`/`equals`, so the containers have to
+        // become Salvo-runtime ones first. Refused rather than emitted wrongly
+        // [backend-never-wrong], and the message says what it is waiting for.
+        if base.args.len() > arity {
+            let written = base.args[arity].to_string();
+            self.error(
+                base.args[arity].span(),
+                format!(
+                    "`{}` cannot be keyed by `{written}` yet: the canonical `{}` is the \
+                     only one either backend can honour, because a keyed container has \
+                     to carry the function at run time and neither host's container has \
+                     a slot for one. The declaration is ready and the runtimes are not \
+                     — see ROADMAP's ordering entry",
+                    base.name.name,
+                    if ordered { "cmp" } else { "hash`/`eq" }
+                ),
+            );
+            return;
+        }
         if base.args.len() != arity {
             return;
         }
@@ -13895,19 +13919,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         // padding them keeps every mention of the qualifier the same arity,
         // which is what lets a bare `Heap` and a `Heap<Person, cmp@Person>`
         // compare at all.
-        let mut out = types;
-        while out.len() < type_arity {
-            out.push(Ty::Unknown);
-        }
-        for (at, slot) in slots.iter().enumerate() {
-            out.push(match filled[at].take() {
-                Some(ty) => ty,
+        let identities: Vec<Ty> = slots
+            .iter()
+            .enumerate()
+            .map(|(at, slot)| match &filled[at] {
+                Some(ty) => ty.clone(),
                 None => match &slot.default {
                     Some(id) => Ty::FnName(id.clone()),
                     None => Ty::Unknown,
                 },
-            });
+            })
+            .collect();
+        // [cmp-carry] **The default is not materialized.** When every slot holds
+        // what the declaration says it holds anyway, the type carries no identity
+        // arguments at all — so `Set<Str>` is exactly the type it has always
+        // been, a bare `Heap` carries nothing, and only a type that says
+        // something *different* about its ordering grows an argument to say it
+        // in. That is what keeps this change out of the hundreds of places that
+        // read a container's type arguments positionally.
+        let at_default = slots.iter().zip(&identities).all(|(slot, id)| match &slot.default {
+            Some(d) => *id == Ty::FnName(d.clone()),
+            None => id.is_unknown(),
+        });
+        let mut out = types;
+        if at_default {
+            return out;
         }
+        while out.len() < type_arity {
+            out.push(Ty::Unknown);
+        }
+        out.extend(identities);
         out
     }
 
@@ -14139,7 +14180,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .opaque_types
                     .get(name)
                     .map_or(0, |d| d.generics.len());
-                self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth)
+                let lowered = self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth);
+                // [cmp-carry] A keyed container whose runtime cannot honour a
+                // non-canonical identity yet lowers to the container *without*
+                // it: the refusal is `check_key_eligibility`'s, reported once at
+                // the written type, and degrading here keeps that one mistake to
+                // one diagnostic instead of cascading through every call the
+                // value reaches [type-unknown-lenient].
+                if keyed_container(name).is_some() && lowered.len() > arity {
+                    lowered.into_iter().take(arity).collect()
+                } else {
+                    lowered
+                }
             }
         };
         // Type aliases expand structurally (with generic substitution).
@@ -20879,6 +20931,21 @@ struct FnSlotInfo {
     name: String,
     ty: Ty,
     default: Option<FnId>,
+}
+
+/// [col-key-eligible] [cmp-carry] The four **keyed containers**, with how many
+/// type arguments each takes and whether its keys are kept in order. One list,
+/// read by the key-eligibility check and by the lowering that degrades a
+/// not-yet-supported identity, so the two cannot disagree about what a keyed
+/// container is.
+fn keyed_container(name: &str) -> Option<(usize, bool)> {
+    match name {
+        "Set" => Some((1, false)),
+        "Map" => Some((2, false)),
+        "SortedSet" => Some((1, true)),
+        "SortedMap" => Some((2, true)),
+        _ => None,
+    }
 }
 
 /// [cmp-carry] [implicit-group] Adds a slot to an expanded list, **merging** an

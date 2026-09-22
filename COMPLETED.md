@@ -128,6 +128,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Ordering round (second plan), step 4a — the keyed containers declare their
+slots (2026-09-22).** The language half of ORDERING.md's step 4: `SortedSet<T,
+?cmp = cmp>`, `SortedMap<K, V, ?cmp = cmp>`, `Set<T, ?hash = hash, ?eq = eq>` and
+`Map<K, V, ?hash = hash, ?eq = eq>`, with **membership named per container** —
+`eq`-distinct for the hash pair, `cmp`-distinct for the sorted pair
+[col-membership] [col-keyed-slots].
+
+- **The default is not materialized**, and that one choice is why this is a small
+  change rather than a sprawling one. A container whose slots all hold what the
+  declaration says anyway carries *no* identity arguments, so `Set<Str>` stays the
+  one-argument type it has always been — and the hundreds of places that read a
+  container's arguments positionally (85 in the emitters alone) never see an
+  identity. Padding the defaults instead would have meant editing every one of
+  them, plus every arity literal (`args.len() == 1`) in the checker.
+- **A non-canonical identity is refused, for now**, at the written type and with a
+  message naming what it waits for. The runtimes are the other half of step 4:
+  Rust's `BTreeSet` takes no comparator and Kotlin's `LinkedHashSet` keys off
+  `hashCode`/`equals`, so both containers have to become Salvo-runtime ones
+  carrying the slot's function before a `SortedSet<Person, by_age>` can exist. An
+  error rather than wrong output; the type then **degrades to the canonical
+  form**, which is what keeps the refusal to one diagnostic instead of a cascade
+  through every call the value reaches.
+- **A lowering choice worth recording for 4b**: ORDERING.md's design is Rust
+  markers plus an `OrdBy` wrapper, which needs a hidden marker generic threaded
+  through every signature over a keyed container. Since identities are *static*
+  (a named top-level fn), a plain `fn` pointer is Copy and Send — so a
+  Salvo-runtime container holding `cmp: fn(&T, &T) -> i32` is sendable too, needs
+  no type-system machinery at all, and is symmetric with what Kotlin must do
+  anyway. That is the route 4b should take unless the asymptotics of a sorted Vec
+  turn out to matter; the markers stay recorded as the optimization.
+- **Found and fixed on the way**: an `auto fn` was being asked for a deduction
+  clause like an `intrinsic fn` ("has no body to infer from"). It needs none — the
+  compiler writes the body and what it writes *reads* its parameters — so a
+  structural fn now takes the keep-everything default, which is also what the
+  group member it implements declares.
+- Two tests in `collection_tests.rs`; the four hand-written preludes there needed
+  the capability functions their new slot defaults name, which is the same
+  mirrored-std trap step 2 hit.
+
 **Ordering round (second plan), step 3 — group spreads in a slot list, aliasing,
 and the operator's ambiguity (2026-09-22).** User decision 21, and the half of
 the operator rule that goes with it.

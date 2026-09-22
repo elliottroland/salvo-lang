@@ -173,10 +173,22 @@ work is. Each step is one commit.
    qualifier's or type's generics list, `?slot: alias` at a use site, alias
    provenance recorded so the operator resolution can refuse two candidates for
    one capability.
-4. **The keyed containers.** `SortedSet<T, ?Ordered<T>>` (one slot),
-   `SortedMap<K, V, ?Ordered<K>>`, `Set<T, ?Hashed<T>>`, `Map<K, V, ?Hashed<K>>`
-   (two slots each), the two membership definitions, `binary_search`'s confirm,
-   the Rust marker/`OrdBy` machinery and the Kotlin runtime hash container.
+4. **The keyed containers**, in two halves because only the second needs the
+   runtimes:
+   - ✅ **4a, the declarations** — **landed 2026-09-22**: the four types' slots,
+     defaulted to the canonical implementation, with membership named per
+     container ([col-membership], [col-keyed-slots]). The default is **not
+     materialized**, so `Set<Str>` is unchanged; a non-canonical identity is
+     refused with a message naming what it waits for.
+   - **4b, the runtimes**: Rust's `SalvoSet`/`SalvoMap` keyed by the slots'
+     functions rather than by the host's `Hash`/`Eq`, a sorted pair that carries
+     its comparator, the Kotlin hash container, `binary_search`'s confirm
+     (`cmp == 0`, fixing the host-`==` defect), and std's own signatures gaining
+     binders so a fn can be generic over the identity. **A `fn` pointer beats the
+     marker design here**: an identity is a named top-level fn, so
+     `cmp: fn(&T, &T) -> i32` is Copy and Send, needs no hidden marker generic,
+     and is what Kotlin has to do anyway — the markers stay recorded as the
+     optimization.
 5. **`Sorted<?cmp>`** — the list claim carrying its ordering, and
    `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 

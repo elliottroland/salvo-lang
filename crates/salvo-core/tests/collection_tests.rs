@@ -27,8 +27,12 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T> canbe Mut\n",
-    "export intrinsic type Map<K, V> canbe Mut\n",
+    "export intrinsic type Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq> canbe Mut\n",
+    // [cmp-groups] The capability functions the containers' slots default to.
+    "export intrinsic fn hash(value: Int) [] -> Long => value\n",
+    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
+    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
+    "export intrinsic type Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq> canbe Mut\n",
     "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
     "export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>\n",
     "export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
@@ -267,8 +271,8 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T> canbe Mut\n",
-    "export intrinsic type Map<K, V> canbe Mut\n",
+    "export intrinsic type Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq> canbe Mut\n",
+    "export intrinsic type Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq> canbe Mut\n",
     "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
@@ -655,10 +659,10 @@ const SORTED_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T> canbe Mut\n",
-    "export intrinsic type Map<K, V> canbe Mut\n",
-    "export intrinsic type SortedSet<T> canbe Mut\n",
-    "export intrinsic type SortedMap<K, V> canbe Mut\n",
+    "export intrinsic type Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq> canbe Mut\n",
+    "export intrinsic type Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq> canbe Mut\n",
+    "export intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp> canbe Mut\n",
+    "export intrinsic type SortedMap<K, V, ?cmp: (K, K) -> Int = cmp> canbe Mut\n",
     "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
@@ -776,8 +780,8 @@ fn the_generated_constructors_and_converters_type_correctly() {
         "export intrinsic type Int\n",
         "export intrinsic type Str canbe Mut\n",
         "export intrinsic type List<T> canbe Mut\n",
-        "export intrinsic type Set<T> canbe Mut\n",
-        "export intrinsic type Map<K, V> canbe Mut\n",
+        "export intrinsic type Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq> canbe Mut\n",
+        "export intrinsic type Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq> canbe Mut\n",
         "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
         "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
         "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
@@ -787,6 +791,11 @@ fn the_generated_constructors_and_converters_type_correctly() {
         "export intrinsic fn to_set<T>(list: List<T>) [] -> Set<T> => list\n",
         "export intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs\n",
         "export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>\n    => items, entry\n",
+        // [cmp-groups] What the containers' slots default to.
+        "export intrinsic type Long\n",
+        "export intrinsic type Bool\n",
+        "export intrinsic fn hash(value: Int) [] -> Long => value\n",
+        "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     );
     let mut sources = SourceSet::default();
     sources.add(
@@ -907,3 +916,37 @@ fn one_name_twice_over_one_subject_is_a_duplicate() {
         "expected the duplicate error, got: {errs:?}"
     );
 }
+
+/// [cmp-carry] The keyed containers **name** the ordering or the hash they keep
+/// their keys by, defaulted to the canonical one (user decision 2026-09-22). The
+/// default is not materialized, so `Set<Str>` is the type it always was — which
+/// is what keeps this out of everything that reads a container's arguments.
+#[test]
+fn a_keyed_container_defaults_to_the_canonical_identity() {
+    let msgs = sorted_messages(
+        "fn probe(s: Set<Int>, o: SortedSet<Int>) -> Int => s, o {\n    \
+         return size(s) + size(o)\n}\n",
+    );
+    assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
+}
+
+/// …and a **non-canonical** one is refused for now: the declaration is ready and
+/// the runtimes are not, since a keyed container has to carry the function at run
+/// time and neither host's container has a slot for one. An error, never wrong
+/// output [backend-never-wrong] — and one error, not a cascade, because the type
+/// degrades to the canonical form after it is reported.
+#[test]
+fn a_non_canonical_key_identity_is_refused_for_now() {
+    let msgs = sorted_messages(
+        "fn by_size(a: Int, b: Int) -> Int => a, b {\n    return 0\n}\n\n\
+         fn probe(s: SortedSet<Int, by_size>) -> Int => s {\n    return size(s)\n}\n",
+    );
+    assert_eq!(msgs.len(), 1, "expected exactly one error: {msgs:?}");
+    assert!(
+        msgs[0].contains("cannot be keyed by `by_size` yet")
+            && msgs[0].contains("canonical `cmp`"),
+        "unexpected message: {}",
+        msgs[0]
+    );
+}
+

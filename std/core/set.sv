@@ -18,7 +18,7 @@
 //
 // Own module rather than part of `core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].
-export intrinsic type Set<T> canbe Mut
+export intrinsic type Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq> canbe Mut
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].

@@ -264,14 +264,18 @@ In brief:
    optional at a use site, aliasing with the destructuring syntax
    (`Heap<T, ?cmp: cmp2>`), and an alias that **remembers its slot** so two
    in-scope candidates for one capability are refused whatever they are called.
-4. **The keyed containers**: `SortedSet<T, ?Ordered<T>>`, `Set<T, ?Hashed<T>>`
-   and the two `Map`s, with **membership named per container** — `cmp(a, b) == 0`
-   for the sorted pair (which is what both hosts' BTree/TreeSet already do) and
-   `eq`-distinct for the hash pair. Then the Rust marker/`OrdBy` machinery and a
-   Kotlin runtime hash container. This step also fixes an existing defect:
+4. **The keyed containers**, split: ✅ **4a landed 2026-09-22** — the four
+   types' slots with membership named per container ([col-membership],
+   [col-keyed-slots]), the canonical default left unmaterialized so `Set<Str>` is
+   unchanged, and a non-canonical identity refused with a message naming what it
+   waits for. **4b is the runtimes**: Rust's `SalvoSet`/`SalvoMap` keyed by the
+   slots' functions instead of the host's `Hash`/`Eq`, a sorted pair carrying its
+   comparator, Kotlin's hash container, and std's signatures gaining binders so a
+   fn can be generic over the identity. It also fixes an existing defect:
    `binary_search` confirms its hit with the *host's* `==` on both backends,
-   which is neither `eq` nor `cmp == 0` — and since equality became opt-in, a
-   struct with no `eq` still gets host equality there.
+   which is neither `eq` nor `cmp == 0`. A **`fn` pointer** is the lowering to
+   use rather than ORDERING.md's markers — an identity is a named top-level fn,
+   so the pointer is Copy and Send and needs no hidden marker generic.
 5. **`Sorted<?cmp>`**: the list claim carrying its ordering, with
    `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 

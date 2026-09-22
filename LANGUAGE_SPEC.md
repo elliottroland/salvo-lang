@@ -459,6 +459,45 @@ Conventions:
     every collection an ordering it may not need, and would demand orderable
     keys where hashable ones suffice; that is what `SortedSet`/`SortedMap`
     are for [col-sorted].
+* [col-membership] **Every keyed container names the basis of its membership,
+  and the two bases are different** (user decision 2026-09-22):
+  * a `Set<T, ?hash, ?eq>`'s members are **`eq`-distinct** — it buckets by `hash`
+    and confirms a bucket hit by `eq`, which is why `Hashed<T>` declares the pair
+    [cmp-groups]. A `Map`'s keys likewise.
+  * a `SortedSet<T, ?cmp>`'s members are **`cmp`-distinct**: two elements are one
+    member when `cmp(a, b) == 0`. A `SortedMap`'s keys likewise. Equality plays no
+    part, which is not a shortcut but what both hosts do —
+    `BTreeSet`/`BTreeMap` decide duplicates by `Ord` alone, and
+    `java.util.TreeSet`/`TreeMap` by the comparator they were handed (the JDK
+    documents being "inconsistent with equals" as permitted) — and it is the only
+    rule implementable over a BTree.
+  * So a `SortedSet<Person, by_age>` keeps one person per age, by definition. The
+    two bases may disagree and that is not a contradiction: `Set<Person>` asks
+    "the same person?" and `SortedSet<Person, by_age>` asks "the same rank?".
+    Where a program needs both readings it holds both containers, which is what
+    keeping `eq` out of `Ordered<T>` is for.
+  * The slot is part of the type, so **membership depends on it**: the same values
+    collapse differently in `SortedSet<Person, cmp@Person>` and
+    `SortedSet<Person, by_age>`, and neither is the other
+    [cmp-carry].
+* [col-keyed-slots] The four keyed containers declare their slots, defaulted to
+  the canonical implementation:
+  `SortedSet<T, ?cmp: (T, T) -> Int = cmp>`,
+  `SortedMap<K, V, ?cmp: (K, K) -> Int = cmp>`,
+  `Set<T, ?hash: (T) -> Long = hash, ?eq: (T, T) -> Bool = eq>`,
+  `Map<K, V, ?hash: (K) -> Long = hash, ?eq: (K, K) -> Bool = eq>`.
+  * **The default is not materialized** [cmp-carry]: a type whose slots all hold
+    what the declaration says anyway carries no identity arguments, so `Set<Str>`
+    is exactly the type it has always been and only a container that says
+    something *different* grows an argument to say it in.
+  * **A non-canonical identity is refused for now**, at the written type, naming
+    what it waits for: a keyed container has to carry the function at run time and
+    neither host's container has a slot for one, so the containers must become
+    Salvo-runtime ones first (`SalvoSet`/`SalvoMap` keyed by the slots on Rust, a
+    hash container on Kotlin). The declarations are the language half of
+    ORDERING.md's step 4; the runtimes are the other half, still open in
+    ROADMAP.md. An error rather than wrong output [backend-never-wrong], and the
+    type then degrades to the canonical form so one mistake stays one diagnostic.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the
