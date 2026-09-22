@@ -297,7 +297,12 @@ In brief:
      of the runtimes): it was the *host's* `==` on both backends, and is now a tie
      test in the ordering the bound used, so it depends on exactly the capability
      its parameter's `Sorted` claim is about.
-5. **`Sorted<?cmp>`**: the list claim carrying its ordering, with
+5. **`Sorted<?cmp>`** — **the only item left in the round**, written out in full
+   under "Step 5 in full" in ORDERING.md (the problem, the four signatures, the
+   crux that a qualifier has nothing to hold an ordering in, the snag that no
+   `intrinsic fn` takes an implicit today with two ways out and a recommendation,
+   the file and line references, and what done looks like). In brief: the list
+   claim carrying its ordering, with
    `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
 
 `Ordered<T>` deliberately does **not** carry an `eq`: neither host's sorted

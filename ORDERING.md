@@ -192,8 +192,90 @@ work is. Each step is one commit.
      `cmp: fn(&T, &T) -> i32` is Copy and Send, needs no hidden marker generic,
      and is what Kotlin has to do anyway — the markers stay recorded as the
      optimization.
-5. **`Sorted<?cmp>`** — the list claim carrying its ordering, and
-   `sort`/`mut_sort`/`add_sorted`/`binary_search` binding it.
+5. **`Sorted<?cmp>`** — the list claim carrying its ordering. **This is all that
+   is left of the round**, and it is written out under "Step 5 in full" below.
+
+## Step 5 in full — `Sorted<?cmp>` (decision 22; the round's last item)
+
+**The problem.** `Sorted` is a *claim on a list*, minted by `sort` and demanded by
+`add_sorted` and `binary_search`:
+
+```
+export qualifier Sorted<T> of List<T> with NonEmpty            // std/core/list.sv:172
+export intrinsic fn sort<T>(list: List<T>) [] -> List<T> as Sorted => list
+export intrinsic fn add_sorted<T>(list: Mut Sorted List<T>, elem: T) [] -> None
+export intrinsic fn binary_search<T>(list: Sorted List<T>, elem: T) [] -> Int?
+```
+
+Now that orderings are plural, the claim is **not enough**: nothing says *which*
+ordering a `Sorted List<T>` is sorted by, so `add_sorted` under a different `cmp`
+than the sort used silently breaks the claim — it inserts at a position that is a
+lower bound for one ordering and nonsense for the other. The fix is the one the
+whole round is about: the claim names its ordering.
+
+```
+export qualifier Sorted<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
+
+export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> List<T> as Sorted<T, ?cmp> => list
+export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T, ?cmp> => list
+export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
+    => list: Mut Sorted, !elem
+export fn binary_search<T>(list: Sorted<T, ?cmp> List<T>, elem: T) [] -> Int? => list, elem
+```
+
+`sort` **publishes** what it sorted by; the other two **capture** it, so the
+insert position and the search are computed with the ordering the list actually
+carries. A `Sorted` written bare stays legal and unconstrained (step 3's pattern
+rule), which is what a body that only passes a sorted list along wants.
+
+**What is different from step 4, and it is the crux.** A keyed *container* holds
+its ordering at run time — that is what step 4 built. A **qualifier has nothing to
+hold it in**: `Sorted List<T>` is a plain `Vec<T>`/`MutableList<T>` with a claim,
+and qualifiers erase [qual-erasure]. So the ordering has to arrive **at each
+operation**, as the implicit parameter the binder already lowers to — which is
+exactly the "cheaper first cut" this document recorded for the qualifier case, and
+which step 3 built and tested (`carry_tests.rs`). No markers, no runtime container,
+no new type-system work.
+
+**The snag to expect.** These four are `intrinsic fn`s, and **no `intrinsic fn`
+takes an implicit parameter today** (checked 2026-09-22: 25 intrinsics, none with
+a `?`). Their lowerings are templates over rendered arguments, so the bound `cmp`
+has to reach the template. Two ways, both implementation choices:
+  * **(a)** teach the intrinsic path to pass implicit arguments — the emitters
+    already render them (`emit_implicit_args`), so the templates would receive them
+    as trailing `args`; or
+  * **(b)** make these four *ordinary Salvo fns* over a lower-level intrinsic
+    (`sort_by(list, cmp)`, `lower_bound(list, elem, cmp)`), which keeps intrinsics
+    implicit-free and puts the binding in Salvo where it reads. `filter_to`
+    (std/core/seq.sv:94) is the precedent for an ordinary fn carrying implicits.
+  * **(b) is the recommendation**: it needs no emitter surgery, and the bodies are
+    three lines each.
+
+**What it also finishes.** Today both backends sort and search by the **host's**
+ordering — Rust `__v.sort()` (derived `Ord`), Kotlin `sortedWith(__salvoCompare)` —
+so a *hand-written* `cmp@Person` is ignored by `sort`, `add_sorted` and
+`binary_search` alike. That is the other half of the `binary_search` defect fixed
+2026-09-22: its bound and confirm were made *consistent* with each other, and step
+5 makes them consistent with the **ordering the claim names**. Expect the e2e case
+to be: sort a list by a hand-written non-structural `cmp`, then `binary_search` for
+an element — which answers wrongly today.
+
+**Where things are**:
+  * the declarations: `std/core/list.sv:172–205`;
+  * the lowerings: `crates/salvo-backend-rust/src/intrinsics.rs` (`"sort"`,
+    `"add_sorted"`, `"binary_search"` around lines 239–260) and
+    `crates/salvo-backend-kotlin/src/intrinsics.rs` (around 180–205);
+  * the machinery to lean on: `qual_slot_ty` and `collect_binder_slots` in
+    `crates/salvo-core/src/check.rs` (a qualifier's slot type comes from matching
+    its `of` type against the value), and `carry_tests.rs` for the shape of a test;
+  * the rules: [cmp-carry], [cmp-binder], [col-sorted-list], [col-membership].
+
+**Done looks like**: the four signatures above, the emitters using the bound
+ordering, tests in `carry_tests.rs` (a list sorted by one ordering refusing an
+`add_sorted` bound to another) and one e2e case per backend from verbatim the same
+source, [col-sorted-list] updated to say the claim carries its ordering, a
+COMPLETED.md log entry — and then **delete this file**, since it is the last item
+in it.
 
 ## Lowering the containers (step 4's design, as decided 2026-09-21)
 
