@@ -210,6 +210,22 @@ run after a relink.)
   cargo run -- compile --backend kotlin --src ./some_dir --target ./out
   ```
 
+## Source style
+
+Small conventions the user has stated; keep them when writing or rewriting
+Salvo source.
+
+- **A deduction clause on its own line is indented with the *declaration*, not
+  the body** (2026-09-22): the clause belongs to the signature, so
+  ```
+  export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+  => heap: +Heap<T, ?cmp> Mut, !elem {
+  ```
+  at top level, and one indentation level in for a member of an effect,
+  handler or qualifier body. Indenting it into the body makes it read as the
+  first statement. [deduce-syntax] states the rule; `std/` is written that way
+  throughout.
+
 ## Non-negotiable invariants
 
 - **Language-design decisions belong to the user.** Any choice that shapes

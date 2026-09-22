@@ -82,11 +82,11 @@ export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Sort
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].
 export intrinsic fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj[from: map] V)?
-    => map, key
+=> map, key
 
 // Stores [value] under [key], replacing any value already there.
 export intrinsic fn put<K, V>(map: Mut SortedMap<K, V>, key: K, value: V) [] -> None
-    => map: Mut, !key, !value
+=> map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back.
 export intrinsic fn remove<K, V>(map: Mut SortedMap<K, V>, key: K) [] -> V? => map: Mut, key

@@ -4508,7 +4508,11 @@ the same day. **Not part of `core`**: the surface is imported, and one
 
 * [deduce-syntax] The **deduction clause** — `=> entry, entry, …` after the
   return type (or after the effect list when there is no return type), on
-  the same line or the next; the body's `{` follows its last entry — states
+  the same line or the next; the body's `{` follows its last entry. **Written
+  on the next line it takes the *declaration's* indentation, not the body's**
+  (user preference 2026-09-22): the clause is part of the signature, and
+  indenting it into the body made it read as the first statement. Every source
+  in the repository is written that way — states
   what a call does to each parameter and what the result holds of them
   (user design 2026-09-02 D1 for the entries' polarity; respelled from the
   bracket list by user decision 2026-09-11 — `=>` is implication, brackets
@@ -4611,14 +4615,32 @@ the same day. **Not part of `core`**: the surface is imported, and one
     same party already trusted to mint the claim with `-> T as Q` [qual-ctor-fn]
     and to speak for someone else's call with a `refn` [qual-refn]. Elsewhere it
     is an error naming both remedies.
-  * **Re-establishing is not adding**: `Q` must be a qualifier the *parameter*
-    declares, so the claim the caller ends up with is the parameter's own. A
-    qualifier the parameter never had is the ordinary not-declared error.
-  * **Arguments may be written and must agree.** `+Heap<T, ?cmp>` names the claim
-    precisely — the spelling the decision asked for — and a *different* identity
-    is refused: that would be a different type, and a value of a different type
-    belongs in the return type, which is what a constructor fn is for. Omitted
-    arguments mean the parameter's own, as for any kept qualifier [cmp-binder].
+  * **It establishes, whether or not the parameter already holds the claim**
+    (extended by user decision 2026-09-22, the heap demo's `heapify`): re-applying
+    what a mutation stripped and *minting* a claim on a value that arrived without
+    one are the same statement — "after this call, this is a `Q`" — and the same
+    party is trusted for both. `heapify(list: Mut List<T>, ?Ordered<T>)
+    => list: +Heap<T, ?cmp> Mut` takes an ordinary list and hands back a heap,
+    which the plain spelling could never say: it may only preserve what the
+    parameter declares.
+  * **A minted claim answers to a constructor's rules** [qual-ctor-fn], since
+    that is what it is: the qualifier must **apply** to the parameter's type
+    [qual-of], and a qualifier that *holds a function* must be given one —
+    `+Heap` with no arguments establishes a claim whose identity nothing named,
+    which every operation reading the claim would then fail to bind [cmp-binder],
+    so it is refused naming the slots.
+  * **Re-establishing keeps the parameter's arguments.** When the parameter
+    already holds `Q`, written arguments must **agree** with it (`+Heap<T, ?cmp>`
+    names the claim precisely; a *different* identity is refused, because a value
+    of a different type belongs in the return type), and omitted arguments mean
+    the parameter's own [cmp-binder].
+  * **The identity is the call's, not the callee's.** A minted claim's arguments
+    are substituted at each call site from the resolved type arguments and
+    implicits, so `heapify(xs)` and `heapify(xs, cmp = by_name)` produce
+    `Heap<Person, cmp@Person>` and `Heap<Person, by_name>` — two types, which is
+    the whole point of the identity living in the type [cmp-carry]. A `?cmp`
+    written in a deduction clause is therefore a **binder occurrence** like one in
+    a parameter or return type is.
   * **A compiler qualifier cannot be re-established** (`+Mut`, `+proj`): those
     are representation choices rather than claims about the value, nothing could
     establish one, and `Mut` is not even erased.

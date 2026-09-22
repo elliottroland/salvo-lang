@@ -75,7 +75,7 @@ export intrinsic fn append(data: Mut Bytes, more: Bytes) [] -> None => data: Mut
 // reason (user decision 2026-09-22): a write that quietly did nothing is a bug
 // with no symptom at the call. Ignore it where the index is known good.
 export intrinsic fn set(data: Mut Bytes, index: Int, byte: Byte) [] -> Bool
-    => data: Mut, index, byte
+=> data: Mut, index, byte
 
 // Removes every byte from [data], keeping whatever room it had. This is the
 // call that makes a buffer reusable across reads [fs-read-to].

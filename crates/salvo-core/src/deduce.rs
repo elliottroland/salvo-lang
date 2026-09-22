@@ -534,20 +534,16 @@ pub(crate) fn from_written(
                             );
                             continue;
                         }
-                        if !declared.contains(&q.name.name) {
+                        if !declared.contains(&q.name.name) && !is_reapplied {
                             error(
                                 q.span,
                                 format!(
-                                    "deduction {} qualifier `{}`, which is not \
+                                    "deduction keeps qualifier `{}`, which is not \
                                      declared on parameter `{name}` (a deduction \
-                                     may preserve, drop or re-establish the \
-                                     parameter's own qualifiers, not add others)",
-                                    if is_reapplied {
-                                        "re-establishes"
-                                    } else {
-                                        "keeps"
-                                    },
-                                    q.name.name
+                                     may preserve or drop the parameter's own \
+                                     qualifiers; `+{}` is how a function says it \
+                                     *establishes* one)",
+                                    q.name.name, q.name.name
                                 ),
                             );
                         } else {

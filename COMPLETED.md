@@ -53,7 +53,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1337 tests, complete: the toolchain tests are
+cargo test                  # 1340 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +127,47 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**`+Q` establishes a claim, not only re-establishes one (user decision
+2026-09-22).** The `+Q` form landed earlier the same day as *re*-application:
+`Q` had to be a qualifier the parameter already declared, on the reasoning that
+"re-establishing is not adding". The user's `heapify` is the counterexample —
+`heapify(list: Mut List<T>, ?Ordered<T>) => list: +Heap<T, ?cmp> Mut` takes an
+ordinary list and hands back a heap — and the distinction does not survive it:
+putting back what a mutation stripped and minting a claim on a value that
+arrived without one are the same sentence, "after this call, this is a `Q`", and
+the same party is trusted for both [deduce-reapply].
+
+- **A minted claim answers to a constructor's rules**, because that is what it
+  is [qual-ctor-fn]: the qualifier must apply to the parameter's type, and one
+  that *holds a function* must be given one — `+Heap` alone would be a heap whose
+  ordering nothing named, which every operation reading the claim would then fail
+  to bind [cmp-binder]. Both refusals name the remedy.
+- **The identity is the call's.** `heapify(xs)` and `heapify(xs, cmp = by_name)`
+  hand back `Heap<Person, cmp@Person>` and `Heap<Person, by_name>`, two types that
+  refuse to mix. That needed two pieces: the lowered claims recorded per (fn,
+  parameter) at the signature — where the callee's generics are in scope, as for
+  `implicit_params` — and `establish_quals` at the call site, substituting the
+  resolved type arguments and identities before adding the qualifier.
+- **A `?cmp` in a deduction clause had to become a binder occurrence.** Binders
+  were collected from parameter types, the return type and an `as Q` clause; a
+  claim a fn *establishes* names its identity in the deduction clause and nowhere
+  else, so without that the call site had nothing to substitute and the claim
+  reached the caller reading `Heap<Int, ?cmp>` — an identity naming the callee's
+  own binder. The tell was a diagnostic printing `?cmp` where a name belonged.
+- The existing machinery did most of it: a refinement's `+Q` already adds a
+  qualifier to the caller's variable after a call, so establishment is that path
+  with arguments. Three tests (establishment, the of-type refusal, the
+  missing-identity refusal), one in `carry_tests.rs` for the identity reaching the
+  caller, and `heapify` joined both backends' heap e2e case.
+
+**Deduction clauses are indented with the declaration (user preference
+2026-09-22).** A clause written on the next line takes the *declaration's*
+indentation, not the body's — it belongs to the signature, and indenting it into
+the body made it read as the first statement. 42 sites swept (std, examples, the
+Salvo sources inside tests, one doc snippet); the rule is in [deduce-syntax] and
+the convention is in AGENTS.md's new "Source style" section, which is where a
+session will see it.
 
 **A positional write answers whether it wrote (user decision 2026-09-22).**
 `set` on a `Mut Str` and on a `Mut Bytes` answer `Bool` instead of `None`:
@@ -14615,7 +14656,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1337)
+## Test inventory (all green: 1340)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

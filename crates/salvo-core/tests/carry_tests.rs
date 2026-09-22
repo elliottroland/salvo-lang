@@ -67,6 +67,13 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> Mut List<
 export fn heap_size<T>(heap: Heap Mut List<T>) [] -> Int => heap {
     return size(heap)
 }
+
+// [deduce-reapply] Establishing the claim on a parameter that arrives without
+// it, which only this file may do.
+export fn heapify<T>(list: Mut List<T>, elem: T, ?cmp: (T, T) -> Int) [] -> None
+=> list: +Heap<T, ?cmp> Mut, !elem {
+    add(list, elem)
+}
 "#;
 
 fn errors(src: &str) -> Vec<String> {
@@ -414,6 +421,53 @@ fn pick<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T)
     );
 }
 
+/// [deduce-reapply] [cmp-carry] A fn that **establishes** a carried claim
+/// publishes the identity the *call* resolved, exactly as a constructor does:
+/// `heapify(xs)` under one ordering and under another produce two types, which
+/// is what a position demanding one of them can then tell apart.
+#[test]
+fn an_established_claim_carries_the_identity_the_call_resolved() {
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+import heap.by_name
+import heap.heapify
+
+fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
+    return 0
+}
+
+fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
+    heapify(xs, Person {name: "a", age: 1}, cmp = by_name)
+    return wants_canonical(xs)
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("Heap<Person, by_name>")),
+        "expected the established ordering named: {errs:?}"
+    );
+    // …and under the canonical one the same call fits.
+    let errs = errors_with_heap(
+        r#"
+import heap.Person
+import heap.Heap
+import heap.heapify
+
+fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
+    return 0
+}
+
+fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
+    heapify(xs, Person {name: "a", age: 1})
+    return wants_canonical(xs)
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
 // ===== the `Sorted` claim [col-sorted-list] =====
 
 /// The `Sorted` tests run against **std's own** declarations rather than a
@@ -522,7 +576,7 @@ fn by_len(a: Str, b: Str) [] -> Int => a, b {
 }
 
 fn merge<T>(a: Sorted<T, ?cmp> List<T>, b: Sorted<T, ?cmp> List<T>, probe: T) [] -> Int?
-    => a, b, probe {
+=> a, b, probe {
     return binary_search(a, probe)
 }
 

@@ -2210,13 +2210,25 @@ Sometimes the mutating function *is* the right party: it knows the claim survive
 ```
 // In the file that declares `Heap`:
 fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
-    => heap: +Heap<T, ?cmp> Mut, !elem {
+=> heap: +Heap<T, ?cmp> Mut, !elem {
     add(heap, elem)         // strips the claim, as any mutating call must
     …                       // sift it back into order
 }
 ```
 
-`+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> T as Q`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it back. It must be a qualifier the parameter already has — re-establishing is not adding — and if you write its arguments they have to be the parameter's own, since a value with a *different* claim is a different value and belongs in the return type.
+`+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> T as Q`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it there.
+
+It does not matter whether the parameter already had the claim. Putting back what a mutation stripped and *minting* one on a value that arrived without it are the same sentence — "after this call, this is a `Heap`" — so the same form says both:
+
+```
+// An ordinary list on the way in, a heap on the way out.
+fn heapify<T>(list: Mut List<T>, ?Ordered<T>) -> None
+=> list: +Heap<T, ?cmp> Mut {
+    …
+}
+```
+
+A minted claim answers to the rules a constructor's `as Q` answers to, because that is what it is: the qualifier has to apply to the parameter's type, and one that holds a function has to be given one (`+Heap` alone would be a heap whose ordering nothing named). The identity is the *call's*: `heapify(xs)` and `heapify(xs, cmp = by_name)` hand back two different types.
 
 These are enforced at each call site: passing a variable to `take_head` above removes `NonEmpty` from what the compiler knows about it, so a second `take_head(list)` without an intervening `is NonEmpty` check fails overload resolution:
 

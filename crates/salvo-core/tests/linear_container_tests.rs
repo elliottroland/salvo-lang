@@ -35,16 +35,16 @@ export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
 export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
 export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
-    =>[each] !x => !list, each
+=>[each] !x => !list, each
 export intrinsic type Map<K, V canbe linear> canbe Mut
 export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
 export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
-    => map: Mut, !key, !value
+=> map: Mut, !key, !value
 export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
-    => map: Mut, !key, !value
+=> map: Mut, !key, !value
 export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> V? => map: Mut, key
 export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
-    =>[each] !x => !map, each
+=>[each] !x => !map, each
 export intrinsic type Set<T> canbe Mut
 export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>
 ";

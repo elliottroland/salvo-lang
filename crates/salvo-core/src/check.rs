@@ -760,6 +760,14 @@ pub struct Checked {
     /// the caller's trailing arguments — so neither emitter needs to know
     /// that groups exist.
     pub implicit_params: HashMap<FnKey, Vec<ImplicitParam>>,
+    /// [deduce-reapply] The claims a fn's deduction clause says it
+    /// **establishes** (`=> list: +Heap<T, ?cmp> Mut`), by (fn, parameter), each
+    /// already lowered in the callee's generic scope — so a call site only has to
+    /// substitute its type arguments and the identity that filled the binder,
+    /// then add the qualifier to the caller's variable. Lowered here rather than
+    /// at the call site because the callee's generics are in scope here and not
+    /// there, exactly as for `implicit_params`.
+    pub established_quals: HashMap<(FnKey, String), Vec<Qual>>,
     /// [spawn-inherit] The **handle requirements** of each fn: the
     /// signature-supplied effects whose *handles* its body needs, because a
     /// construction inside it captures them at construction
@@ -3614,6 +3622,32 @@ impl<'p, 'r> Checker<'p, 'r> {
             let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
             let claimed = base.qualify(quals);
             self.collect_binder_slots(&claimed, cref.span, &mut captured);
+        }
+        // [deduce-reapply] `=> list: +Heap<T, ?cmp> Mut`: a claim this fn
+        // **establishes** names its identity there and nowhere else, so the
+        // deduction clause is a binder occurrence like a parameter type is —
+        // without this the call site had nothing to substitute and the claim
+        // reached the caller reading `Heap<Int, ?cmp>`, an identity naming the
+        // callee's own binder.
+        for d in f.deductions.iter().flatten() {
+            let ast::DeductionKind::Exhaustive { reapplied, .. } = &d.kind else {
+                continue;
+            };
+            let Some(param_name) = d.param_name() else { continue };
+            let Some(param) = f
+                .params
+                .iter()
+                .find(|p| p.name.name == param_name.name)
+            else {
+                continue;
+            };
+            let base = self.lower_type(&param.ty);
+            for q in reapplied {
+                let empty = HashMap::new();
+                let quals = self.lower_quals(std::slice::from_ref(q), &empty, 0);
+                let claimed = base.clone().qualify(quals);
+                self.collect_binder_slots(&claimed, q.span, &mut captured);
+            }
         }
         for (name, ty, span, slot) in captured {
             // An explicitly declared implicit of the same name *is* the
@@ -15127,8 +15161,56 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// reason. And a single addition is skipped when it could not co-apply
     /// with a qualifier the call *preserved* [qual-with]: the value cannot
     /// carry both claims, and knowing less is the safe direction.
-    fn apply_refinements(&mut self, callee: FnKey, param: &str, arg: &str, span: Span) {
-        let Some(group) = self.refinements.for_param(self.file_idx, callee, param) else {
+    /// [deduce-reapply] Adds the claims a callee's clause says it
+    /// **establishes** on this argument, with the call's type arguments and
+    /// resolved identities substituted in — `+Heap<T, ?cmp>` on a
+    /// `heapify(list, ?Ordered<T>)` makes the caller's `list` a
+    /// `Heap<Int, by_age> Mut List<Int>` when the call resolved `?cmp` to
+    /// `by_age`.
+    ///
+    /// Trusted, like a refinement's addition and a constructor's `as Q`: the
+    /// signature check has already confined it to the qualifier's own file and
+    /// to a qualifier that applies to the parameter's type.
+    fn establish_quals(
+        &mut self,
+        callee: FnKey,
+        param: &str,
+        arg: &str,
+        subst: &HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+    ) {
+        let Some(quals) = self
+            .out
+            .established_quals
+            .get(&(callee, param.to_string()))
+            .cloned()
+        else {
+            return;
+        };
+        for q in quals {
+            let args: Vec<Ty> = q
+                .args
+                .iter()
+                .map(|a| substitute_vars(a, subst, callee_generics))
+                .collect();
+            let have: Vec<String> = self
+                .lookup(arg)
+                .map(|v| v.narrowed.quals().iter().map(|x| x.name.clone()).collect())
+                .unwrap_or_default();
+            if let Some(var) = self.lookup_mut(arg) {
+                // Already there — the re-establishment case — so the claim
+                // stays what the value carries: the arguments cannot differ
+                // (the signature check refuses that), and rewriting them would
+                // only risk losing what the value knows.
+                if have.contains(&q.name) {
+                    continue;
+                }
+                var.narrowed = var.narrowed.clone().qualify(vec![Qual { args, ..q }]);
+            }
+        }
+    }
+
+    fn apply_refinements(&mut self, callee: FnKey, param: &str, arg: &str, span: Span) {        let Some(group) = self.refinements.for_param(self.file_idx, callee, param) else {
             return;
         };
         if !group.conflict.is_empty() {
@@ -15397,7 +15479,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         q.span,
                         format!(
-                            "`{name}` cannot be re-established: it is the \
+                            "`{name}` cannot be established: it is the \
                              compiler's own qualifier — a representation choice \
                              rather than a claim about the value — and nothing \
                              could establish it. Only a qualifier declared in \
@@ -15410,7 +15492,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         q.span,
                         format!(
-                            "`+{name}` re-establishes `{name}`, which this file \
+                            "`+{name}` establishes `{name}`, which this file \
                              does not declare: a function may only claim to \
                              establish a qualifier its own file owns, the same \
                              rule a constructor fn and a refinement follow. \
@@ -15420,41 +15502,107 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     continue;
                 }
-                // The arguments, when written: they must be the parameter's own.
-                if q.args.is_empty() {
-                    continue;
-                }
                 let Some(param_ty) = &param else { continue };
-                let want = param_ty
-                    .quals()
-                    .iter()
-                    .find(|pq| pq.name == name)
-                    .map(|pq| pq.args.clone());
-                let Some(want) = want else { continue };
                 let empty = HashMap::new();
-                let got = self.lower_quals(std::slice::from_ref(q), &empty, 0);
-                let got = got.first().map(|g| g.args.clone()).unwrap_or_default();
-                if got != want {
-                    let show = |args: &[Ty]| {
-                        args.iter()
-                            .map(|a| a.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    };
-                    self.error(
-                        q.span,
-                        format!(
-                            "`+{name}<{}>` does not match the claim on `{}`, \
-                             which is `{name}<{}>`: a re-established claim is \
-                             the parameter's own, so its arguments cannot \
-                             differ — a *different* one is a new value, and \
-                             belongs in the return type (`-> … as {name}<{}>`)",
-                            show(&got),
-                            param_name.name,
-                            show(&want),
-                            show(&got)
-                        ),
-                    );
+                let lowered = self.lower_quals(std::slice::from_ref(q), &empty, 0);
+                let Some(lowered) = lowered.into_iter().next() else {
+                    continue;
+                };
+                // [deduce-reapply] The claim the *parameter* already carries, if
+                // it carries one: then this is a **re-establishment** and the
+                // arguments must agree, since the caller's value keeps the type
+                // it had. With no such claim this is a fresh **establishment**
+                // and the written arguments are the claim.
+                let held = param_ty.quals().iter().find(|pq| pq.name == name).cloned();
+                match &held {
+                    Some(pq) if !q.args.is_empty() && lowered.args != pq.args => {
+                        let show = |args: &[Ty]| {
+                            args.iter()
+                                .map(|a| a.to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        };
+                        self.error(
+                            q.span,
+                            format!(
+                                "`+{name}<{}>` does not match the claim on `{}`, \
+                                 which is `{name}<{}>`: a re-established claim is \
+                                 the parameter's own, so its arguments cannot \
+                                 differ — a *different* one is a new value, and \
+                                 belongs in the return type (`-> … as {name}<{}>`)",
+                                show(&lowered.args),
+                                param_name.name,
+                                show(&pq.args),
+                                show(&lowered.args)
+                            ),
+                        );
+                        continue;
+                    }
+                    Some(_) => {}
+                    None => {
+                        // Establishing a claim the parameter does not hold: the
+                        // rules a constructor's `as Q` answers to apply here for
+                        // the same reason [qual-ctor-fn].
+                        if let Some(decl) = self.qualifier_for(name, Some(param_ty)) {
+                            if !self.qual_applies(decl, param_ty.strip_quals()) {
+                                self.error(
+                                    q.span,
+                                    format!(
+                                        "qualifier `{name}` does not apply to \
+                                         `{param_ty}`, so this function cannot \
+                                         establish it on `{}`",
+                                        param_name.name
+                                    ),
+                                );
+                                continue;
+                            }
+                            // A qualifier with fn slots carries an identity, and
+                            // a claim with none is one nothing can use: every
+                            // operation that reads the claim binds the slot
+                            // [cmp-binder], and an unwritten slot here has
+                            // nothing to bind to.
+                            if !decl.fn_slots.is_empty() && q.args.is_empty() {
+                                let slots: Vec<String> = decl
+                                    .fn_slots
+                                    .iter()
+                                    .map(|s| match s {
+                                        ast::SlotDecl::One(one) => format!("?{}", one.name.name),
+                                        // A group spread stands for one slot per
+                                        // member; its own name is what a reader
+                                        // wrote, so it is what the message shows.
+                                        ast::SlotDecl::Group(g) => format!("?{}", g.name.name),
+                                    })
+                                    .collect();
+                                self.error(
+                                    q.span,
+                                    format!(
+                                        "`+{name}` establishes a claim with no \
+                                         identity: `{name}` holds {} that every \
+                                         operation reading the claim binds, so \
+                                         the claim has to name what this function \
+                                         established it with — write \
+                                         `+{name}<…, {}>`",
+                                        if slots.len() == 1 {
+                                            "a function"
+                                        } else {
+                                            "functions"
+                                        },
+                                        slots.join(", ")
+                                    ),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                }
+                // Recorded for the call sites, which substitute this call's type
+                // arguments and identities into it.
+                if let Some(key) = self.own_fn {
+                    self.out
+                        .established_quals
+                        .entry((key, param_name.name.clone()))
+                        .or_default()
+                        .push(lowered);
                 }
             }
         }
@@ -22754,6 +22902,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // necessarily dropped.
                 if let Some(key) = best.key {
                     self.apply_refinements(key, &param.name.name, &name, span);
+                    // [deduce-reapply] …and a claim the callee says it
+                    // **establishes** is added here, with this call's type
+                    // arguments and identities substituted in: that is what
+                    // makes `heapify(list)` answer a `Heap<Int, by_age>` when
+                    // nothing about `list` claimed one before.
+                    self.establish_quals(key, &param.name.name, &name, &subst, &callee_generics);
                 }
             }
         }

@@ -24,7 +24,7 @@ export intrinsic fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => siz
 
 // Mutable variant
 export intrinsic fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
-    => size, init
+=> size, init
 
 // Possibly gets the element at the given index if the list is long enough
 export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
@@ -49,7 +49,7 @@ export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => 
 // out and the elements after it shift down. `None` when the index is past the
 // end.
 export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] -> T?
-    => list: Mut, index
+=> list: Mut, index
 
 // [linear-container] Exchanges the elements at [i] and [j]. **Total**: no value
 // enters the list and none leaves it, which is what makes it the one positional
@@ -62,7 +62,7 @@ export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] 
 // where a JVM list throws — the same program would fail differently on the two
 // backends [backend-parity].
 export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Bool
-    => list: Mut, i, j
+=> list: Mut, i, j
 
 // [linear-container] There is deliberately **no** positional write for a list
 // of obligations. `replace(list, index, elem) -> T?` looks like the map's, but
@@ -85,7 +85,7 @@ export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -
 // travel to the caller [fn-effects], so draining into an effectful discharger
 // needs no annotation here.
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
-    =>[each] !x => !list, each
+=>[each] !x => !list, each
 
 export intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list
 
@@ -202,12 +202,12 @@ export qualifier Sorted<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
 // Answers the elements of [list] in the order [cmp] puts them in. A stable
 // sort on both backends, so equal elements keep their relative order.
 intrinsic fn sort_by<T>(list: List<T>, cmp: (T, T) -> Int) [] -> Mut List<T>
-    => list, cmp
+=> list, cmp
 
 // Inserts [elem] at the **lower bound** for [cmp] — before any element that
 // ties with it — which is the position that keeps the list ordered.
 intrinsic fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int) [] -> None
-    => list: Mut, !elem, cmp
+=> list: Mut, !elem, cmp
 
 // [qual-refn] The claim's owner states what that insert does to it, because the
 // primitive cannot: a function that mutates may not promise back a qualifier it
@@ -217,13 +217,13 @@ intrinsic fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int)
 // carries it. Module-scoped [qual-refn-scope], and `Sorted` has no `qualifies`
 // to put it beside, so it is written here rather than in the qualifier's body.
 refn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int)
-    => list: +Sorted
+=> list: +Sorted
 
 // The **lowest** index that ties with [elem] under [cmp], or `None`. A tie is
 // `cmp(a, b) == 0`, never the host's equality: that is the only test
 // consistent with the ordering the `Sorted` claim names [col-membership].
 intrinsic fn search_sorted_by<T>(list: List<T>, elem: T, cmp: (T, T) -> Int) [] -> Int?
-    => list, elem, cmp
+=> list, elem, cmp
 
 // Returns the elements in order, and **publishes the ordering** it sorted by:
 // the result is `Sorted<T, ?cmp>` for whatever `cmp` resolution found here, so
@@ -239,7 +239,7 @@ export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> List<T> as Sorted<T, ?cmp> =
 // how `add_sorted` gets something to insert into. `mut_sort(mut_list_of())`
 // is the empty sorted list.
 export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T, ?cmp>
-    => list {
+=> list {
     return sort_by(list, cmp)
 }
 
@@ -260,7 +260,7 @@ export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T,
 // genuinely knows the claim does — so it needs no refinement from the
 // qualifier, unlike `add`, which cannot promise `NonEmpty` [qual-refn].
 export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
-    => list: Mut Sorted, !elem {
+=> list: Mut Sorted, !elem {
     insert_sorted_by(list, elem, cmp)
 }
 
@@ -270,6 +270,6 @@ export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
 // the **lowest** matching index, on both backends — and "matching" is a tie
 // in the ordering the claim names, `cmp(a, b) == 0` [col-membership].
 export fn binary_search<T>(list: Sorted<T, ?cmp> List<T>, elem: T) [] -> Int?
-    => list, elem {
+=> list, elem {
     return search_sorted_by(list, elem, cmp)
 }

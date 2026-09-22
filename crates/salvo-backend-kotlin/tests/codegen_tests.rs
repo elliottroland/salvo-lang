@@ -2476,10 +2476,39 @@ export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<T, ?cmp> 
     return mut_list_of()
 }
 
+// [deduce-reapply] **Establishing** the claim rather than keeping one: `list`
+// arrives an ordinary list and leaves a `Heap<T, ?cmp>`, which a function in the
+// qualifier's own file may say about a parameter. The ordering it establishes the
+// claim *under* is the one the call resolved, so the caller's heap is ordered by
+// what it asked for.
+export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) [] -> None
+=> list: +Heap<T, ?cmp> Mut {
+    let i = size(list) / 2
+    while i > 0 {
+        i -= 1
+        let at = copy(i)
+        while at < size(list) {
+            let child = at * 2 + 1
+            if child >= size(list) {
+                break
+            }
+            let smaller = copy(child)
+            if child + 1 < size(list) && cmp(list.get(child + 1)!, list.get(child)!) < 0 {
+                smaller += 1
+            }
+            if cmp(list.get(at)!, list.get(smaller)!) <= 0 {
+                break
+            }
+            list.swap(at, smaller)
+            at = copy(smaller)
+        }
+    }
+}
+
 // [deduce-reapply] `add` strips the claim — a mutating callee must — and this
 // function is the one that knows the sift puts it back.
 export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
-    => heap: +Heap<T, ?cmp> Mut, !elem {
+=> heap: +Heap<T, ?cmp> Mut, !elem {
     add(heap, elem)
     let i = size(heap) - 1
     while i > 0 {
@@ -2493,7 +2522,7 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
 }
 
 export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) [] -> T?
-    => heap: +Heap<T, ?cmp> Mut {
+=> heap: +Heap<T, ?cmp> Mut {
     if heap !is NonEmpty {
         return None
     }
@@ -2501,7 +2530,7 @@ export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) [] -> T?
 }
 
 export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) [] -> T
-    => heap: +Heap<T, ?cmp> Mut {
+=> heap: +Heap<T, ?cmp> Mut {
     let last = size(heap) - 1
     heap.swap(0, last)
     let least = heap.remove_at(last)!
@@ -2531,7 +2560,7 @@ fn by_last_digit(a: Int, b: Int) [] -> Int => a, b {
 // The binder again, on a concrete element type: this drains *either* heap
 // below, each in the ordering its own type carries [cmp-binder].
 fn drain_heap(heap: Heap<Int, ?cmp> Mut List<Int>) [Console] -> None
-    => heap: +Heap<Int, ?cmp> Mut {
+=> heap: +Heap<Int, ?cmp> Mut {
     let out = mut_str()
     while heap_pop(heap) is Int n {
         append(out, "${n} ")
@@ -2551,6 +2580,14 @@ export fn main() [use] {
     println("root ${first(h)!}")
     drain_heap(h)
 
+    // A list nobody claimed anything about, made a heap by a function that
+    // establishes the claim [deduce-reapply] — and then read by the same
+    // surface, which only accepts a heap.
+    let raw: Mut List<Int> = mut_list_of(8, 2, 6, 4)
+    heapify(raw)
+    heap_push(raw, 3)
+    drain_heap(raw)
+
     // A second heap under an ordering of the program's own: the claim carries
     // it, so the same functions pop in *that* order.
     let byDigit = empty_heap<Int>(cmp = by_last_digit)
@@ -2566,6 +2603,7 @@ export fn main() [use] {
     });
     kotlin_case(files, "heap", "root 1\n\
      1 3 5 7 9 \n\
+     2 3 4 6 8 \n\
      41 13 25 \n")
 }
 

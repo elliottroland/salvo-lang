@@ -64,9 +64,9 @@ handler SteppingTicker(step: Duration) of Ticker {
 // clock anywhere — which is why it needs no `Ticker` in its dependency list.
 actor effect Session {
     send fn open(started: Tick, budget: Duration, out: Reply<Str>)
-        => !started, !budget, !out
+    => !started, !budget, !out
     send fn expire(started: Tick, budget: Duration, out: Reply<Str>, f: Fired)
-        => !started, !budget, !out, !f
+    => !started, !budget, !out, !f
 }
 
 handler Sessions() [Timer] of Session {

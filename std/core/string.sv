@@ -114,7 +114,7 @@ export intrinsic fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
 // string; and the `Bool` is the report every out-of-range write in std makes
 // (user decision 2026-09-22).
 export intrinsic fn set(str: Mut Str, index: Int, chr: Char) [] -> Bool
-    => str: Mut, index, chr
+=> str: Mut, index, chr
 
 // Removes every character from [str]
 export intrinsic fn clear(str: Mut Str) [] -> None => str: Mut

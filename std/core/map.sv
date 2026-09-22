@@ -38,11 +38,11 @@ export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
 // * i))` maps each index to its square. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
 export intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>
-    => size, init
+=> size, init
 
 // Mutable variant
 export intrinsic fn mut_map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Mut Map<K, V>
-    => size, init
+=> size, init
 
 // [col-convert] A map from a list of pairs — the first element of each pair
 // is the key, the second the value. A repeated key takes the value of its
@@ -54,7 +54,7 @@ export intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs
 // spelled for the two sources people actually have: a list of pairs, or a
 // list plus a rule.
 export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>
-    => items, entry
+=> items, entry
 
 // Possibly gets the value stored under [key]. The value is **borrowed** —
 // a view into the map, like [get] on a list — so reading a map copies
@@ -71,14 +71,14 @@ export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)?
 // occupied key would discard an obligation in silence. [replace] is the form
 // that hands the displaced value back, and the diagnostic names it.
 export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
-    => map: Mut, !key, !value
+=> map: Mut, !key, !value
 
 // [linear-container] Stores [value] under [key] and answers what was there,
 // or `None` for a fresh key: [put] with the displaced value handed back
 // instead of dropped, which is the only shape a map of obligations can have a
 // write in.
 export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?
-    => map: Mut, !key, !value
+=> map: Mut, !key, !value
 
 // Removes the entry under [key] and hands its value back, or `None` when
 // there was none. The value is **moved out** of the map — which is what
@@ -101,7 +101,7 @@ export intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 // the map — they were never obligations — so what the callback sees is the
 // values, one at a time, each moved in.
 export intrinsic fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
-    =>[each] !x => !map, each
+=>[each] !x => !map, each
 
 // The text form of a map, for string interpolation [interp-to-str]:
 // `{a: 1, b: 2}` in insertion order — the map *literal* that would build it

@@ -36,7 +36,7 @@ export intrinsic fn set_by<T>(size: Int, init: (Int) -> T) [] -> Set<T> => size,
 
 // Mutable variant
 export intrinsic fn mut_set_by<T>(size: Int, init: (Int) -> T) [] -> Mut Set<T>
-    => size, init
+=> size, init
 
 // [col-convert] The elements of [list] as a set, in first-appearance order;
 // duplicates collapse.

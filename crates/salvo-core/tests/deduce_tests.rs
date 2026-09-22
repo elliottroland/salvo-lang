@@ -1426,7 +1426,7 @@ const HEAPISH: &str = r#"
 qualifier H<T> of List<T>
 
 fn push<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
-    => heap: +H<T> Mut, !elem {
+=> heap: +H<T> Mut, !elem {
     add(heap, elem)
 }
 "#;
@@ -1458,7 +1458,7 @@ fn only_the_qualifiers_own_file_may_reestablish_it() {
 import q.H
 
 fn push<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
-    => heap: +H<T> Mut, !elem {
+=> heap: +H<T> Mut, !elem {
     add(heap, elem)
 }
 "#;
@@ -1480,22 +1480,56 @@ fn a_compiler_qualifier_cannot_be_reestablished() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("`Mut` cannot be re-established")),
+            .any(|e| e.contains("`Mut` cannot be established")),
         "expected the compiler-qualifier refusal: {errs:?}"
     );
 }
 
 /// Re-establishing is not *adding*: the qualifier has to be one the parameter
 /// declares, so the claim the caller ends up with is the parameter's own.
+/// [deduce-reapply] A claim the parameter does **not** hold can be established
+/// too (user decision 2026-09-22): `heapify(list)` takes an ordinary list and
+/// hands back a heap, which is the `+Q` form's other half — the same trust, and
+/// the same same-file confinement. The plain spelling could never say this: it
+/// may only preserve what the parameter declares.
 #[test]
-fn reestablishing_is_not_adding() {
+fn a_claim_the_parameter_lacks_can_be_established() {
     let errs = reapply_errors(
         "qualifier H<T> of List<T>\n\n\
-         fn f(xs: Mut List<Int>) [] -> None => xs: +H Mut {\n}\n",
+         fn heapify<T>(xs: Mut List<T>) [] -> None\n=> xs: +H<T> Mut {\n}\n",
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// …and the claim has to make sense for the parameter's type, on the terms a
+/// constructor's `as Q` answers to [qual-ctor-fn].
+#[test]
+fn an_established_claim_must_apply_to_the_parameter() {
+    let errs = reapply_errors(
+        "qualifier H<T> of List<T>\n\n\
+         fn f(n: Int) [] -> None\n=> n: +H {\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e
-            .contains("re-establishes qualifier `H`, which is not declared on parameter `xs`")),
-        "expected the not-declared refusal: {errs:?}"
+        errs.iter()
+            .any(|e| e.contains("does not apply to") && e.contains("cannot establish it")),
+        "expected the of-type refusal: {errs:?}"
+    );
+}
+
+/// [cmp-carry] A qualifier that **holds a function** cannot be established
+/// without naming it: every operation that reads the claim binds the slot
+/// [cmp-binder], so a claim with no identity is one nothing can use. The
+/// remedy is in the message.
+#[test]
+fn an_established_claim_must_name_the_identity_it_holds() {
+    let errs = reapply_errors(
+        "qualifier H<T, ?cmp: (T, T) -> Int> of List<T>\n\n\
+         fn heapify<T>(xs: Mut List<T>, ?cmp: (T, T) -> Int) [] -> None\n\
+         => xs: +H Mut {\n}\n",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("establishes a claim with no identity") && e.contains("?cmp")),
+        "expected the missing-identity refusal: {errs:?}"
     );
 }
