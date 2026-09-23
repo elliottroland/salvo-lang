@@ -137,6 +137,15 @@ pub fn fn_call(
         ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
             format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))
         }
+        // [interp-to-str] The scalars' text form as a function, so a
+        // `?ToStr<T>` implicit can resolve one (added 2026-09-23 with the test
+        // surface). `Display` is what interpolation itself uses
+        // [rs-interp-to-str], so `to_str(x)` and `"${x}"` are the same string
+        // by construction. `Double`/`Float` have no `to_str`: the two hosts
+        // disagree about printing a whole float.
+        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
+            format!("format!(\"{{}}\", {})", a(0))
+        }
         ("eq", Some("Str")) => format!("(&{}[..] == &{}[..])", a(0), a(1)),
         // [cmp-canonical] A buffer compares **structurally**: `Vec<u8> ==
         // Vec<u8>` is element-wise, which is what the Kotlin runtime's
@@ -282,8 +291,31 @@ pub fn fn_call(
             a(0),
             a(0)
         ),
-        ("list_of", Some("[]")) | ("mut_list_of", Some("[]")) if spread_any => owned_vec(),
-        ("list_of", Some("[]")) | ("mut_list_of", Some("[]")) => {
+        // [col-of-nonempty] The constructors match on the *name*, because the
+        // first parameter no longer identifies them: the empty one has none and
+        // the element one starts with a `T`. Three call shapes reach here.
+        //
+        // A lone `...spread` fills `first` [fn-variadic], so it arrives as the
+        // only argument and the spread *is* the list.
+        ("list_of" | "mut_list_of", _) if spread_any && args.len() == 1 => owned_vec(),
+        // `list_of(a, b, ...rest)`: the leading elements, then the tail's
+        // elements. `vec![…]` and `extend` rather than one expression because
+        // the tail is a collection, not an element.
+        ("list_of" | "mut_list_of", _) if spread_any => {
+            let leading: Vec<&str> = args[..args.len() - 1].iter().map(|s| s.as_str()).collect();
+            let tail = &args[args.len() - 1];
+            let extend = match spread {
+                Spread::Owned => format!("{tail}.into_iter()"),
+                _ => format!("{tail}.iter().cloned()"),
+            };
+            format!(
+                "{{ let mut __v = vec![{}]; __v.extend({extend}); __v }}",
+                leading.join(", ")
+            )
+        }
+        // No spread: the arguments are the elements. `vec![]` needs no element
+        // type — rustc infers it from later use.
+        ("list_of" | "mut_list_of", _) => {
             format!("vec![{}]", args.join(", "))
         }
         // `T?` is physical here, so an out-of-range index must produce

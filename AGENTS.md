@@ -116,6 +116,10 @@ SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
                             # installed: SALVO_E2E_FRESH=1 cargo test --no-fail-fast
 SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
+
+cargo run -- test --src std      # the standard library's own tests, in Salvo
+                                 # (`std/*.test.sv`); one `cargo test` runs this
+                                 # too — see `test_command_tests.rs`
 ```
 
 Three speeds, and it matters which one you use (user decision 2026-09-12:

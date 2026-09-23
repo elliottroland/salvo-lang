@@ -27,6 +27,8 @@ pub mod core_list;
 pub mod core_map;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
+#[path = "core/range.rs"]
+pub mod core_range;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/seq.rs"]
@@ -46,6 +48,7 @@ use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
+use crate::core_range::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;

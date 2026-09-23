@@ -440,6 +440,14 @@ impl<'s> Parser<'s> {
                 );
                 Some(item)
             }
+            Item::Test(_) => {
+                self.error(
+                    "`export` cannot precede a `test`: a test is run, never referenced, \
+                     so there is nothing to make visible [test-decl]",
+                    span,
+                );
+                Some(item)
+            }
         }
     }
 
@@ -537,6 +545,17 @@ impl<'s> Parser<'s> {
                 // keeping the family of diagnostics in one place is what lets
                 // them share wording.
                 Some(Item::Fn(f))
+            }
+            // [test-decl] `test "an empty heap pops nothing" { … }` — a test,
+            // named by a string literal. Contextual for the same reason
+            // `iter fn` is: `test` is an ordinary name everywhere else (a
+            // variable, a module, `std.test` itself), and the string literal
+            // in the next position is what makes the form unambiguous with no
+            // lookahead beyond it.
+            TokenKind::Ident(name)
+                if name == "test" && matches!(self.peek_at(1).kind, TokenKind::Str(_)) =>
+            {
+                self.parse_test().map(Item::Test)
             }
             TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
             // [linear-group] [obligation-spelling] `linear struct X { … }`:
@@ -709,6 +728,52 @@ impl<'s> Parser<'s> {
 
     fn parse_type_decl(&mut self, intrinsic: bool) -> Option<TypeDecl> {
         self.parse_type_decl_linear(intrinsic, false)
+    }
+
+    /// [test-decl] `test "an empty heap pops nothing" { … }`.
+    ///
+    /// The name is a **literal**: the runner enumerates and filters tests
+    /// (`salvo test --list`, a substring filter) without running anything, so
+    /// an interpolated name has nothing to be known by and is refused here
+    /// rather than half-supported.
+    fn parse_test(&mut self) -> Option<TestDecl> {
+        let docs = self.docs_here();
+        let start = self.peek().span;
+        self.bump(); // `test`
+        let name_token = self.peek().clone();
+        let TokenKind::Str(parts) = &name_token.kind else {
+            // Unreachable: the caller only dispatches here on a string
+            // literal. Kept honest rather than panicking.
+            let found = self.kind().describe();
+            self.error(
+                format!("a test's name must be a string literal, found {found} [test-decl]"),
+                name_token.span,
+            );
+            return None;
+        };
+        let name = match parts.as_slice() {
+            [] => String::new(),
+            [StrPart::Text(text)] => text.clone(),
+            _ => {
+                self.error(
+                    "a test's name must be a plain string literal: `salvo test` lists \
+                     and filters tests without running them, so an interpolated name \
+                     could not be known [test-decl]",
+                    name_token.span,
+                );
+                return None;
+            }
+        };
+        let name_span = name_token.span;
+        self.bump(); // the name
+        let body = self.parse_block()?;
+        Some(TestDecl {
+            docs,
+            name,
+            name_span,
+            span: start.to(body.span),
+            body,
+        })
     }
 
     /// [linear-group] `linear intrinsic type Reply<T>`: the obligation

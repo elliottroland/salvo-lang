@@ -351,7 +351,8 @@ fn inferred_moves_consume_arguments() {
         dir.join("main.sv"),
         "fn give_back(list: List<Str>) -> List<Str> {\n    return list\n}\n\n\
          fn main() [use] {\n    use StdOutConsole\n    \
-         let strings = list_of(\"a\", \"b\")\n    strings = give_back(strings)\n    \
+         let strings: List<Str> = list_of(\"a\", \"b\")\n    \
+         strings = give_back(strings)\n    \
          println(\"${strings.size()}\")\n}\n",
     )
     .unwrap();
@@ -833,7 +834,7 @@ fn fate_links_merge_across_branches() {
     fs::write(
         dir.join("main.sv"),
         "fn pick(a: List<Int>, cond: Bool) -> List<Int> => a {\n    \
-         let out = list_of(0)\n    \
+         let out: List<Int> = list_of(0)\n    \
          if cond {\n        out = a\n    }\n    \
          return out\n}\n",
     )
@@ -1352,7 +1353,7 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
          fn generic_refused() {\n    let h = FileHandle {fd: 1}\n    \
          let kept = hold(h)\n    discard(kept)\n}\n\n\
          fn variadic_refused() {\n    let h = FileHandle {fd: 1}\n    \
-         let xs = list_of(h)\n}\n",
+         let h2 = FileHandle {fd: 2}\n    let xs = list_of(h, h2)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
@@ -1396,7 +1397,7 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
          fn unopted<T>(value: T) -> T {\n    return value\n}\n\n\
          fn bad_clause<T canbe Mut>(value: T) -> T {\n    return value\n}\n\n\
          fn variadic_refused() {\n    let h = open_file(1)\n    \
-         let xs = mut_list_of(h)\n}\n\n\
+         let h2 = open_file(2)\n    let xs = mut_list_of(h, h2)\n}\n\n\
          fn ok_hold() {\n    let h = hold(open_file(9))\n    close(h)\n}\n",
     )
     .unwrap();
@@ -1437,14 +1438,16 @@ fn close(x: FileHandle) -> None => !x { discard(x) }
         "stderr: {stderr}"
     );
     // ok_hold is clean (its discharge is `close`, not `discard`
-    // [linear-group]). Six errors total: the four above, the follow-on leak
-    // in `variadic_refused` (the refused `h` is never discharged), and the
-    // container's own obligation.
+    // [linear-group]). Seven errors total: the four above, the follow-on leaks
+    // in `variadic_refused` (neither refused handle is discharged — two of
+    // them since [col-of-nonempty] gave the constructor a *first* parameter,
+    // so the call needs two handles to reach the variadic tail at all), and
+    // the container's own obligation.
     //
     // The variadic refusal stays what it was: a variadic position is not
     // tracked, so a linear value may not travel through one — `add` is how an
     // obligation enters a list [linear-container].
-    assert!(stderr.contains("6 errors"), "stderr: {stderr}");
+    assert!(stderr.contains("7 errors"), "stderr: {stderr}");
 }
 
 // [once-fn] L7b: `once` on fn types means callable at most once,

@@ -33,6 +33,13 @@ pub struct SourceFile {
     pub content: String,
     /// True for files that come from the embedded standard library.
     pub is_std: bool,
+    /// [test-file] True for a `<name>.test.sv` **test annex**: the
+    /// companion holding module `<name>`'s tests. Loaded only by
+    /// `salvo test` (and by `salvo analyze`, which checks everything), so a
+    /// production build never sees one; never `is_std`, whatever tree it
+    /// lives in, so a test cannot declare an `intrinsic`
+    /// [intrinsic-std-only] (user decision 2026-09-23).
+    pub is_test: bool,
 }
 
 /// The source-root directory holding host implementations of platform
@@ -60,6 +67,10 @@ pub struct CompanionFile {
     pub platform: bool,
 }
 
+/// [test-file] The file-name suffix marking a **test annex**: `heap.test.sv`
+/// holds the tests of module `heap`, and becomes module `heap.test`.
+pub const TEST_SUFFIX: &str = ".test";
+
 /// The full set of sources for a compilation: user sources plus the
 /// standard library.
 #[derive(Debug, Default)]
@@ -73,20 +84,33 @@ impl SourceSet {
     /// The module a relative `.sv` path declares: the directory components
     /// plus the file stem (`list/ext.sv` -> `list.ext`).
     ///
+    /// [test-file] One dot in a stem is permitted, and only one: the
+    /// `.test` suffix of a test annex, which becomes a trailing path
+    /// segment — `heap.test.sv` is module `heap.test`, the annex of module
+    /// `heap` (user decision 2026-09-23). The narrowness is the point: the
+    /// carve-out must not reopen the per-backend companion spelling
+    /// (`string.kotlin.sv`), which this rule deliberately killed.
+    ///
     /// `Err` carries a message for a name that cannot be a module
-    /// [mod-file-name]: a stem containing a dot, which is how a module path
-    /// is spelled, so `list.ext.sv` would be indistinguishable from
-    /// `list/ext.sv`. That spelling used to select a backend's `define` file
-    /// and was skipped in silence; the define files are gone, and a leftover
-    /// one now says so rather than being ignored.
+    /// [mod-file-name]: any other stem containing a dot, which is how a
+    /// module path is spelled, so `list.ext.sv` would be indistinguishable
+    /// from `list/ext.sv`. That spelling used to select a backend's `define`
+    /// file and was skipped in silence; the define files are gone, and a
+    /// leftover one now says so rather than being ignored.
     pub fn classify(rel_path: &Path) -> Result<ModulePath, String> {
         let file_name = rel_path
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| format!("`{}` has no usable file name", rel_path.display()))?;
-        let stem = file_name
+        let full_stem = file_name
             .strip_suffix(".sv")
             .ok_or_else(|| format!("`{file_name}` is not a `.sv` source file"))?;
+        // [test-file] The annex: its stem without `.test`, plus `test` as a
+        // trailing segment. That stem may not carry a further dot.
+        let (stem, annex) = match full_stem.strip_suffix(TEST_SUFFIX) {
+            Some(base) => (base, true),
+            None => (full_stem, false),
+        };
         if stem.contains('.') {
             // Name the path it collides with, in full: for
             // `core/list.kotlin.sv` that is `core/list/kotlin.sv`, and the
@@ -96,9 +120,17 @@ impl SourceSet {
             nested.set_extension("sv");
             return Err(format!(
                 "`{}`: a source file name may not contain a dot — a module path \
-                 comes from the directory layout, so this is ambiguous with `{}`",
+                 comes from the directory layout, so this is ambiguous with `{}` \
+                 (the one exception is the `.test.sv` test annex)",
                 rel_path.display(),
                 nested.display()
+            ));
+        }
+        if stem.is_empty() {
+            return Err(format!(
+                "`{}`: a test annex is named after the module it tests, so there \
+                 has to be a name in front of `.test.sv` [test-file]",
+                rel_path.display()
             ));
         }
         let mut components: Vec<String> = rel_path
@@ -110,7 +142,20 @@ impl SourceSet {
             })
             .unwrap_or_default();
         components.push(stem.to_string());
+        if annex {
+            components.push(TEST_SUFFIX.trim_start_matches('.').to_string());
+        }
         Ok(ModulePath(components))
+    }
+
+    /// [test-file] Whether a relative `.sv` path is a test annex
+    /// (`heap.test.sv`).
+    pub fn is_test_path(rel_path: &Path) -> bool {
+        rel_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".sv"))
+            .is_some_and(|stem| stem.ends_with(TEST_SUFFIX))
     }
 
     pub fn add(
@@ -125,6 +170,20 @@ impl SourceSet {
             module,
             content,
             is_std,
+            is_test: false,
+        });
+    }
+
+    /// [test-file] `add` for a test annex: never `is_std`, whatever tree it
+    /// was loaded from (user decision 2026-09-23 — a test declares no
+    /// `intrinsic`).
+    pub fn add_test(&mut self, name: impl Into<String>, module: ModulePath, content: String) {
+        self.files.push(SourceFile {
+            name: name.into(),
+            module,
+            content,
+            is_std: false,
+            is_test: true,
         });
     }
 
@@ -179,6 +238,13 @@ impl SourceSet {
     /// message per file that could not be read or could not be a module
     /// [mod-file-name] — a `.sv` file is never skipped in silence.
     ///
+    /// [test-file] `tests` decides whether `<name>.test.sv` annexes are
+    /// loaded: `salvo test` and `salvo analyze` load them, `compile` and
+    /// `run` do not — which is the whole of how tests stay out of a
+    /// production build (there is nothing to strip). A loaded annex is
+    /// checked for its module: `heap.test.sv` needs a `heap.sv`, and cannot
+    /// coexist with a `heap/test.sv`.
+    ///
     /// Skipped during the walk [mod-ignore]:
     /// - hidden directories (`.git`, `.vscode`, ...),
     /// - cache directories carrying a `CACHEDIR.TAG` marker (the cachedir
@@ -194,6 +260,7 @@ impl SourceSet {
         root: &Path,
         native_ext: &str,
         is_std: bool,
+        tests: bool,
     ) -> Vec<String> {
         let ignored = read_svignore(root);
         let is_ignored = |path: &Path| {
@@ -257,11 +324,108 @@ impl SourceSet {
                     continue;
                 }
             };
+            // [test-file] An annex is loaded only where tests are wanted.
+            let annex = Self::is_test_path(rel);
+            if annex && !tests {
+                continue;
+            }
             match std::fs::read_to_string(&path) {
+                Ok(content) if annex => {
+                    self.add_test(rel.display().to_string(), module, content)
+                }
                 Ok(content) => self.add(rel.display().to_string(), module, content, is_std),
                 Err(err) => {
                     errors.push(format!("failed to read `{}`: {err}", path.display()))
                 }
+            }
+        }
+        if tests {
+            errors.extend(self.check_annexes());
+        }
+        errors
+    }
+
+    /// [std-shadow] Lets a source tree **replace** modules of the embedded
+    /// standard library: for every module a loaded file declares that an
+    /// embedded std file also declares, the embedded copy is dropped and the
+    /// file on disk takes over — std-ness included, so its `intrinsic`
+    /// declarations stay legal [intrinsic-std-only].
+    ///
+    /// This is what makes `salvo test --src std` test *the checkout* rather
+    /// than the std compiled into the binary (user decision 2026-09-23), and
+    /// without it the two copies would collide as duplicate declarations
+    /// [mod-collision] — a confusing error for what is a reasonable thing to
+    /// do. Returns one note per replaced module, for a driver to report.
+    pub fn apply_std_shadow(&mut self) -> Vec<String> {
+        let shadowed: Vec<ModulePath> = self
+            .files
+            .iter()
+            .filter(|f| !f.is_std && !f.is_test)
+            .map(|f| f.module.clone())
+            .filter(|m| self.files.iter().any(|f| f.is_std && f.module == *m))
+            .collect();
+        if shadowed.is_empty() {
+            return Vec::new();
+        }
+        self.files
+            .retain(|f| !f.is_std || !shadowed.contains(&f.module));
+        let mut notes = Vec::new();
+        for file in &mut self.files {
+            if !file.is_test && shadowed.contains(&file.module) {
+                file.is_std = true;
+                notes.push(format!(
+                    "`{}` shadows the embedded standard library's module `{}`",
+                    file.name, file.module
+                ));
+            }
+        }
+        notes.sort();
+        notes
+    }
+
+    /// [test-file] The two things a test annex needs of its surroundings: a
+    /// module to be the annex *of*, and no other file claiming its module
+    /// path.
+    ///
+    /// The orphan case is a real mistake rather than an empty module — a
+    /// renamed or deleted production file with its tests left behind — and
+    /// the collision case is what the dot carve-out costs: `heap.test.sv`
+    /// and `heap/test.sv` are one module path written two ways.
+    fn check_annexes(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        for (idx, annex) in self.files.iter().enumerate() {
+            if !annex.is_test {
+                continue;
+            }
+            let mut tested = annex.module.0.clone();
+            tested.pop();
+            let tested = ModulePath(tested);
+            if !self
+                .files
+                .iter()
+                .any(|f| !f.is_test && f.module == tested)
+            {
+                errors.push(format!(
+                    "`{}`: no module `{tested}` to test — a test annex is named after \
+                     the module it belongs to, so this one is looking for a \
+                     `{}.sv` beside it [test-file]",
+                    annex.name,
+                    tested.0.last().map(String::as_str).unwrap_or_default()
+                ));
+            }
+            if let Some(other) = self
+                .files
+                .iter()
+                .enumerate()
+                .find(|(i, f)| *i != idx && f.module == annex.module)
+                .map(|(_, f)| f)
+            {
+                errors.push(format!(
+                    "`{}` and `{}` are both module `{}`: a test annex takes the \
+                     module path of the file it is named after plus `test`, so the \
+                     two spellings collide — rename one [test-file]",
+                    annex.name, other.name, annex.module
+                ));
             }
         }
         errors
@@ -305,6 +469,69 @@ mod tests {
             "unexpected message: {err}"
         );
         assert!(SourceSet::classify(Path::new("core/list.txt")).is_err());
+    }
+
+    /// [test-file] The one dot that is allowed: a test annex takes the module
+    /// path of the file it is named after, plus `test`.
+    #[test]
+    fn a_test_annex_is_its_module_plus_test() {
+        let module = SourceSet::classify(Path::new("heap.test.sv")).unwrap();
+        assert_eq!(module.to_string(), "heap.test");
+        let nested = SourceSet::classify(Path::new("core/list.test.sv")).unwrap();
+        assert_eq!(nested.to_string(), "core.list.test");
+        assert!(SourceSet::is_test_path(Path::new("core/list.test.sv")));
+        assert!(!SourceSet::is_test_path(Path::new("core/list.sv")));
+    }
+
+    /// [test-file] The carve-out is exactly one suffix wide: it must not
+    /// reopen the per-backend companion spelling, and an annex needs a name in
+    /// front of it.
+    #[test]
+    fn the_annex_carve_out_stays_narrow() {
+        assert!(SourceSet::classify(Path::new("list.kotlin.test.sv")).is_err());
+        let err = SourceSet::classify(Path::new(".test.sv")).unwrap_err();
+        assert!(err.contains("[test-file]"), "unexpected message: {err}");
+    }
+
+    /// [test-file] An annex is never `is_std`, whatever tree it came from, so a
+    /// test cannot declare an `intrinsic` [intrinsic-std-only].
+    #[test]
+    fn an_annex_is_never_std() {
+        let mut sources = SourceSet::default();
+        sources.add_test(
+            "heap.test.sv",
+            SourceSet::classify(Path::new("heap.test.sv")).unwrap(),
+            String::new(),
+        );
+        let file = &sources.files[0];
+        assert!(file.is_test && !file.is_std);
+    }
+
+    /// [std-shadow] A tree declaring std's own modules replaces them, std-ness
+    /// included — which is what `salvo test --src std` rests on.
+    #[test]
+    fn a_source_tree_can_shadow_std() {
+        let mut sources = SourceSet::default();
+        sources.add("std/heap.sv", ModulePath(vec!["heap".into()]), "embedded".into(), true);
+        sources.add("std/core/list.sv", ModulePath(vec!["core".into(), "list".into()]), "embedded".into(), true);
+        sources.add("heap.sv", ModulePath(vec!["heap".into()]), "on disk".into(), false);
+        let notes = sources.apply_std_shadow();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("`heap`"), "{notes:?}");
+        let heap: Vec<&SourceFile> = sources
+            .files
+            .iter()
+            .filter(|f| f.module.to_string() == "heap")
+            .collect();
+        assert_eq!(heap.len(), 1);
+        assert_eq!(heap[0].content, "on disk");
+        // It takes over std-ness, so its `intrinsic` declarations stay legal.
+        assert!(heap[0].is_std);
+        // An unshadowed std module is untouched.
+        assert!(sources
+            .files
+            .iter()
+            .any(|f| f.module.to_string() == "core.list" && f.is_std));
     }
 
     #[test]

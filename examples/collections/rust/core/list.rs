@@ -12,10 +12,6 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return (list.len() as i32) > 0;
 }
 
-pub fn non_empty_list<T: Clone>(first: &T, rest: Vec<T>) -> Vec<T> {
-    return { let mut __v = Vec::new(); __v.push(first.clone()); __v.extend(rest.iter().cloned()); __v };
-}
-
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
     return list.get((0) as i64 as usize).unwrap();
 }

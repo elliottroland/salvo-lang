@@ -128,25 +128,53 @@ pub trait Backend {
         )))
     }
 
-    /// Builds the emitted sources with the target toolchain and runs the
-    /// program, returning its exit code [cli-run]. `emitted` is what
-    /// [`Backend::emit`] wrote (relative to `target_dir`), so the backend
-    /// need not re-discover it. The program's stdio is inherited: its
-    /// output is the command's output.
+    /// Builds the emitted sources with the target toolchain and returns the
+    /// **command that launches the program** [cli-run] [test-run].
+    /// `emitted` is what [`Backend::emit`] wrote (relative to `target_dir`),
+    /// so the backend need not re-discover it.
     ///
-    /// A backend that cannot run programs returns
+    /// The build happens here; the caller decides how the program is run —
+    /// with inherited stdio ([`Backend::run`]), or with its output captured
+    /// and rendered, which is what `salvo test` does with the harness's
+    /// protocol. A backend that cannot run programs returns
     /// [`BackendError::Unsupported`], which is the default.
+    fn program_command(
+        &self,
+        target_dir: &Path,
+        main_module: &ModulePath,
+        emitted: &[PathBuf],
+    ) -> Result<std::process::Command, BackendError> {
+        let _ = (target_dir, main_module, emitted);
+        Err(BackendError::Unsupported(format!(
+            "backend `{}` cannot run programs",
+            self.name()
+        )))
+    }
+
+    /// Builds the emitted sources with the target toolchain and runs the
+    /// program, returning its exit code [cli-run]. The program's stdio is
+    /// inherited: its output is the command's output.
+    ///
+    /// Defined in terms of [`Backend::program_command`], which is where a
+    /// backend does the work.
     fn run(
         &self,
         target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
     ) -> Result<i32, BackendError> {
-        let _ = (target_dir, main_module, emitted);
-        Err(BackendError::Unsupported(format!(
-            "backend `{}` cannot run programs",
-            self.name()
-        )))
+        let mut command = self.program_command(target_dir, main_module, emitted)?;
+        let program = command.get_program().to_string_lossy().to_string();
+        match command.status() {
+            Ok(status) => Ok(status.code().unwrap_or(1)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                Err(BackendError::Unsupported(format!(
+                    "`{program}` was not found on PATH: it is needed to run the \
+                     emitted code"
+                )))
+            }
+            Err(err) => Err(BackendError::Io(err)),
+        }
     }
 }
 

@@ -19,6 +19,8 @@ pub mod core_list;
 pub mod core_map;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
+#[path = "core/range.rs"]
+pub mod core_range;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/seq.rs"]
@@ -39,6 +41,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
 use crate::core_nonempty::*;
+use crate::core_range::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
@@ -113,7 +116,7 @@ pub fn main() {
     let mut words = vec!["alpha".to_string(), "be".to_string()];
     let mut lengths = SalvoMap::from_entries::<HostHash, HostEq, _>(words.iter().map(|w| (w.clone(), (w.chars().count() as i32))));
     println(&mut console, &(format!("5. to_map with a rule {}", lengths.to_string())));
-    let mut filled = non_empty_list(&("ada".to_string()), vec!["grace".to_string()]);
+    let mut filled = vec!["ada".to_string(), "grace".to_string()];
     println(&mut console, &(format!("6. first is {}, no optional", first(&filled))));
     let mut growing: Vec<i32> = vec![];
     growing.push(7);
@@ -138,8 +141,8 @@ pub fn main() {
     }
     let mut unique = deduped.iter().cloned().collect::<Vec<_>>();
     println(&mut console, &(format!("6. distinct {} of {}", format!("[{}]", unique.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")), count_unique(&unique))));
-    let mut __loop1_pass = iter__5(&vowels);
-    while let Union2::U1(mut v) = next__7(&mut __loop1_pass) {
+    let mut __loop1_pass = iter__6(&vowels);
+    while let Union2::U1(mut v) = next__8(&mut __loop1_pass) {
         console.print(&v);
     }
     println(&mut console, &("".to_string()));

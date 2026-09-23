@@ -157,6 +157,12 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // pull a module into the output for a statement no generated
             // code mentions.
             Item::Refn(_) => {}
+            // [test-decl] An unexpanded `test` reaches here only in a
+            // production file, where resolution refuses it [test-file]; in an
+            // annex it is already an ordinary fn. Its body's names are
+            // counted anyway, so the refusal and this agree about what the
+            // module depends on.
+            Item::Test(t) => block_names(&t.body, &mut used),
         }
     }
     used

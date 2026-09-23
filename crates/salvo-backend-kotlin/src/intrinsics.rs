@@ -83,6 +83,15 @@ pub fn fn_call(
         ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
             format!("({}).compareTo({})", a(0), a(1))
         }
+        // [interp-to-str] The scalars' text form as a function, so a
+        // `?ToStr<T>` implicit can resolve one (added 2026-09-23 with the test
+        // surface). `toString()` is what interpolation lowers to as well, so
+        // `to_str(x)` and `"${x}"` agree by construction. `Double`/`Float`
+        // have no `to_str`: the two hosts disagree about printing a whole
+        // float.
+        ("to_str", Some("Int" | "Long" | "Byte" | "Char" | "Bool" | "Str")) => {
+            format!("({}).toString()", a(0))
+        }
         // Structural equality on every intrinsic type: Kotlin's `==` is
         // `equals`, which is value equality for the boxed primitives and for
         // `String`. The float widths are IEEE here as they are on Rust
@@ -170,8 +179,11 @@ pub fn fn_call(
         // which Kotlin passes on with its own spread operator — the
         // alternative (`listOf(arr)`) is a *list of one array*, and kotlinc
         // says so, but only after the fact [backend-never-wrong].
-        ("list_of", Some("[]")) => format!("listOf<{}>({})", elem(), args.join(", ")),
-        ("mut_list_of", Some("[]")) => {
+        // [col-of-nonempty] The empty constructor has no parameters and the
+        // element one starts with a `T`, so these match on the *name*: the
+        // receiver type no longer identifies them.
+        ("list_of", _) => format!("listOf<{}>({})", elem(), args.join(", ")),
+        ("mut_list_of", _) => {
             format!("mutableListOf<{}>({})", elem(), args.join(", "))
         }
         // [col-sorted-list] [cmp-carry] The sorted-list primitives take the

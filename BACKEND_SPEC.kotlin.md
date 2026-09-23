@@ -424,6 +424,11 @@ Conventions:
     suppression bookkeeping: it is a control transfer, not an error. It is
     generated once per program into `throw.kt` (package `salvo`), like the
     union wrappers.
+  * A file that throws therefore **imports `salvo.*`**, the same way a file
+    using a union wrapper or a fusion accessor does. Nothing exercised this
+    until `std.test`'s assertions (2026-09-23): every throwing module before
+    them also used a union, which supplied the import by accident, so a
+    module that only throws emitted an unresolved `ThrowSignal`.
   * `try { ... }` is Kotlin's own `try`/`catch`, which is an **expression**,
     so the outcome falls out of it: the body's tail wrapped in the `Ok` arm,
     or the caught payload wrapped in the `Thrown` arm. Catching the

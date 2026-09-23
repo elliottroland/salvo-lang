@@ -15228,9 +15228,43 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    fn apply_refinements(&mut self, callee: FnKey, param: &str, arg: &str, span: Span) {        let Some(group) = self.refinements.for_param(self.file_idx, callee, param) else {
-            return;
-        };
+    /// [qual-refn] Applies the refinements written about one parameter of a
+    /// call, to the argument `arg`.
+    ///
+    /// [qual-refn-narrow] `had` is what the argument carried **before** this
+    /// call, which is what a conditional refinement is tested against: a
+    /// refinement whose parameter is narrower than the declaration's
+    /// (`refn swap(list: NonEmpty Mut List<T>, …)`) states what happens *when
+    /// the claim is already there*, and must not put it there.
+    fn apply_refinements(
+        &mut self,
+        callee: FnKey,
+        param: &str,
+        arg: &str,
+        had: &[String],
+        span: Span,
+    ) {
+        let groups: Vec<crate::refine::RefnGroup> = self
+            .refinements
+            .for_param_all(self.file_idx, callee, param)
+            .into_iter()
+            .filter(|g| g.requires.iter().all(|q| had.iter().any(|h| h == q)))
+            .cloned()
+            .collect();
+        for group in groups {
+            self.apply_refinement_group(&group, callee, param, arg, span);
+        }
+    }
+
+    /// One group of refinements that agree about a parameter, applied.
+    fn apply_refinement_group(
+        &mut self,
+        group: &crate::refine::RefnGroup,
+        callee: FnKey,
+        param: &str,
+        arg: &str,
+        span: Span,
+    ) {
         if !group.conflict.is_empty() {
             let key = (callee, param.to_string());
             if self.refn_warned.insert(key) {
@@ -22324,6 +22358,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             if !arity_ok {
                 continue;
             }
+            // [fn-variadic] A `...spread` may only supply the **variadic
+            // tail**: its length is not known statically, so it cannot stand in
+            // for a required parameter. Before this rule (2026-09-23) a spread
+            // in a fixed position unified the array with that parameter's type,
+            // which silently bound a type parameter to the array —
+            // `list_of(...xs)` built a `List<Int[]>` and claimed `NonEmpty` for
+            // a possibly empty spread [backend-never-wrong].
+            if args
+                .iter()
+                .take(fixed.len())
+                .any(|a| matches!(a, Expr::Spread { .. }))
+            {
+                continue;
+            }
             let saved = self.enter_generics(&decl.generics);
             // Pattern types for each argument slot.
             let mut patterns: Vec<Ty> = Vec::with_capacity(args.len());
@@ -22452,9 +22500,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(span, msg);
                 return Ty::Unknown;
             }
+            // [fn-variadic] The most likely reason when the call spreads: a
+            // spread fills the variadic tail and nothing else, so a callee with
+            // required parameters cannot be reached this way.
+            let spread_first = args
+                .iter()
+                .position(|a| matches!(a, Expr::Spread { .. }))
+                .is_some_and(|at| {
+                    candidates.iter().any(|c| {
+                        c.decl
+                            .params
+                            .iter()
+                            .filter(|p| !p.variadic && !p.implicit)
+                            .count()
+                            > at
+                    })
+                });
+            let hint = if spread_first {
+                ": a `...spread` can only supply a variadic tail, never a \
+                 required parameter — its length is not known here, so pass the \
+                 leading arguments individually"
+            } else {
+                ""
+            };
             self.error(
                 span,
-                format!("no matching overload for `{name}({})`", shown.join(", ")),
+                format!(
+                    "no matching overload for `{name}({})`{hint}",
+                    shown.join(", ")
+                ),
             );
             return Ty::Unknown;
         }
@@ -22924,7 +22998,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // re-establishes what `add`'s exhaustive `[list: Mut]`
                 // necessarily dropped.
                 if let Some(key) = best.key {
-                    self.apply_refinements(key, &param.name.name, &name, span);
+                    // [qual-refn-narrow] `have` is the argument's claim *before*
+                    // this call, which is what a conditional refinement reads.
+                    self.apply_refinements(key, &param.name.name, &name, &have, span);
                     // [deduce-reapply] …and a claim the callee says it
                     // **establishes** is added here, with this call's type
                     // arguments and identities substituted in: that is what

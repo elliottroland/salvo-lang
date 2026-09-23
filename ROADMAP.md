@@ -82,8 +82,15 @@ contract point with its four escape hooks, upper-bound checking, forwarding
 deferral, then **parking inside mixed handlers** — the servant-continuation
 emission on both backends, the checker lift of the staged refusal, the
 servant's gate treatment in the graph; [defer-deduction], COMPLETED.md's
-log). **With that the shareable-handler design is built end to end and
-SHAREABLE_HANDLERS.md is retired** — its record lives in COMPLETED.md's
+log). **And Salvo can test itself** (2026-09-23, user decisions of that day):
+`test "name" { … }` blocks in `*.test.sv` annexes, `salvo test` running them
+through a generated Salvo harness with one report on both backends, `std.test`
+for assertions, and `std/heap.sv` — moved out of `demo/` — as the first std
+module with a suite of its own. TESTING.md is retired with its own charter's
+blessing; the record is COMPLETED.md's log, the rules are [test-decl] …
+[test-report], and what was cut from the MVP is "Testing — the MVP is built,
+here is the rest" below. **With that the shareable-handler design is built end
+to end and SHAREABLE_HANDLERS.md is retired** — its record lives in COMPLETED.md's
 decision log. First-slice cuts to lift later: mixed handlers with
 dependencies (reroute the dependent-member machinery through handler-local
 dispatch — and when it lands, the servant-send ambiguity refusal gets its
@@ -942,6 +949,148 @@ Kotlin tuple classes, and `for (k, v) in pairs` on both backends). What remains:
   nested field pattern, and no binding of a *projection* (`{address.city}`).
   The `let` surface has always been this, and the loop inherited it.
 
+## Testing — the MVP is built, here is the rest (user decisions 2026-09-23)
+
+The testing framework's core is built and `salvo test` runs std's own suite
+(the decisions, the build and what it turned up are in COMPLETED.md's log;
+the rules are [test-decl] … [test-report] and the chapter in LANGUAGE.md).
+What was deliberately **cut from the MVP**, in the order the decisions put it:
+
+- **`context` scopes** — decided in shape already (TF-9, user decision
+  2026-09-19): nesting plus per-test re-run initialization (`use`s and `let`s
+  that run again for every test, so no cross-test state is expressible), with
+  the test's id joining the context names. Three sub-calls ride the
+  implementation: statements **preamble-only** (recommended, error otherwise),
+  a preamble may do **anything a test body may**, and a **childless context
+  warns**. The lowering is per-test inlining — each test's synthesized fn is
+  its ancestors' preambles concatenated with its body — which makes isolation
+  true by construction.
+- **Property testing** (TF-5, TF-5b): `check(runs, property)` with the
+  generator arriving as the implicit parameter **`?generate`**, so the
+  *qualifier on the parameter type picks the generator* (`(text: ValidDate Str)
+  -> …`); randomness threaded as a `Mut Rng` **value**, which the
+  effect-free-resolution rule turns into a determinism guarantee; shrinking by
+  replaying the generator over a shrunken draw stream. Prerequisites, both
+  recorded here: std needs wrapping/bit `Long` intrinsics for a pure-Salvo
+  splitmix64 (parity by construction — user recommendation, not yet decided),
+  and `resolve_implicit_fn` must stop skipping candidates that take implicits
+  (the same lift [interp-to-str] wants). The worked example that settled the
+  design — a date parser with constructive `ValidDate`/`InvalidDate`
+  qualifiers declared *in the annex* — is in COMPLETED.md's log.
+- **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
+  [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
+  over [actor-watch], and the [time-coupling] ladder in the docs. Needs
+  `spawn` added to [test-body]'s implicit powers, and the harness's default
+  fault sink to record rather than print. No test scheduler (rejected as
+  out of scale: it would be a second scheduler per backend runtime).
+- **The blackbox tier** (TF-2's `tests/` tree): ordinary modules that
+  `import` what they test and see only exports — the contract tier beside the
+  annex's implementation tier. Nothing about it is decided beyond the shape.
+- **`--isolate`, `--timeout`, crash recovery** (TF-4's process model): one
+  process per test, a per-test wall-clock kill, and automatic re-run of a
+  crashed batch's remainder. The MVP runs everything in one process and
+  reports a test that died without finishing (`DIED`), which is the cheap
+  half.
+- **The `std.` import prefix** (TF-8, decided 2026-09-19, not built):
+  `import std.time` rather than `import time`, `std` a reserved root, the
+  bare spelling refused with the corrected path named, and the library tree
+  moving to `lib/std`. Sequenced *after* the MVP deliberately (user decision
+  2026-09-23): std's own `.sv` files carry no import lines, so the annexes
+  written here need no rewrite when it lands. What does: every example, every
+  corpus file, the inline sources in Rust tests, the spec snippets, the
+  resolver's import-suggestion paths [diag-import-suggest], the LSP
+  quickfixes, and the `include_dir!` root. Under it, `std.test`'s implicit
+  availability stays as built, and an **explicit** `import std.test` from a
+  production file is refused.
+- **Smaller leftovers from the MVP build**: `expect_eq` on a generic
+  container cannot resolve a `to_str` (the `resolve_implicit_fn` lift above);
+  the annex's one-way visibility holds by construction but is not *checked*,
+  so a production file that writes `import heap.test` compiles under
+  `salvo test` and fails under `salvo run` (a clear error, not silent, but a
+  rule could say so); the report has no `--format json` for editors; and
+  nothing migrates the compiler's own e2e suite onto `salvo test` (user
+  decision 2026-09-23: leave it, revisit later).
+
+## The `NonEmpty` constructor convention — what is left (user decisions 2026-09-23)
+
+`list_of`/`mut_list_of` have the two shapes ([col-of-nonempty]; the round is in
+COMPLETED.md's log). What it leaves:
+
+- **The siblings**: `set_of`, `mut_set_of`, `map_of`, `mut_map_of`,
+  `sorted_set_of`, `mut_sorted_set_of`, `sorted_map_of`, `mut_sorted_map_of`.
+  Their `NonEmpty` qualifiers live in `core.nonempty`, and a constructor must be
+  declared in its qualifier's file [qual-ctor-same-file] — so either the
+  element-taking constructors live *there* (delegating with
+  `set_of@core.set(...)`, the pattern `min`/`max` already use for the same
+  reason), or the qualifiers move next to their containers, which the header of
+  `core/nonempty.sv` explains they cannot. Recommendation: the former.
+- **Literals**: `[1, 2, 3]` claims nothing today, while `list_of(1, 2, 3)`
+  claims `NonEmpty`. Making a non-empty literal claim it is consistent and
+  removes the asymmetry a reader will trip on; it also spreads the claim to
+  every literal in every program. Same question for `{"a"}` and `{"k": "v"}`.
+  **DECISION**.
+- **A lone `...spread` builds no list** any more, since a spread may not fill a
+  required parameter [fn-variadic]. The user is "fine without it for now"
+  (2026-09-23) — revisit if it turns out to be needed, and the answer then is
+  either fixed-beats-variadic overload ranking (so a variadic-only `list_of`
+  can coexist) or a named conversion.
+
+## Qualifiers are droppable — assignment should say so (user decision 2026-09-23)
+
+A variable's type may never *widen* (that is the rule `let out = list_of(0)`
+then `out = a_plain_list` runs into), **but qualifiers are not part of that
+rule**: a qualifier is by definition something that optionally applies to a
+type, so dropping one is always legal. The user's call, 2026-09-23. What it
+means concretely:
+
+- Assigning a `List<Int>` to a variable inferred as `NonEmpty List<Int>` must be
+  accepted, and the variable simply stops being `NonEmpty` from there (the flow
+  state already models exactly this — a mutating call drops claims the same
+  way).
+- The same for a *narrower* assignment: assigning a `NonEmpty List<Int>` where
+  the variable is plain stays legal and adds nothing (today it narrows, which is
+  fine).
+- Provenance qualifiers [qual-subject] need thought here: dropping one on
+  assignment is harmless, but re-*gaining* it must stay impossible.
+- Where it shows up today: `crates/salvo-cli/tests/analyze_tests.rs`'s
+  `fate_links_merge_across_branches` and `inferred_moves_consume_arguments` had
+  to annotate their `let`s when the constructors started claiming; those
+  annotations come back out when this lands.
+
+## Variance on generic parameters (user direction 2026-09-23) — **DECISION**
+
+A `List<NonEmpty List<Int>>` is not a `List<List<Int>>` today, because type
+arguments are invariant — so a constructor call cannot fill a plain
+type-argument position and even an annotation does not widen it
+([col-of-nonempty]'s sharp edge). The user's direction: introduce **variance on
+generic parameters**, in the shape C# and Kotlin use (`in`/`out` declaration-site
+variance).
+
+What has to be decided with it, since Salvo's type language is not theirs:
+
+- **Declaration-site or use-site?** `intrinsic type List<out T>` says every
+  `List` is covariant in `T`; a use-site form (`List<out T>` at the position)
+  is more flexible and more to write. Kotlin has both; recommendation is
+  declaration-site first, because std's containers are where it pays.
+- **What `Mut` does to it.** A `Mut List<T>` cannot be covariant in `T` — that
+  is the classic array-store hole — so variance has to interact with the
+  mutability qualifier rather than being a property of the type alone. The
+  natural rule: the covariance of a type argument holds only while the value is
+  not `Mut`.
+- **Whether qualifiers on a type argument are a separate question.** The case
+  that raised this needs only `NonEmpty List<Int>` → `List<Int>` *inside* a type
+  argument, which is qualifier-dropping (above) rather than full variance. A
+  narrower rule — qualifiers are droppable at any depth in an immutable
+  position — might close the real case without a variance system, and is worth
+  pricing first.
+- **Both backends.** Kotlin has declaration-site variance natively; Rust has
+  none, so the emitted Rust must not depend on it (Salvo's generics erase to
+  Rust generics, so a covariant use would need a copy or a reborrow — the
+  Rust backend's own rule to work out).
+
+Sequenced after the refinement work and the open defects (user direction
+2026-09-23).
+
 ## Decisions waiting on the user
 
 Every item here needs a language-design call before it can be built, and the
@@ -979,7 +1128,17 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Six open.** (**Closed 2026-09-20**: mutating a `Mut` payload through a
+**Eleven open**, and **these are next**: the user's direction of 2026-09-23 is
+to clear them once the refinement work is done, before the variance and
+qualifier-dropping sections above. (**Closed 2026-09-23**: a refinement applied
+inside a branch was lost — the deduction pass suppressed *every*
+re-establishment under a conditional; with [qual-refn-narrow] a refinement that
+merely **keeps** a claim is distinguishable from one that establishes it, and
+only the latter is suppressed. `std.heap`'s sift-down is written naturally
+again. **Also closed 2026-09-23**: `range` was unusable outside 
+`core.range` — its `Range` and `next` were private, so the exported
+constructors could not be driven; the user exported both, and what that costs
+is the first entry below. **Closed 2026-09-20**: mutating a `Mut` payload through a
 narrowing on three further sites — the intrinsic path, the `^` branch shadow and
 a moved parameter's `mut` binder — silently wrong on Rust and divergent from
 Kotlin; the repro and the shape it left refused are in COMPLETED.md. **Closed
@@ -1042,6 +1201,59 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   says. Note that check.rs's [proj-anywhere] comment claims driving a temporary
   "is fine: the temporary lives for the whole loop statement on both backends",
   which is exactly what is wrong.
+
+- **An exported std name is everybody's output** [mod-used-only] (sharpened
+  2026-09-23, when `core.range` was exported so `range` could be used at all —
+  the user's call, and the right one). Reachability resolves a *used name* to
+  every module declaring it, so a program that merely iterates (using the name
+  `next`) now emits `core/range` and whatever it drags. Repro: any example;
+  `examples/*/rust/main.rs` all gained `pub mod core_range;`. The fix is
+  resolution-based reachability — the checker already records which declaration
+  each call resolved to (`Checked::call_fn`), so the edge could follow *that*
+  instead of the name. Until then, adding an exported `next`/`iter`/`to_str`/
+  `add` to std costs every program, and the examples must be regenerated with it.
+
+- **Two same-named structs in two modules confuse pass-driving resolution**
+  (found 2026-09-23, after `core.range` exported a `Range`). A module declaring
+  its own `Range` with an `iter fn next` and driving it with `for` emitted a
+  call to the *other* module's `iter`/`next` (`iter__5(&(range__4(1, 4)))`,
+  rustc: "expected `core_range::Range`, found `Range`"). Repro: the codegen
+  tests' `DEMO`/`LOOPS` sources before they were renamed to `Upto` — declare
+  `struct Range { start: Int, end: Int }` plus `iter fn next(r: Range)` in a
+  user module and write `for i in range(1, 4)`. Root cause is type identity by
+  *name* in the pass-driving lookup, so two `Range`s are indistinguishable
+  there. Wrong output rather than a diagnostic, so it is
+  [backend-never-wrong]-grade.
+
+- **A qualified argument stops a type variable binding through an implicit fn
+  position** (found 2026-09-23 with the new constructors). Repro: with
+  `fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int`,
+  the call `total(list_of(1, 2, 3))` — whose argument is `NonEmpty List<Int>`
+  [col-of-nonempty] — resolves `?iter` correctly to the list's but `?next` to a
+  *sibling* pass's `next` declared in the caller's own module, because `It` is
+  still unbound when the group's members resolve and the nearer rung then wins
+  [implicit-resolve] [fn-overload-scope]. `total([1, 2, 3])` (an unqualified
+  literal) resolves correctly. Emits a call the target compiler rejects.
+
+- **`!` on a non-optional is accepted and emits an unwrap** (found 2026-09-23).
+  `let n = 3; println("${n!}")` checks clean and lowers to `.unwrap()` on an
+  `i32` (rustc E0599). It surfaced because the new constructors made
+  `first(list_of("a", "b"))` non-optional while the source still wrote `!`. The
+  fix is a checker error (or a no-op) for `!` where the operand has no `None`
+  arm.
+
+- **An interpolation-resolved `to_str` from another module is not imported**
+  (found 2026-09-23 building the test harness). A file that interpolates a
+  value whose `to_str` [interp-to-str] lives in a *different* module emits a
+  call to it without importing the module: Rust says "cannot find function
+  `to_str__3` in this scope", Kotlin the same for the symbol. Root cause:
+  `generate_imports` walks `reach::used_names`, and an interpolation never
+  *names* the `to_str` the checker resolved for it — the same blind spot the
+  pass-driving loop needed its `Finished` special case for. Fix: feed
+  `Checked::interp_to_str` (and `interp_struct`) into the import computation
+  in both emitters. Repro: any `${failure}` outside `std.test` before the
+  generated harness was changed to call `to_str` explicitly — which is the
+  workaround in `salvo-test`'s harness today.
 
 - **A whole-valued `Double`/`Float` interpolates differently per backend**
   (found 2026-09-14 while testing the operator slice; pre-existing). Repro:

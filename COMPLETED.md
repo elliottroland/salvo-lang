@@ -26,7 +26,9 @@ messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([readonly-return]). Around it: `salvo analyze`, a language server, a VS Code
-extension, and worked [examples/](examples/).
+extension, worked [examples/](examples/), and `salvo test` — `test "name" { … }`
+blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
+on both backends, which is how std's own modules are tested.
 
 Companion documents: [LANGUAGE.md](LANGUAGE.md) is the narrative spec (source of
 truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a labeled
@@ -53,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1342 tests, complete: the toolchain tests are
+cargo test                  # 1371 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -127,6 +129,190 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A refinement may narrow its parameter — keeping a claim vs establishing one
+(2026-09-23, user correction).** The `refn swap(list: Mut List<T>, …) =>
+list: +NonEmpty` written earlier the same day was **wrong**, and the user caught
+it: swapping two elements of an *empty* list does not make it non-empty, so an
+unconditional refinement of `swap` states a falsehood. What they had written by
+hand was `refn swap(list: NonEmpty Mut List<T>, …)` — a refinement whose
+parameter is *narrower* than the declaration it refines, which refinements did
+not support because [qual-refn-match] demanded an exact parameter list.
+
+Built as [qual-refn-narrow]:
+
+- **Matching ignores the qualifiers a refinement writes** and compares the types
+  under them, with the requirement that every qualifier the declaration itself
+  writes is still written (dropping the `Mut` now reports "matches no `touch` in
+  scope"). Everything beyond the declaration's own qualifiers becomes a
+  **precondition**, per parameter.
+- **A precondition is tested against what the argument had *before* the call**,
+  both at the call site (`check.rs`, against the flow state) and in the deduction
+  pass (`deduce.rs`, against the enclosing parameter's declared qualifiers). Two
+  refinements of one parameter that require different things are two groups, each
+  applying where its own precondition holds, so conflicts are judged within a
+  group rather than across them.
+- **Keeping and establishing now differ under a conditional**, which closed a
+  defect recorded hours earlier. `deduce.rs`'s `add_quals` bailed out whenever
+  `cond_depth > 0` — correct for an *establishing* refinement (a call that may
+  not have run cannot have made a list non-empty) and wrong for a *keeping* one
+  (the caller's claim is there either way). A keeping group now goes through
+  `keep_quals`, which is the same code with that guard lifted. `std.heap`'s
+  sift-down is written the natural way again — `if smallest != i { swap; recurse }`
+  — instead of swapping unconditionally to dodge the guard.
+
+Five tests in `refine_tests.rs` pin the shape, including the one that matters:
+the same `touch(s)` call keeps a claim the argument has and does **not** invent
+one it lacks. The rule is also the answer to "how do I extend an existing
+function with a refinement" in general: state it on the *narrowest* parameter
+the statement is true of.
+
+**Constructors that claim, and how a claim survives a call it never heard of
+(2026-09-23, user decisions).** Two things the user asked for after the testing
+MVP landed, both about `NonEmpty`: a convention for the collection constructors,
+and an answer to "how do I extend an existing function with a refinement" —
+which their own `demo/heap.sv` work had run into. The answers, in order of how
+much they turned up:
+
+- **The constructors come in two shapes** [col-of-nonempty]: `list_of()` for an
+  empty list, `list_of(first, ...rest)` for one whose result claims `NonEmpty`
+  **by construction** [qual-ctor-predicate]. Built for `list_of`/`mut_list_of`;
+  `non_empty_list` is deleted (it *was* the second shape). `set_of`/`map_of` and
+  the sorted pair keep the single variadic shape for now, because their
+  `NonEmpty` is declared in `core.nonempty` and a constructor must live in its
+  qualifier's file [qual-ctor-same-file] — which is a decision waiting in
+  ROADMAP.md, not an oversight.
+- **A claim survives a foreign call through a refinement written by the claim's
+  owner**, never through a wrapper overload at the call site. The concrete case
+  was `swap`, and its first spelling was unconditional and therefore wrong — see
+  the entry above it, which replaced it with
+  `refn swap(list: NonEmpty Mut List<T>, …) => list: +NonEmpty`. With it,
+  `std.heap` grew a second `heapify` over `NonEmpty Mut List<T>` whose clause
+  *names* `NonEmpty` without establishing it (the claim is `core.list`'s to
+  establish), and `heap_of(5, 1, 9)` now answers a heap that is known non-empty
+  — so `peek` and the first `pop` answer elements rather than optionals. The
+  user's first attempt, an overload of `swap` that widened with `^NonEmpty` and
+  called itself in the other arm, is what the refinement replaces.
+
+What building the two turned up — and this is the part worth reading, because
+most of it is *cost*:
+
+- **A spread may not fill a required parameter** [fn-variadic]. Before the rule,
+  `list_of(...xs)` against `list_of(first: T, ...rest: T[])` unified the *array*
+  with `T`, so it built a `List<Int[]>` and claimed `NonEmpty` for a spread
+  whose length nobody knows. Now it does not match, with a diagnostic that says
+  why. The cost: an array no longer becomes a list in one call (`map_to`, or a
+  loop with `add`). Kept deliberately — a silently mis-typed list with a false
+  claim is worse than a missing convenience.
+- **A claim in the type reaches places a claim in the head would not.** Three
+  consequences fell out of test failures rather than from reasoning, and each
+  cost a rewrite: a variable inferred from a constructor call is `NonEmpty`, so
+  assigning a plain list to it later is refused (annotate to widen); a
+  constructor call does **not** fit a plain type-*argument* position, since type
+  arguments are invariant (`List<NonEmpty List<Int>>` is not a
+  `List<List<Int>>`) — where a **literal** fits, because `[1, 2, 3]` claims
+  nothing; and `first` on a claimed list answers an element, so an existing `!`
+  becomes wrong. The literal/constructor asymmetry is now a question in
+  ROADMAP.md: the convention arguably wants `[1, 2, 3]` to claim too.
+- **Four defects, recorded with repros** (ROADMAP.md): a refinement applied
+  *inside a branch* is lost at the join (which is why `std.heap` swaps
+  unconditionally — a self-swap is a no-op — and keeps only the recursion under
+  the `if`); a qualified argument stops a type variable binding through an
+  implicit fn position, so a sibling `next` at a nearer rung wins; two
+  same-named structs in two modules confuse pass-driving resolution (exporting
+  `core.range`'s `Range` made the codegen demos' own `Range` emit calls to the
+  wrong `iter`, so they are `Upto` now); and `!` on a non-optional is accepted
+  and lowers to an unwrap.
+- **`core.range` is exported** (the user's call), which closed "`range` is
+  unusable outside its own file" and left the reachability bill behind: every
+  program that iterates now emits `core/range`, because reachability follows
+  names. That is the first entry under open defects, with the fix named.
+
+**Testing — the MVP, built the day it was decided (2026-09-23, user
+decisions).** Salvo can test itself: `test "name" { … }` blocks in `*.test.sv`
+annexes, `salvo test` to run them, `std.test` for assertions, and `std/heap.sv`
+(moved out of `demo/`) as the first std module with a suite of its own. The
+option space had been worked out on 2026-09-19 in a working document
+(TESTING.md, three rounds, now deleted per its own charter); this session took
+the remaining calls and built the core. The rules are [test-decl] …
+[test-report] plus [std-shadow]; LANGUAGE.md has a "Testing" chapter; what was
+cut is a section in ROADMAP.md.
+
+The calls, each the user's:
+
+- **The failure channel is `[Throw<Failure>]`** (TF-3(i)), not a new `Test`
+  effect: a handler member that does not resume is language surface only testing
+  would want, and the honest implementation of it is this plus a struct.
+  `Failure` is a std struct with a `message` and a `to_str`, so the channel can
+  grow fields (a seed, a shrink count) without changing shape.
+- **`expect` is the general assertion**; `expect_eq` takes `?Eq<T>` **and**
+  `?ToStr<T>` — equality and rendering are capabilities, so a type joins in by
+  declaring two functions, and one that declares neither gets the ordinary
+  implicit-resolution error at the assertion site.
+- **A generated Salvo harness** (TF-4(a)), in a **new crate called
+  `salvo-test`** rather than `salvo-harness` (the user's naming call: the crate
+  is where anything test-specific goes). No emitter has a line of test-shaped
+  code — the harness is a Salvo program, so the backends agree by construction.
+- **`salvo test --src std`** is how std's suite runs, driven from an ordinary
+  `cargo test`, with no `--std` flag to explain to users and no migration of the
+  existing e2e suite. std's annexes are **not embedded** in the binary: they are
+  repository files, so a shipped compiler carries no tests.
+- **`std.heap`, with `push`/`pop`**, arriving by `import heap` — the names only
+  enter a program that asks for the module.
+- **The report**: `test <module a program would import> :: <name as written,
+  unquoted> ... ok (N ms)`, green/red, a failure indented under its test.
+
+What building it took, and what fell out:
+
+- **The annex is its own module (`heap.test`), not a second file of `heap`.**
+  Emitted paths come from the module path, so two files in one module would
+  collide in the output (one Kotlin file overwriting another, two Rust `mod`s
+  with one name), and making the *emitters* keep them apart is real work for no
+  language gain. As a separate module that resolution hands the parent's
+  declarations at `Level::Own`, the annex gets private access, identical
+  overload ranking, and **one-way visibility for free** — nothing imports it,
+  and a production build does not load it.
+- **The `test` block is desugared before resolution**, like `iter fn`: an
+  exported `__salvo_test_<module>_<index>()` declaring `[use, Throw<Failure>]`
+  with the block as its body. Everything downstream — narrowing, linearity,
+  deductions, both emitters, the LSP — sees an ordinary function, so the whole
+  feature cost the checker *nothing*. The `[use]` in that list is how a test
+  gets `main`'s registration powers ([test-body]) without a rule of its own.
+- **The harness prints a protocol, the runner renders the report.** Two things
+  forced it, both worth knowing: a Salvo string literal has no escape for the
+  ESC byte, so a coloured report cannot be printed from Salvo at all; and timing
+  the protocol lines as they stream gives per-test milliseconds without a clock
+  capability inside the test. The `Backend` trait grew `program_command` (build,
+  then hand back the launch command) with `run` becoming a default impl over it
+  — which is the seam anything wanting a program's output needs.
+- **std grew `to_str` for the scalars.** Interpolation renders `Int` natively
+  but a `?ToStr<Int>` position needs a *function* to resolve, so `expect_eq(n,
+  3)` could not have worked without them. `Double`/`Float` were left out
+  deliberately: the hosts disagree about printing a whole float, which is an
+  open parity defect, and a `to_str` for them would cement it.
+- **Three defects surfaced, two fixed.** A module that throws without also
+  using a union emitted an unresolved `ThrowSignal` on Kotlin — no throwing
+  module before `std.test` was anything but an entry point, so the import came
+  for free by accident ([kt-throw-signal], fixed). `core/range.sv`, new and
+  never usable from outside its own file, had an inclusive end and a descending
+  step that ran *upward* (both fixed). And an interpolation-resolved `to_str`
+  from another module is emitted without importing it — worked around in the
+  harness by calling `to_str` explicitly, recorded as an open defect.
+- **`range` is unusable outside `core.range`**, which the heap's sift-down
+  needed. Exporting `Range` and its `next` fixes it and *costs every program in
+  the repository the whole module*, because reachability follows names and every
+  iterating program uses the name `next`. Tried, measured (81 files of example
+  churn), reverted: `heapify` uses a `while` loop, and the defect entry says what
+  the real fix is.
+
+Test counts: 9 new CLI tests (`test_command_tests.rs`), 7 unit tests in
+`salvo-test`, 4 parser tests for the declaration form, 5 source-classification
+tests for the annex and [std-shadow], and std's own 5 heap tests, which one of
+the CLI tests runs.
+
+**The working document is deleted, as it said it would be.** TESTING.md's job
+was to hold the option space while the decisions were taken; the decisions are
+here, the rules are in LANGUAGE_SPEC.md, and what is left is in ROADMAP.md.
 
 **The order-dependent side table, one hour later (2026-09-22).** `+Q`'s
 establishment reached the caller only when the callee was declared **above** the
@@ -14676,7 +14862,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1342)
+## Test inventory (all green: 1371)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -14684,7 +14870,11 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 747 - 21 carried-ordering tests (`tests/carry_tests.rs`
+- `salvo-core`: 757 - 5 narrowed-refinement tests (`tests/refine_tests.rs`
+  [qual-refn-narrow]: a narrowed refinement keeping a claim the argument has, the
+  same call *not* establishing one it lacks, a kept claim surviving a branch
+  where an established one does not, and a refinement that drops the
+  declaration's own `Mut` reported as matching nothing) + 21 carried-ordering tests (`tests/carry_tests.rs`
   [cmp-carry] [cmp-binder], the ordering round's steps 3 and 5: a qualifier declaring a
   fn slot, a heap built and pushed under one ordering, two orderings refusing to
   mix in both diagnostics, one binder forcing two arguments to agree and
@@ -15155,7 +15345,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 91 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 100 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one
@@ -15323,7 +15513,9 @@ cache, with per-test timings.
   the implementation and the entry's module (chosen with `--main`) gets the
   `main`, each mirroring its own source path, with the cross-module
   reference qualified as `crate::platform_telemetry::TelemetryHost`.
-- `salvo-syntax`: 98 (one std snapshot for `core.compare` [cmp-groups] — three
+- `salvo-syntax`: 103 (four [test-decl] tests — the declaration with its
+  string name, an interpolated name refused, `export test` refused, and `test`
+  still an ordinary identifier; one std snapshot for `core.compare` [cmp-groups] — three
   `params` groups beside the `intrinsic fn` overloads that implement them for
   the intrinsic types; four [mod-export] parser tests — the flag set only on
   the declaration it precedes, `export` staying an ordinary name for a variable
@@ -15831,6 +16023,20 @@ cache, with per-test timings.
   lowering inside the implicit's adapter closure, and `seq.rs` present only
   when something needs it; plus the rustc run of the same seven-subject demo,
   asserting the stdout Kotlin asserts).
+- `salvo-test`: 7 - the harness and report unit tests
+  (`src/harness.rs`, `src/report.rs`, `src/lib.rs` [test-run] [test-report]
+  [test-filter]: the synthesized harness importing each annex once and
+  delimiting every test with its own `try`, a test name escaped into the
+  generated literal, the report rendering a pass with its milliseconds and a
+  failure indented under it, a test that begins and never reports named as
+  `DIED` in the summary, the code under test's own output passed through, an
+  empty run, and the substring filter over the full id). The nine `salvo test`
+  integration tests are in `salvo-cli` (`tests/test_command_tests.rs`: `--list`
+  enumerating, the filter, an orphan annex refused, a `test` in a production
+  file refused naming the annex, a production build ignoring the annex,
+  duplicate names refused, the report identical on both backends with timings
+  normalized, a green run's exit code, and **std's own suite** run as
+  `salvo test --src std` [std-shadow]).
 - `salvo-testkit`: 1 - the hygiene test
   (`stale_debug_objects_are_pruned`), which deletes orphaned `.rcgu.o`
   debug objects from `target/debug/deps` on every full run (see gotchas:
@@ -15841,6 +16047,49 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **"The body may remove it" points at the signature, not at the statement.**
+  When a deduction promise fails, the diagnostic lands on the clause, so the
+  *call* that dropped the claim has to be found by reading. Bisect the body: cut
+  statements until the promise checks, and the last one removed is the culprit.
+  That is how [qual-refn-narrow]'s conditional case was found — a refinement
+  restoring a claim inside an `if` was suppressed by the deduction pass's
+  `cond_depth` guard, which looked like "swap loses the claim" and was really
+  "*establishing* anything inside a branch is ignored".
+
+- **The embedded std is stale until `salvo-cli` is rebuilt.** `std/` is
+  compiled into the binary with `include_dir!`, and editing a `.sv` file does
+  not make cargo rebuild the crate — so `cargo run -- compile` keeps emitting
+  the *previous* std until some Rust source of `salvo-cli` changes. This cost a
+  confusing half-hour regenerating `examples/`: the checked-in output matched
+  what the CLI produced and the codegen tests (which read `std/` from disk) still
+  called it stale. `touch crates/salvo-cli/src/main.rs` before regenerating
+  anything after a std edit — and note that the *tests* never see this, which is
+  exactly why the two disagreed.
+
+- **Two files in one module collide in the output.** An emitted path comes from
+  the module path, so any design that puts two `.sv` files in one module (the
+  first shape considered for test annexes) produces two output files with one
+  name: on Kotlin the second overwrites the first, on Rust two `mod`s claim one
+  name. Giving the annex its own module path (`heap.test`) and handing it the
+  parent's declarations in resolution was both cheaper and *more* correct — the
+  one-way visibility the design wanted fell out of it.
+
+- **Overload mangling indices are global, so any new std declaration shifts
+  them.** `iter__5` becomes `iter__6` when a module declaring an `iter` joins
+  std, even a *private, unreachable* one: the index counts declarations, not
+  visible ones. Three golden snapshots and 74 checked-in example files churned
+  for exactly this reason while `core/range.sv` and `checked.sv` were being
+  added. When a diff is nothing but `name__N` → `name__N+1`, that is what it is;
+  check for a new declaration of that name before looking for a real change.
+
+- **Name-based reachability makes an exported std name everybody's problem.**
+  [mod-used-only] resolves a used name to *every* module declaring it, so
+  exporting one `iter fn next` pulled `core/range` (and what it drags) into
+  every program that iterates — the `next` they all use is enough. Measured at
+  81 changed example files before reverting. A std addition that exports a
+  common name (`next`, `to_str`, `add`) should be checked against the examples
+  before it lands.
 
 - **The editor grammar is generated; edit `lang.rs`.**
   `vscode/syntaxes/salvo.tmLanguage.json` says so in its own header and a test

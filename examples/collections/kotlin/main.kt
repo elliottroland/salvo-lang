@@ -9,6 +9,7 @@ import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
+import salvo.core.range.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -87,7 +88,7 @@ fun main() {
     val words = listOf<String>("alpha", "be")
     val lengths = linkedMapOf<String, Int>().also { __m -> words.map({ w -> Pair(w, w.length) }).forEach { __e -> __m.put(__e.first, __e.second) } }
     println(console, "5. to_map with a rule ${lengths.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")
-    val filled = non_empty_list("ada", arrayOf("grace"))
+    val filled = listOf<String>("ada", "grace")
     println(console, "6. first is ${first(filled)}, no optional")
     val growing: MutableList<Int> = mutableListOf<Int>()
     growing.add(7)
@@ -112,9 +113,9 @@ fun main() {
     }
     val unique = deduped.toMutableList()
     println(console, "6. distinct ${unique.joinToString(", ", "[", "]")} of ${count_unique(unique)}")
-    var __loop1_pass = iter__5(vowels)
+    var __loop1_pass = iter__6(vowels)
     while (true) {
-        val __loop1_step = next__7(__loop1_pass)
+        val __loop1_step = next__8(__loop1_pass)
         if (__loop1_step !is U2_1<*, *>) { break }
         val v = __loop1_step.value as String
         console.print(v)

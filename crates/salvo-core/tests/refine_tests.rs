@@ -519,3 +519,115 @@ fn a_conditional_refinement_does_not_reach_the_contract() {
         errors(&src)
     );
 }
+
+// --- [qual-refn-narrow] A refinement that *keeps* a claim ---
+
+/// A mutator that cannot establish the claim but cannot destroy it either:
+/// `touch` rearranges a store's contents. Refining it unconditionally would
+/// be a lie (touching an empty store does not fill it), so the refinement
+/// writes a **narrower** parameter and states what happens when the claim is
+/// already there (user correction 2026-09-23).
+const TOUCH: &str = r#"
+export fn touch<T>(s: Mut Store<T>) [] -> None => s: Mut {
+    s.value = s.value
+}
+"#;
+
+const KEEPS: &str = r#"
+export qualifier NonEmpty<T> of Store<T> {
+    fn qualifies(s: Store<T>) -> Bool {
+        return true
+    }
+
+    // Touching an *already* non-empty store leaves it non-empty.
+    refn touch(s: NonEmpty Mut Store<T>) => s: +NonEmpty
+}
+"#;
+
+/// [qual-refn-narrow] The claim the caller already has survives the call.
+#[test]
+fn a_narrowed_refinement_keeps_a_claim_the_argument_has() {
+    let src = format!(
+        "{PRELUDE}{TOUCH}{KEEPS}\nfn f(s: NonEmpty Mut Store<Int>) -> None {{\n    \
+         touch(s)\n    \
+         let _n = needs_nonempty(s)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
+/// …and **only** that claim: the same call on a store nothing is claimed
+/// about does not invent one. This is the case that makes the narrowed form
+/// necessary — an unconditional `refn touch(s: Mut Store<T>) => s: +NonEmpty`
+/// would accept this program, wrongly.
+#[test]
+fn a_narrowed_refinement_does_not_establish_the_claim() {
+    let src = format!(
+        "{PRELUDE}{TOUCH}{KEEPS}\nfn f(s: Mut Store<Int>) -> None {{\n    \
+         touch(s)\n    \
+         let _n = needs_nonempty(s)\n}}\n"
+    );
+    assert!(
+        errors(&src)
+            .iter()
+            .any(|e| e.contains("no matching overload for `needs_nonempty")),
+        "{:?}",
+        errors(&src)
+    );
+}
+
+/// [qual-refn-narrow] A *kept* claim survives a conditional call, because it
+/// was there whether or not the call happened. An establishing refinement
+/// must not (and does not — the next test).
+#[test]
+fn a_kept_claim_survives_a_branch() {
+    let src = format!(
+        "{PRELUDE}{TOUCH}{KEEPS}\n\
+         fn f(s: NonEmpty Mut Store<Int>, cond: Bool) -> None => s: NonEmpty Mut, cond {{\n    \
+         if cond {{\n        touch(s)\n    }}\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
+/// The asymmetry that justifies the distinction: a call that may not have
+/// happened cannot have *established* anything, so a promise resting on one
+/// inside a branch is refused.
+#[test]
+fn an_established_claim_does_not_survive_a_branch() {
+    let src = format!(
+        "{PRELUDE}{NONEMPTY}\n\
+         fn f(s: NonEmpty Mut Store<Int>, cond: Bool) -> None \
+         => s: NonEmpty Mut, cond {{\n    \
+         if cond {{\n        push(s, 1)\n    }}\n}}\n"
+    );
+    assert!(
+        errors(&src)
+            .iter()
+            .any(|e| e.contains("promises qualifier `NonEmpty`")),
+        "{:?}",
+        errors(&src)
+    );
+}
+
+/// [qual-refn-match] The declaration's own qualifiers still have to be
+/// written: a refinement that drops the `Mut` is about a different position
+/// than it looks, and says so rather than silently matching.
+#[test]
+fn a_refinement_must_still_write_the_declarations_qualifiers() {
+    let keeps_without_mut = r#"
+export qualifier NonEmpty<T> of Store<T> {
+    fn qualifies(s: Store<T>) -> Bool {
+        return true
+    }
+
+    refn touch(s: NonEmpty Store<T>) => s: +NonEmpty
+}
+"#;
+    let src = format!("{PRELUDE}{TOUCH}{keeps_without_mut}");
+    assert!(
+        errors(&src)
+            .iter()
+            .any(|e| e.contains("matches no `touch` in scope")),
+        "{:?}",
+        errors(&src)
+    );
+}

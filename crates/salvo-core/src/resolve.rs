@@ -428,6 +428,12 @@ impl Level {
     }
 }
 
+/// [test-implicit-import] The standard library's test module: `std.test`,
+/// whose path inside the embedded tree is `test`. Implicitly available in
+/// every test annex and nowhere else (user decision 2026-09-23), which is why
+/// no test file ever writes an import for the assertions it uses.
+pub const TEST_MODULE: &str = "test";
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
@@ -437,6 +443,21 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         let items = by_module.entry(&file.module).or_default();
         for (item_idx, item) in ast.items.iter().enumerate() {
             match item {
+                // [test-file] A `test` block reaching resolution was neither
+                // expanded (in an annex) nor refused (in a production file),
+                // which `expand` does to every one of them — so this is a
+                // driver that skipped the expansion, the same integration
+                // error an unexpanded `iter fn` is.
+                Item::Test(t) => {
+                    unexpanded_iter_fns.push(FileDiagnostic::error(
+                        file_idx,
+                        t.name_span,
+                        "internal: this `test` block reached resolution unexpanded — \
+                         the driver that parsed it skipped the program-level \
+                         expansion (`salvo_core::expand`); this is a \
+                         compiler-integration bug, not a mistake in this program",
+                    ));
+                }
                 // [iter-fn] An `iter fn` must be expanded before resolution
                 // (`parse_module` does it; `parse_module_deferred` hands the
                 // duty to a program-level `expand_iter_fns_with`). Checking
@@ -762,6 +783,45 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             // other module-level declaration: a module-level rename is in
             // force for the whole module, in every file of it.
             scope.renames.extend(items.renames.iter().copied());
+        }
+        // [test-visibility] A test annex sees the module it tests **whole**,
+        // private declarations included: that is what whitebox testing is,
+        // and it is the reason the companion exists (user decision
+        // 2026-09-23). The reverse never holds — the annex is its own module
+        // (`heap.test`), nothing imports it, and a production build does not
+        // even load it — so the visibility is one-way by construction rather
+        // than by a rule someone has to check.
+        //
+        // Added at `Own`, so a call in a test resolves exactly as the same
+        // call written in the module would: same rung, same overload ranking
+        // [fn-overload-scope].
+        if file.is_test {
+            let mut tested = file.module.0.clone();
+            tested.pop();
+            let tested = ModulePath(tested);
+            if let Some((module, items)) = by_module.get_key_value(&tested) {
+                add_items(&mut scope, items, module, None, Level::Own, None, &mut ctx);
+                scope.refns.extend(items.refns.iter().copied());
+                scope.renames.extend(items.renames.iter().copied());
+            }
+            // [test-implicit-import] And it sees the standard test module
+            // without importing it: every test file behaves as if it wrote
+            // the whole-module import, which is why no test ever spells one
+            // (user decision 2026-09-23). It enters at the bulk-import rung,
+            // so a test file's own `expect` silently wins — as anything beats
+            // a whole-module import [mod-import-module].
+            let test_module = ModulePath(vec![TEST_MODULE.to_string()]);
+            if let Some((module, items)) = by_module.get_key_value(&test_module) {
+                add_items(
+                    &mut scope,
+                    items,
+                    module,
+                    None,
+                    Level::ModuleImport,
+                    None,
+                    &mut ctx,
+                );
+            }
         }
         // Explicit imports.
         for item in &ast.items {

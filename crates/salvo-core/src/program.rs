@@ -143,6 +143,11 @@ impl<'p> Symbols<'p> {
                     // index is built by `refine::collect`, which needs
                     // per-file *visibility* rather than the flat table.
                     Item::Refn(_) => {}
+                    // [test-decl] Likewise: a `test` declares no symbol. In
+                    // an annex it is an ordinary fn by now [test-run]; here
+                    // it can only be one resolution is about to refuse
+                    // [test-file].
+                    Item::Test(_) => {}
                 }
             }
         }

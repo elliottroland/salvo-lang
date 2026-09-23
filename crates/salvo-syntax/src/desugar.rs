@@ -709,6 +709,125 @@ fn type_ref(name: &str, span: Span) -> TypeRef {
     }
 }
 
+// ===== [test-decl] tests =====
+
+/// The prefix of a synthesized test function [test-run]. Underscore-leading,
+/// so it cannot collide with a name a program writes and reads as generated
+/// wherever it surfaces.
+pub const TEST_FN_PREFIX: &str = "__salvo_test_";
+
+/// One expanded test: what the runner needs to call it and what the report
+/// calls it [test-run].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpandedTest {
+    /// The name as written in the `test "…"` declaration.
+    pub name: String,
+    /// The synthesized function the harness calls — exported, so the
+    /// generated harness module can reach it [test-run].
+    pub fn_name: String,
+    /// The span of the name literal, for diagnostics.
+    pub span: Span,
+}
+
+/// [test-decl] [test-run] Expands every `test "name" { … }` in `module` into an
+/// **exported, parameterless fn** declaring `[use, Throw<Failure>]`, and
+/// returns one [`ExpandedTest`] per test in declaration order.
+///
+/// Done here, in the syntax crate and before resolution, for the reason the
+/// `iter fn` expansion is: nothing downstream learns the form exists. A test
+/// body is then an ordinary fn body, so effects, linearity, narrowing,
+/// deductions and both emitters need no test-shaped rules at all — the
+/// implicit powers of a test [test-body] *are* the declared effect list of the
+/// fn it becomes (`use` for handler registration, `Throw<Failure>` for the
+/// assertion channel), and the harness reads a failure off an ordinary `try`.
+///
+/// `mangled` distinguishes one module's tests from another's in the flat
+/// function namespace the harness calls into: the module path with `.`
+/// replaced by `_`.
+///
+/// Diagnostics: two tests with the same name in one file are an error at the
+/// second [test-unique], and the duplicate is dropped.
+pub fn expand_tests(module: &mut Module, mangled: &str) -> (Vec<ExpandedTest>, Vec<Diagnostic>) {
+    let mut tests = Vec::new();
+    let mut diags = Vec::new();
+    let mut expanded: Vec<Item> = Vec::with_capacity(module.items.len());
+    for item in std::mem::take(&mut module.items) {
+        let Item::Test(test) = item else {
+            expanded.push(item);
+            continue;
+        };
+        // [test-unique] Names identify a test to the runner (`--list`, the
+        // filter, the report), so two tests cannot share one.
+        if let Some(prior) = tests.iter().find(|t: &&ExpandedTest| t.name == test.name) {
+            let _ = prior;
+            diags.push(Diagnostic::error(
+                format!(
+                    "a test called `{}` is already declared in this file: test names \
+                     identify a test to the runner, so they have to differ \
+                     [test-unique]",
+                    test.name
+                ),
+                test.name_span,
+            ));
+            continue;
+        }
+        let fn_name = format!("{TEST_FN_PREFIX}{mangled}_{}", tests.len());
+        let span = test.name_span;
+        tests.push(ExpandedTest {
+            name: test.name.clone(),
+            fn_name: fn_name.clone(),
+            span,
+        });
+        expanded.push(Item::Fn(test_fn(test, fn_name)));
+    }
+    module.items = expanded;
+    (tests, diags)
+}
+
+/// The fn a `test` block becomes [test-run].
+fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
+    let span = test.name_span;
+    // `Throw<Failure>`: the failure channel [test-fail]. `Failure` resolves
+    // in a test file because `std.test` is implicitly available there
+    // [test-implicit-import].
+    let mut throw = type_ref("Throw", span);
+    throw.args = vec![Type::Named {
+        qualifiers: Vec::new(),
+        base: type_ref("Failure", span),
+    }];
+    FnDecl {
+        docs: test.docs,
+        // Exported so the generated harness module can call it, and for no
+        // other reason: the `test` declaration itself refuses `export`
+        // [test-decl].
+        exported: true,
+        intrinsic: false,
+        is_iter: false,
+        iter_state: Vec::new(),
+        is_send: false,
+        name: Ident {
+            name: fn_name,
+            span,
+        },
+        scoped_to: None,
+        structural: false,
+        generics: Vec::new(),
+        generic_canbe: Vec::new(),
+        derived_return: None,
+        params: Vec::new(),
+        implicit_groups: Vec::new(),
+        // [test-body] A test has `main`'s powers for registration: `use` is
+        // available without declaring anything, which is what lets a test
+        // register a fake (`use MemFs()`) the way an entry point does.
+        effects: Some(vec![EffectRef::Use(span), EffectRef::Effect(throw)]),
+        deductions: None,
+        return_type: None,
+        constructs: None,
+        body: Some(test.body),
+        span: test.span,
+    }
+}
+
 /// The `T` of a declared `Emitted T | Finished`, in either arm order.
 fn element_type(ty: Option<&Type>) -> Option<Type> {
     let Some(Type::Union { arms, .. }) = ty else {

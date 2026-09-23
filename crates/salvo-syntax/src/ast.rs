@@ -35,6 +35,35 @@ pub enum Item {
     Refn(RefnDecl),
     /// `rename fn add2 = add(a: Int, b: Int)` [fn-rename].
     Rename(RenameDecl),
+    /// [test-decl] `test "an empty heap pops nothing" { … }` — a test,
+    /// named by a string. Legal only in a `<module>.test.sv` companion
+    /// [test-file]; expanded into an ordinary exported fn before
+    /// resolution (`desugar::expand_tests`), so nothing downstream knows
+    /// the form exists.
+    Test(TestDecl),
+}
+
+/// [test-decl] `test "trim removes both edges" { … }`: a test declaration.
+///
+/// Named by a **string literal** rather than an identifier — a test name is
+/// prose, and there is nothing to call it by, so no identifier is invented
+/// (user decision 2026-09-23). Not a function: it takes no parameters,
+/// declares no effects and returns nothing, and `export test` is refused —
+/// a test is run, never referenced.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TestDecl {
+    /// The `//` comment block directly above the declaration, one entry
+    /// per line, `//` and one leading space stripped [doc-comment].
+    pub docs: Vec<String>,
+    /// The name as written, with no quotes. Interpolation is refused: the
+    /// runner enumerates and filters tests without running anything, so a
+    /// name has to be knowable statically [test-decl].
+    pub name: String,
+    /// The span of the name literal — the test's identity for diagnostics,
+    /// and (uniquely per test) the span the synthesized fn is keyed by.
+    pub name_span: Span,
+    pub body: Block,
+    pub span: Span,
 }
 
 /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`

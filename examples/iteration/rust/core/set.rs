@@ -7,7 +7,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -17,7 +17,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__7<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__8<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());

@@ -114,10 +114,6 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
-fun<T> non_empty_list(first: T, rest: Array<T>): List<T> {
-    return listOf<T>(first, *rest)
-}
-
 fun<T> first(list: List<T>): T {
     return list.getOrNull(0)!!
 }
@@ -315,7 +311,7 @@ import salvo.core.nonempty.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<T> iter__5(set: Set<T>): SetYield<T> {
+fun<T> iter__6(set: Set<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
@@ -324,7 +320,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__7(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__8(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -343,11 +339,11 @@ import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.string.*
 
-fun<T> iter__6(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__7(set: java.util.SortedSet<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
-fun<K, V> iter__7(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__8(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -358,7 +354,7 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun iter__8(str: String): StrYield {
+fun iter__9(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -367,7 +363,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__8(p: StrYield): Union2<Char, Finished> {
+fun next__9(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -407,34 +403,34 @@ fun full_name(person: Person): String {
 
 fun greet(console: Console, person: Person) {
     println(console, "Hello, ${full_name(person)}!")
-    var __loop1_pass = iter__9(range(1, 4))
+    var __loop1_pass = iter__10(upto(1, 4))
     while (true) {
-        val __loop1_step = next__9(__loop1_pass)
+        val __loop1_step = next__10(__loop1_pass)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val i = __loop1_step.value
         println(console, "  $i: ${person.age + i}")
     }
 }
 
-data class Range(
+data class Upto(
     val start: Int,
     val end: Int,
 )
 
-fun range(start: Int, end: Int): Range {
-    return Range(start = start, end = end)
+fun upto(start: Int, end: Int): Upto {
+    return Upto(start = start, end = end)
 }
 
-data class __Pass_Range(
+data class __Pass_Upto(
     var end: Int,
     var at: Int,
 )
 
-fun iter__9(r: Range): __Pass_Range {
-    return __Pass_Range(end = r.end, at = r.start)
+fun iter__10(r: Upto): __Pass_Upto {
+    return __Pass_Upto(end = r.end, at = r.start)
 }
 
-fun next__9(__p: __Pass_Range): Union2<Int, Finished> {
+fun next__10(__p: __Pass_Upto): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return U2_2<Int, Finished>(finished())
     }
@@ -450,7 +446,7 @@ fun main() {
     val anon = person.copy(surname = null)
     greet(console, anon)
     val names = listOf<String>("a", "b")
-    println(console, "first: ${names.firstOrNull()!!}")
+    println(console, "first: ${first(names)}")
     val mut_names = mutableListOf<String>("x")
     mut_names.add("y")
     println(console, "size: ${mut_names.size}")

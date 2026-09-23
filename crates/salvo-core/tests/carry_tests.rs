@@ -478,7 +478,7 @@ fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
 fn std_errors(src: &str) -> Vec<String> {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "rs", true);
+    let io_errors = sources.add_dir(&std_dir, "rs", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
     sources.add(
         "main.sv",

@@ -9,9 +9,9 @@ import salvo.time.*
 fun verdict(started: Tick, at: Tick, budget: Duration): String {
     val took = between__2(started, at)
     if (cmp(took, budget) > 0) {
-        return "late by ${to_str__3(minus(took, budget))}"
+        return "late by ${to_str__4(minus(took, budget))}"
     }
-    return "in time, ${to_str__3(minus(budget, took))} to spare"
+    return "in time, ${to_str__4(minus(budget, took))} to spare"
 }
 
 fun<__Fx> overdue(__fx: __Fx, started: Tick, budget: Duration): Boolean where __Fx : __Has_Ticker {
@@ -130,7 +130,7 @@ class Napping<__Fx>(private val __fx: __Fx) : Sleeper where __Fx : __Has_Timer, 
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        out.send("napped ${to_str__3(elapsed(__fx, started))}")
+        out.send("napped ${to_str__4(elapsed(__fx, started))}")
     }
 }
 
@@ -166,7 +166,7 @@ class __Actor_Napping<__Fx>(private val handler: Napping<__Fx>) : salvo.SalvoAct
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
     val budget = millis(1500L)
-    println(__fx, "budget ${to_str__3(budget)}, doubled ${to_str__3(times(budget, 2L))}, in millis ${to_millis(budget)}")
+    println(__fx, "budget ${to_str__4(budget)}, doubled ${to_str__4(times(budget, 2L))}, in millis ${to_millis(budget)}")
     val stamp = epoch_milli(1700000000000L)
     println(__fx, "stamp ${to_epoch_second(stamp)}s, a minute later ${to_epoch_second(plus__2(stamp, minutes(1L)))}s")
     val __fx2 = __Fx_2(__Mon_Clock(DefaultClock()), __fx.__fx_Console)

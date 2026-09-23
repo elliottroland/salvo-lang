@@ -80,6 +80,11 @@ pub struct RefnGroup {
     pub sources: Vec<RefnSource>,
     /// Empty unless the applicable refinements conflict.
     pub conflict: Vec<String>,
+    /// [qual-refn-narrow] The qualifiers the argument must **already** carry
+    /// for this group to apply: the refinement wrote a narrower parameter than
+    /// the declaration it refines, so what it states is *conditional*. Empty
+    /// for an unconditional refinement, which is the common case.
+    pub requires: Vec<String>,
 }
 
 impl RefnGroup {
@@ -110,9 +115,23 @@ impl Refinements {
             .unwrap_or(&[])
     }
 
-    /// The group applying to one parameter of such a call.
+    /// Every group written about one parameter of such a call — several when
+    /// refinements differ in what they require of the argument
+    /// [qual-refn-narrow].
+    pub fn for_param_all(&self, file: usize, callee: FnKey, param: &str) -> Vec<&RefnGroup> {
+        self.for_call(file, callee)
+            .iter()
+            .filter(|g| g.param == param)
+            .collect()
+    }
+
+    /// The **unconditional** group for one parameter: what a reader of a
+    /// signature is told without knowing the argument [qual-refn-docs], and
+    /// what the deduction pass uses.
     pub fn for_param(&self, file: usize, callee: FnKey, param: &str) -> Option<&RefnGroup> {
-        self.for_call(file, callee).iter().find(|g| g.param == param)
+        self.for_param_all(file, callee, param)
+            .into_iter()
+            .find(|g| g.requires.is_empty())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -150,6 +169,9 @@ struct Resolved<'p> {
     /// The overload it refines [qual-refn-match].
     callee: FnKey,
     entries: Vec<(String, Vec<String>, Vec<String>)>,
+    /// [qual-refn-narrow] Per parameter, the qualifiers an argument must
+    /// already carry for this refinement to apply.
+    requires: Vec<(String, Vec<String>)>,
 }
 
 /// Resolves, validates and indexes every refinement in the program.
@@ -188,8 +210,13 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
         let scope = &resolution.scopes[file_idx];
         // One contribution per (callee, param, refinement), tagged with
         // whether it came from a top-level `refn`.
-        let mut contributions: HashMap<(FnKey, String), Vec<(bool, RefnSource, Vec<String>, Vec<String>)>> =
-            HashMap::new();
+        // [qual-refn-narrow] Keyed by the precondition as well as the
+        // parameter: two refinements that require different things of the
+        // argument are two groups, each applying only where it holds.
+        let mut contributions: HashMap<
+            (FnKey, String, Vec<String>),
+            Vec<(bool, RefnSource, Vec<String>, Vec<String>)>,
+        > = HashMap::new();
         for res in &resolved {
             let visible = match res.qualifier {
                 // A qualifier's refinements are in scope wherever the
@@ -213,8 +240,15 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 span: res.decl.name.span,
             };
             for (param, add, remove) in &res.entries {
+                let mut requires: Vec<String> = res
+                    .requires
+                    .iter()
+                    .find(|(p, _)| p == param)
+                    .map(|(_, qs)| qs.clone())
+                    .unwrap_or_default();
+                requires.sort();
                 contributions
-                    .entry((res.callee, param.clone()))
+                    .entry((res.callee, param.clone(), requires))
                     .or_default()
                     .push((
                         res.qualifier.is_none(),
@@ -224,7 +258,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                     ));
             }
         }
-        for ((callee, param), mut list) in contributions {
+        for ((callee, param, requires), mut list) in contributions {
             // [qual-refn-reconcile] A top-level `refn` *replaces* the
             // qualifiers' own refinements for that parameter. That is what
             // makes reconciling a conflict possible at all: joining them
@@ -240,6 +274,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 remove: Vec::new(),
                 sources: Vec::new(),
                 conflict: Vec::new(),
+                requires,
             };
             for (_, source, add, remove) in list {
                 for q in add {
@@ -305,7 +340,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
     // Deterministic order per call: the table is read for diagnostics and
     // for hover, and a hash-map traversal built it.
     for list in groups.values_mut() {
-        list.sort_by(|a, b| a.param.cmp(&b.param));
+        list.sort_by(|a, b| (&a.param, &a.requires).cmp(&(&b.param, &b.requires)));
     }
     groups.retain(|_, v| !v.is_empty());
 
@@ -334,6 +369,7 @@ fn resolve_refn<'p>(
     }
     generics.extend(decl.generics.iter().map(|g| g.name.as_str()));
     let want = signature(&decl.params, &generics);
+    let _ = &want;
 
     // A name that is neither a type parameter nor a visible type is the
     // most likely reason a refinement fails to match — a top-level `refn`
@@ -386,6 +422,13 @@ fn resolve_refn<'p>(
         ));
         return None;
     }
+    // [qual-refn-narrow] Matching ignores the *qualifiers* a refinement writes
+    // on its parameters and compares the types under them: that is what lets a
+    // refinement narrow a parameter (`list: NonEmpty Mut List<T>` refining
+    // `list: Mut List<T>`) and state a claim it only *keeps*. The declaration's
+    // own qualifiers must still all be written — they are part of the overload
+    // being named — and anything beyond them is the precondition.
+    let want_base = base_signature(&decl.params, &generics);
     let matched: Vec<&crate::resolve::FnEntry<'p>> = candidates
         .iter()
         .filter(|c| {
@@ -396,7 +439,17 @@ fn resolve_refn<'p>(
                     cg.push(g.name.as_str());
                 }
             }
-            signature(&c.decl.params, &cg) == want
+            if base_signature(&c.decl.params, &cg) != want_base {
+                return false;
+            }
+            // Every qualifier the declaration writes must appear on the
+            // refinement's parameter too, or the refinement is about a
+            // different position than it looks.
+            c.decl.params.len() == decl.params.len()
+                && c.decl.params.iter().zip(&decl.params).all(|(cp, rp)| {
+                    let written = qual_names(&rp.ty);
+                    qual_names(&cp.ty).iter().all(|q| written.contains(q))
+                })
         })
         .collect();
     let entry = match matched.as_slice() {
@@ -527,6 +580,7 @@ fn resolve_refn<'p>(
         file: file_idx,
         callee: entry.key,
         entries,
+        requires: preconditions(&decl.params, &entry.decl.params),
     })
 }
 
@@ -730,6 +784,76 @@ pub(crate) fn param_type_signature(params: &[Param], generics: &[&str]) -> Vec<S
                 if p.variadic { "..." } else { "" },
                 if p.implicit { "?" } else { "" },
                 normalize(&p.ty, generics)
+            )
+        })
+        .collect()
+}
+
+/// [qual-refn-narrow] The qualifiers a refinement's parameter carries beyond
+/// the ones the refined declaration's own parameter has: the refinement's
+/// **precondition**, one entry per parameter that adds any.
+///
+/// `refn swap(list: NonEmpty Mut List<T>, …)` refining
+/// `swap(list: Mut List<T>, …)` reads "when the list is already `NonEmpty`" —
+/// which is the only way to state a claim that is *kept* rather than
+/// established, since exchanging two elements of an empty list does not make
+/// it non-empty (user correction 2026-09-23).
+fn preconditions(refn: &[Param], callee: &[Param]) -> Vec<(String, Vec<String>)> {
+    let mut out = Vec::new();
+    for (r, c) in refn.iter().zip(callee) {
+        let have = qual_names(&c.ty);
+        let extra: Vec<String> = qual_names(&r.ty)
+            .into_iter()
+            .filter(|q| !have.contains(q))
+            .collect();
+        if !extra.is_empty() {
+            out.push((r.name.name.clone(), extra));
+        }
+    }
+    out
+}
+
+/// The qualifier names written on a type, outermost first.
+fn qual_names(ty: &Type) -> Vec<String> {
+    match ty {
+        Type::Named { qualifiers, .. } => {
+            qualifiers.iter().map(|q| q.name.name.clone()).collect()
+        }
+        Type::QualifiedGroup { qualifiers, .. } => {
+            qualifiers.iter().map(|q| q.name.name.clone()).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// A type with its own qualifiers removed — what [qual-refn-narrow] matches
+/// on, so a refinement may write a *narrower* parameter than the declaration
+/// it refines.
+fn unqualified(ty: &Type) -> Type {
+    match ty {
+        Type::Named { base, .. } => Type::Named {
+            qualifiers: Vec::new(),
+            base: base.clone(),
+        },
+        Type::QualifiedGroup { base, .. } => (**base).clone(),
+        other => other.clone(),
+    }
+}
+
+/// [qual-refn-match] [qual-refn-narrow] The signature a refinement matches on:
+/// parameter names and types with every qualifier stripped. Qualifiers are
+/// compared separately — the declaration's are required to be present (they
+/// are part of what is being refined) and the extras are the precondition.
+fn base_signature(params: &[Param], generics: &[&str]) -> Vec<String> {
+    params
+        .iter()
+        .map(|p| {
+            format!(
+                "{}{}{}: {}",
+                if p.variadic { "..." } else { "" },
+                if p.implicit { "?" } else { "" },
+                p.name.name,
+                normalize(&unqualified(&p.ty), generics)
             )
         })
         .collect()

@@ -55,7 +55,7 @@ pub struct FsError {
     pub kind: Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>,
 }
 
-pub fn ignore(e: FsError) {
+pub fn ignore__2(e: FsError) {
     drop(e);
 }
 
@@ -379,7 +379,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
 pub fn next__4(fs: &mut dyn Fs, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
     let mut got = fs.read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
-        ignore(got.u2().clone());
+        ignore__2(got.u2().clone());
         return Union2::<Vec<u8>, Finished>::U2(finished());
     }
     let mut data: Vec<u8> = got.u1().clone();
@@ -411,7 +411,7 @@ pub fn read_to_str(fs: &mut dyn Fs, path: &String) -> Union2<String, FsError> {
     if matches!(content, Union2::U2(_)) {
         let mut closed = fs.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore__2(closed.u2().clone());
         }
         return Union2::<String, FsError>::U2(content.u2().clone());
     }
@@ -465,7 +465,7 @@ pub fn read_to_bytes(fs: &mut dyn Fs, path: &String) -> Union2<Vec<u8>, FsError>
     if matches!(filling, Union2::U2(_)) {
         let mut closed = fs.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore__2(closed.u2().clone());
         }
         return Union2::<Vec<u8>, FsError>::U2(filling.u2().clone());
     }
@@ -542,7 +542,7 @@ pub fn copy_file(fs: &mut dyn Fs, from: &String, to: &String) -> Union2<i64, FsE
     if matches!(created, Union2::U2(_)) {
         let mut closed = fs.close(s);
         if matches!(closed, Union2::U2(_)) {
-            ignore(closed.u2().clone());
+            ignore__2(closed.u2().clone());
         }
         return Union2::<i64, FsError>::U2(created.u2().clone());
     }
@@ -552,16 +552,16 @@ pub fn copy_file(fs: &mut dyn Fs, from: &String, to: &String) -> Union2<i64, FsE
     let mut shut_s = fs.close(s);
     if matches!(moved, Union2::U2(_)) {
         if matches!(shut_w, Union2::U2(_)) {
-            ignore(shut_w.u2().clone());
+            ignore__2(shut_w.u2().clone());
         }
         if matches!(shut_s, Union2::U2(_)) {
-            ignore(shut_s.u2().clone());
+            ignore__2(shut_s.u2().clone());
         }
         return Union2::<i64, FsError>::U2(moved.u2().clone());
     }
     if matches!(shut_w, Union2::U2(_)) {
         if matches!(shut_s, Union2::U2(_)) {
-            ignore(shut_s.u2().clone());
+            ignore__2(shut_s.u2().clone());
         }
         return Union2::<i64, FsError>::U2(shut_w.u2().clone());
     }

@@ -8,6 +8,7 @@ members = [
     "crates/salvo-backend-kotlin",
     "crates/salvo-backend-rust",
     "crates/salvo-testkit",
+    "crates/salvo-test",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ salvo-backend = { path = "crates/salvo-backend" }
 salvo-backend-kotlin = { path = "crates/salvo-backend-kotlin" }
 salvo-backend-rust = { path = "crates/salvo-backend-rust" }
 salvo-testkit = { path = "crates/salvo-testkit" }
+salvo-test = { path = "crates/salvo-test" }
 
 clap = { version = "4.5", features = ["derive"] }
 include_dir = "0.7"

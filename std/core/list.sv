@@ -10,12 +10,31 @@
 // spells it.
 export intrinsic type List<T canbe linear> canbe Mut
 
-// Constructor. The elements are stored in the new list, so they are moved: a
-// variadic tail is owned, and needs no entry in the clause [deduce-syntax].
-export intrinsic fn list_of<T canbe linear>(...elems: T[]) [] -> List<T>
+// Constructors, in two shapes [col-of-nonempty] (user decision 2026-09-23).
+// Writing a *first* element establishes `NonEmpty` **by construction**, so no
+// `qualifies` call is emitted [qual-ctor-predicate] and the claim costs nothing:
+//
+//     list_of()             // List<T>, empty
+//     list_of(1, 2, 3)      // NonEmpty List<T> — the claim comes free
+//     list_of(a, ...rest)   // NonEmpty List<T> — one written element is enough
+//
+// A **lone** `...spread` reaches neither: a spread cannot supply a required
+// parameter [fn-variadic] (its length is not known here, so `NonEmpty` would be
+// a guess) and the empty shape takes no arguments. Building a list out of an
+// array is `map_to(mut_list_of(), iter(array), x -> x)` or a loop with `add`.
+//
+// The elements are stored in the new list, so they are moved: a variadic tail is
+// owned, and needs no entry in the clause [deduce-syntax].
+export intrinsic fn list_of<T canbe linear>() [] -> List<T>
+export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> List<T> as NonEmpty
+=> !first
 
-// Mutable constructor
-export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
+// The same pair, mutable. A `Mut NonEmpty` list is a claim the next mutation
+// may take away — which is exactly what a state qualifier is [qual-subject] —
+// so `remove_at` strips it and `add` puts it back [qual-refn].
+export intrinsic fn mut_list_of<T canbe linear>() [] -> Mut List<T>
+export intrinsic fn mut_list_of<T canbe linear>(first: T, ...rest: T[]) [] -> Mut List<T> as NonEmpty
+=> !first
 
 // [col-by] Builds a list of [size] elements, each from its index:
 // `list_by(3, i -> i * 2)` is `[0, 2, 4]`. The generator is called once per
@@ -107,12 +126,20 @@ export qualifier NonEmpty<T> of List<T> {
     // [deduce-syntax], and appending is exactly the operation that makes a
     // list non-empty [qual-refn].
     refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
-}
 
-// Requiring a first element establishes the claim **by construction**, so no
-// `qualifies` call is emitted [qual-ctor-predicate].
-export fn non_empty_list<T>(first: T, ...rest: T[]) [] -> List<T> as NonEmpty {
-    return list_of(first, ...rest)
+    // [qual-refn-narrow] And exchanging two elements of a list that is
+    // *already* non-empty leaves it non-empty — which is why the parameter is
+    // written `NonEmpty Mut List<T>` and not `Mut List<T>`: swapping does not
+    // *make* a list non-empty, so the claim is **kept**, not established. A
+    // refinement whose parameter is narrower than the declaration it refines
+    // states exactly that, and applies only where the claim is already there
+    // (user correction 2026-09-23).
+    //
+    // `swap`'s own exhaustive clause has to strip the claim, like every
+    // mutator's; this is the owner saying what the call really leaves behind.
+    // It is what lets a heap's sift-down keep the `NonEmpty` it was handed
+    // (`std.heap`'s `heapify`).
+    refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
 }
 
 // [col-nonempty] The dividend: the same accessor, without the optional.

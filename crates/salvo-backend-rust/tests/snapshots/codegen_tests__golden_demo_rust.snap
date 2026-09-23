@@ -169,10 +169,6 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return (list.len() as i32) > 0;
 }
 
-pub fn non_empty_list<T: Clone>(first: &T, rest: Vec<T>) -> Vec<T> {
-    return { let mut __v = Vec::new(); __v.push(first.clone()); __v.extend(rest.iter().cloned()); __v };
-}
-
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
     return list.get((0) as i64 as usize).unwrap();
 }
@@ -348,7 +344,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -358,7 +354,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__7<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__8<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -377,11 +373,11 @@ use crate::core_seq::*;
 use crate::core_set::*;
 use crate::core_string::*;
 
-pub fn iter__6<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
+pub fn iter__7<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
     return SetYield { items: set.to_vec(), at: 0 };
 }
 
-pub fn iter__7<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__8<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys(), at: 0 };
 }
 
@@ -390,7 +386,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter__8(str: &String) -> StrYield<'_> {
+pub fn iter__9(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
@@ -400,7 +396,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__8(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__9(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -466,33 +462,33 @@ pub fn full_name(person: &Person) -> String {
 
 pub fn greet(console: &mut dyn Console, person: &Person) {
     println(console, &(format!("Hello, {}!", full_name(person))));
-    let mut __loop1_pass = iter__9(&(range(1, 4)));
-    while let Union2::U1(mut i) = next__9(&mut __loop1_pass) {
+    let mut __loop1_pass = iter__10(&(upto(1, 4)));
+    while let Union2::U1(mut i) = next__10(&mut __loop1_pass) {
         println(console, &(format!("  {}: {}", i, person.age + i)));
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Range {
+pub struct Upto {
     pub start: i32,
     pub end: i32,
 }
 
-pub fn range(start: i32, end: i32) -> Range {
-    return Range { start: start, end: end };
+pub fn upto(start: i32, end: i32) -> Upto {
+    return Upto { start: start, end: end };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Pass_Range {
+pub struct __Pass_Upto {
     pub end: i32,
     pub at: i32,
 }
 
-pub fn iter__9(r: &Range) -> __Pass_Range {
-    return __Pass_Range { end: r.end, at: r.start };
+pub fn iter__10(r: &Upto) -> __Pass_Upto {
+    return __Pass_Upto { end: r.end, at: r.start };
 }
 
-pub fn next__9(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
+pub fn next__10(__p: &mut __Pass_Upto) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -508,7 +504,7 @@ pub fn main() {
     let mut anon = Person { surname: None, ..person.clone() };
     greet(&mut console, &anon);
     let mut names = vec!["a".to_string(), "b".to_string()];
-    println(&mut console, &(format!("first: {}", names.first().unwrap())));
+    println(&mut console, &(format!("first: {}", first(&names))));
     let mut mut_names = vec!["x".to_string()];
     mut_names.push("y".to_string());
     println(&mut console, &(format!("size: {}", (mut_names.len() as i32))));

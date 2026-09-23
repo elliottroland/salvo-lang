@@ -48,7 +48,7 @@ data class FsError(
     val kind: Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>,
 )
 
-fun ignore(e: FsError) {
+fun ignore__2(e: FsError) {
     (e).let {}
 }
 
@@ -229,7 +229,7 @@ fun chunks(s: InStream, size: Int): Chunks {
 fun<__Fx> next__4(__fx: __Fx, p: Chunks): Union2<salvo.SalvoBytes, Finished> where __Fx : __Has_Fs {
     val got = __fx.__fx_Fs.read_bytes(p.s, p.size)
     if (got is U2_2<*, *>) {
-        ignore((got.value as FsError))
+        ignore__2((got.value as FsError))
         return U2_2<salvo.SalvoBytes, Finished>(finished())
     }
     val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
@@ -263,7 +263,7 @@ fun<__Fx> read_to_str(__fx: __Fx, path: String): Union2<String, FsError> where _
     if (content is U2_2<*, *>) {
         val closed = __fx.__fx_Fs.close(s)
         if (closed is U2_2<*, *>) {
-            ignore((closed.value as FsError))
+            ignore__2((closed.value as FsError))
         }
         return U2_2<String, FsError>((content.value as FsError))
     }
@@ -323,7 +323,7 @@ fun<__Fx> read_to_bytes(__fx: __Fx, path: String): Union2<salvo.SalvoBytes, FsEr
     if (filling is U2_2<*, *>) {
         val closed = __fx.__fx_Fs.close(s)
         if (closed is U2_2<*, *>) {
-            ignore((closed.value as FsError))
+            ignore__2((closed.value as FsError))
         }
         return U2_2<salvo.SalvoBytes, FsError>((filling.value as FsError))
     }
@@ -404,7 +404,7 @@ fun<__Fx> copy_file(__fx: __Fx, from: String, to: String): Union2<Long, FsError>
     if (created is U2_2<*, *>) {
         val closed = __fx.__fx_Fs.close(s)
         if (closed is U2_2<*, *>) {
-            ignore((closed.value as FsError))
+            ignore__2((closed.value as FsError))
         }
         return U2_2<Long, FsError>((created.value as FsError))
     }
@@ -414,16 +414,16 @@ fun<__Fx> copy_file(__fx: __Fx, from: String, to: String): Union2<Long, FsError>
     val shut_s = __fx.__fx_Fs.close(s)
     if (moved is U2_2<*, *>) {
         if (shut_w is U2_2<*, *>) {
-            ignore((shut_w.value as FsError))
+            ignore__2((shut_w.value as FsError))
         }
         if (shut_s is U2_2<*, *>) {
-            ignore((shut_s.value as FsError))
+            ignore__2((shut_s.value as FsError))
         }
         return U2_2<Long, FsError>((moved.value as FsError))
     }
     if (shut_w is U2_2<*, *>) {
         if (shut_s is U2_2<*, *>) {
-            ignore((shut_s.value as FsError))
+            ignore__2((shut_s.value as FsError))
         }
         return U2_2<Long, FsError>((shut_w.value as FsError))
     }

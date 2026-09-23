@@ -66,7 +66,12 @@ pub fn analyze_sources(
 
     let mut sources = SourceSet::default();
     load_embedded_std(&mut sources, native_ext);
-    let io_errors = sources.add_dir(&root, native_ext, false);
+    // [test-file] `analyze` checks test annexes: a broken test is a broken
+    // program, and the language server wants diagnostics in the file being
+    // edited (user decision 2026-09-23).
+    let io_errors = sources.add_dir(&root, native_ext, false, true);
+    // [std-shadow] A tree that declares std's own modules replaces them.
+    sources.apply_std_shadow();
 
     // Overlay: open-editor contents win over the disk [cli-lsp]. Files
     // not on disk yet (new unsaved buffers under the root) are added.
@@ -93,35 +98,26 @@ pub fn analyze_sources(
     }
 
     // Parse every module, attributing diagnostics to files
-    // [diag-structured]. The `iter fn` expansion is deferred to a
-    // program-level pass, so a subject declared in another file still gets
-    // the per-field snapshot [iter-fn].
+    // [diag-structured]. The `iter fn` and `test` expansions are deferred to
+    // a program-level pass: the first needs the rest of the program's structs
+    // [iter-fn], the second needs to know which files are annexes
+    // [test-file].
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut modules = Vec::with_capacity(sources.files.len());
-    let mut parse_diags: Vec<Vec<salvo_syntax::Diagnostic>> =
-        Vec::with_capacity(sources.files.len());
     for file in &sources.files {
         let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
-        parse_diags.push(diags);
-        modules.push(module);
-    }
-    let all_structs: Vec<salvo_syntax::ast::StructDecl> = modules
-        .iter()
-        .flat_map(salvo_syntax::desugar::struct_decls)
-        .collect();
-    for (file_idx, (module, mut diags)) in modules.iter_mut().zip(parse_diags).enumerate() {
-        diags.extend(salvo_syntax::desugar::expand_iter_fns_with(
-            module,
-            &all_structs,
-        ));
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic {
-            file: file_idx,
+            file: modules.len(),
             severity: d.severity,
             message: d.message,
             span: d.span,
             suggested_imports: Vec::new(),
         }));
+        modules.push(module);
     }
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    diagnostics.extend(expansion.diagnostics);
+    diagnostics.sort_by_key(|d| (d.file, d.span.start));
     let parse_broken: std::collections::HashSet<usize> = diagnostics
         .iter()
         .filter(|d| d.is_error())
@@ -245,6 +241,14 @@ pub fn load_embedded_std(sources: &mut SourceSet, native_ext: &str) {
             continue;
         }
         if path.extension().is_none_or(|e| e != "sv") {
+            continue;
+        }
+        // [test-file] std's own test annexes are *not* part of the embedded
+        // library: they are compiler-repository files, run by
+        // `salvo test --src std` from a checkout (user decision 2026-09-23,
+        // N1a), so a shipped binary never carries them — and a program that
+        // merely uses std never parses them.
+        if SourceSet::is_test_path(path) {
             continue;
         }
         let Ok(module) = SourceSet::classify(path) else {

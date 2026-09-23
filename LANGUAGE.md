@@ -443,7 +443,7 @@ std ships three qualifiers over `List<T>`, which is where the qualifier machiner
 `NonEmpty` is the one with a predicate, so it can be tested with `is` — and it is what lets `first` drop its optional:
 
 ```
-let names = non_empty_list("ada", "grace")
+let names = list_of("ada", "grace")
 let head = first(names)          // a `Str`, not a `Str?`
 
 let xs: Mut List<Int> = mut_list_of()
@@ -2623,10 +2623,10 @@ qualifier NonEmpty<T> of List<T> {
     }
 }
 
-// Requiring a first element guarantees the predicate by construction.
-fn non_empty_list<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty {
-    return list_of(first, ...rest)
-}
+// Requiring a first element guarantees the predicate by construction — which
+// is how std's own list constructor is shaped: `list_of()` for an empty list,
+// `list_of(first, ...rest)` for one that is known non-empty.
+intrinsic fn list_of<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty
 ```
 
 **This one is real.** `NonEmpty`, and the constructor above, are declared in std's `core.list` — so is `Sorted`, and `Distinct` in `core.set`; see "Collections".
@@ -2710,7 +2710,24 @@ qualifier NonEmpty<T> of List<T> {
 }
 ```
 
-`refn` is deliberately narrower than `fn`. It has no body, it cannot declare effects, and it cannot declare a return type — a refinement never changes what a function *does*, only what is *known* about the arguments afterwards. Its deduction entries can only add (`+Q`) and remove (`-Q`) state qualifiers; a plain name (which would mean "only this survives") is the function's own deduction to make. The parameter list is there to pick one overload, so it repeats the parameters exactly: same names, same types, with type parameters matched by position.
+`refn` is deliberately narrower than `fn`. It has no body, it cannot declare effects, and it cannot declare a return type — a refinement never changes what a function *does*, only what is *known* about the arguments afterwards. Its deduction entries can only add (`+Q`) and remove (`-Q`) state qualifiers; a plain name (which would mean "only this survives") is the function's own deduction to make. The parameter list is there to pick one overload, so it repeats that overload's parameters: same names, same types, with type parameters matched by position.
+
+**A refinement may ask for more than the function does**, and then what it says is *conditional*:
+
+```
+// Swapping two elements of an *already* non-empty list leaves it non-empty.
+refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
+```
+
+The extra qualifier on the parameter is a precondition: the statement applies only where the argument already carries it. That is the difference between a claim a call **establishes** and one it only **keeps**, and the distinction is load-bearing in both directions. Written without the `NonEmpty`, the refinement above would say that swapping *makes* a list non-empty — false for an empty one. And because a kept claim was there before the call either way, it survives a call that only *might* happen:
+
+```
+if smallest != i {
+    list.swap(smallest, i)      // `list` is still NonEmpty after the `if`
+}
+```
+
+whereas an established one does not — a call that may not have run cannot have made a list non-empty.
 
 At a call site the refinement has the last word. `add`'s own `=> list: Mut` drops everything it does not name, and then `+NonEmpty` puts the claim back:
 
@@ -2946,6 +2963,92 @@ fn describe(person: Person) -> Str {
 The language server shows these on hover — for a declaration, for a *use* of it, and for anything nested inside one: hovering a field, wherever it is written, shows that field's own documentation and says which struct declares it. It also shows a variable's type as it is *known at the position you hover* — narrowed by any `is` test or `when` arm you are inside, qualifiers included, with the declared type named below when the two differ.
 
 Three things it adds beyond the declaration text. A **`params` group** hovers with its members, since those are the point of it. A **predicate qualifier** shows the condition it holds under when its `qualifies` is a single `return` — just the expression, so `Positive` reads as "Holds when `int > 0`." A longer body is hidden, and its doc comment explains it instead. And a variable that **shares fate** with another says so, naming what it was derived from and where, down to the field (`p.name`, not all of `p`) — with the reminder that reads are free, that moving or mutating it is rejected, and that `copy` makes an independent value. Names reached through an `import` hover like local ones, on the import line itself as well as at each use — as do the group name in a struct's obligation clause (`: Show<self>`) and the qualifier in an `is` check (`i is Positive`). A function's hover also says **where it came from** — the module of the overload that actually won, named the way an `@module` selector would spell it, since with scope-based overloading the signature alone does not tell you which `size` you are looking at.
+
+## Testing
+
+A test is a declaration:
+
+```
+test "an empty heap pops nothing" {
+    let heap = empty_heap<Int>()
+    expect(pop(heap) is None, "popping an empty heap answers None")
+}
+```
+
+Named by a string, because a test name is prose and there is nothing to call it by. It takes no parameters, declares no effects, returns nothing, and cannot be exported — a test is run, never referenced. `salvo test` finds them, runs them, and prints what happened:
+
+```
+test heap :: an empty heap pops nothing ... ok (2 ms)
+test heap :: pops come out in order ... FAILED
+    expected 9, got 5
+
+5 tests: 4 passed, 1 failed
+```
+
+### Where tests live
+
+**In a companion file, always.** The tests of module `heap` live in `heap.test.sv` beside `heap.sv`, and a `test` block written in a production source file is an error naming the companion. `.test` is the one dot a file name may carry; the file is module `heap.test`, the **test annex** of module `heap`.
+
+The annex is the module's whitebox: it sees every declaration of `heap`, private ones included, exactly as another file of the module would. Nothing sees the annex. That is not a rule to remember but a consequence of two facts — no production file imports it, and `salvo compile` and `salvo run` do not load `.test.sv` files at all. There is nothing to strip from a production build, and no way for shipped code to come to depend on a test.
+
+An annex may declare whatever its tests need: helper functions, structs, qualifiers of its own. They are invisible to the module it tests, so a test vocabulary never leaks into the shipped surface.
+
+An annex with no module to be the annex of is an error: `heap.test.sv` needs a `heap.sv` beside it.
+
+### What a test may do
+
+A test body is an ordinary block with an entry point's powers. It may `use` handlers, which is how a test supplies fakes:
+
+```
+test "a missing file reports its path" {
+    use MemFs()
+    let outcome = try {
+        read_to_str("/nothing")
+    }
+    expect(outcome is Thrown, "reading a missing file fails")
+}
+```
+
+Everything else about a body is the language as it is everywhere else — narrowing, linearity, deductions, effects. A linear value a test opens must still be closed on every path, and a test that leaks one does not compile.
+
+### How a test fails
+
+`std.test` is **implicitly available in every annex**, which is why no test file imports anything to assert:
+
+- `expect(condition, label)` — the general assertion. The label says what was expected.
+- `expect_eq(actual, expected)` — for a type with an `eq` and a `to_str`, which is what the report prints.
+
+An assertion that does not hold *throws*: assertions declare `[Throw<Failure>]`, and the harness reads the outcome off a `try` [throw]. Two consequences follow from that, and they are the whole model:
+
+**A test stops at its first failing assertion**, because that is what `throw` does. Several independent facts are several tests.
+
+**An assertion vocabulary of your own is an ordinary function.** A helper that asserts declares `[Throw<Failure>]` and composes with the built-in ones; there is nothing to register and no framework to extend:
+
+```
+// In an annex, beside the tests that use it.
+fn expect_sorted(list: List<Int>) [Throw<Failure>] -> None => list {
+    let i = 1
+    while i < list.size() {
+        expect(list.get(i - 1)! <= list.get(i)!, "sorted at ${i}")
+        i += 1
+    }
+}
+```
+
+`Failure` is a small struct carrying the message, so a failure can be built and inspected like any other value.
+
+### Running them
+
+```
+salvo test --src ./my_project                    # everything, on the rust backend
+salvo test --backend kotlin --src ./my_project    # the same tests, the same report
+salvo test --src . "empty"                        # only tests whose id contains "empty"
+salvo test --src . --list                         # enumerate, run nothing
+```
+
+A test's **id** is the module a program would import, then the name as written: `heap :: an empty heap pops nothing`. The filter is a plain substring of that id, so one word selects a module, a test, or a family of tests. The command's exit code is what a build reads: nonzero when anything failed.
+
+The runner works by writing a Salvo program. It synthesizes a module that calls each test inside its own `try`, compiles it with the rest of the sources exactly as `salvo run` would, and renders what it prints. So the two backends run the same tests the same way, and the report is identical on both — a test suite is not a place where a target language should show through.
 
 ## Backends
 

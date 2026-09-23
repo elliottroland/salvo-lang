@@ -452,13 +452,49 @@ Conventions:
     instantiation. Binding it first (`let xs = [1, 2]; to_set(xs)`),
     annotating the result, or a nested call all work, and the diagnostic
     names the remedies. Recorded in ROADMAP.md.
+* [col-of-nonempty] A collection constructor comes in **two shapes** (user
+  decision 2026-09-23): an empty one, and one whose first element is a
+  *required* parameter and whose result therefore claims `NonEmpty` by
+  construction.
+
+  ```
+  export intrinsic fn list_of<T canbe linear>() [] -> List<T>
+  export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> List<T> as NonEmpty
+  ```
+
+  So `list_of()` is empty, `list_of(1, 2, 3)` and `list_of(a, ...rest)` are
+  `NonEmpty`, and nothing is checked at run time [qual-ctor-predicate]. Built
+  for `list_of`/`mut_list_of`, whose `NonEmpty` is declared in the same file
+  [qual-ctor-same-file]; `set_of`/`map_of` and the sorted pair still have the
+  single variadic shape, because their `NonEmpty` lives in `core.nonempty`
+  (ROADMAP.md).
+  * A **lone `...spread` reaches neither shape**: a spread may not supply a
+    required parameter [fn-variadic], and the empty shape takes no arguments.
+    An array becomes a list through `map_to` or a loop with `add`.
+  * Consequences worth knowing, all from the claim being *in the type*: a
+    variable inferred from a constructor call is `NonEmpty`, so assigning a
+    plain list to it later is refused (annotate to widen); a constructor call
+    does **not** fit a plain type-*argument* position
+    (`List<NonEmpty List<Int>>` is not a `List<List<Int>>`, since type
+    arguments are invariant), where a **literal** does — `[[1, 2], [3]]` claims
+    nothing; and `first` on the result answers an element, so a `!` after it
+    is redundant.
+  * A **literal** (`[1, 2, 3]`) claims nothing, deliberately unexamined so far:
+    the convention is about the constructors (ROADMAP.md records the question).
 * [col-nonempty] std declares `qualifier NonEmpty<T> of List<T>` in
-  `core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, a
-  by-construction constructor `non_empty_list(first, ...rest)`, and a
+  `core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, the
+  by-construction constructor of [col-of-nonempty], and a
   `first(list: NonEmpty List<T>) -> proj[from: list] T` overload that drops
   the optional — ranked above the plain `first` by [fn-overload-rank].
   * A **refinement** `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`
-    establishes the claim, because `add` itself may not [qual-refn].
+    establishes the claim, because `add` itself may not [qual-refn]. So does
+    `refn swap(list: Mut List<T>, i: Int, j: Int) => list: +NonEmpty`
+    (2026-09-23): exchanging two elements cannot change how many there are, and
+    `swap`'s own exhaustive clause has to strip the claim like every mutator's.
+    That refinement is what lets `std.heap`'s sift-down keep a `NonEmpty` it was
+    handed — the mechanism for "keep a claim across a call that has never heard
+    of it" is a refinement written by the claim's **owner**, never a wrapper
+    overload at the call site.
     Consequence for user code: another qualifier refining `add` over a `List`
     now *disagrees* with std's, so neither applies and the call warns
     [qual-refn-conflict]. The remedy is one word — `with NonEmpty` on the
@@ -1137,14 +1173,42 @@ Conventions:
     2026-09-06): a member has no `FnKey` and naming one needs an
     effect-qualified form.
 * [qual-refn-match] A refinement's parameter list picks **one** overload:
-  it must repeat that overload's parameters exactly — same names, same
-  variadic/implicit flags, same types, with type parameters matched by
-  **position** (the refinement's own, preceded by the qualifier's). Zero
+  it must repeat that overload's parameters — same names, same
+  variadic/implicit flags, same types *under* their qualifiers, with type
+  parameters matched by **position** (the refinement's own, preceded by the
+  qualifier's), and every qualifier the declaration writes written too. Zero
   or several matches is an error at the refinement, so a typo cannot
   become a refinement that silently never fires. A name in the parameter
   list that is neither a type parameter nor a visible type is reported as
   such, naming the type-parameter remedy — a top-level `refn` has no
   qualifier to borrow `T` from.
+* [qual-refn-narrow] A refinement may write a **narrower** parameter than the
+  declaration it refines, and the extra qualifiers are a **precondition**: what
+  it states applies only where the argument already carries them (user
+  correction 2026-09-23).
+
+  ```
+  // Swapping two elements of an *already* non-empty list leaves it non-empty.
+  refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
+  ```
+
+  This is the difference between a claim a call **establishes** and one it
+  merely **keeps**, and it is not decoration: the unconditional form of the
+  refinement above would say that swapping *makes* a list non-empty, which is
+  false for an empty one. `add` establishes (`refn add(list: Mut List<T>, elem:
+  T) => list: +NonEmpty`); `swap` keeps.
+  * Preconditions are per parameter, and two refinements of one parameter that
+    require different things are two independent groups: each applies where its
+    own precondition holds, and conflicts [qual-refn-conflict] are judged within
+    a group rather than across them.
+  * A **kept** claim survives a **conditional** call, an established one does
+    not: if the call may not have happened, the caller's own claim is still
+    whatever it was, but nothing new has been established. (Before this rule the
+    deduction pass suppressed *both* inside a branch, which is why
+    `std.heap`'s sift-down had to swap unconditionally.)
+  * What a signature *reads* as, and what the deduction pass uses for an
+    unconditional promise, is the precondition-free group — so a reader is never
+    told a conditional fact as though it always held [qual-refn-docs].
 * [qual-refn-scope] A refinement declared **inside a qualifier** applies
   wherever that qualifier is in scope, and nowhere else: the user opts
   into the refinements by opting into the qualifier (user decision
@@ -2005,6 +2069,15 @@ Conventions:
 * [fn-variadic] `...xs: T[]` collects remaining arguments as an array;
   a spread argument `...xs` forwards an array whole; variadics bind after
   fixed params.
+  * A spread may only supply the **variadic tail** (2026-09-23): a call whose
+    spread would land in a *required* parameter does not match, and the
+    diagnostic says why — a spread's length is not known statically, so it
+    cannot stand in for a parameter that must be there. Before the rule, such a
+    call unified the *array* with the parameter's type, which silently bound a
+    type parameter to it: `list_of(...xs)` against
+    `list_of(first: T, ...rest: T[])` built a `List<Int[]>` and claimed
+    `NonEmpty` for a possibly empty spread [backend-never-wrong]
+    [col-of-nonempty].
   * A spread into a **variadic intrinsic** is passed on as the collection,
     not as one element: Kotlin uses its own spread (`listOf(*arr)`) and
     Rust takes the vector itself (cloned, since Salvo does not track a
@@ -5859,6 +5932,117 @@ the same day. **Not part of `core`**: the surface is imported, and one
     shadowed and overloaded names pull in every declaring module.
   * A module's backend companion files [backend-companion] travel with it;
     a reachable module is emitted only if it produces code.
+
+## Testing
+
+Built 2026-09-23 as the testing MVP (user decisions of that date; the option
+space and the rounds that settled it are in COMPLETED.md's decision log, which
+replaced the working document TESTING.md).
+
+* [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
+  top-level declaration with a string-literal name and a block body. No
+  parameters, no effect list, no return type, and `export test` is refused — a
+  test is run, never referenced.
+  * `test` is **contextual**, like `iter fn` and `send fn`: an identifier
+    followed by a string literal at item level, so `test` stays an ordinary
+    name everywhere else (`std.test` included).
+  * The name is a **plain literal**: interpolation is a parse error, because
+    `--list` and the filter have to know a test's name without running
+    anything.
+  * [test-unique] Two tests in one file may not share a name — the name is the
+    test's identity to the runner.
+* [test-file] A test lives in a **test annex** and nowhere else: `heap.test.sv`
+  beside `heap.sv`. A `test` block in a production source file is an error
+  naming the annex as the fix (`salvo_core::expand`, before resolution, so
+  every driver reports it).
+  * `.test` is the **only** dot a `.sv` file name may contain
+    ([mod-file-name]'s carve-out, deliberately narrow so the per-backend
+    companion spelling `string.kotlin.sv` stays dead). The file is module
+    `<name>.test`.
+  * An annex is loaded by `salvo test` and by `salvo analyze` (and so by the
+    language server) — **not** by `compile` or `run`. That is the whole of how
+    tests stay out of a production build: there is nothing to strip.
+  * An annex whose module has no production file is an error naming the orphan;
+    so is `heap.test.sv` beside a `heap/test.sv`, since the two spell one
+    module path.
+  * An annex is **never `is_std`**, whatever tree it lives in, so a test cannot
+    declare an `intrinsic` [intrinsic-std-only] (user decision 2026-09-23).
+* [test-visibility] An annex sees the module it tests **whole**, private
+  declarations included, at the same rung as the module's own declarations
+  (`Level::Own`, so overload ranking in a test matches the module's
+  [fn-overload-scope]). The reverse never holds — the annex is its own module,
+  nothing imports it, and a production build does not load it — so the
+  one-way visibility is by construction rather than by a check.
+  * An annex may declare its own helpers, structs and qualifiers. They are
+    invisible to the module under test, which is what keeps test vocabulary out
+    of a shipped surface.
+* [test-implicit-import] Every annex behaves as if it wrote a whole-module
+  import of **`std.test`** (module `test` in the embedded tree): `expect`,
+  `expect_eq` and `Failure` are in scope without an import line, at the
+  bulk-import rung [mod-import-module] — so a file's own `expect` silently wins
+  over the standard one.
+* [test-body] A test body has an entry point's powers: `use` is available with
+  nothing declared, exactly as in `main() [use]`, which is how a test registers
+  a fake (`use MemFs()`). Everything else about the body is the language
+  unchanged — narrowing, linearity, deductions, effects.
+  * `spawn` is *not* in the MVP's implicit powers; actor testing is the slice
+    after it (ROADMAP.md).
+* [test-fail] Failure travels on the existing non-resumption channel
+  [throw] [try] (user decision 2026-09-23, TF-3(i) — no second channel, and no
+  `Test` effect to intercept): an assertion declares `[Throw<Failure>]`, and
+  `Failure` is a std struct with a `message: Str` and a `to_str`.
+  * A test therefore **stops at its first failing assertion**. Several
+    independent facts are several tests.
+  * A custom assertion is an ordinary function declaring `[Throw<Failure>]`;
+    there is nothing to register.
+  * `expect(condition: Bool, label: Str)` is the general assertion.
+    `expect_eq<T>(actual: T, expected: T, ?Eq<T>, ?ToStr<T>)` adds equality and
+    rendering as **capabilities** [cmp-groups] [interp-to-str], so a type joins
+    in by declaring the two functions; a type that declares neither gets the
+    ordinary implicit-resolution error at the assertion site.
+  * std gained `to_str` for the scalars with this rule (`Int`, `Long`, `Byte`,
+    `Char`, `Bool`, `Str`): interpolation renders them natively, but a
+    `?ToStr<T>` position needs a *function* to resolve [implicit-resolve].
+    `Double`/`Float` deliberately have none — the hosts disagree about printing
+    a whole float.
+* [test-run] A `test` block is expanded **before resolution**
+  (`desugar::expand_tests`, run from `salvo_core::expand`) into an exported,
+  parameterless fn named `__salvo_test_<module_mangled>_<index>` declaring
+  `[use, Throw<Failure>]` with the block as its body. Nothing downstream knows
+  the form exists: resolution, the checker, the deduction pass, both emitters
+  and the LSP see an ordinary function.
+  * `salvo test` then **synthesizes one Salvo module** (`__salvo_test_main`),
+    added to the source set rather than written to disk, whose `main` calls
+    each selected test inside its own `try` and reads `Ok … | Thrown Failure`
+    off it. It is compiled and run exactly as `salvo run` compiles and runs a
+    program (user decision 2026-09-23, TF-4(a)), so **no emitter has a line of
+    test-shaped code** and the two backends agree by construction.
+  * The harness prints a **protocol** — `##salvo-test begin <id>`,
+    `##salvo-test ok`, `##salvo-test fail <message>` — and the runner renders
+    the report. Two reasons: the report is coloured, and a Salvo string literal
+    has no escape for the ESC byte; and per-test milliseconds come from timing
+    the protocol lines as they arrive, so a test needs no clock capability.
+  * A test that begins and never reports (a panic, a killed process) is
+    reported as `DIED` and named in the summary: a run that ends silently is
+    the one failure a report must not lose.
+* [test-report] A test's **id** is `<module under test> :: <name>`: the module
+  a program would `import` (`heap`, not the annex's `heap.test`) and the name
+  without its quotes (user decision 2026-09-23). The report is one line per
+  test — `ok` green with its milliseconds, `FAILED` red with the failure
+  indented under it — then a blank line and a count. Output from the code under
+  test is passed through, never swallowed.
+* [test-filter] `salvo test --src DIR [--backend B] [FILTER] [--list]`.
+  `FILTER` is a plain substring of the id, so one word selects a module, a
+  test, or a family; `--list` enumerates and runs nothing. The command's exit
+  code is nonzero iff something failed. Colour is on when stdout is a
+  terminal.
+* [std-shadow] A source tree may **replace** modules of the embedded standard
+  library: every module a loaded file declares that an embedded std file also
+  declares drops the embedded copy, and the disk file takes over with its
+  std-ness (so its `intrinsic` declarations stay legal). This is what
+  `salvo test --src std` rests on — it tests the checkout, not the std
+  compiled into the binary — and without it the two copies would collide as
+  duplicate declarations [mod-collision].
 
 ## Backends
 

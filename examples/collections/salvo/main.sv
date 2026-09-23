@@ -137,8 +137,10 @@ fn main() [use] -> None {
     // tested; `Sorted` and `Distinct` are established by construction only,
     // because deciding them means comparing elements.
     //
-    // `NonEmpty` earns its keep on `first`, which drops the optional:
-    let filled = non_empty_list("ada", "grace")
+    // `NonEmpty` earns its keep on `first`, which drops the optional. The
+    // constructor with a *first* element establishes the claim by construction
+    // [col-of-nonempty], so nothing is checked at run time:
+    let filled = list_of("ada", "grace")
     println("6. first is ${first(filled)}, no optional")
 
     // …and `add` establishes the claim, which `add` itself cannot promise —

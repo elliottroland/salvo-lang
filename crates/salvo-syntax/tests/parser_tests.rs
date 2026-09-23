@@ -2411,3 +2411,55 @@ fn compound_assignment_does_not_cross_a_line() {
         "got {errors:?}"
     );
 }
+
+// ===== [test-decl] tests =====
+
+/// [test-decl] A test is a declaration with a **string-literal** name and a
+/// block body, and `test` stays an ordinary identifier elsewhere.
+#[test]
+fn a_test_declaration_carries_its_name_as_a_string() {
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "test \"an empty heap pops nothing\" {\n    expect(true, \"fine\")\n}\n",
+    );
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    match &module.items[..] {
+        [salvo_syntax::ast::Item::Test(t)] => {
+            assert_eq!(t.name, "an empty heap pops nothing");
+            assert_eq!(t.body.stmts.len(), 1);
+        }
+        other => panic!("expected one test declaration, got {other:?}"),
+    }
+}
+
+/// [test-decl] The name must be knowable without running anything — `--list`
+/// and the filter depend on it — so interpolation is refused.
+#[test]
+fn a_test_name_may_not_interpolate() {
+    let errors = errors_of("test \"case ${n}\" {\n    expect(true, \"x\")\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("plain string literal")),
+        "got {errors:?}"
+    );
+}
+
+/// [test-decl] A test is run, never referenced, so there is nothing to export.
+#[test]
+fn a_test_cannot_be_exported() {
+    let errors = errors_of("export test \"nope\" {\n    expect(true, \"x\")\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("`export` cannot precede a `test`")),
+        "got {errors:?}"
+    );
+}
+
+/// [test-decl] `test` is contextual: a variable, a parameter and a module may
+/// still be called `test`.
+#[test]
+fn test_stays_an_ordinary_name() {
+    let (_module, diagnostics) = salvo_syntax::parse_module(
+        "fn f(test: Int) -> Int {\n    let test2 = test\n    return test2\n}\n",
+    );
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+}

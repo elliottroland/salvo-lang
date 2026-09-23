@@ -251,7 +251,7 @@ fn incompatible_generic_bindings_still_reject() {
 fn check_errors(src: &str) -> Vec<String> {
     let std_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../std");
     let mut sources = SourceSet::default();
-    let io_errors = sources.add_dir(&std_dir, "kt", true);
+    let io_errors = sources.add_dir(&std_dir, "kt", true, false);
     assert!(io_errors.is_empty(), "failed to read std: {io_errors:?}");
     let module = SourceSet::classify(Path::new("main.sv")).unwrap();
     sources.add("main.sv", module, src.to_string(), false);

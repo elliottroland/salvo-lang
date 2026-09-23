@@ -1,0 +1,10 @@
+[package]
+name = "salvo-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Salvo test harness: discovery, harness synthesis, and the report `salvo test` prints"
+
+[dependencies]
+salvo-core = { workspace = true }
+salvo-backend = { workspace = true }

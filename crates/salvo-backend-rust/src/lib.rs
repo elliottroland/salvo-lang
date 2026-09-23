@@ -90,12 +90,12 @@ impl Backend for RustBackend {
     /// `rustc` invocation on that file builds the whole program (the other
     /// modules are reached through its `mod` declarations). The binary goes
     /// inside the target directory, then runs.
-    fn run(
+    fn program_command(
         &self,
         target_dir: &Path,
         main_module: &ModulePath,
         _emitted: &[PathBuf],
-    ) -> Result<i32, BackendError> {
+    ) -> Result<std::process::Command, BackendError> {
         use std::ffi::OsStr;
 
         let root = target_dir.join(crate_root(main_module));
@@ -124,7 +124,7 @@ impl Backend for RustBackend {
                 "rustc failed with exit code {code}"
             )));
         }
-        run_tool(bin.to_string_lossy().as_ref(), &[])
+        Ok(std::process::Command::new(bin))
     }
 }
 

@@ -1384,6 +1384,13 @@ impl<'p> Emitter<'p> {
         if !self.has_ifaces.is_empty() {
             imports.insert("import salvo.*".to_string());
         }
+        // [kt-throw] And so does the throw signal. A module that throws
+        // without also using a union wrapper had no import for it — which
+        // nothing hit until `std.test`'s assertions, the first throwing
+        // module that is not an entry point (found 2026-09-23).
+        if self.needs_throw {
+            imports.insert("import salvo.*".to_string());
+        }
         if !imports.is_empty() {
             out.push('\n');
             for import in &imports {

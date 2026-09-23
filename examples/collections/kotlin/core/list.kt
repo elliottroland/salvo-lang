@@ -14,10 +14,6 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
-fun<T> non_empty_list(first: T, rest: Array<T>): List<T> {
-    return listOf<T>(first, *rest)
-}
-
 fun<T> first(list: List<T>): T {
     return list.getOrNull(0)!!
 }

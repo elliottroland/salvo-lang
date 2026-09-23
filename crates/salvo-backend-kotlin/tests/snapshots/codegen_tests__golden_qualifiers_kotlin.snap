@@ -114,10 +114,6 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
-fun<T> non_empty_list(first: T, rest: Array<T>): List<T> {
-    return listOf<T>(first, *rest)
-}
-
 fun<T> first(list: List<T>): T {
     return list.getOrNull(0)!!
 }
@@ -326,7 +322,7 @@ import salvo.core.nonempty.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
-fun<T> iter__5(set: Set<T>): SetYield<T> {
+fun<T> iter__6(set: Set<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
@@ -335,7 +331,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__7(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__8(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -354,11 +350,11 @@ import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.string.*
 
-fun<T> iter__6(set: java.util.SortedSet<T>): SetYield<T> {
+fun<T> iter__7(set: java.util.SortedSet<T>): SetYield<T> {
     return SetYield(items = set.toMutableList(), at = 0)
 }
 
-fun<K, V> iter__7(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
+fun<K, V> iter__8(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }
 
@@ -369,7 +365,7 @@ import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 
-fun iter__8(str: String): StrYield {
+fun iter__9(str: String): StrYield {
     return StrYield(text = str, at = 0)
 }
 
@@ -378,7 +374,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__8(p: StrYield): Union2<Char, Finished> {
+fun next__9(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())

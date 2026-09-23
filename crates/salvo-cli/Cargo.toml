@@ -15,6 +15,7 @@ salvo-core = { workspace = true }
 salvo-backend = { workspace = true }
 salvo-backend-kotlin = { workspace = true }
 salvo-backend-rust = { workspace = true }
+salvo-test = { workspace = true }
 clap = { workspace = true }
 include_dir = { workspace = true }
 lsp-server = { workspace = true }

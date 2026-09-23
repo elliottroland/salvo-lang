@@ -10,6 +10,7 @@ import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
+import salvo.core.range.*
 import salvo.core.result.*
 import salvo.core.seq.*
 import salvo.core.set.*

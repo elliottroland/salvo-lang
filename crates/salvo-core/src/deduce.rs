@@ -842,6 +842,18 @@ impl<'p> Walk<'_, 'p> {
     /// `+Q` in a *function's* own deduction list, which is D2 and
     /// deliberately not in the language. So a refinement can cancel a
     /// removal, never invent a claim.
+    /// [qual-refn-narrow] `add_quals` for a claim a call **keeps** rather than
+    /// establishes: legal inside a branch, because the claim was there before
+    /// the call either way.
+    fn keep_quals(&mut self, name: &str, added: &[String]) {
+        let saved = std::mem::replace(&mut self.cond_depth, 0);
+        self.add_quals(name, added);
+        self.cond_depth = saved;
+    }
+
+    /// A use that puts a qualifier back [qual-refn]. Ignored inside a
+    /// conditional: a call that may not have happened cannot have established
+    /// anything.
     fn add_quals(&mut self, name: &str, added: &[String]) {
         if self.cond_depth > 0 {
             return;
@@ -1295,16 +1307,42 @@ impl<'p> Walk<'_, 'p> {
             // `NonEmpty`, and `NonEmpty`'s own refinement puts it back — so
             // a fn whose parameter declares it can promise it onward.
             let Some(callee) = callee else { continue };
-            let refined = self
+            // [qual-refn-narrow] A refinement that wrote a *narrower* parameter
+            // applies only where the claim is already there. Here "already
+            // there" means the enclosing fn's parameter declares it: that is
+            // what this pass reasons about, and what the promise being checked
+            // is made of.
+            let declared = self
+                .decl
+                .params
+                .iter()
+                .find(|p| p.name.name == name)
+                .map(|p| declared_quals(&p.ty))
+                .unwrap_or_default();
+            let groups: Vec<(Vec<String>, Vec<String>, bool)> = self
                 .refinements
-                .for_param(self.file, callee, &params[pidx].name.name)
-                .map(|g| (g.add.clone(), g.remove.clone()));
-            let Some((add, remove)) = refined else { continue };
-            if !remove.is_empty() {
-                self.remove_quals(&name, &remove);
-            }
-            if !add.is_empty() {
-                self.add_quals(&name, &add);
+                .for_param_all(self.file, callee, &params[pidx].name.name)
+                .into_iter()
+                .filter(|g| g.requires.iter().all(|q| declared.contains(q)))
+                .map(|g| (g.add.clone(), g.remove.clone(), !g.requires.is_empty()))
+                .collect();
+            for (add, remove, keeps) in groups {
+                if !remove.is_empty() {
+                    self.remove_quals(&name, &remove);
+                }
+                if add.is_empty() {
+                    continue;
+                }
+                if keeps {
+                    // The claim is **kept**, not established: whether the call
+                    // happened or not, what the caller had it still has — so
+                    // this one survives a conditional, where an establishing
+                    // refinement must not (a call that may not have run cannot
+                    // have made a list non-empty).
+                    self.keep_quals(&name, &add);
+                } else {
+                    self.add_quals(&name, &add);
+                }
             }
         }
     }

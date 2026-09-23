@@ -6,6 +6,7 @@
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
 //! salvo run --backend rust --src ./some_dir --target ./out --clean-target before
 //! salvo analyze --src ./some_dir [--format json]
+//! salvo test --src ./some_dir [--backend rust] [FILTER] [--list]
 //! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
@@ -101,6 +102,28 @@ enum Command {
         #[arg(long, value_enum, default_value_t = CleanTarget::Both)]
         clean_target: CleanTarget,
     },
+    /// Run the tests a source tree declares [test-run]: every
+    /// `test "name" { … }` block in a `<module>.test.sv` annex.
+    Test {
+        /// Target backend (defaults to `rust`, whose toolchain is the
+        /// cheapest to start).
+        #[arg(long, default_value = "rust")]
+        backend: String,
+        /// Directory containing `.sv` source files, annexes included.
+        #[arg(long)]
+        src: PathBuf,
+        /// Run only tests whose id contains this text — `module :: name`,
+        /// so one word selects a module, a test, or a family [test-filter].
+        filter: Option<String>,
+        /// List the tests that would run, and run nothing.
+        #[arg(long)]
+        list: bool,
+        /// Output directory for the generated sources (default:
+        /// `.salvo_tmp_test`). Cleared before the run and left in place
+        /// afterwards, so a failing harness can be read.
+        #[arg(long)]
+        target: Option<PathBuf>,
+    },
     /// Parse, resolve, and type-check sources without generating code
     /// [cli-analyze].
     Analyze {
@@ -181,6 +204,13 @@ fn main() -> ExitCode {
             clean_target,
         } => run(&backend, src, main_file, target, clean_target),
         Command::Analyze { src, format } => analyze(&src, format),
+        Command::Test {
+            backend,
+            src,
+            filter,
+            list,
+            target,
+        } => test(&backend, &src, filter.as_deref(), list, target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
@@ -329,6 +359,10 @@ struct Layout {
     /// The entry file's path relative to `src`. `None` means "whatever
     /// unique `main` the directory declares".
     main_file: Option<String>,
+    /// [test-file] Whether `<name>.test.sv` annexes are loaded. Only
+    /// `salvo test` sets it: a production build does not walk them, which is
+    /// the whole of how tests stay out of a shipped program.
+    tests: bool,
 }
 
 /// A parsed, entry-resolved program: what `compile`, `run` and
@@ -339,6 +373,9 @@ struct Assembled {
     /// The names of every file declaring `main`, when the choice was left
     /// open and there was more than one.
     ambiguous: Vec<String>,
+    /// [test-run] Every test the sources declare, in file order. Empty
+    /// unless `layout.tests`.
+    tests: Vec<salvo_core::TestCase>,
 }
 
 /// Loads, parses and entry-resolves `layout`'s sources for `backend`.
@@ -365,42 +402,42 @@ fn assemble(
         );
         return Err(ExitCode::FAILURE);
     }
-    let io_errors = sources.add_dir(&layout.src, backend.file_extension(), false);
+    let io_errors = sources.add_dir(&layout.src, backend.file_extension(), false, layout.tests);
     for err in &io_errors {
         eprintln!("error: {err}");
     }
     if !io_errors.is_empty() {
         return Err(ExitCode::FAILURE);
     }
+    // [std-shadow] A source tree declaring std's own modules replaces them,
+    // which is what `salvo test --src std` rests on.
+    for note in sources.apply_std_shadow() {
+        if verbose {
+            eprintln!("note: {note}");
+        }
+    }
 
-    // Parse every module and collect diagnostics. The `iter fn` expansion is
-    // deferred to a program-level pass, so a subject declared in another file
-    // still gets the per-field snapshot [iter-fn].
+    // Parse every module and collect diagnostics. The `iter fn` and `test`
+    // expansions are deferred to a program-level pass: the first needs the
+    // rest of the program's structs [iter-fn], the second needs to know
+    // which files are test annexes [test-file].
     let mut modules = Vec::with_capacity(sources.files.len());
-    let mut parse_diags: Vec<Vec<salvo_syntax::Diagnostic>> =
-        Vec::with_capacity(sources.files.len());
+    let mut error_count = 0usize;
     for file in &sources.files {
         let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
-        parse_diags.push(diagnostics);
-        modules.push(module);
-    }
-    let all_structs: Vec<salvo_syntax::ast::StructDecl> = modules
-        .iter()
-        .flat_map(salvo_syntax::desugar::struct_decls)
-        .collect();
-    let mut error_count = 0usize;
-    for ((file, module), mut diagnostics) in
-        sources.files.iter().zip(&mut modules).zip(parse_diags)
-    {
-        diagnostics.extend(salvo_syntax::desugar::expand_iter_fns_with(
-            module,
-            &all_structs,
-        ));
         for diag in &diagnostics {
             eprintln!("{}", diag.render(&file.name, &file.content));
             if diag.is_error() {
                 error_count += 1;
             }
+        }
+        modules.push(module);
+    }
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    for diag in &expansion.diagnostics {
+        eprintln!("{}", diag.render(&sources.files));
+        if diag.is_error() {
+            error_count += 1;
         }
     }
     if error_count > 0 {
@@ -451,6 +488,7 @@ fn assemble(
         .zip(&modules)
         .filter(|(file, module)| {
             !file.is_std
+                && !file.is_test
                 && module.items.iter().any(|item| {
                     matches!(item, salvo_syntax::ast::Item::Fn(f)
                         if f.name.name == "main" && f.body.is_some())
@@ -490,6 +528,7 @@ fn assemble(
         program,
         main_module,
         ambiguous,
+        tests: expansion.tests,
     }))
 }
 
@@ -509,6 +548,7 @@ fn build(
         program,
         main_module,
         ambiguous,
+        tests: _,
     }) = assemble(backend, layout, emit_ast, verbose)?
     else {
         return Ok(None);
@@ -588,6 +628,7 @@ fn compile(
     let layout = Layout {
         src: src.clone(),
         main_file: None,
+        tests: false,
     };
     match build(backend, &layout, target, emit_ast, true) {
         Ok(_) => ExitCode::SUCCESS,
@@ -670,6 +711,183 @@ fn run(
             eprintln!("error: {err}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The default `--target` for `salvo test` [test-run]: dot-prefixed like
+/// `salvo run`'s, so it is skipped by source discovery [mod-ignore].
+const DEFAULT_TEST_TARGET: &str = ".salvo_tmp_test";
+
+/// `salvo test`: run the tests a source tree declares [test-run].
+///
+/// The whole of it: assemble the sources *with* their `<name>.test.sv`
+/// annexes, synthesize a harness module that delimits each test with a `try`,
+/// compile and run it exactly as `salvo run` would, and render its protocol as
+/// the report [test-report]. Nothing here is backend-specific — the harness is
+/// a Salvo program.
+fn test(
+    backend_name: &str,
+    src: &Path,
+    filter: Option<&str>,
+    list: bool,
+    target: Option<PathBuf>,
+) -> ExitCode {
+    let registry = registry();
+    let Some(backend) = registry.get(backend_name) else {
+        eprintln!("{}", unknown_backend(&registry, backend_name));
+        return ExitCode::FAILURE;
+    };
+    let layout = Layout {
+        src: src.to_path_buf(),
+        main_file: None,
+        tests: true,
+    };
+    let Some(mut assembled) = (match assemble(backend, &layout, None, false) {
+        Ok(assembled) => assembled,
+        Err(code) => return code,
+    }) else {
+        return ExitCode::SUCCESS;
+    };
+
+    let selected = salvo_test::select(&assembled.tests, filter);
+    if list {
+        for test in &selected {
+            println!("{}", test.id());
+        }
+        return ExitCode::SUCCESS;
+    }
+    if selected.is_empty() {
+        // Not a failure: a tree with no tests, or a filter that matched
+        // none, is a run with nothing to do — and the count says which.
+        eprintln!(
+            "no tests {}in `{}`: a test is a `test \"name\" {{ … }}` block in a \
+             `<module>.test.sv` file beside the module it tests [test-file]",
+            match filter {
+                Some(f) => format!("match `{f}` "),
+                None => String::new(),
+            },
+            src.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+
+    // The harness: a synthesized module, added to the program rather than
+    // written into the source tree [test-run].
+    let harness_module = salvo_core::ModulePath(vec![salvo_test::HARNESS_MODULE.to_string()]);
+    if assembled
+        .program
+        .files
+        .iter()
+        .any(|f| f.module == harness_module)
+    {
+        eprintln!(
+            "error: `{}` declares a module called `{}`, which is the name the test \
+             harness is generated under — rename it",
+            src.display(),
+            harness_module
+        );
+        return ExitCode::FAILURE;
+    }
+    let source = salvo_test::harness_source(&selected);
+    let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    if diagnostics.iter().any(|d| d.is_error()) {
+        // A generated program that does not parse is a compiler bug, and the
+        // source is printed with it so the bug is one read away.
+        for diag in &diagnostics {
+            eprintln!("{}", diag.render("<generated harness>", &source));
+        }
+        eprintln!("error: internal: the generated test harness does not parse\n{source}");
+        return ExitCode::FAILURE;
+    }
+    assembled.program.files.push(salvo_core::SourceFile {
+        name: format!("{}.sv", salvo_test::HARNESS_MODULE),
+        module: harness_module.clone(),
+        content: source,
+        is_std: false,
+        is_test: false,
+    });
+    assembled.program.modules.push(ast);
+
+    let target = target.unwrap_or_else(|| PathBuf::from(DEFAULT_TEST_TARGET));
+    if let Err(msg) = check_target_overlap(&layout.src, &target) {
+        eprintln!("error: {msg}");
+        return ExitCode::FAILURE;
+    }
+    if let Err(msg) = clear_target(&target) {
+        eprintln!("error: {msg}");
+        return ExitCode::FAILURE;
+    }
+    let emitted = match backend.emit(&assembled.program, &target, Some(&harness_module)) {
+        Ok(emitted) => emitted,
+        Err(BackendError::Codegen(msgs)) => {
+            for msg in &msgs {
+                eprintln!("{msg}");
+            }
+            return ExitCode::FAILURE;
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    for msg in &emitted.warnings {
+        eprintln!("{msg}");
+    }
+
+    let mut command =
+        match backend.program_command(&target, &harness_module, &emitted.files) {
+            Ok(command) => command,
+            Err(err) => {
+                eprintln!("error: {err}");
+                return ExitCode::FAILURE;
+            }
+        };
+    // The harness's stdout is the protocol the report is rendered from
+    // [test-report]; its stderr stays the user's.
+    command.stdout(std::process::Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            eprintln!(
+                "error: failed to start the test harness (`{}`): {err}",
+                command.get_program().to_string_lossy()
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let stdout = child.stdout.take().expect("piped");
+    let color = if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        salvo_test::Color::Always
+    } else {
+        salvo_test::Color::Never
+    };
+    let mut out = std::io::stdout().lock();
+    let summary = match salvo_test::render(std::io::BufReader::new(stdout), &mut out, color) {
+        Ok(summary) => summary,
+        Err(err) => {
+            eprintln!("error: failed to read the test harness's output: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let status = child.wait();
+    drop(out);
+    match status {
+        Ok(status) if !status.success() && summary.ok() => {
+            // The report says everything passed and the process still failed:
+            // something outside a test went wrong, and silence here would
+            // report a green run for a broken one.
+            eprintln!(
+                "error: the test harness exited with {} although every test passed",
+                status
+            );
+            ExitCode::FAILURE
+        }
+        Err(err) => {
+            eprintln!("error: failed to wait for the test harness: {err}");
+            ExitCode::FAILURE
+        }
+        Ok(_) if summary.ok() => ExitCode::SUCCESS,
+        Ok(_) => ExitCode::FAILURE,
     }
 }
 
@@ -787,6 +1005,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
         return Ok(Layout {
             src,
             main_file: None,
+            tests: false,
         });
     };
     check_entry_file(&main)?;
@@ -802,6 +1021,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
             Ok(Layout {
                 src: dir.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(".")),
                 main_file: Some(name.to_string()),
+                tests: false,
             })
         }
         // Both given: the entry is identified by its path *relative to the
@@ -821,6 +1041,7 @@ fn layout_of(src: Option<PathBuf>, main_file: Option<PathBuf>) -> Result<Layout,
             Ok(Layout {
                 src,
                 main_file: Some(rel.display().to_string()),
+                tests: false,
             })
         }
     }

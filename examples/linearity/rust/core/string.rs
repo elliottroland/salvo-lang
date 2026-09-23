@@ -2,7 +2,7 @@ use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::unions::*;
 
-pub fn iter__8(str: &String) -> StrYield<'_> {
+pub fn iter__9(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
@@ -12,7 +12,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__8(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__9(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());

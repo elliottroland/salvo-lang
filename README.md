@@ -46,6 +46,11 @@ cargo run -- run --backend rust --src ./my_project --main ./my_project/bin/tool.
 # Type-check a directory of .sv sources without generating code:
 cargo run -- analyze --src ./my_project              # or --format json
 
+# Run the tests a source tree declares (`test "name" { ... }` blocks in
+# `<module>.test.sv` files beside the modules they test):
+cargo run -- test --src ./my_project                 # or --list, or a filter
+cargo run -- test --src std                          # the standard library's own
+
 # Generate the host implementation skeleton for every `platform effect`
 # into ./my_project/platform/ (written once, never overwritten):
 cargo run -- platform generate --backend kotlin --src ./my_project
@@ -253,6 +258,14 @@ fn main() [use] {
   exported from `core`, or by an `import` — of one name (`import time.Duration`)
   or of a whole module (`import time`). Using a private name says so and names
   the fix, rather than claiming the name does not exist.
+- **Testing**: a test is a declaration named by a string —
+  `test "an empty cart totals to zero" { ... }` — living in a companion file
+  (`cart.test.sv` beside `cart.sv`) that is part of the module, so a test reaches
+  its private declarations while nothing reaches the test. `salvo test` finds
+  them, runs them and prints one report; assertions are ordinary functions that
+  `throw`, so a vocabulary of your own is a function and nothing needs
+  registering. A production build never loads a `.test.sv` file, so there is
+  nothing to strip.
 - **Documentation**: the `//` comment block above a declaration is its
   documentation — markdown, with `[symbol]` references to parameters,
   fields and types; struct fields, effect and handler members are

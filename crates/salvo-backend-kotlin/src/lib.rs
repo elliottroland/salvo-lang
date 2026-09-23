@@ -130,12 +130,12 @@ impl Backend for KotlinBackend {
     /// class. Companion files [backend-companion] are `.kt` too, so they
     /// are part of `emitted` and compile with the rest — including the
     /// platform host [platform-tree].
-    fn run(
+    fn program_command(
         &self,
         target_dir: &Path,
         main_module: &ModulePath,
         emitted: &[PathBuf],
-    ) -> Result<i32, BackendError> {
+    ) -> Result<std::process::Command, BackendError> {
         use std::ffi::OsStr;
 
         let classes = target_dir.join(CLASSES_DIR);
@@ -161,9 +161,8 @@ impl Backend for KotlinBackend {
         }
 
         let entry = self.entry_hint(target_dir, main_module, emitted);
-        run_tool(
-            "kotlin",
-            &[OsStr::new("-cp"), classes.as_os_str(), OsStr::new(&entry)],
-        )
+        let mut command = std::process::Command::new("kotlin");
+        command.arg("-cp").arg(&classes).arg(&entry);
+        Ok(command)
     }
 }

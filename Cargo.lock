@@ -511,6 +511,7 @@ dependencies = [
  "salvo-backend-rust",
  "salvo-core",
  "salvo-syntax",
+ "salvo-test",
  "salvo-testkit",
  "serde_json",
 ]
@@ -527,6 +528,14 @@ name = "salvo-syntax"
 version = "0.1.0"
 dependencies = [
  "insta",
+]
+
+[[package]]
+name = "salvo-test"
+version = "0.1.0"
+dependencies = [
+ "salvo-backend",
+ "salvo-core",
 ]
 
 [[package]]
