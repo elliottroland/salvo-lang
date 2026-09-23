@@ -920,7 +920,10 @@ fn run_test_pass(
         module: harness_module.clone(),
         content: source,
         is_std: false,
-        is_test: false,
+        // [test-implicit-import] The harness *is* test code: marking it so gives
+        // it `std.test` without an import line, which is also what keeps it
+        // clear of an `import <module>.test` for an annex of `test` itself.
+        is_test: true,
     });
     program.modules.push(ast);
     let emitted = backend.emit(program, target, Some(harness_module));

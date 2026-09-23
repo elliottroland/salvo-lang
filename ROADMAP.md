@@ -1099,16 +1099,23 @@ forms are built — `expr!` with its refusal, `assert!(cond, "why")` with its
 narrowing, `unreachable!("why")` — with one trap text on both backends. Two
 decided slices are **not built**; both are plans now, not questions.
 
-- **A-5 is built** (2026-09-23, in the runner rather than the harness —
-  COMPLETED.md's log): a dying test is named, its trap message is printed under
-  it, and the remainder re-runs in a fresh process [test-recover]. What it leaves:
-  a death costs a **rebuild** (the whole ~9s Kotlin compile), because the harness
-  has no argv dispatch — with one, a re-run would be a second launch. Worth doing
-  if it starts to hurt; the shape is in TESTING.md's retired TF-4 (the harness
-  `main` accepting test ids). Also still open from it: `expect_panics`-style
-  helpers, now writable, and the user's note that tests should arguably use
-  `assert!` rather than `std.test`'s `expect` — the narrowing form is the reason,
-  and it would make the two vocabularies one.
+- **A-5 is built** (2026-09-23, revised the same day — COMPLETED.md's log): the
+  generated harness catches a trap through `std.test`'s `trapped_by` intrinsic,
+  so a failing `assert!` is that test's failure [test-recover]. The runner's
+  restart path stays as a backstop for an uncatchable death. What it leaves:
+  * ~~`expect_panics`-style helpers~~ — **built** the same day as
+    `trap_of`/`expect_trap`/`expect_trap_with` [test-trap-expect], with
+    `std/test.test.sv` (the test module's own annex) testing them.
+  * **Tests should arguably use `assert!` rather than `std.test`'s `expect`**
+    (the user's note): the narrowing is the reason, and it would make the two
+    vocabularies one. What `expect` still buys is a failure that is *data* (a
+    `Failure` the harness reads) rather than a trap; with `trapped_by` in place
+    the difference has narrowed to the message's shape.
+  * **Parallel tests**, which is what the revision was for: with the catch in
+    the harness, running tests concurrently is a scheduling question rather than
+    a recovery one. Nothing about the protocol needs to change — a `begin` line
+    per test plus a verdict — but the report's per-test timings and the
+    interleaving of a test's own output do.
 - **A-6: the trap policy for the other three failure classes.** Decided:
   - **Subscript out of range** → trap with *our* message (index and length),
     replacing the hosts' two different texts. Needs care on the *place* path
@@ -1121,6 +1128,117 @@ decided slices are **not built**; both are plans now, not questions.
     every arithmetic operation. **It is the only row that changes what existing
     programs compute**, so it wants its own slice and a parity test: today Kotlin
     wraps silently while Rust refuses a constant fold and panics in debug.
+
+## One read, one mode — the clone both unwrap paths pay (recorded 2026-09-23)
+
+Reading an optional in Salvo is **free**: `xs!` and a narrowed read of `xs` are
+reads, and the language copies only where a program writes `copy`
+[copy-opt-in]. On the Rust backend both of those lower to a **clone**, because
+the emitter decides how to render the read *before* it knows what the
+surrounding position wants. Closing that removes a copy nobody wrote from every
+unwrap in every program, on the one backend where it costs anything.
+
+### What happens today
+
+Two Salvo reads of the same optional local:
+
+```
+fn describe(name: Str?) [Console] -> None => name {
+    if name is Str {
+        println("narrowed: ${size(name)}")     // (a) a narrowed read
+    }
+    println("bang: ${size(name!)}")            // (b) the same read, spelled `!`
+}
+```
+
+Both lower to the same shape — borrow the `Option`, unwrap the borrow, **clone
+the payload**:
+
+```rust
+// (a) narrow_unwrap
+(name.as_ref().unwrap().clone().chars().count() as i32)
+// (b) the `!` lowering, since 2026-09-23 [rs-opt-borrow]
+(name.as_ref().expect("salvo: value is absent at main:5:26").clone().chars().count() as i32)
+```
+
+The clone is there because `size` takes its argument by reference and the
+emitter hands it an owned `String` anyway: the expression path produces a value,
+and a value is what every position accepts. What it *should* produce is the
+borrow:
+
+```rust
+// what both should be, where the position only reads
+(name.as_ref().unwrap().chars().count() as i32)
+```
+
+A `Str` is the cheap case. The expensive one is a struct or a collection:
+
+```
+fn total(cart: Cart?) -> Int => cart {
+    return sum(cart!.items)          // clones the whole `Vec<Item>` today
+}
+```
+
+```rust
+// today
+return sum(&cart.as_ref().expect("…").clone().items);
+// wanted
+return sum(&cart.as_ref().expect("…").items);
+```
+
+### Why it is not a one-line change
+
+The emitter already has the *idea* in two places, each covering one case:
+
+- `stays_ref` in the `!` lowering: when the expression's own type **is** a
+  projection [proj-type], the borrow is the value and no clone is added. That is
+  the wanted behaviour, available only when the checker typed the result `proj`.
+- `emit_owned` versus `emit_place`: the argument path already distinguishes
+  "this position needs ownership" from "this position reads", which is how a
+  plain `Expr::Ident` in a keeping position emits `&x` rather than `x.clone()`.
+
+What is missing is a **mode on the expression walk**: `emit_expr` renders an
+expression without being told whether its result will be read, borrowed mutably,
+or owned. The unwrap paths therefore choose the only rendering that is always
+accepted — an owned temporary — and pay a clone for it.
+
+### The shape of the fix
+
+1. Thread a *wanted mode* through the expression emitter — `Read` (a `&T` is
+   fine), `Own` (a value is needed: a store, a return, a consuming argument),
+   `Mut` (a `&mut T`, which `narrow_unwrap_mut` already produces for its own
+   sites). Most arms ignore it; the unwrap paths and the place reads consult it.
+2. Set it from what the position knows: a call argument from the callee's
+   deduction ([deduce-syntax]'s kept/consumed, already available at that site), a
+   `let` with an annotation from the annotation, a `return` from the return type,
+   an interpolation from `Display` (a borrow suffices).
+3. Then `narrow_unwrap`, `ident_unwrap` and the `!` lowering each emit
+   `place.as_ref().expect(…)` under `Read` and add `.clone()` only under `Own` —
+   which is the same decision `stays_ref` makes today, generalised from "the type
+   is `proj`" to "the position reads".
+4. Keep the three exclusions the narrow fix records: a Copy payload needs no
+   borrow, a checker-recorded move (`linear_moves`, `state_takes`) must move, and
+   an `Option<&T>` operand is already a borrow.
+
+Kotlin needs none of this: a read of a smart-cast local *is* the local, and
+`?:`/`!!` produce no copy. So this is a Rust-backend change with no parity
+consequence — which also means it can be verified by the existing e2e suite: same
+output, less cloning.
+
+### Why it is worth doing
+
+- It is the last **systematic** copy nobody wrote. `[copy-opt-in]` is a stated
+  principle ("a copy never happens without the program opting in"), and the
+  unwrap paths break it on every read of a non-Copy optional.
+- It is measurable: `examples/*/rust/**` has the clones checked in, so the diff
+  *is* the benefit.
+- The mode parameter pays elsewhere. Several recorded items are the same missing
+  information in another guise: the `to_str` a generic container cannot compose
+  [interp-to-str], the temporary-subject `for` loop (E0716 in "Open defects"),
+  and the copy the adapter closure makes for a returned projection.
+
+Sequenced after the open defects and the assertions work; it is a refactor with a
+wide blast radius in one file and wants a quiet moment.
 
 ## Decisions waiting on the user
 
@@ -1161,7 +1279,11 @@ move to COMPLETED.md with their repro intact.
 
 **Ten open**, and **these are next**: the user's direction of 2026-09-23 is
 to clear them once the refinement work is done, before the variance and
-qualifier-dropping sections above. (**Closed 2026-09-23**: `!` on a non-optional was
+qualifier-dropping sections above. (**Closed 2026-09-23**: two `!`s on one optional
+*local* moved it twice on Rust — the lowering now reads it through a borrow
+[rs-opt-borrow], the form a narrowed read already used; the generalisation that
+would remove the clone from *both* paths is the "one read, one mode" section
+above. **Also closed 2026-09-23**: `!` on a non-optional was
 accepted and lowered to an unwrap — refused at the checker now, as decision A-1
 of the assertions round (COMPLETED.md's log). **Also closed 2026-09-23**: a
 refinement applied inside a branch was lost — the deduction pass suppressed *every*

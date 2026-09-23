@@ -50,7 +50,10 @@ pub fn harness_source(tests: &[TestCase]) -> String {
          // Not written to disk anywhere the compiler reads sources from: it is\n\
          // synthesized into the source set, compiled with the program, and\n\
          // prints the protocol the runner renders as the report.\n\
-         import test\n",
+         //\n\
+         // No `import test`: the harness is a test file, so `std.test` is\n\
+         // implicitly available [test-implicit-import] — and an explicit import\n\
+         // of it beside an `import <module>.test` was ambiguous.\n",
     );
     // One import per annex module: the synthesized test fns are exported from
     // the annex they were written in [test-run].
@@ -65,19 +68,34 @@ pub fn harness_source(tests: &[TestCase]) -> String {
     }
     out.push_str("\nfn main() [use] {\n    use StdOutConsole()\n");
     for (i, test) in tests.iter().enumerate() {
+        // [test-recover] Each test runs inside `trapped_by`, so a failure the
+        // program cannot continue past — a failed `assert!` [assert-trap], a
+        // subscript out of range — is *this test's* failure rather than the end
+        // of the run (user decision 2026-09-23). Two kinds of failure, one
+        // answer: `try` reads the declared one [test-fail] and hands it back as
+        // the body's value, `trapped_by` answers the trap instead. The body
+        // performs no effects, so nothing is threaded into the catch, and the
+        // verdict is printed out here.
         out.push_str(&format!(
             "\n    println(\"{BEGIN}{}\")\n\
-             \x20   let outcome{i} = try {{\n\
-             \x20       {}()\n\
-             \x20   }}\n\
-             \x20   when outcome{i} {{\n\
-             \x20       is Ok {{\n\
-             \x20           println(\"{OK}\")\n\
+             \x20   let failure{i} = trapped_by(() -> {{\n\
+             \x20       let outcome{i} = try {{\n\
+             \x20           {}()\n\
              \x20       }}\n\
-             \x20       is Thrown {{\n\
-             \x20           let why{i}: Failure = outcome{i}\n\
-             \x20           println(\"{FAIL}${{to_str(why{i})}}\")\n\
+             \x20       return when outcome{i} {{\n\
+             \x20           is Ok {{\n\
+             \x20               None\n\
+             \x20           }}\n\
+             \x20           is Thrown {{\n\
+             \x20               let why{i}: Failure = outcome{i}\n\
+             \x20               to_str(why{i})\n\
+             \x20           }}\n\
              \x20       }}\n\
+             \x20   }})\n\
+             \x20   if failure{i} is Str {{\n\
+             \x20       println(\"{FAIL}${{failure{i}}}\")\n\
+             \x20   }} else {{\n\
+             \x20       println(\"{OK}\")\n\
              \x20   }}\n",
             escape(&test.id()),
             test.fn_name,
@@ -124,7 +142,9 @@ mod tests {
         let src = harness_source(&[case("pops in order", "__salvo_test_heap_test_0")]);
         assert!(src.contains("import heap.test\n"), "{src}");
         assert!(
-            src.contains("let outcome0 = try {") && src.contains("__salvo_test_heap_test_0()"),
+            src.contains("let failure0 = trapped_by(() -> {")
+                && src.contains("let outcome0 = try {")
+                && src.contains("__salvo_test_heap_test_0()"),
             "{src}"
         );
         assert!(

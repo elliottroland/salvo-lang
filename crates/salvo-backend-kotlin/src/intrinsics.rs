@@ -284,6 +284,16 @@ pub fn fn_call(
         // demands an explicit parameter type ("an explicit type is required
         // on a value parameter"). Passing it where a `(Int) -> T` is wanted
         // is what types its parameter.
+        // [test-recover] [kt-assert-trap] The harness's catch: run the body,
+        // answer the trap's message or `null`. `Throwable` rather than a
+        // narrower type on purpose — the harness wants *every* death it can
+        // survive, ours (`AssertionError`) and the host's (a null dereference,
+        // an index out of bounds, a division by zero) alike.
+        ("trapped_by", _) => format!(
+            "(try {{ ({})() }} catch (__e: Throwable) {{ \
+              __e.message ?: \"a trap with no message\" }})",
+            a(0)
+        ),
         ("array_by", Some("Int")) => {
             format!("Array<{}>({}, {})", elem(), a(0), a(1))
         }

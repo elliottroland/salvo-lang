@@ -12583,3 +12583,47 @@ fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
         "expected hosttime.rs to be emitted"
     );
 }
+
+// ===== [rs-opt-borrow] an owned optional local, read twice =====
+
+/// [rs-opt-borrow] Two `!`s on one optional **local** are two *reads*: the
+/// checker allows them (reading an optional is free), so the lowering must not
+/// move the value the first time. The form is the one a narrowed read already
+/// takes — borrow the `Option`, unwrap the borrow, clone the payload (found
+/// 2026-09-23 writing `std/test.test.sv`, which is the shape below).
+const REREAD_OPTIONAL: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let maybe: Str? = "hello"
+    println("once ${size(maybe!)}")
+    println("twice ${size(maybe!)}")
+    let n: Int? = 3
+    println("copy ${n! + n!}")
+}
+"#;
+
+#[test]
+fn an_owned_optional_local_is_read_through_a_borrow() {
+    let files = generate(&[("main.sv", REREAD_OPTIONAL)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // Non-Copy payload: borrowed, unwrapped, cloned — so the second read still
+    // has something to read.
+    assert_eq!(
+        main.matches("maybe.as_ref().expect(\"salvo: value is absent").count(),
+        2,
+        "expected both reads to borrow:\n{main}"
+    );
+    assert!(!main.contains("maybe.expect("), "a read moved the local:\n{main}");
+    // A Copy payload needs none of it: the `Option` is Copy, so `.expect` moves
+    // nothing and the shorter form stands.
+    assert_eq!(
+        main.matches("n.expect(\"salvo: value is absent").count(),
+        2,
+        "expected the Copy payload to stay direct:\n{main}"
+    );
+    run_rust_files(&files, "reread-optional", "once 5\ntwice 5\ncopy 6\n");
+}

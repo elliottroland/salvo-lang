@@ -282,12 +282,13 @@ fn normalize_ms(text: &str) -> String {
     out
 }
 
-/// [test-recover] A test that *dies* — a failed `assert!` traps, and a trap ends
-/// the process [assert-trap] — must not cost the rest of the run: the runner
-/// attributes the trap message to the test that was in flight and re-runs what
-/// was left in a fresh process (user decision 2026-09-23, A-5).
+/// [test-recover] A test that traps — a failed `assert!` [assert-trap], a
+/// subscript out of range — is **that test's failure**, not the end of the run:
+/// the generated harness catches it and the report names it like any other
+/// failure (user decision 2026-09-23, A-5, revised the same day to catch in the
+/// harness rather than restart the process).
 #[test]
-fn a_trapping_test_is_named_and_the_run_continues() {
+fn a_trapping_test_fails_and_the_run_continues() {
     let Some(stamp) = e2e_stamp("trap_recovery", &["rustc"]) else {
         return;
     };
@@ -308,19 +309,21 @@ fn a_trapping_test_is_named_and_the_run_continues() {
     let out = salvo_in(&dir, &["test", "--src", "."]);
     let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
     let stderr = String::from_utf8_lossy(&out.stderr);
-    // The trap's own words, under the test that died — not a host stack trace.
-    assert!(
-        stdout.contains("test calc :: traps ... DIED\n    salvo: n should exceed 100, was 6 at calc.test:"),
-        "stdout: {stdout}\nstderr: {stderr}"
+    // The trap's own words, under the test that caused it — and reported as a
+    // failure, in the one process.
+    assert_eq!(
+        stdout,
+        "test calc :: before ... ok (N ms)\n\
+         test calc :: traps ... FAILED\n\
+         \x20   salvo: n should exceed 100, was 6 at calc.test:7:5\n\
+         test calc :: after ... ok (N ms)\n\
+         \n\
+         3 tests: 2 passed, 1 failed\n",
+        "stderr: {stderr}"
     );
-    // …and the test after it still ran, in a fresh process.
-    assert!(
-        stdout.contains("test calc :: after ... ok (N ms)"),
-        "stdout: {stdout}"
-    );
-    assert!(stderr.contains("re-running the remaining 1 test(s)"), "{stderr}");
-    // One death is a failed run, and the summary counts it.
-    assert!(stdout.contains("1 never finished"), "stdout: {stdout}");
+    // Nothing died, so nothing was re-run and no host trace reached the user.
+    assert!(!stderr.contains("re-running"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
     assert!(!out.status.success());
     stamp.verified();
 }

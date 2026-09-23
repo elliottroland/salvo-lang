@@ -3057,16 +3057,37 @@ salvo test --src . --list                         # enumerate, run nothing
 
 A test's **id** is the module a program would import, then the name as written: `heap :: an empty heap pops nothing`. The filter is a plain substring of that id, so one word selects a module, a test, or a family of tests. The command's exit code is what a build reads: nonzero when anything failed.
 
-**A test that dies does not take the run with it.** An assertion failure traps, and a trap ends the process — so the runner names the test that was running, prints the trap's own message under it, and re-runs what was left:
+**A test that fails an assertion is a failed test, not a dead run.** An assertion traps, and a trap would ordinarily end the program — so the generated harness catches it and reports it like any other failure, with the trap's own message:
 
 ```
 test calc :: first passes ... ok (0 ms)
-test calc :: this one traps ... DIED
+test calc :: this one traps ... FAILED
     salvo: n should exceed 100, was 6 at calc.test:7:5
 test calc :: and the run goes on ... ok (0 ms)
 
-3 tests: 2 passed, 1 never finished
+3 tests: 2 passed, 1 failed
 ```
+
+Only the harness can do this: the catch is `std.test`'s own, so it exists in test files and nowhere else — production code still cannot catch a trap. A death the harness *cannot* catch (a process killed outright) is still handled, by naming the test that was running and re-running the rest.
+
+**A test can also be about a trap.** The same catch is available to you:
+
+```
+test "halving an odd number traps" {
+    expect_trap(() -> { halve(3) }, "halving an odd number")
+}
+
+test "the trap says which number" {
+    expect_trap_with(() -> { halve(7) }, "got 7", "halving an odd number")
+}
+
+test "the message is available" {
+    let trap = trap_of(() -> { halve(5) })
+    expect(trap is Str, "a trap message came back")
+}
+```
+
+The body is a plain fn value, so it does not inherit the test's effects — a body that needs one registers it itself (`() -> { use StdOutConsole(); … }`).
 
 The runner works by writing a Salvo program. It synthesizes a module that calls each test inside its own `try`, compiles it with the rest of the sources exactly as `salvo run` would, and renders what it prints. So the two backends run the same tests the same way, and the report is identical on both — a test suite is not a place where a target language should show through.
 

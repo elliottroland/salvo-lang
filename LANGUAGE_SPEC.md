@@ -6106,24 +6106,47 @@ replaced the working document TESTING.md).
   * A test that begins and never reports (a panic, a killed process) is
     reported as `DIED` and named in the summary: a run that ends silently is
     the one failure a report must not lose.
-* [test-recover] A test that **dies** does not cost the rest of the run (user
-  decision 2026-09-23, A-5). A trap ends the process — a failed `assert!`
-  [assert-trap], an intrinsic's own trap, a killed program — so the runner:
-  attributes the trap to the test that was in flight and prints it *under* that
-  test, drops that test from the plan, and re-runs what was left in a **fresh
-  process**. A death therefore costs one extra build, not the suite.
-  * The recovery is the **runner's**, not the harness's: a harness written in
-    Salvo cannot catch a trap, and giving the language one was rejected with the
-    `Panic` effect (A-2). So the machinery is entirely on the compiler side and
-    is identical for both backends.
-  * What is printed under the died test is the **Salvo trap line** when stderr
-    has one (`salvo: …` [assert-trap]), and otherwise the tail of whatever the
-    program said — never a host stack trace, which names generated code.
-  * The pass limit is one per test plus one, since every pass either finishes
-    the plan or removes a test from it.
-  * A pass whose tests all passed but whose process still failed is reported as
-    an error rather than a green run: something outside a test went wrong.
-* [test-report] A test's **id** is `<module under test> :: <name>`: the module
+* [test-trap-expect] `std.test`'s vocabulary for a test *about* a trap, over the
+  same catch the harness uses [test-recover]:
+  * `trap_of(body: () -> None) -> Str?` — the trap's message, or `None` when the
+    body completed.
+  * `expect_trap(body, label)` — fails the test unless the body traps.
+  * `expect_trap_with(body, needle, label)` — fails unless it traps with a
+    message *containing* `needle`, which is how a test pins which failure it
+    meant rather than accepting any.
+  * The body is a **pure** fn value, so it cannot inherit an effect from the
+    enclosing test: a body that needs one **registers it itself**
+    (`() -> { use StdOutConsole(); … }`), which is legal because a lambda inside
+    a test inherits the test's own `use` permission [test-body]. Effect
+    polymorphism would remove the ceremony and does not exist (ROADMAP.md).
+  * These are ordinary functions that `throw` [test-fail], so a test *about*
+    them reads its own failure off a `try` — which is what `std/test.test.sv`,
+    the test module's own annex, does.
+* [test-recover] A test that **traps** is that test's failure, not the end of the
+  run (user decision 2026-09-23, A-5): a failed `assert!` [assert-trap], a
+  subscript out of range, any failure the program is not meant to continue past
+  is caught by the **generated harness** and reported like any other failure.
+  * The catch is `std.test`'s `trapped_by(body: () -> Str?) -> Str?`, an
+    `intrinsic` lowered to each host's own catch — an exception handler on the
+    JVM [kt-assert-trap], `catch_unwind` on Rust [rs-assert-trap]. No language
+    surface: catching a trap is something *std* can reach because `intrinsic` is
+    how std reaches a host, and it stays confined to test files because
+    `std.test` does [test-implicit-import] — production code still cannot catch
+    a trap, which is the stance A-2 took.
+  * The harness body **answers** its failure rather than printing it, and
+    performs no effects, so nothing has to be threaded into the catch: `try`
+    reads the declared failure [test-fail] and hands it back as the body's
+    value, `trapped_by` answers the trap instead, and the verdict is printed
+    outside. On Rust the panic hook is silenced for the duration, so the report
+    is the only place the failure appears.
+  * **Catching beats restarting**, which is why this replaced the first
+    implementation the same day: a restart cannot be coordinated across tests
+    running *concurrently*, and parallel tests are where this is going. The
+    runner keeps a restart path as a **backstop** for a death the harness cannot
+    catch (a process killed outright): the test in flight is named, whatever it
+    left on stderr is printed under it, and the remainder re-runs in a fresh
+    process.
+* [test-report] A test's **id** is* [test-report] A test's **id** is `<module under test> :: <name>`: the module
   a program would `import` (`heap`, not the annex's `heap.test`) and the name
   without its quotes (user decision 2026-09-23). The report is one line per
   test — `ok` green with its milliseconds, `FAILED` red with the failure

@@ -27,6 +27,19 @@ Conventions:
     and `Option::expect` panics with exactly the message given.
   * The location is the **module path**, not the file name — a file's display
     name depends on the loader, and emitted output must not.
+* [rs-opt-borrow] `expr!` on an owned `Option` held by a **local** reads it
+  *through a borrow*: `p.as_ref().expect(msg).clone()`, the same form a narrowed
+  read takes (`narrow_unwrap`). Moving out of it (`p.expect(msg)`) is kept for
+  the four cases where nothing reads it again: a Copy payload (the `Option` is
+  Copy too), an `Option<&T>` operand, a `proj`-typed result (the borrow *is* the
+  value), and a span the checker recorded as a move (`linear_moves`,
+  `state_takes` — a clone there would duplicate an obligation, and a `Reply<T>`
+  is not `Clone`). A *field* operand needed nothing: `emit_owned` already clones
+  one. Before this (2026-09-23) two `!`s on one local were two moves, rustc
+  E0382, while the checker allowed both — reading an optional is free.
+  * The clone itself is the copy that "One read, one mode" in ROADMAP.md is
+    about: with a mode on the expression walk, both this path and the narrowed
+    one would emit the borrow and clone only where the position needs ownership.
 
 ## Output layout
 

@@ -10222,6 +10222,40 @@ impl<'p> Emitter<'p> {
                     operand.as_ref(),
                     Expr::Ident(id) if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef))
                 ) || self.is_optional_derived_call(operand);
+                // [rs-opt-borrow] An owned `Option` held by a **local** is read
+                // *through a borrow*, so a second read still can:
+                // `p.as_ref().expect(…).clone()`, which is the form a narrowed
+                // read of the same value already takes (`narrow_unwrap`). Moving
+                // out of it — `p.expect(…)` — is right only where nothing reads
+                // it again, and that is exactly the four cases excluded below.
+                // Found 2026-09-23: two `!`s on one local were two moves (E0382)
+                // while the checker allowed both, since reading an optional is
+                // free. A *field* needed nothing: `emit_owned` already clones one.
+                let reread_local = match operand.as_ref() {
+                    Expr::Ident(id)
+                        if !opt_borrow
+                            // A narrowed read unwraps by itself, above.
+                            && !self.checked.repr_ty.contains_key(&(self.file_idx, id.span))
+                            // A value the checker consumed here *must* move: a
+                            // clone would duplicate a linear obligation, and a
+                            // `Reply<T>` is not `Clone` at all [rs-linear-move].
+                            && !self.checked.linear_moves.contains(&(self.file_idx, id.span))
+                            && !self.checked.state_takes.contains(&(self.file_idx, id.span))
+                            // A Copy payload moves nothing: the `Option` is Copy too.
+                            && !self.ty_of(*span).is_some_and(Self::is_copy_ty)
+                            // A projection result *is* the borrow [proj-type].
+                            && !self.ty_of(*span).is_some_and(|t| t.is_proj()) =>
+                    {
+                        Some(self.binding_place(&id.name))
+                    }
+                    _ => None,
+                };
+                if let Some(place) = reread_local {
+                    return format!(
+                        "{place}.as_ref().expect(\"salvo: value is absent at {}\").clone()",
+                        self.salvo_location(*span)
+                    );
+                }
                 // [assert-trap] [rs-assert-trap] The trap is Salvo's, not
                 // `unwrap`'s: the message names the Salvo source and reads the
                 // same on both backends (user decision 2026-09-23, A-2).

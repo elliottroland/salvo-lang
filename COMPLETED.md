@@ -55,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1388 tests, complete: the toolchain tests are
+cargo test                  # 1389 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -130,48 +130,105 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
-**A-5: a dying test costs one build, not the suite (2026-09-23, user
-decision).** A failed `assert!` traps, and a trap ends the process — so before
-this, one bad assertion in a suite killed the run and the report said the test
-`DIED` with a host stack trace on stderr. Now the runner names the test that was
-in flight, prints the trap's own words under it, and re-runs what was left in a
-fresh process:
+**A test about a trap (2026-09-23, the `expect_panics` slice).** With the
+harness catching traps [test-recover], a test can be *about* one — before it, a
+test that wanted a failure could only be written by not writing it. `std.test`
+grew three functions over the same catch, and the language's own word for the
+thing, so nothing is called a panic:
+
+- `trap_of(body: () -> None) -> Str?` — the message, or `None` if it completed.
+- `expect_trap(body, label)` — fails unless the body traps.
+- `expect_trap_with(body, needle, label)` — fails unless the trap's message
+  *contains* `needle`, which is how a test pins which failure it meant.
+
+Three things fell out of building it:
+
+- **The body is a pure fn value and cannot inherit the test's effects.** A body
+  that needs one registers it itself (`() -> { use StdOutConsole(); … }`), which
+  works because a lambda in a test inherits the test's `use` permission. The
+  first attempt gave `trapped_by` an effectful body type and hit the Rust
+  effect-threading path — the same wall A-5 hit an hour earlier, and the same
+  answer: keep the body pure.
+- **`std.test` now has an annex of its own** (`std/test.test.sv`, module
+  `test.test`), which is the test module testing itself — and a pleasing proof
+  that annexes are per module rather than a special case. Its tests read their
+  *own* failures off a `try`, since the assertions under test throw
+  [test-fail].
+- **The harness is now marked `is_test`**, which is what it always was: that
+  gives it `std.test` implicitly [test-implicit-import] and removed the
+  `import test` line, whose coexistence with `import test.test` (the annex of
+  `test` itself) made every test fn in that annex ambiguous. A small lesson about
+  generated code: the moment std's own modules get annexes, the harness's import
+  list can collide with them, and not importing at all is the fix.
+
+Also found, and **fixed the same day**: two `!`s on one optional **local**
+`.expect()`-ed it twice on Rust, which moves it, while the checker allowed both
+reads — reading an optional is free. The `!` lowering now reads an owned
+optional local *through a borrow* ([rs-opt-borrow]:
+`p.as_ref().expect(msg).clone()`), which is the form a *narrowed* read of the
+same value has always taken — the machinery existed, on the other path. Four
+cases keep the move: a Copy payload, an `Option<&T>` operand, a `proj`-typed
+result, and a span the checker recorded as a move (cloning there would duplicate
+a linear obligation). A **field** operand needed nothing, which is what narrowed
+the fix to one shape: `emit_owned` already clones a field read.
+
+The clone both paths still pay is recorded as ROADMAP.md's "One read, one mode":
+the emitter renders an expression without knowing whether its result will be
+read or owned, so the unwrap paths choose the rendering every position accepts.
+A mode on the expression walk would let both emit the borrow and clone only
+where ownership is needed — the last systematic copy nobody wrote, and worth its
+own quiet moment.
+
+**A-5: the harness catches the trap (2026-09-23, user decision, revised the
+same hour).** A failed `assert!` traps, and a trap ends the process — so one bad
+assertion used to kill a run and the report said the test `DIED`, with a host
+stack trace on stderr. Now the trapping test reads like any other failure:
 
 ```
 test calc :: first passes ... ok (0 ms)
-test calc :: this one traps ... DIED
+test calc :: this one traps ... FAILED
     salvo: n should exceed 100, was 6 at calc.test:7:5
 test calc :: and the run goes on ... ok (0 ms)
 ```
 
-**The recovery is the runner's, not the harness's**, which is the design point
-worth keeping: ASSERTIONS.md's A-5 sketched a harness that *catches* the failure
-(`AssertionError` on Kotlin, `catch_unwind` on Rust), and that is the wrong
-place — a harness written in Salvo cannot catch a trap, the language was
-deliberately not given a way to (the `Panic` effect, rejected in A-2), and a
-per-backend catch would have put two more lowerings into the emitters. Doing it
-in the runner instead is backend-agnostic, needs no language surface, and catches
-*every* death rather than only assertions: an intrinsic's trap, a subscript out
-of range, a killed program.
+**Built twice, and the second one is the design.** The first implementation put
+the recovery in the *runner*: attribute the trap to the test in flight, then
+re-run the remainder in a fresh process. It worked, and the user rejected the
+shape with the argument that settles it — tests will run in **parallel**, and
+"managing restarts from test run deaths is going to get tricky". A catch is local
+to the test that needs it; a restart is a property of the whole process, and
+there is no coordinating it across concurrent tests. So the catch moved into the
+harness, which is the thing the compiler generates and therefore the thing it can
+give powers to.
 
-What it took:
+How, without new language surface: **`std.test` grew an `intrinsic`**.
+`trapped_by(body: () -> Str?) -> Str?` lowers to each host's own catch — a
+`try`/`catch (Throwable)` on the JVM, `catch_unwind` with a silenced panic hook on
+Rust. `intrinsic` is how std reaches a host, so nothing about the language
+changed; and because the function lives in `std.test`, catching a trap exists in
+test files and nowhere else — production code still cannot, which is the stance
+A-2 took when it rejected an interceptable abort.
 
-- `render` split into `render_stream` (one pass, no summary) plus
-  `print_summary`, and `Summary::merge` — a run is now one pass *per process* and
-  the counts are folded before the summary prints once.
-- The harness module is pushed onto the program for a pass and popped after, so
-  each pass synthesizes a fresh one over the tests that are left.
-- stderr is piped and drained **on a thread**: a program that wrote more than the
-  pipe holds would otherwise block while the runner reads stdout.
-- `died_detail` picks the `salvo: …` line out of stderr and leaves the host's
-  framing and stack frames out — they name generated code.
-- The pass limit is one per test plus one, since a pass either finishes the plan
-  or removes a test from it. A pass whose tests all passed but whose process
-  failed is still reported as an error: something outside a test went wrong.
+Two details the build turned on:
 
-Cost: a death means a rebuild, which on Kotlin is the whole ~9s compile. That is
-the price of not having argv dispatch in the harness — with it, a re-run would be
-a second `kotlin` launch instead. Recorded in ROADMAP.md if it starts to hurt.
+- **The body answers instead of printing.** The first attempt had the lambda
+  print the verdict, which meant it performed `Console` — and on Rust an
+  effectful lambda arrives as a closure taking the handler, so the intrinsic's
+  lowering would have had to thread it. Making the body pure (`() -> Str?`, `try`
+  handing its failure back as the value) removed the problem entirely: `try`
+  reads the declared failure [test-fail], `trapped_by` answers the trap, and the
+  harness prints outside the catch.
+- **The lambda's tail needs an explicit `return`.** A block whose tail is a
+  `when` emitted as a *statement* on Rust, so the closure yielded `()`; `return
+  when …` inside the lambda returns from the lambda, which is what the fn type
+  wants. Worth knowing for any generated Salvo: the tail-expression rule is not
+  something the Rust lambda path applies on its own.
+
+The runner's restart path is **kept as a backstop** for a death the harness
+cannot catch (a process killed outright): the test in flight is named, its stderr
+is printed under it, and the remainder re-runs. It should now be rare, which is
+why the report words it `DIED` rather than `FAILED` — those are two different
+things and a reader should see which happened.
 
 **Assertions — the design, and the three forms (2026-09-23, user decisions
 A-1…A-7).** The `!` operator had four measured problems: it was accepted on a
@@ -195,8 +252,8 @@ The calls:
   of the design: the three forms now share one mark).
 - **A-4**: always on. No build modes, and Java's `-ea` is the argument.
 - **A-5**: the test harness should recover from a production assertion rather
-  than reporting `DIED` — **built**, in the runner rather than the harness; see
-  the entry above.
+  than reporting `DIED` — **built**, and after one revision it is the *harness*
+  that catches; see the entry above.
 - **A-6**: the trap policy per failure class — trap with our message for
   `!`/`assert!`/subscript/division-by-zero, **wrapping** for integer overflow.
   The `!` and `assert!` rows are built; subscript, division and overflow are
@@ -14991,7 +15048,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1388)
+## Test inventory (all green: 1389)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

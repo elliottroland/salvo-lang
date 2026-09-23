@@ -385,6 +385,26 @@ pub fn fn_call(
         ("array_of", Some("[]")) if spread_any => owned_vec(),
         ("array_of", Some("[]")) => format!("vec![{}]", args.join(", ")),
 
+        // [test-recover] [rs-assert-trap] The harness's catch: run the body,
+        // answer what it said or the trap that stopped it. `catch_unwind` needs
+        // an unwind-safe closure, which a harness body is by construction (it
+        // owns what it touches), so the assertion is made rather than proved.
+        // The panic hook is silenced for the duration: the *report* carries the
+        // message, and the default hook would print it to stderr as well.
+        //
+        // A `panic = "abort"` profile would defeat this; the backend compiles
+        // with rustc's default (unwind), and nothing here sets it.
+        ("trapped_by", _) => format!(
+            "{{ let __hook = std::panic::take_hook(); \
+               std::panic::set_hook(Box::new(|_| {{}})); \
+               let __r = std::panic::catch_unwind(std::panic::AssertUnwindSafe({})); \
+               std::panic::set_hook(__hook); \
+               match __r {{ Ok(__v) => __v, Err(__e) => Some( \
+                 __e.downcast_ref::<String>().cloned() \
+                   .or_else(|| __e.downcast_ref::<&str>().map(|s| s.to_string())) \
+                   .unwrap_or_else(|| \"a trap with no message\".to_string())) }} }}",
+            a(0)
+        ),
         // [col-by] The generated constructors: the callback is called once
         // per index, in order. `(0..n)` yields `i32`, which is what the
         // callback's parameter is [rs-fn-param-convention].
