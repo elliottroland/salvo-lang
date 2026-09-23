@@ -9118,9 +9118,10 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // brought their own passes (two more) 2026-09-13, again when `Bytes`
     // and the fs chunk pass brought two more 2026-09-15, and again when
     // `core.range` joined std 2026-09-23 (its `next` counts even though the
-    // module is private).
+    // module is private), and again when `reversed`/`enumerate` brought two
+    // more (the refinement-types sequence, step 0, 2026-09-23).
     assert!(
-        src.contains("next__12(console, __loop"),
+        src.contains("next__14(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }

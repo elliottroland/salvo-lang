@@ -136,6 +136,53 @@ fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
+fun<T> reversed(list: List<T>): ListRevYield<T> {
+    return ListRevYield(items = list, at = list.size - 1)
+}
+
+data class ListRevYield<T>(
+    var items: List<T>,
+    var at: Int,
+)
+
+fun<T> next__6(p: ListRevYield<T>): Union2<T, Finished> {
+    val elem = p.items.getOrNull(p.at)
+    if (elem == null) {
+        return U2_2<T, Finished>(finished())
+    }
+    p.at = p.at - 1
+    return U2_1<T, Finished>(emitted(elem))
+}
+
+data class Enumerated<T>(
+    val index: Int,
+    val elem: T,
+)
+
+fun<T> enumerate(list: List<T>): ListEnumYield<T> {
+    return ListEnumYield(items = list, at = 0, step = 1)
+}
+
+fun<T> enumerate_rev(list: List<T>): ListEnumYield<T> {
+    return ListEnumYield(items = list, at = list.size - 1, step = -1)
+}
+
+data class ListEnumYield<T>(
+    var items: List<T>,
+    var at: Int,
+    var step: Int,
+)
+
+fun<T> next__7(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
+    val elem = p.items.getOrNull(p.at)
+    if (elem == null) {
+        return U2_2<Enumerated<T>, Finished>(finished())
+    }
+    val index = p.at
+    p.at = p.at + p.step
+    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+}
+
 fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }
@@ -172,7 +219,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__6(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__8(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())
@@ -331,7 +378,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__8(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__10(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -374,7 +421,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__9(p: StrYield): Union2<Char, Finished> {
+fun next__11(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())
@@ -410,7 +457,7 @@ fun iter__10(r: Upto): __Pass_Upto {
     return __Pass_Upto(end = r.end, at = r.start)
 }
 
-fun next__10(__p: __Pass_Upto): Union2<Int, Finished> {
+fun next__12(__p: __Pass_Upto): Union2<Int, Finished> {
     if (__p.at >= __p.end) {
         return U2_2<Int, Finished>(finished())
     }
@@ -468,7 +515,7 @@ __loop3
     var __loop4_ran = false
     var __loop5_pass = iter__10(upto(0, 0))
     while (true) {
-        val __loop5_step = next__10(__loop5_pass)
+        val __loop5_step = next__12(__loop5_pass)
         if (__loop5_step !is U2_1<Int, Finished>) { break }
         val x = __loop5_step.value
         __loop4_ran = true

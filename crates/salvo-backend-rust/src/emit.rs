@@ -4766,10 +4766,27 @@ impl<'p> Emitter<'p> {
             // `proj` fields) carries a lifetime that must reach the lent
             // parameters [proj-infer]. One reference parameter: elision ties
             // them. More: name `'a` on every lent parameter and the return.
+            // A lent parameter that is itself a borrowing struct defeats
+            // elision even alone (`p: &mut ListEnumYield<'_, T>` has two
+            // input lifetimes), and the tie must reach its *inner* (source)
+            // lifetime, never the `&mut` — the reborrow of `p` stays free
+            // for the next turn, exactly as [rs-proj-struct] ties a derived
+            // return.
             let lent: Vec<usize> = fn_key
                 .and_then(|k| self.checked.fn_lends.get(&k).cloned())
                 .unwrap_or_default();
-            if rendered.contains("<'_") && ref_param_count > 1 && !lent.is_empty() {
+            let lent_inner_lifetime = lent.iter().any(|&i| {
+                let idx = if params.len() > f.params.len() {
+                    params.len() - f.params.len() + i
+                } else {
+                    i
+                };
+                params.get(idx).is_some_and(|e| e.contains("<'_"))
+            });
+            if rendered.contains("<'_")
+                && (ref_param_count > 1 || lent_inner_lifetime)
+                && !lent.is_empty()
+            {
                 lifetime_generics = "'a".to_string();
                 for &i in &lent {
                     let idx = if params.len() > f.params.len() {
@@ -4778,10 +4795,13 @@ impl<'p> Emitter<'p> {
                         i
                     };
                     if let Some(entry) = params.get_mut(idx) {
-                        *entry = entry
-                            .replacen(": &mut ", ": &'a mut ", 1)
-                            .replacen(": &", ": &'a ", 1)
-                            .replacen("<'_", "<'a", 1);
+                        *entry = if entry.contains("<'_") {
+                            entry.replacen("<'_", "<'a", 1)
+                        } else {
+                            entry
+                                .replacen(": &mut ", ": &'a mut ", 1)
+                                .replacen(": &", ": &'a ", 1)
+                        };
                     }
                 }
                 rendered.replace("<'_", "<'a")

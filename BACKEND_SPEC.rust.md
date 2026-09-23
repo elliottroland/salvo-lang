@@ -550,7 +550,14 @@ the blanket rule:
 * [rs-proj-lends] The lifetime a view carries reaches the parameters it
   borrows [proj-infer]: with one reference parameter elision ties them;
   with more, `'a` is named on every lent parameter (`Checked::fn_lends`)
-  and the return. A **lent implicit position** (`?iter: (c: C) -> Mut It`
+  and the return. A lent parameter that is **itself a borrowing struct**
+  defeats elision even alone — `p: &mut ListEnumYield<'_, T>` has two
+  input lifetimes — so `'a` is named there too, and it tags the struct's
+  **inner** (source) lifetime, never the `&mut`: the returned view borrows
+  the pass's *source*, so the reborrow of `p` stays free for the next
+  turn, exactly as [rs-proj-struct] ties a derived return (added
+  2026-09-23 for `Enumerated<T>`, the first view struct a `next`
+  answers). A **lent implicit position** (`?iter: (c: C) -> Mut It`
   with `=>[iter] proj[from: c]`) renders `&'c C` under a lifetime `'c`
   named on the enclosing fn's kept parameter `c` — the result's type
   (`It`) is fixed at the call site, so the borrow it holds cannot be a

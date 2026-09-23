@@ -35,6 +35,56 @@ pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
     return Union2::U1(emitted(elem.unwrap()));
 }
 
+pub fn reversed<T: Clone>(list: &Vec<T>) -> ListRevYield<'_, T> {
+    return ListRevYield { items: list, at: (list.len() as i32) - 1 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListRevYield<'s, T: Clone + 'static> {
+    pub items: &'s Vec<T>,
+    pub at: i32,
+}
+
+pub fn next__6<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finished> {
+    let mut elem = p.items.get((p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::U2(finished());
+    }
+    p.at = p.at - 1;
+    return Union2::U1(emitted(elem.unwrap()));
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Enumerated<'s, T: Clone + 'static> {
+    pub index: i32,
+    pub elem: &'s T,
+}
+
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
+    return ListEnumYield { items: list, at: 0, step: 1 };
+}
+
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
+    return ListEnumYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListEnumYield<'s, T: Clone + 'static> {
+    pub items: &'s Vec<T>,
+    pub at: i32,
+    pub step: i32,
+}
+
+pub fn next__7<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = p.items.get((p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::<Enumerated<T>, Finished>::U2(finished());
+    }
+    let mut index = p.at;
+    p.at = p.at + p.step;
+    return Union2::<Enumerated<T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+}
+
 pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
     return { let mut __cmp = cmp; let mut __v = list.clone(); __v.sort_by(|__a, __b| __cmp(__a, __b).cmp(&0)); __v };
 }

@@ -17,7 +17,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__8(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__10(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())

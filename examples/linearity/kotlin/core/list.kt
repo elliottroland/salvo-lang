@@ -36,6 +36,53 @@ fun<T> next__5(p: ListYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
+fun<T> reversed(list: List<T>): ListRevYield<T> {
+    return ListRevYield(items = list, at = list.size - 1)
+}
+
+data class ListRevYield<T>(
+    var items: List<T>,
+    var at: Int,
+)
+
+fun<T> next__6(p: ListRevYield<T>): Union2<T, Finished> {
+    val elem = p.items.getOrNull(p.at)
+    if (elem == null) {
+        return U2_2<T, Finished>(finished())
+    }
+    p.at = p.at - 1
+    return U2_1<T, Finished>(emitted(elem))
+}
+
+data class Enumerated<T>(
+    val index: Int,
+    val elem: T,
+)
+
+fun<T> enumerate(list: List<T>): ListEnumYield<T> {
+    return ListEnumYield(items = list, at = 0, step = 1)
+}
+
+fun<T> enumerate_rev(list: List<T>): ListEnumYield<T> {
+    return ListEnumYield(items = list, at = list.size - 1, step = -1)
+}
+
+data class ListEnumYield<T>(
+    var items: List<T>,
+    var at: Int,
+    var step: Int,
+)
+
+fun<T> next__7(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
+    val elem = p.items.getOrNull(p.at)
+    if (elem == null) {
+        return U2_2<Enumerated<T>, Finished>(finished())
+    }
+    val index = p.at
+    p.at = p.at + p.step
+    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+}
+
 fun<T> sort(list: List<T>, cmp: (T, T) -> Int): List<T> {
     return (list).let { __l -> (cmp).let { __c -> __l.sortedWith(Comparator { __a, __b -> __c(__a, __b) }).toMutableList() } }
 }

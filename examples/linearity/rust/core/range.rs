@@ -26,7 +26,7 @@ pub fn iter__5(range: &Range) -> __Pass_Range {
     return __Pass_Range { end: range.end, step: range.step, i: range.start };
 }
 
-pub fn next__7(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
+pub fn next__9(__p: &mut __Pass_Range) -> Union2<i32, Finished> {
     let mut next = __p.i;
     return (match if __p.step == 0 {
         Union2::<Finished, i32>::U1(finished())

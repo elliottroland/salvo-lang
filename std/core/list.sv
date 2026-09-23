@@ -191,6 +191,83 @@ export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj[from: p] T) | Finishe
     return emitted(elem)
 }
 
+// [col-reversed] Walks the list back to front. A **pass**, not a copy —
+// Kotlin's `reversed()` answers a fresh list; this borrows and emits
+// projections like [iter] does, so `for x in reversed(xs)` costs nothing per
+// element. A caller wanting the reversed *list* writes `to_list(reversed(xs))`.
+export fn reversed<T>(list: List<T>) [] -> Mut ListRevYield<T> => list {
+    return Mut ListRevYield<T> { items: list, at: size(list) - 1 }
+}
+
+// [iter-protocol] The pass [reversed] answers: the list plus a descending
+// position. The same shape as `ListYield`, walked the other way.
+export struct ListRevYield<T> : Yield<self, proj T> canbe Mut {
+    // The list being walked — borrowed, not owned [proj-field].
+    items: proj List<T>,
+    // The index of the next element to emit, counting down; `-1` is the end,
+    // which [get] reports as `None` like any out-of-range index.
+    at: Int
+}
+
+export fn next<T>(p: Mut ListRevYield<T>) [] -> Emitted (proj[from: p] T) | Finished => p: Mut {
+    let elem = get(p.items, p.at)
+    if elem is None {
+        return finished()
+    }
+    p.at = p.at - 1
+    return emitted(elem)
+}
+
+// [col-enumerate] What [enumerate] and [enumerate_rev] emit: an element and
+// the index it sits at. A **view struct**, not a tuple: the element part is a
+// borrow of the walked list, a tuple literal cannot *store* a projection
+// ([fate-derived-readonly] — the store is a move, and the remedy `copy` would
+// charge every step), and a `proj` **field** is exactly the declared lend the
+// tuple lacks [proj-field].
+export struct Enumerated<T> {
+    index: Int,
+    elem: proj T
+}
+
+// [col-enumerate] Walks the list front to back, pairing each element with its
+// index: `for pair in enumerate(xs)` sees `0/first`, `1/second`, … — the loop
+// that wants positions without writing index arithmetic. The element is
+// borrowed, the index is the pair's own.
+export fn enumerate<T>(list: List<T>) [] -> Mut ListEnumYield<T> => list {
+    return Mut ListEnumYield<T> { items: list, at: 0, step: 1 }
+}
+
+// [col-enumerate] The same pairs, back to front: `enumerate_rev(xs)` sees
+// `size-1/last` down to `0/first` — the descending index loop with the
+// element already in hand.
+export fn enumerate_rev<T>(list: List<T>) [] -> Mut ListEnumYield<T> => list {
+    return Mut ListEnumYield<T> { items: list, at: size(list) - 1, step: -1 }
+}
+
+// [iter-protocol] The pass behind [enumerate] and [enumerate_rev]: one
+// struct, stepped either way.
+export struct ListEnumYield<T> : Yield<self, Enumerated<T>> canbe Mut {
+    // The list being walked — borrowed, not owned [proj-field].
+    items: proj List<T>,
+    // The index of the next element to emit.
+    at: Int,
+    // `+1` ascending ([enumerate]) or `-1` descending ([enumerate_rev]).
+    step: Int
+}
+
+export fn next<T>(p: Mut ListEnumYield<T>) [] -> Emitted Enumerated<T> | Finished
+=> p: Mut, proj[from: p] {
+    let elem = get(p.items, p.at)
+    if elem is None {
+        return finished()
+    }
+    // Copied, not linked: the emitted index must survive `at`'s step below,
+    // the same detach `core.range`'s next does.
+    let index = p.at.copy()
+    p.at = p.at + p.step
+    return emitted(Enumerated<T> { index: index, elem: elem })
+}
+
 // The text form of a list, for string interpolation [interp-to-str]:
 // `[1, 2, 3]`, elements separated by `, ` and rendered by their own native
 // text form. An `intrinsic` rather than Salvo code because rendering the

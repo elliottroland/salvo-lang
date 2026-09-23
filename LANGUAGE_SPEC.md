@@ -618,6 +618,27 @@ Conventions:
   [qual-ctor-same-file], and a *set* is what can honestly promise the claim —
   `to_list(set)` returns `List<T> as Distinct`. Mint-only, like `Sorted`.
   `to_list` over a `SortedSet` lives in `core.sorted` and so cannot mint it.
+* [col-reversed] `reversed(list)` walks a list back to front — a **pass**
+  [iter-protocol], not a copy: `: Yield<self, proj T>`, so `for x in
+  reversed(xs)` borrows each element [yield-proj] and `xs` stays usable.
+  Kotlin's own `reversed()` answers a fresh list; a Salvo caller wanting the
+  reversed *list* writes `to_list(reversed(xs))`. Step 0 of the
+  refinement-types sequence (user decisions 2026-09-23; ROADMAP.md).
+* [col-enumerate] `enumerate(list)` and `enumerate_rev(list)` pair each
+  element with its index — ascending from `0`, or descending from
+  `size(list) - 1` to `0`, which is the descending index loop with the
+  element already in hand. The element is `Enumerated<T>`
+  (`{ index: Int, elem: proj T }`), a **view struct** rather than a tuple:
+  a qualifier cannot apply to a tuple [qual-union-arm] and a tuple literal
+  cannot *store* a projection ([fate-derived-readonly] — probed 2026-09-23:
+  the store is a move, and `copy` would charge every step), while a `proj`
+  **field** is the declared lend the pair needs [proj-field]. One pass
+  struct serves both directions, stepped `+1` or `-1`.
+  * The pass's `next` writes the opaque lend (`=> p: Mut, proj[from: p]`)
+    by hand: the result holds the borrow inside a *generic instantiation*
+    (`Emitted Enumerated<T>`), which body inference cannot see through a
+    generic constructor — the exact case the written form exists for
+    [proj-infer].
 * [col-insertion-order] `Set<T>` and `Map<K, V>` **iterate in insertion
   order, on every backend** (user decision 2026-09-12) — with
   `LinkedHashMap`'s exact semantics: writing a key that is already present

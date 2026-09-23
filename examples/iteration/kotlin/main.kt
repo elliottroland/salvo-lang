@@ -40,7 +40,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__10(p: Countdown): Union2<Int, Finished> {
+fun next__12(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -52,7 +52,7 @@ fun next__10(p: Countdown): Union2<Int, Finished> {
 fun take__2(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__10(p)
+        val __loop1_step = next__12(p)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -75,7 +75,7 @@ fun iter__10(h: Halving): __Pass_Halving {
     return __Pass_Halving(at = h.start)
 }
 
-fun next__11(__p: __Pass_Halving): Union2<Int, Finished> {
+fun next__13(__p: __Pass_Halving): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -103,7 +103,7 @@ fun iter__11(f: Fibs): __Pass_Fibs {
     return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
 }
 
-fun next__12(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
+fun next__14(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return U2_2<Int, Finished>(finished())
@@ -132,7 +132,7 @@ fun iter__12(n: Naturals): __Pass_Naturals {
     return __Pass_Naturals(at = n.from)
 }
 
-fun next__13(__p: __Pass_Naturals): Union2<Int, Finished> {
+fun next__15(__p: __Pass_Naturals): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return U2_1<Int, Finished>(emitted(now))
@@ -156,27 +156,27 @@ fun main() {
     describe_container(console, xs)
     val p = countdown(5)
     take__2(console, p, 2)
-    println(console, "2. rest sums to ${sum_of(p, ::next__10)}")
+    println(console, "2. rest sums to ${sum_of(p, ::next__12)}")
     val h = Halving(start = 20)
     var __loop3_pass = iter__10(h)
     while (true) {
-        val __loop3_step = next__11(__loop3_pass)
+        val __loop3_step = next__13(__loop3_pass)
         if (__loop3_step !is U2_1<Int, Finished>) { break }
         val n = __loop3_step.value
         println(console, "2b. halving $n")
     }
     val hp = iter__10(h)
-    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__11)}")
+    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__13)}")
     var __loop4_pass = iter__11(fibs(6))
     while (true) {
-        val __loop4_step = next__12(console, __loop4_pass)
+        val __loop4_step = next__14(console, __loop4_pass)
         if (__loop4_step !is U2_1<Int, Finished>) { break }
         val n = __loop4_step.value
         println(console, "3. fib $n")
     }
     var __loop5_pass = iter__12(naturals(10))
     while (true) {
-        val __loop5_step = next__13(__loop5_pass)
+        val __loop5_step = next__15(__loop5_pass)
         if (__loop5_step !is U2_1<Int, Finished>) { break }
         val n = __loop5_step.value
         if (n > 12) {
@@ -192,9 +192,9 @@ fun main() {
     val lengths = map(iter__3(words), { w -> w.length }, ::next__5)
     println(console, "5. lengths: ${reduce(iter__3(lengths), 0, { acc, n -> acc + n }, ::next__5)}")
     val word = "iteration"
-    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__9)
+    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__11)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. halving total ${reduce(iter__10(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__11)}")
-    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__10)
+    println(console, "5. halving total ${reduce(iter__10(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__13)}")
+    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__12)
     println(console, "6. collected ${collected.size}")
 }
