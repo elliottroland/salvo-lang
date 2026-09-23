@@ -799,7 +799,18 @@ impl<'s> Parser<'s> {
         // hash its keys are kept by:
         // `intrinsic type SortedSet<T>(?cmp: (T, T) -> Int = cmp)`.
         let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
-        fn_slots.extend(self.parse_slot_block());
+        let (block_slots, value_slots) = self.parse_slot_block();
+        fn_slots.extend(block_slots);
+        for v in &value_slots {
+            // [qual-depend] Value slots belong to qualifiers alone: a type's
+            // values carry identities [cmp-carry], not claims about other
+            // values.
+            self.error(
+                "a value slot belongs to a qualifier, not a type: only a \
+                 claim can depend on another value",
+                v.span,
+            );
+        }
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
@@ -991,13 +1002,17 @@ impl<'s> Parser<'s> {
     /// [qual-value-arg] The declaration-side **slot block** (user decision
     /// 2026-09-23): a round-bracket list after the type generics holding the
     /// declaration's value slots — `(?cmp: (T, T) -> Int)`, `(?Ordered<T>)` —
-    /// for a qualifier or an `intrinsic type`. Every entry is `?`-led today
-    /// (fn slots and group spreads); local and constant slots join in later
-    /// steps of the refinement-types sequence.
-    fn parse_slot_block(&mut self) -> Vec<SlotDecl> {
+    /// for a qualifier or an `intrinsic type`. A `?`-led entry is an
+    /// implicit (a fn slot or a group spread); an unprefixed `name: Type`
+    /// entry is a **value slot** [qual-depend]
+    /// (`qualifier KeyOf<K, V>(map: Map<K, V>) of K`), which only a
+    /// qualifier may declare; constants join in a later step of the
+    /// refinement-types sequence.
+    fn parse_slot_block(&mut self) -> (Vec<SlotDecl>, Vec<ValueSlot>) {
         let mut slots = Vec::new();
+        let mut values = Vec::new();
         if !self.at(&TokenKind::LParen) || !self.same_line() {
-            return slots;
+            return (slots, values);
         }
         self.group_depth += 1;
         self.bump(); // (
@@ -1006,13 +1021,26 @@ impl<'s> Parser<'s> {
                 break;
             }
             let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) else {
-                let span = self.peek().span;
-                self.error(
-                    "a slot block's entries are `?`-led: a fn slot \
-                     (`?cmp: (T, T) -> Int`) or a group spread (`?Ordered<T>`)",
-                    span,
-                );
-                self.bump();
+                // [qual-depend] An unprefixed entry declares a value slot:
+                // `map: Map<K, V>`.
+                let Some(name) = self.ident_value("slot") else {
+                    self.bump();
+                    continue;
+                };
+                if self.expect(&TokenKind::Colon).is_none() {
+                    continue;
+                }
+                let Some(ty) = self.parse_type() else {
+                    continue;
+                };
+                let span = name.span.to(ty.span());
+                values.push(ValueSlot { name, ty, span });
+                if self.eat(&TokenKind::Comma).is_none() {
+                    if self.expect(&TokenKind::RParen).is_none() {
+                        break;
+                    }
+                    break;
+                }
                 continue;
             };
             // [cmp-carry] `?Ordered<T>` — a group spread, recognised by its
@@ -1042,7 +1070,7 @@ impl<'s> Parser<'s> {
             }
         }
         self.group_depth -= 1;
-        slots
+        (slots, values)
     }
 
     /// [cmp-carry] One fn slot, after its `?`: `cmp: (T, T) -> Int = cmp`.
@@ -1195,9 +1223,11 @@ impl<'s> Parser<'s> {
         let name = self.ident_decl_dotted("qualifier")?;
         // [cmp-carry] [qual-value-arg] `qualifier Sorted<T>(?cmp: (T, T) ->
         // Int)`: type generics in `<…>`, value slots in the `(…)` block —
-        // which is how a structure *holds* an ordering.
+        // which is how a structure *holds* an ordering, and [qual-depend]
+        // how a claim names the value it depends on.
         let (generics, canbe, mut fn_slots) = self.parse_generics_slots();
-        fn_slots.extend(self.parse_slot_block());
+        let (block_slots, value_slots) = self.parse_slot_block();
+        fn_slots.extend(block_slots);
         for (ident, _) in &canbe {
             self.error(
                 "`canbe` on a type parameter is only supported on functions and structs",
@@ -1246,6 +1276,7 @@ impl<'s> Parser<'s> {
             name,
             generics,
             fn_slots,
+            value_slots,
             of,
             with,
             field_overrides,
@@ -2559,7 +2590,7 @@ impl<'s> Parser<'s> {
                 || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
                     && matches!(
                         self.peek_at(2).kind,
-                        TokenKind::Comma | TokenKind::RParen | TokenKind::At
+                        TokenKind::Comma | TokenKind::RParen | TokenKind::At | TokenKind::Dot
                     )))
         {
             self.group_depth += 1;
@@ -2597,6 +2628,42 @@ impl<'s> Parser<'s> {
                             from: Vec::new(),
                             at: None,
                             binder: true,
+                            span,
+                        },
+                    });
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+                // [qual-depend] A **place** filling a value slot:
+                // `KeyOf(m)`, `ValidFor(state.data)` — a lowercase name,
+                // possibly a field chain. Parsed here because
+                // `parse_type` reads a dot after a lowercase name as
+                // nothing (types are uppercase [name-casing]).
+                if matches!(&self.peek().kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+                    && matches!(self.peek_at(1).kind, TokenKind::Dot)
+                {
+                    let head = self.ident()?;
+                    let mut path = head.name.clone();
+                    let mut end_span = head.span;
+                    while self.eat(&TokenKind::Dot).is_some() {
+                        let part = self.ident()?;
+                        path.push('.');
+                        path.push_str(&part.name);
+                        end_span = part.span;
+                    }
+                    let span = head.span.to(end_span);
+                    value_args.push(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            alias: None,
+                            name: Ident { name: path, span },
+                            args: Vec::new(),
+                            value_args: Vec::new(),
+                            from: Vec::new(),
+                            at: None,
+                            binder: false,
                             span,
                         },
                     });

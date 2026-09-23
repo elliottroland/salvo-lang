@@ -93,6 +93,19 @@ export intrinsic fn remove<K, V canbe linear>(map: Mut Map<K, V>, key: K) [] -> 
 // Whether the map holds an entry under [key].
 export intrinsic fn contains_key<K, V>(map: Map<K, V>, key: K) [] -> Bool => map, key
 
+// [qual-depend] The claim that a key is **present in one particular map** —
+// the first dependent qualifier: its value slot names the map the claim is
+// about, so `KeyOf(m) Str` and `KeyOf(m2) Str` are different facts. Tested
+// with the filled block (`k is KeyOf(m)`), whose runtime tier is exactly
+// [contains_key]; established claims are bound to the map's fate roots and
+// stripped by any mutation of it (the conservative direction — `preserve`
+// entries opt specific calls back in, a later step of the sequence).
+export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
+    fn qualifies(key: K, map: Map<K, V>) -> Bool {
+        return contains_key(map, key)
+    }
+}
+
 // Returns the number of entries in the map
 export intrinsic fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 

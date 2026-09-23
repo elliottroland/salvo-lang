@@ -209,6 +209,13 @@ pub enum Ty {
     /// a declaration's **fn slot** (`qualifier Heap<T>(?cmp: (T, T) -> Int)`)
     /// and nothing else.
     FnName(FnId),
+    /// [qual-depend] A **place** in a qualifier's value-argument block —
+    /// which map a `KeyOf(m)` is about. `path` is the source spelling
+    /// (`m`, `state.cache`); `roots` the fate roots the claim is bound to
+    /// [fate-link] — filled where the claim attaches to a value in flow,
+    /// empty in a signature or annotation template. Two claims are the
+    /// same fact only when their roots agree.
+    ValueRef { path: String, roots: Vec<u32> },
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
@@ -289,6 +296,7 @@ impl Ty {
 
     fn collect_binders(&self, out: &mut Vec<String>) {
         match self {
+            Ty::ValueRef { .. } => {}
             Ty::FnName(FnId::Binder(name)) => {
                 if !out.iter().any(|n| n == name) {
                     out.push(name.clone());
@@ -1078,6 +1086,9 @@ impl fmt::Display for Qual {
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // [qual-depend] A place argument reads as it is written:
+            // `KeyOf(m)`, `ValidFor(state.data)`.
+            Ty::ValueRef { path, .. } => write!(f, "{path}"),
             Ty::Named { name, args } => {
                 write!(f, "{name}")?;
                 fmt_args(f, args)
@@ -1165,7 +1176,7 @@ fn fmt_args(f: &mut fmt::Formatter<'_>, args: &[Ty]) -> fmt::Result {
     // after the type generics — the way the source spells them (user
     // decision 2026-09-23): `Heap<Person>(by_name)`, `SortedSet<Str>(by_len)`.
     let (types, values): (Vec<&Ty>, Vec<&Ty>) =
-        args.iter().partition(|a| !matches!(a, Ty::FnName(_)));
+        args.iter().partition(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. }));
     if !types.is_empty() && !(types.iter().all(|t| t.is_unknown()) && !values.is_empty()) {
         write!(f, "<")?;
         for (i, a) in types.iter().enumerate() {

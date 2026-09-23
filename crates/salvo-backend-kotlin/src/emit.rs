@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use salvo_core::check::{Checked, Coercion, UnionTest};
+use salvo_core::check::{Checked, Coercion, PredicateCheck, UnionTest};
 use salvo_core::types::{FnId, Ty};
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
@@ -3674,6 +3674,9 @@ impl<'p> Emitter<'p> {
     /// sealed wrappers).
     fn emit_ty(&mut self, ty: &Ty) -> String {
         match ty {
+            // [qual-depend] A place argument is the checker's alone: it
+            // lives inside an erased qualifier and never reaches output.
+            Ty::ValueRef { .. } => String::new(),
             Ty::Named { name, args } => {
                 // [cmp-carry] An identity a keyed container carries is the
                 // checker's, not a rendering: the container's own machinery holds
@@ -5748,9 +5751,10 @@ impl<'p> Emitter<'p> {
     /// non-union subject [is-qualifies]: each qualifier's `qualifies`
     /// function is invoked (with its effect handlers threaded as leading
     /// arguments [is-qualifies-effects]).
-    fn emit_predicate_test(&mut self, subj: &str, quals: &[String]) -> String {
+    fn emit_predicate_test(&mut self, subj: &str, quals: &[PredicateCheck]) -> String {
         let mut parts: Vec<String> = Vec::new();
-        for q in quals {
+        for check in quals {
+            let q = &check.name;
             let mut args: Vec<String> = Vec::new();
             // [qual-overload] Same-named qualifiers over different subjects
             // need no mangling here — the JVM overloads on the parameter type
@@ -5780,6 +5784,11 @@ impl<'p> Emitter<'p> {
                 self.error(format!("unknown qualifier `{q}` in predicate check"));
             }
             args.push(subj.to_string());
+            // [qual-depend] The places filling a dependent qualifier's value
+            // slots trail the subject, in slot order: `KeyOf_qualifies(k, m)`.
+            for a in &check.args {
+                args.push(a.path.clone());
+            }
             parts.push(format!("{q}_qualifies({})", args.join(", ")));
         }
         if parts.len() == 1 {
@@ -7898,6 +7907,7 @@ impl<'p> Emitter<'p> {
     /// spines stays immutable).
     fn ty_immutable(&self, ty: &Ty, visiting: &mut Vec<String>) -> bool {
         match ty {
+            Ty::ValueRef { .. } => true,
             Ty::Qualified { quals, base } => {
                 !quals.iter().any(|q| q.name == "Mut")
                     && self.ty_immutable(base, visiting)

@@ -130,6 +130,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 2 — dependent qualifiers, local slots (built
+2026-09-23/24).** The first genuinely new semantics of the sequence
+[qual-depend]: a qualifier may declare **value slots** — unprefixed
+`name: Type` entries in its block — and becomes a claim about the subject's
+relationship to another value. `core.map` ships the first:
+`qualifier KeyOf<K, V>(map: Map<K, V>) of K`, whose dependent `qualifies`
+is exactly `contains_key`. What landed:
+
+- **The filled `is` test**: `k is KeyOf(m)` — slots filled with **places**
+  (variables or field chains; a dotted lowercase path parses in the value
+  block), validated for arity and slot type, lowered to
+  `KeyOf.qualifies(k, m)` through the existing predicate path (the
+  `predicate_tests` table's entries grew from names to
+  `PredicateCheck { name, args }`; both emitters append the places, Rust
+  passing non-Copy ones by `&` — `&&T` coercion covers already-borrowed
+  parameters). `assert!` narrowing rides along unchanged.
+- **Fate-root binding**: the claim's `Ty::ValueRef { path, roots }` binds
+  the place's ultimate fate roots, so an alias of `m` is still `m`, and
+  `KeyOf(m1)`/`KeyOf(m2)` are different facts. Signatures and annotations
+  lower a root-free template (consumed by step 3).
+- **Conservative cross-value stripping**: `fate_mutation_root` — the one
+  hook every mutation goes through — now strips every claim in scope whose
+  `ValueRef` roots intersect the mutated value's. Reads keep the claim;
+  mutating an unrelated value keeps it. Verified through the widen check
+  (`key is ^Inside` errors after `bump(box)`, passes after `read(box)`),
+  which made the flow state observable without waiting for step 3's
+  consuming overloads.
+- **Validation**: a dependent `qualifies` takes the subject then one
+  parameter per slot, each matching its slot's type; an unfilled test of a
+  dependent qualifier names the filled form; one kind of slot per
+  qualifier for now (fn or value, not both).
+
+Tests: `depend_tests.rs` (7, checker-level), `std/core/map.test.sv` (4,
+runtime, both backends — `core.map`'s first annex). LANGUAGE.md gained the
+"Dependent qualifiers" section; LANGUAGE_SPEC.md the [qual-depend] rule.
+The `Span`/`substr`/`slice` driver moved to step 3 with the total
+overloads that make it consumable — a dependent claim nothing can consume
+tests only the machinery, and `KeyOf` already does that.
+
 **Refinement types, step 1 — the respell round (built 2026-09-23).** The four
 decided respells landed together with the tag reclassification (ROADMAP.md's
 sequence, step 1):

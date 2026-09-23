@@ -337,6 +337,12 @@ pub struct QualifierDecl {
     /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person>(cmp@Person)`)
     /// fills one.
     pub fn_slots: Vec<SlotDecl>,
+    /// [qual-depend] The **value slots** in the block — unprefixed entries
+    /// naming the values the claim depends on:
+    /// `qualifier KeyOf<K, V>(map: Map<K, V>) of K`. A use site fills one
+    /// with a **place** (`KeyOf(m)`), and the claim is bound to that
+    /// place's fate roots.
+    pub value_slots: Vec<ValueSlot>,
     pub of: Type,
     /// Compatible qualifiers, e.g. `with Surname`.
     pub with: Vec<TypeRef>,
@@ -810,6 +816,19 @@ pub struct FnSlot {
     pub name: Ident,
     /// The fn type an identity must have to fill the slot, over the
     /// declaration's own type parameters.
+    pub ty: Type,
+    pub span: Span,
+}
+
+/// [qual-depend] A **value slot** in a qualifier's block — an unprefixed
+/// entry naming a value the claim depends on:
+/// `qualifier KeyOf<K, V>(map: Map<K, V>) of K`. A dependent `qualifies`
+/// takes it as a parameter after the subject; a use site fills it with a
+/// **place**, and the claim binds to that place's fate roots.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValueSlot {
+    pub name: Ident,
+    /// The type the filling place must have.
     pub ty: Type,
     pub span: Span,
 }

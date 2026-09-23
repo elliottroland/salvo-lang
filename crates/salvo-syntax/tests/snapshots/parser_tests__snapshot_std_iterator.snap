@@ -27,6 +27,7 @@ Module {
                     },
                 ],
                 fn_slots: [],
+                value_slots: [],
                 of: Named {
                     qualifiers: [],
                     base: TypeRef {

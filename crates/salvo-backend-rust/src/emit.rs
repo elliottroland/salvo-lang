@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use salvo_core::check::{Checked, Coercion, ThrowSite, UnionTest};
+use salvo_core::check::{Checked, Coercion, PredicateCheck, ThrowSite, UnionTest};
 use salvo_core::types::{FnId, Ty};
 use salvo_core::{ModulePath, Program, Symbols};
 use salvo_syntax::ast::*;
@@ -5602,6 +5602,9 @@ impl<'p> Emitter<'p> {
     /// type — checker-resolved effect types key the effect environment.
     fn rust_ty(&mut self, ty: &Ty) -> String {
         match ty {
+            // [qual-depend] A place argument is the checker's alone: it
+            // lives inside an erased qualifier and never reaches output.
+            Ty::ValueRef { .. } => String::new(),
             Ty::Named { name, args } => {
                 // [cmp-carry] The identities a keyed container carries are the
                 // checker's, not a rendering: the store holds the ordering, so
@@ -10881,7 +10884,7 @@ impl<'p> Emitter<'p> {
     /// A predicate-qualifier `is` check [is-qualifies]: `Q_qualifies`
     /// calls with the subject borrowed (default kept rule [rs-borrows])
     /// and `qualifies` effects threaded [is-qualifies-effects].
-    fn emit_predicate_test(&mut self, subject: &Expr, quals: &[String]) -> String {
+    fn emit_predicate_test(&mut self, subject: &Expr, quals: &[PredicateCheck]) -> String {
         // The `qualifies` parameter is `&T` for non-Copy subjects.
         let subject_ty = self.ty_of(subject.span()).cloned();
         let copy = subject_ty.as_ref().is_some_and(Self::is_copy_ty);
@@ -10891,7 +10894,8 @@ impl<'p> Emitter<'p> {
             self.borrowed_arg(subject)
         };
         let mut parts: Vec<String> = Vec::new();
-        for q in quals {
+        for check in quals {
+            let q = &check.name;
             let mut args: Vec<String> = Vec::new();
             // [qual-overload] The subject picks which same-named qualifier is
             // being tested, and so which emitted name to call.
@@ -10916,6 +10920,17 @@ impl<'p> Emitter<'p> {
                 args.truncate(1);
             }
             args.push(subj.clone());
+            // [qual-depend] The places filling a dependent qualifier's value
+            // slots trail the subject, in slot order. A kept non-Copy slot
+            // parameter is `&T` [rs-borrow]; `&&T` coerces, so a plain `&`
+            // covers locals and already-borrowed parameters alike.
+            for a in &check.args {
+                if a.copy {
+                    args.push(a.path.clone());
+                } else {
+                    args.push(format!("&{}", a.path));
+                }
+            }
             parts.push(format!("{fn_name}({})", args.join(", ")));
         }
         if parts.len() == 1 {

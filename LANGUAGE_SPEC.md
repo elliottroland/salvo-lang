@@ -1117,6 +1117,34 @@ Conventions:
     lowering — binder collection [cmp-binder], erasure, the backends — is
     unchanged; diagnostics render the block form.
   * A `?` entry inside `<…>` is a parse error naming the block.
+* [qual-depend] A qualifier may declare **value slots** — unprefixed
+  `name: Type` entries in its block — making it a **dependent claim**: a
+  fact about the subject's relationship to another value (user decisions
+  2026-09-23; the refinement-types sequence, step 2). std's first is
+  `core.map`'s `qualifier KeyOf<K, V>(map: Map<K, V>) of K`.
+  * **The runtime tier is a dependent `qualifies`**: the subject first,
+    then one parameter per value slot, each matching its slot's type —
+    `KeyOf`'s is exactly `contains_key`. Tested with the **filled block**:
+    `k is KeyOf(m)` lowers to `KeyOf.qualifies(k, m)` through the ordinary
+    predicate path [is-qualifies], and `assert!(k is KeyOf(m))` narrows
+    permanently [assert-narrow]. An unfilled test of a dependent qualifier
+    is an error naming the filled form.
+  * **A slot is filled with a place** — a variable or a field chain
+    ([fate-link]'s provenance domain) — and the claim binds to the place's
+    **fate roots**, so `let m2 = m` does not orphan it, and `KeyOf(m1)`
+    and `KeyOf(m2)` are different facts (`Ty::ValueRef` carries the
+    roots; a signature or annotation lowers a root-free template).
+  * **Any mutation of the depended-on value strips the claim**, from every
+    value holding it — the conservative direction: a `KeyOf` is a fact
+    about the *map's* contents, and stripping is per-parameter only for
+    claims about the parameter itself [deduce-syntax]. Reads keep it;
+    mutating an unrelated value keeps it. The opt-back is the `preserve`
+    entry (step 4 of the sequence).
+  * One kind of slot per qualifier for now: fn slots [cmp-carry] or value
+    slots, not both (nothing in std or the design's catalog mixes them).
+  * Erased like everything about a qualifier [qual-erasure]: the places
+    reach the backends only as the extra arguments of a lowered
+    `qualifies` call.
 * [qual-generic] Qualifiers can be generic, and as generic as their `of`
   type or less (`qualifier Ok<T> of T`, `qualifier Ints of Pair<Int,
   Int>`). Nested qualified types (`Ok (Ok Str | Err Int)`) are legal but

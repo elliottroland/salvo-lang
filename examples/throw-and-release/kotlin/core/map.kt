@@ -8,6 +8,10 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
+fun<K, V> KeyOf_qualifies(key: K, map: Map<K, V>): Boolean {
+    return map.containsKey(key)
+}
+
 fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }

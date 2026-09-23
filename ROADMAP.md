@@ -134,7 +134,10 @@ independent and can go any time.
    check nothing relied on the old stripping), plus the provenance range
    documentation in LANGUAGE.md (authority and protocol role, one kind).
    Sweep: std, specs, examples, corpus, inline test sources.
-2. **Local slots, one function at a time**: qualifier value slots
+2. ✅ **Local slots** — built 2026-09-23/24 (COMPLETED.md's log,
+   "Refinement types, step 2"); the `Span`/`substr`/`slice` driver moved
+   to step 3, where the consuming overloads make it observable. As
+   planned: qualifier value slots
    (`qualifier KeyOf<K, V>(map: Map<K, V>) of K`), dependent `qualifies`
    (subject + one param per slot), `is KeyOf(m)` / `assert!` narrowing,
    place-filled slots bound to fate roots, conservative cross-value

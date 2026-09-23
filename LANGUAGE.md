@@ -2703,6 +2703,32 @@ Provenance covers more than authority. The claim's semantics — "established by
 * **Protocol role**: the tags `Ok`, `Err`, `Thrown` and `Emitted` are provenance qualifiers — `ok(x)` is where an `Ok` comes from, and nothing in an `Int`'s bits could ever say which arm it is. That classification is what you would want anyway: an `Ok Mut List<T>` stays `Ok` through an `add` (mutating the payload cannot change which arm it came in), and a tag stacks with any content claim without a `with` declaration — `Ok NonEmpty List<T>` needs no ceremony.
 
 What separates a provenance claim from a mint-only state claim is content-dependence, not the lack of a `qualifies`: `Sorted` is also mint-only, but it is a claim about *contents*, so mutation strips it; a tag is a claim about *origin*, so it survives.
+
+### Dependent qualifiers
+
+A claim can be about a value's relationship **to another value**. The qualifier declares the values it depends on as **value slots** — unprefixed entries in its block — and its `qualifies` takes them as parameters after the subject:
+
+```
+// core.map — the claim that a key is present in one particular map.
+qualifier KeyOf<K, V>(map: Map<K, V>) of K {
+    fn qualifies(key: K, map: Map<K, V>) -> Bool {
+        return contains_key(map, key)
+    }
+}
+```
+
+A use fills the slot with a **place** — a variable or a field chain — and the test is the ordinary `is`, with the block filled:
+
+```
+if k is KeyOf(m) {
+    // `k` is a `KeyOf(m) Str` here
+}
+assert!(k is KeyOf(m))     // or hoisted: narrows the rest of the scope
+```
+
+`KeyOf(m)` and `KeyOf(m2)` are different facts — the claim is bound to the *identity* of the value that filled the slot (its fate roots, so an alias of `m` is still `m`). And because the claim is about the **map's** contents rather than the key's, it is invalidated from the other side: any mutation of `m` strips `KeyOf(m)` from every value holding it, conservatively — reads keep it, and mutating some other map keeps it. This is the refinement-types machinery at its smallest: prove a fact once, carry it in the type, and let mutation of what it depends on take it away.
+
+The dependent claims std ships, and the total overloads that consume them (`get` answering an element rather than an optional), arrive with the rest of the sequence — see ROADMAP.md.
 * **It is droppable, and it survives storage.** Forgetting where a value came from is always safe, so `Authenticated Request` can be passed wherever a plain `Request` is wanted; and a struct field typed `Authenticated Request` keeps the tag for whoever reads it back.
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.

@@ -365,6 +365,24 @@ struct EffectAvail {
     declared: bool,
 }
 
+/// [qual-depend] One qualifier of a predicate `is` check, with the places
+/// filling its value slots: `k is KeyOf(m)` carries `name: "KeyOf"`,
+/// `args: [m]`. The emitters append the places to the `qualifies` call.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredicateCheck {
+    pub name: String,
+    pub args: Vec<PredicateArg>,
+}
+
+/// [qual-depend] A place handed to a dependent `qualifies`: the source
+/// spelling, plus whether its type is a Copy scalar (the Rust emitter
+/// passes those by value, everything else by `&`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PredicateArg {
+    pub path: String,
+    pub copy: bool,
+}
+
 /// The checker's output.
 #[derive(Default)]
 pub struct Checked {
@@ -392,8 +410,10 @@ pub struct Checked {
     pub is_tests: HashMap<Key, UnionTest>,
     /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
     /// span of the `is` expression: the qualifier names whose `qualifies`
-    /// functions must be called (conjunction).
-    pub predicate_tests: HashMap<Key, Vec<String>>,
+    /// functions must be called (conjunction), each with the places filling
+    /// its value slots [qual-depend] — `k is KeyOf(m)` lowers to
+    /// `KeyOf.qualifies(k, m)`.
+    pub predicate_tests: HashMap<Key, Vec<PredicateCheck>>,
     /// Field accesses whose type is refined by a predicate-qualifier field
     /// override, keyed by the field expression span: the overridden type
     /// (the backend casts + asserts).
@@ -2428,6 +2448,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Qualifier(q) => {
                     let saved = self.enter_generics(&q.generics);
                     self.check_fn_slots(&q.name.name, &q.fn_slots, &q.generics);
+                    // [qual-depend] One kind of slot per qualifier for now:
+                    // nothing in std or the design's catalog mixes an
+                    // identity slot with a value slot, and the positional
+                    // reading of a mixed block is undecided.
+                    if !q.fn_slots.is_empty() && !q.value_slots.is_empty() {
+                        self.error(
+                            q.name.span,
+                            "a qualifier declares fn slots or value slots, not both",
+                        );
+                    }
+                    for v in &q.value_slots {
+                        self.validate_type(&v.ty);
+                    }
                     self.check_qualifier_decl(q);
                     for f in &q.fns {
                         self.check_fn(f, &[], &[]);
@@ -13101,6 +13134,59 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn fate_mutation_root(&mut self, name: &str, span: Span) {
         self.fate_mutation(name, span);
         self.invalidate_place_narrows(&Place::root(name));
+        self.strip_dependent_claims(name);
+    }
+
+    /// [qual-depend] The type and fate roots of a written **place path**
+    /// (`m`, `state.cache`): the base identifier must be a local in scope;
+    /// each `.field` step follows the declared field type. Roots are the
+    /// base variable's ultimate fate roots [fate-link] — itself, when it is
+    /// a root.
+    fn place_ty_and_roots(&mut self, path: &str) -> Option<(Ty, Vec<u32>)> {
+        let mut parts = path.split('.');
+        let base = parts.next()?;
+        // Reading a place through a filled block is a use of its base.
+        if let Some(var) = self.lookup_mut(base) {
+            var.used = true;
+        }
+        let var = self.lookup(base)?;
+        let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+        if roots.is_empty() {
+            roots.push(var.id);
+        }
+        let mut ty = var.narrowed.clone();
+        for field in parts {
+            let next = self.declared_field_ty(&ty.strip_quals(), field)?;
+            ty = next;
+        }
+        Some((ty, roots))
+    }
+
+    /// [qual-depend] Mutating a value invalidates every **dependent claim**
+    /// bound to it: a `KeyOf(m)` on some key is a fact about `m`'s
+    /// contents, so any mutation of `m` strips it from every value holding
+    /// it — the conservative direction (user decision 2026-09-23; the
+    /// opt-back is the `preserve` entry, a later step of the sequence).
+    fn strip_dependent_claims(&mut self, name: &str) {
+        let Some(var) = self.lookup(name) else { return };
+        let mut mutated: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+        mutated.push(var.id);
+        for scope in self.locals.iter_mut() {
+            for v in scope.values_mut() {
+                let Ty::Qualified { quals, .. } = &v.narrowed else { continue };
+                let stale: HashSet<String> = quals
+                    .iter()
+                    .filter(|q| {
+                        q.args.iter().any(|a| matches!(a, Ty::ValueRef { roots, .. }
+                            if roots.iter().any(|r| mutated.contains(r))))
+                    })
+                    .map(|q| q.name.clone())
+                    .collect();
+                if !stale.is_empty() {
+                    v.narrowed = v.narrowed.clone().remove_quals(&stale);
+                }
+            }
+        }
     }
 
     /// Runs `f` with the given narrowings applied, restoring afterwards.
@@ -14350,6 +14436,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .args
                         .iter()
                         .map(|a| self.lower_type_subst(a, subst, depth))
+                        .chain(q.value_args.iter().filter_map(|a| {
+                            // [qual-depend] A place in the value block lowers
+                            // to a root-free template here — an annotation or
+                            // signature names the dependency; the roots are
+                            // bound where the claim attaches to a value in
+                            // flow (an `is` test, a mint).
+                            match a {
+                                ast::Type::Named { qualifiers, base }
+                                    if qualifiers.is_empty() && !base.binder =>
+                                {
+                                    Some(Ty::ValueRef {
+                                        path: base.name.name.clone(),
+                                        roots: Vec::new(),
+                                    })
+                                }
+                                _ => None,
+                            }
+                        }))
                         .collect(),
                 }
             })
@@ -15462,11 +15566,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
             return;
         };
-        if qualifies.params.len() != 1 {
-            self.error(
-                qualifies.name.span,
-                "`qualifies` must take exactly one parameter (the candidate value)",
-            );
+        if qualifies.params.len() != 1 + q.value_slots.len() {
+            // [qual-depend] A dependent predicate takes the subject first,
+            // then one parameter per value slot — `KeyOf`'s `qualifies` is
+            // `(key: K, map: Map<K, V>)`.
+            if q.value_slots.is_empty() {
+                self.error(
+                    qualifies.name.span,
+                    "`qualifies` must take exactly one parameter (the candidate value)",
+                );
+            } else {
+                self.error(
+                    qualifies.name.span,
+                    format!(
+                        "`qualifies` must take the candidate value and then one \
+                         parameter per value slot ({} more)",
+                        q.value_slots.len()
+                    ),
+                );
+            }
         } else {
             let pt = self.lower_type(&qualifies.params[0].ty);
             if !is_subtype(&of_ty, &pt) {
@@ -15474,6 +15592,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                     qualifies.params[0].span,
                     format!("`qualifies` must accept a `{of_ty}` parameter"),
                 );
+            }
+            // [qual-depend] Each dependency parameter matches its slot's
+            // declared type, in slot order.
+            for (slot, param) in q.value_slots.iter().zip(qualifies.params.iter().skip(1)) {
+                let want = self.lower_type(&slot.ty);
+                let got = self.lower_type(&param.ty);
+                if !is_subtype(&want, &got) {
+                    self.error(
+                        param.span,
+                        format!(
+                            "this parameter fills the `{}` slot, so it must accept \
+                             `{want}`",
+                            slot.name.name
+                        ),
+                    );
+                }
             }
         }
         let ret = qualifies
@@ -16392,6 +16526,10 @@ struct LoopCtx {
 /// A parsed `is` check: qualifiers + optional base type (or `None`).
 struct CheckPat {
     quals: Vec<String>,
+    /// [qual-depend] Per-qualifier value arguments, indexed as `quals` is:
+    /// the places a dependent check fills its slots with (`k is KeyOf(m)`),
+    /// each with the span it was written at. Empty for ordinary checks.
+    qual_args: Vec<Vec<(String, Span)>>,
     base: Option<Ty>,
     is_none: bool,
     /// A name in the check resolved to nothing and was reported
@@ -20252,6 +20390,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             && !matches!(subj_ty, Ty::Union(_))
             && !subj_ty.is_unknown()
             && resolved.iter().all(|d| d.is_some_and(|d| d.has_body));
+        // [qual-depend] The lowered value arguments per dependent qualifier,
+        // for the then-narrow: `k is KeyOf(m)` narrows `k` to a `KeyOf` whose
+        // argument is `m` bound to its fate roots.
+        let mut dependent_args: HashMap<String, Vec<Ty>> = HashMap::new();
         if is_predicate {
             for (q, decl) in pat.quals.iter().zip(&resolved) {
                 let Some(decl) = *decl else { continue };
@@ -20267,9 +20409,92 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(*span, "this check can never succeed".to_string());
                 }
             }
-            self.out
-                .predicate_tests
-                .insert(self.key(*span), pat.quals.clone());
+            // [qual-depend] A dependent qualifier's value slots are filled
+            // with places: validate arity, resolve each place in scope,
+            // check its type against the slot's, and record the fate roots
+            // the claim will bind to.
+            let mut checks: Vec<PredicateCheck> = Vec::new();
+            for ((q, decl), args) in pat.quals.iter().zip(&resolved).zip(&pat.qual_args) {
+                let slots: Vec<ast::ValueSlot> =
+                    decl.map(|d| d.value_slots.clone()).unwrap_or_default();
+                if slots.is_empty() && !args.is_empty() {
+                    self.error(
+                        args[0].1,
+                        format!("`{q}` takes no value arguments"),
+                    );
+                    checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                    continue;
+                }
+                if slots.len() != args.len() {
+                    let filled: Vec<String> =
+                        slots.iter().map(|s| s.name.name.clone()).collect();
+                    self.error(
+                        *span,
+                        format!(
+                            "`{q}` depends on {} value(s) ({}): write the filled \
+                             form, `{q}({})`",
+                            slots.len(),
+                            filled.join(", "),
+                            filled.join(", ")
+                        ),
+                    );
+                    checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                    continue;
+                }
+                let mut rendered = Vec::new();
+                let mut roots: Vec<u32> = Vec::new();
+                for (slot, (path, pspan)) in slots.iter().zip(args) {
+                    let Some((place_ty, place_roots)) = self.place_ty_and_roots(path) else {
+                        self.error(
+                            *pspan,
+                            format!("`{path}` is not a value in scope"),
+                        );
+                        continue;
+                    };
+                    let want = self.lower_type(&slot.ty);
+                    // Loose by design: the slot's type mentions the
+                    // qualifier's own generics (`Map<K, V>`), which have no
+                    // binding here — the base name is the honest check, and
+                    // the `qualifies` signature validation already tied the
+                    // slot to the predicate's parameter.
+                    let fits = match (&place_ty.strip_quals(), &want.strip_quals()) {
+                        (Ty::Named { name: a, .. }, Ty::Named { name: b, .. }) => a == b,
+                        (_, Ty::Var(_)) | (_, Ty::Unknown) | (Ty::Unknown, _) => true,
+                        _ => false,
+                    };
+                    if !fits {
+                        self.error(
+                            *pspan,
+                            format!(
+                                "`{path}` fills the `{}` slot of `{q}`, which needs \
+                                 `{want}`, not `{place_ty}`",
+                                slot.name.name
+                            ),
+                        );
+                    }
+                    roots.extend(place_roots);
+                    rendered.push(PredicateArg {
+                        path: path.clone(),
+                        copy: matches!(&place_ty.strip_quals(), Ty::Named { name, args }
+                            if args.is_empty()
+                                && matches!(name.as_str(), "Int" | "Long" | "Bool" | "Char" | "Float" | "Double" | "Byte")),
+                    });
+                }
+                roots.sort_unstable();
+                roots.dedup();
+                if !args.is_empty() {
+                    dependent_args.insert(
+                        q.clone(),
+                        args.iter()
+                            .map(|(p, _)| p.clone())
+                            .zip(std::iter::repeat(roots.clone()))
+                            .map(|(path, roots)| Ty::ValueRef { path, roots })
+                            .collect::<Vec<Ty>>(),
+                    );
+                }
+                checks.push(PredicateCheck { name: q.clone(), args: rendered });
+            }
+            self.out.predicate_tests.insert(self.key(*span), checks);
             // The `qualifies` call happens here at runtime: its declared
             // effects must be available in this scope
             // [is-qualifies-effects].
@@ -20353,7 +20578,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .map(|n| Qual {
                             effect: false,
                             name: n.clone(),
-                            args: Vec::new(),
+                            args: dependent_args.get(n).cloned().unwrap_or_default(),
                         })
                         .collect();
                     (other.clone().qualify(quals), None)
@@ -20416,12 +20641,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         if check.len() == 1 && check[0].name.name == "None" && check[0].args.is_empty() {
             return CheckPat {
                 quals: Vec::new(),
+                qual_args: Vec::new(),
                 base: None,
                 is_none: true,
                 unresolved: false,
             };
         }
         let mut quals = Vec::new();
+        let mut qual_args = Vec::new();
         let mut base = None;
         let mut unresolved = false;
         for (i, r) in check.iter().enumerate() {
@@ -20442,6 +20669,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // through to the enclosing expression's `Bool`.
                 self.record_def_ref(r.name.span, name);
                 quals.push(r.name.name.clone());
+                // [qual-depend] The filled block: `k is KeyOf(m)` — the
+                // places arrive as value arguments on the check's ref.
+                qual_args.push(
+                    r.value_args
+                        .iter()
+                        .filter_map(|a| match a {
+                            ast::Type::Named { qualifiers, base }
+                                if qualifiers.is_empty() && !base.binder =>
+                            {
+                                Some((base.name.name.clone(), base.span))
+                            }
+                            other => {
+                                self.error(
+                                    other.span(),
+                                    "a dependent qualifier's argument is a place: a \
+                                     variable or a field chain out of one",
+                                );
+                                None
+                            }
+                        })
+                        .collect(),
+                );
             } else if is_type {
                 // The same for a *type* check (`x is Str`).
                 self.record_def_ref(r.name.span, name);
@@ -20457,6 +20706,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         CheckPat {
             quals,
+            qual_args,
             base,
             is_none: false,
             unresolved,
