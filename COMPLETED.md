@@ -130,6 +130,110 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 0 — `reversed`, `enumerate`, `enumerate_rev`
+(built 2026-09-23).** The plain iteration vocabulary from the decided
+sequence (ROADMAP.md "Refinement types — the build sequence"): three passes
+in `core.list`, the `Range`/`ListYield` shape, with `core.list`'s first test
+annex (`std/core/list.test.sv`, 7 tests, both backends). [col-reversed]
+walks backwards emitting borrows (`: Yield<self, proj T>`) — a pass, not
+Kotlin's copying `reversed()`. [col-enumerate] pairs elements with their
+indices, either direction, one pass struct stepped `+1`/`-1`.
+
+What the flagged probe answered: **a tuple cannot be the element.** Not for
+the qualifier reason (a `(Str, Int)` element already works — the zip demo),
+but because a tuple literal cannot *store* a projection
+([fate-derived-readonly]: the store is a move, and `copy` would charge every
+step). So the element is a **view struct** `Enumerated<T>
+{ index: Int, elem: proj T }` — a `proj` field is the declared lend a tuple
+cannot write. Two consequences worth keeping:
+
+- **Generic instantiation hides lends from inference.** `next` returns
+  `Emitted Enumerated<T>` through the generic `emitted`, and body inference
+  cannot see the borrow inside the instantiation — the exact case
+  [proj-infer]'s *written* form exists for, so the `next` writes
+  `=> p: Mut, proj[from: p]` by hand. Without it the Rust signature elides
+  to `<'_` and rustc E0106s.
+- **[rs-proj-lends] grew the borrowing-struct case**: a lent parameter that
+  is itself a borrowing struct defeats elision even alone (two input
+  lifetimes), and the named `'a` must tag the struct's **inner** lifetime,
+  never the `&mut` — the returned view borrows the pass's *source*, so the
+  reborrow stays free for the next turn (the same reasoning
+  [rs-proj-struct] applies to derived returns). First customer:
+  `next__N<'a, T>(p: &mut ListEnumYield<'a, T>) ->
+  Union2<Enumerated<'a, T>, Finished>`.
+
+Also paid: the `next` mangling index in both backends' iter-fn tests moved
+by two (the documented churn), five golden snapshots per backend and the std
+list AST snapshot re-accepted, every example's checked-in `core/*` output
+regenerated. Suite: 1391 tests, fresh nextest green on both backends. One
+sharp edge met and worked around, already on the roadmap ("Bare generic
+struct literals do not infer type arguments"): the body writes
+`Enumerated<T> { … }` explicitly.
+
+**Refinement types via qualifiers — the design, decided whole (2026-09-23,
+user decisions, four rounds in one evening).** The question the user opened
+with: can qualifiers carry something resembling a simple refinement-/dependent-
+type system, so provably safe code needs fewer assertions — the motivating
+example a loop from `size(xs) - 1` down to `0` whose body should not need
+`get(xs, i)!`. The design was worked in REFINEMENT_TYPES.md (a working
+document per DESIGN_DOC.md, alive until the build lands, then deleted), and
+every call is taken. The decided shape:
+
+- **Evidence is declarations only** (RT-1): a fact enters the type system
+  minted by a constructor, promised by a checked deduction, kept by a
+  refinement, or tested by `is`/`assert!` — never by checker arithmetic on
+  comparisons, and never by SMT (both rejected by name). The motivating loop
+  is answered by vocabulary (`rev_indices(xs)`), not by proving `range`
+  arithmetic.
+- **Dependent claims are qualifiers with a value-argument block** (RT-2,
+  RT-8): `qualifier KeyOf<K, V>(map: Map<K, V>) of K`, used as `KeyOf(m) K`.
+  Round brackets after the type generics hold implicits (`?`-prefixed,
+  `Heap<T>(?Ordered<T>)`), local references (unprefixed, filled by **places**
+  — identifiers and field chains — bound to **fate roots**), and later
+  constants. **Type generics are all-or-none** at use sites: written in full
+  or all inferred. `proj` respells to match: `proj(list)`, `from:` dropped.
+- **One trust rule in every position** (RT-10): `+Q` establishes — trusted,
+  legal only in the qualifier's own file — and plain `Q` reports, checked
+  against the body. **`-> T as Q` is replaced by `-> +Q T`** (the user had
+  meant to since `as Q` landed). Dependent claims are legal anywhere in a
+  return type (`binary_search -> (+Idx(list) Int)?`), the named value a kept
+  parameter, proj's rule.
+- **The runtime tier is a dependent `qualifies`** (RT-6): subject first, one
+  parameter per value slot (`KeyOf`'s is literally `contains_key`);
+  `k is KeyOf(m)` lowers through the existing predicate path and
+  `assert!` narrowing rides along.
+- **Invalidation is conservative, `preserve` opts back** (RT-3, RT-11): any
+  call taking the linked value as `Mut` strips dependent claims linked to
+  it; the claim's owner writes `=> map: preserve KeyOf` in a refn, and the
+  same entry is legal in a fn's own clause, checked against the body like
+  [deduce-gained]. Spelled `preserve`, not `keeps` — "kept" already means
+  *not consumed*, and the entry's parameter is not the party holding the
+  claim; imperative like `defer` on send fns, not third-person.
+- **Passes mint claims through their element types** (RT-12): a Yield
+  clause's element may carry a dependent claim whose slot names `self.field`
+  (`: Yield<self, Idx(self.list) Int>`), `next` returns the `+` form,
+  and the mint substitutes the caller's argument through the proj link.
+  Pass-minted claims need no new invalidation machinery: mutating a
+  container under a live pass is already refused [proj-infer].
+- **The protocol tags are provenance** (RT-12a): `Emitted`, `Ok`, `Err`,
+  `Thrown` reclassify to `provenance qualifier` — no third qualifier kind.
+  The kind test is content-dependence: mint-only *state* claims about
+  contents (`Sorted`, `Heap`) still strip under mutation; origin claims do
+  not, and compose without `with`. **The keyword stays "provenance"**, its
+  range documented (authority and protocol role as two uses of one kind).
+- **Assorted**: [qual-no-dup] stands for claims with different arguments
+  (the lift design when the two-map key shows up: explicit `with`
+  self-compatibility with wildcard arguments); `Span` is a struct (the
+  tuple-qualifier ban is load-bearing — it is what makes tuples immune to
+  `Mut`); the std starting set is `get`/`swap`/`substr`/`slice` total and
+  `binary_search`/`span` minting; dependent qualifiers are user-declarable
+  from the start; constants (`InRange(0, 65535) Int`) come after locals.
+
+The build sequence is in ROADMAP.md ("Refinement types — the build
+sequence"); REFINEMENT_TYPES.md carries the full argument trail, the worked
+examples (KeyOf, Span, indices, enumerate_rev, the cross-language survey) and
+the per-decision options until it retires with the build.
+
 **One read, one mode — the narrowed path (2026-09-23).** `narrow_unwrap` cloned
 unconditionally, and every narrowed read in the tree goes through it. It now
 consults the mode like the `!` path does [rs-read-mode], so a read borrows and

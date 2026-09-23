@@ -36,9 +36,10 @@ the decision log, the plan, and the hard-won operational knowledge.
   complete 2026-09-16), and so is **"The second sequence"** (all six steps
   complete 2026-09-18). Both are kept as the record of the order the work was
   done in, and the themed sections below stay tagged with the phase they
-  belonged to. With no sequence in progress, the work is: the **open defects**,
-  then the **decisions waiting on the user**, then whatever those decisions
-  schedule.
+  belonged to. **The sequence now in progress is "Refinement types — the build
+  sequence"** (decided 2026-09-23, below); around it, the work is: the **open
+  defects**, then the **decisions waiting on the user**, then whatever those
+  decisions schedule.
 - **Before starting anything**: read COMPLETED.md's "Gotchas / lessons learned"
   for traps in the area you are touching, and its decision log for whether the
   question was already answered.
@@ -61,9 +62,10 @@ and hold queues of obligations — on both backends with identical output, with 
 worked example in `examples/actors/`. **"The second sequence" is finished too**
 (steps 1–6, 2026-09-17/18): the `waitfor` package, the task kernel, `on_idle`,
 multi-effect handlers, `core.time` — now module `time` — and the coupling stance,
-each recorded below with what it left behind. **With no sequence in progress,
-the work is: the open defects below, then the decisions waiting on the user,
-then whatever those decisions schedule** — SHAREABLE_HANDLERS.md's calls were
+each recorded below with what it left behind. **The sequence now in progress
+is "Refinement types — the build sequence"** (decided 2026-09-23, above);
+around it the work is the open defects below, then the decisions waiting on
+the user — SHAREABLE_HANDLERS.md's calls were
 **all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
 round, including the same-day SH-6 revision to shape-based classification, is
 in COMPLETED.md's log), so the shareable-handler build is pure engineering:
@@ -103,6 +105,61 @@ arc is built** (user decisions 2026-09-20, both sittings the same day —
 `use` binds shareable, `use local`/`[local E]` are the opt-outs, monitor
 deps as owned handles, priced lock waits, generic monitors; COMPLETED.md's
 log and the section below for what it leaves behind).
+
+## Refinement types — the build sequence (user decisions 2026-09-23, all taken)
+
+The design round is **decided whole** — four rounds in one evening, recorded
+in COMPLETED.md's log ("Refinement types via qualifiers — the design, decided
+whole") with the full argument trail in REFINEMENT_TYPES.md, which stays
+alive until this sequence lands and then retires per its charter. Every step
+lands whole (build + tests + spec rules + sweep) before the next; step 0 is
+independent and can go any time.
+
+0. ✅ **Plain iteration vocabulary** — built 2026-09-23 (COMPLETED.md's log,
+   "Refinement types, step 0"). `reversed(list)`, `enumerate(list)`,
+   `enumerate_rev(list)` in `core.list`, with the module's first test annex.
+   The probe answered: the element is **not** a tuple but the view struct
+   `Enumerated<T> { index: Int, elem: proj T }` — a tuple literal cannot
+   store a projection ([fate-derived-readonly]), a `proj` field can
+   [proj-field]. Consequence for step 5: the claimed respell lands on the
+   struct's `index` **field** (`index: Idx(…) Int`), not on a tuple
+   component.
+1. **The respell round**: value-argument blocks on qualifiers
+   (`Heap<T>(?Ordered<T>)`, `?` on implicits only), **all-or-none type
+   generics** at use sites, `proj[from: x]` → `proj(x)`, `-> T as Q` →
+   `-> +Q T`, **and the tag reclassification** — `provenance qualifier` onto
+   `Emitted`/`Ok`/`Err`/`Thrown`, the round's one semantic change (they
+   start surviving exhaustive stripping and composing without `with`; sweep-
+   check nothing relied on the old stripping), plus the provenance range
+   documentation in LANGUAGE.md (authority and protocol role, one kind).
+   Sweep: std, specs, examples, corpus, inline test sources.
+2. **Local slots, one function at a time**: qualifier value slots
+   (`qualifier KeyOf<K, V>(map: Map<K, V>) of K`), dependent `qualifies`
+   (subject + one param per slot), `is KeyOf(m)` / `assert!` narrowing,
+   place-filled slots bound to fate roots, conservative cross-value
+   stripping (any `Mut` use of the linked value strips). **Driver:
+   `Span`/`substr`/`slice`** (immutable subjects — no invalidation pressure)
+   plus `KeyOf` local-only.
+3. **Signatures**: dependent claims in parameter position (sibling-parameter
+   references, proj's rule) and return position (`+Q` trusted in the
+   owner's file / plain checked; `binary_search -> (+Idx(list) Int)?`), the
+   std total overloads (`get`/`swap`/`substr`/`slice`) and minting producers
+   (`binary_search`/`span`), and the delegation-recursion regression test
+   (a total overload delegating to the optional one re-picks itself; drop
+   the claim first — the `first(NonEmpty)` lesson).
+4. **Preservation**: `preserve Q` entries in refns and in own deduction
+   clauses (checked against the body like [deduce-gained]), the std audit
+   of which mutators preserve `KeyOf`/`Idx`, propagation limits per
+   [qual-refn-infer].
+5. **Pass minting**: Yield-clause elements carrying dependent claims with
+   `self.field` slots (`: Yield<self, Idx(self.list) Int>`), proj-link
+   substitution at the mint; `keys` (pass form), `indices`, `rev_indices`,
+   and the claim-carrying respell of `enumerate`/`enumerate_rev` — closes
+   the founding example (`for i in rev_indices(xs) { get(xs, i) }` total).
+   The snapshot form (`keys -> List<KeyOf(map) K>`) waits for the variance
+   round.
+6. **Constants**: the third slot kind (`InRange(0, 65535) Int`), literal
+   establishment, constant subtyping.
 
 ## Shareable by default — ✅ built 2026-09-20 (both sittings; record in COMPLETED.md's log)
 
