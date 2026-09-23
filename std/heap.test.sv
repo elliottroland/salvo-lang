@@ -7,23 +7,28 @@
 // declarations arrive the same way [test-visibility].
 
 test "an empty heap pops nothing" {
-    let heap = empty_heap<Int>()
+    let heap = heap_of<Int>()
     expect(pop(heap) is None, "popping an empty heap answers None")
 }
 
 test "one element comes back out" {
-    let heap = empty_heap<Int>()
+    let heap = heap_of<Int>()
     push(heap, 7)
-    expect_eq(pop(heap)!, 7)
+    // No `!`: `push` reports the heap non-empty [deduce-gained], so this is
+    // the `NonEmpty` overload of `pop` and it answers an element.
+    expect_eq(pop(heap), 7)
 }
 
 test "pops come out in order, whatever order they went in" {
-    let heap = empty_heap<Int>()
+    let heap = heap_of<Int>()
     push(heap, 5)
     push(heap, 1)
     push(heap, 9)
     push(heap, 3)
-    expect_eq(pop(heap)!, 1)
+    // The first `pop` is the non-optional one — the heap is known non-empty
+    // after a push [deduce-gained] — and popping gives the claim up, so the
+    // rest are optional again.
+    expect_eq(pop(heap), 1)
     expect_eq(pop(heap)!, 3)
     expect_eq(pop(heap)!, 5)
     expect_eq(pop(heap)!, 9)
@@ -40,22 +45,29 @@ test "heapify arranges an arbitrary list" {
 }
 
 test "pushing keeps the heap property" {
-    let heap = empty_heap<Int>()
+    let heap = heap_of<Int>()
     push(heap, 4)
     push(heap, 2)
-    expect_eq(pop(heap)!, 2)
+    expect_eq(pop(heap), 2)
     push(heap, 1)
     push(heap, 3)
-    expect_eq(pop(heap)!, 1)
+    expect_eq(pop(heap), 1)
     expect_eq(pop(heap)!, 3)
     expect_eq(pop(heap)!, 4)
 }
 
 test "peek always returns the smallest element, or None if the heap is empty" {
-    expect(empty_heap<Int>().peek() is None, "An empty heap should return None")
-    let heap = empty_heap<Int>()
-    
+    let heap = heap_of<Int>()
+    expect(heap.peek() is None, "An empty heap should return None")
+    heap.push(4)
+    heap.push(1)
+    expect_eq(heap.peek(), 1)
+    heap.pop()
+    expect_eq(heap.peek()!, 4)
+    heap.pop()
+    expect(heap.peek() is None, "A heap which has been emptied should peek -> None")
 }
+
 // [col-of-nonempty] `heap_of` is non-empty *by construction*: the element
 // constructor requires a first, the claim travels through `heapify` because
 // exchanging elements cannot change how many there are [qual-refn], and the

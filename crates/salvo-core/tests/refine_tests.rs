@@ -631,3 +631,67 @@ export qualifier NonEmpty<T> of Store<T> {
         errors(&src)
     );
 }
+
+// --- [deduce-gained] Reporting a claim the body established ---
+
+/// [deduce-gained] A function whose parameter does **not** declare a claim may
+/// still report it, when the body establishes it through a refinement the
+/// claim's owner wrote: the promise is *checked* against the body, unlike `+Q`,
+/// which is trusted and gated to the qualifier's own file.
+#[test]
+fn a_plain_entry_may_report_a_claim_the_body_established() {
+    let src = format!(
+        "{PRELUDE}{NONEMPTY}\nfn fill(s: Mut Store<Int>) -> None => s: NonEmpty Mut {{\n    \
+         push(s, 1)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
+/// …and the caller learns it, which is the point: this is how `std.heap`'s
+/// `push` hands back a heap that `pop` can read without an optional.
+#[test]
+fn a_caller_sees_a_reported_claim() {
+    let src = format!(
+        "{PRELUDE}{NONEMPTY}\nfn fill(s: Mut Store<Int>) -> None => s: NonEmpty Mut {{\n    \
+         push(s, 1)\n}}\n\n\
+         fn f(s: Mut Store<Int>) -> None {{\n    \
+         fill(s)\n    let _n = needs_nonempty(s)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
+/// The control: a body that establishes nothing cannot report anything, and the
+/// diagnostic distinguishes "the parameter never had it" from "the body may
+/// drop it".
+#[test]
+fn a_plain_entry_cannot_report_a_claim_nothing_establishes() {
+    let src = format!(
+        "{PRELUDE}{TOUCH}{KEEPS}\nfn f(s: Mut Store<Int>) -> None => s: NonEmpty Mut {{\n    \
+         touch(s)\n}}\n"
+    );
+    assert!(
+        errors(&src).iter().any(|e| e.contains(
+            "deduction keeps qualifier `NonEmpty`, which is not declared on \
+             parameter `s` and nothing in the body establishes it"
+        )),
+        "{:?}",
+        errors(&src)
+    );
+}
+
+/// [deduce-gained] A *bodiless* declaration has nothing to check against, so
+/// there the old refusal stands — an `intrinsic fn` cannot report a gain.
+#[test]
+fn a_bodiless_declaration_cannot_report_a_gain() {
+    let src = format!(
+        "{PRELUDE}{NONEMPTY}\n\
+         intrinsic fn poke(s: Mut Store<Int>) [] -> None => s: NonEmpty Mut\n"
+    );
+    assert!(
+        errors(&src)
+            .iter()
+            .any(|e| e.contains("a bodiless declaration has nothing to establish it")),
+        "{:?}",
+        errors(&src)
+    );
+}

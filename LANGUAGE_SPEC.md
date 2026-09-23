@@ -1182,6 +1182,31 @@ Conventions:
   list that is neither a type parameter nor a visible type is reported as
   such, naming the type-parameter remedy — a top-level `refn` has no
   qualifier to borrow `T` from.
+* [deduce-gained] A plain (non-`+`) entry may name a qualifier the parameter
+  does **not** declare, when the body *establishes* it — through a refinement,
+  so the claim's owner said so [qual-refn]. The promise is then **checked**
+  against the inferred facts like any plain entry, which is the whole difference
+  from `+Q`: `+Q` is trusted and therefore legal only in the qualifier's own
+  file, while this is verified and legal anywhere (user decision 2026-09-23,
+  found on `std.heap`'s `push`).
+
+  ```
+  // `add` makes the list non-empty (core.list's refinement says so) and the
+  // sift only swaps, so the heap comes back non-empty — reported, not claimed.
+  export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+  => heap: +Heap NonEmpty Mut, !elem { … }
+  ```
+
+  * **The caller learns it**, which is the point: after `push(h, 3)` the heap is
+    `NonEmpty`, so `pop` resolves to the overload that answers an element.
+  * **Only a written clause reports a gain.** An inferred one does not, even
+    when the body establishes something: handing a caller a claim is a
+    signature's job to say out loud.
+  * **A bodiless declaration cannot** (`intrinsic fn`, an effect member): there
+    is nothing to check the report against, and the diagnostic says so.
+  * The two failures read differently on purpose: "the body may remove it" for a
+    qualifier the parameter *has*, and "not declared on parameter … and nothing
+    in the body establishes it" for one it never had.
 * [qual-refn-narrow] A refinement may write a **narrower** parameter than the
   declaration it refines, and the extra qualifiers are a **precondition**: what
   it states applies only where the argument already carries them (user

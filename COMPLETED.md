@@ -55,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1371 tests, complete: the toolchain tests are
+cargo test                  # 1375 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -129,6 +129,42 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Reporting a claim the body established (2026-09-23, user decision).** The
+user tried to add `NonEmpty` to `push`'s deduction in `std.heap` — `add` makes
+the list non-empty, the sift only swaps, and hovering the heap at the end of the
+body showed `NonEmpty Mut` — and asked why it was refused, wondering whether the
+LSP was at fault. It was not: hover shows the *checker's* flow state, which was
+right, and two separate deduction rules were doing the refusing.
+
+- A **plain** entry required the qualifier to be declared on the parameter ("a
+  deduction may preserve or drop the parameter's own qualifiers").
+- **`+NonEmpty`** was refused because establishment is *trusted*, so it is gated
+  to the qualifier's own file — and `std.heap` does not own `NonEmpty`.
+
+Between them there was no spelling for the case that actually held: *the body
+established it, and that is checkable*. Built as [deduce-gained]: a plain entry
+may name a qualifier the parameter does not declare, and it is verified against
+the body exactly like any other plain entry. Three parts:
+
+- The inference stopped filtering gained qualifiers away (`add_quals` only ever
+  receives claims from refinements, which the owner wrote, so a gain is as
+  trustworthy as the refinement it came from), and a **conditional** refinement's
+  precondition is now tested against what the parameter carries *at that point in
+  the walk* rather than against its declared set — which is what lets `push`'s
+  `swap` keep a claim `add` established earlier in the same body.
+- The "not declared on the parameter" refusal moved from the clause builder to
+  `validate_written`, where the body's facts are known; a bodiless declaration
+  keeps the old refusal, because there is nothing to check a report against.
+- The **call site** applies a written plain gain, so a caller of `push` sees the
+  `NonEmpty` — which is the point: `pop(h)` then resolves to the overload that
+  answers an element. Only *written* clauses report a gain; an inferred one stays
+  quiet, since handing a caller a claim is a signature's job to state.
+
+What it cost: `std/heap.test.sv` lost four `!`s, because a `pop` after a `push`
+is no longer optional. That is the feature working, and it is also the second
+time today the redundant-`!` defect has bitten — `!` on a non-optional is
+accepted and lowers to an unwrap, which remains open.
 
 **A refinement may narrow its parameter — keeping a claim vs establishing one
 (2026-09-23, user correction).** The `refn swap(list: Mut List<T>, …) =>
@@ -14862,7 +14898,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1371)
+## Test inventory (all green: 1375)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -14870,7 +14906,10 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 757 - 5 narrowed-refinement tests (`tests/refine_tests.rs`
+- `salvo-core`: 761 - 4 reported-gain tests (`tests/refine_tests.rs`
+  [deduce-gained]: a plain entry reporting a claim the body established, the
+  caller seeing it, the refusal when nothing establishes it, and a bodiless
+  declaration refused outright) + 5 narrowed-refinement tests (`tests/refine_tests.rs`
   [qual-refn-narrow]: a narrowed refinement keeping a claim the argument has, the
   same call *not* establishing one it lacks, a kept claim surviving a branch
   where an established one does not, and a refinement that drops the

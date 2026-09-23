@@ -15228,6 +15228,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [deduce-gained] The qualifiers a *written* deduction entry reports for
+    /// one parameter that the parameter itself does not declare: claims the
+    /// body established, verified against it by the deduction pass rather than
+    /// trusted like `+Q`. Empty for an inferred clause — reporting a gain is
+    /// something a signature has to say out loud.
+    fn plain_gains(&self, decl: &'p FnDecl, param: &str) -> Vec<String> {
+        let Some(list) = &decl.deductions else {
+            return Vec::new();
+        };
+        let Some(p) = decl.params.iter().find(|p| p.name.name == param) else {
+            return Vec::new();
+        };
+        let declared = crate::deduce::declared_quals(&p.ty);
+        list.iter()
+            .filter(|d| d.param_name().is_some_and(|n| n.name == param))
+            .flat_map(|d| match &d.kind {
+                salvo_syntax::ast::DeductionKind::Exhaustive { quals, .. } => quals
+                    .iter()
+                    .map(|q| q.name.name.clone())
+                    .filter(|q| !declared.contains(q))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
     /// [qual-refn] Applies the refinements written about one parameter of a
     /// call, to the argument `arg`.
     ///
@@ -23007,6 +23033,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // makes `heapify(list)` answer a `Heap<Int, by_age>` when
                     // nothing about `list` claimed one before.
                     self.establish_quals(key, &param.name.name, &name, &subst, &callee_generics);
+                }
+                // [deduce-gained] A plain entry naming a qualifier the
+                // parameter does not declare is a *checked* report that the
+                // body leaves the value with it (`push` ends with the heap
+                // non-empty, because `add` made it so and the sift only swaps).
+                // The caller learns it here — the same place `+Q` lands, and
+                // after it, so a re-established claim keeps its arguments.
+                for q in self.plain_gains(decl, &param.name.name) {
+                    let have: Vec<String> = self
+                        .lookup(&name)
+                        .map(|v| v.narrowed.quals().iter().map(|x| x.name.clone()).collect())
+                        .unwrap_or_default();
+                    if have.contains(&q) {
+                        continue;
+                    }
+                    if let Some(var) = self.lookup_mut(&name) {
+                        var.narrowed = var.narrowed.clone().qualify(vec![Qual {
+                            effect: false,
+                            name: q,
+                            args: Vec::new(),
+                        }]);
+                    }
                 }
             }
         }

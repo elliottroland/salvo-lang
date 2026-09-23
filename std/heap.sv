@@ -18,7 +18,7 @@ export qualifier Heap<T, ?Ordered<T>> of List<T> with NonEmpty
 // Returns an empty List which trivially supports the heap property. The
 // ordering arrives as an ordinary implicit parameter, and the return type
 // publishes the one resolution chose [cmp-binder].
-export fn empty_heap<T>(?Ordered<T>) -> Mut List<T> as Heap<T, ?cmp> {
+export fn heap_of<T>(?Ordered<T>) -> Mut List<T> as Heap<T, ?cmp> {
     return mut_list_of()
 }
 
@@ -101,19 +101,6 @@ export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
 // `swap` does [qual-refn].
 fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
 => list: NonEmpty Mut, n, i {
-    let smallest = smallest_of(list, n, i)
-    if smallest != i {
-        list.swap(smallest, i)
-        heapify_part(list, n, smallest)
-    }
-}
-
-// Which of [i] and its two children holds the smallest element — the read half
-// of a sift-down, split out so the reads are *over* before the exchange: a
-// projection taken from a list (`get` answers one) and a mutation of that list
-// in the same body currently costs the body's qualifiers, refinements included
-// (an open defect, with this shape as its repro — see ROADMAP.md).
-fn smallest_of<T>(list: List<T>, n: Int, i: Int, ?Ordered<T>) -> Int => list, n, i {
     let smallest = i
     let left_child = 2 * i + 1
     let right_child = 2 * i + 2
@@ -125,7 +112,11 @@ fn smallest_of<T>(list: List<T>, n: Int, i: Int, ?Ordered<T>) -> Int => list, n,
     if right_child < n && list.get(right_child)! < list.get(smallest)! {
         smallest = right_child
     }
-    return smallest
+
+    if smallest != i {
+        list.swap(smallest, i)
+        heapify_part(list, n, smallest)
+    }
 }
 
 // Returns a projection of the smallest element (by the heap's [cmp]) in the heap, or None
@@ -146,7 +137,7 @@ export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj[from: heap] T {
 // function knows the sift below puts it back. Trusted because this is the file
 // that declares `Heap`, the same party a constructor fn and a refinement trust.
 export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
-=> heap: +Heap Mut, !elem {
+=> heap: +Heap NonEmpty Mut, !elem {
     add(heap, elem)
     // The index where the value currently is
     let i = size(heap) - 1

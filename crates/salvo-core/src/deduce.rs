@@ -534,14 +534,25 @@ pub(crate) fn from_written(
                             );
                             continue;
                         }
-                        if !declared.contains(&q.name.name) && !is_reapplied {
+                        // [deduce-gained] A plain entry naming a qualifier the
+                        // parameter does not declare is legal when the *body*
+                        // establishes it — through a refinement, so the claim's
+                        // owner said so [qual-refn] — and that is only knowable
+                        // once the body has been walked. With a body the
+                        // judgement is `validate_written`'s; without one (an
+                        // `intrinsic fn`, an effect member) there is nothing to
+                        // check against, so it is refused here.
+                        if !declared.contains(&q.name.name)
+                            && !is_reapplied
+                            && decl.body.is_none()
+                        {
                             error(
                                 q.span,
                                 format!(
                                     "deduction keeps qualifier `{}`, which is not \
-                                     declared on parameter `{name}` (a deduction \
-                                     may preserve or drop the parameter's own \
-                                     qualifiers; `+{}` is how a function says it \
+                                     declared on parameter `{name}` (a bodiless \
+                                     declaration has nothing to establish it; \
+                                     `+{}` is how a function says it \
                                      *establishes* one)",
                                     q.name.name, q.name.name
                                 ),
@@ -643,17 +654,30 @@ fn validate_written(
             _ => Vec::new(),
         };
         for q in &promised {
-            if w.kept && !survives.contains(q) && !reapplied.contains(&q.as_str()) {
-                errors.push(FileDiagnostic::error(
-                    file,
-                    entry.span,
-                    format!(
-                        "deduction promises qualifier `{q}` on `{}`, but the \
-                         body may remove it",
-                        w.param
-                    ),
-                ));
+            if !w.kept || survives.contains(q) || reapplied.contains(&q.as_str()) {
+                continue;
             }
+            // [deduce-gained] Two different mistakes, and the difference is
+            // what the reader needs: a qualifier the parameter *has* that the
+            // body may drop, versus one it never had and the body does not
+            // establish either.
+            let message = if declared.contains(q) {
+                format!(
+                    "deduction promises qualifier `{q}` on `{}`, but the body \
+                     may remove it",
+                    w.param
+                )
+            } else {
+                format!(
+                    "deduction keeps qualifier `{q}`, which is not declared on \
+                     parameter `{}` and nothing in the body establishes it — a \
+                     plain entry reports what the body leaves behind, and \
+                     `+{q}` (legal only in `{q}`'s own file) is how a function \
+                     *claims* to establish one",
+                    w.param
+                )
+            };
+            errors.push(FileDiagnostic::error(file, entry.span, message));
         }
     }
 }
@@ -842,6 +866,24 @@ impl<'p> Walk<'_, 'p> {
     /// `+Q` in a *function's* own deduction list, which is D2 and
     /// deliberately not in the language. So a refinement can cancel a
     /// removal, never invent a claim.
+    /// The qualifiers a parameter carries at this point in the walk: its
+    /// declared set as the uses seen so far have changed it [deduce-infer]
+    /// [deduce-gained].
+    fn current_quals(&self, name: &str) -> Vec<String> {
+        let declared = self
+            .decl
+            .params
+            .iter()
+            .find(|p| p.name.name == name)
+            .map(|p| declared_quals(&p.ty))
+            .unwrap_or_default();
+        self.params
+            .iter()
+            .find(|p| p.param == name)
+            .map(|p| p.effect.kept_quals(&declared))
+            .unwrap_or(declared)
+    }
+
     /// [qual-refn-narrow] `add_quals` for a claim a call **keeps** rather than
     /// establishes: legal inside a branch, because the claim was there before
     /// the call either way.
@@ -858,18 +900,15 @@ impl<'p> Walk<'_, 'p> {
         if self.cond_depth > 0 {
             return;
         }
-        let declared = self
-            .decl
-            .params
-            .iter()
-            .find(|p| p.name.name == name)
-            .map(|p| declared_quals(&p.ty))
-            .unwrap_or_default();
-        let added: Vec<String> = added
-            .iter()
-            .filter(|q| declared.contains(q))
-            .cloned()
-            .collect();
+        // [deduce-gained] A qualifier the parameter does not declare is
+        // recorded too: everything reaching here came from a **refinement**
+        // written by the claim's owner [qual-refn], so the body really does
+        // leave the value with it — `add(list, x)` makes a plain `Mut List<T>`
+        // non-empty. Until 2026-09-23 the gain was filtered away, so a function
+        // could not report a claim its body established unless its own
+        // parameter already carried it (found by the user on `std.heap`'s
+        // `push`).
+        let added: Vec<String> = added.to_vec();
         if added.is_empty() {
             return;
         }
@@ -1297,6 +1336,13 @@ impl<'p> Walk<'_, 'p> {
                 self.mark_moved(&name);
                 continue;
             }
+            // [qual-refn-narrow] What the value carries *here*, before this
+            // call's own effect is applied: a conditional refinement is about
+            // the claim the argument arrives with, and that is the declared set
+            // as this walk has changed it so far — `add` earlier in the body
+            // may have established something the parameter never declared
+            // [deduce-gained].
+            let had = self.current_quals(&name);
             match ded.effect.clone() {
                 QualEffect::KeepAll => {}
                 QualEffect::Remove(dropped) => self.remove_quals(&name, &dropped),
@@ -1312,18 +1358,11 @@ impl<'p> Walk<'_, 'p> {
             // there" means the enclosing fn's parameter declares it: that is
             // what this pass reasons about, and what the promise being checked
             // is made of.
-            let declared = self
-                .decl
-                .params
-                .iter()
-                .find(|p| p.name.name == name)
-                .map(|p| declared_quals(&p.ty))
-                .unwrap_or_default();
             let groups: Vec<(Vec<String>, Vec<String>, bool)> = self
                 .refinements
                 .for_param_all(self.file, callee, &params[pidx].name.name)
                 .into_iter()
-                .filter(|g| g.requires.iter().all(|q| declared.contains(q)))
+                .filter(|g| g.requires.iter().all(|q| had.contains(q)))
                 .map(|g| (g.add.clone(), g.remove.clone(), !g.requires.is_empty()))
                 .collect();
             for (add, remove, keeps) in groups {

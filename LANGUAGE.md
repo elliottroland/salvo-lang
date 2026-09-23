@@ -2218,6 +2218,15 @@ fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
 
 `+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> T as Q`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it there.
 
+A plain entry may also name a qualifier the parameter does **not** carry, and then it *reports* what the body left behind:
+
+```
+export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+=> heap: +Heap NonEmpty Mut, !elem { ... }
+```
+
+`push`'s parameter says nothing about `NonEmpty`, but its body calls `add` — which the qualifier's owner has refined to establish the claim — and then only swaps, which keeps it. So the heap really does come back non-empty, and the caller is told: after `push(h, 3)`, `pop(h)` answers an element rather than an optional. The promise is *checked* against the body, which is why it needs no permission from `NonEmpty`'s file, unlike `+NonEmpty`. Two rules go with it: only a written clause reports a gain (an inferred one keeps quiet — handing a caller a claim is something a signature should say out loud), and a bodiless declaration cannot report one at all, since there is nothing to check it against.
+
 It does not matter whether the parameter already had the claim. Putting back what a mutation stripped and *minting* one on a value that arrived without it are the same sentence — "after this call, this is a `Heap`" — so the same form says both:
 
 ```
