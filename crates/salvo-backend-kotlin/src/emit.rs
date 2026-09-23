@@ -5397,6 +5397,36 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [assert-trap] The text a failed assertion reports: `salvo: <what> at
+    /// <file>:<line>:<col>`, with the Salvo source location rather than the
+    /// generated one. A written message replaces `<what>` and is composed
+    /// **here**, inside the `throw`, so it is evaluated only on failure.
+    fn trap_message(&mut self, what: &str, message: Option<&Expr>, span: Span) -> String {
+        let at = self.salvo_location(span);
+        match message {
+            Some(m) => {
+                let text = self.emit_expr(m);
+                format!("(\"salvo: \" + ({text}) + \" at {at}\")")
+            }
+            None => format!("\"salvo: {what} at {at}\""),
+        }
+    }
+
+    /// The Salvo location of a span, for a trap message [assert-trap]:
+    /// `<module>:<line>:<col>`.
+    ///
+    /// The **module path**, not the file name: a file's display name depends on
+    /// how it was loaded (the CLI names an embedded std file `std/core/list.sv`,
+    /// a directory walk names the same file `core/list.sv`), and a location that
+    /// varies by loader would make the emitted output depend on who generated
+    /// it. A module path is the language's own identity for a file and is the
+    /// same either way.
+    fn salvo_location(&self, span: Span) -> String {
+        let file = &self.program.files[self.file_idx];
+        let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+        format!("{}:{line}:{col}", file.module)
+    }
+
     /// How a narrowed place read reaches its value [flow-place]: `None`
     /// when the place is not narrowed, so the plain read stands.
     ///
@@ -6209,7 +6239,37 @@ impl<'p> Emitter<'p> {
                 let ty = self.emit_is_check_type(check);
                 format!("{subj} is {ty}")
             }
-            Expr::NonNull { operand, .. } => format!("{}!!", self.emit_expr(operand)),
+            // [assert-trap] [kt-assert-trap] A failed assertion is *Salvo's*
+            // failure, not the host's: the message names the Salvo source and
+            // reads identically on both backends (user decision 2026-09-23,
+            // A-2). The mechanism stays each host's own trap — an
+            // `AssertionError` here, a panic on Rust — since neither program is
+            // meant to continue.
+            Expr::NonNull { operand, span } => format!(
+                "({} ?: throw AssertionError({}))",
+                self.emit_expr(operand),
+                self.trap_message("value is absent", None, *span)
+            ),
+            Expr::Assert {
+                cond,
+                message,
+                span,
+            } => {
+                let text = self.trap_message(
+                    "assertion failed",
+                    message.as_deref(),
+                    *span,
+                );
+                format!(
+                    "(if (!({})) throw AssertionError({}) else Unit)",
+                    self.emit_expr(cond),
+                    text
+                )
+            }
+            Expr::Unreachable { message, span } => format!(
+                "throw AssertionError({})",
+                self.trap_message("unreachable", message.as_deref(), *span)
+            ),
             // [inc-dec] [kt-inc-dec] Kotlin has both fixities and both
             // directions, with the same value semantics, so this is a direct
             // rendering.
@@ -8888,6 +8948,18 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [assert-fn] A condition or a message may mutate, like any expression.
+        Expr::Assert { cond, message, .. } => {
+            collect_mutated_expr(cond, out);
+            if let Some(m) = message {
+                collect_mutated_expr(m, out);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                collect_mutated_expr(m, out);
+            }
+        }
         // [elvis] Both sides may mutate.
         Expr::Elvis { subject, rhs, .. } => {
             collect_mutated_expr(subject, out);

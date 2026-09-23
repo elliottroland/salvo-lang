@@ -58,6 +58,12 @@ pub const SELF_SELECTOR: &str = "self";
 /// a parse error anyway.
 pub const EXPORT_MODIFIER: &str = "export";
 
+/// [assert-fn] The two compiler-owned assertion forms, spelled with a trailing
+/// `!`: `assert!(cond, "why")` and `unreachable!("why")`. Contextual — both
+/// names stay ordinary identifiers everywhere else.
+pub const ASSERT_FORM: &str = "assert";
+pub const UNREACHABLE_FORM: &str = "unreachable";
+
 /// [actor-effect-kind] The contextual modifier that makes an effect an actor
 /// protocol: `actor effect E { … }`. Contextual, not reserved — and the only
 /// place the word appears in the language, since the phase decided against
@@ -3742,6 +3748,53 @@ impl<'s> Parser<'s> {
             TokenKind::Ident(name) if name == "_" => {
                 let span = self.bump().span;
                 Some(Expr::Placeholder { span })
+            }
+            // [assert-fn] `assert!(cond, "why")` and `unreachable!("why")`: the
+            // two assertion forms, spelled with a `!` because a bang in Salvo
+            // marks a place that can fail (user decision 2026-09-23).
+            // Contextual, like every other keyword-shaped name here — a
+            // variable may still be called `assert`; only `assert!(` is the
+            // form, which no other reading of those three tokens has (a
+            // non-null assertion on a *name* followed by a call would be
+            // `assert!` applied to a fn value, which is not callable).
+            TokenKind::Ident(name)
+                if (name == ASSERT_FORM || name == UNREACHABLE_FORM)
+                    && matches!(self.peek_at(1).kind, TokenKind::Bang)
+                    && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
+            {
+                let assert = name == ASSERT_FORM;
+                let start = self.bump().span;
+                self.bump(); // `!`
+                self.expect(&TokenKind::LParen)?;
+                let saved_depth = self.group_depth;
+                self.group_depth += 1;
+                let cond = if assert {
+                    Some(Box::new(self.parse_expr()?))
+                } else {
+                    None
+                };
+                let message = if assert {
+                    if self.eat(&TokenKind::Comma).is_some() {
+                        Some(Box::new(self.parse_expr()?))
+                    } else {
+                        None
+                    }
+                } else if self.at(&TokenKind::RParen) {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expr()?))
+                };
+                let end = self.expect(&TokenKind::RParen)?.span;
+                self.group_depth = saved_depth;
+                let span = start.to(end);
+                Some(match cond {
+                    Some(cond) => Expr::Assert {
+                        cond,
+                        message,
+                        span,
+                    },
+                    None => Expr::Unreachable { message, span },
+                })
             }
             // [expr-escape] The three escapes are **expressions** of type
             // `Never` (user decision 2026-09-21), so a tail position can hold

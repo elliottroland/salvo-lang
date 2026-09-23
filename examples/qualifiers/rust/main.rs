@@ -43,7 +43,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 
 pub fn head(list: &Vec<i32>) -> i32 {
     let mut first = list.get((0) as i64 as usize);
-    return *first.unwrap();
+    return *first.expect("salvo: value is absent at main:30:12");
 }
 
 pub fn celsius(degrees: i32) -> i32 {

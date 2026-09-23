@@ -12718,6 +12718,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return true;
         }
         match expr {
+            // [assert-fn] `unreachable!()` is typed `Never`, so a path reaching
+            // it does not continue — the same as a `throw` or a `return`. An
+            // `assert!` continues when it holds, which is the whole point.
+            Expr::Unreachable { .. } => true,
+            Expr::Assert { .. } => false,
             // [elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
@@ -12816,6 +12821,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             return true;
         }
         match expr {
+            // [assert-fn] It leaves the function, but not by returning a value:
+            // a `fn` whose only tail is `unreachable!()` has no missing return
+            // [fn-must-return], which `expr_exits` above answers.
+            Expr::Unreachable { .. } | Expr::Assert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
             // [expr-escape] Only `return` leaves the *function*; the guard
             // above has already answered `false` for the other two.
@@ -13121,6 +13130,27 @@ impl<'p, 'r> Checker<'p, 'r> {
             declared: subj_repr.clone(),
         };
         self.install_narrows(&[narrow]);
+    }
+
+    /// The type the checker recorded for an expression it has already walked —
+    /// `analyze_cond` checks the condition itself, so re-checking it here would
+    /// write its side tables twice.
+    fn expr_ty_recorded(&self, expr: &Expr) -> Option<Ty> {
+        self.out.expr_ty.get(&self.key(expr.span())).cloned()
+    }
+
+    /// [assert-fn] An assertion's message: an ordinary `Str` expression,
+    /// evaluated **only when the assertion fails** — which is why the forms are
+    /// compiler-owned rather than functions (an argument would be evaluated on
+    /// every success, interpolation and all).
+    fn check_assert_message(&mut self, message: &'p Expr) {
+        let t = self.check_expr(message, Some(&Ty::named("Str")));
+        if !matches!(t, Ty::Unknown) && t.to_string() != "Str" {
+            self.error(
+                message.span(),
+                format!("an assertion's message must be a `Str`, found `{t}`"),
+            );
+        }
     }
 
     fn install_narrows(&mut self, narrows: &[Narrow]) {
@@ -15949,6 +15979,17 @@ fn collect_binder_arg_sites<'p>(
 
 fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::Assert { cond, message, .. } => {
+            collect_assigned_expr(cond, out);
+            if let Some(m) = message {
+                collect_assigned_expr(m, out);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                collect_assigned_expr(m, out);
+            }
+        }
         // [elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
@@ -16176,6 +16217,13 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
 fn expr_mentions(expr: &Expr, name: &str) -> bool {
     let block_mentions = |block: &Block| -> bool { block_mentions_name(block, name) };
     match expr {
+        Expr::Assert { cond, message, .. } => {
+            expr_mentions(cond, name)
+                || message.as_ref().is_some_and(|m| expr_mentions(m, name))
+        }
+        Expr::Unreachable { message, .. } => {
+            message.as_ref().is_some_and(|m| expr_mentions(m, name))
+        }
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
@@ -18174,9 +18222,70 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.widen_info(subject, quals, binding.as_ref(), *span);
                 Ty::named("Bool")
             }
-            Expr::NonNull { operand, .. } => {
+            Expr::NonNull { operand, span } => {
                 let t = self.check_expr(operand, None);
+                // [assert-op] A `!` says "this can be absent, and here it is
+                // not". On a type with no `None` arm it says something false,
+                // and the two backends disagreed about the leftover — rustc
+                // refused `.unwrap()` while kotlinc warned and ran (user
+                // decision 2026-09-23, A-1). `Unknown` passes through, since a
+                // type the checker could not infer must not cascade
+                // [type-unknown-lenient].
+                if !t.has_none_arm() && !matches!(t, Ty::Unknown) {
+                    self.error(
+                        *span,
+                        format!(
+                            "`!` asserts that a value is present, but this one is \
+                             `{t}` — it is never absent, so the `!` says nothing \
+                             and one backend refuses it. Drop it; where a value \
+                             *can* be absent, `?:` picks a fallback and `is None` \
+                             tests for it"
+                        ),
+                    );
+                    return t;
+                }
                 t.without_none()
+            }
+            // [assert-fn] [assert-narrow] `assert!(cond)` / `assert!(cond, why)`
+            // — a condition that must hold, checked in every build
+            // [assert-trap]. When the condition is an `is` test its narrowing
+            // is installed **permanently**, exactly as the guard idiom's is
+            // [is-narrow-guard]: an assertion that informs the type is the
+            // reason the form exists (user decision 2026-09-23, A-3).
+            Expr::Assert {
+                cond,
+                message,
+                span,
+            } => {
+                let info = self.analyze_cond(cond);
+                let cond_ty = self.expr_ty_recorded(cond);
+                // [cond-bool] No truthiness: the condition is a `Bool`.
+                if let Some(t) = cond_ty {
+                    if !matches!(t, Ty::Unknown) && t.to_string() != "Bool" {
+                        self.error(
+                            cond.span(),
+                            format!(
+                                "an `assert!` condition must be a `Bool`, found \
+                                 `{t}` [cond-bool]"
+                            ),
+                        );
+                    }
+                }
+                self.install_narrows(&info.then_narrows);
+                if let Some(m) = message {
+                    self.check_assert_message(m);
+                }
+                let _ = span;
+                Ty::none()
+            }
+            // [assert-fn] `unreachable!()` — a place the program says it cannot
+            // reach. `Never`, so it stands where any value is expected and ends
+            // the path [expr-escape].
+            Expr::Unreachable { message, .. } => {
+                if let Some(m) = message {
+                    self.check_assert_message(m);
+                }
+                Ty::Never
             }
             // [inc-dec] All four forms do the same thing to the operand — a
             // step of one on an `Int` place — so the checker ignores the

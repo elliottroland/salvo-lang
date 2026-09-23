@@ -1145,8 +1145,34 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `expr!` — non-null assertion.
+    /// `expr!` — non-null assertion [assert-op]. Legal only where the operand
+    /// *can* be absent: a `!` on a type with no `None` arm says something false
+    /// and is refused (user decision 2026-09-23).
     NonNull { operand: Box<Expr>, span: Span },
+    /// [assert-fn] `assert!(cond)` / `assert!(cond, "why")`: a condition that
+    /// must hold, checked at run time in every build [assert-trap], and — when
+    /// the condition is an `is` test — **narrowing** for the rest of the scope
+    /// [assert-narrow].
+    ///
+    /// Written with the `!` deliberately (user decision 2026-09-23): a bang in
+    /// Salvo marks a place that can fail, so the two assertion forms wear one.
+    /// Compiler-owned rather than a library function, because a call could not
+    /// do what these do — the message is evaluated **only on failure**, the
+    /// condition's narrowing reaches the enclosing scope, and neither name can
+    /// be shadowed or renamed.
+    Assert {
+        cond: Box<Expr>,
+        /// The message, evaluated only when the assertion fails.
+        message: Option<Box<Expr>>,
+        span: Span,
+    },
+    /// [assert-fn] `unreachable!()` / `unreachable!("why")`: a place the program
+    /// says it cannot reach. Type `Never`, so it stands in for any value and
+    /// ends a path like `throw` does [throw].
+    Unreachable {
+        message: Option<Box<Expr>>,
+        span: Span,
+    },
     /// `i++` — postfix increment.
     /// [inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
     /// either fixity. One node rather than four variants — every consumer
@@ -1460,6 +1486,8 @@ impl Expr {
             | Expr::Is { span, .. }
             | Expr::Widen { span, .. }
             | Expr::NonNull { span, .. }
+            | Expr::Assert { span, .. }
+            | Expr::Unreachable { span, .. }
             | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }

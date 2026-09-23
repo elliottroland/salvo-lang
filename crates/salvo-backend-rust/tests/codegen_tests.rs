@@ -8159,7 +8159,7 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
     // is deref'd for the cast — which goes through `i64`, so a negative
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     assert!(
-        main.contains("|i| all.get((*i) as i64 as usize).unwrap()"),
+        main.contains("|i| all.get((*i) as i64 as usize).expect(\"salvo: value is absent"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
     run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);

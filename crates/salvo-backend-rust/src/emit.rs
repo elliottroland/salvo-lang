@@ -9610,6 +9610,37 @@ impl<'p> Emitter<'p> {
     /// Owned rendering [rs-borrows]: reference-bound identifiers and
     /// field/index reads of non-Copy types clone; owned locals move;
     /// constructed values pass through.
+    /// [assert-trap] The trap a failed assertion performs: a panic whose text is
+    /// *Salvo's* — `salvo: <what> at <file>:<line>:<col>`, the Salvo source
+    /// rather than the generated line, identical to the Kotlin backend's
+    /// [kt-assert-trap]. A written message replaces `<what>` and is composed
+    /// inside the panic, so it is evaluated only on failure.
+    fn trap_call(&mut self, what: &str, message: Option<&Expr>, span: Span) -> String {
+        let at = self.salvo_location(span);
+        match message {
+            Some(m) => {
+                let text = self.emit_expr(m);
+                format!("panic!(\"salvo: {{}} at {at}\", {text})")
+            }
+            None => format!("panic!(\"salvo: {what} at {at}\")"),
+        }
+    }
+
+    /// The Salvo location of a span, for a trap message [assert-trap]:
+    /// `<module>:<line>:<col>`.
+    ///
+    /// The **module path**, not the file name: a file's display name depends on
+    /// how it was loaded (the CLI names an embedded std file `std/core/list.sv`,
+    /// a directory walk names the same file `core/list.sv`), and a location that
+    /// varies by loader would make the emitted output depend on who generated
+    /// it. A module path is the language's own identity for a file and is the
+    /// same either way.
+    fn salvo_location(&self, span: Span) -> String {
+        let file = &self.program.files[self.file_idx];
+        let (line, col) = salvo_syntax::span::line_col(&file.content, span.start);
+        format!("{}:{line}:{col}", file.module)
+    }
+
     fn emit_owned(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Ident(id) => {
@@ -10191,7 +10222,14 @@ impl<'p> Emitter<'p> {
                     operand.as_ref(),
                     Expr::Ident(id) if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef))
                 ) || self.is_optional_derived_call(operand);
-                let code = format!("{}.unwrap()", self.emit_owned(operand));
+                // [assert-trap] [rs-assert-trap] The trap is Salvo's, not
+                // `unwrap`'s: the message names the Salvo source and reads the
+                // same on both backends (user decision 2026-09-23, A-2).
+                let code = format!(
+                    "{}.expect(\"salvo: value is absent at {}\")",
+                    self.emit_owned(operand),
+                    self.salvo_location(*span)
+                );
                 if opt_borrow {
                     let stays_ref = self.ty_of(*span).is_some_and(|t| t.is_proj());
                     let copy = self.ty_of(*span).is_some_and(|t| Self::is_copy_ty(t));
@@ -10205,6 +10243,20 @@ impl<'p> Emitter<'p> {
                 } else {
                     code
                 }
+            }
+            // [assert-fn] The two assertion forms. `assert!` is a check and a
+            // `()`; `unreachable!` is the trap itself, typed `!`, so it stands
+            // wherever a value is expected.
+            Expr::Assert {
+                cond,
+                message,
+                span,
+            } => {
+                let trap = self.trap_call("assertion failed", message.as_deref(), *span);
+                format!("if !({}) {{ {trap} }}", self.emit_expr(cond))
+            }
+            Expr::Unreachable { message, span } => {
+                self.trap_call("unreachable", message.as_deref(), *span)
             }
             Expr::IncDec {
                 operand,
@@ -14710,6 +14762,18 @@ fn collect_mutated(block: &Block, out: &mut HashSet<String>) {
 
 fn collect_mutated_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        // [assert-fn] A condition or a message may mutate, like any expression.
+        Expr::Assert { cond, message, .. } => {
+            collect_mutated_expr(cond, out);
+            if let Some(m) = message {
+                collect_mutated_expr(m, out);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                collect_mutated_expr(m, out);
+            }
+        }
         // [elvis] Both sides may mutate.
         Expr::Elvis { subject, rhs, .. } => {
             collect_mutated_expr(subject, out);
@@ -14925,6 +14989,17 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut HashSet<String>) {
 
 fn collect_declared_expr(expr: &Expr, out: &mut HashSet<String>) {
     match expr {
+        Expr::Assert { cond, message, .. } => {
+            collect_declared_expr(cond, out);
+            if let Some(m) = message {
+                collect_declared_expr(m, out);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                collect_declared_expr(m, out);
+            }
+        }
         Expr::Elvis { subject, rhs, .. } => {
             collect_declared_expr(subject, out);
             collect_declared_expr(rhs, out);
@@ -15176,6 +15251,10 @@ fn block_terminates(block: &Block) -> bool {
 
 fn expr_terminates(expr: &Expr) -> bool {
     match expr {
+        // [assert-fn] `unreachable!()` panics, so the statement after it is
+        // unreachable — which is what this answers for `return` and `throw`.
+        Expr::Unreachable { .. } => true,
+        Expr::Assert { .. } => false,
         // [elvis] Neither side terminates the block by itself.
         Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => false,
         // [expr-escape] All three leave the block they are written in.

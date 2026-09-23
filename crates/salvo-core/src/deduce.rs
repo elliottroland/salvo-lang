@@ -1016,6 +1016,17 @@ impl<'p> Walk<'_, 'p> {
 
     fn expr(&mut self, e: &Expr) {
         match e {
+            Expr::Assert { cond, message, .. } => {
+                self.expr(cond);
+                if let Some(m) = message {
+                    self.expr(m);
+                }
+            }
+            Expr::Unreachable { message, .. } => {
+                if let Some(m) = message {
+                    self.expr(m);
+                }
+            }
             // [elvis] The picked value leaves through the expression, so the
             // subject is used the way a returned value is; the right side is
             // an ordinary expression.

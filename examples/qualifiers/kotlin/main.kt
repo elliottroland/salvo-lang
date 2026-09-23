@@ -16,7 +16,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 
 fun head(list: List<Int>): Int {
     val first = list.getOrNull(0)
-    return first!!
+    return (first ?: throw AssertionError("salvo: value is absent at main:30:12"))
 }
 
 fun celsius(degrees: Int): Int {

@@ -986,6 +986,19 @@ impl Rewrite {
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. } => self.expr(base),
+            // [assert-fn] Both forms hold ordinary expressions, rewritten like
+            // any others so an `iter fn` body may assert.
+            Expr::Assert { cond, message, .. } => {
+                self.expr(cond);
+                if let Some(m) = message {
+                    self.expr(m);
+                }
+            }
+            Expr::Unreachable { message, .. } => {
+                if let Some(m) = message {
+                    self.expr(m);
+                }
+            }
             Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
                 if let Some(base) = base {
                     self.expr(base);
@@ -1347,6 +1360,17 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. }
             | Expr::Widen { subject: base, .. } => walk_expr(base, reserved, out),
+            Expr::Assert { cond, message, .. } => {
+                walk_expr(cond, reserved, out);
+                if let Some(m) = message {
+                    walk_expr(m, reserved, out);
+                }
+            }
+            Expr::Unreachable { message, .. } => {
+                if let Some(m) = message {
+                    walk_expr(m, reserved, out);
+                }
+            }
             Expr::Index { base, index, .. } => {
                 walk_expr(base, reserved, out);
                 walk_expr(index, reserved, out);

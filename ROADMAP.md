@@ -1091,6 +1091,36 @@ What has to be decided with it, since Salvo's type language is not theirs:
 Sequenced after the refinement work and the open defects (user direction
 2026-09-23).
 
+## Assertions — what is left of the decided design (user decisions 2026-09-23)
+
+The assertions round is decided in full (A-1…A-7, COMPLETED.md's log) and the
+rules are [assert-op], [assert-fn], [assert-narrow] and [assert-trap]. Three
+forms are built — `expr!` with its refusal, `assert!(cond, "why")` with its
+narrowing, `unreachable!("why")` — with one trap text on both backends. Two
+decided slices are **not built**; both are plans now, not questions.
+
+- **A-5: the test harness recovers from a production assertion.** Today a failed
+  `assert!` inside a test kills the harness process and the report says the test
+  `DIED` (which is the MVP's wording) rather than naming the assertion. The fix:
+  the generated harness catches Salvo's own failure per test — an
+  `AssertionError` is catchable on Kotlin, and on Rust a panic needs
+  `catch_unwind` with the caveat that a `panic = "abort"` profile removes it.
+  Worth doing with it: `expect_panics`-style helpers become writable, and the
+  user's note that tests should arguably use `assert!` (for the narrowing) rather
+  than `std.test`'s `expect` — which would make the two vocabularies one.
+- **A-6: the trap policy for the other three failure classes.** Decided:
+  - **Subscript out of range** → trap with *our* message (index and length),
+    replacing the hosts' two different texts. Needs care on the *place* path
+    (`arr[i] = x`), where a block expression cannot stand.
+  - **Division by zero** → trap with our message; both hosts already trap, only
+    the text differs.
+  - **Integer overflow** → **wrapping**, stated in the spec, with `checked_*` /
+    `saturating_*` std functions for the cases that care. This is the JVM's
+    behaviour today and the cheap one on Rust; the alternative costs a check on
+    every arithmetic operation. **It is the only row that changes what existing
+    programs compute**, so it wants its own slice and a parity test: today Kotlin
+    wraps silently while Rust refuses a constant fold and panics in debug.
+
 ## Decisions waiting on the user
 
 Every item here needs a language-design call before it can be built, and the
@@ -1128,10 +1158,12 @@ Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Eleven open**, and **these are next**: the user's direction of 2026-09-23 is
+**Ten open**, and **these are next**: the user's direction of 2026-09-23 is
 to clear them once the refinement work is done, before the variance and
-qualifier-dropping sections above. (**Closed 2026-09-23**: a refinement applied
-inside a branch was lost — the deduction pass suppressed *every*
+qualifier-dropping sections above. (**Closed 2026-09-23**: `!` on a non-optional was
+accepted and lowered to an unwrap — refused at the checker now, as decision A-1
+of the assertions round (COMPLETED.md's log). **Also closed 2026-09-23**: a
+refinement applied inside a branch was lost — the deduction pass suppressed *every*
 re-establishment under a conditional; with [qual-refn-narrow] a refinement that
 merely **keeps** a claim is distinguishable from one that establishes it, and
 only the latter is suppressed. `std.heap`'s sift-down is written naturally
@@ -1234,13 +1266,6 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   still unbound when the group's members resolve and the nearer rung then wins
   [implicit-resolve] [fn-overload-scope]. `total([1, 2, 3])` (an unqualified
   literal) resolves correctly. Emits a call the target compiler rejects.
-
-- **`!` on a non-optional is accepted and emits an unwrap** (found 2026-09-23).
-  `let n = 3; println("${n!}")` checks clean and lowers to `.unwrap()` on an
-  `i32` (rustc E0599). It surfaced because the new constructors made
-  `first(list_of("a", "b"))` non-optional while the source still wrote `!`. The
-  fix is a checker error (or a no-op) for `!` where the operand has no `None`
-  arm.
 
 - **An interpolation-resolved `to_str` from another module is not imported**
   (found 2026-09-23 building the test harness). A file that interpolates a

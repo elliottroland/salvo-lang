@@ -279,6 +279,9 @@ impl<'p> Walk<'_, '_, 'p> {
     /// The parameters a *value* holds borrows of.
     fn lends_of_expr(&mut self, e: &Expr) -> Option<HashSet<usize>> {
         match e {
+            // [assert-fn] An assertion lends nothing: it answers `None` (or
+            // `Never`), and its parts are only read.
+            Expr::Assert { .. } | Expr::Unreachable { .. } => None,
             // [elvis] Neither side lends: the picked value is the optional's
             // own payload, handed out by value.
             Expr::Elvis { .. } | Expr::Placeholder { .. } | Expr::SafeField { .. } => {

@@ -13,7 +13,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).unwrap();
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:153:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {

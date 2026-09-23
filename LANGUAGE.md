@@ -3059,6 +3059,83 @@ A test's **id** is the module a program would import, then the name as written: 
 
 The runner works by writing a Salvo program. It synthesizes a module that calls each test inside its own `try`, compiles it with the rest of the sources exactly as `salvo run` would, and renders what it prints. So the two backends run the same tests the same way, and the report is identical on both — a test suite is not a place where a target language should show through.
 
+## Assertions
+
+Four ways exist to deal with a fact that might not hold, and they are in order of
+preference — the ladder is the point of this section, and assertions are its
+bottom rung:
+
+1. **Prove it.** A qualifier carries the fact in the type, established by
+   construction (`list_of(1, 2, 3)` is `NonEmpty`) or by a refinement, so nothing
+   checks it twice and nothing can fail.
+2. **Require it.** A linear type makes the caller *act* rather than merely know:
+   forgetting is a compile error, not a run-time one.
+3. **Handle it.** `?:` picks a fallback, `is` narrows, `when` covers the cases,
+   `throw`/`try` carries a failure to a delimiter. Use these when the absence is
+   a *case* rather than a bug.
+4. **Assert it.** Last, and only where the fact is true but unprovable here.
+
+An assertion says something the checker cannot prove, and fails if it is wrong.
+Three forms, each carrying a `!` because a bang in Salvo marks a place that can
+fail:
+
+```
+let head = first(xs)!                    // asserts presence
+assert!(n > 0, "n must be positive, was ${n}")
+unreachable!("an Int is negative, zero or positive")
+```
+
+**`expr!` asserts presence** and answers the value without its `None` arms. It
+needs an operand that *can* be absent: `3!` is an error, because it states
+something false. Where a value can legitimately be missing, `?:` and `is None`
+are the answers — the diagnostic says so.
+
+**`assert!(cond)` asserts a condition**, with an optional message, and it also
+**narrows**:
+
+```
+fn describe(value: Int | Str) [Console] -> None {
+    assert!(value is Str, "expected a string, got ${value}")
+    println("len ${size(value)}")       // `value` is a `Str` here
+}
+```
+
+That is what makes it more than a check: the same `is` test that would narrow
+inside an `if` narrows for the rest of the scope, so an assertion buys a fact the
+type system then carries. `assert!(xs is NonEmpty)` makes `first(xs)` answer an
+element.
+
+**`unreachable!()` asserts that a path is not taken.** Its type is `Never`, so it
+stands wherever a value is expected and ends the path, exactly as `throw` and
+`return` do:
+
+```
+return when {
+    n < 0 { "negative" }
+    n == 0 { "zero" }
+    n > 0 { "positive" }
+    else { unreachable!("an Int compares one way or the other") }
+}
+```
+
+The two named forms look like function calls and are not: the message is built
+*only when the assertion fails*, the condition's narrowing reaches the enclosing
+scope, and neither name can be shadowed. `assert` and `unreachable` stay ordinary
+identifiers — only `assert!(` and `unreachable!(` are the forms.
+
+**A failed assertion reports in Salvo's words.** The message names the Salvo
+module, line and column, and reads identically on both backends:
+
+```
+salvo: n must be positive, was 7 at main:5:5
+salvo: value is absent at core.list:153:12
+```
+
+The mechanism underneath is each target's own trap — a panic on Rust, an
+`AssertionError` on the JVM — because neither program is meant to continue.
+**Assertions are always on.** There is no build mode that removes them; a check
+you cannot rely on is not worth writing.
+
 ## Backends
 
 One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an internal representation (in Rust), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between two layers: the `intrinsic` layer, which is the compiler's, and the `platform` layer, which is yours. The core library is entirely intrinsic; everything an application needs from its target language is a platform effect.

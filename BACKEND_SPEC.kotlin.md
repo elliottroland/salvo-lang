@@ -11,6 +11,19 @@ Conventions:
 * New Kotlin-only rules are prefixed `kt-`. Like all rule labels, they are
   referenced from code and tests (`grep -rn '\[kt-qual-mangling\]'`).
 
+## Assertions
+
+* [assert-trap] [kt-assert-trap] A failed assertion throws an
+  **`AssertionError`** whose message is Salvo's: `expr!` lowers to
+  `(x ?: throw AssertionError("salvo: value is absent at <module>:<line>:<col>"))`
+  — not to `!!`, whose text is a bare `NullPointerException` — `assert!(c, m)` to
+  `(if (!(c)) throw AssertionError("salvo: " + (m) + " at …") else Unit)`, and
+  `unreachable!(m)` to the `throw` alone, which types as `Nothing` and so stands
+  wherever a value is expected.
+  * The `!!` that remains is the *implementation's* [kt-narrow-field-assert]: a
+    narrowed field read where Kotlin's smart cast is unavailable, on a value the
+    checker has already proved present. It can never fail, so it needs no message.
+
 ## Output layout
 
 * [kt-package] Each module emits into its own Kotlin package

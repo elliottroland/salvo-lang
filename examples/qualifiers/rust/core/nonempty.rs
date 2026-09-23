@@ -26,17 +26,17 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &SalvoSortedMap<K,
 }
 
 pub fn min<T: Clone>(set: &SalvoSortedSet<T>) -> T {
-    return set.min().cloned().unwrap();
+    return set.min().cloned().expect("salvo: value is absent at core.nonempty:58:12");
 }
 
 pub fn max<T: Clone>(set: &SalvoSortedSet<T>) -> T {
-    return set.max().cloned().unwrap();
+    return set.max().cloned().expect("salvo: value is absent at core.nonempty:62:12");
 }
 
 pub fn first_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
-    return map.first_key().cloned().unwrap();
+    return map.first_key().cloned().expect("salvo: value is absent at core.nonempty:66:12");
 }
 
 pub fn last_key<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> K {
-    return map.last_key().cloned().unwrap();
+    return map.last_key().cloned().expect("salvo: value is absent at core.nonempty:70:12");
 }

@@ -266,6 +266,17 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
 
 fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
     match expr {
+        Expr::Assert { cond, message, .. } => {
+            expr_names(cond, used);
+            if let Some(m) = message {
+                expr_names(m, used);
+            }
+        }
+        Expr::Unreachable { message, .. } => {
+            if let Some(m) = message {
+                expr_names(m, used);
+            }
+        }
         // [elvis] Names used on either side keep their modules reachable.
         Expr::Elvis { subject, rhs, .. } => {
             expr_names(subject, used);

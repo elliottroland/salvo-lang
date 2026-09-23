@@ -55,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1375 tests, complete: the toolchain tests are
+cargo test                  # 1387 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -129,6 +129,55 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Assertions — the design, and the three forms (2026-09-23, user decisions
+A-1…A-7).** The `!` operator had four measured problems: it was accepted on a
+value that could never be absent, and then rustc refused `.unwrap()` while
+kotlinc warned and ran; the same hole existed for a union; and a failed `!`
+reported in the host's words with no Salvo location. The user asked for a design
+rather than a patch, ASSERTIONS.md laid out seven decisions, and all seven were
+taken the same day. The document is deleted per its charter; this is the record.
+
+The calls:
+
+- **A-1**: `!` requires an operand that can be absent — a redundant one is an
+  **error** naming `?:` and `is None`. No message on the operator.
+- **A-2**: a failed assertion is **Salvo's** failure: `salvo: <what> at
+  <module>:<line>:<col>`, identical on both backends, with each host's own trap
+  underneath (panic / `AssertionError`). The `Panic` effect was rejected for the
+  colouring reason that killed the `Test` effect four decisions earlier.
+- **A-3**: both a condition form and a narrowing one — and **spelled with a
+  bang**: `assert!(cond, "why")` and `unreachable!("why")`, "so that the bang
+  always indicates potential failures" (the user's words, and the sharpest part
+  of the design: the three forms now share one mark).
+- **A-4**: always on. No build modes, and Java's `-ea` is the argument.
+- **A-5**: the test harness should recover from a production assertion rather
+  than reporting `DIED` — *decided, not yet built*.
+- **A-6**: the trap policy per failure class — trap with our message for
+  `!`/`assert!`/subscript/division-by-zero, **wrapping** for integer overflow.
+  The `!` and `assert!` rows are built; subscript, division and overflow are
+  *decided, not yet built*.
+- **A-7**: the ladder — prove, require, handle, assert — stated in LANGUAGE.md.
+
+What was built, and what it cost:
+
+- `Expr::Assert` and `Expr::Unreachable` in the AST, parsed as contextual forms
+  (`assert` followed by `!` and `(`), so both names stay ordinary identifiers.
+  **They look like calls and are not**, which the user asked about directly: a
+  function could not compose its message *only on failure*, could not narrow from
+  its condition (that needs the syntactic `is`, not a `Bool`), and could be
+  shadowed or renamed. The call shape is kept because it reads like one.
+- [assert-narrow] reuses `analyze_cond` plus `install_narrows` — the guard
+  idiom's machinery, applied to a straight line instead of a branch — so
+  `assert!(v is Int)` narrows a union and `assert!(xs is NonEmpty)` narrows a
+  qualifier with no new analysis.
+- [assert-trap]'s location is the **module path**, not the file name. The first
+  attempt used the name and made the *emitted output* depend on the loader: the
+  CLI calls an embedded std file `std/core/list.sv` and a directory walk calls it
+  `core/list.sv`, so the golden tests and the checked-in examples disagreed about
+  the trap text. Caught by the examples test, which is what it is for.
+- 12 checker tests (`assert_tests.rs`), and 46 example files regenerated for the
+  new trap text.
 
 **Reporting a claim the body established (2026-09-23, user decision).** The
 user tried to add `NonEmpty` to `push`'s deduction in `std.heap` — `add` makes
@@ -14898,7 +14947,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1375)
+## Test inventory (all green: 1387)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -14906,7 +14955,13 @@ generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
 
-- `salvo-core`: 761 - 4 reported-gain tests (`tests/refine_tests.rs`
+- `salvo-core`: 773 - 12 assertion tests (`tests/assert_tests.rs` [assert-op]
+  [assert-fn] [assert-narrow]: `!` refused on a never-absent value and on a
+  `None`-less union with the alternatives named, `!` on an optional still fine,
+  `assert!` narrowing a union with its control, the optional and interpolating
+  message, a non-`Bool` condition and a non-`Str` message refused,
+  `unreachable!` standing in for a value and ending a path, and both names still
+  ordinary identifiers) + 4 reported-gain tests (`tests/refine_tests.rs`
   [deduce-gained]: a plain entry reporting a claim the body established, the
   caller seeing it, the refusal when nothing establishes it, and a bodiless
   declaration refused outright) + 5 narrowed-refinement tests (`tests/refine_tests.rs`

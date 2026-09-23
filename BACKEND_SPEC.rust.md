@@ -14,6 +14,20 @@ Conventions:
   to *compile*, never silently misbehaves at runtime
   ([backend-never-wrong]).
 
+## Assertions
+
+* [assert-trap] [rs-assert-trap] A failed assertion is a **panic** whose message
+  is Salvo's: `expr!` lowers to
+  `.expect("salvo: value is absent at <module>:<line>:<col>")`, `assert!(c, m)`
+  to `if !(c) { panic!("salvo: {} at …", m) }` and `unreachable!(m)` to the
+  `panic!` alone — which types as `!` and so stands wherever a value is expected.
+  The message composition sits *inside* the panic, so a written message is built
+  only when the assertion fails.
+  * `expect` rather than `unwrap_or_else(|| panic!(…))`: same text, no closure,
+    and `Option::expect` panics with exactly the message given.
+  * The location is the **module path**, not the file name — a file's display
+    name depends on the loader, and emitted output must not.
+
 ## Output layout
 
 * [rs-crate] The output is a single-binary Rust crate compiled straight

@@ -242,7 +242,7 @@ class Breaking : Fragile {
 
     override fun crash() {
         val empty: List<Int> = listOf<Int>()
-        val boom = empty.getOrNull(7)!!
+        val boom = (empty.getOrNull(7) ?: throw AssertionError("salvo: value is absent at main:145:20"))
         (boom).let {}
     }
 }

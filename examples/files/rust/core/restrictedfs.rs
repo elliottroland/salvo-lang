@@ -41,7 +41,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut parts: Vec<String> = vec![];
     let mut j = (kept.len() as i32) - 1;
     while j >= 0 {
-        parts.push(kept.get((j) as i64 as usize).unwrap().clone());
+        parts.push(kept.get((j) as i64 as usize).expect("salvo: value is absent at core.restrictedfs:55:24").clone());
         j = j - 1;
     }
     let mut rel = parts.join(&"/".to_string()[..]);

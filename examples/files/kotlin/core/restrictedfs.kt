@@ -21,7 +21,7 @@ fun fs_resolve(root: String, path: String): String? {
     var skip = 0
     var i = segs.size - 1
     while (i >= 0) {
-        val seg = segs.getOrNull(i)!!
+        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.restrictedfs:32:19"))
         if (seg == "..") {
             skip = skip + 1
         } else {
@@ -42,7 +42,7 @@ fun fs_resolve(root: String, path: String): String? {
     val parts: MutableList<String> = mutableListOf<String>()
     var j = kept.size - 1
     while (j >= 0) {
-        parts.add(kept.getOrNull(j)!!)
+        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at core.restrictedfs:55:24")))
         j = j - 1
     }
     val rel = parts.joinToString("/")

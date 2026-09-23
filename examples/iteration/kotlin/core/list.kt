@@ -15,7 +15,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return list.getOrNull(0)!!
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:153:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

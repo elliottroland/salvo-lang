@@ -273,7 +273,7 @@ fun mem_find_newline(data: salvo.SalvoBytes, from: Int): Int {
     val end = data.size
     var i = from
     while (i < end) {
-        if ((data.getOrNull(i)!!).toInt() == 10) {
+        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.memfs:293:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -313,7 +313,7 @@ fun mem_read_line(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sal
         return null
     }
     val stop = mem_find_newline(bytes, at)
-    val line = bytes.slice(at, stop)!!
+    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:344:16"))
     var next_at = stop
     if (stop < end) {
         next_at = stop + 1
@@ -342,7 +342,7 @@ fun mem_read_all(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Salv
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
     val end = bytes.size
-    val rest = bytes.slice(open.at, end)!!
+    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at core.memfs:375:16"))
     val text = rest.asString()
     if (text == null) {
         reads.put(handle, MemRead(path = path, at = end, failed = true))
@@ -374,7 +374,7 @@ fun mem_read_bytes(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sa
     if (stop > end) {
         stop = end
     }
-    val taken = bytes.slice(open.at, stop)!!
+    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:408:17"))
     reads.put(handle, MemRead(path = path, at = stop, failed = false))
     return U2_1<salvo.SalvoBytes, FsError>(ok(taken))
 }

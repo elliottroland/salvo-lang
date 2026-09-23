@@ -236,6 +236,62 @@ Conventions:
     keep the checker and emitters agreeing on the ident-unwrap predicate.
 * [type-nullable] There is no null value: `T?` is shorthand for
   `T | None`. `x!` asserts non-`None` (panics otherwise).
+* [assert-op] `expr!` asserts that a value is **present** and answers it
+  without its `None` arms. Its operand's type must *have* a `None` arm: on
+  anything else the `!` states something false, and it is an error naming the
+  alternatives (`?:` for a fallback, `is None` for a test). Before the rule
+  (user decision 2026-09-23, ASSERTIONS.md A-1) the two backends disagreed about
+  the leftover — rustc refused `.unwrap()` on an `i32` while kotlinc accepted
+  `!!` with a warning and ran, which is [backend-never-wrong] broken at the
+  checker's expense. `Ty::Unknown` passes through [type-unknown-lenient].
+  * A union with no `None` arm is the same mistake, since `!` removes `None`
+    arms and there are none.
+  * The rule makes a `!` that *becomes* provable a build error rather than dead
+    code — which happens whenever the checker learns to prove more
+    ([col-of-nonempty] and [deduce-gained] each did it in one day). That cost is
+    accepted deliberately: a `!` whose operand cannot be absent is a statement
+    that is false, not merely unused.
+* [assert-fn] Two compiler-owned forms, spelled with a `!` because a bang in
+  Salvo marks a place that can fail (user decision 2026-09-23, A-3):
+  `assert!(cond)` / `assert!(cond, "why")`, and `unreachable!()` /
+  `unreachable!("why")`.
+  * `assert!` has type `None` and continues when the condition holds;
+    `unreachable!` has type **`Never`**, so it stands where any value is
+    expected and ends the path exactly as `throw` and `return` do
+    [expr-escape] [fn-must-return].
+  * The condition is a `Bool` [cond-bool] and the message a `Str`.
+  * **Contextual**: `assert` and `unreachable` stay ordinary identifiers, and
+    only `assert!(` / `unreachable!(` are the forms.
+  * **Why not library functions**, which is what a reader expects from the call
+    syntax: a function could not do any of the three things these do — the
+    message is composed *only on failure* (an argument would be built on every
+    success, interpolation and all), the condition's narrowing reaches the
+    enclosing scope ([assert-narrow], which needs the *syntactic* test, not a
+    `Bool` value), and neither name can be shadowed or renamed. The call shape is
+    kept because it reads like one; the semantics are the compiler's.
+* [assert-narrow] When an `assert!`'s condition is a narrowing test — `is` on a
+  type, a qualifier or a union arm, or their `&&` chains — the **then-narrows are
+  installed permanently** for the rest of the scope, exactly as the guard idiom
+  installs its else-narrows [is-narrow-guard]. So `assert!(v is Int)` makes `v`
+  an `Int` below, and `assert!(xs is NonEmpty)` makes `first(xs)` answer an
+  element [col-nonempty]. This is what the form is *for*: an assertion that
+  informs the type rather than merely checking.
+* [assert-trap] A failed assertion is **Salvo's** failure, not the host's: the
+  text is `salvo: <what> at <module>:<line>:<col>`, identical on both backends
+  (user decision 2026-09-23, A-2), where `<what>` is the written message when
+  there is one and `value is absent` / `assertion failed` / `unreachable`
+  otherwise.
+  * The **location is the module path**, not the file's display name: a name
+    depends on how the file was loaded (`std/core/list.sv` from the embedded
+    library, `core/list.sv` from a directory walk), and emitted output must not
+    depend on the loader.
+  * The **mechanism stays each host's own trap** — a panic on Rust
+    [rs-assert-trap], an `AssertionError` on Kotlin [kt-assert-trap] — since
+    neither program is meant to continue. Only the text is the language's.
+  * **Always on, in every build** (user decision 2026-09-23, A-4). Salvo has no
+    build modes, and every language surveyed that made assertions optional
+    (Java's `-ea`, Kotlin's inherited `assert`) ended up with a vocabulary nobody
+    trusts.
 * [elvis] `subject ?: rhs` **picks the non-`None` arms** of its subject (user
   decision 2026-09-21, step 4 of the `?` family sequence): the expression is
   that value when the subject has one, and `rhs` otherwise. Reserved for `T?` —

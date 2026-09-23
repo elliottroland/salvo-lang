@@ -309,7 +309,7 @@ class ManualTime : Timer, TimerCtl {
             var __is1 = earliest_due(deadlines, target)
             if (!(__is1 != null)) break
             val at = __is1 as Int
-            val deadline = deadlines.getOrNull(at)!!
+            val deadline = (deadlines.getOrNull(at) ?: throw AssertionError("salvo: value is absent at time:480:33"))
             (deadlines).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             now = deadline
             var __is2 = (pending).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
@@ -365,7 +365,7 @@ fun earliest_due(deadlines: List<Long>, target: Long): Int? {
     var best_at = 0L
     var i = 0
     while (i < deadlines.size) {
-        val at = deadlines.getOrNull(i)!!
+        val at = (deadlines.getOrNull(i) ?: throw AssertionError("salvo: value is absent at time:504:23"))
         if (at <= target && (best < 0 || at < best_at)) {
             best = i
             best_at = at
