@@ -27,12 +27,12 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool> canbe Mut\n",
+    "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
     // [cmp-groups] The capability functions the containers' slots default to.
     "export intrinsic fn hash(value: Int) [] -> Long => value\n",
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic type Map<K, V, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut\n",
+    "export intrinsic type Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut\n",
     "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
     "export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>\n",
     "export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>\n",
@@ -271,8 +271,8 @@ const LIT_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool> canbe Mut\n",
-    "export intrinsic type Map<K, V, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut\n",
+    "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
+    "export intrinsic type Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut\n",
     "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
@@ -457,7 +457,7 @@ fn equality_ignores_qualifiers() {
     let msgs = lit_messages(
         "qualifier Tagged of Point\n\n\
          struct Point : auto Eq<self> {\n    x: Int,\n    y: Int\n}\n\n\
-         fn tagged(p: Point) -> Point as Tagged {\n    return p\n}\n\n\
+         fn tagged(p: Point) -> +Tagged Point {\n    return p\n}\n\n\
          fn probe(a: Point, b: Point) -> Bool => !a, b {\n    \
          let t = tagged(a)\n    return t == b\n}\n",
     );
@@ -659,10 +659,10 @@ const SORTED_PRELUDE: &str = concat!(
     "export intrinsic type Double\n",
     "export intrinsic type Str canbe Mut\n",
     "export intrinsic type List<T> canbe Mut\n",
-    "export intrinsic type Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool> canbe Mut\n",
-    "export intrinsic type Map<K, V, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut\n",
-    "export intrinsic type SortedSet<T, ?cmp: (T, T) -> Int> canbe Mut\n",
-    "export intrinsic type SortedMap<K, V, ?cmp: (K, K) -> Int> canbe Mut\n",
+    "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
+    "export intrinsic type Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut\n",
+    "export intrinsic type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut\n",
+    "export intrinsic type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut\n",
     "export params Ordered<T> {\n    fn cmp(a: T, b: T) -> Int\n}\n",
     "export params Eq<T> {\n    fn eq(a: T, b: T) -> Bool\n}\n",
     "export params Hashed<T> {\n    fn hash(value: T) -> Long\n    fn eq(a: T, b: T) -> Bool\n}\n",
@@ -780,8 +780,8 @@ fn the_generated_constructors_and_converters_type_correctly() {
         "export intrinsic type Int\n",
         "export intrinsic type Str canbe Mut\n",
         "export intrinsic type List<T> canbe Mut\n",
-        "export intrinsic type Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool> canbe Mut\n",
-        "export intrinsic type Map<K, V, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut\n",
+        "export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut\n",
+        "export intrinsic type Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut\n",
         "export intrinsic fn size<T>(set: Set<T>) [] -> Int => set\n",
         "export intrinsic fn size<K, V>(map: Map<K, V>) [] -> Int => map\n",
         "export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n",
@@ -953,7 +953,7 @@ fn a_signature_may_omit_a_containers_identity() {
 fn a_keyed_container_may_name_its_ordering() {
     let msgs = sorted_messages(
         "fn by_size(a: Int, b: Int) -> Int => a, b {\n    return 0\n}\n\n\
-         fn probe(s: SortedSet<Int, by_size>) -> Int => s {\n    return size(s)\n}\n",
+         fn probe(s: SortedSet<Int>(by_size)) -> Int => s {\n    return size(s)\n}\n",
     );
     assert!(msgs.is_empty(), "expected no errors, got: {msgs:?}");
 }
@@ -964,7 +964,7 @@ fn a_keyed_container_may_name_its_ordering() {
 fn a_container_identity_must_fit_its_slot() {
     let msgs = sorted_messages(
         "fn wrong(a: Int) -> Int => a {\n    return a\n}\n\n\
-         fn probe(s: SortedSet<Int, wrong>) -> Int => s {\n    return size(s)\n}\n",
+         fn probe(s: SortedSet<Int>(wrong)) -> Int => s {\n    return size(s)\n}\n",
     );
     assert!(
         msgs.iter().any(|m| m.contains("does not fit the `cmp` slot")),

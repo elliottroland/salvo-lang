@@ -73,7 +73,7 @@ pub enum TokenKind {
     KwTrue,
     KwFalse,
     /// [obligation-spelling] `proj` — the borrow obligation, in type
-    /// positions and deduction entries (`proj[from: p]`).
+    /// positions and deduction entries (`proj(p)`).
     KwProj,
     /// [obligation-spelling] `once` — the at-most-once obligation.
     KwOnce,

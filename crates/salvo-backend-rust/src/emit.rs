@@ -1147,7 +1147,7 @@ struct Emitter<'p> {
     loop_optional: HashMap<String, bool>,
     loop_id: usize,
     destructure_id: usize,
-    /// The current fn has a derived return (`proj[from: ...]`
+    /// The current fn has a derived return (`proj(...)`
     /// [readonly-return]): `return` values render as borrows.
     derived_return_fn: bool,
     /// [rs-proj-lends] Parameter names that an implicit's *lent* position
@@ -1165,7 +1165,7 @@ struct Emitter<'p> {
     /// generic exception below applies: at a definition site `proj T` renders
     /// `T`, because whether the instantiation is borrowed is the caller's
     /// fact. A `NonEmpty` accessor overload (`first(l: NonEmpty List<T>) ->
-    /// proj[from: l] T`) is the case that needs the distinction — it returns
+    /// proj(l) T`) is the case that needs the distinction — it returns
     /// the borrow, not an instantiation-dependent `T`.
     proj_return: bool,
     /// [rs-proj-arm] Locals whose union storage has *borrowed* arms: bound
@@ -4579,7 +4579,7 @@ impl<'p> Emitter<'p> {
                 extra_lifetimes.push("'c".to_string());
             }
         }
-        // [proj-field] Re-pointing entries (`v.items: proj[from: other]`):
+        // [proj-field] Re-pointing entries (`v.items: proj(other)`):
         // the borrowing struct at `v` takes a borrow of `other`, so the two
         // share a named lifetime — `v: &mut View<'r>`, `other: &'r T`.
         if let Some(list) = &f.deductions {
@@ -4685,7 +4685,7 @@ impl<'p> Emitter<'p> {
             } else if ref_param_count > 1 {
                 lifetime_generics = "'a".to_string();
                 // Retag every source parameter's type with 'a
-                // (`proj[from: a, b]` names several) [proj-anywhere].
+                // (`proj(a, b)` names several) [proj-anywhere].
                 let sources: Vec<usize> = f
                     .return_type
                     .as_ref()
@@ -4754,7 +4754,7 @@ impl<'p> Emitter<'p> {
                 }
                 other => {
                     self.error(format!(
-                        "`proj[from: ...]` returns support only plain, optional, \
+                        "`proj(...)` returns support only plain, optional, \
                          struct-borrow and union shapes, not `{other:?}`"
                     ));
                     self.emit_return_type(f.return_type.as_ref())
@@ -5316,7 +5316,7 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        // [cmp-carry] A written **identity** (`SortedSet<Person, by_age>`) is not
+        // [cmp-carry] A written **identity** (`SortedSet<Person>(by_age)`) is not
         // a type and has no rendering: the ordering is carried by the container's
         // store, so the emitted type mentions only the element. Recognised by
         // shape — a binder, a selector, or a bare lowercase name, since
@@ -5813,7 +5813,7 @@ impl<'p> Emitter<'p> {
     ///
     /// The conventions can differ because they are computed from *types*, and
     /// the two fns may be generic to different degrees: a
-    /// `drain(heap: Heap<Int, ?cmp> …)` holds `&mut dyn FnMut(i32, i32) -> i32`
+    /// `drain(heap: Heap<Int>(?cmp) …)` holds `&mut dyn FnMut(i32, i32) -> i32`
     /// (a Copy scalar goes by value) while the generic `heap_pop<T>` it calls
     /// wants `FnMut(&T, &T)` (a type variable is never known to be Copy). The
     /// checker sees one capability and is right to; the rendering is where they
@@ -6504,7 +6504,7 @@ impl<'p> Emitter<'p> {
             // projection — is that same borrow, so it forwards too. The
             // ordinary `NonNull` path already renders it as `&T` (it asks
             // `is_optional_derived_call`), which is exactly what a
-            // `proj[from: p]` return wants; without this arm the value
+            // `proj(p)` return wants; without this arm the value
             // reached `borrow_place`, which knows only places, and a legal
             // program was refused. This is how a `NonEmpty` accessor
             // overload returns a non-optional projection.
@@ -6527,7 +6527,7 @@ impl<'p> Emitter<'p> {
                 };
             }
             self.error(format!(
-                "a `proj[from: ...]` return value must be a projection or \
+                "a `proj(...)` return value must be a projection or \
                  alias of the annotated parameter (got `{v:?}`)"
             ));
         }
@@ -14925,6 +14925,7 @@ fn subst_ast_type(ty: &Type, map: &HashMap<&str, &Type>) -> Type {
             Type::Named {
                 qualifiers: qualifiers.clone(),
                 base: TypeRef {
+                    value_args: Vec::new(),
                     at: None,
                     binder: false,
                     alias: None,

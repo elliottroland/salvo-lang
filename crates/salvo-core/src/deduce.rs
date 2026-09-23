@@ -62,7 +62,7 @@ pub struct ParamDeduction {
     /// What a call does to the *argument's* known qualifiers. Only
     /// meaningful when `kept`.
     pub effect: QualEffect,
-    /// [proj-infer] A `proj[from: p]` entry names this parameter: the
+    /// [proj-infer] A `proj(p)` entry names this parameter: the
     /// result holds a borrow of it. Only ever `true` from a written clause.
     pub lent: bool,
     /// [deduce-syntax] The entry was *written* (`=> p …`), as opposed to
@@ -419,7 +419,7 @@ pub(crate) fn from_written(
             }
         }
     }
-    // [proj-infer] The parameters some `proj[from: …]` entry names.
+    // [proj-infer] The parameters some `proj(…)` entry names.
     let lent_names: HashSet<&str> = list
         .iter()
         .filter_map(|d| d.proj_sources())
@@ -513,7 +513,7 @@ pub(crate) fn from_written(
                 DeductionKind::Exhaustive { quals, reapplied } => {
                     let mut keep = Vec::new();
                     // [deduce-reapply] A re-applied entry may carry the
-                    // qualifier's arguments (`+Heap<T, ?cmp>`), which is the
+                    // qualifier's arguments (`+Heap<T>(?cmp)`), which is the
                     // point of the spelling: it names the claim it establishes.
                     // A plain entry may not — there the identity travels with
                     // the type and restating it would be a second source of
@@ -1188,7 +1188,7 @@ impl<'p> Walk<'_, 'p> {
             // [expr-escape] Returning or breaking with a value **moves** it
             // (2026-09-21: the same rule, now reached as an expression).
             Expr::Return { value: Some(v), .. } => {
-                // [readonly-return] A fn returning `proj[from: p, …] T` hands
+                // [readonly-return] A fn returning `proj(p, …) T` hands
                 // its result out *borrowed*: returning a source (or a
                 // projection of one) keeps it. Everything else returned is
                 // moved.

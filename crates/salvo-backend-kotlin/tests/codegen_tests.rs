@@ -376,7 +376,7 @@ fn union_wrap_requires_matching_arm() {
 export qualifier Ok<T> of T
 export qualifier Err<T> of T
 
-export fn err<T>(value: T) -> T as Err {
+export fn err<T>(value: T) -> +Err T {
     return value
 }
 
@@ -1427,7 +1427,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1638,7 +1638,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -1777,7 +1777,7 @@ fn constructor_must_live_with_its_qualifier() {
         ("quals.sv", "export qualifier Fancy of Int\n"),
         (
             "other.sv",
-            "import quals.Fancy\n\nfn make() -> Int as Fancy {\n    return 1\n}\n",
+            "import quals.Fancy\n\nfn make() -> +Fancy Int {\n    return 1\n}\n",
         ),
     ]);
     let errors = salvo_backend_kotlin::emit_program(&program)
@@ -1804,7 +1804,7 @@ export qualifier Positive of Int {
     }
 }
 
-export fn make() -> Int as Positive {
+export fn make() -> +Positive Int {
     return 1
 }
 
@@ -1846,7 +1846,7 @@ export fn main() [use] -> None {
 // [qual-ctor-simple]
 #[test]
 fn constructor_return_type_must_be_simple() {
-    let src = "export qualifier Fancy of Int\n\nexport fn make() -> (Int | Str) as Fancy {\n    return 1\n}\n";
+    let src = "export qualifier Fancy of Int\n\nexport fn make() -> +Fancy (Int | Str) {\n    return 1\n}\n";
     let errors = expect_errors(src);
     assert!(
         errors
@@ -2479,19 +2479,19 @@ fn kotlinc_compiles_and_runs_a_heap() -> KotlinCase {
     let src = r#"
 // [cmp-carry] A binary heap in **user space**: a claim on an ordinary list,
 // carrying the ordering it is kept by, with mutators that keep the claim.
-export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
+export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty
 
-export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<T, ?cmp> {
+export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
 // [deduce-reapply] **Establishing** the claim rather than keeping one: `list`
-// arrives an ordinary list and leaves a `Heap<T, ?cmp>`, which a function in the
+// arrives an ordinary list and leaves a `Heap<T>(?cmp)`, which a function in the
 // qualifier's own file may say about a parameter. The ordering it establishes the
 // claim *under* is the one the call resolved, so the caller's heap is ordered by
 // what it asked for.
 export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) [] -> None
-=> list: +Heap<T, ?cmp> Mut {
+=> list: +Heap<T>(?cmp) Mut {
     let i = size(list) / 2
     while i > 0 {
         i -= 1
@@ -2516,8 +2516,8 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) [] -> None
 
 // [deduce-reapply] `add` strips the claim — a mutating callee must — and this
 // function is the one that knows the sift puts it back.
-export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
-=> heap: +Heap<T, ?cmp> Mut, !elem {
+export fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) [] -> None
+=> heap: +Heap<T>(?cmp) Mut, !elem {
     add(heap, elem)
     let i = size(heap) - 1
     while i > 0 {
@@ -2530,16 +2530,16 @@ export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> None
     }
 }
 
-export fn heap_pop<T>(heap: Heap<T, ?cmp> Mut List<T>) [] -> T?
-=> heap: +Heap<T, ?cmp> Mut {
+export fn heap_pop<T>(heap: Heap<T>(?cmp) Mut List<T>) [] -> T?
+=> heap: +Heap<T>(?cmp) Mut {
     if heap !is NonEmpty {
         return None
     }
     return heap_pop(heap)
 }
 
-export fn heap_pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) [] -> T
-=> heap: +Heap<T, ?cmp> Mut {
+export fn heap_pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) [] -> T
+=> heap: +Heap<T>(?cmp) Mut {
     let last = size(heap) - 1
     heap.swap(0, last)
     let least = heap.remove_at(last)!
@@ -2568,8 +2568,8 @@ fn by_last_digit(a: Int, b: Int) [] -> Int => a, b {
 
 // The binder again, on a concrete element type: this drains *either* heap
 // below, each in the ordering its own type carries [cmp-binder].
-fn drain_heap(heap: Heap<Int, ?cmp> Mut List<Int>) [Console] -> None
-=> heap: +Heap<Int, ?cmp> Mut {
+fn drain_heap(heap: Heap<Int>(?cmp) Mut List<Int>) [Console] -> None
+=> heap: +Heap<Int>(?cmp) Mut {
     let out = mut_str()
     while heap_pop(heap) is Int n {
         append(out, "${n} ")
@@ -3035,7 +3035,7 @@ fn kotlinc_compiles_and_runs_a_carried_ordering() -> KotlinCase {
     let src = r#"
 // The claim a ranked list carries: the ordering it is ranked by, named in the
 // qualifier's own **fn slot**.
-qualifier Ranked<T, ?cmp: (T, T) -> Int> of List<T>
+qualifier Ranked<T>(?cmp: (T, T) -> Int) of List<T>
 
 struct Person { name: Str, age: Int }
 
@@ -3051,7 +3051,7 @@ fn by_name(a: Person, b: Person) [] -> Int => a, b {
 
 // [cmp-binder] Here the binder is an implicit parameter the fn declares, so
 // resolution fills it and the result type publishes what it chose.
-fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<T, ?cmp> {
+fn empty_ranked<T>(?cmp: (T, T) -> Int) -> +Ranked<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
@@ -3059,14 +3059,14 @@ fn empty_ranked<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Ranked<T, ?cmp> {
 // written but `?cmp`, and the slot it fills states its type. The claim is
 // re-minted on the way out, which is what a constructor fn may do today —
 // keeping it across a `Mut` parameter is ROADMAP's D2.
-fn rank_add<T>(r: Ranked<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Ranked<T, ?cmp> => !r, !elem {
+fn rank_add<T>(r: Ranked<T>(?cmp) Mut List<T>, elem: T) -> +Ranked<T>(?cmp) Mut List<T> => !r, !elem {
     add(r, elem)
     return r
 }
 
 // One body, two answers: it compares with whatever ordering its argument was
 // built with.
-fn least_index<T>(r: Ranked<T, ?cmp> List<T>) -> Int => r {
+fn least_index<T>(r: Ranked<T>(?cmp) List<T>) -> Int => r {
     let best = 0
     let i = 1
     while i < size(r) {
@@ -3144,7 +3144,7 @@ fn main() [use] {
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24}
     )
-    let byage: SortedSet<Person, by_age> = sorted_set_of(
+    let byage: SortedSet<Person>(by_age) = sorted_set_of(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24}
@@ -3155,7 +3155,7 @@ fn main() [use] {
     // `cmp`-distinct membership: a second 24-year-old is the same member under
     // `by_age`, and its own member under the canonical ordering.
     let twin = Person {name: "Eve", age: 24}
-    let grown_age: Mut SortedSet<Person, by_age> = mut_sorted_set_of()
+    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of()
     let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
     add(grown_age, Person {name: "Bob", age: 24})
     add(grown_name, Person {name: "Bob", age: 24})
@@ -3202,7 +3202,7 @@ fn tally<T>(s: Set<T>) -> Int => s {
 fn main() [use] {
     use StdOutConsole()
     let all: Mut Set<Person> = mut_set_of()
-    let byage: Mut Set<Person, age_hash, same_age> = mut_set_of()
+    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of()
     let bob = Person {name: "Bob", age: 24}
     add(all, copy(bob))
     add(byage, bob)
@@ -3977,7 +3977,7 @@ fn main() [use] -> None {
 const MANGLED_ALIAS_LIB: &str = r#"
 export qualifier Loud of Str
 
-export fn loud(s: Str) -> Str as Loud {
+export fn loud(s: Str) -> +Loud Str {
     return s
 }
 
@@ -4571,7 +4571,7 @@ struct Person {
     age: Int
 }
 
-fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {
+fn find_adult(persons: List<Person>) -> proj(persons) Person? => persons {
     for person in persons {
         if person.age >= 18 {
             return person
@@ -4580,7 +4580,7 @@ fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {
     return None
 }
 
-fn head_of(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => persons, tag {
+fn head_of(persons: List<Person>, tag: Str) -> proj(persons) Person? => persons, tag {
     return first(persons)
 }
 
@@ -4767,7 +4767,7 @@ fn when_field_subject_is_rejected() {
     let src = r#"
 export qualifier Ok<T> of T
 
-export fn ok<T>(value: T) -> T as Ok {
+export fn ok<T>(value: T) -> +Ok T {
     return value
 }
 
@@ -6402,11 +6402,11 @@ qualifier Err<T> of T
 
 type Result = Ok Int | Err Str
 
-fn tag_ok<T>(value: T) -> T as Ok {
+fn tag_ok<T>(value: T) -> +Ok T {
     return value
 }
 
-fn tag_err<T>(value: T) -> T as Err {
+fn tag_err<T>(value: T) -> +Err T {
     return value
 }
 
@@ -6706,7 +6706,7 @@ struct Environment.Name {
 
 qualifier Environment.Tag of Str
 
-fn tag(value: Str) -> Str as Environment.Tag {
+fn tag(value: Str) -> +Environment.Tag Str {
     return value
 }
 
@@ -6804,7 +6804,7 @@ struct Environment {
 
 qualifier Environment.Tag of Str
 
-fn tag(v: Str) -> Str as Environment.Tag {
+fn tag(v: Str) -> +Environment.Tag Str {
     return v
 }
 
@@ -6867,11 +6867,11 @@ const QUAL_SUBJECTS: &str = r#"
 qualifier Checked of List<Int>
 provenance qualifier Trusted of List<Int>
 
-fn check(l: Mut List<Int>) -> Mut List<Int> as Checked {
+fn check(l: Mut List<Int>) -> +Checked Mut List<Int> {
     return l
 }
 
-fn trust(l: Mut List<Int>) -> Mut List<Int> as Trusted {
+fn trust(l: Mut List<Int>) -> +Trusted Mut List<Int> {
     return l
 }
 
@@ -8836,7 +8836,7 @@ fn slice<T>(items: List<T>) -> Mut Slice<T> => items {
     return Mut Slice<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut Slice<T>) -> Emitted (proj[from: p] T) | Finished => p: Mut {
+fn next<T>(p: Mut Slice<T>) -> Emitted (proj(p) T) | Finished => p: Mut {
     let e = get(p.items, p.at)
     if e is None {
         return finished()
@@ -9158,7 +9158,7 @@ fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj[from: c] => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj(c) => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -9345,14 +9345,14 @@ fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
 /// that emits borrowed elements. The generated pass **borrows** its subject
 /// (`__subject: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
-/// generic subjects on the Kotlin backend [kt-copy]. `proj[from: b]` in the
+/// generic subjects on the Kotlin backend [kt-copy]. `proj(b)` in the
 /// written return names the subject; the desugar redirects it to the pass.
 const GENERIC_ITER_FN_DEMO: &str = r#"
 struct Box<T> {
     items: List<T>
 }
 
-iter fn next<T>(b: Box<T>) -> Emitted (proj[from: b] T) | Finished {
+iter fn next<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
     state {
         at: Int = 0
     }
@@ -9386,8 +9386,8 @@ fn kotlinc_compiles_and_runs_a_generic_subject_iter_fn() -> KotlinCase {
 }
 
 /// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
-/// end: a wholesale `proj[from: a, b]` joined across branches, and a
-/// re-pointing entry `v.items: proj[from: other]` that makes a view borrow a
+/// end: a wholesale `proj(a, b)` joined across branches, and a
+/// re-pointing entry `v.items: proj(other)` that makes a view borrow a
 /// different list — Rust ties the struct's lifetime to the new source.
 const DEDUCTION_CLAUSE_DEMO: &str = r#"
 struct View canbe Mut {
@@ -9399,12 +9399,12 @@ fn view(items: List<Int>) -> Mut View {
     return Mut View { items: items, at: 0 }
 }
 
-fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: proj[from: other] {
+fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: proj(other) {
     v.items = other
     v.at = 0
 }
 
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> {
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
     if flag {
         return a
     }

@@ -175,8 +175,8 @@ fn an_exported_iter_fn_exports_its_pass_type() {
                state {\n        at: Int = c.from\n    }\n    \
                if at <= 0 {\n        return finished()\n    }\n    \
                at = at - 1\n    return emitted(at)\n}\n\n\
-               export fn emitted<T>(v: T) [] -> T as Emitted => v {\n    return v\n}\n\
-               export fn finished() [] -> None as Finished {\n    return None\n}\n";
+               export fn emitted<T>(v: T) [] -> +Emitted T => v {\n    return v\n}\n\
+               export fn finished() [] -> +Finished None {\n    return None\n}\n";
     let user = "import lib.Countdown\nimport lib.iter\n\n\
                 fn total() [] -> Int {\n    let sum = 0\n    \
                 let c = Countdown {from: 3}\n    \

@@ -32,7 +32,7 @@ export intrinsic type List<T canbe linear> canbe Mut
 export intrinsic fn mut_list_of<T canbe linear>(...elems: T[]) [] -> Mut List<T>
 export intrinsic fn add<T canbe linear>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem
 export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
-export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
+export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each

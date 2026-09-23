@@ -20,14 +20,14 @@
 // have been fine.
 //
 // The ordering used is the key's **canonical** one. Parameterizing these types
-// by an ordering (`SortedSet<T, ?cmp = cmp>`, so two differently ordered sets
+// by an ordering (`SortedSet<T>(?cmp = cmp)`, so two differently ordered sets
 // are different types) is designed and not built — see ROADMAP.md.
 //
 // Strings order by **code point** on both backends, which the Kotlin side
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit
 // order) [kt-ordered].
 
-export intrinsic type SortedSet<T, ?cmp: (T, T) -> Int> canbe Mut
+export intrinsic type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
@@ -69,7 +69,7 @@ export fn iter<T>(set: SortedSet<T>) [] -> Mut SetYield<T> => set {
     return Mut SetYield<T> { items: to_list(set), at: 0 }
 }
 
-export intrinsic type SortedMap<K, V, ?cmp: (K, K) -> Int> canbe Mut
+export intrinsic type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut
 
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
@@ -81,7 +81,7 @@ export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Sort
 
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].
-export intrinsic fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj[from: map] V)?
+export intrinsic fn get<K, V>(map: SortedMap<K, V>, key: K) [] -> (proj(map) V)?
 => map, key
 
 // Stores [value] under [key], replacing any value already there.

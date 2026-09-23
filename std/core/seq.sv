@@ -37,7 +37,7 @@ export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U
 // written lend [proj-infer]: a generic body cannot show the analysis that an
 // element of an opaque pass is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
-export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj[from: it], keep {
+export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> => it: Mut, proj(it), keep {
     let out = mut_list_of<proj T>()
     for x in it {
         if keep(x) {
@@ -62,7 +62,7 @@ export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Yield<It, T>) [
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List` [fn-overload-rank].
 export intrinsic fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f
-export intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> => list, proj[from: list], keep
+export intrinsic fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> => list, proj(list), keep
 export intrinsic fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init
 
 // ===== mapping into a collection you provide [seq-into] =====

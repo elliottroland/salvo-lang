@@ -402,7 +402,7 @@ let smallest = min(names)          // and max, first_key, last_key on a map
 
 They are separate types rather than a qualifier on `Set`/`Map`, because sortedness changes how a collection behaves and a qualifier could be dropped on the way into a function that relied on it. Their keys have to be **orderable** rather than hashable, which is a slightly different bar: a union can be hashed but not ordered, since comparing values of different types has no obvious meaning. Strings order by code point, the same reading Salvo takes everywhere else. **What counts as one member** is named per container, and the two answers differ. A `Set` and a `Map` are **`eq`-distinct**: they bucket by `hash` and confirm the bucket hit by `eq`, which is why those two travel together. A `SortedSet` and a `SortedMap` are **`cmp`-distinct** — two keys are one member when `cmp(a, b) == 0`, and equality plays no part. That is not a shortcut: it is what both target platforms do, and it is the only rule a sorted container can implement. So a set sorted by age keeps one person per age, by definition; if you want "same rank" and "same person" in one program, hold both containers.
 
-The four keyed containers name the ordering or the hash they keep their keys by — `SortedSet<T, ?cmp>`, `Set<T, ?hash, ?eq>` — and a slot nobody writes is resolved by its own name, the way an implicit parameter already is, so `Set<Str>` means what it always did. Naming a *different* one is accepted by the language and not yet by either runtime: a keyed container has to carry the function at run time, and neither host's container has a slot for one, so that is refused with a message saying so rather than compiled into something that ignores it.
+The four keyed containers name the ordering or the hash they keep their keys by — `SortedSet<T>(?cmp)`, `Set<T>(?hash, ?eq)` — and a slot nobody writes is resolved by its own name, the way an implicit parameter already is, so `Set<Str>` means what it always did. Naming a *different* one is accepted by the language and not yet by either runtime: a keyed container has to carry the function at run time, and neither host's container has a slot for one, so that is refused with a message saying so rather than compiled into something that ignores it.
 
 Sets and maps **iterate in insertion order**, on every backend. A `Map` iterates its *keys*, and a value is reached with `get`:
 
@@ -456,7 +456,7 @@ That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a fu
 `Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
 
 ```
-let ordered = sort(list_of(40, 10, 30))     // a Sorted<Int, cmp> List<Int>
+let ordered = sort(list_of(40, 10, 30))     // a Sorted<Int>(cmp) List<Int>
 let at = binary_search(ordered, 30)         // honest only because it is Sorted
 
 let live: Mut Sorted List<Int> = mut_sort(list_of(10, 30))
@@ -470,7 +470,7 @@ The claim **names the ordering it was sorted by**, the way any structure that ho
 ```
 fn by_len(a: Str, b: Str) -> Int { return cmp(size(a), size(b)) }
 
-let words = sort(list_of("pear", "fig", "Apple"), cmp = by_len)   // Sorted<Str, by_len>
+let words = sort(list_of("pear", "fig", "Apple"), cmp = by_len)   // Sorted<Str>(by_len)
 let found = binary_search(words, "kiwi")                          // asks by length: 1
 ```
 
@@ -673,8 +673,8 @@ qualifier Ints of Pair<Int, Int>
 Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
 
 ```
-qualifier Ok<T> of T
-qualifier Err<T> of T
+provenance qualifier Ok<T> of T
+provenance qualifier Err<T> of T
 
 let result: Ok Int | Err Str = get_age()
 
@@ -1432,17 +1432,17 @@ the value is constructed:
 ```
 // The claim, with a slot for the ordering it is kept by. `?Ordered<T>` would
 // say the same thing by naming the group.
-qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>
+qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 
 // Building one: an ordinary implicit parameter, and the return type publishes
 // what the call resolved.
-fn empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<T, ?cmp> {
+fn empty_heap<T>(?cmp: (T, T) -> +Heap<T>(?cmp) Int) -> Mut List<T> {
     return mut_list_of()
 }
 
 // Using one: `?cmp` is *captured* from the argument's type. Nothing says what
 // it is — the slot above does that.
-fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap<T, ?cmp> => !heap, !elem {
+fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> +Heap<T>(?cmp) Mut List<T> => !heap, !elem {
     // `cmp` is an ordinary implicit parameter in here: the one this heap was
     // built with, whatever is visible at the call.
     ...
@@ -1451,18 +1451,18 @@ fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> Mut List<T> as Heap
 
 Type arguments come first and slots after. A slot is spelled like the implicit
 parameter it is resolved as, and a use site fills it with a **function
-identity** — a bare name (`Heap<Person, min_by_age>`) or a canonical
-(`Heap<Person, cmp@Person>`) — or with the signature's own binder
-(`Heap<T, ?cmp>`).
+identity** — a bare name (`Heap<Person>(min_by_age)`) or a canonical
+(`Heap<Person>(cmp@Person)`) — or with the signature's own binder
+(`Heap<T>(?cmp)`).
 
 Three things follow, and they are the point:
 
-- **`Heap<min_by_age>` and `Heap<max_by_age>` are different types.** Passing one
+- **`Heap(min_by_age)` and `Heap(max_by_age)` are different types.** Passing one
   where the other is expected is an ordinary type error naming both.
 - **All the `?cmp` in one signature are one binding.** A
-  `merge(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>)` accepts two
+  `merge(a: Heap<T>(?cmp) Mut List<T>, b: Heap<T>(?cmp) Mut List<T>)` accepts two
   heaps only if they carry the same ordering. Two *different* orderings need two
-  names, which is what an alias is for: `b: Heap<T, ?cmp: cmp2>` fills the same
+  names, which is what an alias is for: `b: Heap<T>(?cmp: cmp2)` fills the same
   slot under the name `cmp2`. A slot a signature never mentions is not
   constrained at all, so a function that does not care writes the claim bare
   (`Heap List<T>`) and accepts any of them.
@@ -1580,7 +1580,7 @@ that holds a position in a sequence, and a pass is advanced by a `next`
 returning either an element or the end:
 
 ```
-qualifier Emitted<T> of T
+provenance qualifier Emitted<T> of T
 struct Finished {}
 
 params Yield<It, T> {
@@ -1720,7 +1720,7 @@ hand-written pass works here.
   there is no state machine, and effects are ordinary effects on an ordinary
   function.
 - An `iter fn` must be called `next`, must take exactly one parameter, and must
-  return `Emitted T | Finished` — or `Emitted (proj[from: c] T) | Finished` when
+  return `Emitted T | Finished` — or `Emitted (proj(c) T) | Finished` when
   it emits borrowed elements of its subject `c` — it is the obligation's member,
   so the subject needs no `: Yield<self, T>` clause of its own.
 
@@ -2196,9 +2196,9 @@ The entries, by shape:
 | `=> list: None` | exhaustive and empty: every qualifier stripped |
 | `=> list: -NonEmpty` | **delta**: drops `NonEmpty`, leaves everything else intact |
 | `=> list: +Sorted Mut` | exhaustive, and `Sorted` is **re-established by this function** — only in the file that declares it |
-| `=> .items: proj[from: list]` | the result's field `items` projects `list` (see "Projections") |
-| `=> v.items: proj[from: other]` | the call re-points the parameter `v`'s field to project `other` |
-| `=> proj[from: list]` | opaque: the result *holds* a borrow of `list` somewhere inside |
+| `=> .items: proj(list)` | the result's field `items` projects `list` (see "Projections") |
+| `=> v.items: proj(other)` | the call re-points the parameter `v`'s field to project `other` |
+| `=> proj(list)` | opaque: the result *holds* a borrow of `list` somewhere inside |
 | `=>[keep] !t` | a group: these entries are about the fn-typed parameter `keep` (its own parameter `t` named in its type, `keep: (t: T) -> Bool`) |
 
 Why does an exhaustive entry drop "qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
@@ -2209,19 +2209,19 @@ Sometimes the mutating function *is* the right party: it knows the claim survive
 
 ```
 // In the file that declares `Heap`:
-fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
-=> heap: +Heap<T, ?cmp> Mut, !elem {
+fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
+=> heap: +Heap<T>(?cmp) Mut, !elem {
     add(heap, elem)         // strips the claim, as any mutating call must
     …                       // sift it back into order
 }
 ```
 
-`+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> T as Q`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it there.
+`+Q` is a claim about what *this* function does, so it is **trusted** rather than checked — and for that reason it is allowed only in the file that declares `Q`, exactly like a constructor (`-> +Q T`) and a refinement. Two spellings, because they are two different statements: a plain `Heap` says the body preserved the claim and is checked against the body, while `+Heap` says the body put it there.
 
 A plain entry may also name a qualifier the parameter does **not** carry, and then it *reports* what the body left behind:
 
 ```
-export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
 => heap: +Heap NonEmpty Mut, !elem { ... }
 ```
 
@@ -2232,12 +2232,12 @@ It does not matter whether the parameter already had the claim. Putting back wha
 ```
 // An ordinary list on the way in, a heap on the way out.
 fn heapify<T>(list: Mut List<T>, ?Ordered<T>) -> None
-=> list: +Heap<T, ?cmp> Mut {
+=> list: +Heap<T>(?cmp) Mut {
     …
 }
 ```
 
-A minted claim answers to the rules a constructor's `as Q` answers to, because that is what it is: the qualifier has to apply to the parameter's type, and one that holds a function has to be given one (`+Heap` alone would be a heap whose ordering nothing named). The identity is the *call's*: `heapify(xs)` and `heapify(xs, cmp = by_name)` hand back two different types.
+A minted claim answers to the rules a constructor's `+Q` answers to, because that is what it is: the qualifier has to apply to the parameter's type, and one that holds a function has to be given one (`+Heap` alone would be a heap whose ordering nothing named). The identity is the *call's*: `heapify(xs)` and `heapify(xs, cmp = by_name)` hand back two different types.
 
 These are enforced at each call site: passing a variable to `take_head` above removes `NonEmpty` from what the compiler knows about it, so a second `take_head(list)` without an intervening `is NonEmpty` check fails overload resolution:
 
@@ -2284,7 +2284,7 @@ Inference is the strictest deduction over every function the body hands the valu
 
 A parameter that is kept compiles to a *borrow* in Rust: the caller retains its value. A function's return value, by contrast, is *owned* by the caller unless the signature says otherwise. If a function returns one of its parameters as an owned value, these two facts collide, and Salvo resolves it without a hidden clone: returning a parameter transfers ownership out through the return channel, and the parameter is deduced as _moved_ — the caller that passed it in loses it. The same applies to the other escape routes — storing a parameter in a struct, array, or tuple literal, or passing it to a consuming call. Consequently, a written clause cannot promise a parameter back when the body returns it owned: `=> x` with `return x` is a compile-time error.
 
-The way to give a caller access to a parameter's data *without* moving it is to return a **projection** of it — `-> proj[from: x] T` — which is a borrow, described next. This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere.
+The way to give a caller access to a parameter's data *without* moving it is to return a **projection** of it — `-> proj(x) T` — which is a borrow, described next. This is purely a constraint of the Rust backend — the Kotlin backend ignores deductions, since everything is a garbage-collected reference on the JVM — but one Salvo codebase must compile to both, so the checker enforces the stricter contract everywhere.
 
 Binding a parameter with `let` is *not* on the move list: it creates a *shared fate* link instead (see "Shared fate and `copy`").
 
@@ -2294,10 +2294,10 @@ Salvo has no references in the source, but it has one qualifier that means "this
 
 **`proj` is part of the type.** A projected value's type says so — `proj Str`, `Mut List<proj Str>`, `Emitted (proj Str) | Finished` — in diagnostics, on hover, and through generics: matching `Emitted T` against an `Emitted (proj Str)` binds `T = proj Str`. An owned value satisfies a projected position (it can do strictly more), never the reverse — and the projection is never dropped silently. What a projection may be *passed to* follows from what the callee does with the parameter: a callee that only reads a kept, non-`Mut` parameter accepts a top-level projection even where the parameter is written owned (a borrow read in place is indistinguishable from the value), while a callee that **consumes** the parameter, **mutates** it, or expects the projection **nested** inside the type (a union arm, a type argument — where the two are genuinely different types in Rust) refuses it with an error naming which of the three stood in the way and the remedies (write the `proj`, or pass `copy(...)`). The one exception is Copy scalars: `proj Int` *is* `Int` — the number is the value itself on both backends. In overloading, an owned position beats a projected one, the way one arm beats its union: `proj` accepts more, so it says less.
 
-**A projected value.** `proj[from: p] T` on a result says the value *is* a borrow of the parameter `p` — an element of it, a field, the whole of it. It may appear wherever a type does: the whole result (`-> proj[from: xs] Person`), a nullable (`-> (proj[from: list] T)?`), a union arm (`-> Emitted (proj[from: p] T) | Finished`), a tuple element. Several sources are written together, and a projection joined across branches is of all of them:
+**A projected value.** `proj(p) T` on a result says the value *is* a borrow of the parameter `p` — an element of it, a field, the whole of it. It may appear wherever a type does: the whole result (`-> proj(xs) Person`), a nullable (`-> (proj(list) T)?`), a union arm (`-> Emitted (proj(p) T) | Finished`), a tuple element. Several sources are written together, and a projection joined across branches is of all of them:
 
 ```
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj[from: a, b] List<Int> {
+fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
     if flag { return a }
     return b
 }
@@ -2322,23 +2322,23 @@ fn iter<T>(list: List<T>) -> Mut ListYield<T> {
 }
 ```
 
-Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the clause says it: `=> proj[from: list]` ("the result holds a borrow of `list`"), `=> .items: proj[from: list]` (this field does), or on a fn type `=>[iter] proj[from: c]`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
+Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the clause says it: `=> proj(list)` ("the result holds a borrow of `list`"), `=> .items: proj(list)` (this field does), or on a fn type `=>[iter] proj(c)`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
 
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
 ```
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj T> => it: Mut, proj[from: it], keep
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj T> => it: Mut, proj(it), keep
 ```
 
 The result holds borrows of whatever the pass walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.
 
 **A view of a temporary.** A view's source must outlive it, so binding, returning or storing a view of a temporary is an error: `let p = iter(list_of(1, 2))` dies at the end of its statement (the diagnostic says to `let` the list first). *Using* one within the statement is fine — `map(iter(list_of(1, 2)), f)`, `for x in iter(list_of(1, 2))` — the temporary lives that long on both backends.
 
-**A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`proj[from: …]` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
+**A capturing lambda is a view.** A lambda's body can hand out projections rooted in a *capture* — `indices.map(i -> all.get(i)!)` returns elements of `all`, and no function type can say so (`proj(…)` names parameters; captures have no name). So the closure itself carries the fact: it holds a borrow of every non-Copy variable it reads from the enclosing scope, exactly as a struct holds its `proj` fields. Binding the lambda links it to those variables, a call result built from the lambda is linked through it, and moving or mutating a captured variable poisons the closure — the same discipline every view lives under. A lambda that captures nothing holds nothing (`map(p, w -> w)` binds freely), a Copy scalar capture is the value itself, and a capture the body *consumes* is owned by the closure rather than borrowed — that is the lambda that becomes `once`.
 
-**Passes borrow.** A pass that walks data declares `: Yield<self, proj T>` and its `next` returns `Emitted (proj[from: p] T) | Finished` — the element is a borrow of the pass, which borrows the source — while a generator (a countdown, a random stream) declares `: Yield<self, T>` and emits owned values. The two must agree: an obligation at `proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated pass borrows its subject the same way (`__subject: proj Subject`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
+**Passes borrow.** A pass that walks data declares `: Yield<self, proj T>` and its `next` returns `Emitted (proj(p) T) | Finished` — the element is a borrow of the pass, which borrows the source — while a generator (a countdown, a random stream) declares `: Yield<self, T>` and emits owned values. The two must agree: an obligation at `proj T` with an owning `next`, or the reverse, is an error. Reading combinators accept both. An `iter fn`'s generated pass borrows its subject the same way (`__subject: proj Subject`), so nothing is copied at the mint; an `iter fn` that wants a snapshot writes `copy(...)` in a `state` initializer.
 
-**Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: proj[from: other]`, and the caller's variable at `v` becomes linked to `other` from the call on.
+**Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: proj(other)`, and the caller's variable at `v` becomes linked to `other` from the call on.
 
 **What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListYield<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListYield<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
 
@@ -2433,7 +2433,7 @@ One more ordering rule: **arguments are evaluated left to right**, and within a 
 
 Some consequences worth knowing:
 
-- **Values from calls are independent — unless they project.** `copy(x)` and most function results carry no links. A function that returns a *projection* of a kept parameter — `fn first<T>(list: List<T>) -> proj[from: list] T?` — or a value that *holds* one (a pass over a list) hands the caller something that shares fate with the argument: mutating the collection poisons it, moving it out needs `copy`. See "Projections" below; on the Rust backend these are real borrows, which is what makes the standard library's `first`, `get`, `iter` and `filter` zero-copy.
+- **Values from calls are independent — unless they project.** `copy(x)` and most function results carry no links. A function that returns a *projection* of a kept parameter — `fn first<T>(list: List<T>) -> proj(list) T?` — or a value that *holds* one (a pass over a list) hands the caller something that shares fate with the argument: mutating the collection poisons it, moving it out needs `copy`. See "Projections" below; on the Rust backend these are real borrows, which is what makes the standard library's `first`, `get`, `iter` and `filter` zero-copy.
 - **The analysis is flow-aware** like consumption: links merge across branches (linked on any path means linked), survive loop back edges, and reassignment severs a variable's own links while poisoning its previous derivatives. A `for`-loop binding is fresh each iteration: consuming it inside the body is fine.
 - **It is uniform across all types** — an `Int` derived from an `Int` follows the same rules — and **purely static**: on the JVM nothing physically prevents the rejected programs. The discipline is what lets each backend choose the cheapest correct representation with no observable difference: Kotlin shares references throughout; Rust emits real moves for move-mode bindings and clones for borrow-mode ones (real borrows are a later stage).
 - **Fields are tracked apart.** A link records *which projection* of the value it came from, and an event only reaches what it could actually have changed: reading `p.name` while `p.tags` is mutated is fine, and so is the reverse. What overlaps still poisons — the same field, a *prefix* of it (mutating `o.inner.tags` invalidates a value derived from `o.inner`), the whole variable (a `Mut` argument or a reassignment reaches every field), and an array element reached by a computed index, since `xs[i]` and `xs[j]` cannot be told apart. A derivation the compiler cannot spell as a projection chain is treated as the whole value.
@@ -2604,7 +2604,7 @@ if person is Surname {
 
 ### Constructive qualifiers
 
-Predicate qualifiers apply to an existing value, and need not be present in the generated Rust and Kotlin code. By constrast, _constructive_ qualifiers can correspond to a new type in the underlying Rust or Kotlin code (like `MutableList<T>` is different from `List<T>` in Kotlin) or correspond to a different way of using it (like mutable `Vec<T>` requires mutable references and variables in Rust). To support such cases, the only way to build these sorts of types is by calling a function. The qualifier itself has no body, and the constructor functions must all be defined in the same file as the qualifier declaration. A constructor function is marked by writing `as Qualifier` after its return type: every return point returns a plain instance of the return type, which is assumed to gain the qualifier _by construction_. Callers of the function see the qualified type. Constructor functions must return a simple type (not a union or tuple); other functions can add more complexity on top of the constructors:
+Predicate qualifiers apply to an existing value, and need not be present in the generated Rust and Kotlin code. By constrast, _constructive_ qualifiers can correspond to a new type in the underlying Rust or Kotlin code (like `MutableList<T>` is different from `List<T>` in Kotlin) or correspond to a different way of using it (like mutable `Vec<T>` requires mutable references and variables in Rust). To support such cases, the only way to build these sorts of types is by calling a function. The qualifier itself has no body, and the constructor functions must all be defined in the same file as the qualifier declaration. A constructor function is marked by writing `+Qualifier` in front of its return type — the same establishment marker deductions use: every return point returns a plain instance of the return type, which is assumed to gain the qualifier _by construction_. Callers of the function see the qualified type. Constructor functions must return a simple type (not a union or tuple); other functions can add more complexity on top of the constructors:
 
 ```
 // No body -- we're using a constructive qualifier
@@ -2612,7 +2612,7 @@ qualifier RandomPositive of Int
 
 // `-> Int as RandomPositive` marks this as a constructor for the qualifier.
 // Callers see the return type `RandomPositive Int`.
-fn random_positive_int() [Random<Int>] -> Int as RandomPositive {
+fn random_positive_int() [Random<Int>] -> +RandomPositive Int {
     let num = next_random()
     while num <= 0 {
         num = next_random()
@@ -2635,7 +2635,7 @@ qualifier NonEmpty<T> of List<T> {
 // Requiring a first element guarantees the predicate by construction — which
 // is how std's own list constructor is shaped: `list_of()` for an empty list,
 // `list_of(first, ...rest)` for one that is known non-empty.
-intrinsic fn list_of<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty
+intrinsic fn list_of<T>(first: T, ...rest: T[]) -> +NonEmpty List<T>
 ```
 
 **This one is real.** `NonEmpty`, and the constructor above, are declared in std's `core.list` — so is `Sorted`, and `Distinct` in `core.set`; see "Collections".
@@ -2643,14 +2643,14 @@ intrinsic fn list_of<T>(first: T, ...rest: T[]) -> List<T> as NonEmpty
 This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
 
 ```
-qualifier Ok<T> of T
-qualifier Err<T> of T
+provenance qualifier Ok<T> of T
+provenance qualifier Err<T> of T
 
-fn ok<T>(value: T) -> T as Ok {
+fn ok<T>(value: T) -> +Ok T {
     return value
 }
 
-fn err<T>(value: T) -> T as Err {
+fn err<T>(value: T) -> +Err T {
     return value
 }
 
@@ -2696,6 +2696,13 @@ Three further rules follow from provenance being about the handle rather than th
 
 * **It is mint-only.** No inspection of the bits can tell you where a value came from, so a provenance qualifier has no body: no `qualifies` predicate, and no field overrides. Values gain it from constructor functions, exactly like a constructive qualifier, and `x is Authenticated` on a non-union value is a compile error.
 * **It composes freely.** Two state qualifiers must declare `with` compatibility, because both constrain the same contents. An origin is orthogonal to contents and to other origins, so provenance tags stack without any declaration, including several at once: `Authenticated FromCache Request`.
+
+Provenance covers more than authority. The claim's semantics — "established by what the value passed through, not by what is in it" — fits two families, and std uses both:
+
+* **Authority**: `Authenticated Request`, an environment id — the value came through a checkpoint, and holding the tag *is* the proof.
+* **Protocol role**: the tags `Ok`, `Err`, `Thrown` and `Emitted` are provenance qualifiers — `ok(x)` is where an `Ok` comes from, and nothing in an `Int`'s bits could ever say which arm it is. That classification is what you would want anyway: an `Ok Mut List<T>` stays `Ok` through an `add` (mutating the payload cannot change which arm it came in), and a tag stacks with any content claim without a `with` declaration — `Ok NonEmpty List<T>` needs no ceremony.
+
+What separates a provenance claim from a mint-only state claim is content-dependence, not the lack of a `qualifies`: `Sorted` is also mint-only, but it is a claim about *contents*, so mutation strips it; a tag is a claim about *origin*, so it survives.
 * **It is droppable, and it survives storage.** Forgetting where a value came from is always safe, so `Authenticated Request` can be passed wherever a plain `Request` is wanted; and a struct field typed `Authenticated Request` keeps the tag for whoever reads it back.
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.
@@ -2747,7 +2754,7 @@ add(xs, 1)
 let n = count(xs)
 ```
 
-A refinement is **trusted**, exactly as `-> T as Q` is: nothing proves that `add` establishes `NonEmpty`, and no runtime check is emitted. The qualifier's author owns the claim's meaning, which is why they are the right party to ask.
+A refinement is **trusted**, exactly as `-> +Q T` is: nothing proves that `add` establishes `NonEmpty`, and no runtime check is emitted. The qualifier's author owns the claim's meaning, which is why they are the right party to ask.
 
 **Refinements travel with their qualifier.** A refinement declared inside `NonEmpty` applies wherever `NonEmpty` is in scope, and nowhere else — you opt into the refinements by opting into the qualifier. A qualifier may only speak about its *own* claim: `NonEmpty` cannot state what a call does to `Sorted`.
 

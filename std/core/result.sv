@@ -12,18 +12,18 @@
 // below — which must live in this file [qual-ctor-same-file]. Erased in
 // generated code [qual-erasure]: the union wrapper carries the arm, the
 // qualifier only decides which one.
-export qualifier Ok<T> of T
-export qualifier Err<T> of T
+export provenance qualifier Ok<T> of T
+export provenance qualifier Err<T> of T
 
 // [qual-ctor-fn] Tags a value as the success arm of a result union. The
 // value is moved into the result, so nothing is kept ([] deductions);
 // linear values may be tagged, since the obligation travels with them
 // [linear-generics].
-export fn ok<T canbe linear>(value: T) [] -> T as Ok {
+export fn ok<T canbe linear>(value: T) [] -> +Ok T {
     return value
 }
 
 // [qual-ctor-fn] Tags a value as the failure arm of a result union.
-export fn err<T canbe linear>(value: T) [] -> T as Err {
+export fn err<T canbe linear>(value: T) [] -> +Err T {
     return value
 }

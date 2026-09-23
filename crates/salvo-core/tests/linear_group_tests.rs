@@ -25,7 +25,7 @@ const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\
      \
      export qualifier Emitted<T> of T\n\
      export struct Finished {}\n\
-     export fn emitted<T canbe linear>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn emitted<T canbe linear>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 
@@ -557,11 +557,11 @@ const FALLIBLE: &str = r#"
 qualifier Ok<T> of T
 qualifier Err<T> of T
 
-fn ok<T canbe linear>(value: T) -> T as Ok => !value {
+fn ok<T canbe linear>(value: T) -> +Ok T => !value {
     return value
 }
 
-fn err<T canbe linear>(value: T) -> T as Err => !value {
+fn err<T canbe linear>(value: T) -> +Err T => !value {
     return value
 }
 

@@ -8873,6 +8873,7 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
             Type::Named {
                 qualifiers: qualifiers.clone(),
                 base: TypeRef {
+                    value_args: Vec::new(),
                     at: None,
                     binder: false,
                     alias: None,

@@ -40,7 +40,7 @@ export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
 export intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index\n\
 export qualifier Emitted<T> of T\n\
 export struct Finished {}\n\
-export fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
+export fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
 export fn finished() [] -> Finished { return Finished {} }\n\
 export params Yield<It, T> {\n\
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n\

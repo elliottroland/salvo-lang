@@ -124,7 +124,8 @@ independent and can go any time.
    [proj-field]. Consequence for step 5: the claimed respell lands on the
    struct's `index` **field** (`index: Idx(…) Int`), not on a tuple
    component.
-1. **The respell round**: value-argument blocks on qualifiers
+1. ✅ **The respell round** — built 2026-09-23 (COMPLETED.md's log,
+   "Refinement types, step 1"): value-argument blocks on qualifiers
    (`Heap<T>(?Ordered<T>)`, `?` on implicits only), **all-or-none type
    generics** at use sites, `proj[from: x]` → `proj(x)`, `-> T as Q` →
    `-> +Q T`, **and the tag reclassification** — `provenance qualifier` onto
@@ -317,7 +318,7 @@ ordering or hash their type names — on both backends.
 `Ordered<T>` deliberately does **not** carry an `eq`: neither host's sorted
 container consults equality, so the slot would be read by nothing — and keeping
 the two apart is what lets one program hold a `Set<Person>` by all fields beside
-a `SortedSet<Person, by_age>` by rank without either being a lie. The
+a `SortedSet<Person>(by_age)` by rank without either being a lie. The
 `cmp`/`eq`/`hash` contracts stay **trusted**, as [cmp-groups] already has them.
 
 What the round left open:
@@ -1542,7 +1543,7 @@ signature notation**. Rust's model is that ownership is all-or-nothing per
 parameter — a borrowed parameter refuses a move out of it (E0507), an owned one
 may be partially moved because the caller already surrendered the whole value
 — so the state is function-local. Salvo already implemented exactly this, so
-the binary kept/moved deduction stands. `proj[from: p]` is a different
+the binary kept/moved deduction stands. `proj(p)` is a different
 axis (the **return** channel, where the borrowed place escapes), and a
 place-parameterized deduction (`[p: -tags]`) is deliberately **not** wanted: it
 is viral, and passing the field rather than the struct (`f(p.tags)`) says the
@@ -2077,7 +2078,7 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   2026-09-12).** With no written entry, a `proj`-holding instantiation
   still links its result to *every* kept argument — including a container
   the substituted type never mentions (`keep_all(iter(words), tags)` links
-  to `tags`). The remedy today is the written `=> proj[from: it]` entry,
+  to `tags`). The remedy today is the written `=> proj(it)` entry,
   which now takes precedence; the refinement would link only kept
   arguments whose substituted type contains the projection. Build it if
   over-linking bites where the entry is unavailable (an unannotatable
@@ -2111,13 +2112,13 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   form is a lowercase name in the generics list — `[name-casing]` already
   makes it parse:
   ```
-  struct Pair<T, U, a, b> { first: proj[from: a] T, second: proj[from: b] U }
+  struct Pair<T, U, a, b> { first: proj(a) T, second: proj(b) U }
   fn get_pair<T, U>(ts: List<T>, us: List<U>, i: Int) -> Pair<T, U, ts, us> => ts, us
   ```
   with Rust emitting one lifetime per link parameter (today every `proj`
   field shares one `'s`, which rustc unifies to the shortest source — sound,
   less flexible). Elision would follow Rust's. Not built; the `.f:
-  proj[from: a]` entries cover per-field precision wherever there is a body.
+  proj(a)` entries cover per-field precision wherever there is a body.
 - **Accumulator bodies** (`best = person; …; return best` under a projected
   return) are out of scope: reassignable borrowed locals are a recorded
   refinement of [readonly-return].
@@ -2735,7 +2736,7 @@ construction rather than by rule.
 | today | frozen `Reg` value |
 |---|---|
 | returning a kept parameter's projection is a move / needs `copy` | legal — the return borrows the region, not the parameter |
-| derived returns (`proj[from: p]`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
+| derived returns (`proj(p)`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
 | shared fate: links, root mutation poisons derivatives | no links exist; nothing can mutate a frozen root |
 | storing one value in two literals consumes it at the first | handles duplicate freely |
 | re-test (`is NonEmpty`) after every mutating call | claims are permanent |
@@ -3013,7 +3014,7 @@ blocking, and several are "revisit only if a customer appears".
   expression must re-derive the shift by hand — `links_for_value` does, in
   two places; `constructor_operand` did not, and counted written arguments
   instead. That is what made `return list.get(0)` fail its
-  `proj[from: list]` return check: the one-argument unwrap that a `proj`-arm
+  `proj(list)` return check: the one-argument unwrap that a `proj`-arm
   union return needs [proj-anywhere] took the *index* for the borrowed value
   (fixed 2026-09-17 by scoping the unwrap to union returns; the same unwrap
   had been silently accepting a one-argument call that borrows nothing).

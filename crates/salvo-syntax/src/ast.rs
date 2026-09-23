@@ -209,7 +209,7 @@ pub struct TypeDecl {
     /// holding its elements.
     pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// [cmp-carry] The **slot list** in the generics, after the type
-    /// parameters: `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`, or a
+    /// parameters: `intrinsic type SortedSet<T>(?cmp: (T, T) -> Int = cmp)`, or a
     /// group spread (`?Ordered<T>`). Each slot carries an identity, not a type, so
     /// they are kept apart from `generics` — arity, `canbe` and substitution are
     /// about types only.
@@ -333,8 +333,8 @@ pub struct QualifierDecl {
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// [cmp-carry] The **slot list** in the generics, after the type parameters:
-    /// `qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>`, or a group spread
-    /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person, cmp@Person>`)
+    /// `qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>`, or a group spread
+    /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person>(cmp@Person)`)
     /// fills one.
     pub fn_slots: Vec<SlotDecl>,
     pub of: Type,
@@ -536,7 +536,7 @@ pub struct FnDecl {
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,
-    /// `-> proj[from: param] T`: the returned value is derived from
+    /// `-> proj(param) T`: the returned value is derived from
     /// (borrows) the named kept parameter [readonly-return].
     pub derived_return: Option<Ident>,
     pub params: Vec<Param>,
@@ -607,9 +607,9 @@ pub enum EffectRef {
 /// `=> list: None` (exhaustive and empty — every qualifier stripped),
 /// `=> list: -NonEmpty` (*delta* — drop `NonEmpty`, keep the rest),
 /// `=> !list` (moved; `list: Never` says the same),
-/// `=> .items: proj[from: list]` (the result's field projects `list`),
-/// `=> v.items: proj[from: other]` (a parameter's field is re-pointed), and
-/// `=> proj[from: c]` (opaque: the result holds a borrow of `c`)
+/// `=> .items: proj(list)` (the result's field projects `list`),
+/// `=> v.items: proj(other)` (a parameter's field is re-pointed), and
+/// `=> proj(c)` (opaque: the result holds a borrow of `c`)
 /// [proj-infer]. A parameter the clause does not mention is *inferred*
 /// from the body; a bodiless declaration must mention every parameter
 /// except Copy scalars.
@@ -652,7 +652,7 @@ pub enum DeductionTarget {
     Param { name: Ident, path: Vec<Ident> },
     /// A field path of the result (`.items`).
     Result { path: Vec<Ident> },
-    /// The result as a whole, opaquely: a bare `proj[from: c]` says the
+    /// The result as a whole, opaquely: a bare `proj(c)` says the
     /// result *holds* a borrow of `c` somewhere inside [proj-infer].
     Opaque,
 }
@@ -686,7 +686,7 @@ pub enum DeductionKind {
     /// exercised. The load-bearing consequence is the mixed handler's
     /// rung-4 opt-in [mixed-handler]; elsewhere it is checked documentation.
     Deferred,
-    /// `proj[from: a, b]`: a projection of the named parameters — of the
+    /// `proj(a, b)`: a projection of the named parameters — of the
     /// entry's target (a result path, a parameter, a parameter's field) or,
     /// with no target, held somewhere inside the result [proj-infer].
     Proj(Vec<Ident>),
@@ -777,8 +777,8 @@ pub fn is_identity_arg(arg: &Type) -> bool {
 /// or a `params` group spread into one slot per member (user decision
 /// 2026-09-22).
 ///
-/// `qualifier Heap<T, ?Ordered<T>> of List<T>` is sugar for
-/// `qualifier Heap<T, ?cmp: (T, T) -> Int>`, exactly as `?Ordered<T>` in a
+/// `qualifier Heap<T>(?Ordered<T>) of List<T>` is sugar for
+/// `qualifier Heap<T>(?cmp: (T, T) -> Int)`, exactly as `?Ordered<T>` in a
 /// parameter list is sugar for the members as implicit parameters
 /// [implicit-group]. One ordered list, because slots are filled positionally and
 /// a group's members take the positions where the spread is written.
@@ -792,8 +792,8 @@ pub enum SlotDecl {
 }
 
 /// [cmp-carry] A **fn slot** in a declaration's generics list:
-/// `qualifier Heap<T, ?cmp: (T, T) -> Int>`,
-/// `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int>`.
+/// `qualifier Heap<T>(?cmp: (T, T) -> Int)`,
+/// `intrinsic type SortedSet<T>(?cmp: (T, T) -> Int)`.
 ///
 /// There is no default to write: **the slot's name *is* its default**, because
 /// that is how an implicit parameter already works [implicit-resolve] — a `?cmp`
@@ -820,10 +820,17 @@ pub struct FnSlot {
 pub struct TypeRef {
     pub name: Ident,
     pub args: Vec<Type>,
-    /// [proj-anywhere] `proj[from: a, b]`: for the `proj` qualifier, the
+    /// [qual-value-arg] The round-bracket **value-argument block** after the
+    /// type generics: `Sorted(?cmp)`, `Heap(min_by_age)`,
+    /// `SortedSet<Str>(by_len)`. Implicits (`?`-prefixed binders) and fn
+    /// identities live here — never types, which go in `args` — and the
+    /// block is where local references and constants will land in later
+    /// steps of the refinement-types sequence.
+    pub value_args: Vec<Type>,
+    /// [proj-anywhere] `proj(a, b)`: for the `proj` qualifier, the
     /// kept parameters the value borrows from (several when a projection is
     /// joined across branches). Only `proj` carries them, wherever a type
-    /// does — a return, a union arm (`(proj[from: xs] T)?`). Empty on a
+    /// does — a return, a union arm (`(proj(xs) T)?`). Empty on a
     /// field or parameter (the source is the value's, not the type's).
     pub from: Vec<Ident>,
     /// [cmp-carry] `cmp@Person` in a type-argument position: the selector
@@ -860,13 +867,17 @@ impl fmt::Display for TypeRef {
         if let Some(at) = &self.at {
             write!(f, "@{}", at.name)?;
         }
-        if !self.from.is_empty() {
-            let names: Vec<&str> = self.from.iter().map(|i| i.name.as_str()).collect();
-            write!(f, "[from: {}]", names.join(", "))?;
-        }
         if !self.args.is_empty() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             write!(f, "<{}>", args.join(", "))?;
+        }
+        if !self.from.is_empty() {
+            let names: Vec<&str> = self.from.iter().map(|i| i.name.as_str()).collect();
+            write!(f, "({})", names.join(", "))?;
+        }
+        if !self.value_args.is_empty() {
+            let args: Vec<String> = self.value_args.iter().map(|a| a.to_string()).collect();
+            write!(f, "({})", args.join(", "))?;
         }
         Ok(())
     }

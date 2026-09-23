@@ -35,7 +35,7 @@ qualifier RandomPositive of Int
 
 // Constructor function: `-> Int as RandomPositive` marks it; return points
 // return plain Int values which gain the qualifier by construction.
-fn random_positive_int() [Random<Int>] -> Int as RandomPositive {
+fn random_positive_int() [Random<Int>] -> +RandomPositive Int {
     let num = next_random()
     while num <= 0 {
         num = next_random()

@@ -316,6 +316,7 @@ fn expand(
             at: None,
             binder: false,
             alias: None,
+            value_args: Vec::new(),
             name: pass_name.clone(),
             args: f
                 .generics
@@ -328,6 +329,7 @@ fn expand(
                         alias: None,
                         name: g.clone(),
                         args: vec![],
+            value_args: Vec::new(),
                         from: Vec::new(),
                         span: g.span,
                     },
@@ -478,6 +480,7 @@ fn expand(
                 at: None,
                 binder: false,
                 alias: None,
+                value_args: Vec::new(),
                 name: Ident {
                     name: "Yield".to_string(),
                     span: struct_span,
@@ -629,7 +632,7 @@ fn expand(
     };
     rewrite.block(&mut next_body);
     // [yield-proj] An `iter fn` emitting borrowed elements names the
-    // *subject* as their source (`Emitted (proj[from: b] T)`); in the
+    // *subject* as their source (`Emitted (proj(b) T)`); in the
     // generated `next` the subject is reached through the pass, so the
     // source is the pass parameter — the borrow chains through its `proj`
     // field to the subject the caller holds.
@@ -699,6 +702,7 @@ fn type_ref(name: &str, span: Span) -> TypeRef {
         alias: None,
         at: None,
         binder: false,
+        value_args: Vec::new(),
         name: Ident {
             name: name.to_string(),
             span,
@@ -1454,7 +1458,7 @@ fn is_copy_scalar(ty: &Type) -> bool {
     )
 }
 
-/// [yield-proj] Renames the source of every `proj[from: old]` in `ty` to
+/// [yield-proj] Renames the source of every `proj(old)` in `ty` to
 /// `new`, in place.
 fn rename_proj_source(ty: &mut Type, old: &str, new: &str) {
     fn in_ref(r: &mut TypeRef, old: &str, new: &str) {
@@ -1613,6 +1617,7 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
             at: None,
             binder: false,
             alias: None,
+            value_args: Vec::new(),
             name: s.name.clone(),
             args: s
                 .generics

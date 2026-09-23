@@ -66,11 +66,11 @@ struct Store<T> canbe Mut {
 qualifier NonEmpty<T> of Store<T>
 provenance qualifier Authenticated<T> of Store<T>
 
-fn nonempty<T>(s: Store<T>) -> Store<T> as NonEmpty {
+fn nonempty<T>(s: Store<T>) -> +NonEmpty Store<T> {
     return s
 }
 
-fn authenticate<T>(s: Store<T>) -> Store<T> as Authenticated {
+fn authenticate<T>(s: Store<T>) -> +Authenticated Store<T> {
     return s
 }
 
@@ -179,11 +179,28 @@ fn provenance_is_droppable_and_survives_storage() {
                struct Request { body: Str }\n\
                struct Wrapper { req: Authenticated Request }\n\
                provenance qualifier Authenticated of Request\n\
-               fn authenticate(r: Request) -> Request as Authenticated { return r }\n\
+               fn authenticate(r: Request) -> +Authenticated Request { return r }\n\
                fn plain(r: Request) -> Str { return r.body }\n\
                fn f(r: Request) -> Str {\n    \
                let a = authenticate(r)\n    \
                let w = Wrapper {req: a}\n    \
                return plain(w.req)\n}\n";
+    assert!(errors(src).is_empty(), "got {:?}", errors(src));
+}
+
+/// [qual-subject] The protocol tags are provenance (user decision
+/// 2026-09-23): `Ok` stacks with a state claim without any `with`
+/// declaration, because an origin is orthogonal to every claim about
+/// contents.
+#[test]
+fn a_protocol_tag_stacks_with_state_claims_without_with() {
+    let src = "\
+               struct Box canbe Mut { n: Int }\n\
+               qualifier Filled of Box\n\
+               provenance qualifier Ok<T> of T\n\
+               fn ok<T>(value: T) -> +Ok T { return value }\n\
+               fn fill() -> +Filled Box { return Box { n: 1 } }\n\
+               fn f() -> Ok Filled Box {\n    \
+               return ok(fill())\n}\n";
     assert!(errors(src).is_empty(), "got {:?}", errors(src));
 }

@@ -16,7 +16,7 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// is loaded as a *std* file rather than pasted into the source under test.
 /// Module `core.prelude`: `core.*` is implicitly imported, so the test source
 /// sees these names without an `import`.
-const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list\n";
+const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\nexport intrinsic type List<T> canbe Mut\nexport intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list\n";
 
 fn errors(src: &str) -> Vec<String> {
     let mut sources = SourceSet::default();
@@ -74,11 +74,11 @@ fn note(text: Str) [] -> None => text {}
 fn read(p: Person) [] -> None => p {}
 fn touch(p: Mut Person) [] -> None => p: Mut {}
 
-fn ok(value: Int) [] -> Int as Ok {
+fn ok(value: Int) [] -> +Ok Int {
     return value
 }
 
-fn err(value: Str) [] -> Str as Err => !value {
+fn err(value: Str) [] -> +Err Str => !value {
     return value
 }
 "#;
@@ -324,7 +324,7 @@ fn a_widening_branch_consumes_its_arms() {
 const GROUP_PRELUDE: &str = r#"
 qualifier Emitted<T> of T
 
-fn emitted<T>(value: T) [] -> T as Emitted => !value {
+fn emitted<T>(value: T) [] -> +Emitted T => !value {
     return value
 }
 "#;
@@ -400,15 +400,15 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
 
 // ===== `proj` placement [proj-anywhere] [proj-field] =====
 
-/// [proj-anywhere] `proj[from: p]` is an ordinary qualifier now, writable
+/// [proj-anywhere] `proj(p)` is an ordinary qualifier now, writable
 /// wherever a type appears: the old return prefix and the union-arm spelling
 /// mean the same thing, and a parameter may be a bare `proj`.
 #[test]
 fn proj_is_writable_in_arm_and_parameter_positions() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head_a(list: List<Person>) [] -> proj[from: list] Person? => list {{\n    return first(list)\n}}\n\
-         fn head_b(list: List<Person>) [] -> (proj[from: list] Person)? => list {{\n    return first(list)\n}}\n\
+         fn head_a(list: List<Person>) [] -> proj(list) Person? => list {{\n    return first(list)\n}}\n\
+         fn head_b(list: List<Person>) [] -> (proj(list) Person)? => list {{\n    return first(list)\n}}\n\
          fn hold(p: proj Person) [] -> Int => p {{\n    return 1\n}}\n"
     ));
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
@@ -433,10 +433,10 @@ fn a_proj_return_without_a_source_is_an_error() {
 fn a_proj_source_must_be_a_parameter() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn head(list: List<Person>) [] -> (proj[from: nope] Person)? => list {{\n    return first(list)\n}}\n"
+         fn head(list: List<Person>) [] -> (proj(nope) Person)? => list {{\n    return first(list)\n}}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains("`proj[from: nope]` names no parameter")),
+        errs.iter().any(|e| e.contains("`proj(nope)` names no parameter")),
         "got: {errs:?}"
     );
 }
@@ -471,7 +471,7 @@ fn advance<T>(v: Mut View<T>) -> Int => v: Mut {\n    v.at = v.at + 1\n    retur
 fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
     let errs = errors(VIEW_PRELUDE);
     assert!(errs.is_empty(), "{errs:?}");
-    let errs = errors("struct Bad<T> {\n    items: proj[from: x] List<T>\n}\n");
+    let errs = errors("struct Bad<T> {\n    items: proj(x) List<T>\n}\n");
     assert!(
         errs.iter().any(|e| e.contains("a `proj` field names no source")),
         "{errs:?}"
@@ -556,7 +556,7 @@ fn a_view_keeps_its_source_alive_through_an_inferred_lend() {
 fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> => a, proj[from: a], b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
+         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> => a, proj(a), b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -578,7 +578,7 @@ fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
 fn a_written_proj_entry_keeps_and_declares() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> => xs, proj[from: xs], tag\n}}\n\
+         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> => xs, proj(xs), tag\n}}\n\
          fn eat(xs: List<Int>) -> Int => !xs {{ return 0 }}\n\
          fn main(xs: List<Int>, tag: Str) [Src] {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
     );

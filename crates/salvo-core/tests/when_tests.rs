@@ -191,7 +191,7 @@ fn else_must_be_the_last_branch() {
 fn the_subject_form_rejects_an_else_and_names_the_other_form() {
     let errs = errors(&format!(
         "{PRELUDE}\n\
-         fn make_ok(n: Int) [] -> Int as Ok {{ return n }}\n\
+         fn make_ok(n: Int) [] -> +Ok Int {{ return n }}\n\
          fn outcome() [] -> Ok Int | Err Str {{ return make_ok(0) }}\n\
          fn probe() [] -> Str {{\n\
          let o = outcome()\n\

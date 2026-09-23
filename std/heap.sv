@@ -1,5 +1,5 @@
 // A binary heap, as a **claim on an ordinary `List<T>`** rather than a
-// container of its own: `Heap<T, ?cmp>` says a list is arranged as a succinct
+// container of its own: `Heap<T>(?cmp)` says a list is arranged as a succinct
 // binary heap under the ordering it was built with, and the mutators here keep
 // it that way.
 //
@@ -11,31 +11,31 @@
 // Not part of `core`, so it arrives by asking: `import heap`.
 
 // Indicates that the list is organized like a succinct binary heap, ordered by
-// the `cmp` the heap was built with: `Heap<min_by_age>` and `Heap<max_by_age>`
+// the `cmp` the heap was built with: `Heap(min_by_age)` and `Heap(max_by_age)`
 // are different types that refuse to mix [cmp-carry].
-export qualifier Heap<T, ?Ordered<T>> of List<T> with NonEmpty
+export qualifier Heap<T>(?Ordered<T>) of List<T> with NonEmpty
 
 // Returns an empty List which trivially supports the heap property. The
 // ordering arrives as an ordinary implicit parameter, and the return type
 // publishes the one resolution chose [cmp-binder].
-export fn heap_of<T>(?Ordered<T>) -> Mut List<T> as Heap<T, ?cmp> {
+export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
-export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T, ?cmp> NonEmpty Mut List<T> {
+export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> {
     let list = mut_list_of(first, ...elems)
     heapify(list)
     return list
 }
 
-// Makes an arbitrary list into a heap. `+Heap<T, ?cmp>` **establishes** the
+// Makes an arbitrary list into a heap. `+Heap<T>(?cmp)` **establishes** the
 // claim rather than keeping one [deduce-reapply]: the list arrives with nothing
 // claimed about it, and this file declares `Heap`, so it is the party trusted to
 // say what a call leaves behind. The ordering the claim carries is the one the
 // *call* resolved, so `heapify(xs)` and `heapify(xs, cmp = by_name)` hand back
 // two types that refuse to mix.
 export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
-=> list: +Heap<T, ?cmp> Mut {
+=> list: +Heap<T>(?cmp) Mut {
     // An empty list is already a heap, so the work only exists for the
     // non-empty case — and the guard narrows `list` on the way in, which routes
     // to the overload below rather than recursing [is-narrow-guard]
@@ -53,7 +53,7 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 // [qual-refn] — remove that refinement and this signature stops checking,
 // which is the whole mechanism in one line.
 export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
-=> list: +Heap<T, ?cmp> NonEmpty Mut {
+=> list: +Heap<T>(?cmp) NonEmpty Mut {
     // Floyd's construction: sift down from the last parent to the root.
     let n = list.size()
     for i in range(n / 2 - 1, -1) {
@@ -121,22 +121,22 @@ fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
 
 // Returns a projection of the smallest element (by the heap's [cmp]) in the heap, or None
 // if the heap is empty.
-export fn peek<T>(heap: Heap List<T>) -> proj[from: heap] T? {
+export fn peek<T>(heap: Heap List<T>) -> proj(heap) T? {
     return heap.get(0)
 }
 
-export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj[from: heap] T {
+export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T {
     return heap.get(0)!
 }
 
 // Pushes the [elem] into the [heap], preserving the heap property.
 //
 // An ordinary mutator: the claim is **re-established** by this function, which
-// `+Heap<T, ?cmp>` is how a deduction says so [deduce-reapply]. `add`'s own
+// `+Heap<T>(?cmp)` is how a deduction says so [deduce-reapply]. `add`'s own
 // clause strips the claim — a mutating callee must — and nothing but this
 // function knows the sift below puts it back. Trusted because this is the file
 // that declares `Heap`, the same party a constructor fn and a refinement trust.
-export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
+export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
 => heap: +Heap NonEmpty Mut, !elem {
     add(heap, elem)
     // The index where the value currently is
@@ -161,7 +161,7 @@ export fn push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) -> None
 }
 
 // Pops the smallest element in the heap, preserving the heap property.
-export fn pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
+export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? {
     if heap !is NonEmpty {
         return None
     }
@@ -174,8 +174,8 @@ export fn pop<T>(heap: Heap<T, ?cmp> Mut List<T>) -> T? {
 // A deduction entry names qualifiers, not their arguments: keeping `Heap` keeps
 // the ordering too, since the identity lives in the type and this fn could not
 // have changed it [cmp-binder].
-export fn pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
-=> heap: +Heap<T, ?cmp> Mut {
+export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
+=> heap: +Heap<T>(?cmp) Mut {
     if heap.size() == 1 {
         return remove_first@core.list(heap)!
     }
@@ -215,7 +215,7 @@ export fn pop<T>(heap: NonEmpty Heap<T, ?cmp> Mut List<T>) -> T
 //     with `?cmp` [cmp-carry] [cmp-binder], so two differently-ordered heaps are
 //     two types and a caller that never names an ordering gets the canonical one
 //     for its element type;
-//   * `+Heap<T, ?cmp>` is how a mutator keeps a claim it re-establishes
+//   * `+Heap<T>(?cmp)` is how a mutator keeps a claim it re-establishes
 //     [deduce-reapply], which is what lets `push` and `pop` take `Mut`
 //     parameters instead of consuming and returning;
 //   * `swap` exists, and answers `false` out of range [col-bounds];

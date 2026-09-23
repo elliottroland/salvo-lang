@@ -40,7 +40,7 @@ fn head(list: NonEmpty List<Int>) -> Int => list {
 // claim is made by going through the constructor [qual-ctor-fn].
 qualifier Celsius of Int
 
-fn celsius(degrees: Int) -> Int as Celsius {
+fn celsius(degrees: Int) -> +Celsius Int {
     return degrees
 }
 
@@ -94,7 +94,7 @@ provenance qualifier Authenticated of Request
 
 // Minting a provenance claim: there is no predicate to satisfy, so the
 // constructor is the only way in [qual-ctor-fn].
-fn authenticate(request: Mut Request) -> Mut Request as Authenticated {
+fn authenticate(request: Mut Request) -> +Authenticated Mut Request {
     return request
 }
 
@@ -102,7 +102,7 @@ fn authenticate(request: Mut Request) -> Mut Request as Authenticated {
 // contents, so a mutating call takes it away.
 qualifier Fresh of Request
 
-fn freshen(request: Mut Request) -> Mut Request as Fresh {
+fn freshen(request: Mut Request) -> +Fresh Mut Request {
     return request
 }
 

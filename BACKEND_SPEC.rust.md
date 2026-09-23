@@ -506,7 +506,7 @@ the blanket rule:
 
 * [readonly-return] A wholesale projection returns `&T`, `Option<&T>` or
   `Union2<&T, Finished>`. One reference parameter: lifetime elision. More:
-  `'a` is generated onto **every** source parameter (`proj[from: a, b]`)
+  `'a` is generated onto **every** source parameter (`proj(a, b)`)
   and the return. A returned projection of a `&mut` pass parameter that is
   itself a borrowing struct names the *struct's* source lifetime instead
   (`next(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished>`
@@ -558,12 +558,12 @@ the blanket rule:
   turn, exactly as [rs-proj-struct] ties a derived return (added
   2026-09-23 for `Enumerated<T>`, the first view struct a `next`
   answers). A **lent implicit position** (`?iter: (c: C) -> Mut It`
-  with `=>[iter] proj[from: c]`) renders `&'c C` under a lifetime `'c`
+  with `=>[iter] proj(c)`) renders `&'c C` under a lifetime `'c`
   named on the enclosing fn's kept parameter `c` — the result's type
   (`It`) is fixed at the call site, so the borrow it holds cannot be a
   fresh per-call one; the enclosing fn must keep `c` (a consumed one has
   nothing a view could outlive — reported). Re-pointing entries
-  (`v.items: proj[from: other]`) tie `'r` on the target struct and the
+  (`v.items: proj(other)`) tie `'r` on the target struct and the
   source parameters, and the assignment renders as a borrow.
 * [rs-proj-arm] A union with a `proj` arm is an ordinary instantiation of
   the shared enum with a reference arm (`Union2<&'s T, Finished>`). At a

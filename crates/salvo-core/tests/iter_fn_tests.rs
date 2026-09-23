@@ -39,7 +39,7 @@ const STD_PRELUDE: &str =
      export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
      export qualifier Emitted<T> of T\n\
      export struct Finished {}\n\
-     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
@@ -437,7 +437,7 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// learning sweep ran after the arguments were typed, `next` was reported as
 /// ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj[from: c] => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj(c) => c {
     let sum = 0
     let p = iter(c)
     for n in p {

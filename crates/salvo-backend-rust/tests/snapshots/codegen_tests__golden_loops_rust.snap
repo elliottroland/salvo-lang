@@ -1175,7 +1175,7 @@ impl<T: fmt::Display> fmt::Debug for SalvoSet<T> {
 
 // ===== the sorted collections, and the ordering they are kept by =====
 //
-// [cmp-carry] [col-membership] A `SortedSet<T, ?cmp>` / `SortedMap<K, V, ?cmp>`
+// [cmp-carry] [col-membership] A `SortedSet<T>(?cmp)` / `SortedMap<K, V>(?cmp)`
 // is kept by the ordering its type names, and its members are **`cmp`-distinct**:
 // two elements are one member when `cmp(a, b) == 0`. That is what both hosts do
 // natively — `BTreeSet` decides duplicates by `Ord` alone — so it is the rule

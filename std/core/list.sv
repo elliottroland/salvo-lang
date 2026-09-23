@@ -26,14 +26,14 @@ export intrinsic type List<T canbe linear> canbe Mut
 // The elements are stored in the new list, so they are moved: a variadic tail is
 // owned, and needs no entry in the clause [deduce-syntax].
 export intrinsic fn list_of<T canbe linear>() [] -> List<T>
-export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> List<T> as NonEmpty
+export intrinsic fn list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
 => !first
 
 // The same pair, mutable. A `Mut NonEmpty` list is a claim the next mutation
 // may take away — which is exactly what a state qualifier is [qual-subject] —
 // so `remove_at` strips it and `add` puts it back [qual-refn].
 export intrinsic fn mut_list_of<T canbe linear>() [] -> Mut List<T>
-export intrinsic fn mut_list_of<T canbe linear>(first: T, ...rest: T[]) [] -> Mut List<T> as NonEmpty
+export intrinsic fn mut_list_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Mut List<T>
 => !first
 
 // [col-by] Builds a list of [size] elements, each from its index:
@@ -46,7 +46,7 @@ export intrinsic fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T
 => size, init
 
 // Possibly gets the element at the given index if the list is long enough
-export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj[from: list] T)? => list, index
+export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
 // Adds an element to the list. The list takes ownership of `elem`, so it
 // is moved; the list itself is mutated, which is why its surviving
@@ -106,7 +106,7 @@ export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each
 
-export intrinsic fn first<T>(list: List<T>) [] -> proj[from: list] T? => list
+export intrinsic fn first<T>(list: List<T>) [] -> proj(list) T? => list
 
 // [col-nonempty] The claim that a list has at least one element, and the
 // reason the qualifier machinery is worth having over a container: with it,
@@ -149,7 +149,7 @@ export qualifier NonEmpty<T> of List<T> {
 // It delegates to `get`, not to `first`: `first@core.list(list)` would pick
 // *this* overload again — the scope selector names the module, and within it
 // a `NonEmpty` argument still ranks this one first — and recurse forever.
-export fn first<T>(list: NonEmpty List<T>) [] -> proj[from: list] T => list {
+export fn first<T>(list: NonEmpty List<T>) [] -> proj(list) T => list {
     return get(list, 0)!
 }
 
@@ -182,7 +182,7 @@ export struct ListYield<T> : Yield<self, proj T> canbe Mut {
 // Advances the pass, reporting the element at its position or the end of the
 // list. Out of range is the end: [get] answers `None` past the last index, so
 // the bound is read rather than remembered.
-export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj[from: p] T) | Finished => p: Mut {
+export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()
@@ -209,7 +209,7 @@ export struct ListRevYield<T> : Yield<self, proj T> canbe Mut {
     at: Int
 }
 
-export fn next<T>(p: Mut ListRevYield<T>) [] -> Emitted (proj[from: p] T) | Finished => p: Mut {
+export fn next<T>(p: Mut ListRevYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()
@@ -256,7 +256,7 @@ export struct ListEnumYield<T> : Yield<self, Enumerated<T>> canbe Mut {
 }
 
 export fn next<T>(p: Mut ListEnumYield<T>) [] -> Emitted Enumerated<T> | Finished
-=> p: Mut, proj[from: p] {
+=> p: Mut, proj(p) {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()
@@ -292,7 +292,7 @@ export intrinsic fn to_str<T>(list: List<T>) [] -> Str => list
 // bound to a different `cmp` than the sort used would insert at a position
 // that is a lower bound for one ordering and nonsense for the other. The slot
 // makes the two different types, so they refuse to mix.
-export qualifier Sorted<T, ?cmp: (T, T) -> Int> of List<T> with NonEmpty
+export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty
 
 // ===== the ordering-taking primitives =====
 //
@@ -330,19 +330,19 @@ intrinsic fn search_sorted_by<T>(list: List<T>, elem: T, cmp: (T, T) -> Int) [] 
 => list, elem, cmp
 
 // Returns the elements in order, and **publishes the ordering** it sorted by:
-// the result is `Sorted<T, ?cmp>` for whatever `cmp` resolution found here, so
+// the result is `Sorted<T>(?cmp)` for whatever `cmp` resolution found here, so
 // the two functions below are computed with the ordering the list actually
 // carries [cmp-carry]. The comparison is the language's, not the target's: a
 // hand-written `cmp@Person` is what sorts a `List<Person>`, and `Str` compares
 // by code point on both backends [col-sorted].
-export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> List<T> as Sorted<T, ?cmp> => list {
+export fn sort<T>(list: List<T>, ?Ordered<T>) [] -> +Sorted<T>(?cmp) List<T> => list {
     return sort_by(list, cmp)
 }
 
 // Mutable variant, which is how a `Mut Sorted List<T>` is obtained — and so
 // how `add_sorted` gets something to insert into. `mut_sort(mut_list_of())`
 // is the empty sorted list.
-export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T, ?cmp>
+export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> +Sorted<T>(?cmp) Mut List<T>
 => list {
     return sort_by(list, cmp)
 }
@@ -363,7 +363,7 @@ export fn mut_sort<T>(list: List<T>, ?Ordered<T>) [] -> Mut List<T> as Sorted<T,
 // state what survives [deduce-syntax], and this is the one function that
 // genuinely knows the claim does — so it needs no refinement from the
 // qualifier, unlike `add`, which cannot promise `NonEmpty` [qual-refn].
-export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
+export fn add_sorted<T>(list: Mut Sorted<T>(?cmp) List<T>, elem: T) [] -> None
 => list: Mut Sorted, !elem {
     insert_sorted_by(list, elem, cmp)
 }
@@ -373,7 +373,7 @@ export fn add_sorted<T>(list: Mut Sorted<T, ?cmp> List<T>, elem: T) [] -> None
 // be meaningless rather than merely absent. With equal elements it answers
 // the **lowest** matching index, on both backends — and "matching" is a tie
 // in the ordering the claim names, `cmp(a, b) == 0` [col-membership].
-export fn binary_search<T>(list: Sorted<T, ?cmp> List<T>, elem: T) [] -> Int?
+export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> Int?
 => list, elem {
     return search_sorted_by(list, elem, cmp)
 }

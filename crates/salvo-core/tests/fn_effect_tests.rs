@@ -21,7 +21,7 @@ const STD_PRELUDE: &str = "export intrinsic type Int\nexport intrinsic type Str\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
      export qualifier Emitted<T> of T\n\
      export struct Finished {}\n\
-     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      export params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n";
 

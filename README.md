@@ -121,7 +121,7 @@ fn main() [use] {
   joins in by declaring the function — `: auto Hashed<self>` generates `hash`
   and `eq`, `: auto Ordered<self>` a `cmp` too, checked where they are
   declared. A structure that *stays* ordered names the ordering it holds as a
-  type argument (`Heap<T, ?cmp: (T, T) -> Int>`), so a heap built under one
+  type argument (`Heap<T>(?cmp: (T, T) -> Int)`), so a heap built under one
   ordering is a different type from one built under another and the two refuse
   to mix — and a claim does the same, so a `Sorted` list is searched by the
   ordering that sorted it rather than by the host's. Arrays stay for fixed-size data and the variadic boundary.
@@ -223,7 +223,7 @@ fn main() [use] {
   describing what a function does to its parameters and what its result
   borrows of them; whatever it leaves unsaid is inferred from the body. The
   ownership contract for the Rust backend, and the one place Salvo states a
-  borrow: `proj[from: list] T` returns an element without copying it, a
+  borrow: `proj(list) T` returns an element without copying it, a
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
 - **Files**: `std`'s filesystem is the whole language in one surface — an

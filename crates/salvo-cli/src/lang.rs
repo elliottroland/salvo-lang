@@ -121,7 +121,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the placement clause",
     ),
-    // `proj[from: list]`: the borrow source of a projection. The `[` is what
+    // `proj(list)`: the borrow source of a projection. The `[` is what
     // keeps a *field* named `from` plain.
     (
         "(?<=\\\\[)from(?=\\\\s*:)",

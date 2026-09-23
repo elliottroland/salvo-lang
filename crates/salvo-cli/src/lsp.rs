@@ -435,7 +435,7 @@ impl Server<'_> {
                 roots.join(", ")
             );
             // [proj-type] The prefix is skipped when the *type* already leads
-            // with a `proj` — a `get` result is `(proj[from: list] T)?`, and
+            // with a `proj` — a `get` result is `(proj(list) T)?`, and
             // the fate link and the declared borrow are the same claim, so
             // prefixing one anyway read `proj proj T?` (the heap demo's item 3,
             // fixed 2026-09-22). The detail line still names the roots, which
@@ -968,7 +968,7 @@ fn fn_def_site(program: &Program, key: FnKey) -> Option<DefSite> {
 /// ```text
 /// fn add(a: Int, b: Int) -> [] Int
 /// fn greet(person: Person) [Console] -> [person] None
-/// fn ok<T>(value: T) -> [] T as Ok
+/// fn ok<T>(value: T) -> +Ok [] T
 /// ```
 /// A declaration found at a name span, including the ones nested inside
 /// another declaration's body.
@@ -1495,7 +1495,7 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
 
 /// Renders an effective deduction clause [deduce-syntax]: `!p` for a moved
 /// parameter, bare for keep-all, `p: A B` for an exhaustive set (`p: None`
-/// when it is empty), `p: -A` for a delta, and `proj[from: a, b]` for the
+/// when it is empty), `p: -A` for a delta, and `proj(a, b)` for the
 /// parameters the result holds borrows of [proj-infer]. Empty when there is
 /// nothing to say (every parameter kept whole, nothing lent).
 fn render_deductions(
@@ -1548,7 +1548,7 @@ fn render_deductions(
         .map(|d| d.param.as_str())
         .collect();
     if !lent.is_empty() {
-        entries.push(format!("proj[from: {}]", lent.join(", ")));
+        entries.push(format!("proj({})", lent.join(", ")));
     }
     entries.join(", ")
 }
@@ -1610,9 +1610,9 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
                 DeductionKind::Proj(sources) => {
                     let srcs: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
                     if t.is_empty() {
-                        format!("proj[from: {}]", srcs.join(", "))
+                        format!("proj({})", srcs.join(", "))
                     } else {
-                        format!("{t}: proj[from: {}]", srcs.join(", "))
+                        format!("{t}: proj({})", srcs.join(", "))
                     }
                 }
             }

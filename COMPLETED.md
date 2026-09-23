@@ -130,6 +130,52 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 1 — the respell round (built 2026-09-23).** The four
+decided respells landed together with the tag reclassification (ROADMAP.md's
+sequence, step 1):
+
+- **The value-argument block** [qual-value-arg]: a qualifier's and an
+  `intrinsic type`'s value arguments — implicit slots, group spreads,
+  identities — moved from the `<…>` list to a round-bracket block after the
+  type generics, at declarations (`qualifier Sorted<T>(?cmp: (T, T) -> Int)
+  of List<T>`, `intrinsic type Map<K, V canbe linear>(?hash: …, ?eq: …)`)
+  and at every use (`Heap(min_by_age)`, `Sorted<T>(?cmp)`,
+  `SortedSet<Str>(by_len)`). A `?` inside `<…>` is now a parse error naming
+  the block. The parser carries the block as `TypeRef::value_args`; the
+  *lowered* type keeps the one flat list ([types, then identities], padded),
+  so binder collection, erasure and both backends needed nothing.
+  Diagnostics render the block form (`types.rs`'s `fmt_args` partitions on
+  `Ty::FnName`).
+- **All-or-none type generics** [qual-value-arg]: written in full or all
+  inferred, checked in `lower_identity_args`.
+- **`proj(x)`** replacing `proj[from: x]`, in types and deduction entries —
+  one `parse_type_ref` change covered both. Sources are value names, so
+  casing keeps `proj(list)` and a qualified group `proj (Ok Str | …)`
+  apart, the same rule that disambiguates the use-site block.
+- **`-> +Q T`** replacing `-> T as Q` [qual-ctor-fn]: the constructor marker
+  is now the establishment prefix deductions already use [deduce-reapply] —
+  one spelling for one trust in every position.
+- **The tags are provenance** [qual-subject]: `provenance qualifier` onto
+  `Ok`/`Err` (core.result), `Emitted` (core.iterator), `Thrown`
+  (core.throw). The round's one semantic change: tags now survive
+  exhaustive stripping and compose with state claims without `with`
+  (`Ok NonEmpty List<Int>` — tested), and the sweep-check found nothing
+  relying on the old stripping (zero non-snapshot failures). LANGUAGE.md's
+  provenance section now teaches the two families — authority and protocol
+  role — as two uses of one kind, with content-dependence (not
+  mint-onlyness) as the discriminator from state claims.
+
+The sweep: ~50 source files (std, corpus, inline test sources, examples,
+both backends' comments), all four spec documents, README, and the
+non-archival prose of COMPLETED.md/ROADMAP.md, by script
+(bracket-matching for the slot forms) plus hand repair of six fixture lines
+the `as`-regex mangled (fn-typed implicit parameters carry their own `->`) —
+worth remembering: **a regex sweep over signatures must reckon with arrows
+inside parameter types**. Snapshots re-accepted (AST gains `value_args`),
+examples regenerated, outputs verified unchanged. New tests:
+all-or-none (carry_tests), tag-stacking (subject_tests). Suite: 1393 tests
+green on both backends.
+
 **Refinement types, step 0 — `reversed`, `enumerate`, `enumerate_rev`
 (built 2026-09-23).** The plain iteration vocabulary from the decided
 sequence (ROADMAP.md "Refinement types — the build sequence"): three passes
@@ -151,7 +197,7 @@ cannot write. Two consequences worth keeping:
   `Emitted Enumerated<T>` through the generic `emitted`, and body inference
   cannot see the borrow inside the instantiation — the exact case
   [proj-infer]'s *written* form exists for, so the `next` writes
-  `=> p: Mut, proj[from: p]` by hand. Without it the Rust signature elides
+  `=> p: Mut, proj(p)` by hand. Without it the Rust signature elides
   to `<'_` and rustc E0106s.
 - **[rs-proj-lends] grew the borrowing-struct case**: a lent parameter that
   is itself a borrowing struct defeats elision even alone (two input
@@ -760,7 +806,7 @@ then had no `Heap` to accept. Found by the user in `demo/heap.sv`.
 2026-09-22).** The `+Q` form landed earlier the same day as *re*-application:
 `Q` had to be a qualifier the parameter already declared, on the reasoning that
 "re-establishing is not adding". The user's `heapify` is the counterexample —
-`heapify(list: Mut List<T>, ?Ordered<T>) => list: +Heap<T, ?cmp> Mut` takes an
+`heapify(list: Mut List<T>, ?Ordered<T>) => list: +Heap<T>(?cmp) Mut` takes an
 ordinary list and hands back a heap — and the distinction does not survive it:
 putting back what a mutation stripped and minting a claim on a value that
 arrived without one are the same sentence, "after this call, this is a `Q`", and
@@ -772,7 +818,7 @@ the same party is trusted for both [deduce-reapply].
   ordering nothing named, which every operation reading the claim would then fail
   to bind [cmp-binder]. Both refusals name the remedy.
 - **The identity is the call's.** `heapify(xs)` and `heapify(xs, cmp = by_name)`
-  hand back `Heap<Person, cmp@Person>` and `Heap<Person, by_name>`, two types that
+  hand back `Heap<Person>(cmp@Person)` and `Heap<Person>(by_name)`, two types that
   refuse to mix. That needed two pieces: the lowered claims recorded per (fn,
   parameter) at the signature — where the callee's generics are in scope, as for
   `implicit_params` — and `establish_quals` at the call site, substituting the
@@ -781,7 +827,7 @@ the same party is trusted for both [deduce-reapply].
   were collected from parameter types, the return type and an `as Q` clause; a
   claim a fn *establishes* names its identity in the deduction clause and nowhere
   else, so without that the call site had nothing to substitute and the claim
-  reached the caller reading `Heap<Int, ?cmp>` — an identity naming the callee's
+  reached the caller reading `Heap<Int>(?cmp)` — an identity naming the callee's
   own binder. The tell was a diagnostic printing `?cmp` where a name belonged.
 - The existing machinery did most of it: a refinement's `+Q` already adds a
   qualifier to the caller's variable after a call, so establishment is that path
@@ -868,7 +914,7 @@ already trusted by `-> T as Q` and by a `refn`. HEAP_QUALIFIER.md item 2, ROADMA
 D2, and the last thing between `demo/heap.sv` and running.
 
 - **The user's refinement is what makes it readable**: a re-application is
-  *spelled* differently from a claim checked as usual (`+Heap<T, ?cmp>`, on the
+  *spelled* differently from a claim checked as usual (`+Heap<T>(?cmp)`, on the
   model of a refinement's additions), rather than the same exhaustive list being
   silently trusted in one file and checked in another. A plain `Heap` in that
   position still fails body validation, which is what gives the `+` meaning.
@@ -914,7 +960,7 @@ order.
 
 **A forwarded implicit needs an adapter when the two sides render it differently
 (2026-09-22).** The second thing between the heap and running.
-`drain(heap: Heap<Int, ?cmp> …)` holds `&mut dyn FnMut(i32, i32) -> i32` — a Copy
+`drain(heap: Heap<Int>(?cmp) …)` holds `&mut dyn FnMut(i32, i32) -> i32` — a Copy
 scalar goes by value — while the generic `heap_pop<T>` it calls wants
 `FnMut(&T, &T)`, because a type variable is never known to be Copy. The checker
 sees one capability and is right to; the *rendering* is where they part, and the
@@ -966,7 +1012,7 @@ fall-through), and the call after the guard routes to the overload that *demands
 the claim rather than recursing into the one making it [fn-overload-rank].
 
 - Evidence: hovering `demo/heap.sv`'s own `return heap_pop(heap)` reports
-  `Heap<T, ?cmp> Mut NonEmpty List<T>`, "narrowed here by an `is` test"; and a
+  `Heap<T>(?cmp) Mut NonEmpty List<T>`, "narrowed here by an `is` test"; and a
   program of that exact shape prints `empty` / `nonempty with 7` on both backends.
 - Two tests in `guard_tests.rs` now pin it, the second one negative — without the
   guard the plain overload wins — so the first is about the guard rather than about
@@ -982,7 +1028,7 @@ clothes (2026-09-22).** `demo/heap.sv`'s `let val = heap.get(i)` hovered as
 `proj proj T?` (HEAP_QUALIFIER.md item 3, the heap plan's first sequenced item).
 Fixed in five lines, in the **LSP**: hover writes the compiler qualifier itself
 for a fate-linked variable (`format!("proj {ty}")` [fate-link]), and `get` is
-declared `-> (proj[from: list] T)?`, so the borrow was already on the type line.
+declared `-> (proj(list) T)?`, so the borrow was already on the type line.
 `Ty::presents_proj()` now answers whether a rendering leads with a `proj` — its own
 qualifier, or an optional printed `X?` whose `X` leads with one — and the prefix is
 added only when it does not; the detail line still names the roots.
@@ -993,7 +1039,7 @@ added only when it does not; the detail line still names the roots.
   and a warning that fate-linking might double-link off the back of it. The
   premise about `dedup` is true; the conclusion is not reachable — the language's
   spelling for a borrow of several sources is **one** qual with several arguments
-  (`proj[from: a, b]`), and every `proj` in a checked type comes from lowering a
+  (`proj(a, b)`), and every `proj` in a checked type comes from lowering a
   written one. Six lines reproduced it, and an *error* at the same binding printed
   `proj Str?` — one `proj` — which is what said the checker was right and the
   renderer was not.
@@ -1140,7 +1186,7 @@ for one needed only to fill it from the identity rather than from
   list passes through. The lesson is the one this document already carries about
   the emitters: when a new form has to be invisible, find the funnel rather than
   patching the paths you happen to hit, or you fix three of four and the fourth
-  emits `java.util.SortedSet<Person, by_age>`.
+  emits `java.util.SortedSet<Person>(by_age)`.
 - The **hash** pair is still refused on Kotlin, now with a message about hashing
   rather than ordering: `LinkedHashSet` keys off `hashCode`/`equals` with no slot
   for a function, so it needs the runtime container Rust's `SalvoMap` will also
@@ -1151,7 +1197,7 @@ for one needed only to fill it from the identity rather than from
 
 **Ordering round (second plan), step 4b, third slice — a sorted collection is
 kept by the ordering its type names, on Rust (2026-09-22).** The emitter reaches
-the runtime, so `SortedSet<Person, by_age>` now compiles and runs.
+the runtime, so `SortedSet<Person>(by_age)` now compiles and runs.
 
 - **The emitted shape**: `SalvoSortedSet::from_elements::<__Cmp_by_age, _>(vec![…])`
   at the construction, `collections::HostOrd` where the type names no ordering
@@ -1217,7 +1263,7 @@ wall worth knowing about (2026-09-22).**
   a binder in each. `unify` got the matching arm.
 - **The route that does not work, and why**: making the keyed *constructors*
   demand the capability (`sorted_set_of<T>(...elems: T[], ?Ordered<T>) ->
-  SortedSet<T, ?cmp>`) is the obvious way to give the emitter an identity to
+  SortedSet<T>(?cmp)`) is the obvious way to give the emitter an identity to
   lower. It fails immediately on `sorted_set_of((2, 0), (1, 9))`: a **tuple has no
   Salvo `cmp`**, and cannot be given one, because `cmp<A, B>(a: (A, B), b: (A,
   B))` would itself need `?Ordered<A>, ?Ordered<B>` — and [implicit-resolve]
@@ -1284,8 +1330,8 @@ the container's edge**, behind a boxed store.
 
 **Ordering round (second plan), step 4a — the keyed containers declare their
 slots (2026-09-22).** The language half of ORDERING.md's step 4: `SortedSet<T,
-?cmp = cmp>`, `SortedMap<K, V, ?cmp = cmp>`, `Set<T, ?hash = hash, ?eq = eq>` and
-`Map<K, V, ?hash = hash, ?eq = eq>`, with **membership named per container** —
+?cmp = cmp>`, `SortedMap<K, V>(?cmp = cmp)`, `Set<T>(?hash = hash, ?eq = eq)` and
+`Map<K, V>(?hash = hash, ?eq = eq)`, with **membership named per container** —
 `eq`-distinct for the hash pair, `cmp`-distinct for the sorted pair
 [col-membership] [col-keyed-slots].
 
@@ -1300,7 +1346,7 @@ slots (2026-09-22).** The language half of ORDERING.md's step 4: `SortedSet<T,
   message naming what it waits for. The runtimes are the other half of step 4:
   Rust's `BTreeSet` takes no comparator and Kotlin's `LinkedHashSet` keys off
   `hashCode`/`equals`, so both containers have to become Salvo-runtime ones
-  carrying the slot's function before a `SortedSet<Person, by_age>` can exist. An
+  carrying the slot's function before a `SortedSet<Person>(by_age)` can exist. An
   error rather than wrong output; the type then **degrades to the canonical
   form**, which is what keeps the refusal to one diagnostic instead of a cascade
   through every call the value reaches.
@@ -1325,7 +1371,7 @@ slots (2026-09-22).** The language half of ORDERING.md's step 4: `SortedSet<T,
 and the operator's ambiguity (2026-09-22).** User decision 21, and the half of
 the operator rule that goes with it.
 
-- **`qualifier Heap<T, ?Ordered<T>> of List<T>`** declares one slot per member,
+- **`qualifier Heap<T>(?Ordered<T>) of List<T>`** declares one slot per member,
   at the position the spread is written. The slot list became
   `Vec<SlotDecl>` (`One(FnSlot)` | `Group(TypeRef)`) and is **expanded by the
   checker**, not the parser: a group's members are only visible once
@@ -1333,14 +1379,14 @@ the operator rule that goes with it.
   position at the same type, the same rule step 2 gave implicit spreads.
 - **Type arguments first, slots after** — replacing yesterday's
   identities-only reading of a qualifier's arguments, which needed a special case
-  (`Heap<?cmp>`) that the user's own examples did not use. One positional rule
+  (`Heap(?cmp)`) that the user's own examples did not use. One positional rule
   now covers a qualifier and a keyed type alike.
 - **An unwritten argument is `Ty::Unknown`**, and that one choice carries the
   whole "a slot list is a *pattern*" rule: `Unknown` is compatible in both
   directions [type-unknown-lenient], so an unmentioned slot constrains nothing
   and a bare `Heap` becomes the empty case of the same rule rather than a special
   case. It also forced the padding of *type* arguments — a bare `Heap` and a
-  `Heap<Person, cmp@Person>` have to be the same arity to compare at all — and
+  `Heap<Person>(cmp@Person)` have to be the same arity to compare at all — and
   `qual_present` had to compare arguments with `compatible` instead of `==`.
 - **`?cmp: cmp2` aliases a binder**, in the spelling destructuring already uses.
   The parser gained `TypeRef.alias`; the binder's name in the signature is the
@@ -1468,9 +1514,9 @@ landed; the fifth (the keyed containers) waits on two user decisions, below.
   one position.
 - **Two readings of one argument list.** A *qualifier*'s arguments are
   identities only — its type arguments come from the type it qualifies (`Ok Str`
-  implies `Ok<Str>`), so `Heap<cmp@Person>` needs no reading-order rule and one
+  implies `Ok<Str>`), so `Heap(cmp@Person)` needs no reading-order rule and one
   heap's arguments always read the same way. A *type*'s keep the positional
-  reading with slots trailing the type parameters (`SortedSet<Str, my_cmp>`).
+  reading with slots trailing the type parameters (`SortedSet<Str>(my_cmp)`).
   This is the one implementation-level choice the design did not already make;
   it is a rule in [cmp-carry] now.
 - **What fills a binder** is the identity the *types* carry, before any
@@ -1484,7 +1530,7 @@ landed; the fifth (the keyed containers) waits on two user decisions, below.
 - **The backends needed nothing.** The simplification found while landing steps
   1–4 held exactly: a qualifier erases, so a carried identity lowers as the
   *implicit parameter* it is resolved as — an ordinary trailing argument both
-  emitters already emit. The worked example (a `Ranked<T, ?cmp>` list, built
+  emitters already emit. The worked example (a `Ranked<T>(?cmp)` list, built
   under the canonical ordering and under a second one, answering differently
   from one generic body) compiles and runs on `kotlinc` and `rustc` from one
   verbatim-shared source, and not a line of either emitter changed.
@@ -1497,7 +1543,7 @@ landed; the fifth (the keyed containers) waits on two user decisions, below.
 - **A deduction that keeps a qualifier keeps its identity**, verified rather
   than assumed: a deduction entry names qualifier *names*, and the argument's
   own type carries the arguments, so `=> r: Heap Mut` leaves a value that a
-  later `Heap<cmp@Person>` position accepts. `=> r: Heap<?cmp> Mut` is a
+  later `Heap(cmp@Person)` position accepts. `=> r: Heap(?cmp) Mut` is a
   parse-level refusal (a deduction entry takes no type arguments), which is the
   honest spelling to document rather than a gap to fill.
 - **Not landed: the keyed containers** (`SortedSet`/`SortedMap`/`Set`/`Map`
@@ -1799,8 +1845,8 @@ groups, so **equality becomes opt-in** (overturning [col-equality]'s
 "every struct, structurally", 2026-09-12) and comparisons on unconstrained
 `T` become errors (closing the `op_lenient` `Ty::Var` leftover); structures
 that hold an ordering bind it **at construction as a fn-valued type
-argument with static identity** (`Heap<?cmp>`, `SortedSet<T, ?cmp = cmp>`,
-`Set<T, ?hash, ?eq>`) — lowered to zero-sized marker types on Rust, so no
+argument with static identity** (`Heap(?cmp)`, `SortedSet<T>(?cmp = cmp)`,
+`Set<T>(?hash, ?eq)`) — lowered to zero-sized marker types on Rust, so no
 comparator value exists and sendability is untouched; `canbe ordered` and
 `canbe hashed` are deleted. Rejected on the way (recorded in ORDERING.md so
 they are not re-explored): comparator-in-the-value (not sendable,
@@ -3229,7 +3275,7 @@ each small and each user-directed:
   `send fn`, `iter fn`, `mailbox {`), the asynchronous expression forms
   (`spawn H(…)`, `waitfor out:`, `replyto`/`replyto!`), the capability effects
   inside an effect list (`[use, spawn, waitfor]`, matched by the comma or
-  bracket around them), the placement clause `on POOL`, `proj[from: list]`'s
+  bracket around them), the placement clause `on POOL`, `proj(list)`'s
   source, `canbe`'s `hashed`/`ordered`, and `self` after `@`. A variable named
   `on`, a field named `from` and a local named `ordered` all stay plain — the
   reason to match shapes instead of keeping a word list. `watch`, `on_idle`,
@@ -6018,7 +6064,7 @@ file it appeared in also had a stale array *literal*, fixed in passing.
 
 **Three claims over `List<T>`.** `NonEmpty` (in `core.list`) has a
 `qualifies`, so it can be tested — and it is the one that earns the machinery:
-`first(list: NonEmpty List<T>) -> proj[from: list] T` drops the optional.
+`first(list: NonEmpty List<T>) -> proj(list) T` drops the optional.
 It arrives three ways: by construction (`non_empty_list`), by *refinement*
 (`refn add(...) => list: +NonEmpty`, since `add` may not promise it itself),
 and by `is`. `Sorted` (also `core.list`) has **no** `qualifies` — deciding
@@ -6061,7 +6107,7 @@ LANGUAGE.md's own spelling for `non_empty_list`, which is therefore an
 `once`-qualified fn-typed parameter, locking the contract out of exactly the
 parameter that most wants one: a callback that *consumes* what it is given can
 only be called once. (4) A projected return over a bare generic
-(`-> proj[from: list] T`) rendered as `T` rather than `&T` on Rust — the
+(`-> proj(list) T`) rendered as `T` rather than `&T` on Rust — the
 documented "borrowedness is the instantiation's fact" exception, which is
 right at a definition site but wrong in a return, where elision ties the
 borrow to a named parameter. (5) A diagnostic hardcoded "discharge it with its
@@ -6119,7 +6165,7 @@ Set/Map pass is a **snapshot owning a `List<T>`**, yielding owned elements
 through a set-local `snapshot_at` intrinsic. Two designs were built first and
 failed, which is what the prototype was for: an intrinsic *borrowing* pass
 ([proj-field] lifetimes over the native iterators) breaks because the emitter
-renders `proj[from: p] T` as plain `T` for a non-borrowing struct, so the
+renders `proj(p) T` as plain `T` for a non-borrowing struct, so the
 yield type mismatches; and a `copy()`-based pass breaks because Kotlin cannot
 copy a generic `V`. **A Map pass yields keys**, not entries — an entries pass
 needs an owned `(K, V)`, and with no generic copy on Kotlin the pair would
@@ -6356,7 +6402,7 @@ simpler discharge model replacing §1-1/§3-1/§3-2:
 - **Obligations are lowercase keywords**: `proj`, `once`, `linear` —
   reserved words, written in qualifier position but visually distinct from
   qualifiers (`proj NonEmpty List<T>`), signalling compiler-owned behavior
-  the way `provenance` does. `proj[from: p]` keeps its source list. Bounds
+  the way `provenance` does. `proj(p)` keeps its source list. Bounds
   follow: `T canbe linear`, `q canbe once` stays available for the future
   multiplicity-polymorphism reserve; `canbe Mut` (a permission) stays
   uppercase.
@@ -6410,7 +6456,7 @@ deleted when the phase lands.
 **Capturing lambdas are views; written lend entries win (user decision
 2026-09-12, evening).** Walking the projection leftovers surfaced two
 gaps, decided and closed together. (1) *Written-entry precedence*
-([proj-infer]): a bodied generic's `=> proj[from: it]` was consulted only
+([proj-infer]): a bodied generic's `=> proj(it)` was consulted only
 behind a written-return-type gate that an instantiation-borne projection
 (`-> Mut List<T>`, `T = proj Str`) never passed, so the every-kept-argument
 fallback linked the result to arguments the author had excluded — the fix
@@ -6540,9 +6586,9 @@ code-signing) rejecting a stale kernel signature cache — see gotchas.
 2026-09-11, late).** The bracket list after `->` is gone; a signature ends in
 `-> T => entries`, on the same line or the next. Entries: `p` (kept), `!p`
 (consumed; `p: Never` says the same), `p: Qual` (exhaustive), `p: None`
-(strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: proj[from: a]`
-(the result's field projects `a`), `v.f: proj[from: a]` (a parameter's field is
-re-pointed), bare `proj[from: a, b]` (opaque: the result holds a borrow of
+(strips every qualifier — was `[p:]`), `p: -Q` (delta), `.f: proj(a)`
+(the result's field projects `a`), `v.f: proj(a)` (a parameter's field is
+re-pointed), bare `proj(a, b)` (opaque: the result holds a borrow of
 both), and `=>[f] …` groups scoping entries to a fn-typed parameter (its own
 parameters named in its type; inline lists inside a parameter list are a parse
 error — ambiguous with the next parameter, user chose the one clean option).
@@ -6551,7 +6597,7 @@ a bodiless declaration (effect member, platform member, intrinsic) must
 mention every parameter except Copy scalars [copy-scalar-free]; fn types keep
 today's default. The contract-stability cost — a body edit can change what
 callers may do with no signature change — was raised, accepted, and recorded
-in ROADMAP as a revisit. `proj[from: a, b]` names several sources at once
+in ROADMAP as a revisit. `proj(a, b)` names several sources at once
 and is what a projection joined across branches reads as. **What it took:**
 a `FatArrow` token; `Deduction { target: Param{name, path} | Result{path} |
 Opaque, kind: … | proj(sources) }` with `TypeRef.from: Vec<Ident>`;
@@ -6559,11 +6605,11 @@ Opaque, kind: … | proj(sources) }` with `TypeRef.from: Vec<Ident>`;
 the parameter's `Type::Fn`); `deduce.rs` running the fixpoint for *every*
 bodied fn and overlaying the written entries (`ParamDeduction.written`),
 validating only what was written, and treating `return x` under a wholesale
-`proj[from: x]` as a borrow; `check.rs` preferring the effective table
+`proj(x)` as a borrow; `check.rs` preferring the effective table
 (`effective_contract`), per-parameter `own_written` for move-mode claims,
 `require_full_clause` replacing the whole-list requirement, multi-source
 `derived_calls`, and re-pointing entries adding held links at the call; the
-LSP hover rendering the effective clause (`!p`, `p: Q`, `proj[from: …]`,
+LSP hover rendering the effective clause (`!p`, `p: Q`, `proj(…)`,
 `=>[f] …`; Copy scalars and keep-all entries omitted); the Rust emitter
 tagging every source with `'a`, borrowing the RHS of a `proj`-field
 assignment, and tying `'r` for re-pointing. The sweep was mechanical
@@ -6578,8 +6624,8 @@ failure left" can hide others — check with `--no-fail-fast`.
 
 **Phase 2b "copies only by opt-in" — built, and the view model settled (user
 decisions 2026-09-11).** The five steps from ROADMAP landed: `[rs-opt-borrow]`
-(the `Option<&T>` local), `get → (proj[from: list] T)?` and std's `next →
-Emitted (proj[from: p] T) | Finished` [yield-proj], `filter → Mut List<proj
+(the `Option<&T>` local), `get → (proj(list) T)?` and std's `next →
+Emitted (proj(p) T) | Finished` [yield-proj], `filter → Mut List<proj
 T>` as a view, `?copy` as a general implicit on `filter_to` and on handler
 constructors [copy-implicit] (the former [implicit-fn-only] restriction on
 constructors lifted), and the std audit (no element-storing combinator clones
@@ -6616,7 +6662,7 @@ as the required spelling — the user preferred inference with the clause as
 fallback; the form is reserved in ROADMAP for per-field precision on
 bodiless callees. **Documented gap**: a generic body cannot see that an
 element of an opaque pass is borrowed (`filter`'s `add(out, x)`), so the
-signature says it (`=> proj[from: it]`); a user fn storing such an element
+signature says it (`=> proj(it)`); a user fn storing such an element
 without writing so is caught by rustc, not the checker.
 
 **`ReadOnly` is renamed `proj`, and copying becomes opt-in-only (user decisions
@@ -16600,18 +16646,18 @@ snapshot diffs.
   a type is written and ask what an omitted argument means there.
 
 - **A type position that is not a type has to be taught to *three* places.**
-  [cmp-carry]'s identities (`Heap<cmp@Person>`) are written where types go, so
+  [cmp-carry]'s identities (`Heap(cmp@Person)`) are written where types go, so
   the checker reaches them by three separate walks: `lower_type_subst` (which
   builds the `Ty`), `validate_type`/`validate_quals` (which report unknown
   *names*), and — the one that is easy to miss — whatever lowers the same syntax
   by hand somewhere else. `fn_return_ty` built the `as Q` clause's qualifier
-  itself instead of calling `lower_quals`, so `-> … as Heap<?cmp>` type-checked
+  itself instead of calling `lower_quals`, so `-> … as Heap(?cmp)` type-checked
   everywhere except in the one place that mattered. Teach the lowering and
   forget the validation and a *correct* program gets an "unknown type" beside
   its correct result; unify the duplicate lowering path first, then add the
   form.
 - **Publishing a resolution into a result type is an ordering constraint, not a
-  mechanism.** `empty_heap(…)` answers `Heap<cmp@Person> Mut List<Person>`
+  mechanism.** `empty_heap(…)` answers `Heap(cmp@Person) Mut List<Person>`
   because `check_call` resolves implicits *before* it substitutes the return
   type, and because binders live in the same substitution map as type variables
   (under a `"?name"` key — `?` is not an identifier character, so the two
@@ -17170,7 +17216,7 @@ snapshot diffs.
   to be snapshots owning a `List<T>` (2026-09-12). Reach for a snapshot
   before reaching for a copy.
 - **An intrinsic type cannot host a borrowing pass today.** The emitters
-  render a `proj[from: p] T` field as plain `T` when the owning struct does
+  render a `proj(p) T` field as plain `T` when the owning struct does
   not otherwise borrow, so an intrinsic pass built on [proj-field]
   lifetimes over the native iterators fails on its own yield type. Worth
   knowing before designing the next container's iteration.
@@ -17253,7 +17299,7 @@ snapshot diffs.
   are the checker's only record of the difference.
 - **A generic body cannot see that an element it stores is borrowed**, because
   the pass is opaque (`it: Mut It`). Std says it in the signature
-  (`=> proj[from: it]`); a user fn that does not is caught by rustc, not the
+  (`=> proj(it)`); a user fn that does not is caught by rustc, not the
   checker. Recorded in ROADMAP.
 - **Inference changes what a migration means.** Converting `-> [] T` (consume
   everything) to a clause that mentions nothing turns a `consume(x) {}` test

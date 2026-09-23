@@ -1285,7 +1285,7 @@ effect Sink {{
 }
 
 /// `=>[f] !t` scopes a consumption to a fn-typed parameter (its parameter
-/// named in the type), and `proj[from: a, b]` joins two sources.
+/// named in the type), and `proj(a, b)` joins two sources.
 #[test]
 fn fn_type_groups_and_multi_source_projections() {
     let src = format!(
@@ -1293,7 +1293,7 @@ fn fn_type_groups_and_multi_source_projections() {
 fn apply<T>(list: List<T>, f: (t: List<T>) -> Int) -> Int =>[f] !t {{
     return f(list)
 }}
-fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> proj[from: a, b] List<T> {{
+fn either<T>(a: List<T>, b: List<T>, flag: Bool) -> proj(a, b) List<T> {{
     if flag {{
         return a
     }}
@@ -1315,7 +1315,7 @@ fn main<T>(a: List<T>, b: List<T>) -> None {{
         "the projection must be linked to both sources: {errs:?}"
     );
     assert!(
-        !errs.iter().any(|e| e.contains("returns `proj[from: a, b]`, so every returned value")),
+        !errs.iter().any(|e| e.contains("returns `proj(a, b)`, so every returned value")),
         "either branch is a valid source: {errs:?}"
     );
 }
@@ -1324,23 +1324,23 @@ fn main<T>(a: List<T>, b: List<T>) -> None {{
 /// expression*, not the first argument of a one-argument call: dot-notation
 /// (`list.pick(index)`) leaves exactly one written argument, and the
 /// constructor-operand unwrap that a `proj`-arm union return needs must not
-/// apply to a plain `proj[from: p] T` return — it used to, so the checker
+/// apply to a plain `proj(p) T` return — it used to, so the checker
 /// asked the *index* where it came from and rejected the call, while
 /// accepting a one-argument call that borrows nothing.
 #[test]
 fn derived_return_checks_the_call_not_its_only_argument() {
     let src = format!(
         "{QUALIFIED_LISTS}
-fn pick<T>(list: List<T>, index: Int) -> proj[from: list] List<T> {{
+fn pick<T>(list: List<T>, index: Int) -> proj(list) List<T> {{
     return list
 }}
 fn owned<T>(list: List<T>) -> List<T> {{
     return copy(list)
 }}
-fn forward<T>(list: List<T>, index: Int) -> proj[from: list] List<T> {{
+fn forward<T>(list: List<T>, index: Int) -> proj(list) List<T> {{
     return list.pick(index)
 }}
-fn leak<T>(list: List<T>) -> proj[from: list] List<T> {{
+fn leak<T>(list: List<T>) -> proj(list) List<T> {{
     return owned(list)
 }}
 "
@@ -1541,7 +1541,7 @@ fn an_established_claim_must_apply_to_the_parameter() {
 #[test]
 fn an_established_claim_must_name_the_identity_it_holds() {
     let errs = reapply_errors(
-        "qualifier H<T, ?cmp: (T, T) -> Int> of List<T>\n\n\
+        "qualifier H<T>(?cmp: (T, T) -> Int) of List<T>\n\n\
          fn heapify<T>(xs: Mut List<T>, ?cmp: (T, T) -> Int) [] -> None\n\
          => xs: +H Mut {\n}\n",
     );

@@ -16,7 +16,7 @@
 // `Int`, tagged — and so a sequence of optionals still has a distinguishable
 // end: `Emitted None | Finished` has two arms where `None | None` would
 // have one. Erased in generated code [qual-erasure].
-export qualifier Emitted<T> of T
+export provenance qualifier Emitted<T> of T
 
 // The end arm. A fieldless struct rather than a qualifier because there is
 // nothing for it to qualify: it carries no element, and reusing `None` would
@@ -26,7 +26,7 @@ export struct Finished {}
 // [qual-ctor-fn] Tags a value as the element arm. The value is moved into the
 // result, so nothing is kept ([] deductions); linear values may be tagged,
 // since the obligation travels with them [linear-generics].
-export fn emitted<T canbe linear>(value: T) [] -> T as Emitted {
+export fn emitted<T canbe linear>(value: T) [] -> +Emitted T {
     return value
 }
 
@@ -51,7 +51,7 @@ export fn finished() [] -> Finished {
 //
 // The state is taken as `Mut`: advancing a pass is a mutation of its
 // position. A pass that *walks* data emits borrows of it — it declares
-// `: Yield<self, proj T>` and its `next` returns `Emitted (proj[from: p] T)`
+// `: Yield<self, proj T>` and its `next` returns `Emitted (proj(p) T)`
 // [yield-proj] — so reading through it copies nothing and whoever *stores* an
 // element says `copy` [copy-opt-in]; a pass that *computes* its elements
 // declares `: Yield<self, T>` and owns them. A reading combinator's

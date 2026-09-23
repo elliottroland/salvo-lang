@@ -140,7 +140,7 @@ fn a_refinement_can_invalidate_a_qualifier() {
          fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
          refn read(s: Store<T>) => s: -NonEmpty\n}}\n\n\
          fn read<T>(s: Store<T>) [] -> Int => s {{\n    return 0\n}}\n\n\
-         fn nonempty<T>(s: Store<T>) -> Store<T> as NonEmpty {{\n    return s\n}}\n\n\
+         fn nonempty<T>(s: Store<T>) -> +NonEmpty Store<T> {{\n    return s\n}}\n\n\
          fn f(s: NonEmpty Store<Int>) -> None {{\n    \
          let a = read(s)\n    \
          let b = needs_nonempty(s)\n}}\n"
@@ -233,7 +233,7 @@ fn a_top_level_refinement_reconciles_a_conflict() {
 #[test]
 fn a_refinement_is_only_in_scope_with_its_qualifier() {
     let quals = format!(
-        "{PRELUDE}{NONEMPTY}\nfn qualified<T>(s: Store<T>) -> Store<T> as NonEmpty {{\n    \
+        "{PRELUDE}{NONEMPTY}\nfn qualified<T>(s: Store<T>) -> +NonEmpty Store<T> {{\n    \
          return s\n}}\n"
     );
     // Importing the qualifier: the refinement applies.

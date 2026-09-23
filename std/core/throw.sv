@@ -28,11 +28,11 @@ export effect Throw<M> {
 // constructor below produces a value in the thrown arm without
 // transferring control. The authority to throw is `[Throw<M>]`
 // availability alone.
-export qualifier Thrown<M> of M
+export provenance qualifier Thrown<M> of M
 
 // [qual-ctor-fn] Tags a value as the thrown arm of an outcome union
 // without throwing anything — for code that produces an outcome by hand
 // (a stub, a test double, a value read back from storage).
-export fn thrown<M canbe linear>(message: M) [] -> M as Thrown {
+export fn thrown<M canbe linear>(message: M) [] -> +Thrown M {
     return message
 }

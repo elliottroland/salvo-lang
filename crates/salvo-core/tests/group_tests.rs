@@ -22,7 +22,7 @@ const STD_PRELUDE: &str =
      export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
      export qualifier Emitted<T> of T\n\
      export struct Finished {}\n\
-     export fn emitted<T>(value: T) [] -> T as Emitted => !value {\n    return value\n}\n\
+     export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n";
 
 fn errors(src: &str) -> Vec<String> {

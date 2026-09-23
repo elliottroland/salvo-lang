@@ -385,7 +385,7 @@ fn dot_names_parse_in_declarations_and_types() {
     let source = "struct Environment {\n    id: Environment.Id\n}\n\n\
                   struct Environment.Id {\n    value: Str\n}\n\n\
                   qualifier Environment.Tag of Str\n\n\
-                  fn tag(v: Str) -> Str as Environment.Tag {\n    return v\n}\n";
+                  fn tag(v: Str) -> +Environment.Tag Str {\n    return v\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1404,7 +1404,7 @@ fn the_deduction_clause_parses_every_entry_form() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
     let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> Pair<T, U>\n\
                =>[keep] !t\n\
-               => !a, b: None, c: Mut, d: -Q, .first: proj[from: a], .second: proj[from: a, b], c.items: proj[from: b], proj[from: a] {\n\
+               => !a, b: None, c: Mut, d: -Q, .first: proj(a), .second: proj(a, b), c.items: proj(b), proj(a) {\n\
                }\n";
     let (module, diags) = salvo_syntax::parse_module(src);
     let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
@@ -1500,7 +1500,7 @@ fn the_deduction_clause_rejects_the_old_and_ill_formed_shapes() {
 #[test]
 fn obligation_keywords_parse_in_type_positions() {
     let source = "fn f(step: Emitted (proj Str) | Finished, g: once (Int) -> Str) \
-                  -> proj[from: step] Str => step, g {\n    return \"x\"\n}\n";
+                  -> proj(step) Str => step, g {\n    return \"x\"\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
@@ -1512,7 +1512,7 @@ fn obligation_keywords_parse_in_type_positions() {
         panic!("expected a qualified fn type, got {:?}", f.params[1].ty);
     };
     assert_eq!(qualifiers[0].name.name, "once");
-    // The return type is `proj[from: step] Str`.
+    // The return type is `proj(step) Str`.
     let Some(salvo_syntax::ast::Type::Named { qualifiers, .. }) = &f.return_type else {
         panic!("expected a named return type");
     };

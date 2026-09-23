@@ -1511,7 +1511,7 @@ fn l7b_once_fns() {
     assert!(stderr.contains("4 errors"), "stderr: {stderr}");
 }
 
-// [readonly-return] L7c: `-> proj[from: p] T?` marks a derived
+// [readonly-return] L7c: `-> proj(p) T?` marks a derived
 // return — the callee may return projections/elements of the kept
 // parameter `p` without `copy`, and the caller's result fate-links to
 // the argument. Violations: returning an independent value, annotating
@@ -1525,16 +1525,16 @@ fn l7c_derived_returns() {
         dir.join("main.sv"),
         "struct Person {\n    name: Str,\n    age: Int\n}\n\n\
          fn take(p: Person) -> None => !p {\n}\n\n\
-         fn find_adult(persons: List<Person>) -> proj[from: persons] Person? => persons {\n    \
+         fn find_adult(persons: List<Person>) -> proj(persons) Person? => persons {\n    \
          for person in persons {\n        if person.age >= 18 {\n            return person\n        }\n    }\n    \
          return None\n}\n\n\
-         fn forwarded(persons: List<Person>, tag: Str) -> proj[from: persons] Person? => persons, tag {\n    \
+         fn forwarded(persons: List<Person>, tag: Str) -> proj(persons) Person? => persons, tag {\n    \
          return first(persons)\n}\n\n\
-         fn bad_independent(persons: List<Person>) -> proj[from: persons] Person? => persons {\n    \
+         fn bad_independent(persons: List<Person>) -> proj(persons) Person? => persons {\n    \
          return Person {name: \"made up\", age: 1}\n}\n\n\
-         fn bad_moved(persons: List<Person>) -> proj[from: persons] Person? => !persons {\n    \
+         fn bad_moved(persons: List<Person>) -> proj(persons) Person? => !persons {\n    \
          return None\n}\n\n\
-         fn bad_param(persons: List<Person>) -> proj[from: nobody] Person? => persons {\n    \
+         fn bad_param(persons: List<Person>) -> proj(nobody) Person? => persons {\n    \
          return None\n}\n\n\
          fn poison_after_mutation() -> Int {\n    \
          let people = mut_list_of(Person {name: \"Ada\", age: 36})\n    \
@@ -1554,17 +1554,17 @@ fn l7c_derived_returns() {
     assert!(!out.status.success());
     assert!(
         stderr.contains(
-            "this function returns `proj[from: persons]`, so every returned \
+            "this function returns `proj(persons)`, so every returned \
              value must be derived from `persons`"
         ),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`proj[from: persons]` requires `persons` to be kept"),
+        stderr.contains("`proj(persons)` requires `persons` to be kept"),
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("`proj[from: nobody]` names no parameter"),
+        stderr.contains("`proj(nobody)` names no parameter"),
         "stderr: {stderr}"
     );
     // Mutating the argument poisons the derived result.
@@ -2068,7 +2068,7 @@ fn a_combinator_result_is_a_view_of_its_container() {
     fs::write(
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
-         fn keep(w: proj Str) -> proj[from: w] Str => w {\n    return w\n}\n\n\
+         fn keep(w: proj Str) -> proj(w) Str => w {\n    return w\n}\n\n\
          struct Chars {\n    n: Int\n}\n\n\
          iter fn next(c: Chars) -> Emitted Str | Finished {\n    \
          state {\n        at: Int = 0\n    }\n    \
@@ -2169,7 +2169,7 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [proj-infer] A written opaque projection entry (`=> proj[from: it]`)
+// [proj-infer] A written opaque projection entry (`=> proj(it)`)
 // names the lends exactly and takes precedence over the instantiation
 // fallback that links a `proj`-holding result to every kept argument —
 // even where the *written* return type shows no projection (`Mut List<T>`
@@ -2183,7 +2183,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
          fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
-         -> Mut List<T> => it: Mut, proj[from: it], labels {\n    \
+         -> Mut List<T> => it: Mut, proj(it), labels {\n    \
          let out = mut_list_of<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
          let words = list_of(\"ann\", \"bo\")\n    \

@@ -740,7 +740,7 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
-    /// Calls to fns with a derived return (`proj[from: param]`
+    /// Calls to fns with a derived return (`proj(param)`
     /// [readonly-return]), keyed by the call span: the index of the
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
@@ -761,7 +761,7 @@ pub struct Checked {
     /// that groups exist.
     pub implicit_params: HashMap<FnKey, Vec<ImplicitParam>>,
     /// [deduce-reapply] The claims a fn's deduction clause says it
-    /// **establishes** (`=> list: +Heap<T, ?cmp> Mut`), by (fn, parameter), each
+    /// **establishes** (`=> list: +Heap<T>(?cmp) Mut`), by (fn, parameter), each
     /// already lowered in the callee's generic scope — so a call site only has to
     /// substitute its type arguments and the identity that filled the binder,
     /// then add the qualifier to the caller's variable. Lowered here rather than
@@ -788,7 +788,7 @@ pub struct Checked {
     /// covers exactly the calls whose requirements a caller must satisfy.
     pub call_edges: Vec<(FnKey, FnKey)>,
     /// [cmp-carry] What each **carried identity** resolves to: the declaration
-    /// behind the `by_age` in a `SortedSet<Person, by_age>`, keyed by the
+    /// behind the `by_age` in a `SortedSet<Person>(by_age)`, keyed by the
     /// identity and the type it orders.
     ///
     /// A backend needs the *declaration* — to name the fn its generated marker
@@ -867,7 +867,7 @@ pub struct ImplicitParam {
     pub span: Span,
     /// [proj-anywhere] Which union arms of the member's *written* return
     /// type carry `proj` — a borrow the lowered `Ty` no longer shows. `Yield`'s
-    /// `next` has `[0]`: `Emitted (proj[from: it] T) | Finished`. A backend
+    /// `next` has `[0]`: `Emitted (proj(it) T) | Finished`. A backend
     /// that distinguishes borrows from values (Rust) renders those arms as
     /// references. Empty for a non-union return or a plain implicit.
     pub borrowed_arms: Vec<usize>,
@@ -878,7 +878,7 @@ pub struct ImplicitParam {
     /// what a parameter *is*, not what it is called (user decision 2026-09-22).
     pub slot: Option<String>,
     /// [cmp-binder] True when the signature carries this name as a **binder**
-    /// (`Heap<?cmp>`) — whether the parameter was written (`?cmp: (T, T) ->
+    /// (`Heap(?cmp)`) — whether the parameter was written (`?cmp: (T, T) ->
     /// Int`, whose resolution the result type then publishes) or captured from
     /// the argument types. What fills it is then the identity the types carry,
     /// before any resolution by name: that is the whole point of putting the
@@ -1660,16 +1660,16 @@ struct Checker<'p, 'r> {
     /// linear types.
     own_linear_generics: HashSet<String>,
     /// The current fn's derived-return parameter
-    /// (`-> proj[from: p] T` [readonly-return]): every returned
+    /// (`-> proj(p) T` [readonly-return]): every returned
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
     /// [proj-anywhere] Every source of the fn's wholesale `proj` return
-    /// (`proj[from: a, b] T`): a returned value may derive from any of them.
+    /// (`proj(a, b) T`): a returned value may derive from any of them.
     own_derived_sources: Vec<String>,
     /// [proj-anywhere] When the return type is a union, the *qualifier
     /// names* of the arms that carry `proj` (`Emitted` for
-    /// `Emitted (proj[from: p] T) | Finished`). A returned value whose
+    /// `Emitted (proj(p) T) | Finished`). A returned value whose
     /// constructor builds one of these arms must be derived from the
     /// source; a value into any other arm is an ordinary move. Empty when
     /// the whole return type is the borrow (the pre-2b shape).
@@ -2690,7 +2690,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         format!(
                                             "`{}` declares `: {}<self, proj …>`, but its `{}` \
                                              returns an owned element: write \
-                                             `Emitted (proj[from: p] T) | Finished`, or drop \
+                                             `Emitted (proj(p) T) | Finished`, or drop \
                                              the `proj` from the obligation",
                                             s.name.name, ob.name.name, member.name.name
                                         )
@@ -3613,7 +3613,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [cmp-binder] The **binders** this signature captures. All `?name`
         // occurrences in one signature are one binding (the ordering round's decision
         // 11): bound by an explicit implicit parameter when one is declared
-        // — `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap<?cmp>`,
+        // — `empty_heap<T>(?cmp: (T, T) -> Int) -> Mut List<T> as Heap(?cmp)`,
         // where resolution fills it and the return type publishes what it
         // chose — and otherwise **captured** from the argument types, as
         // `heap_push`'s is. Its fn type is never written at the fn: the slot
@@ -3628,7 +3628,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let ty = self.lower_type(rt);
             self.collect_binder_slots(&ty, rt.span(), &mut captured);
         }
-        // [qual-ctor-fn] `-> Mut List<T> as Heap<?cmp>`: the claim a
+        // [qual-ctor-fn] `-> Mut List<T> as Heap(?cmp)`: the claim a
         // constructor mints carries the identity too.
         if let Some(cref) = &f.constructs {
             let base = f
@@ -3641,11 +3641,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             let claimed = base.qualify(quals);
             self.collect_binder_slots(&claimed, cref.span, &mut captured);
         }
-        // [deduce-reapply] `=> list: +Heap<T, ?cmp> Mut`: a claim this fn
+        // [deduce-reapply] `=> list: +Heap<T>(?cmp) Mut`: a claim this fn
         // **establishes** names its identity there and nowhere else, so the
         // deduction clause is a binder occurrence like a parameter type is —
         // without this the call site had nothing to substitute and the claim
-        // reached the caller reading `Heap<Int, ?cmp>`, an identity naming the
+        // reached the caller reading `Heap<Int>(?cmp)`, an identity naming the
         // callee's own binder.
         for d in f.deductions.iter().flatten() {
             let ast::DeductionKind::Exhaustive { reapplied, .. } = &d.kind else {
@@ -3894,7 +3894,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             };
             // [cmp-binder] What filled a **binder** becomes part of the call's
-            // type: `empty_heap(…)` answers `Heap<cmp@Person> Mut List<Person>`
+            // type: `empty_heap(…)` answers `Heap(cmp@Person) Mut List<Person>`
             // because the identity resolution chose is substituted into the
             // result. A binder already bound — captured from an argument — keeps
             // what it was bound to.
@@ -5466,7 +5466,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [deduce-reapply] `=> p: +Q Mut` — the claims this fn establishes.
         self.check_reapplied_deductions(f);
-        // [readonly-return] `-> proj[from: p] T`: `p` must be a
+        // [readonly-return] `-> proj(p) T`: `p` must be a
         // parameter and must be *kept* — a moved parameter's data needs
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
@@ -5597,7 +5597,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             from.span,
                             "a `proj` element names no source: the list holds the borrow, \
                              and which parameter it is of is inferred from the body (or \
-                             written as `=> proj[from: p]` in the deduction clause)"
+                             written as `=> proj(p)` in the deduction clause)"
                                 .to_string(),
                         );
                     }
@@ -5606,7 +5606,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if r.from.is_empty() {
                     self.error(
                         r.span,
-                        "`proj` in a return type must name its source: `proj[from: param]`"
+                        "`proj` in a return type must name its source: `proj(param)`"
                             .to_string(),
                     );
                 }
@@ -5617,7 +5617,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.error(
                             from.span,
                             format!(
-                                "`proj[from: {}]` names no parameter of this function",
+                                "`proj({})` names no parameter of this function",
                                 from.name
                             ),
                         );
@@ -5646,7 +5646,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(
                         id.span,
                         format!(
-                            "`proj[from: {}]` requires `{}` to be kept: a \
+                            "`proj({})` requires `{}` to be kept: a \
                              moved parameter is owned by this function, so its \
                              data is returned by ordinary moves",
                             id.name, id.name
@@ -8303,7 +8303,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if matches!(value, Expr::Ident(id) if id.name == "None") {
             return;
         }
-        // Any of the declared sources will do (`proj[from: a, b]`).
+        // Any of the declared sources will do (`proj(a, b)`).
         let sources: Vec<String> = if self.own_derived_sources.is_empty() {
             vec![from.to_string()]
         } else {
@@ -8329,7 +8329,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 value.span(),
                 format!(
-                    "this function returns `proj[from: {shown}]`, so every \
+                    "this function returns `proj({shown})`, so every \
                      returned value must be derived from `{shown}` (a projection, \
                      element, or alias) or be `None`"
                 ),
@@ -9427,11 +9427,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Only *named* ones: a binder is filled per call [cmp-binder], and the
     /// emitters read that from the call's implicit arguments instead.
     fn record_carried_identities(&mut self, base: &TypeRef, arity: usize) {
-        if base.args.len() <= arity {
+        if base.value_args.is_empty() {
             return;
         }
+        let _ = arity;
         let empty = HashMap::new();
-        let type_args: Vec<Ty> = base.args[..arity.min(base.args.len())]
+        let type_args: Vec<Ty> = base
+            .args
             .iter()
             .map(|a| self.lower_type_subst(a, &empty, 0))
             .collect();
@@ -9440,7 +9442,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             None => return,
         };
         let name = base.name.name.clone();
-        for (at, written) in base.args[arity..].iter().enumerate() {
+        for (at, written) in base.value_args.iter().enumerate() {
             let Some(id @ FnId::Named { .. }) = self.written_fn_id(written) else {
                 continue;
             };
@@ -13650,7 +13652,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // Named but no group, or unnamed: keeps everything.
                     _ => (true, QualEffect::KeepAll),
                 };
-                // [proj-infer] `=>[f] proj[from: c]` on a fn type: the only
+                // [proj-infer] `=>[f] proj(c)` on a fn type: the only
                 // way to say what a bodiless value's result holds.
                 let lent = match (name, deductions) {
                     (Some(id), Some(list)) => list
@@ -13706,7 +13708,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [cmp-carry] A qualifier that declares fn slots takes **identities**
         // in its argument list, in slot order — never types: a qualifier's
         // type arguments come from the type it qualifies (`Ok Str` implies
-        // `Ok<Str>`), so `Heap<cmp@Person>` is unambiguous and one heap's
+        // `Ok<Str>`), so `Heap(cmp@Person)` is unambiguous and one heap's
         // arguments always read the same way.
         let slotted: Vec<Option<Vec<FnSlotInfo>>> = qualifiers
             .iter()
@@ -13723,14 +13725,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (q, slots) in qualifiers.iter().zip(&slotted) {
             if let Some(slots) = slots {
                 // [cmp-carry] A qualifier's type arguments are written first
-                // (`Heap<T, ?cmp> List<T>`), its slots after — the same
+                // (`Heap<T>(?cmp) List<T>`), its slots after — the same
                 // positional reading a keyed type has (user decision
                 // 2026-09-22).
                 let arity = self
                     .qual_decl(&q.name.name)
                     .map_or(0, |d| d.generics.len());
                 let args =
-                    self.lower_identity_args(&q.args, Some(arity), slots, subst, depth);
+                    self.lower_identity_args(&q.args, &q.value_args, Some(arity), slots, subst, depth);
                 // [lsp-definition] qualifier name -> its declaration.
                 self.record_def_ref(q.name.span, &q.name.name);
                 out.push(Qual {
@@ -13822,7 +13824,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [cmp-carry] The fn type a **qualifier's** slot demands, over the types the
-    /// qualified value is made of: `Heap<T, ?cmp: (T, T) -> Int> of List<T>`
+    /// qualified value is made of: `Heap<T>(?cmp: (T, T) -> Int) of List<T>`
     /// applied to a `List<Person>` wants `(Person, Person) -> Int`. The
     /// qualifier's own type parameters come from its `of` type matched against
     /// the value, which is the same reading `Ok Str` implies `Ok<Str>` by.
@@ -13841,7 +13843,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [cmp-carry] The fn type an `intrinsic type`'s slot demands, over the type
-    /// arguments written beside it: `SortedSet<Str, ?cmp>` wants
+    /// arguments written beside it: `SortedSet<Str>(?cmp)` wants
     /// `(Str, Str) -> Int`.
     fn type_slot_ty(&mut self, name: &str, type_args: &[Ty], index: usize) -> Option<Ty> {
         let decl = self.scope.opaque_types.get(name).copied()?;
@@ -14075,7 +14077,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (`?cmp`, `?cmp: cmp2`) names its slot — `?` on the left is the slot's own
     /// name, and an alias on the right is what the binder is called here
     /// [cmp-binder]. Naming the slot is what makes a partial list readable:
-    /// `Heap<T, ?eq>` constrains the `eq` slot and says nothing about `cmp`.
+    /// `Heap<T>(?eq)` constrains the `eq` slot and says nothing about `cmp`.
     ///
     /// A slot nobody wrote takes its declared default, or stays **unconstrained**
     /// — `Ty::Unknown`, which is compatible in both directions
@@ -14085,20 +14087,36 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn lower_identity_args(
         &mut self,
         written: &[ast::Type],
+        values: &[ast::Type],
         type_arity: Option<usize>,
         slots: &[FnSlotInfo],
         subst: &HashMap<String, Ty>,
         depth: usize,
     ) -> Vec<Ty> {
         let type_arity = type_arity.unwrap_or(0);
+        // [qual-value-arg] Type generics are **all-or-none** at a use site
+        // (user decision 2026-09-23): written in full or all inferred, so a
+        // partial list cannot silently shift which position a reader takes
+        // an argument for.
+        if !written.is_empty() && written.len() != type_arity {
+            if let Some(span) = written.first().map(|w| w.span()) {
+                self.error(
+                    span,
+                    format!(
+                        "type arguments are all-or-none: this declaration has \
+                         {type_arity} type parameter(s), so write all of them or \
+                         none (value arguments go in the `(…)` block)"
+                    ),
+                );
+            }
+        }
         let mut types: Vec<Ty> = Vec::new();
         let mut filled: Vec<Option<Ty>> = vec![None; slots.len()];
         let mut next_positional = 0usize;
-        for (i, arg) in written.iter().enumerate() {
-            if i < type_arity {
-                types.push(self.lower_type_subst(arg, subst, depth));
-                continue;
-            }
+        for arg in written.iter().take(type_arity) {
+            types.push(self.lower_type_subst(arg, subst, depth));
+        }
+        for arg in values.iter() {
             // Which slot this argument is for.
             let named = match arg {
                 ast::Type::Named { base, .. } if base.binder => {
@@ -14163,7 +14181,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A qualifier's type arguments are "rarely written explicitly" (`Ok Str`
         // implies `Ok<Str>`), so an unwritten one is unconstrained too — and
         // padding them keeps every mention of the qualifier the same arity,
-        // which is what lets a bare `Heap` and a `Heap<Person, cmp@Person>`
+        // which is what lets a bare `Heap` and a `Heap<Person>(cmp@Person)`
         // compare at all.
         // [cmp-carry] **An unwritten slot is resolved by its name**, exactly as an
         // implicit parameter is [implicit-resolve] — there is no default to
@@ -14401,7 +14419,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let args: Vec<Ty> = {
             // [cmp-carry] A keyed container names the ordering (or hash) its
             // keys are kept by in a **fn slot** after its type parameters:
-            // `SortedSet<Str, my_cmp>`. The leading arguments are types as
+            // `SortedSet<Str>(my_cmp)`. The leading arguments are types as
             // ever; the trailing ones are identities, and a slot nobody wrote
             // takes its declared default (`?cmp: (T, T) -> Int = cmp`).
             let slots = self.type_fn_slots(name);
@@ -14416,7 +14434,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .opaque_types
                     .get(name)
                     .map_or(0, |d| d.generics.len());
-                self.lower_identity_args(&base.args, Some(arity), &slots, subst, depth)
+                self.lower_identity_args(&base.args, &base.value_args, Some(arity), &slots, subst, depth)
             }
         };
         // Type aliases expand structurally (with generic substitution).
@@ -14909,13 +14927,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // elements, so they have to *have* one — the same bar the
                 // sorted containers apply to their keys.
                 self.check_sorted_list_claim(qualifiers, base);
-                // [cmp-carry] The trailing arguments of a type with fn slots
-                // are **identities** (`SortedSet<Str, my_cmp>`), checked by the
-                // lowering rather than as types.
-                let type_args = base
-                    .args
-                    .len()
-                    .saturating_sub(self.type_fn_slots(&base.name.name).len());
+                // [cmp-carry] [qual-value-arg] The `(…)` block's arguments
+                // are **identities** (`SortedSet<Str>(my_cmp)`), checked by
+                // the lowering rather than as types; everything in `<…>` is
+                // a type.
+                let type_args = base.args.len();
                 for (i, a) in base.args.iter().enumerate() {
                     if i >= type_args {
                         continue;
@@ -14974,7 +14990,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for q in qualifiers {
             self.require_name(q, true);
             // [cmp-carry] A qualifier that declares fn slots takes
-            // **identities** there, not types: `Heap<cmp@Person>` names a
+            // **identities** there, not types: `Heap(cmp@Person)` names a
             // function, and validating it as a type would report an unknown
             // one. The identity's own check is the lowering's
             // (`written_fn_id`), which is where the static-identity rule and
@@ -15211,9 +15227,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// carry both claims, and knowing less is the safe direction.
     /// [deduce-reapply] Adds the claims a callee's clause says it
     /// **establishes** on this argument, with the call's type arguments and
-    /// resolved identities substituted in — `+Heap<T, ?cmp>` on a
+    /// resolved identities substituted in — `+Heap<T>(?cmp)` on a
     /// `heapify(list, ?Ordered<T>)` makes the caller's `list` a
-    /// `Heap<Int, by_age> Mut List<Int>` when the call resolved `?cmp` to
+    /// `Heap<Int>(by_age) Mut List<Int>` when the call resolved `?cmp` to
     /// `by_age`.
     ///
     /// Trusted, like a refinement's addition and a constructor's `as Q`: the
@@ -15787,7 +15803,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match &decl.constructs {
             Some(cref) => {
                 // [cmp-carry] Through `lower_quals`, so the claim a constructor
-                // mints carries its identity: `-> Mut List<T> as Heap<?cmp>`
+                // mints carries its identity: `-> Mut List<T> as Heap(?cmp)`
                 // publishes the ordering the call resolved.
                 let empty = HashMap::new();
                 let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
@@ -17300,7 +17316,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             "cannot {action} this value: it is a view of `{root}` (it \
                              borrows from it), so it can only be read here; use `copy` \
                              to make an independent value, or declare the borrow on \
-                             this function's return (`proj[from: {root}]`)"
+                             this function's return (`proj({root})`)"
                         ),
                     );
                     return;
@@ -18596,7 +18612,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // through a tag constructor whose operand is the
                             // borrowed value (`emitted(x)`); the arm test
                             // above is what established that. A plain
-                            // `proj[from: p] T` return is checked as
+                            // `proj(p) T` return is checked as
                             // written — unwrapping any one-argument call
                             // here mistook `list.get(0)` for a constructor
                             // and asked the *index* for its provenance.
@@ -21192,7 +21208,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // variable — one binding per signature, so two occurrences captured
         // from two arguments must agree (the ordering round's decision 11) — and two
         // *named* identities match only by being the same fn, which is what
-        // makes `Heap<min_by_age>` and `Heap<max_by_age>` refuse to mix.
+        // makes `Heap(min_by_age)` and `Heap(max_by_age)` refuse to mix.
         (Ty::FnName(FnId::Binder(b)), Ty::FnName(id)) => {
             let key = FnId::subst_key(b);
             let bound = Ty::FnName(id.clone());
@@ -21246,7 +21262,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 .all(|q| pq.contains(q))
                 // [cmp-carry] A qualifier's own arguments unify too, which is
                 // how a **captured binder** learns the identity its argument
-                // carries: `Heap<?cmp>` against `Heap<cmp@Person>` binds
+                // carries: `Heap(?cmp)` against `Heap(cmp@Person)` binds
                 // `?cmp`, and a second parameter sharing the binder must then
                 // agree — `heap_merge`'s "two heaps ordered differently" is
                 // this unification failing, reported as the ordinary
@@ -21685,8 +21701,8 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
         Ty::Var(g) if callee_generics.contains(g) => subst.get(g).cloned().unwrap_or(Ty::Unknown),
         // [cmp-carry] A binder is substituted by whatever the call site's
         // resolution bound it to — which is how `empty_heap` publishes the
-        // ordering resolution chose (`-> Mut List<T> as Heap<?cmp>` becomes
-        // `Heap<cmp@Person> Mut List<Person>` at the call). An *unbound*
+        // ordering resolution chose (`-> Mut List<T> as Heap(?cmp)` becomes
+        // `Heap(cmp@Person) Mut List<Person>` at the call). An *unbound*
         // binder stays itself rather than becoming `Unknown`: inside the
         // declaring signature `?cmp` is the honest reading, and the missing
         // binding is reported where implicits are resolved, once
@@ -23139,7 +23155,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [deduce-reapply] …and a claim the callee says it
                     // **establishes** is added here, with this call's type
                     // arguments and identities substituted in: that is what
-                    // makes `heapify(list)` answer a `Heap<Int, by_age>` when
+                    // makes `heapify(list)` answer a `Heap<Int>(by_age)` when
                     // nothing about `list` claimed one before.
                     self.establish_quals(key, &param.name.name, &name, &subst, &callee_generics);
                 }
@@ -23172,7 +23188,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // to it, and the Rust backend renders the result as a borrow.
         if decl.derived_return.is_some() {
             // Every source of the *first* wholesale `proj` in the return type
-            // (`proj[from: a, b] T`: a projection joined across branches is
+            // (`proj(a, b) T`: a projection joined across branches is
             // of both) [proj-anywhere].
             let sources: Vec<usize> = decl
                 .return_type
@@ -23208,8 +23224,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.derived_calls.insert(self.key(span), sources);
             }
         }
-        // [deduce-syntax] Re-pointing entries — `v.items: proj[from: other]`
-        // or `v: proj[from: other]` — say the call makes the argument at `v`
+        // [deduce-syntax] Re-pointing entries — `v.items: proj(other)`
+        // or `v: proj(other)` — say the call makes the argument at `v`
         // hold a borrow of the argument at `other`: the variable passed as
         // `v` gains a held link to `other`'s roots. (The body is trusted for
         // these today; see ROADMAP.)

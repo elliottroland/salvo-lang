@@ -25,9 +25,9 @@ export intrinsic fn array_by<T>(size: Int, init: (Int) -> T) [] -> T[] => size, 
 export intrinsic fn size<T canbe linear>(array: T[]) [] -> Int => array
 
 // Possibly gets the element at the given index if the array is long enough
-export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj[from: array] T)? => array, index
+export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj(array) T)? => array, index
 
-export intrinsic fn first<T>(array: T[]) [] -> proj[from: array] T? => array
+export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
 
 // [iter-pass] A fresh pass over the array — a view of it with a position:
 // the array is borrowed, not moved [proj-field] [proj-infer].
@@ -47,7 +47,7 @@ export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
 
 // Advances the pass, reporting the element at its position or the end of the
 // array.
-export fn next<T>(p: Mut ArrayYield<T>) [] -> Emitted (proj[from: p] T) | Finished => p: Mut {
+export fn next<T>(p: Mut ArrayYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

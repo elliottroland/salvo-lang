@@ -108,7 +108,7 @@ fn once_on_a_fn_type_still_works() {
 const PROTOCOL: &str = r#"
 qualifier Emitted<T> of T
 struct Finished {}
-fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }
+fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }
 fn finished() [] -> Finished { return Finished {} }
 
 params Yield<It, T> {
@@ -188,7 +188,7 @@ fn a_next_without_a_yield_declaration_is_not_a_pass() {
     let errs = errors(
         "qualifier Emitted<T> of T\n\
          struct Finished {}\n\
-         fn emitted<T>(value: T) [] -> T as Emitted => !value { return value }\n\
+         fn emitted<T>(value: T) [] -> +Emitted T => !value { return value }\n\
          fn finished() [] -> Finished { return Finished {} }\n\
          params Yield<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
          struct Countdown canbe Mut {\n    at: Int\n}\n\

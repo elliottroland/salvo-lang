@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it
 // [mod-used-only].
-export intrinsic type Map<K, V canbe linear, ?hash: (K) -> Long, ?eq: (K, K) -> Bool> canbe Mut
+export intrinsic type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut
 
 // Constructor, from entries written as pairs: `map_of(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -60,7 +60,7 @@ export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> 
 // a view into the map, like [get] on a list — so reading a map copies
 // nothing and a caller that wants to keep the value says `copy`
 // [copy-opt-in]. The key is only read, so it is kept.
-export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj[from: map] V)? => map, key
+export intrinsic fn get<K, V>(map: Map<K, V>, key: K) [] -> (proj(map) V)? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
 // takes ownership of both, so both are moved; a key that is already present

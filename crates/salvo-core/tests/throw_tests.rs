@@ -398,7 +398,7 @@ fn a_nested_result_outcome_can_be_taken_apart() {
          }}\n\
          return ok(n)\n\
          }}\n\
-         fn ok(value: Int) [] -> Int as Ok {{\n\
+         fn ok(value: Int) [] -> +Ok Int {{\n\
          return value\n\
          }}\n\
          fn probe() [] -> None {{\n\

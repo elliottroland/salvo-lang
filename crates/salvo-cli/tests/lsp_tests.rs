@@ -369,7 +369,7 @@ fn diagnostics_hover_and_shutdown() {
     );
 
     // [proj-type] A value whose *declared* type already leads with a `proj`
-    // gets **one**, not two: `get` answers `(proj[from: list] T)?`, and the
+    // gets **one**, not two: `get` answers `(proj(list) T)?`, and the
     // fate link says the same thing the type says. Reported by
     // `demo/heap.sv` as `proj proj T?` (the heap plan's item 3, fixed
     // 2026-09-22) — a hover-only defect, since the checker's own type was

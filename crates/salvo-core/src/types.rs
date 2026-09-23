@@ -147,13 +147,13 @@ pub struct FnParamContract {
 }
 
 /// [cmp-carry] A **function identity** carried by a type: the `cmp` in
-/// `Heap<cmp@Person>`, the `?cmp` in `Heap<?cmp> Mut List<T>`.
+/// `Heap(cmp@Person)`, the `?cmp` in `Heap(?cmp) Mut List<T>`.
 ///
 /// Not a function *value*. A fn bound into a type must have **static
 /// identity** — named, top-level, capture-free (user decision 2026-09-21,
 /// the ordering round's decision 12) — which is exactly what makes it something a
-/// type can print, compare and substitute: `Heap<min_by_age>` and
-/// `Heap<max_by_age>` are different types that refuse to mix, and no
+/// type can print, compare and substitute: `Heap(min_by_age)` and
+/// `Heap(max_by_age)` are different types that refuse to mix, and no
 /// closure, capture or value representation is implied anywhere.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FnId {
@@ -206,7 +206,7 @@ pub enum Ty {
     Named { name: String, args: Vec<Ty> },
     /// [cmp-carry] A function identity in a type-argument position — the
     /// ordering a structure *holds*. Never the type of a value: it inhabits
-    /// a declaration's **fn slot** (`qualifier Heap<T, ?cmp: (T, T) -> Int>`)
+    /// a declaration's **fn slot** (`qualifier Heap<T>(?cmp: (T, T) -> Int)`)
     /// and nothing else.
     FnName(FnId),
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
@@ -390,7 +390,7 @@ impl Ty {
 
     /// [proj-type] [fate-link] Whether this type's **rendering leads with a
     /// `proj`**, which is what a hover has to know before prefixing one of its
-    /// own: `get` answers `(proj[from: list] T)?`, so the borrow is already on
+    /// own: `get` answers `(proj(list) T)?`, so the borrow is already on
     /// the type line and a second `proj` would be the same claim written twice
     /// (the `proj proj T?` the heap demo reported).
     ///
@@ -674,9 +674,9 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
 /// Invariant, as generic arguments have always been — with one addition: a type
 /// may **omit a keyed container's trailing identity arguments**, because an
 /// unstated identity is an unconstrained one, exactly as an unwritten slot is.
-/// So `SortedSet<Str>` and `SortedSet<Str, cmp>` compare on their common prefix,
+/// So `SortedSet<Str>` and `SortedSet<Str>(cmp)` compare on their common prefix,
 /// which is what lets `size(set: SortedSet<T>)` accept a set however it is
-/// ordered while `f(s: SortedSet<Str, by_age>)` still demands that ordering.
+/// ordered while `f(s: SortedSet<Str>(by_age))` still demands that ordering.
 /// Only identities may be dropped this way: a missing *type* argument is an
 /// arity mistake and stays one.
 fn named_args_fit(a: &[Ty], b: &[Ty]) -> bool {
@@ -696,8 +696,8 @@ fn named_args_fit(a: &[Ty], b: &[Ty]) -> bool {
 /// Arguments are compared only when the *expectation* writes them: a
 /// qualifier's generic arguments are rarely written (`Ok Str` implies
 /// `Ok<Str>`), and [cmp-carry] makes that load-bearing — a bare `Heap`
-/// parameter accepts a `Heap<cmp@Person>` value, which is how a body that
-/// never needs the identity stays free of it, while a `Heap<f>` parameter
+/// parameter accepts a `Heap(cmp@Person)` value, which is how a body that
+/// never needs the identity stays free of it, while a `Heap(f)` parameter
 /// demands exactly `f`.
 fn qual_present(have: &[Qual], want: &Qual) -> bool {
     have.iter().any(|q| {
@@ -1147,7 +1147,7 @@ impl fmt::Display for Ty {
             Ty::Var(name) => write!(f, "{name}"),
             // [cmp-carry] A type prints the identity it carries by name,
             // which is the property that makes the identity carryable:
-            // `Heap<cmp@Person>` reads in a diagnostic exactly as it is
+            // `Heap(cmp@Person)` reads in a diagnostic exactly as it is
             // written in a signature.
             Ty::FnName(id) => write!(f, "{id}"),
             Ty::Any => write!(f, "Any"),
@@ -1161,14 +1161,32 @@ fn fmt_args(f: &mut fmt::Formatter<'_>, args: &[Ty]) -> fmt::Result {
     if args.is_empty() {
         return Ok(());
     }
-    write!(f, "<")?;
-    for (i, a) in args.iter().enumerate() {
-        if i > 0 {
-            write!(f, ", ")?;
+    // [qual-value-arg] Identities render in the round-bracket value block,
+    // after the type generics — the way the source spells them (user
+    // decision 2026-09-23): `Heap<Person>(by_name)`, `SortedSet<Str>(by_len)`.
+    let (types, values): (Vec<&Ty>, Vec<&Ty>) =
+        args.iter().partition(|a| !matches!(a, Ty::FnName(_)));
+    if !types.is_empty() && !(types.iter().all(|t| t.is_unknown()) && !values.is_empty()) {
+        write!(f, "<")?;
+        for (i, a) in types.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{a}")?;
         }
-        write!(f, "{a}")?;
+        write!(f, ">")?;
     }
-    write!(f, ">")
+    if !values.is_empty() {
+        write!(f, "(")?;
+        for (i, a) in values.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{a}")?;
+        }
+        write!(f, ")")?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1379,14 +1397,14 @@ mod tests {
             name: "cmp".into(),
             at: Some("Person".into()),
         };
-        assert_eq!(heap(canonical.clone()).to_string(), "Heap<cmp@Person> List<Person>");
+        assert_eq!(heap(canonical.clone()).to_string(), "Heap(cmp@Person) List<Person>");
         assert_eq!(
             heap(FnId::named("max_by_age")).to_string(),
-            "Heap<max_by_age> List<Person>"
+            "Heap(max_by_age) List<Person>"
         );
         assert_eq!(
             heap(FnId::Binder("cmp".into())).to_string(),
-            "Heap<?cmp> List<Person>"
+            "Heap(?cmp) List<Person>"
         );
         // Different orderings are different types, in both directions —
         // which is the whole point of putting the identity in the type.

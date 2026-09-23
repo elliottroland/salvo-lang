@@ -45,21 +45,21 @@ export fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-export qualifier Heap<T, ?cmp: (T, T) -> Int> of List<T>
+export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
 
 // [cmp-carry] The same thing through a **group spread**: one slot per member of
 // the group, which is what `?Ordered<T>` means in a slot list.
-export qualifier Ranked<T, ?Ordered<T>> of List<T>
+export qualifier Ranked<T>(?Ordered<T>) of List<T>
 
-export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Ranked<T, ?cmp> {
+export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> +Ranked<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
-export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> Mut List<T> as Heap<T, ?cmp> {
+export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
     return mut_list_of()
 }
 
-export fn heap_push<T>(heap: Heap<T, ?cmp> Mut List<T>, elem: T) [] -> Mut List<T> as Heap<T, ?cmp> => !heap, !elem {
+export fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) [] -> +Heap<T>(?cmp) Mut List<T> => !heap, !elem {
     add(heap, elem)
     return heap
 }
@@ -71,7 +71,7 @@ export fn heap_size<T>(heap: Heap Mut List<T>) [] -> Int => heap {
 // [deduce-reapply] Establishing the claim on a parameter that arrives without
 // it, which only this file may do.
 export fn heapify<T>(list: Mut List<T>, elem: T, ?cmp: (T, T) -> Int) [] -> None
-=> list: +Heap<T, ?cmp> Mut, !elem {
+=> list: +Heap<T>(?cmp) Mut, !elem {
     add(list, elem)
 }
 "#;
@@ -180,7 +180,7 @@ import heap.Heap
 import heap.by_name
 import heap.empty_heap
 
-fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
+fn wants_canonical(h: Heap<Person>(cmp@Person) Mut List<Person>) [] -> Int => h {
     return 0
 }
 
@@ -191,7 +191,7 @@ fn run() [] -> Int {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("Heap<Person, by_name>")),
+        errs.iter().any(|e| e.contains("Heap<Person>(by_name)")),
         "expected the carried ordering named: {errs:?}"
     );
     // And the other way round, where an annotation shows both sides.
@@ -203,15 +203,15 @@ import heap.by_name
 import heap.empty_heap
 
 fn run() [] -> Int {
-    let h: Heap<Person, cmp@Person> Mut List<Person> = empty_heap<Person>(cmp = by_name)
+    let h: Heap<Person>(cmp@Person) Mut List<Person> = empty_heap<Person>(cmp = by_name)
     return 0
 }
 "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("Heap<Person, cmp@Person>")
-                && e.contains("Heap<Person, by_name>")),
+            .any(|e| e.contains("Heap<Person>(cmp@Person)")
+                && e.contains("Heap<Person>(by_name)")),
         "expected both identities named: {errs:?}"
     );
 }
@@ -227,7 +227,7 @@ import heap.Heap
 import heap.by_name
 import heap.empty_heap
 
-fn merge<T>(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>) [] -> Int => a, b {
+fn merge<T>(a: Heap<T>(?cmp) Mut List<T>, b: Heap<T>(?cmp) Mut List<T>) [] -> Int => a, b {
     return cmp(a.size(), b.size())
 }
 
@@ -251,7 +251,7 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn merge<T>(a: Heap<T, ?cmp> Mut List<T>, b: Heap<T, ?cmp> Mut List<T>) [] -> Int => a, b {
+fn merge<T>(a: Heap<T>(?cmp) Mut List<T>, b: Heap<T>(?cmp) Mut List<T>) [] -> Int => a, b {
     return cmp(a.size(), b.size())
 }
 
@@ -276,7 +276,7 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn least<T>(heap: Heap<T, ?cmp> Mut List<T>, a: T, b: T) [] -> Int => heap, a, b {
+fn least<T>(heap: Heap<T>(?cmp) Mut List<T>, a: T, b: T) [] -> Int => heap, a, b {
     return cmp(a, b)
 }
 
@@ -302,11 +302,11 @@ import heap.Person
 import heap.Heap
 import heap.empty_heap
 
-fn only_canonical(r: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => r {
+fn only_canonical(r: Heap<Person>(cmp@Person) Mut List<Person>) [] -> Int => r {
     return 0
 }
 
-fn touch<T>(r: Heap<T, ?cmp> Mut List<T>) [] -> Int => r: Heap Mut {
+fn touch<T>(r: Heap<T>(?cmp) Mut List<T>) [] -> Int => r: Heap Mut {
     return size(r)
 }
 
@@ -321,7 +321,7 @@ fn run() [] -> Int {
 }
 
 /// [cmp-carry] A `params` group spread into a **slot list** declares one slot
-/// per member (user decision 2026-09-22), so `Ranked<T, ?Ordered<T>>` is the
+/// per member (user decision 2026-09-22), so `Ranked<T>(?Ordered<T>)` is the
 /// `Heap` declaration written the short way — and a use site fills it by naming
 /// the member's slot.
 #[test]
@@ -332,7 +332,7 @@ import heap.Person
 import heap.Ranked
 import heap.empty_ranked
 
-fn least<T>(r: Ranked<T, ?cmp> List<T>, a: T, b: T) [] -> Int => r, a, b {
+fn least<T>(r: Ranked<T>(?cmp) List<T>, a: T, b: T) [] -> Int => r, a, b {
     return cmp(a, b)
 }
 
@@ -383,7 +383,7 @@ import heap.Heap
 import heap.by_name
 import heap.empty_heap
 
-fn compare_across<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T) [] -> Int => a, b, x, y {
+fn compare_across<T>(a: Heap<T>(?cmp) List<T>, b: Heap<T>(?cmp: cmp2) List<T>, x: T, y: T) [] -> Int => a, b, x, y {
     // Each ordering is reachable by its own name.
     return cmp(x, y) + cmp2(x, y)
 }
@@ -409,7 +409,7 @@ fn two_orderings_in_scope_refuse_the_operator() {
 import heap.Person
 import heap.Heap
 
-fn pick<T>(a: Heap<T, ?cmp> List<T>, b: Heap<T, ?cmp: cmp2> List<T>, x: T, y: T) [] -> Bool => a, b, x, y {
+fn pick<T>(a: Heap<T>(?cmp) List<T>, b: Heap<T>(?cmp: cmp2) List<T>, x: T, y: T) [] -> Bool => a, b, x, y {
     return x < y
 }
 "#,
@@ -434,7 +434,7 @@ import heap.Heap
 import heap.by_name
 import heap.heapify
 
-fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
+fn wants_canonical(h: Heap<Person>(cmp@Person) Mut List<Person>) [] -> Int => h {
     return 0
 }
 
@@ -445,7 +445,7 @@ fn run(xs: Mut List<Person>) [] -> Int => xs: Mut {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("Heap<Person, by_name>")),
+        errs.iter().any(|e| e.contains("Heap<Person>(by_name)")),
         "expected the established ordering named: {errs:?}"
     );
     // …and under the canonical one the same call fits.
@@ -455,7 +455,7 @@ import heap.Person
 import heap.Heap
 import heap.heapify
 
-fn wants_canonical(h: Heap<Person, cmp@Person> Mut List<Person>) [] -> Int => h {
+fn wants_canonical(h: Heap<Person>(cmp@Person) Mut List<Person>) [] -> Int => h {
     return 0
 }
 
@@ -550,7 +550,7 @@ fn by_len(a: Str, b: Str) [] -> Int => a, b {
     return cmp(size(a), size(b))
 }
 
-fn needs_canonical(xs: Sorted<Str, cmp> List<Str>) [] -> Int? => xs {
+fn needs_canonical(xs: Sorted<Str>(cmp) List<Str>) [] -> Int? => xs {
     return binary_search(xs, "x")
 }
 
@@ -561,7 +561,7 @@ fn run() [] -> Int? {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("Sorted<Str, by_len>")),
+        errs.iter().any(|e| e.contains("Sorted<Str>(by_len)")),
         "expected the carried ordering named: {errs:?}"
     );
 }
@@ -575,7 +575,7 @@ fn by_len(a: Str, b: Str) [] -> Int => a, b {
     return cmp(size(a), size(b))
 }
 
-fn merge<T>(a: Sorted<T, ?cmp> List<T>, b: Sorted<T, ?cmp> List<T>, probe: T) [] -> Int?
+fn merge<T>(a: Sorted<T>(?cmp) List<T>, b: Sorted<T>(?cmp) List<T>, probe: T) [] -> Int?
 => a, b, probe {
     return binary_search(a, probe)
 }
@@ -590,7 +590,7 @@ fn run() [] -> Int? {
     assert!(
         mixed
             .iter()
-            .any(|e| e.contains("Sorted<Str, cmp>") && e.contains("Sorted<Str, by_len>")),
+            .any(|e| e.contains("Sorted<Str>(cmp)") && e.contains("Sorted<Str>(by_len)")),
         "expected both orderings named: {mixed:?}"
     );
     // The same source with both lists sorted the same way needs no annotation
@@ -623,14 +623,14 @@ fn by_size(a: Int, b: Int) [] -> Int => a, b {
 }
 
 fn run() [] -> None {
-    let live: Mut Sorted<Int, by_size> List<Int> = mut_sort(list_of(10, 40))
+    let live: Mut Sorted<Int>(by_size) List<Int> = mut_sort(list_of(10, 40))
     add_sorted(live, 20)
 }
 "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("Sorted<Int, by_size>") && e.contains("Sorted<Int, cmp>")),
+            .any(|e| e.contains("Sorted<Int>(by_size)") && e.contains("Sorted<Int>(cmp)")),
         "expected both orderings named: {errs:?}"
     );
 }
@@ -670,7 +670,7 @@ import heap.by_name
 
 fn run() [] -> Int {
     let mine = by_name
-    let h: Heap<Person, mine> Mut List<Person> = mut_list_of()
+    let h: Heap<Person>(mine) Mut List<Person> = mut_list_of()
     return 0
 }
 "#,
@@ -690,7 +690,7 @@ fn an_unknown_identity_is_reported() {
 import heap.Person
 import heap.Heap
 
-fn run(h: Heap<Person, nowhere> Mut List<Person>) [] -> Int => h {
+fn run(h: Heap<Person>(nowhere) Mut List<Person>) [] -> Int => h {
     return 0
 }
 "#,
@@ -710,7 +710,7 @@ fn a_selector_must_name_a_declaration() {
 import heap.Person
 import heap.Heap
 
-fn run(h: Heap<Person, cmp@Nothing> Mut List<Person>) [] -> Int => h {
+fn run(h: Heap<Person>(cmp@Nothing) Mut List<Person>) [] -> Int => h {
     return 0
 }
 "#,
@@ -729,7 +729,7 @@ fn run(h: Heap<Person, cmp@Nothing> Mut List<Person>) [] -> Int => h {
 fn a_slot_must_be_a_function() {
     let errs = errors(
         r#"
-qualifier Bad<T, ?cmp: Int> of List<T>
+qualifier Bad<T>(?cmp: Int) of List<T>
 "#,
     );
     assert!(
@@ -752,5 +752,27 @@ fn bad<T, ?cmp: (T, T) -> Int>(a: T) [] -> Int => a {
     assert!(
         errs.iter().any(|e| e.contains("function slot")),
         "expected the slot-position error: {errs:?}"
+    );
+}
+
+/// [qual-value-arg] Type generics are all-or-none at a use site: a partial
+/// list is an error naming the rule and the block.
+#[test]
+fn type_arguments_are_all_or_none() {
+    let errs = errors_with_heap(
+        r#"
+import heap
+struct Person { age: Int }
+fn by_age(a: Person, b: Person) [] -> Int => a, b {
+    return a.age - b.age
+}
+fn f(h: Ranked<Person, Int>(by_age) Mut List<Person>) [] -> Int => h {
+    return 0
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("all-or-none")),
+        "expected the all-or-none error: {errs:?}"
     );
 }

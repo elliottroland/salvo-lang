@@ -794,10 +794,12 @@ impl<'s> Parser<'s> {
         // opt-ins like a struct's: `intrinsic type List<T canbe linear>` is
         // what makes `List<Reply<T>>` a linear type and `List<Int>` a plain
         // one (user decision 2026-09-16).
-        // [cmp-carry] And fn slots, which is how a keyed container names the
-        // ordering or hash its keys are kept by:
-        // `intrinsic type SortedSet<T, ?cmp: (T, T) -> Int = cmp>`.
-        let (generics, generic_canbe, fn_slots) = self.parse_generics_slots();
+        // [cmp-carry] [qual-value-arg] And value slots in a `(…)` block after
+        // the generics, which is how a keyed container names the ordering or
+        // hash its keys are kept by:
+        // `intrinsic type SortedSet<T>(?cmp: (T, T) -> Int = cmp)`.
+        let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
+        fn_slots.extend(self.parse_slot_block());
         // `canbe Mut` — auto-qualifiers the type opts into
         // [type-canbe-mut] [canbe-optin].
         let mut auto_qualifiers = Vec::new();
@@ -908,14 +910,17 @@ impl<'s> Parser<'s> {
                 if self.eat(&TokenKind::Gt).is_some() || self.at_eof() {
                     break;
                 }
-                // [cmp-carry] `?cmp: (T, T) -> Int = cmp` — a fn slot, spelled
-                // like the implicit parameter it is resolved as
-                // [implicit-param].
+                // [qual-value-arg] `?` in a `<…>` list is the old mixed
+                // spelling: slots are declared in a `(…)` block after the
+                // type generics (user decision 2026-09-23) —
+                // `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>`.
+                // Parsed as before for recovery; the error stops the build.
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
-                    // [cmp-carry] `?Ordered<T>` — a group spread, recognised by
-                    // its casing exactly as a parameter list's is
-                    // [implicit-group]. Expanded by the checker, where the
-                    // group's members are visible.
+                    self.error(
+                        "a slot is declared in a `(…)` block after the type generics \
+                         — `Sorted<T>(?cmp: (T, T) -> Int)` — not in the `<…>` list",
+                        q,
+                    );
                     if self.at_type_name() {
                         match self.parse_type_ref() {
                             Some(group) => slots.push(SlotDecl::Group(group)),
@@ -981,6 +986,63 @@ impl<'s> Parser<'s> {
             self.group_depth -= 1;
         }
         (generics, canbe, slots)
+    }
+
+    /// [qual-value-arg] The declaration-side **slot block** (user decision
+    /// 2026-09-23): a round-bracket list after the type generics holding the
+    /// declaration's value slots — `(?cmp: (T, T) -> Int)`, `(?Ordered<T>)` —
+    /// for a qualifier or an `intrinsic type`. Every entry is `?`-led today
+    /// (fn slots and group spreads); local and constant slots join in later
+    /// steps of the refinement-types sequence.
+    fn parse_slot_block(&mut self) -> Vec<SlotDecl> {
+        let mut slots = Vec::new();
+        if !self.at(&TokenKind::LParen) || !self.same_line() {
+            return slots;
+        }
+        self.group_depth += 1;
+        self.bump(); // (
+        loop {
+            if self.eat(&TokenKind::RParen).is_some() || self.at_eof() {
+                break;
+            }
+            let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) else {
+                let span = self.peek().span;
+                self.error(
+                    "a slot block's entries are `?`-led: a fn slot \
+                     (`?cmp: (T, T) -> Int`) or a group spread (`?Ordered<T>`)",
+                    span,
+                );
+                self.bump();
+                continue;
+            };
+            // [cmp-carry] `?Ordered<T>` — a group spread, recognised by its
+            // casing exactly as a parameter list's is [implicit-group].
+            if self.at_type_name() {
+                match self.parse_type_ref() {
+                    Some(group) => slots.push(SlotDecl::Group(group)),
+                    None => {
+                        self.bump();
+                        continue;
+                    }
+                }
+            } else {
+                match self.parse_fn_slot(q) {
+                    Some(slot) => slots.push(SlotDecl::One(slot)),
+                    None => {
+                        self.bump();
+                        continue;
+                    }
+                }
+            }
+            if self.eat(&TokenKind::Comma).is_none() {
+                if self.expect(&TokenKind::RParen).is_none() {
+                    break;
+                }
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        slots
     }
 
     /// [cmp-carry] One fn slot, after its `?`: `cmp: (T, T) -> Int = cmp`.
@@ -1131,9 +1193,11 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwQualifier)?.span;
         let name = self.ident_decl_dotted("qualifier")?;
-        // [cmp-carry] `qualifier Heap<T, ?cmp: (T, T) -> Int>`: a qualifier may
-        // declare fn slots, which is how a structure *holds* an ordering.
-        let (generics, canbe, fn_slots) = self.parse_generics_slots();
+        // [cmp-carry] [qual-value-arg] `qualifier Sorted<T>(?cmp: (T, T) ->
+        // Int)`: type generics in `<…>`, value slots in the `(…)` block —
+        // which is how a structure *holds* an ordering.
+        let (generics, canbe, mut fn_slots) = self.parse_generics_slots();
+        fn_slots.extend(self.parse_slot_block());
         for (ident, _) in &canbe {
             self.error(
                 "`canbe` on a type parameter is only supported on functions and structs",
@@ -1551,6 +1615,7 @@ impl<'s> Parser<'s> {
                             alias: None,
                             at: None,
                             binder: false,
+                            value_args: Vec::new(),
                             name: Ident {
                                 name: MAILBOX_TYPE.to_string(),
                                 span: start,
@@ -1671,18 +1736,22 @@ impl<'s> Parser<'s> {
                 );
                 return None;
             }
-            let ty = self.parse_type()?;
-            // [proj-anywhere] The derived-return summary the checker and the
-            // emitters consume: the parameter named by the *first* `proj` in
-            // the return type. `proj[from: p] T` is now an ordinary qualifier
-            // on `T`, so the old prefix spelling reads identically.
-            derived_return = first_proj_source(&ty);
-            return_type = Some(ty);
-            // `-> T as Qualifier` marks a constructive-qualifier constructor.
-            if self.at(&TokenKind::KwAs) && self.same_line() {
+            // [qual-ctor-fn] `-> +Qualifier T` marks a constructive-qualifier
+            // constructor: the qualifier is applied *by construction*, and
+            // the `+` is the same establishment marker deductions use
+            // [deduce-reapply] (user decision 2026-09-23, replacing the old
+            // trailing `-> T as Qualifier`).
+            if self.at(&TokenKind::Plus) && self.same_line() {
                 self.bump();
                 constructs = Some(self.parse_type_ref()?);
             }
+            let ty = self.parse_type()?;
+            // [proj-anywhere] The derived-return summary the checker and the
+            // emitters consume: the parameter named by the *first* `proj` in
+            // the return type. `proj(p) T` is an ordinary qualifier
+            // on `T`, so the old prefix spelling reads identically.
+            derived_return = first_proj_source(&ty);
+            return_type = Some(ty);
         }
         // [deduce-syntax] `=> …` groups: the unnamed ones are the fn's own
         // clause; `=>[f] …` belongs to the fn-typed parameter `f`.
@@ -1999,7 +2068,7 @@ impl<'s> Parser<'s> {
 
     /// One entry [deduce-syntax]: `!elem`, `elem`, `elem: Qual…`,
     /// `elem: None`, `elem: Never`, `elem: -Qual…`, `elem: +Qual…`,
-    /// `x.f: proj[from: a]`, `.f: proj[from: a]`, or a bare `proj[from: a]`.
+    /// `x.f: proj(a)`, `.f: proj(a)`, or a bare `proj(a)`.
     fn parse_deduction_entry(&mut self) -> Option<Deduction> {
         let start = self.peek().span;
         // `!elem`: consumed.
@@ -2027,11 +2096,11 @@ impl<'s> Parser<'s> {
                 kind: DeductionKind::Deferred,
             });
         }
-        // Bare `proj[from: …]`: opaque.
+        // Bare `proj(…)`: opaque.
         if matches!(&self.peek().kind, TokenKind::KwProj) {
             let r = self.parse_type_ref()?;
             if r.from.is_empty() {
-                self.error("a bare `proj` deduction needs its sources: `proj[from: c]`", r.span);
+                self.error("a bare `proj` deduction needs its sources: `proj(c)`", r.span);
             }
             return Some(Deduction {
                 span: start.to(r.span),
@@ -2059,11 +2128,11 @@ impl<'s> Parser<'s> {
         };
         let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
         let kind = if self.eat(&TokenKind::Colon).is_some() {
-            // `: proj[from: …]`
+            // `: proj(…)`
             if matches!(&self.peek().kind, TokenKind::KwProj) {
                 let r = self.parse_type_ref()?;
                 if r.from.is_empty() {
-                    self.error("a projection entry needs its sources: `proj[from: c]`", r.span);
+                    self.error("a projection entry needs its sources: `proj(c)`", r.span);
                 }
                 end = r.span;
                 DeductionKind::Proj(r.from)
@@ -2152,14 +2221,14 @@ impl<'s> Parser<'s> {
         };
         if matches!(target, DeductionTarget::Result { .. }) && !matches!(kind, DeductionKind::Proj(_)) {
             self.error(
-                "a result path (`.field`) can only state a projection: `.field: proj[from: p]`",
+                "a result path (`.field`) can only state a projection: `.field: proj(p)`",
                 start.to(end),
             );
         }
         if let DeductionTarget::Param { path, .. } = &target {
             if !path.is_empty() && !matches!(kind, DeductionKind::Proj(_)) {
                 self.error(
-                    "a parameter's field path can only state a projection: `v.field: proj[from: p]`",
+                    "a parameter's field path can only state a projection: `v.field: proj(p)`",
                     start.to(end),
                 );
             }
@@ -2415,31 +2484,28 @@ impl<'s> Parser<'s> {
             end = sel.span;
             at = Some(sel);
         }
-        // [proj-anywhere] `proj[from: param]`: the borrow's source, written on
+        // [proj-anywhere] `proj(param)`: the borrow's source, written on
         // the obligation itself so it can sit anywhere a type does — a union
         // arm, a type argument, a tuple element — and so a type borrowing
-        // from two parameters names each. Only `proj` takes the bracket; a
-        // `[` after any other name is the array postfix `T[]`, handled by
-        // the caller, so it is only consumed here when followed by an ident.
+        // from two parameters names each (`proj(a, b)`). Only `proj` reads
+        // a paren this way; the sources are value names (lowercase, by
+        // [name-casing]), which is what tells them from a qualified group
+        // (`proj (Ok Str | Err Int)` — a type inside).
         let mut from = Vec::new();
         if name.name == "proj"
-            && self.at(&TokenKind::LBracket)
-            && matches!(self.peek_at(1).kind, TokenKind::Ident(_))
+            && self.at(&TokenKind::LParen)
+            && self.same_line()
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+            && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen)
         {
-            self.bump(); // [
-            let key = self.ident()?;
-            if key.name != "from" {
-                self.error("expected `from:` in `proj[from: param]`", key.span);
-            }
-            self.expect(&TokenKind::Colon)?;
-            // `proj[from: a, b]`: several sources at once [proj-anywhere].
+            self.bump(); // (
             loop {
                 from.push(self.ident()?);
                 if self.eat(&TokenKind::Comma).is_none() {
                     break;
                 }
             }
-            end = self.expect(&TokenKind::RBracket)?.span;
+            end = self.expect(&TokenKind::RParen)?.span;
         }
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
@@ -2448,42 +2514,19 @@ impl<'s> Parser<'s> {
                 if self.at(&TokenKind::Gt) || self.at_eof() {
                     break;
                 }
-                // [cmp-carry] `Heap<?cmp>`: the signature's binder in a
-                // type-argument position. Only here — `?` before a type
-                // anywhere else is the nullable postfix's `T?` misplaced.
+                // [qual-value-arg] `?` in a `<…>` list is the old mixed
+                // spelling: value arguments moved to the round-bracket block
+                // (user decision 2026-09-23).
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
-                    let Some(id) = self.ident_value("function slot") else {
-                        self.group_depth -= 1;
-                        return None;
-                    };
-                    // [cmp-binder] `?cmp: cmp2` — the binder introduced under
-                    // another name, because this signature already has a `cmp`.
-                    // The destructuring spelling (`field: variable_name`): the
-                    // left names the slot, the right names it here.
-                    let alias = if self.eat(&TokenKind::Colon).is_some() {
-                        match self.ident_value("binder alias") {
-                            Some(a) => Some(a),
-                            None => {
-                                self.group_depth -= 1;
-                                return None;
-                            }
-                        }
-                    } else {
-                        None
-                    };
-                    let span = q.to(alias.as_ref().map(|a| a.span).unwrap_or(id.span));
-                    args.push(Type::Named {
-                        qualifiers: Vec::new(),
-                        base: TypeRef {
-                            alias,
-                            name: id,
-                            args: Vec::new(),
-                            from: Vec::new(),
-                            at: None,
-                            binder: true,
-                            span,
-                        },
-                    });
+                    self.error(
+                        "`?` names a value argument, which lives in a `(…)` block \
+                         after the type generics: `Sorted(?cmp)`, `Heap<Person>(?cmp)`",
+                        q,
+                    );
+                    let _ = self.ident();
+                    if self.eat(&TokenKind::Colon).is_some() {
+                        let _ = self.ident();
+                    }
                     if self.eat(&TokenKind::Comma).is_none() {
                         break;
                     }
@@ -2501,11 +2544,85 @@ impl<'s> Parser<'s> {
             self.group_depth -= 1;
             end = self.expect(&TokenKind::Gt)?.span;
         }
+        // [qual-value-arg] The value-argument block: `Sorted(?cmp)`,
+        // `Heap(min_by_age)`, `SortedSet<Str>(by_len)` — implicit binders and
+        // fn identities, after the type generics, in round brackets (user
+        // decision 2026-09-23). Recognised by its first entry: `?`, or a
+        // value name (lowercase) followed by `,`, `)` or `@` — so a
+        // qualified group (`Ok (Ok Str | Err Int)`) and a fn type's named
+        // parameter (`(v: Int) -> R`) never match.
+        let mut value_args = Vec::new();
+        if name.name != "proj"
+            && self.at(&TokenKind::LParen)
+            && self.same_line()
+            && (matches!(self.peek_at(1).kind, TokenKind::Question)
+                || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+                    && matches!(
+                        self.peek_at(2).kind,
+                        TokenKind::Comma | TokenKind::RParen | TokenKind::At
+                    )))
+        {
+            self.group_depth += 1;
+            self.bump(); // (
+            loop {
+                if self.at(&TokenKind::RParen) || self.at_eof() {
+                    break;
+                }
+                // [cmp-carry] `?cmp`: the signature's binder. [cmp-binder]
+                // `?cmp: cmp2` — the binder introduced under another name.
+                if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
+                    let Some(id) = self.ident_value("function slot") else {
+                        self.group_depth -= 1;
+                        return None;
+                    };
+                    let alias = if self.eat(&TokenKind::Colon).is_some() {
+                        match self.ident_value("binder alias") {
+                            Some(a) => Some(a),
+                            None => {
+                                self.group_depth -= 1;
+                                return None;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    let span = q.to(alias.as_ref().map(|a| a.span).unwrap_or(id.span));
+                    value_args.push(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            alias,
+                            name: id,
+                            args: Vec::new(),
+                            value_args: Vec::new(),
+                            from: Vec::new(),
+                            at: None,
+                            binder: true,
+                            span,
+                        },
+                    });
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+                let Some(ty) = self.parse_type() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                value_args.push(ty);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.group_depth -= 1;
+            end = self.expect(&TokenKind::RParen)?.span;
+        }
         let span = name.span.to(end);
         Some(TypeRef {
             alias: None,
             name,
             args,
+            value_args,
             from,
             at,
             binder: false,
@@ -4697,7 +4814,7 @@ enum FnFlavor {
     Send,
 }
 
-/// [proj-anywhere] The source parameter of the first `proj[from: p]` in a
+/// [proj-anywhere] The source parameter of the first `proj(p)` in a
 /// type, searching arms, arguments and elements in order.
 pub fn first_proj_source(ty: &Type) -> Option<Ident> {
     // [proj-infer] Only a *wholesale* `proj` — on the result itself, an

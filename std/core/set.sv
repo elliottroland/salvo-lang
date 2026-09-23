@@ -18,7 +18,7 @@
 //
 // Own module rather than part of `core.list` so a program that never uses a
 // set emits no code for it [mod-used-only].
-export intrinsic type Set<T, ?hash: (T) -> Long, ?eq: (T, T) -> Bool> canbe Mut
+export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause [deduce-syntax].
@@ -84,7 +84,7 @@ export qualifier Distinct<T> of List<T> with NonEmpty, Sorted
 // [col-insertion-order] The elements as a list, in insertion order — which
 // is also what makes a set iterable, below. A set holds no duplicates, so
 // neither does the list [col-distinct].
-export intrinsic fn to_list<T>(set: Set<T>) [] -> List<T> as Distinct => set
+export intrinsic fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 
 // Reads an element **owned** out of a snapshot the pass owns.
 //
