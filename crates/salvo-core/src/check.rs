@@ -14549,10 +14549,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 ast::Type::Named { qualifiers, base }
                                     if qualifiers.is_empty() && !base.binder =>
                                 {
-                                    Some(Ty::ValueRef {
-                                        path: base.name.name.clone(),
-                                        roots: Vec::new(),
-                                    })
+                                    // [qual-const] A digit-named ref is the
+                                    // parser's constant encoding.
+                                    match base.name.name.parse::<i64>() {
+                                        Ok(n) => Some(Ty::ConstInt(n)),
+                                        Err(_) => Some(Ty::ValueRef {
+                                            path: base.name.name.clone(),
+                                            roots: Vec::new(),
+                                        }),
+                                    }
                                 }
                                 _ => None,
                             }
@@ -20653,6 +20658,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let mut rendered = Vec::new();
                 let mut roots: Vec<u32> = Vec::new();
                 for (slot, (path, pspan)) in slots.iter().zip(args) {
+                    // [qual-const] A constant fills its slot whole: nothing
+                    // to resolve, nothing to invalidate.
+                    if path.parse::<i64>().is_ok() {
+                        rendered.push(PredicateArg {
+                            path: path.clone(),
+                            copy: true,
+                        });
+                        continue;
+                    }
                     let Some((place_ty, place_roots)) = self.place_ty_and_roots(path) else {
                         self.error(
                             *pspan,
@@ -20695,9 +20709,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     dependent_args.insert(
                         q.clone(),
                         args.iter()
-                            .map(|(p, _)| p.clone())
-                            .zip(std::iter::repeat(roots.clone()))
-                            .map(|(path, roots)| Ty::ValueRef { path, roots })
+                            .map(|(path, _)| match path.parse::<i64>() {
+                                // [qual-const] Constants are complete facts.
+                                Ok(n) => Ty::ConstInt(n),
+                                Err(_) => Ty::ValueRef {
+                                    path: path.clone(),
+                                    roots: roots.clone(),
+                                },
+                            })
                             .collect::<Vec<Ty>>(),
                     );
                 }
@@ -21702,6 +21721,10 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             }
         }
         (Ty::ValueRef { .. }, _) | (_, Ty::ValueRef { .. }) => false,
+        // [qual-const] Two constants match by value, and a constant never
+        // unifies with a type.
+        (Ty::ConstInt(a), Ty::ConstInt(b)) => a == b,
+        (Ty::ConstInt(_), _) | (_, Ty::ConstInt(_)) => false,
         (
             Ty::Qualified {
                 quals: pq,
@@ -22697,12 +22720,24 @@ impl<'p, 'r> Checker<'p, 'r> {
         let demanded: Vec<&Qual> = pattern
             .quals()
             .iter()
-            .filter(|q| q.args.iter().any(Self::ty_has_value_ref))
+            .filter(|q| {
+                q.args
+                    .iter()
+                    .any(|a| Self::ty_has_value_ref(a) || matches!(a, Ty::ConstInt(_)))
+            })
             .collect();
         if demanded.is_empty() {
             return true;
         }
         demanded.iter().all(|want| {
+            // [qual-const] A constant-slotted demand is met by carrying the
+            // claim with exactly those constants.
+            if want.args.iter().all(|x| matches!(x, Ty::ConstInt(_))) {
+                return arg
+                    .quals()
+                    .iter()
+                    .any(|have| have.name == want.name && have.args == want.args);
+            }
             let Some(want_roots) = want.args.iter().find_map(|x| match x {
                 Ty::ValueRef { roots, .. } if !roots.is_empty() => Some(roots),
                 _ => None,

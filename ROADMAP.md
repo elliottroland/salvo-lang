@@ -174,8 +174,14 @@ independent and can go any time.
    the founding example (`for i in rev_indices(xs) { get(xs, i) }` total).
    The snapshot form (`keys -> List<KeyOf(map) K>`) waits for the variance
    round.
-6. **Constants**: the third slot kind (`InRange(0, 65535) Int`), literal
-   establishment, constant subtyping.
+6. ✅ **Constants** — built 2026-09-24 (COMPLETED.md's log, "Refinement
+   types, step 6"): the third slot kind, `InRange(0, 65535) Int`, exact
+   matching. **Two remainders, unscheduled**: literal establishment
+   (`listen(8080)` proving itself — compile-time evaluation of
+   `qualifies`) and constant subtyping (`InRange(10, 20)` fitting an
+   `InRange(0, 100)` position — needs per-qualifier semantics for what
+   the constants *mean*, a **DECISION**-shaped question when it is
+   wanted).
 
 ## Shareable by default — ✅ built 2026-09-20 (both sittings; record in COMPLETED.md's log)
 

@@ -1195,6 +1195,22 @@ Conventions:
   * Erased like everything about a qualifier [qual-erasure]: the places
     reach the backends only as the extra arguments of a lowered
     `qualifies` call.
+* [qual-const] A qualifier's value slot may be filled with a **constant**
+  — the third slot kind, after fn identities [cmp-carry] and places
+  [qual-depend] (user decisions 2026-09-23; the refinement-types sequence,
+  step 6): `core.range`'s `qualifier InRange(lo: Int, hi: Int) of Int`,
+  used as `InRange(0, 65535) Int`. Compile-time known, so nothing tracks
+  it and nothing can invalidate it; the dependent `qualifies` receives the
+  constants as ordinary arguments (`n is InRange(0, 100)` lowers to
+  `InRange.qualifies(n, 0, 100)`).
+  * **Constants agree exactly or not at all**: `InRange(0, 100)` and
+    `InRange(0, 255)` are different facts, and a parameter demanding one
+    is not filled by the other. Range *containment* (`InRange(10, 20)`
+    fitting an `InRange(0, 100)` position) would need the qualifier's own
+    semantics — recorded in ROADMAP.md with literal establishment
+    (`listen(8080)` proving itself), the two remainders of the step.
+  * Parsed as a digit-named ref (the type language has no literal node —
+    a recorded shortcut), lowered to `Ty::ConstInt`.
 * [qual-preserve] A **`preserve` entry** opts a call back out of the
   conservative cross-value stripping [qual-depend]: `=> map: preserve
   KeyOf` says the call does not invalidate the named dependent claims

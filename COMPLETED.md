@@ -130,6 +130,28 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 6 — constant slots (built 2026-09-24).** The third
+slot kind [qual-const]: `core.range`'s `qualifier InRange(lo: Int, hi: Int)
+of Int`, used as `InRange(0, 65535) Int` — one declaration, a distinct type
+per pair of bounds. `Ty::ConstInt` needs no flow tracking and no
+invalidation; the filled test hands the constants to the dependent
+`qualifies` as ordinary arguments, and parameter-position matching requires
+exact constants (`Percent(0, 255)` does not fill a `Percent(0, 100)`
+position — `dependent_demands_met` grew the constant branch, so a claim is
+still never assumed). Parsed as a digit-named ref — the type language has
+no literal node, a recorded shortcut.
+
+**Two decided pieces deliberately not built**, moved to ROADMAP.md as the
+step's remainder: **literal establishment** (`listen(8080)` proving itself
+— needs compile-time evaluation of `qualifies`) and **constant subtyping**
+(`InRange(10, 20)` fitting an `InRange(0, 100)` position — generic constant
+comparison cannot know the bounds *mean* a range; it needs per-qualifier
+semantics, a design question rather than an engineering one). Exact
+equality is the sound core both would extend.
+
+Tests: two constant tests in `depend_tests.rs` (16 total), `core.range`'s
+first annex (4 tests; 43 std tests, both backends). Suite green.
+
 **Refinement types, step 5 — pass minting, and the founding example closed
 (built 2026-09-24).** `for i in rev_indices(xs) { get(xs, i) }` now
 compiles and runs total on both backends — the loop the whole design was

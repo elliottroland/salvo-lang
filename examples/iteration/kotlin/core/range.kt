@@ -67,3 +67,7 @@ fun range__2(start: Int, end: Int): Range {
 fun range__3(end: Int): Range {
     return range__2(0, end)
 }
+
+fun InRange_qualifies(n: Int, lo: Int, hi: Int): Boolean {
+    return n >= lo && n <= hi
+}

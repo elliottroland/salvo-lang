@@ -5604,7 +5604,7 @@ impl<'p> Emitter<'p> {
         match ty {
             // [qual-depend] A place argument is the checker's alone: it
             // lives inside an erased qualifier and never reaches output.
-            Ty::ValueRef { .. } => String::new(),
+            Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
             Ty::Named { name, args } => {
                 // [cmp-carry] The identities a keyed container carries are the
                 // checker's, not a rendering: the store holds the ordering, so

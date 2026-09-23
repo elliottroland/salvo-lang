@@ -322,3 +322,48 @@ fn an_own_preserve_promise_carries_to_callers() {
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
+
+/// [qual-const] Constant slots: `Percent(0, 100) Int` in a parameter demands
+/// a claim with exactly those constants — carried, matched, or the plain
+/// overload takes the call.
+#[test]
+fn constant_slots_match_exactly() {
+    let src = "\
+        qualifier Percent(lo: Int, hi: Int) of Int {\n\
+            fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {\n\
+                return n >= lo && n <= hi\n\
+            }\n\
+        }\n\
+        fn shade(n: Percent(0, 100) Int) [] -> Int => n {\n\
+            return n + 0\n\
+        }\n\
+        fn f(n: Int) [] -> Int => n {\n\
+            assert!(n is Percent(0, 100))\n\
+            return shade(n)\n\
+        }\n";
+    assert!(errors(src).is_empty(), "got {:?}", errors(src));
+}
+
+/// A claim with different constants is a different fact: the call is
+/// refused rather than silently accepted.
+#[test]
+fn different_constants_refuse() {
+    let src = "\
+        qualifier Percent(lo: Int, hi: Int) of Int {\n\
+            fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {\n\
+                return n >= lo && n <= hi\n\
+            }\n\
+        }\n\
+        fn shade(n: Percent(0, 100) Int) [] -> Int => n {\n\
+            return n + 0\n\
+        }\n\
+        fn f(n: Int) [] -> Int => n {\n\
+            assert!(n is Percent(0, 255))\n\
+            return shade(n)\n\
+        }\n";
+    let errs = errors(src);
+    assert!(
+        !errs.is_empty(),
+        "a Percent(0, 255) must not fill a Percent(0, 100) position"
+    );
+}

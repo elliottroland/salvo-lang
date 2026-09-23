@@ -58,3 +58,7 @@ pub fn range__2(start: i32, end: i32) -> Range {
 pub fn range__3(end: i32) -> Range {
     return range__2(0, end);
 }
+
+pub fn InRange_qualifies(n: i32, lo: i32, hi: i32) -> bool {
+    return n >= lo && n <= hi;
+}

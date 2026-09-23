@@ -216,6 +216,11 @@ pub enum Ty {
     /// empty in a signature or annotation template. Two claims are the
     /// same fact only when their roots agree.
     ValueRef { path: String, roots: Vec<u32> },
+    /// [qual-const] A **constant** in a qualifier's value-argument block —
+    /// the third slot kind: `InRange(0, 65535) Int`. Compile-time known,
+    /// so it needs no flow tracking and no invalidation; two claims agree
+    /// exactly when their constants do.
+    ConstInt(i64),
     /// A qualified type: `Ok Int`, `Mut NonEmpty List<T>`. Invariants:
     /// `quals` is non-empty and sorted by name; `base` is never `Qualified`.
     Qualified { quals: Vec<Qual>, base: Box<Ty> },
@@ -296,7 +301,7 @@ impl Ty {
 
     fn collect_binders(&self, out: &mut Vec<String>) {
         match self {
-            Ty::ValueRef { .. } => {}
+            Ty::ValueRef { .. } | Ty::ConstInt(_) => {}
             Ty::FnName(FnId::Binder(name)) => {
                 if !out.iter().any(|n| n == name) {
                     out.push(name.clone());
@@ -522,6 +527,10 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 x == y
             }
         }
+        // [qual-const] Constants agree exactly or not at all; range
+        // containment would need the qualifier's own semantics, which is
+        // the recorded remainder of the constants step (ROADMAP.md).
+        (Ty::ConstInt(x), Ty::ConstInt(y)) => x == y,
         // A union is a subtype when every arm is.
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
         // A qualified union group (`Ok (A | B)`) matches an identical union
@@ -1101,6 +1110,8 @@ impl fmt::Display for Ty {
             // [qual-depend] A place argument reads as it is written:
             // `KeyOf(m)`, `ValidFor(state.data)`.
             Ty::ValueRef { path, .. } => write!(f, "{path}"),
+            // [qual-const] A constant reads as it is written: `InRange(0, 65535)`.
+            Ty::ConstInt(n) => write!(f, "{n}"),
             Ty::Named { name, args } => {
                 write!(f, "{name}")?;
                 fmt_args(f, args)
@@ -1188,7 +1199,7 @@ fn fmt_args(f: &mut fmt::Formatter<'_>, args: &[Ty]) -> fmt::Result {
     // after the type generics — the way the source spells them (user
     // decision 2026-09-23): `Heap<Person>(by_name)`, `SortedSet<Str>(by_len)`.
     let (types, values): (Vec<&Ty>, Vec<&Ty>) =
-        args.iter().partition(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. }));
+        args.iter().partition(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_)));
     if !types.is_empty() && !(types.iter().all(|t| t.is_unknown()) && !values.is_empty()) {
         write!(f, "<")?;
         for (i, a) in types.iter().enumerate() {

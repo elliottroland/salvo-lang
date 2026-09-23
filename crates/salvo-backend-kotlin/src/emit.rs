@@ -3676,7 +3676,7 @@ impl<'p> Emitter<'p> {
         match ty {
             // [qual-depend] A place argument is the checker's alone: it
             // lives inside an erased qualifier and never reaches output.
-            Ty::ValueRef { .. } => String::new(),
+            Ty::ValueRef { .. } | Ty::ConstInt(_) => String::new(),
             Ty::Named { name, args } => {
                 // [cmp-carry] An identity a keyed container carries is the
                 // checker's, not a rendering: the container's own machinery holds
@@ -7907,7 +7907,7 @@ impl<'p> Emitter<'p> {
     /// spines stays immutable).
     fn ty_immutable(&self, ty: &Ty, visiting: &mut Vec<String>) -> bool {
         match ty {
-            Ty::ValueRef { .. } => true,
+            Ty::ValueRef { .. } | Ty::ConstInt(_) => true,
             Ty::Qualified { quals, base } => {
                 !quals.iter().any(|q| q.name == "Mut")
                     && self.ty_immutable(base, visiting)

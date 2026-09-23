@@ -67,3 +67,15 @@ export fn range(end: Int) -> Range {
     return range(0, end)
 }
 
+
+// [qual-const] The claim that an `Int` lies in a **constant range**, both
+// ends inclusive: `InRange(0, 65535) Int` is a port, `InRange(0, 100) Int`
+// a percentage — one declaration, a distinct type per pair of bounds
+// (constants agree exactly or not at all). The third slot kind, after fn
+// identities [cmp-carry] and places [qual-depend]: compile-time known, so
+// nothing tracks it and nothing can invalidate it.
+export qualifier InRange(lo: Int, hi: Int) of Int {
+    fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {
+        return n >= lo && n <= hi
+    }
+}

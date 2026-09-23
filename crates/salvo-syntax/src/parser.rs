@@ -2652,6 +2652,8 @@ impl<'s> Parser<'s> {
             && self.at(&TokenKind::LParen)
             && self.same_line()
             && (matches!(self.peek_at(1).kind, TokenKind::Question)
+                || (matches!(self.peek_at(1).kind, TokenKind::Int { .. })
+                    && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen))
                 || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
                     && matches!(
                         self.peek_at(2).kind,
@@ -2693,6 +2695,34 @@ impl<'s> Parser<'s> {
                             from: Vec::new(),
                             at: None,
                             binder: true,
+                            established: false,
+                            span,
+                        },
+                    });
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+                // [qual-const] A **constant** filling a value slot:
+                // `InRange(0, 65535) Int`. Carried as a digit-named ref —
+                // the AST's type language has no literal node, and the
+                // lowering reads the digits back — a recorded shortcut.
+                if let TokenKind::Int { value, .. } = self.peek().kind {
+                    let span = self.bump().span;
+                    value_args.push(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            alias: None,
+                            name: Ident {
+                                name: value.to_string(),
+                                span,
+                            },
+                            args: Vec::new(),
+                            value_args: Vec::new(),
+                            from: Vec::new(),
+                            at: None,
+                            binder: false,
                             established: false,
                             span,
                         },
