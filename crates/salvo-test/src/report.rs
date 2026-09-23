@@ -60,6 +60,14 @@ pub struct Summary {
 }
 
 impl Summary {
+    /// [test-recover] Folds another pass's counts in: a run is one pass per
+    /// process, and a died test costs a process.
+    pub fn merge(&mut self, other: Summary) {
+        self.passed += other.passed;
+        self.failed += other.failed;
+        self.unfinished.extend(other.unfinished);
+    }
+
     pub fn total(&self) -> usize {
         self.passed + self.failed
     }
@@ -76,6 +84,21 @@ impl Summary {
 /// printing for a reason, and swallowing it would make a `println` debug
 /// session impossible.
 pub fn render(
+    lines: impl BufRead,
+    out: &mut impl Write,
+    color: Color,
+) -> std::io::Result<Summary> {
+    let summary = render_stream(lines, out, color)?;
+    writeln!(out)?;
+    summary_line(&summary, out, color)?;
+    Ok(summary)
+}
+
+/// [test-report] `render` without the closing summary: one *pass* of the
+/// harness, which is not always the whole run — a test that dies takes the
+/// process with it, so the runner re-runs the remainder and the counts are
+/// merged before the summary is printed once [test-recover].
+pub fn render_stream(
     lines: impl BufRead,
     out: &mut impl Write,
     color: Color,
@@ -134,9 +157,56 @@ pub fn render(
         writeln!(out, "{}", color.red("DIED"))?;
         summary.unfinished.push(pending);
     }
-    writeln!(out)?;
-    summary_line(&summary, out, color)?;
     Ok(summary)
+}
+
+/// [test-recover] What the runner prints under a test that died: the trap
+/// message the program left on stderr, which is what tells a reader *why* —
+/// a failed `assert!` says so in Salvo's own words [assert-trap].
+///
+/// Only the lines that look like they belong to the failure are shown: Salvo's
+/// own trap lines first, and if there are none, the tail of whatever the
+/// program said. A host stack trace is left out; it names generated code.
+pub fn died_detail(stderr: &str) -> Vec<String> {
+    let salvo: Vec<String> = stderr
+        .lines()
+        .filter(|l| l.contains(TRAP_PREFIX))
+        .map(|l| {
+            // Keep the message from `salvo:` on, dropping the host's framing
+            // (`thread 'main' panicked at …:` / `Exception in thread "main" …`).
+            match l.find(TRAP_PREFIX) {
+                Some(at) => l[at..].to_string(),
+                None => l.to_string(),
+            }
+        })
+        .collect();
+    if !salvo.is_empty() {
+        return salvo;
+    }
+    stderr
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("at "))
+        .filter(|l| !l.trim().is_empty())
+        .rev()
+        .take(3)
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect()
+}
+
+/// [assert-trap] How a Salvo trap message starts, on either backend.
+pub const TRAP_PREFIX: &str = "salvo: ";
+
+/// The closing summary, printed once for a whole run [test-report].
+pub fn print_summary(
+    summary: &Summary,
+    out: &mut impl Write,
+    color: Color,
+) -> std::io::Result<()> {
+    writeln!(out)?;
+    summary_line(summary, out, color)
 }
 
 /// The closing line: counts, and the tests that never finished.

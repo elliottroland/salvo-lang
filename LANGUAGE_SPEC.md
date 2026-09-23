@@ -6106,6 +6106,23 @@ replaced the working document TESTING.md).
   * A test that begins and never reports (a panic, a killed process) is
     reported as `DIED` and named in the summary: a run that ends silently is
     the one failure a report must not lose.
+* [test-recover] A test that **dies** does not cost the rest of the run (user
+  decision 2026-09-23, A-5). A trap ends the process — a failed `assert!`
+  [assert-trap], an intrinsic's own trap, a killed program — so the runner:
+  attributes the trap to the test that was in flight and prints it *under* that
+  test, drops that test from the plan, and re-runs what was left in a **fresh
+  process**. A death therefore costs one extra build, not the suite.
+  * The recovery is the **runner's**, not the harness's: a harness written in
+    Salvo cannot catch a trap, and giving the language one was rejected with the
+    `Panic` effect (A-2). So the machinery is entirely on the compiler side and
+    is identical for both backends.
+  * What is printed under the died test is the **Salvo trap line** when stderr
+    has one (`salvo: …` [assert-trap]), and otherwise the tail of whatever the
+    program said — never a host stack trace, which names generated code.
+  * The pass limit is one per test plus one, since every pass either finishes
+    the plan or removes a test from it.
+  * A pass whose tests all passed but whose process still failed is reported as
+    an error rather than a green run: something outside a test went wrong.
 * [test-report] A test's **id** is `<module under test> :: <name>`: the module
   a program would `import` (`heap`, not the annex's `heap.test`) and the name
   without its quotes (user decision 2026-09-23). The report is one line per

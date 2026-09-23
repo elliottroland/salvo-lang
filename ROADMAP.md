@@ -1099,15 +1099,16 @@ forms are built — `expr!` with its refusal, `assert!(cond, "why")` with its
 narrowing, `unreachable!("why")` — with one trap text on both backends. Two
 decided slices are **not built**; both are plans now, not questions.
 
-- **A-5: the test harness recovers from a production assertion.** Today a failed
-  `assert!` inside a test kills the harness process and the report says the test
-  `DIED` (which is the MVP's wording) rather than naming the assertion. The fix:
-  the generated harness catches Salvo's own failure per test — an
-  `AssertionError` is catchable on Kotlin, and on Rust a panic needs
-  `catch_unwind` with the caveat that a `panic = "abort"` profile removes it.
-  Worth doing with it: `expect_panics`-style helpers become writable, and the
-  user's note that tests should arguably use `assert!` (for the narrowing) rather
-  than `std.test`'s `expect` — which would make the two vocabularies one.
+- **A-5 is built** (2026-09-23, in the runner rather than the harness —
+  COMPLETED.md's log): a dying test is named, its trap message is printed under
+  it, and the remainder re-runs in a fresh process [test-recover]. What it leaves:
+  a death costs a **rebuild** (the whole ~9s Kotlin compile), because the harness
+  has no argv dispatch — with one, a re-run would be a second launch. Worth doing
+  if it starts to hurt; the shape is in TESTING.md's retired TF-4 (the harness
+  `main` accepting test ids). Also still open from it: `expect_panics`-style
+  helpers, now writable, and the user's note that tests should arguably use
+  `assert!` rather than `std.test`'s `expect` — the narrowing form is the reason,
+  and it would make the two vocabularies one.
 - **A-6: the trap policy for the other three failure classes.** Decided:
   - **Subscript out of range** → trap with *our* message (index and length),
     replacing the hosts' two different texts. Needs care on the *place* path

@@ -17,6 +17,7 @@ mod docs;
 mod lang;
 mod lsp;
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -788,26 +789,6 @@ fn test(
         );
         return ExitCode::FAILURE;
     }
-    let source = salvo_test::harness_source(&selected);
-    let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
-    if diagnostics.iter().any(|d| d.is_error()) {
-        // A generated program that does not parse is a compiler bug, and the
-        // source is printed with it so the bug is one read away.
-        for diag in &diagnostics {
-            eprintln!("{}", diag.render("<generated harness>", &source));
-        }
-        eprintln!("error: internal: the generated test harness does not parse\n{source}");
-        return ExitCode::FAILURE;
-    }
-    assembled.program.files.push(salvo_core::SourceFile {
-        name: format!("{}.sv", salvo_test::HARNESS_MODULE),
-        module: harness_module.clone(),
-        content: source,
-        is_std: false,
-        is_test: false,
-    });
-    assembled.program.modules.push(ast);
-
     let target = target.unwrap_or_else(|| PathBuf::from(DEFAULT_TEST_TARGET));
     if let Err(msg) = check_target_overlap(&layout.src, &target) {
         eprintln!("error: {msg}");
@@ -817,34 +798,163 @@ fn test(
         eprintln!("error: {msg}");
         return ExitCode::FAILURE;
     }
-    let emitted = match backend.emit(&assembled.program, &target, Some(&harness_module)) {
+    let color = if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        salvo_test::Color::Always
+    } else {
+        salvo_test::Color::Never
+    };
+
+    // [test-recover] A run is one pass per process, and a test that *dies* —
+    // a failed `assert!` [assert-trap], an intrinsic's own trap, a killed
+    // program — takes the process with it. So the runner attributes the trap to
+    // the test that was in flight, and re-runs what was left in a fresh
+    // process: a death costs one extra build, not the rest of the suite (user
+    // decision 2026-09-23, A-5).
+    let mut remaining: Vec<salvo_core::TestCase> = selected.clone();
+    let mut total = salvo_test::Summary::default();
+    // One pass per death, plus the first: a pass always either finishes or
+    // removes one test from `remaining`, so this cannot spin.
+    let mut passes_left = selected.len() + 1;
+    while !remaining.is_empty() && passes_left > 0 {
+        passes_left -= 1;
+        let pass = match run_test_pass(
+            backend,
+            &mut assembled.program,
+            &harness_module,
+            &remaining,
+            &target,
+            color,
+        ) {
+            Ok(pass) => pass,
+            Err(code) => return code,
+        };
+        let died = pass.summary.unfinished.last().cloned();
+        let ok_so_far = pass.summary.ok();
+        total.merge(pass.summary);
+        match died {
+            Some(id) => {
+                // The trap message goes under the test that died, which is the
+                // whole point: a failed assertion reads as that test's failure
+                // rather than as a dead run.
+                let mut out = std::io::stdout().lock();
+                for line in salvo_test::died_detail(&pass.stderr) {
+                    let _ = writeln!(out, "    {line}");
+                }
+                drop(out);
+                let at = remaining.iter().position(|t| t.id() == id);
+                remaining = match at {
+                    Some(at) => remaining.split_off(at + 1),
+                    // The runner and the harness disagree about what ran, which
+                    // is a compiler bug rather than a test failure.
+                    None => Vec::new(),
+                };
+                if !remaining.is_empty() {
+                    eprintln!(
+                        "note: `{id}` took the process with it; re-running the \
+                         remaining {} test(s)",
+                        remaining.len()
+                    );
+                }
+            }
+            None => {
+                if !pass.stderr.trim().is_empty() {
+                    eprint!("{}", pass.stderr);
+                }
+                if !pass.exit_ok && ok_so_far {
+                    // Every test passed and the process still failed: something
+                    // outside a test went wrong, and silence would report a
+                    // green run for a broken one.
+                    eprintln!(
+                        "error: the test harness exited with a failure although \
+                         every test passed"
+                    );
+                    return ExitCode::FAILURE;
+                }
+                remaining.clear();
+            }
+        }
+    }
+
+    let mut out = std::io::stdout().lock();
+    let _ = salvo_test::print_summary(&total, &mut out, color);
+    drop(out);
+    if total.ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// [test-recover] One pass of the harness: synthesize a module for `tests`,
+/// emit the program, run it, and render its protocol. The harness module is
+/// added to the program for the pass and taken off again, so a later pass
+/// synthesizes a fresh one.
+struct TestPass {
+    summary: salvo_test::Summary,
+    /// What the program wrote to stderr — where a trap message lands.
+    stderr: String,
+    exit_ok: bool,
+}
+
+fn run_test_pass(
+    backend: &dyn salvo_backend::Backend,
+    program: &mut Program,
+    harness_module: &salvo_core::ModulePath,
+    tests: &[salvo_core::TestCase],
+    target: &Path,
+    color: salvo_test::Color,
+) -> Result<TestPass, ExitCode> {
+    let source = salvo_test::harness_source(tests);
+    let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    if diagnostics.iter().any(|d| d.is_error()) {
+        // A generated program that does not parse is a compiler bug, and the
+        // source is printed with it so the bug is one read away.
+        for diag in &diagnostics {
+            eprintln!("{}", diag.render("<generated harness>", &source));
+        }
+        eprintln!("error: internal: the generated test harness does not parse\n{source}");
+        return Err(ExitCode::FAILURE);
+    }
+    program.files.push(salvo_core::SourceFile {
+        name: format!("{}.sv", salvo_test::HARNESS_MODULE),
+        module: harness_module.clone(),
+        content: source,
+        is_std: false,
+        is_test: false,
+    });
+    program.modules.push(ast);
+    let emitted = backend.emit(program, target, Some(harness_module));
+    program.files.pop();
+    program.modules.pop();
+    let emitted = match emitted {
         Ok(emitted) => emitted,
         Err(BackendError::Codegen(msgs)) => {
             for msg in &msgs {
                 eprintln!("{msg}");
             }
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
         Err(err) => {
             eprintln!("error: {err}");
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }
 
-    let mut command =
-        match backend.program_command(&target, &harness_module, &emitted.files) {
-            Ok(command) => command,
-            Err(err) => {
-                eprintln!("error: {err}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let mut command = match backend.program_command(target, harness_module, &emitted.files) {
+        Ok(command) => command,
+        Err(err) => {
+            eprintln!("error: {err}");
+            return Err(ExitCode::FAILURE);
+        }
+    };
     // The harness's stdout is the protocol the report is rendered from
-    // [test-report]; its stderr stays the user's.
+    // [test-report]; its stderr is captured so a trap can be attributed to the
+    // test that was running [test-recover].
     command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(err) => {
@@ -852,43 +962,42 @@ fn test(
                 "error: failed to start the test harness (`{}`): {err}",
                 command.get_program().to_string_lossy()
             );
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
     let stdout = child.stdout.take().expect("piped");
-    let color = if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        salvo_test::Color::Always
-    } else {
-        salvo_test::Color::Never
-    };
+    let mut err_pipe = child.stderr.take().expect("piped");
+    // Drained on a thread: a program that writes more to stderr than the pipe
+    // holds would otherwise block while the runner reads stdout.
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut err_pipe, &mut buf);
+        buf
+    });
     let mut out = std::io::stdout().lock();
-    let summary = match salvo_test::render(std::io::BufReader::new(stdout), &mut out, color) {
+    let summary = salvo_test::render_stream(std::io::BufReader::new(stdout), &mut out, color);
+    drop(out);
+    let stderr = err_reader.join().unwrap_or_default();
+    let status = child.wait();
+    let summary = match summary {
         Ok(summary) => summary,
         Err(err) => {
             eprintln!("error: failed to read the test harness's output: {err}");
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
-    let status = child.wait();
-    drop(out);
-    match status {
-        Ok(status) if !status.success() && summary.ok() => {
-            // The report says everything passed and the process still failed:
-            // something outside a test went wrong, and silence here would
-            // report a green run for a broken one.
-            eprintln!(
-                "error: the test harness exited with {} although every test passed",
-                status
-            );
-            ExitCode::FAILURE
-        }
+    let exit_ok = match status {
+        Ok(status) => status.success(),
         Err(err) => {
             eprintln!("error: failed to wait for the test harness: {err}");
-            ExitCode::FAILURE
+            return Err(ExitCode::FAILURE);
         }
-        Ok(_) if summary.ok() => ExitCode::SUCCESS,
-        Ok(_) => ExitCode::FAILURE,
-    }
+    };
+    Ok(TestPass {
+        summary,
+        stderr,
+        exit_ok,
+    })
 }
 
 /// `salvo platform generate` [cli-platform]: writes the host implementation

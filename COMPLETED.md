@@ -55,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1387 tests, complete: the toolchain tests are
+cargo test                  # 1388 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -130,6 +130,49 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A-5: a dying test costs one build, not the suite (2026-09-23, user
+decision).** A failed `assert!` traps, and a trap ends the process — so before
+this, one bad assertion in a suite killed the run and the report said the test
+`DIED` with a host stack trace on stderr. Now the runner names the test that was
+in flight, prints the trap's own words under it, and re-runs what was left in a
+fresh process:
+
+```
+test calc :: first passes ... ok (0 ms)
+test calc :: this one traps ... DIED
+    salvo: n should exceed 100, was 6 at calc.test:7:5
+test calc :: and the run goes on ... ok (0 ms)
+```
+
+**The recovery is the runner's, not the harness's**, which is the design point
+worth keeping: ASSERTIONS.md's A-5 sketched a harness that *catches* the failure
+(`AssertionError` on Kotlin, `catch_unwind` on Rust), and that is the wrong
+place — a harness written in Salvo cannot catch a trap, the language was
+deliberately not given a way to (the `Panic` effect, rejected in A-2), and a
+per-backend catch would have put two more lowerings into the emitters. Doing it
+in the runner instead is backend-agnostic, needs no language surface, and catches
+*every* death rather than only assertions: an intrinsic's trap, a subscript out
+of range, a killed program.
+
+What it took:
+
+- `render` split into `render_stream` (one pass, no summary) plus
+  `print_summary`, and `Summary::merge` — a run is now one pass *per process* and
+  the counts are folded before the summary prints once.
+- The harness module is pushed onto the program for a pass and popped after, so
+  each pass synthesizes a fresh one over the tests that are left.
+- stderr is piped and drained **on a thread**: a program that wrote more than the
+  pipe holds would otherwise block while the runner reads stdout.
+- `died_detail` picks the `salvo: …` line out of stderr and leaves the host's
+  framing and stack frames out — they name generated code.
+- The pass limit is one per test plus one, since a pass either finishes the plan
+  or removes a test from it. A pass whose tests all passed but whose process
+  failed is still reported as an error: something outside a test went wrong.
+
+Cost: a death means a rebuild, which on Kotlin is the whole ~9s compile. That is
+the price of not having argv dispatch in the harness — with it, a re-run would be
+a second `kotlin` launch instead. Recorded in ROADMAP.md if it starts to hurt.
+
 **Assertions — the design, and the three forms (2026-09-23, user decisions
 A-1…A-7).** The `!` operator had four measured problems: it was accepted on a
 value that could never be absent, and then rustc refused `.unwrap()` while
@@ -152,7 +195,8 @@ The calls:
   of the design: the three forms now share one mark).
 - **A-4**: always on. No build modes, and Java's `-ea` is the argument.
 - **A-5**: the test harness should recover from a production assertion rather
-  than reporting `DIED` — *decided, not yet built*.
+  than reporting `DIED` — **built**, in the runner rather than the harness; see
+  the entry above.
 - **A-6**: the trap policy per failure class — trap with our message for
   `!`/`assert!`/subscript/division-by-zero, **wrapping** for integer overflow.
   The `!` and `assert!` rows are built; subscript, division and overflow are
@@ -14947,7 +14991,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1387)
+## Test inventory (all green: 1388)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15439,7 +15483,7 @@ cache, with per-test timings.
   C-6 needs std's own declarations, so it is asserted end to end in each
   backend's `compiles_and_runs_list_claims` case instead of here — this
   harness builds its own prelude).
-- `salvo-cli`: 100 - 51 `analyze` integration tests running the built
+- `salvo-cli`: 101 - 51 `analyze` integration tests running the built
   binary (`tests/analyze_tests.rs` [cli-analyze]: clean program exits 0,
   type errors render with location and exit 1, JSON diagnostics
   (populated + empty array), parse errors reported, a parse error in one

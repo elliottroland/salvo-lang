@@ -281,3 +281,46 @@ fn normalize_ms(text: &str) -> String {
     out.push_str(rest);
     out
 }
+
+/// [test-recover] A test that *dies* — a failed `assert!` traps, and a trap ends
+/// the process [assert-trap] — must not cost the rest of the run: the runner
+/// attributes the trap message to the test that was in flight and re-runs what
+/// was left in a fresh process (user decision 2026-09-23, A-5).
+#[test]
+fn a_trapping_test_is_named_and_the_run_continues() {
+    let Some(stamp) = e2e_stamp("trap_recovery", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("trap_recovery");
+    fs::write(dir.join("calc.sv"), CALC).unwrap();
+    fs::write(
+        dir.join("calc.test.sv"),
+        "test \"before\" {\n    expect_eq(double(2), 4)\n}\n\n\
+         test \"traps\" {\n    let n = double(3)\n    \
+         assert!(n > 100, \"n should exceed 100, was ${n}\")\n}\n\n\
+         test \"after\" {\n    expect_eq(double(5), 10)\n}\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["test", "--src", "."]);
+    let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // The trap's own words, under the test that died — not a host stack trace.
+    assert!(
+        stdout.contains("test calc :: traps ... DIED\n    salvo: n should exceed 100, was 6 at calc.test:"),
+        "stdout: {stdout}\nstderr: {stderr}"
+    );
+    // …and the test after it still ran, in a fresh process.
+    assert!(
+        stdout.contains("test calc :: after ... ok (N ms)"),
+        "stdout: {stdout}"
+    );
+    assert!(stderr.contains("re-running the remaining 1 test(s)"), "{stderr}");
+    // One death is a failed run, and the summary counts it.
+    assert!(stdout.contains("1 never finished"), "stdout: {stdout}");
+    assert!(!out.status.success());
+    stamp.verified();
+}
