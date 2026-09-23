@@ -2728,7 +2728,15 @@ assert!(k is KeyOf(m))     // or hoisted: narrows the rest of the scope
 
 `KeyOf(m)` and `KeyOf(m2)` are different facts — the claim is bound to the *identity* of the value that filled the slot (its fate roots, so an alias of `m` is still `m`). And because the claim is about the **map's** contents rather than the key's, it is invalidated from the other side: any mutation of `m` strips `KeyOf(m)` from every value holding it, conservatively — reads keep it, and mutating some other map keeps it. This is the refinement-types machinery at its smallest: prove a fact once, carry it in the type, and let mutation of what it depends on take it away.
 
-The dependent claims std ships, and the total overloads that consume them (`get` answering an element rather than an optional), arrive with the rest of the sequence — see ROADMAP.md.
+Stripping every claim on any mutation would make the machinery useless the moment a map is written to, so the claim's owner can opt specific calls back in with a **`preserve` entry** — a refinement (`refn put(map: Mut Map<K, V>, key: K, value: V) => map: preserve KeyOf`: writing under a key never removes one), or a fn's own clause (`=> map: preserve KeyOf`), which is *checked*: every call in the body handing the map to a mutator must itself preserve the claim. std's `put` preserves `KeyOf`, and `add`/`swap` preserve `Idx` — which is what lets this pass the checker with no `!` anywhere:
+
+```
+let m = mut_map_of(("a", 1))
+let k = "a"
+assert!(k is KeyOf(m))
+put(m, "b", 2)              // preserves KeyOf claims
+let v = get(m, k)           // the total overload: an Int, not an Int?
+```
 * **It is droppable, and it survives storage.** Forgetting where a value came from is always safe, so `Authenticated Request` can be passed wherever a plain `Request` is wanted; and a struct field typed `Authenticated Request` keeps the tag for whoever reads it back.
 
 Both kinds are erased in the generated code — the subject only decides what the compiler knows. If you want a distinct type at runtime (its own identity, its own equality, usable as a distinct map key), use a one-field struct instead; a `Str` wrapped in a provenance qualifier stays a string, which is usually what you want for ids.

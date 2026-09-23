@@ -228,6 +228,9 @@ pub fn refinement_section(groups: &[RefnGroup], scope: &DocScope) -> Option<Stri
         }
         let mut effects: Vec<String> = group.add.iter().map(|q| format!("+{q}")).collect();
         effects.extend(group.remove.iter().map(|q| format!("-{q}")));
+        // [qual-preserve] Part of what a reader needs: the call keeps other
+        // values' dependent claims about this parameter alive.
+        effects.extend(group.preserve.iter().map(|q| format!("preserve {q}")));
         out.push_str(&format!(
             "\n- `[{}: {}]`",
             group.param,

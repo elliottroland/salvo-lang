@@ -104,6 +104,22 @@ export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
     fn qualifies(key: K, map: Map<K, V>) -> Bool {
         return contains_key(map, key)
     }
+
+    // [qual-preserve] Writing under a key never removes one, so every
+    // existing `KeyOf` claim survives a [put] — the opt-back from the
+    // conservative rule that any mutation of the map strips them.
+    refn put(map: Mut Map<K, V>, key: K, value: V) => map: preserve KeyOf
+}
+
+// The lowering behind the total [get]: a presence the claim already proved.
+// Private — the claim is the only door.
+intrinsic fn get_present<K, V>(map: Map<K, V>, key: K) [] -> proj(map) V => map, key
+
+// [qual-depend] The **total** read: a key carrying the claim answers the
+// value itself — the `None` arm was paid where the key was tested. Ranked
+// above the optional [get] by its qualifier [fn-overload-rank].
+export fn get<K, V>(map: Map<K, V>, key: KeyOf(map) K) [] -> proj(map) V => map, key {
+    return get_present(map, key)
 }
 
 // Returns the number of entries in the map

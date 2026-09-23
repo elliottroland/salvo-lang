@@ -645,8 +645,9 @@ Conventions:
   -> proj(list) T` (no `None` arm) and `swap(list, i: Idx(list) Int, j:
   Idx(list) Int) -> None` (no `Bool` — the claims did the checking
   [col-bounds]). Ranked above their plain siblings [fn-overload-rank].
-  `core.map`'s `KeyOf` gets its total `get` with the `preserve` step, once
-  a map's claims can survive its non-removing mutators.
+  `core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
+  [qual-preserve], which is what lets a claim survive the `put`s between
+  the test and the read).
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -1174,6 +1175,29 @@ Conventions:
   * Erased like everything about a qualifier [qual-erasure]: the places
     reach the backends only as the extra arguments of a lowered
     `qualifies` call.
+* [qual-preserve] A **`preserve` entry** opts a call back out of the
+  conservative cross-value stripping [qual-depend]: `=> map: preserve
+  KeyOf` says the call does not invalidate the named dependent claims
+  other values hold about that parameter (user decisions 2026-09-23,
+  spelled `preserve` — imperative like `defer`; "kept" already means *not
+  consumed*, and the parameter is not the party holding the claim).
+  * **In a refinement** [qual-refn]: the claim's owner states it for a
+    call it does not own — std's `put` preserves `KeyOf` (writing never
+    removes a key), `add` and `swap` preserve `Idx` (growth keeps every
+    index valid; an exchange moves no boundary). Validated against the
+    qualifier's **value slots** (the parameter is the value the claims
+    depend on, not the claim's subject), and only a dependent qualifier
+    may appear. Preservation cannot conflict [qual-refn-conflict] and
+    merges across groups.
+  * **In a fn's own clause**, alongside the parameter's ordinary entry
+    (exempt from the once-rule — it is about *other* values' claims):
+    **checked**, anywhere — every call in the body passing the parameter
+    at a `Mut` position must itself preserve the claim, conditional calls
+    included (the promise is unconditional). A bodiless declaration
+    cannot promise it; the refn is the tool. Callers consume it exactly
+    as they consume a refinement's.
+  * Rendered in hover beside additions and removals ([qual-refn-docs]:
+    `[list: +NonEmpty preserve Idx]`).
 * [qual-generic] Qualifiers can be generic, and as generic as their `of`
   type or less (`qualifier Ok<T> of T`, `qualifier Ints of Pair<Int,
   Int>`). Nested qualified types (`Ok (Ok Str | Err Int)`) are legal but

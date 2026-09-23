@@ -100,3 +100,15 @@ test "a proven pair swaps totally" {
     swap(xs, i, j)
     expect_eq(to_str(xs), "[3, 2, 1]")
 }
+
+test "add and swap preserve Idx claims" {
+    // [qual-preserve] Growth keeps every existing index valid, and an
+    // exchange moves no boundary — so the total `get` still applies after
+    // both.
+    let xs: Mut List<Int> = [1, 2, 3]
+    let i = 1
+    assert!(i is Idx(xs))
+    add(xs, 4)
+    swap(xs, i + 1, i + 1)
+    expect_eq(get(xs, i), 2)
+}

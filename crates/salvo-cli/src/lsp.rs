@@ -1607,6 +1607,12 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
                     "{t}: {}",
                     names(items).iter().map(|q| format!("-{q}")).collect::<Vec<_>>().join(" ")
                 ),
+                // [qual-preserve] Part of the contract a reader needs: the
+                // call keeps other values' dependent claims about this
+                // parameter alive.
+                DeductionKind::Preserve(quals) => {
+                    format!("{t}: preserve {}", names(quals).join(" "))
+                }
                 DeductionKind::Proj(sources) => {
                     let srcs: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
                     if t.is_empty() {

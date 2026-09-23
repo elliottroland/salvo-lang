@@ -57,6 +57,12 @@ export qualifier Idx<T>(list: List<T>) of Int {
     fn qualifies(index: Int, list: List<T>) -> Bool {
         return index >= 0 && index < size(list)
     }
+
+    // [qual-preserve] Growth keeps every existing index valid, and an
+    // exchange moves no boundary: `Idx` claims survive both — the opt-back
+    // from the conservative rule that any mutation of the list strips them.
+    refn add(list: Mut List<T>, elem: T) => list: preserve Idx
+    refn swap(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
 }
 
 // [col-idx] The **total** read: an index carrying the claim answers the
@@ -73,9 +79,10 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 
 // [col-idx] The **total** exchange: two proven indices cannot be out of
 // range, so there is no `Bool` to check — the claim did the checking
-// [col-bounds].
+// [col-bounds]. Its own clause promises what its body's refined [swap]
+// keeps: existing `Idx` claims survive [qual-preserve].
 export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> None
-=> list: Mut, i, j {
+=> list: Mut, list: preserve Idx, i, j {
     swap(list, i + 0, j + 0)
     return None
 }

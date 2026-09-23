@@ -12,6 +12,10 @@ fun<K, V> KeyOf_qualifies(key: K, map: Map<K, V>): Boolean {
     return map.containsKey(key)
 }
 
+fun<K, V> get__2(map: Map<K, V>, key: K): V {
+    return map[key]!!
+}
+
 fun<K, V> iter__4(map: Map<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
 }

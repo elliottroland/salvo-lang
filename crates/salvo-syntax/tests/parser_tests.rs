@@ -1471,6 +1471,9 @@ fn the_deduction_clause_parses_every_entry_form() {
                 format!("Remove[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
             }
             DeductionKind::Proj(_) => "proj".into(),
+            DeductionKind::Preserve(q) => {
+                format!("Preserve[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
+            }
         }
     }
 }

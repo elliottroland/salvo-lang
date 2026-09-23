@@ -130,6 +130,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 4 — `preserve` (built 2026-09-24).** The opt-back
+from conservative cross-value stripping [qual-preserve]: `=> map: preserve
+KeyOf` in a refinement (the owner speaks for a call it does not own) or in
+a fn's own clause (checked: every body call passing the parameter at a
+`Mut` position must itself preserve the claim — enforced right in the
+argument-effects loop, flow-free, conditional calls included since the
+promise is unconditional). `preserved_claims` computes a call's set from
+requires-gated refn groups plus the callee's own entries, and
+`strip_dependent_claims` skips those names. Refn validation branches for
+`preserve`: the parameter is validated against the qualifier's **value
+slots** (it is the depended-on value, not the claim's subject), and only a
+dependent qualifier may appear.
+
+std: `put` preserves `KeyOf`; `add` and the `Bool` `swap` preserve `Idx`
+(refns in the qualifiers' bodies); the total `swap` promises it in its own
+clause, checked against its refined delegate. That unlocked `KeyOf`'s
+total `get` (a private `get_present` intrinsic behind it — delegating to
+the optional `get` would re-pick the total overload, and a generic `K`
+has no `+ 0` to shed the claim with).
+
+Build finds worth keeping: a preserve-only refinement was invisible until
+`RefnGroup::is_empty` learned the third list (entries were dropped at
+`resolve_refn`'s "changes anything" gate — two hours of tracing for a
+one-line predicate); a `preserve` entry must be exempt from the
+deduction once-rule on both sides (it accompanies the parameter's
+ordinary entry) and skipped when deduce/from_written selects the
+ownership entry; hover renders it beside additions
+(`[list: +NonEmpty preserve Idx]` — the merged group now lists both
+sources). Tests: four preserve tests in `depend_tests.rs` (14 total),
+runtime put/add/swap preservation tests in both annexes (36 std tests,
+both backends). Suite green.
+
 **Refinement types, step 3 — dependent claims in signatures (built
 2026-09-24).** The consuming half of [qual-depend]: a parameter type may
 fill a value slot with a **sibling parameter**, and std's total overloads

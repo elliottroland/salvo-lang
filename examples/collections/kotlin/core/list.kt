@@ -15,7 +15,7 @@ fun<T> Idx_qualifies(index: Int, list: List<T>): Boolean {
 }
 
 fun<T> get(list: List<T>, index: Int): T {
-    return (list.getOrNull(index + 0) ?: throw AssertionError("salvo: value is absent at core.list:71:12"))
+    return (list.getOrNull(index + 0) ?: throw AssertionError("salvo: value is absent at core.list:77:12"))
 }
 
 fun<T> swap(list: MutableList<T>, i: Int, j: Int) {
@@ -28,7 +28,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:185:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:192:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

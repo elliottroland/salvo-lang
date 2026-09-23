@@ -1459,6 +1459,7 @@ impl<'s> Parser<'s> {
             let mut end = param.span;
             let mut add: Vec<TypeRef> = Vec::new();
             let mut remove: Vec<TypeRef> = Vec::new();
+            let mut preserve: Vec<TypeRef> = Vec::new();
             if self.eat(&TokenKind::Colon).is_none() {
                 self.error(
                     format!(
@@ -1470,6 +1471,20 @@ impl<'s> Parser<'s> {
                 );
             }
             loop {
+                // [qual-preserve] `preserve Q`: the call does not invalidate
+                // the dependent claims other values hold about this
+                // parameter. Contextual, like `defer` in a deduction entry.
+                if self.at_word("preserve")
+                    && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+                {
+                    self.bump();
+                    while self.at_type_name() {
+                        let Some(r) = self.parse_type_ref() else { break };
+                        end = r.span;
+                        preserve.push(r);
+                    }
+                    continue;
+                }
                 let plus = self.at(&TokenKind::Plus);
                 let minus = self.at(&TokenKind::Minus);
                 if !plus && !minus {
@@ -1510,6 +1525,7 @@ impl<'s> Parser<'s> {
                 param,
                 add,
                 remove,
+                preserve,
             });
             if self.eat(&TokenKind::Comma).is_none() {
                 break;
@@ -2167,6 +2183,23 @@ impl<'s> Parser<'s> {
                 }
                 end = r.span;
                 DeductionKind::Proj(r.from)
+            } else if self.at_word("preserve")
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            {
+                // [qual-preserve] `=> map: preserve KeyOf`: the fn does not
+                // invalidate the named dependent claims other values hold
+                // about this parameter [qual-depend]. Contextual, like
+                // `defer`; a separate entry, so it may accompany the
+                // parameter's ordinary one (it is about other values'
+                // claims, not this parameter's own list).
+                self.bump();
+                let mut quals: Vec<TypeRef> = Vec::new();
+                while self.at_type_name() {
+                    let Some(r) = self.parse_type_ref() else { break };
+                    end = r.span;
+                    quals.push(r);
+                }
+                DeductionKind::Preserve(quals)
             } else {
                 // Plain names are *exhaustive* (only these survive); `-`-
                 // prefixed names are a delta (drop these, keep the rest);

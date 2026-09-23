@@ -442,6 +442,9 @@ pub fn fn_call(
         ),
         // Absence is `null`, never a default [type-nullable].
         ("get", Some("Map")) => format!("{}[{}]", a(0), a(1)),
+        // [qual-depend] The total read behind `get(map, key: KeyOf(map) K)`:
+        // the claim proved presence, so the `!!` cannot fire.
+        ("get_present", Some("Map")) => format!("{}[{}]!!", a(0), a(1)),
         ("put", Some("Map")) => format!("{}.put({}, {})", a(0), a(1), a(2)),
         // [linear-container] `put` answers the previous value on the JVM
         // already, which is exactly `replace`'s contract; the two differ only

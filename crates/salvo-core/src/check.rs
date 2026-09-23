@@ -1684,6 +1684,10 @@ struct Checker<'p, 'r> {
     /// value must be derived from `p`, and the return is a *borrow*, not
     /// a move.
     own_derived_return: Option<String>,
+    /// [qual-preserve] The enclosing fn's own `preserve` promises, per
+    /// parameter — checked against every `Mut` use of the parameter in the
+    /// body (the call must itself preserve the claim).
+    own_preserve: HashMap<String, Vec<String>>,
     /// [proj-anywhere] Every source of the fn's wholesale `proj` return
     /// (`proj(a, b) T`): a returned value may derive from any of them.
     own_derived_sources: Vec<String>,
@@ -1924,6 +1928,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             is_std,
             own_linear_generics: HashSet::new(),
             own_derived_return: None,
+            own_preserve: HashMap::new(),
             own_derived_sources: Vec::new(),
             lends_memo: HashMap::new(),
             own_lends: Vec::new(),
@@ -5504,6 +5509,54 @@ impl<'p, 'r> Checker<'p, 'r> {
         // no annotation (the callee owns it), and a borrow of a moved
         // value could not outlive the call.
         self.own_derived_return = f.derived_return.as_ref().map(|id| id.name.clone());
+        // [qual-preserve] The fn's own preserve entries: recorded for the
+        // body walk, and validated — the entry needs a body to check
+        // against (a bodiless declaration is what refinements are for), a
+        // parameter of this fn, and a dependent qualifier.
+        self.own_preserve.clear();
+        for d in f.deductions.iter().flatten() {
+            let (Some(name), ast::DeductionKind::Preserve(quals)) = (d.param_name(), &d.kind)
+            else {
+                continue;
+            };
+            if f.body.is_none() {
+                self.error(
+                    d.span,
+                    "a bodiless declaration cannot promise `preserve`: there is \
+                     nothing to check it against — the qualifier's owner writes a \
+                     `refn` instead [qual-refn]",
+                );
+                continue;
+            }
+            if !f.params.iter().any(|p| p.name.name == name.name) {
+                self.error(d.span, format!("`{}` names no parameter", name.name));
+                continue;
+            }
+            let mut names: Vec<String> = Vec::new();
+            for q in quals {
+                let dependent = self
+                    .scope
+                    .qualifiers
+                    .get(q.name.name.as_str())
+                    .is_some_and(|ds| ds.iter().any(|d| !d.value_slots.is_empty()));
+                if !dependent {
+                    self.error(
+                        q.span,
+                        format!(
+                            "`{}` is not a dependent qualifier [qual-depend]: \
+                             `preserve` speaks about claims other values hold, \
+                             which only a qualifier with value slots can be",
+                            q.name.name
+                        ),
+                    );
+                    continue;
+                }
+                names.push(q.name.name.clone());
+            }
+            if !names.is_empty() {
+                self.own_preserve.insert(name.name.clone(), names);
+            }
+        }
         self.own_derived_sources = f
             .return_type
             .as_ref()
@@ -13134,7 +13187,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn fate_mutation_root(&mut self, name: &str, span: Span) {
         self.fate_mutation(name, span);
         self.invalidate_place_narrows(&Place::root(name));
-        self.strip_dependent_claims(name);
+        self.strip_dependent_claims(name, &[]);
+    }
+
+    /// [qual-preserve] As `fate_mutation_root`, for a mutation whose call
+    /// **preserves** some dependent claims: those survive the strip.
+    fn fate_mutation_root_preserving(&mut self, name: &str, span: Span, preserve: &[String]) {
+        self.fate_mutation(name, span);
+        self.invalidate_place_narrows(&Place::root(name));
+        self.strip_dependent_claims(name, preserve);
     }
 
     /// [qual-depend] The type and fate roots of a written **place path**
@@ -13167,7 +13228,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// contents, so any mutation of `m` strips it from every value holding
     /// it — the conservative direction (user decision 2026-09-23; the
     /// opt-back is the `preserve` entry, a later step of the sequence).
-    fn strip_dependent_claims(&mut self, name: &str) {
+    fn strip_dependent_claims(&mut self, name: &str, preserve: &[String]) {
         let Some(var) = self.lookup(name) else { return };
         let mut mutated: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
         mutated.push(var.id);
@@ -13177,8 +13238,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let stale: HashSet<String> = quals
                     .iter()
                     .filter(|q| {
-                        q.args.iter().any(|a| matches!(a, Ty::ValueRef { roots, .. }
-                            if roots.iter().any(|r| mutated.contains(r))))
+                        // [qual-preserve] A preserved claim survives the
+                        // mutation: the call said so (a refinement by the
+                        // claim's owner, or the callee's own checked entry).
+                        !preserve.contains(&q.name)
+                            && q.args.iter().any(|a| matches!(a, Ty::ValueRef { roots, .. }
+                                if roots.iter().any(|r| mutated.contains(r))))
                     })
                     .map(|q| q.name.clone())
                     .collect();
@@ -13708,7 +13773,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .find(|d| d.param_name().is_some_and(|n| n.name == id.name))
                         {
                             Some(d) => match &d.kind {
-                                ast::DeductionKind::KeepAll | ast::DeductionKind::Proj(_) => {
+                                ast::DeductionKind::KeepAll
+                                | ast::DeductionKind::Proj(_)
+                                // [qual-preserve] About other values' claims,
+                                // not this parameter's own list.
+                                | ast::DeductionKind::Preserve(_) => {
                                     (true, QualEffect::KeepAll)
                                 }
                                 ast::DeductionKind::Exhaustive { quals, reapplied } => {
@@ -15412,6 +15481,48 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// refinement whose parameter is narrower than the declaration's
     /// (`refn swap(list: NonEmpty Mut List<T>, …)`) states what happens *when
     /// the claim is already there*, and must not put it there.
+    /// [qual-preserve] The dependent claims a call to `key`/`decl` keeps
+    /// alive on values depending on its `param`: the qualifier owners'
+    /// refinements (requires-gated like every group [qual-refn-narrow]),
+    /// plus the callee's own checked `preserve` entries.
+    fn preserved_claims(
+        &mut self,
+        key: Option<FnKey>,
+        decl: &ast::FnDecl,
+        param: &str,
+        have: &[String],
+    ) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Some(key) = key {
+            for g in self.refinements.for_param_all(self.file_idx, key, param) {
+                if !g.requires.iter().all(|q| have.iter().any(|h| h == q)) {
+                    continue;
+                }
+                for q in &g.preserve {
+                    if !out.contains(q) {
+                        out.push(q.clone());
+                    }
+                }
+            }
+        }
+        if let Some(list) = &decl.deductions {
+            for d in list {
+                if let (Some(name), ast::DeductionKind::Preserve(quals)) =
+                    (d.param_name(), &d.kind)
+                {
+                    if name.name == param {
+                        for q in quals {
+                            if !out.contains(&q.name.name) {
+                                out.push(q.name.name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     fn apply_refinements(
         &mut self,
         callee: FnKey,
@@ -23551,7 +23662,44 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let declared_q = crate::deduce::declared_quals(&param.ty);
                 if declared_q.iter().any(|q| q == "Mut") {
                     let name = id.name.clone();
-                    self.fate_mutation_root(&name, span);
+                    // [qual-preserve] What this call keeps alive on other
+                    // values depending on the argument: the qualifier
+                    // owners' refinements for this (callee, parameter), plus
+                    // the callee's own checked entries.
+                    let have_now: Vec<String> = self
+                        .lookup(&name)
+                        .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
+                        .unwrap_or_default();
+                    let preserved = self.preserved_claims(
+                        best.key,
+                        decl,
+                        &param.name.name,
+                        &have_now,
+                    );
+                    // [qual-preserve] The enclosing fn's own promise is
+                    // checked here: every call passing the promised
+                    // parameter at a `Mut` position must itself preserve
+                    // the claim — conditional calls included, since the
+                    // promise is unconditional.
+                    if self.lookup(&name).is_some_and(|v| v.is_param) {
+                        if let Some(owed) = self.own_preserve.get(&name).cloned() {
+                            for q in owed {
+                                if !preserved.contains(&q) {
+                                    self.error(
+                                        span,
+                                        format!(
+                                            "this call may invalidate `{q}` claims \
+                                             about `{name}`, which the enclosing \
+                                             function promises to preserve: only \
+                                             calls that themselves preserve `{q}` \
+                                             may take `{name}` as `Mut`"
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    self.fate_mutation_root_preserving(&name, span, &preserved);
                 }
                 // [deduce-syntax] Computed against what the argument
                 // actually carries: an exhaustive list drops qualifiers

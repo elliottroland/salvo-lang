@@ -239,3 +239,86 @@ fn an_alias_of_the_value_still_matches() {
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
+
+const PRESERVE: &str = "\
+struct Box canbe Mut { n: Int }\n\
+struct Key { s: Str }\n\
+qualifier Inside(box: Box) of Key {\n\
+    fn qualifies(key: Key, box: Box) -> Bool {\n\
+        return box.n > 0\n\
+    }\n\
+    refn bump(box: Mut Box) => box: preserve Inside\n\
+}\n\
+fn bump(box: Mut Box) [] -> None => box: Mut {\n\
+    box.n = box.n + 1\n\
+}\n\
+fn shrink(box: Mut Box) [] -> None => box: Mut {\n\
+    box.n = 0\n\
+}\n";
+
+/// [qual-preserve] A refined call keeps the dependent claim alive: the
+/// widen check still finds it below the mutation.
+#[test]
+fn a_preserving_call_keeps_the_claim() {
+    let src = format!(
+        "{PRESERVE}\
+         fn f(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {{\n    \
+         assert!(key is Inside(box))\n    \
+         bump(box)\n    \
+         return key is ^Inside\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// An unrefined mutator still strips: preservation is per call, opt-in.
+#[test]
+fn an_unrefined_mutator_still_strips() {
+    let src = format!(
+        "{PRESERVE}\
+         fn f(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {{\n    \
+         assert!(key is Inside(box))\n    \
+         shrink(box)\n    \
+         return key is ^Inside\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("Inside")),
+        "expected the widen to miss the stripped claim: {errs:?}"
+    );
+}
+
+/// [qual-preserve] A fn's own `preserve` entry is checked: a body that
+/// hands the parameter to a non-preserving mutator is refused at that call.
+#[test]
+fn an_own_preserve_promise_is_checked_against_the_body() {
+    let src = format!(
+        "{PRESERVE}\
+         fn wrap(box: Mut Box) [] -> None\n\
+         => box: Mut, box: preserve Inside {{\n    \
+         shrink(box)\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("promises to preserve")),
+        "expected the own-promise check: {errs:?}"
+    );
+}
+
+/// A body whose mutating calls all preserve satisfies the promise, and a
+/// caller of the wrapper keeps its claim through it.
+#[test]
+fn an_own_preserve_promise_carries_to_callers() {
+    let src = format!(
+        "{PRESERVE}\
+         fn wrap(box: Mut Box) [] -> None\n\
+         => box: Mut, box: preserve Inside {{\n    \
+         bump(box)\n    \
+         return None\n}}\n\
+         fn f(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {{\n    \
+         assert!(key is Inside(box))\n    \
+         wrap(box)\n    \
+         return key is ^Inside\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}

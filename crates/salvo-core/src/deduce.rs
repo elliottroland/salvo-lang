@@ -411,7 +411,16 @@ pub(crate) fn from_written(
             }
         }
         if let Some(pn) = d.param_name() {
-            if list[..i].iter().any(|prev| prev.param_name().is_some_and(|q| q.name == pn.name)) {
+            // [qual-preserve] A `preserve` entry accompanies the parameter's
+            // ordinary one — it speaks about *other* values' claims — so it
+            // is exempt from the once-rule on both sides.
+            let is_preserve = |x: &Deduction| matches!(x.kind, DeductionKind::Preserve(_));
+            if !is_preserve(d)
+                && list[..i].iter().any(|prev| {
+                    !is_preserve(prev)
+                        && prev.param_name().is_some_and(|q| q.name == pn.name)
+                })
+            {
                 error(
                     d.span,
                     format!("duplicate deduction for parameter `{}`", pn.name),
@@ -432,7 +441,11 @@ pub(crate) fn from_written(
             let declared = declared_quals(&p.ty);
             let name = p.name.name.clone();
             let lent = lent_names.contains(name.as_str());
-            let Some(d) = list.iter().find(|d| d.param_name().is_some_and(|n| n.name == name)) else {
+            let Some(d) = list.iter().find(|d| {
+                // [qual-preserve] Not an ownership entry.
+                !matches!(d.kind, DeductionKind::Preserve(_))
+                    && d.param_name().is_some_and(|n| n.name == name)
+            }) else {
                 // [deduce-syntax] Unmentioned: inferred from the body (the
                 // fixpoint replaces this optimistic start), or, without a
                 // body, kept — the bodiless-declaration rule requires the
@@ -464,6 +477,10 @@ pub(crate) fn from_written(
                 // A projection kind never reaches here (`param_name` is
                 // `None` for it); the exhaustive default is unreachable.
                 DeductionKind::Proj(_) => QualEffect::KeepAll,
+                // [qual-preserve] Not an ownership fact: the entry speaks
+                // about *other* values' claims, and the parameter's own
+                // entry (or its absence) decides keptness as ever.
+                DeductionKind::Preserve(_) => QualEffect::KeepAll,
                 DeductionKind::KeepAll => {
                     if invalidates {
                         error(
@@ -624,7 +641,10 @@ fn validate_written(
     errors: &mut Vec<FileDiagnostic>,
 ) {
     for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
-        let Some(entry) = list.iter().find(|d| d.param_name().is_some_and(|n| n.name == w.param)) else {
+        let Some(entry) = list.iter().find(|d| {
+            !matches!(d.kind, DeductionKind::Preserve(_))
+                && d.param_name().is_some_and(|n| n.name == w.param)
+        }) else {
             continue;
         };
         if w.kept && !i.kept {

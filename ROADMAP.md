@@ -156,7 +156,9 @@ independent and can go any time.
    (`binary_search`/`span`), and the delegation-recursion regression test
    (a total overload delegating to the optional one re-picks itself; drop
    the claim first — the `first(NonEmpty)` lesson).
-4. **Preservation**: `preserve Q` entries in refns and in own deduction
+4. ✅ **Preservation** — built 2026-09-24 (COMPLETED.md's log, "Refinement
+   types, step 4"), including `KeyOf`'s total `get`. As planned:
+   `preserve Q` entries in refns and in own deduction
    clauses (checked against the body like [deduce-gained]), the std audit
    of which mutators preserve `KeyOf`/`Idx`, propagation limits per
    [qual-refn-infer].

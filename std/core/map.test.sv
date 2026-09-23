@@ -30,5 +30,15 @@ test "assert! establishes the claim for the rest of the scope" {
     // The claim is in `k`'s type from here on; today that is visible to
     // tooling (hover) and to the invalidation rule — the consuming overloads
     // arrive with the signatures step.
-    expect(get(m, k)! == 1, "the entry is there")
+    expect_eq(get(m, k), 1)
+}
+
+test "put preserves KeyOf claims, so the total read follows a write" {
+    // [qual-preserve] Writing under a key never removes one: the claim
+    // survives the mutation, and the total `get` still applies below it.
+    let m = mut_map_of(("a", 1))
+    let k = "a"
+    assert!(k is KeyOf(m))
+    put(m, "b", 2)
+    expect_eq(get(m, k), 1)
 }

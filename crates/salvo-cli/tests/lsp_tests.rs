@@ -1027,7 +1027,7 @@ fn main() [use] {
         "unexpected hover: {value}"
     );
     assert!(
-        value.contains("- `[list: +NonEmpty]` — from `NonEmpty`"),
+        value.contains("- `[list: +NonEmpty preserve Idx]` — from `Idx`, `NonEmpty`"),
         "unexpected hover: {value}"
     );
     assert!(

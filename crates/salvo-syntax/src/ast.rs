@@ -133,6 +133,11 @@ pub struct RefnDeduction {
     pub add: Vec<TypeRef>,
     /// `-Q`: the call invalidates `Q`.
     pub remove: Vec<TypeRef>,
+    /// [qual-preserve] `preserve Q`: the call does not invalidate the
+    /// dependent claims other values hold about this parameter
+    /// [qual-depend]. A refinement may only preserve its own qualifier's
+    /// claim, like everything else it says [qual-refn].
+    pub preserve: Vec<TypeRef>,
     pub span: Span,
 }
 
@@ -696,6 +701,15 @@ pub enum DeductionKind {
     /// entry's target (a result path, a parameter, a parameter's field) or,
     /// with no target, held somewhere inside the result [proj-infer].
     Proj(Vec<Ident>),
+    /// [qual-preserve] `=> map: preserve KeyOf`: the call does not
+    /// invalidate the named **dependent claims** other values hold about
+    /// this parameter [qual-depend] — the opt-back from the conservative
+    /// cross-value stripping. In a fn's own clause it is checked: every
+    /// call in the body passing the parameter at a `Mut` position must
+    /// itself preserve the claim. May accompany the parameter's ordinary
+    /// entry (it is about *other* values' claims, not this parameter's own
+    /// qualifier list).
+    Preserve(Vec<TypeRef>),
 }
 
 // --- Types ---

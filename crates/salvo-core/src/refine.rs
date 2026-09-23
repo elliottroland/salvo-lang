@@ -77,6 +77,10 @@ pub struct RefnGroup {
     pub param: String,
     pub add: Vec<String>,
     pub remove: Vec<String>,
+    /// [qual-preserve] The dependent claims [qual-depend] this call keeps
+    /// alive on *other* values that depend on this parameter — the
+    /// opt-back from conservative cross-value stripping.
+    pub preserve: Vec<String>,
     pub sources: Vec<RefnSource>,
     /// Empty unless the applicable refinements conflict.
     pub conflict: Vec<String>,
@@ -90,7 +94,7 @@ pub struct RefnGroup {
 impl RefnGroup {
     /// Whether the group changes anything at a call site.
     pub fn is_empty(&self) -> bool {
-        self.add.is_empty() && self.remove.is_empty()
+        self.add.is_empty() && self.remove.is_empty() && self.preserve.is_empty()
     }
 }
 
@@ -168,7 +172,7 @@ struct Resolved<'p> {
     file: usize,
     /// The overload it refines [qual-refn-match].
     callee: FnKey,
-    entries: Vec<(String, Vec<String>, Vec<String>)>,
+    entries: Vec<(String, Vec<String>, Vec<String>, Vec<String>)>,
     /// [qual-refn-narrow] Per parameter, the qualifiers an argument must
     /// already carry for this refinement to apply.
     requires: Vec<(String, Vec<String>)>,
@@ -215,7 +219,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
         // argument are two groups, each applying only where it holds.
         let mut contributions: HashMap<
             (FnKey, String, Vec<String>),
-            Vec<(bool, RefnSource, Vec<String>, Vec<String>)>,
+            Vec<(bool, RefnSource, Vec<String>, Vec<String>, Vec<String>)>,
         > = HashMap::new();
         for res in &resolved {
             let visible = match res.qualifier {
@@ -239,7 +243,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 file: res.file,
                 span: res.decl.name.span,
             };
-            for (param, add, remove) in &res.entries {
+            for (param, add, remove, preserve) in &res.entries {
                 let mut requires: Vec<String> = res
                     .requires
                     .iter()
@@ -255,6 +259,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                         source.clone(),
                         add.clone(),
                         remove.clone(),
+                        preserve.clone(),
                     ));
             }
         }
@@ -272,11 +277,12 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 param,
                 add: Vec::new(),
                 remove: Vec::new(),
+                preserve: Vec::new(),
                 sources: Vec::new(),
                 conflict: Vec::new(),
                 requires,
             };
-            for (_, source, add, remove) in list {
+            for (_, source, add, remove, preserve) in list {
                 for q in add {
                     if !group.add.contains(&q) {
                         group.add.push(q);
@@ -285,6 +291,14 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 for q in remove {
                     if !group.remove.contains(&q) {
                         group.remove.push(q);
+                    }
+                }
+                // [qual-preserve] Preservation cannot conflict: keeping a
+                // claim alive and any other statement about the parameter
+                // are about different values.
+                for q in preserve {
+                    if !group.preserve.contains(&q) {
+                        group.preserve.push(q);
                     }
                 }
                 if !group.sources.contains(&source) {
@@ -490,7 +504,7 @@ fn resolve_refn<'p>(
         }
     };
 
-    let mut entries: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+    let mut entries: Vec<(String, Vec<String>, Vec<String>, Vec<String>)> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for e in &decl.deductions {
         let param = e.param.name.as_str();
@@ -510,7 +524,7 @@ fn resolve_refn<'p>(
             ));
             continue;
         };
-        if e.add.is_empty() && e.remove.is_empty() {
+        if e.add.is_empty() && e.remove.is_empty() && e.preserve.is_empty() {
             errors.push(FileDiagnostic::error(
                 file_idx,
                 e.span,
@@ -541,9 +555,11 @@ fn resolve_refn<'p>(
         }
         let mut add: Vec<String> = Vec::new();
         let mut remove: Vec<String> = Vec::new();
+        let mut preserve: Vec<String> = Vec::new();
         for (refs, out, verb) in [
             (&e.add, &mut add, "establish"),
             (&e.remove, &mut remove, "invalidate"),
+            (&e.preserve, &mut preserve, "preserve"),
         ] {
             for r in refs {
                 if let Some(q) = check_refined_qual(
@@ -567,8 +583,8 @@ fn resolve_refn<'p>(
                 ));
             }
         }
-        if !add.is_empty() || !remove.is_empty() {
-            entries.push((param.to_string(), add, remove));
+        if !add.is_empty() || !remove.is_empty() || !preserve.is_empty() {
+            entries.push((param.to_string(), add, remove, preserve));
         }
     }
     if entries.is_empty() {
@@ -676,6 +692,44 @@ fn check_refined_qual(
     // type must accept it [qual-of]. Compared by base name, which is what
     // this pass can see without the checker's unification — a generic `of`
     // (`qualifier Ok<T> of T`) accepts anything.
+    //
+    // [qual-preserve] A `preserve` entry reads the other way round: the
+    // parameter is not the claim's *subject* but the value it depends on,
+    // so it must fit one of the qualifier's **value slots** — and only a
+    // dependent qualifier has any claims held by other values to keep.
+    if verb == "preserve" {
+        if qd.value_slots.is_empty() {
+            errors.push(FileDiagnostic::error(
+                file_idx,
+                r.span,
+                format!(
+                    "`{q}` is not a dependent qualifier [qual-depend]: `preserve` \
+                     speaks about claims other values hold, which only a \
+                     qualifier with value slots can be"
+                ),
+            ));
+            return None;
+        }
+        if let Some(base) = param_base(&param.ty) {
+            let fits = qd
+                .value_slots
+                .iter()
+                .any(|v| of_base(&v.ty, &qd.generics).map(|b| b == base).unwrap_or(true));
+            if !fits {
+                errors.push(FileDiagnostic::error(
+                    file_idx,
+                    r.span,
+                    format!(
+                        "no value slot of `{q}` accepts a `{}`: `preserve` names \
+                         the parameter the claims depend on",
+                        param.ty
+                    ),
+                ));
+                return None;
+            }
+        }
+        return Some(q.to_string());
+    }
     if let (Some(of), Some(base)) = (of_base(&qd.of, &qd.generics), param_base(&param.ty)) {
         if of != base {
             errors.push(FileDiagnostic::error(

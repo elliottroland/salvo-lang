@@ -556,6 +556,9 @@ pub fn fn_call(
         // declaration is `(proj(map) V)?`, so a caller who wants to
         // keep it says `copy` [copy-opt-in].
         ("get", Some("Map")) => format!("{}.get(&{})", a(0), a(1)),
+        // [qual-depend] The total read behind `get(map, key: KeyOf(map) K)`:
+        // the claim proved presence, so the unwrap cannot fire.
+        ("get_present", Some("Map")) => format!("{}.get(&{}).unwrap()", a(0), a(1)),
         ("put", Some("Map")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
         // [linear-container] The displacing write: what was there comes back
         // instead of being dropped.
