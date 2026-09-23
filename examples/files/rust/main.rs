@@ -83,7 +83,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
     let mut text = read_to_str(&mut *__fx, &("notes.txt".to_string()));
     match text {
         Union2::U1(_) => {
-            println(&mut *__fx, &(format!("read back {} bytes", (text.u1().clone().len() as i64))));
+            println(&mut *__fx, &(format!("read back {} bytes", (text.u1().len() as i64))));
         }
         Union2::U2(_) => {
             println(&mut *__fx, &(format!("read failed: {}", kind_name(&(detach(text.u2().clone()))))));
@@ -167,7 +167,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             let mut head = __Has_Fs::__get_Fs(&mut *__fx).read_bytes(&s, 3);
             match head {
                 Union2::U1(_) => {
-                    println(&mut *__fx, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().clone().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
+                    println(&mut *__fx, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
                 }
                 Union2::U2(_) => {
                     println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach(head.u2().clone()))))));
@@ -312,7 +312,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
     let mut whole = read_to_bytes(&mut *__fx, &("raw.bin".to_string()));
     match whole {
         Union2::U1(_) => {
-            println(&mut *__fx, &(format!("raw.bin is {} bytes: {}", (whole.u1().clone().len() as i32), whole.u1().clone().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
+            println(&mut *__fx, &(format!("raw.bin is {} bytes: {}", (whole.u1().len() as i32), whole.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
         }
         Union2::U2(_) => {
             println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach(whole.u2().clone()))))));

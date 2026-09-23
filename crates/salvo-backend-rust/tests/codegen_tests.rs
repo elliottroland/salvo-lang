@@ -12653,3 +12653,133 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
         "once 5\ntwice 5\nkept 5\nowned hello\ncopy 6\n",
     );
 }
+
+/// [rs-read-mode] An **intrinsic** argument takes its mode from the
+/// intrinsic's own declaration, not from the position the call sits in:
+/// `contains(str, needle) => str, needle` keeps both, so a `!` read of a local
+/// hands the lowering the reference it already has. `add(list: Mut List<T>,
+/// elem: T) => !elem` keeps the *list* and consumes the element — so the list
+/// is reached mutably and the element arrives owned.
+const INTRINSIC_OPTIONAL_ARGS: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let maybe: Str? = "hello"
+    if contains(maybe!, "ell") { println("found") }
+    println("upper ${to_upper(maybe!)}")
+    let xs: Mut List<Int>? = mut_list_of(1)
+    add(xs!, 3)
+    println("xs ${size(xs!)}")
+}
+"#;
+
+#[test]
+fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
+    let files = generate(&[("main.sv", INTRINSIC_OPTIONAL_ARGS)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // A kept parameter: the unwrap's `&String` goes straight into the template.
+    assert!(
+        main.contains(
+            "if maybe.as_ref().expect(\"salvo: value is absent at main:5:17\").contains("
+        ),
+        "a kept intrinsic argument cloned:\n{main}"
+    );
+    assert!(
+        !main.contains(".clone().contains("),
+        "a kept intrinsic argument cloned:\n{main}"
+    );
+    assert!(
+        !main.contains(".clone().to_uppercase()") && !main.contains(".clone().len()"),
+        "a kept intrinsic receiver cloned:\n{main}"
+    );
+    // [rs-narrow-mut] A `Mut` parameter reaches the payload *mutably*. Rendered
+    // owned (as it was until 2026-09-23) this read
+    // `xs.as_ref().expect(…).clone().push(3)`, which appends to the clone and
+    // prints `xs 1` where Kotlin prints `xs 2`.
+    assert!(
+        main.contains("xs.as_mut().expect(\"salvo: value is absent at main:8:9\").push(3)"),
+        "a `Mut` intrinsic argument did not reach the storage:\n{main}"
+    );
+    run_rust_files(
+        &files,
+        "intrinsic-optional-args",
+        "found\nupper HELLO\nxs 2\n",
+    );
+}
+
+/// [rs-read-mode] A **narrowed** read is the same question as `!`, one path
+/// over: `narrow_unwrap` renders through a borrow either way, and the
+/// `.clone()` is the position's to ask for.
+const NARROWED_READS: &str = r#"
+fn len_of(s: Str) -> Int => s { return size(s) }
+fn shout(s: Str) -> Str => !s { return s }
+
+struct Box { label: Str? }
+
+fn main() [use] {
+    use StdOutConsole()
+    let name: Str? = "hello"
+    if name is Str {
+        println("size ${size(name)}")
+        println("kept ${len_of(name)}")
+        let held: Str = name
+        println("held ${held}")
+        println("owned ${shout(name)}")
+    }
+    let b = Box { label: "boxed" }
+    if b.label is Str {
+        println("field ${len_of(b.label)}")
+    }
+    let n: Int? = 4
+    if n is Int {
+        println("copy ${n + n}")
+    }
+}
+"#;
+
+#[test]
+fn a_narrowed_read_borrows_unless_the_position_owns() {
+    let files = generate(&[("main.sv", NARROWED_READS)]);
+    let main = &files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs emitted")
+        .content;
+    // A kept intrinsic parameter and a kept declared one: the unwrap's `&String`
+    // stands as the argument — no clone, and no `&` in front of it either.
+    assert!(
+        main.contains("(name.as_ref().unwrap().chars().count() as i32)"),
+        "a narrowed intrinsic argument cloned:\n{main}"
+    );
+    assert!(
+        main.contains("len_of(name.as_ref().unwrap())"),
+        "a narrowed kept argument cloned:\n{main}"
+    );
+    // A narrowed **field** read reaches a `&T` position the same way.
+    assert!(
+        main.contains("len_of(b.label.as_ref().unwrap())"),
+        "a narrowed field argument cloned:\n{main}"
+    );
+    // The owning positions still get a value: a `let` and a consuming parameter.
+    assert!(
+        main.contains("let mut held: String = name.as_ref().unwrap().clone()"),
+        "a binding took a reference:\n{main}"
+    );
+    assert!(
+        main.contains("shout(name.as_ref().unwrap().clone())"),
+        "a consumed argument took a reference:\n{main}"
+    );
+    // A Copy payload is copied out of the representation in either mode.
+    assert!(
+        main.contains("n.unwrap() + n.unwrap()"),
+        "a Copy narrowed read grew an `as_ref`:\n{main}"
+    );
+    run_rust_files(
+        &files,
+        "narrowed-reads",
+        "size 5\nkept 5\nheld hello\nowned hello\nfield 5\ncopy 8\n",
+    );
+}

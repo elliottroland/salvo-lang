@@ -1129,17 +1129,17 @@ decided slices are **not built**; both are plans now, not questions.
     programs compute**, so it wants its own slice and a parity test: today Kotlin
     wraps silently while Rust refuses a constant fold and panics in debug.
 
-## One read, one mode — the clone the unwrap paths pay (first slice built 2026-09-23)
+## One read, one mode — the clone the unwrap paths pay (three slices built 2026-09-23)
 
 Reading an optional in Salvo is **free**: `xs!` and a narrowed read of `xs` are
 reads, and the language copies only where a program writes `copy`
 [copy-opt-in]. On the Rust backend those lowered to a **clone**, because the
 emitter decided how to render a read *before* it knew what the position wanted.
 
-**Built (2026-09-23)**: the emitter now carries a wanted mode — `Read` by
+**Built (2026-09-23)**: the emitter carries a wanted mode — `Read` by
 default, raised to `Own` for the duration of `emit_owned`'s walk [rs-read-mode] —
-and two sites consult it through one shared predicate (`owned_optional_local`)
-so they cannot disagree:
+and the sites that would otherwise clone consult it through one shared predicate
+(`owned_optional_local`) so they cannot disagree:
 
 ```
 fn len_of(s: Str) -> Int => s { return size(s) }      // keeps its argument
@@ -1159,70 +1159,65 @@ len_of(maybe.as_ref().expect("…"))                    // the borrow *is* the v
 shout(maybe.as_ref().expect("…").clone())             // unchanged: it needs one
 ```
 
-### What is left
+**Built the same day, second slice**: an **intrinsic** argument takes its mode
+from the intrinsic's own declaration rather than from the position the call sits
+in, so `contains(str, needle) => str, needle` no longer clones what it keeps.
+That slice also closed a silently-wrong lowering it walked straight into:
+`add(xs!, 3)` on a `Mut List<Int>?` local rendered the argument owned and
+appended to the clone (`xs 1` on Rust, `xs 2` on Kotlin); a `Mut` parameter now
+reaches the payload through `as_mut()`.
 
-**1. Intrinsic arguments.** An intrinsic's template takes pre-rendered
-arguments, and the call path renders them all owned — regardless of what the
-intrinsic's own declaration says about keeping them:
-
-```
-// std/core/string.sv: keeps both parameters
-export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
-```
-
-```rust
-// today, from `contains(trap!, "…")` in std/test.test.sv
-trap.as_ref().expect("…").clone().contains(&"…".to_string()[..])
-// wanted
-trap.as_ref().expect("…").contains(&"…".to_string()[..])
-```
-
-The fix is to give the intrinsic path the `param_mode` treatment the named-call
-path already has: the mode comes from the intrinsic's declared deduction, which
-std writes on every one of them. The templates then have to tolerate a borrowed
-receiver, which most already do (`{}.chars().count()`, `{}.contains(&{}[..])`)
-and a few do not (anything that *stores* its argument, e.g. `add`'s
-`{}.push({})` — which is a consuming parameter anyway, so the mode decides it
-correctly).
-
-**2. The narrowed path.** `narrow_unwrap` still clones unconditionally:
+**Built the same day, third slice**: the **narrowed** path. `narrow_unwrap`
+consults the mode too, so every narrowed read in the tree borrows unless its
+position owns:
 
 ```
 if name is Str {
-    println("${size(name)}")        // a read
-    let held: Str = name            // an owned value
+    println("${size(name)}")        // name.as_ref().unwrap()
+    let held: Str = name            // name.as_ref().unwrap().clone()
 }
 ```
 
-```rust
-// both, today
-name.as_ref().unwrap().clone()
-// wanted, for the read
-name.as_ref().unwrap()
-```
+A `&T` position asks `narrowed_borrow` before adding its `&`, which is the
+narrowed twin of the `!` predicate. Two positions that walk with `emit_place` had
+to raise the mode explicitly, since the ambient mode at a statement is `Read`: a
+move-mode binding and a consuming `for` subject. `examples/files` carries the
+visible half — twenty clones gone from `RestrictedFs`'s forwarding, and the
+`Bytes` reads in `main.rs`.
 
-It is the same change — consult `self.mode` — plus the same caveat as the `!`
-path had: a Copy payload, an `Option<&T>` storage, a `proj` result and a
-checker-recorded move keep the owned form. The reason it was not done in the
-first slice is blast radius: every narrowed read in the tree goes through it, so
-it wants its own pass over the goldens and the checked-in examples.
+### What is left
 
-**3. A rendering that *reports* a reference.** Both slices above work because
-their sites know the shape they will get. The general case does not: a site that
+**1. A rendering that *reports* a reference.** The slices above work because
+their sites know the shape they will get, and can ask a predicate first
+(`owned_optional_local`, `narrowed_borrow`). The general case cannot: a site that
 wants `&T` writes `&{code}`, and if `{code}` is already a `&T` the result is
-`&&T`. `borrowed_arg` handles that by asking the predicate *before* rendering —
-fine for two shapes, unsustainable for many. The durable answer is for the
+`&&T`. Fine for two shapes, unsustainable for many. The durable answer is for the
 rendering to answer *what it produced* (`Rendered { code, is_ref }`) so a site
 can decide whether to add the `&`. That is the refactor the section is named
-after, and the two slices above are the parts that do not need it.
+after, and the slices above are the parts that do not need it.
+
+The site waiting on it is **interpolation**, which is the most common read
+position in the tree and still clones every narrowed or `!`-ed value:
+
+```rust
+// std/test.sv's expect_trap_with, where the same `trap` two lines up borrows
+format!("… got `{}`: {}", trap.as_ref().unwrap().clone(), label.clone())
+```
+
+`emit_interp_value` cannot simply switch to `emit_read`: its native branch would
+take the reference happily (`format!("{}", &String)` displays), but the two
+`to_str` branches in the same function write `to_str(&{arg})` and
+`{place}.{field}` — three questions to the predicate, in one function, which is
+precisely the shape that wants the rendering to answer for itself.
 
 ### Why it is worth finishing
 
 - It is the last **systematic** copy nobody wrote, and `[copy-opt-in]` is a
   stated principle rather than an aspiration.
 - It is measurable: `examples/*/rust/**` carries the clones, so the diff *is* the
-  benefit. (The first slice moved none of them — every `!` in std sits on a
-  *call*, and the only local-`!` site in the tree is `std/test.test.sv`.)
+  benefit. Through the narrowed slice the tree is 15 clones lighter
+  (`examples/files`, where `RestrictedFs` forwards a narrowed path to every `Fs`
+  member); interpolation is where the rest of them are.
 - The mode pays elsewhere. Three recorded items are the same missing information
   in other clothes: the `to_str` a generic container cannot compose
   [interp-to-str], the temporary-subject `for` loop (E0716, in "Open defects"),
@@ -1267,7 +1262,12 @@ move to COMPLETED.md with their repro intact.
 
 **Ten open**, and **these are next**: the user's direction of 2026-09-23 is
 to clear them once the refinement work is done, before the variance and
-qualifier-dropping sections above. (**Closed 2026-09-23**: two `!`s on one optional
+qualifier-dropping sections above. (**Closed 2026-09-23**: `x!` in a **`Mut`
+intrinsic parameter** position mutated a clone — `add(xs!, 3)` on a
+`Mut List<Int>?` local emitted `xs.as_ref().expect(…).clone().push(3)`, printing
+`1` where Kotlin printed `2`; the argument now reaches the payload through
+`as_mut()` [rs-read-mode] [rs-narrow-mut], and the shape is a case on both
+backends. **Also closed 2026-09-23**: two `!`s on one optional
 *local* moved it twice on Rust — the lowering now reads it through a borrow
 [rs-opt-borrow], the form a narrowed read already used; the generalisation that
 would remove the clone from *both* paths is the "one read, one mode" section

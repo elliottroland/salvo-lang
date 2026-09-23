@@ -42,19 +42,54 @@ Conventions:
   the default and `emit_owned` raises it for the duration of its walk, so a path
   that *can* answer with a borrow clones only where the position needs ownership
   — the copy `[copy-opt-in]` says should not happen without the program asking
-  (2026-09-23, the first slice of ROADMAP.md's "One read, one mode").
-  * Two sites consult it today, and they share one predicate
+  (2026-09-23, ROADMAP.md's "One read, one mode"). `emit_read` is the
+  counterpart of `emit_expr` for a position that keeps what it is given.
+  * Three sites consult it, and the two that read a `!` share one predicate
     (`owned_optional_local`) so they cannot disagree: the `NonNull` arm of the
     expression walk, and `borrowed_arg`, which needs neither the clone nor a
     second `&` because the unwrap already answers a reference. A **kept**
     parameter therefore receives `p.as_ref().expect(…)` and a **consuming** one
     `p.as_ref().expect(…).clone()`.
-  * Still owned, and recorded in ROADMAP.md: an argument to an **intrinsic**,
-    whose template takes pre-rendered arguments and is rendered owned regardless
-    of the intrinsic's own declared deduction (`contains(str, needle) => str,
-    needle` keeps both, and the emitted call clones the first). Closing that
-    means giving the intrinsic path the same `param_mode` treatment the named-call
-    path has.
+  * An argument to an **intrinsic** takes its mode from the *intrinsic's own
+    declaration* rather than from the position the call sits in
+    (`intrinsic_arg_code`, 2026-09-23): `Read` for a parameter the declaration
+    keeps, `Own` for one it consumes (`=> !elem`), for one typed `Mut` (the
+    lowering writes through it) and for the variadic tail (whose store clones
+    [fn-variadic]). So `contains(str, needle) => str, needle` hands its template
+    `trap.as_ref().expect(…)` where it used to clone. The templates tolerate the
+    reference because they already receive one whenever the caller's variable is
+    a `&T` binding — `{}.contains(&{}[..])` and `{}.chars().count()` are method
+    calls and `&x[..]` indexes through a `&String`.
+  * [rs-narrow-mut] `x!` in a **`Mut` intrinsic parameter** position reaches the
+    payload mutably: `xs.as_mut().expect(msg)`. Rendered owned — which is what
+    the pre-2026-09-23 path did — `add(xs!, 3)` emitted
+    `xs.as_ref().expect(…).clone().push(3)`, which compiles, appends to the
+    clone, and printed `1` where Kotlin printed `2`: the last shape of the
+    narrowed-`Mut` defect closed 2026-09-20, reached through `!` instead of
+    through a narrowing.
+  * A **narrowed** read obeys the mode the same way (`narrow_unwrap`,
+    2026-09-23): `name.as_ref().unwrap()` / `o.u1()` under `Read`, with
+    `.clone()` added under `Own`. A **Copy** payload is a third thing — copied
+    out of the representation (`*o.u1()`, `n.unwrap()`), free, and a value in
+    both modes. The mutable read is `narrow_unwrap_mut`, unchanged.
+    * The predicate a `&T` position asks first is `narrowed_borrow`: a narrowed
+      non-Copy read *is* the reference, so `borrowed_arg` returns it as it
+      stands rather than borrowing a clone back
+      (`len_of(name.as_ref().unwrap())`, `len_of(b.label.as_ref().unwrap())`).
+    * Two positions walk with `emit_place` and so run under the *ambient* mode,
+      which at a statement is `Read`: a **move-mode binding**
+      (`emit_bound_value`) and a **consuming `for` subject**. Both are owned, and
+      both raise the mode explicitly. Without that, `let s: InStream = opened`
+      under a narrowing bound a `&InStream` — fifteen rustc E0308s across
+      `examples/files` alone, which is the reassuring half of this mode's failure
+      mode: dropping a clone that was load-bearing does not compile, so rustc
+      is the safety net rather than the output being quietly wrong.
+  * Still owned, and recorded in ROADMAP.md: an **interpolated** value. The
+    native case would take the reference happily (`format!("{}", &String)`), but
+    the `to_str` cases in the same function write `to_str(&{arg})` and
+    `{place}.field`, so the site would have to ask the predicate three times —
+    which is the argument for a rendering that *reports* what it produced
+    (`Rendered { code, is_ref }`).
 
 ## Output layout
 

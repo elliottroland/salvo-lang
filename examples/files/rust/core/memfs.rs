@@ -198,7 +198,7 @@ impl Fs for MemFs {
         let mut line = mem_read_line(&mut self.reads, &self.files, s.handle);
         match line {
             Some(_) => {
-                buf.push_str(&line.as_ref().unwrap().clone()[..]);
+                buf.push_str(&line.as_ref().unwrap()[..]);
                 return true;
             }
             None => {
@@ -338,7 +338,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String
         return None;
     }
     reads.insert(handle.clone(), MemRead { path: path.clone(), at: next_at, failed: false });
-    return Some({ let __s = &text.as_ref().unwrap().clone()[..]; __s.strip_suffix(&"\r".to_string()[..]).unwrap_or(__s).to_string() });
+    return Some({ let __s = &text.as_ref().unwrap()[..]; __s.strip_suffix(&"\r".to_string()[..]).unwrap_or(__s).to_string() });
 }
 
 pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String, Vec<u8>>, handle: i64) -> Union2<String, FsError> {

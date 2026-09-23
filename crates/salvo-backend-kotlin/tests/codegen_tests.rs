@@ -3220,6 +3220,77 @@ fn main() [use] {
     kotlin_case(files, "keyed-hash", "added true false\nsizes 2 1\n")
 }
 
+/// [rs-read-mode] [rs-narrow-mut] The parity half of the Rust backend's
+/// `an_intrinsic_argument_takes_the_intrinsics_own_mode`: Kotlin needs no
+/// change for it (`?:` yields the storage, and a list is a reference), so this
+/// case is what says the two backends agree. Until 2026-09-23 they did not —
+/// `add(xs!, 3)` appended to a clone on Rust and printed `xs 1`.
+fn kotlinc_compiles_and_runs_reads_of_an_optional_local() -> KotlinCase {
+    let src = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let maybe: Str? = "hello"
+    if contains(maybe!, "ell") { println("found") }
+    println("upper ${to_upper(maybe!)}")
+    let xs: Mut List<Int>? = mut_list_of(1)
+    add(xs!, 3)
+    println("xs ${size(xs!)}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "optional-local-reads",
+        "found\nupper HELLO\nxs 2\n",
+    )
+}
+
+/// The parity half of the Rust backend's
+/// `a_narrowed_read_borrows_unless_the_position_owns`: Kotlin's smart cast is
+/// the storage itself, so none of it is visible here — which is the point. The
+/// Rust side stopped cloning every narrowed read on 2026-09-23 and this says the
+/// program still computes the same answers.
+fn kotlinc_compiles_and_runs_narrowed_reads() -> KotlinCase {
+    let src = r#"
+fn len_of(s: Str) -> Int => s { return size(s) }
+fn shout(s: Str) -> Str => !s { return s }
+
+struct Box { label: Str? }
+
+fn main() [use] {
+    use StdOutConsole()
+    let name: Str? = "hello"
+    if name is Str {
+        println("size ${size(name)}")
+        println("kept ${len_of(name)}")
+        let held: Str = name
+        println("held ${held}")
+        println("owned ${shout(name)}")
+    }
+    let b = Box { label: "boxed" }
+    if b.label is Str {
+        println("field ${len_of(b.label)}")
+    }
+    let n: Int? = 4
+    if n is Int {
+        println("copy ${n + n}")
+    }
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(
+        files,
+        "narrowed-reads",
+        "size 5\nkept 5\nheld hello\nowned hello\nfield 5\ncopy 8\n",
+    )
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
@@ -3247,6 +3318,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_manual_time,
     kotlinc_compiles_and_runs_the_coupling_postures,
     kotlinc_compiles_and_runs_is_bindings_over_calls,
+    kotlinc_compiles_and_runs_reads_of_an_optional_local,
+    kotlinc_compiles_and_runs_narrowed_reads,
     // the checked-in examples, one case each
     kotlin_example_actors,
     kotlin_example_collections,

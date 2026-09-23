@@ -77,7 +77,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read(real.as_ref().unwrap());
     }
 
     fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
@@ -85,7 +85,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read_at(&(real.as_ref().unwrap().clone()), offset);
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read_at(real.as_ref().unwrap(), offset);
     }
 
     fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
@@ -93,7 +93,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_write(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_write(real.as_ref().unwrap());
     }
 
     fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
@@ -101,7 +101,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_append(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_append(real.as_ref().unwrap());
     }
 
     fn exists(&mut self, path: &String) -> bool {
@@ -109,7 +109,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return false;
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).exists(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).exists(real.as_ref().unwrap());
     }
 
     fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
@@ -117,7 +117,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<FileInfo, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).metadata(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).metadata(real.as_ref().unwrap());
     }
 
     fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
@@ -125,7 +125,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<Vec<String>, FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).list_dir(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).list_dir(real.as_ref().unwrap());
     }
 
     fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
@@ -133,7 +133,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).create_dirs(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).create_dirs(real.as_ref().unwrap());
     }
 
     fn delete(&mut self, path: &String) -> Union2<(), FsError> {
@@ -141,7 +141,7 @@ impl Fs for RestrictedFs {
         if real.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(path)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).delete(&(real.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).delete(real.as_ref().unwrap());
     }
 
     fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
@@ -153,7 +153,7 @@ impl Fs for RestrictedFs {
         if real_to.is_none() {
             return Union2::<(), FsError>::U2(err(fs_escaped(to)));
         }
-        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).rename_path(&(real_from.as_ref().unwrap().clone()), &(real_to.as_ref().unwrap().clone()));
+        return __Has_Fs::__get_Fs(&mut self.__dep_Fs).rename_path(real_from.as_ref().unwrap(), real_to.as_ref().unwrap());
     }
 
     fn read_line(&mut self, s: &InStream) -> Option<String> {

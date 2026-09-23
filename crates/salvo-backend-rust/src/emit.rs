@@ -1663,7 +1663,12 @@ impl<'p> Emitter<'p> {
                 }
             },
             None => {
+                // [rs-read-mode] The local takes the pass over, so this is an
+                // **owned** position: a narrowed subject has to clone out of its
+                // representation, which is what raising the mode says.
+                let saved = std::mem::replace(&mut self.mode, ValueMode::Own);
                 let code = self.emit_place(iterable);
+                self.mode = saved;
                 self.apply_coercion(iterable.span(), code)
             }
         };
@@ -9410,10 +9415,6 @@ impl<'p> Emitter<'p> {
         None
     }
 
-    /// Reads a narrowed value out of the declared representation at
-    /// `span`, given the code for its storage [rs-union-enums]
-    /// [rs-option]. Shared by identifier and projection-place reads. The
-    /// result is **owned** — see `narrow_unwrap_mut` for a mutable use.
     /// [rs-read-mode] [rs-opt-borrow] When `expr!`'s operand is an owned
     /// `Option` held by a **local**, the place holding it — which the unwrap
     /// reads *through a borrow* so a second read still can.
@@ -9453,9 +9454,35 @@ impl<'p> Emitter<'p> {
         )
     }
 
+    /// [rs-narrow-mut] [rs-opt-borrow] The **mutable** twin: a `&mut T` into the
+    /// local's payload, for `xs!` in a position that mutates it. The owned form
+    /// is silently wrong there — `xs.as_ref().expect(…).clone().push(3)`
+    /// compiles and appends to the clone, while Kotlin (whose `?:` yields the
+    /// storage) appends to the list.
+    fn optional_local_borrow_mut(&mut self, place: &str, span: Span) -> String {
+        format!(
+            "{place}.as_mut().expect(\"salvo: value is absent at {}\")",
+            self.salvo_location(span)
+        )
+    }
+
+    /// Reads a narrowed value out of the declared representation at
+    /// `span`, given the code for its storage [rs-union-enums]
+    /// [rs-option]. Shared by identifier and projection-place reads.
+    ///
+    /// [rs-read-mode] The read is **through a borrow**, and whether it ends in
+    /// a `.clone()` is the position's to decide: under [`ValueMode::Own`] it
+    /// does, under `Read` the reference *is* the value. A Copy payload is
+    /// neither — it is copied out of the representation (`*x.u1()`), which is
+    /// free and is a value in both modes. See `narrow_unwrap_mut` for a mutable
+    /// use, which is a third thing again.
     fn narrow_unwrap(&mut self, span: Span, storage: String) -> Option<String> {
         let n = self.narrowing_of(span)?;
         let name = storage;
+        // Whether the borrowing read needs a value of its own. The clone is the
+        // copy `[copy-opt-in]` says a program has to ask for, so it is added
+        // only where the position cannot take the reference.
+        let own = self.mode == ValueMode::Own;
         match n.arm {
             Some(arm) => {
                 let access = if n.optional {
@@ -9465,16 +9492,44 @@ impl<'p> Emitter<'p> {
                 };
                 Some(if n.copy {
                     format!("*{access}.u{}()", arm + 1)
-                } else {
+                } else if own {
                     format!("{access}.u{}().clone()", arm + 1)
+                } else {
+                    format!("{access}.u{}()", arm + 1)
                 })
             }
             None => Some(if n.copy {
                 format!("{name}.unwrap()")
-            } else {
+            } else if own {
                 format!("{name}.as_ref().unwrap().clone()")
+            } else {
+                format!("{name}.as_ref().unwrap()")
             }),
         }
+    }
+
+    /// [rs-read-mode] Whether a narrowed read of `expr` renders as a **`&T`**
+    /// under [`ValueMode::Read`] — and if so, that rendering. A `&T` position
+    /// takes it as it stands rather than borrowing a clone back; a Copy payload
+    /// (copied out of the representation) and an unnarrowed place are `None`,
+    /// since both still need their `&`.
+    ///
+    /// This is the narrowed twin of the predicate `borrowed_arg` asks of `!`
+    /// ([`Self::owned_optional_local`]), and it exists for the same reason: the
+    /// rendering does not yet report what it produced, so a site that adds a
+    /// `&` has to ask first or risk `&&T`.
+    fn narrowed_borrow(&mut self, expr: &Expr) -> Option<String> {
+        if self.narrowing_of(expr.span())?.copy {
+            return None;
+        }
+        let saved = std::mem::replace(&mut self.mode, ValueMode::Read);
+        let code = match expr {
+            Expr::Ident(id) if id.name != "None" => self.ident_unwrap(id),
+            Expr::Field { .. } | Expr::TupleIndex { .. } => self.place_unwrap(expr),
+            _ => None,
+        };
+        self.mode = saved;
+        code
     }
 
     /// Reads a narrowed value as a **mutable** place [rs-narrow-mut]: the
@@ -9640,7 +9695,15 @@ impl<'p> Emitter<'p> {
             .binding_modes
             .contains(&(self.file_idx, bind_span))
         {
+            // [rs-read-mode] A binding is an **owned** position, and `emit_place`
+            // walks under the ambient mode — which at a statement is `Read`. A
+            // narrowed union arm cannot be moved out of its enum in Rust, so the
+            // read has to clone: without raising the mode here, `let s: InStream
+            // = opened` under a narrowing bound `&InStream` (rustc E0308, fifteen
+            // of them across `examples/files` alone).
+            let saved = std::mem::replace(&mut self.mode, ValueMode::Own);
             let code = self.emit_place(value);
+            self.mode = saved;
             return self.apply_coercion(value.span(), code);
         }
         self.emit_linked_value(value)
@@ -9705,6 +9768,19 @@ impl<'p> Emitter<'p> {
         let code = self.emit_owned_inner(expr);
         self.mode = saved;
         code
+    }
+
+    /// [rs-read-mode] `emit_expr`'s counterpart for a position a **borrow**
+    /// satisfies: the same walk with the same coercion, under
+    /// [`ValueMode::Read`], so an unwrap answers the reference it already has
+    /// instead of cloning out of it. Used where the position is known to keep
+    /// what it is given — an intrinsic argument whose declaration says it keeps
+    /// the parameter, for one.
+    fn emit_read(&mut self, expr: &Expr) -> String {
+        let saved = std::mem::replace(&mut self.mode, ValueMode::Read);
+        let code = self.emit_owned_inner(expr);
+        self.mode = saved;
+        self.apply_coercion(expr.span(), code)
     }
 
     fn emit_owned_inner(&mut self, expr: &Expr) -> String {
@@ -11065,6 +11141,13 @@ impl<'p> Emitter<'p> {
             if let Some(place) = self.owned_optional_local(operand, *span) {
                 return self.optional_local_borrow(&place, *span);
             }
+        }
+        // [rs-read-mode] …and so does a **narrowed** read of a non-Copy payload:
+        // `name.as_ref().unwrap()` / `o.u1()` are the reference itself. Borrowing
+        // an owned read back (`&(name.as_ref().unwrap().clone())`) is the clone
+        // this whole mode exists to remove.
+        if let Some(code) = self.narrowed_borrow(expr) {
+            return code;
         }
         match expr {
             Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
@@ -13174,6 +13257,23 @@ impl<'p> Emitter<'p> {
         for (i, arg) in args.iter().enumerate() {
             let is_variadic_part = variadic_at.is_some_and(|v| i >= v);
             let param_ty = fixed.get(i).map(|p| p.ty.clone());
+            // [rs-read-mode] What *this* parameter wants of its argument, which
+            // is the intrinsic's own declaration and not the position the call
+            // sits in. Before this the whole argument list was rendered
+            // owned, so `contains(trap!, "…")` cloned a string the
+            // declaration (`=> str, needle`) says it keeps. `Own` for a
+            // consumed parameter (the lowering takes ownership), for a `Mut`
+            // one (it needs a place it can write through) and for the variadic
+            // tail (whose store clones); `Read` — a borrow is enough — for
+            // everything the declaration keeps, which is what a template
+            // already gets whenever the caller's variable is a `&T` binding.
+            let consumes = consumed.get(i).copied().unwrap_or(false);
+            let mutates = param_ty.as_ref().is_some_and(type_has_mut);
+            let wanted = if is_variadic_part || consumes || mutates {
+                ValueMode::Own
+            } else {
+                ValueMode::Read
+            };
             if let (Some(pt @ Type::Fn { .. }), Expr::Ident(id)) = (&param_ty, arg) {
                 // [fn-contract] A *named fn* in a fn-typed position wraps in
                 // an adapter closure here too: a fn item is not a closure,
@@ -13219,7 +13319,26 @@ impl<'p> Emitter<'p> {
                     }
                 }
             }
-            out.push(match arg {
+            // [rs-narrow-mut] [rs-opt-borrow] `xs!` in a parameter position the
+            // declaration types `Mut` is a **mutable** read of the local's
+            // payload: `xs.as_mut().expect(…)`. Rendering it owned was silently
+            // wrong — `add(xs!, 3)` emitted
+            // `xs.as_ref().expect(…).clone().push(3)`, which compiles, appends
+            // to the clone and prints `1` where Kotlin prints `2` (found
+            // 2026-09-23; the same family as the narrowed-`Mut` defect closed
+            // 2026-09-20, on the one shape that reaches the storage through `!`
+            // rather than through a narrowing).
+            if mutates && !consumes && !is_variadic_part {
+                if let Expr::NonNull { operand, span } = arg {
+                    let place = self.owned_optional_local(operand, *span);
+                    if let Some(place) = place {
+                        out.push(self.optional_local_borrow_mut(&place, *span));
+                        continue;
+                    }
+                }
+            }
+            let saved_mode = std::mem::replace(&mut self.mode, wanted);
+            let code = match arg {
                 // A Copy scalar read out of a reference binding (a lambda
                 // parameter under the `FnMut(&T)` convention
                 // [rs-fn-param-convention]) is a *value* here, not a place:
@@ -13320,8 +13439,15 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 Expr::Spread { operand, .. } => self.emit_owned(operand),
+                // [rs-read-mode] A non-place argument for a **kept** parameter
+                // is rendered under `Read`: `contains(trap!, "…")` hands the
+                // template the `&String` the unwrap already answers, which is
+                // the same shape a `&T`-bound variable gives it.
+                other if wanted == ValueMode::Read => self.emit_read(other),
                 other => self.emit_expr(other),
-            });
+            };
+            self.mode = saved_mode;
+            out.push(code);
         }
         // [fn-variadic] A tail that **mixes** plain arguments with a
         // `...spread` is assembled here into one owned vector, because a

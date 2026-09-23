@@ -55,7 +55,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1389 tests, complete: the toolchain tests are
+cargo test                  # 1391 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -130,6 +130,103 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**One read, one mode — the narrowed path (2026-09-23).** `narrow_unwrap` cloned
+unconditionally, and every narrowed read in the tree goes through it. It now
+consults the mode like the `!` path does [rs-read-mode], so a read borrows and
+only an owning position asks for a value:
+
+```
+if name is Str {
+    println("${size(name)}")        // name.as_ref().unwrap()
+    let held: Str = name            // name.as_ref().unwrap().clone()
+}
+```
+
+A Copy payload is a third case rather than a mode question: it is copied out of
+the representation (`*o.u1()`, `n.unwrap()`), free, and a value either way. The
+mutable read (`narrow_unwrap_mut`) is untouched — it was never a clone.
+
+A `&T` position has to know whether what it is about to borrow is already a
+reference, and asks `narrowed_borrow` first — the narrowed twin of the `!`
+predicate, and the reason ROADMAP.md's third item (a rendering that *reports*
+`is_ref`) was not needed for these two slices. `borrowed_arg` therefore emits
+`len_of(name.as_ref().unwrap())` rather than `&(…​.clone())`.
+
+Two positions needed the mode **raised**, and finding them is the lesson: they
+walk with `emit_place`, which runs under the *ambient* mode, and the ambient mode
+at a statement is `Read`. A **move-mode binding** (`emit_bound_value`) and a
+**consuming `for` subject** are both owned, and both now say so. Before that,
+`let s: InStream = opened` under a narrowing bound a `&InStream`.
+
+That is also the reassuring half of this whole mode: **dropping a clone that was
+load-bearing does not compile**. A borrow where a value is needed is E0308, a
+borrow in a mutating position is E0596, and a borrow outliving a mutation of its
+source is E0502 — so rustc is the safety net and the failure mode is loud rather
+than quiet. Fifteen E0308s in `examples/files` is what the two raised positions
+cost to find; nothing needed reasoning about semantics.
+
+Measured: `examples/files` is 15 clones lighter — every `RestrictedFs` member
+forwards a narrowed `real` path to a kept `&String` parameter, and `main.rs`'s
+`Bytes` reads no longer copy the buffer to measure it. The other eight examples
+did not move, which says something quiet about how much of the tree narrows a
+value and then only reads it.
+
+Where the clones still are: **interpolation**, which is the most common read
+position in the tree. It is recorded in ROADMAP.md under the `Rendered { code,
+is_ref }` item rather than done here, because `emit_interp_value` would have to
+ask the predicate three times in one function — its native branch takes a
+reference happily, its two `to_str` branches write `to_str(&{arg})` and
+`{place}.{field}`.
+
+**One read, one mode — the intrinsic arguments (2026-09-23).** An intrinsic's
+template takes pre-rendered arguments, and the call path rendered every one of
+them *owned* — so a declaration that says it keeps its parameters was ignored at
+the call. `intrinsic_arg_code` now sets the wanted mode per parameter from the
+intrinsic's own deduction clause [rs-read-mode], which is the `param_mode`
+treatment the named-call path has had since the borrow rules were written:
+
+```rust
+// std/core/string.sv: export intrinsic fn contains(str: Str, needle: Str) [] -> Bool => str, needle
+// before, from `contains(trap!, "…")` in std/test.test.sv
+trap.as_ref().expect("…").clone().contains(&"…".to_string()[..])
+// after
+trap.as_ref().expect("…").contains(&"…".to_string()[..])
+```
+
+`Own` is kept for the three positions that need a value: a parameter the
+declaration **consumes** (`=> !elem`), one typed **`Mut`** (the lowering writes
+through it), and the **variadic tail**, whose store clones because Salvo does not
+track a variadic position [fn-variadic]. Everything else is `Read`.
+
+The templates needed no change, and the reason is worth writing down: a kept
+intrinsic parameter *already* receives a `&String` whenever the caller's variable
+is a `&T` binding, so every template that survives a borrowed argument at all
+survives this one — `{}.contains(&{}[..])` and `{}.chars().count()` are method
+calls (auto-deref), and `&x[..]` indexes through a `&String`.
+
+**A defect the slice walked into, and closed**: `x!` in a **`Mut`** intrinsic
+parameter position was rendered owned, so it mutated a clone.
+
+```
+let xs: Mut List<Int>? = mut_list_of(1)
+add(xs!, 3)
+println("xs ${size(xs!)}")       // Rust: xs 1.  Kotlin: xs 2.
+```
+
+`add(xs!, 3)` emitted `xs.as_ref().expect(…).clone().push(3)`, which compiles,
+warns about nothing, and appends to the temporary. It is the last shape of the
+narrowed-`Mut` defect closed 2026-09-20 — the one that reaches the storage
+through `!` rather than through a narrowing — and the fix is the same: a mutable
+unwrap (`xs.as_mut().expect(…)`), which is what the mode makes reachable. Both
+backends now print `xs 2`, and a Kotlin case says so
+(`kotlinc_compiles_and_runs_reads_of_an_optional_local`) beside the Rust one
+(`an_intrinsic_argument_takes_the_intrinsics_own_mode`).
+
+Measured: no example or golden churn — the only `!`-on-a-local intrinsic argument
+in the tree is `std/test.test.sv`'s `contains(trap!, …)`, which is where the win
+shows. The narrowed path is what carries the tree-wide churn, and it is the one
+remaining slice.
+
 **One read, one mode — the first slice (2026-09-23).** Reading an optional is
 free in Salvo, and on the Rust backend it cost a clone: the emitter chose how to
 render a read before knowing what the position wanted, so it chose the rendering
@@ -152,7 +249,8 @@ and a checker-recorded move.
 What the slice deliberately did not do, and why, is now three numbered items in
 ROADMAP.md with the Salvo and the Rust of each: **intrinsic arguments** (the
 templates take pre-rendered args and the call path renders them all owned, though
-std declares `=> str, needle` on the ones that keep); **the narrowed path**
+std declares `=> str, needle` on the ones that keep — **built the same day**, see
+the entry above); **the narrowed path**
 (`narrow_unwrap` still clones unconditionally, and every narrowed read in the
 tree goes through it — its own pass over the goldens); and **a rendering that
 reports whether it produced a reference**, which is the durable answer for sites
@@ -209,7 +307,9 @@ the emitter renders an expression without knowing whether its result will be
 read or owned, so the unwrap paths choose the rendering every position accepts.
 A mode on the expression walk would let both emit the borrow and clone only
 where ownership is needed — the last systematic copy nobody wrote, and worth its
-own quiet moment.
+own quiet moment. (It got three of them, later the same day: the three entries
+above. What remains is interpolation, and it waits on a rendering that reports
+whether it produced a reference.)
 
 **A-5: the harness catches the trap (2026-09-23, user decision, revised the
 same hour).** A failed `assert!` traps, and a trap ends the process — so one bad
@@ -15080,7 +15180,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1389)
+## Test inventory (all green: 1391)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -15816,7 +15916,10 @@ cache, with per-test timings.
   plain `Stmt::Use` over a name; the two missing-clause parse errors; and
   all five new words still usable as ordinary identifiers, since not one is
   reserved).
-- `salvo-backend-kotlin`: 113 (134 registered cases, the newest being
+- `salvo-backend-kotlin`: 113 (136 registered cases, the newest being
+  `optional-local-reads` and `narrowed-reads` [rs-read-mode], each asserting the
+  same expected stdout as the Rust backend's counterpart — Kotlin needed no
+  change for either slice, so the case *is* the parity claim; before them
   `compare-groups` [cmp-groups], whose source and expected stdout are verbatim
   the Rust backend's — the 2026-09-20 `narrow-mut-arm`
   case asserts the *same* expected string as the Rust backend's, which is what
@@ -16022,7 +16125,12 @@ cache, with per-test timings.
   the resolved `next` passed as `::next` at a pass subject, the origin mint and
   its advance adapter, and that nothing *declares* `Yield`; plus the kotlinc run
   of the seven-subject demo).
-- `salvo-backend-rust`: 232 - including the two [cmp-groups] tests, the
+- `salvo-backend-rust`: 234 - including the three [rs-read-mode] tests (an
+  owned optional local read through a borrow; an intrinsic argument taking the
+  intrinsic's own mode, with the `Mut` one reaching the payload through
+  `as_mut()`; and a narrowed read borrowing unless the position owns, over a
+  local, a field and a Copy payload — each compiled and run, and each asserting
+  the clone *absent* from the generated source), the two [cmp-groups] tests, the
   two-module [cmp-canonical] one, the two [cmp-auto] ones and the
   [op-order]/[op-equality] operator program (the
   comparison groups compiled and run to the stdout the Kotlin backend prints,
@@ -16274,6 +16382,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **The Rust emitter's ambient mode at a statement is `Read`, so an owned
+  position that walks with `emit_place` has to raise it.** `emit_expr` raises the
+  mode to `Own` for its whole walk [rs-read-mode], so almost every owning
+  position is covered by construction — but the two that call `emit_place`
+  directly (a move-mode binding in `emit_bound_value`, and a consuming `for`
+  subject) are not, and a narrowed read under them silently became a `&T`. The
+  tell is fifteen identical rustc E0308s with `help: consider using clone here`.
+  When adding a site that consults the mode, grep `self.emit_place(` and ask of
+  each caller whether it is a read or a binding.
 
 - **"The body may remove it" points at the signature, not at the statement.**
   When a deduction promise fails, the diagnostic lands on the clause, so the
