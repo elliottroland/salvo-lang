@@ -647,7 +647,12 @@ Conventions:
   [col-bounds]). Ranked above their plain siblings [fn-overload-rank].
   `core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
   [qual-preserve], which is what lets a claim survive the `put`s between
-  the test and the read).
+  the test and the read). **The index passes mint the claim**:
+  `indices(list)` and `rev_indices(list)` emit `Idx(list) Int` elements —
+  `for i in rev_indices(xs) { get(xs, i) }` is the founding example of the
+  refinement-types design, total end to end — and `binary_search`'s found
+  arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
+  the result ever needs.
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -1172,6 +1177,21 @@ Conventions:
     optional sibling** — with it attached, resolution re-picks the total
     overload and recurses; std's bodies re-derive a plain value
     (`index + 0`), the [col-of-nonempty] lesson in dependent form.
+  * **A pass mints claims per element** (step 5): its Yield clause's
+    element may carry a dependent claim whose slot names the pass's own
+    borrowed field (`: Yield<self, Idx(self.items) Int>`), its `next`
+    returns the established form (`-> Emitted (+Idx(p.items) Int) |
+    Finished` — the clause and the `next` name one slot from two vantage
+    points, matched by the field), and a `for` binds the claim to the
+    **source's** roots — what `rev_indices(xs)` emits is an `Idx` of `xs`.
+    Sound because the source cannot be mutated while the pass lives
+    [proj-infer]. The element keeps every qualifier of the `Emitted` arm
+    beside the protocol tag itself.
+  * **`+Q` is legal anywhere in a return type** ([deduce-reapply]'s
+    establishment in arm position): `binary_search -> (+Idx(list) Int)?`
+    mints inside the optional — trusted, so only in the qualifier's own
+    file; the body's returns are checked without the established claims,
+    and callers substitute their arguments' roots in.
   * Erased like everything about a qualifier [qual-erasure]: the places
     reach the backends only as the extra arguments of a lowered
     `qualifies` call.

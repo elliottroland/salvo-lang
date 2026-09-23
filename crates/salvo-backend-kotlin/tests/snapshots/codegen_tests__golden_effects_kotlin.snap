@@ -167,6 +167,29 @@ fun<T> next__6(p: ListRevYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
+fun<T> indices(list: List<T>): IdxYield<T> {
+    return IdxYield(items = list, at = 0, step = 1)
+}
+
+fun<T> rev_indices(list: List<T>): IdxYield<T> {
+    return IdxYield(items = list, at = list.size - 1, step = -1)
+}
+
+data class IdxYield<T>(
+    var items: List<T>,
+    var at: Int,
+    var step: Int,
+)
+
+fun<T> next__7(p: IdxYield<T>): Union2<Int, Finished> {
+    if (p.at < 0 || p.at >= p.items.size) {
+        return U2_2<Int, Finished>(finished())
+    }
+    val index = p.at
+    p.at = p.at + p.step
+    return U2_1<Int, Finished>(emitted(index))
+}
+
 data class Enumerated<T>(
     val index: Int,
     val elem: T,
@@ -186,7 +209,7 @@ data class ListEnumYield<T>(
     var step: Int,
 )
 
-fun<T> next__7(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__8(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<Enumerated<T>, Finished>(finished())
@@ -240,7 +263,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__8(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())
@@ -388,7 +411,7 @@ data class SetYield<T>(
     var at: Int,
 )
 
-fun<T> next__10(p: SetYield<T>): Union2<T, Finished> {
+fun<T> next__11(p: SetYield<T>): Union2<T, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
@@ -436,7 +459,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__11(p: StrYield): Union2<Char, Finished> {
+fun next__12(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())

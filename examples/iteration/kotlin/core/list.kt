@@ -67,6 +67,29 @@ fun<T> next__6(p: ListRevYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
+fun<T> indices(list: List<T>): IdxYield<T> {
+    return IdxYield(items = list, at = 0, step = 1)
+}
+
+fun<T> rev_indices(list: List<T>): IdxYield<T> {
+    return IdxYield(items = list, at = list.size - 1, step = -1)
+}
+
+data class IdxYield<T>(
+    var items: List<T>,
+    var at: Int,
+    var step: Int,
+)
+
+fun<T> next__7(p: IdxYield<T>): Union2<Int, Finished> {
+    if (p.at < 0 || p.at >= p.items.size) {
+        return U2_2<Int, Finished>(finished())
+    }
+    val index = p.at
+    p.at = p.at + p.step
+    return U2_1<Int, Finished>(emitted(index))
+}
+
 data class Enumerated<T>(
     val index: Int,
     val elem: T,
@@ -86,7 +109,7 @@ data class ListEnumYield<T>(
     var step: Int,
 )
 
-fun<T> next__7(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
+fun<T> next__8(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
     val elem = p.items.getOrNull(p.at)
     if (elem == null) {
         return U2_2<Enumerated<T>, Finished>(finished())

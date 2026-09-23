@@ -1662,6 +1662,7 @@ impl<'s> Parser<'s> {
                             alias: None,
                             at: None,
                             binder: false,
+                            established: false,
                             value_args: Vec::new(),
                             name: Ident {
                                 name: MAILBOX_TYPE.to_string(),
@@ -2350,12 +2351,43 @@ impl<'s> Parser<'s> {
         // A sequence of type refs: qualifiers followed by a base type.
         // Only continue the sequence on the same line (or inside a group) so
         // a type at the end of a line never swallows the next line.
-        let mut refs = vec![self.parse_type_ref()?];
-        while (self.at_ident()
-            || matches!(self.kind(), TokenKind::KwProj | TokenKind::KwOnce | TokenKind::KwLinear))
-            && self.same_line()
+        // [deduce-reapply] A `+` before a qualifier marks it **established**
+        // (`-> (+Idx(list) Int)?`): trusted like a constructor's head `+Q`,
+        // and validated in return position by the checker — anywhere else a
+        // `+` in a type is meaningless and the checker reports it.
+        let mut established_first = false;
+        if self.at(&TokenKind::Plus)
+            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
         {
-            refs.push(self.parse_type_ref()?);
+            self.bump();
+            established_first = true;
+        }
+        let mut first_ref = self.parse_type_ref()?;
+        first_ref.established = established_first;
+        let mut refs = vec![first_ref];
+        loop {
+            let established = if self.at(&TokenKind::Plus)
+                && self.same_line()
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+            {
+                self.bump();
+                true
+            } else {
+                false
+            };
+            if !established
+                && !((self.at_ident()
+                    || matches!(
+                        self.kind(),
+                        TokenKind::KwProj | TokenKind::KwOnce | TokenKind::KwLinear
+                    ))
+                    && self.same_line())
+            {
+                break;
+            }
+            let mut r = self.parse_type_ref()?;
+            r.established = established;
+            refs.push(r);
         }
         // Qualifiers applied to a parenthesized type: `Ok (Ok Str | Err Int)`.
         if self.at(&TokenKind::LParen) && self.same_line() {
@@ -2661,6 +2693,7 @@ impl<'s> Parser<'s> {
                             from: Vec::new(),
                             at: None,
                             binder: true,
+                            established: false,
                             span,
                         },
                     });
@@ -2697,6 +2730,7 @@ impl<'s> Parser<'s> {
                             from: Vec::new(),
                             at: None,
                             binder: false,
+                            established: false,
                             span,
                         },
                     });
@@ -2726,6 +2760,7 @@ impl<'s> Parser<'s> {
             from,
             at,
             binder: false,
+            established: false,
             span,
         })
     }

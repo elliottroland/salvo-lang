@@ -162,7 +162,12 @@ independent and can go any time.
    clauses (checked against the body like [deduce-gained]), the std audit
    of which mutators preserve `KeyOf`/`Idx`, propagation limits per
    [qual-refn-infer].
-5. **Pass minting**: Yield-clause elements carrying dependent claims with
+5. ✅ **Pass minting** — built 2026-09-24 (COMPLETED.md's log, "Refinement
+   types, step 5"); **the founding example is closed**. Left out, by
+   design: `enumerate`'s claimed `index` field (a dependent claim on a
+   struct field names a value the struct does not contain) and a claimed
+   `keys` pass (the map pass walks a key snapshot). As planned:
+   Yield-clause elements carrying dependent claims with
    `self.field` slots (`: Yield<self, Idx(self.list) Int>`), proj-link
    substitution at the mint; `keys` (pass form), `indices`, `rev_indices`,
    and the claim-carrying respell of `enumerate`/`enumerate_rev` — closes

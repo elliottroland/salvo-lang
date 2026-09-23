@@ -876,6 +876,13 @@ pub struct TypeRef {
     /// [cmp-carry] `?cmp`: this argument is the signature's **binder**
     /// rather than a named fn or a type.
     pub binder: bool,
+    /// [deduce-reapply] [qual-depend] `+Q` in a return type: the qualifier
+    /// is **established** by the function — trusted, legal only in the
+    /// qualifier's own file — rather than checked against the body. The
+    /// same marker a constructor's head `+Q` and a deduction's `+Q` carry,
+    /// legal anywhere in a return type (`-> (+Idx(list) Int)?`), which is
+    /// how a mint reaches a union arm.
+    pub established: bool,
     /// [cmp-binder] `?cmp: cmp2` — the **alias** a binder is introduced under,
     /// when the slot's own name is taken. The destructuring spelling
     /// (`field: variable_name`), for the same reason: the left is what is being

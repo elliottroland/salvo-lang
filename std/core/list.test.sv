@@ -112,3 +112,37 @@ test "add and swap preserve Idx claims" {
     swap(xs, i + 1, i + 1)
     expect_eq(get(xs, i), 2)
 }
+
+test "the founding example: a descending index loop is total" {
+    // The loop the refinement-types design was opened with (2026-09-23):
+    // from `size(xs) - 1` down to `0`, `get(xs, i)` answers the element —
+    // no `!` anywhere. The pass's element carries `Idx(xs)` [qual-depend],
+    // and the total `get` consumes it [col-idx].
+    let xs = list_of(1, 2, 3)
+    let digits = 0
+    for i in rev_indices(xs) {
+        digits = digits * 10 + get(xs, i)
+    }
+    expect_eq(digits, 321)
+}
+
+test "indices walks front to back with the same claim" {
+    let xs = list_of(5, 6)
+    let digits = 0
+    for i in indices(xs) {
+        digits = digits * 10 + get(xs, i)
+    }
+    expect_eq(digits, 56)
+}
+
+test "binary_search answers a proven index" {
+    // [col-idx] The found arm carries `Idx(list)`: narrowing the optional
+    // is the last check the result ever needs.
+    let xs = sort(list_of(30, 10, 20))
+    let found = binary_search(xs, 20)
+    if found is Int {
+        expect_eq(get(xs, found), 20)
+    } else {
+        expect(false, "20 is in the list")
+    }
+}

@@ -257,6 +257,46 @@ export fn next<T>(p: Mut ListRevYield<T>) [] -> Emitted (proj(p) T) | Finished =
     return emitted(elem)
 }
 
+// [col-idx] Walks the **indices** of the list, front to back — and every
+// emitted `Int` carries the claim: `for i in indices(xs)` makes `get(xs, i)`
+// total. Sound because the pass borrows the list [proj-field], so nothing
+// can shrink it while the loop runs [proj-infer].
+export fn indices<T>(list: List<T>) [] -> Mut IdxYield<T> => list {
+    return Mut IdxYield<T> { items: list, at: 0, step: 1 }
+}
+
+// [col-idx] The same indices, back to front: `size(list) - 1` down to `0` —
+// **the founding example of the refinement-types design**: the descending
+// loop whose body needs no `!`.
+export fn rev_indices<T>(list: List<T>) [] -> Mut IdxYield<T> => list {
+    return Mut IdxYield<T> { items: list, at: size(list) - 1, step: -1 }
+}
+
+// [iter-protocol] The pass behind [indices] and [rev_indices]. Its element
+// claims `Idx(self.items)` — a dependent claim whose slot names the pass's
+// own borrowed field; a `for` binds it to the *source* list's identity, so
+// the claim reads `Idx(xs)` in the loop body [qual-depend].
+export struct IdxYield<T> : Yield<self, Idx(self.items) Int> canbe Mut {
+    // The list being walked — borrowed, not owned [proj-field].
+    items: proj List<T>,
+    // The index the next turn emits.
+    at: Int,
+    // `+1` ascending ([indices]) or `-1` descending ([rev_indices]).
+    step: Int
+}
+
+// The `+Idx` is [deduce-reapply]'s establishment in a return-type arm: this
+// file declares `Idx`, and the bounds test above the emit is the proof the
+// trust rests on.
+export fn next<T>(p: Mut IdxYield<T>) [] -> Emitted (+Idx(p.items) Int) | Finished => p: Mut {
+    if p.at < 0 || p.at >= size(p.items) {
+        return finished()
+    }
+    let index = p.at.copy()
+    p.at = p.at + p.step
+    return emitted(index)
+}
+
 // [col-enumerate] What [enumerate] and [enumerate_rev] emit: an element and
 // the index it sits at. A **view struct**, not a tuple: the element part is a
 // borrow of the walked list, a tuple literal cannot *store* a projection
@@ -412,7 +452,7 @@ export fn add_sorted<T>(list: Mut Sorted<T>(?cmp) List<T>, elem: T) [] -> None
 // be meaningless rather than merely absent. With equal elements it answers
 // the **lowest** matching index, on both backends — and "matching" is a tie
 // in the ordering the claim names, `cmp(a, b) == 0` [col-membership].
-export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> Int?
+export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> (+Idx(list) Int)?
 => list, elem {
     return search_sorted_by(list, elem, cmp)
 }

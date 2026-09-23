@@ -5830,6 +5830,40 @@ impl<'p, 'r> Checker<'p, 'r> {
             .as_ref()
             .map(|t| self.lower_type(t))
             .unwrap_or_else(Ty::none);
+        // [deduce-reapply] `+Q` inside the return type marks a claim this
+        // fn **establishes**: callers see it (`fn_return_ty` lowers the
+        // written type as-is), the body's returns are checked *without* it
+        // — trusted, so only in the qualifier's own file, the same gate a
+        // constructor's head `+Q` answers to.
+        {
+            let established: Vec<(String, Span)> = f
+                .return_type
+                .as_ref()
+                .map(|rt| established_quals(rt))
+                .unwrap_or_default();
+            if !established.is_empty() {
+                let mut strip: HashSet<String> = HashSet::new();
+                for (name, span) in &established {
+                    if !self.own_qualifiers.contains(name.as_str()) {
+                        self.error(
+                            *span,
+                            format!(
+                                "`+{name}` is trusted, so it is allowed only in the \
+                                 file that declares `{name}` — exactly like a \
+                                 constructor [deduce-reapply]"
+                            ),
+                        );
+                    }
+                    strip.insert(name.clone());
+                }
+                self.ret_ty = match self.ret_ty.clone() {
+                    Ty::Union(arms) => Ty::union_of(
+                        arms.into_iter().map(|a| a.remove_quals(&strip)).collect(),
+                    ),
+                    other => other.remove_quals(&strip),
+                };
+            }
+        }
 
         let mut top = HashMap::new();
         for p in extra_params.iter().chain(&f.params) {
@@ -16059,6 +16093,52 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 }
 
+/// [deduce-reapply] Every `+Q` written in a type, with its span: the claims
+/// a return type says the fn establishes, wherever they sit (a union arm,
+/// an optional).
+fn established_quals(ty: &ast::Type) -> Vec<(String, Span)> {
+    let mut out = Vec::new();
+    fn go(ty: &ast::Type, out: &mut Vec<(String, Span)>) {
+        match ty {
+            ast::Type::Named { qualifiers, base } => {
+                for q in qualifiers {
+                    if q.established {
+                        out.push((q.name.name.clone(), q.span));
+                    }
+                }
+                if base.established {
+                    out.push((base.name.name.clone(), base.span));
+                }
+            }
+            ast::Type::QualifiedGroup {
+                qualifiers, base, ..
+            } => {
+                for q in qualifiers {
+                    if q.established {
+                        out.push((q.name.name.clone(), q.span));
+                    }
+                }
+                go(base, out);
+            }
+            ast::Type::Union { arms, .. } => {
+                for a in arms {
+                    go(a, out);
+                }
+            }
+            ast::Type::Nullable { inner, .. } => go(inner, out),
+            ast::Type::Array { elem, .. } => go(elem, out),
+            ast::Type::Tuple { elems, .. } => {
+                for e in elems {
+                    go(e, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    go(ty, &mut out);
+    out
+}
+
 /// Collects names assigned (or incremented) anywhere in a block, for
 /// post-branch narrowing resets.
 fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
@@ -19065,6 +19145,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             } => {
                 let iter_ty = self.check_expr(iterable, None);
                 let elem = self.iter_elem_ty(&iter_ty, iterable, iterable.span());
+                // [qual-depend] A pass's element may carry a dependent claim
+                // whose slot names the pass's own borrowed field
+                // (`: Yield<self, Idx(self.items) Int>`). The claim is
+                // really about the pass's *source* — the list it borrows —
+                // so the binding's claim binds the source's roots: what
+                // `rev_indices(xs)` emits is an `Idx` of `xs`. Sound
+                // because the source cannot be mutated while the pass
+                // lives [proj-infer].
+                let elem = if Self::ty_has_value_ref(&elem) {
+                    let roots = self.pass_source_roots(iterable);
+                    if roots.is_empty() {
+                        elem
+                    } else {
+                        Self::fill_value_ref_roots(&elem, &roots)
+                    }
+                } else {
+                    elem
+                };
                 // [once-fn] Driving a **pass** consumes it: `once Iter<T>`
                 // is a position in a sequence, not a recipe, so a second
                 // `for` over the same value is the ordinary consumed-use
@@ -21933,6 +22031,14 @@ fn tys_match_renamed(
         // [cmp-carry] An identity is not a variable: there is nothing to
         // rename, so two identities match only by being the same fn.
         (Ty::FnName(x), Ty::FnName(y)) => x == y,
+        // [qual-depend] A place template matches by its *field*, not its
+        // receiver's spelling: the Yield clause writes `Idx(self.items)`
+        // and the `next` writes `Idx(p.items)` — one slot, two vantage
+        // points on the same pass.
+        (Ty::ValueRef { path: xp, .. }, Ty::ValueRef { path: yp, .. }) => {
+            let tail = |p: &str| p.split('.').next_back().map(str::to_string);
+            tail(xp) == tail(yp)
+        }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => {
             na == nb && all(aa, ab, fwd, rev)
         }
@@ -22619,6 +22725,87 @@ impl<'p, 'r> Checker<'p, 'r> {
                     })
             })
         })
+    }
+
+    /// [qual-depend] The fate roots of a driven pass's **source** — the
+    /// value the pass borrows [proj-field]: a named pass's own links, or a
+    /// minting call's lent arguments ([proj-infer], via `lending_calls`).
+    fn pass_source_roots(&mut self, iterable: &'p Expr) -> Vec<u32> {
+        let mut roots: Vec<u32> = Vec::new();
+        if let Some(place) = Place::of_expr(iterable) {
+            if let Some(var) = self.lookup(&place.root) {
+                roots.extend(var.links.iter().map(|l| l.root_id));
+                if roots.is_empty() {
+                    roots.push(var.id);
+                }
+            }
+        } else if let Expr::Call { args, span, .. } = iterable {
+            let lent = self
+                .out
+                .lending_calls
+                .get(&self.key(*span))
+                .cloned()
+                .unwrap_or_default();
+            for i in lent {
+                let Some(arg) = args.get(i) else { continue };
+                let Some(place) = Place::of_expr(arg) else { continue };
+                let Some(var) = self.lookup(&place.root) else { continue };
+                let linked: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+                if linked.is_empty() {
+                    roots.push(var.id);
+                } else {
+                    roots.extend(linked);
+                }
+            }
+        }
+        roots.sort_unstable();
+        roots.dedup();
+        roots
+    }
+
+    /// [qual-depend] Fills every root-free `ValueRef` in `ty` with `roots` —
+    /// the element-type half of `substitute_value_refs`, where the roots
+    /// come from the pass's source rather than a sibling argument.
+    fn fill_value_ref_roots(ty: &Ty, roots: &[u32]) -> Ty {
+        let mut map: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut collect = |t: &Ty| {
+            fn go(t: &Ty, map: &mut HashMap<String, Vec<u32>>, roots: &[u32]) {
+                match t {
+                    Ty::ValueRef { path, roots: r } if r.is_empty() => {
+                        let base = path.split('.').next().unwrap_or(path).to_string();
+                        map.insert(base, roots.to_vec());
+                    }
+                    Ty::Qualified { quals, base } => {
+                        for q in quals {
+                            for a in &q.args {
+                                go(a, map, roots);
+                            }
+                        }
+                        go(base, map, roots);
+                    }
+                    Ty::Named { args, .. } => {
+                        for a in args {
+                            go(a, map, roots);
+                        }
+                    }
+                    Ty::Union(arms) => {
+                        for a in arms {
+                            go(a, map, roots);
+                        }
+                    }
+                    Ty::Tuple(elems) => {
+                        for e in elems {
+                            go(e, map, roots);
+                        }
+                    }
+                    Ty::Array(elem) => go(elem, map, roots),
+                    _ => {}
+                }
+            }
+            go(t, &mut map, roots);
+        };
+        collect(ty);
+        Self::substitute_value_refs(ty, &map)
     }
 
     fn resolve_named_call(
@@ -24918,7 +25105,26 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     for (i, arm) in value_arms.iter().enumerate() {
         match arm {
             Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == "Emitted") => {
-                found = Some(((**base).clone(), i));
+                // [qual-depend] The element keeps every claim the arm
+                // carries beside the protocol tag: `Emitted (+Idx(…) Int)`
+                // emits an `Idx(…) Int`, which is how a pass mints a
+                // dependent claim per element. Flat lists [qual-group] make
+                // "Emitted applied to a claimed Int" and "two qualifiers on
+                // an Int" one shape, so this is a filter, not an unwrap.
+                let rest: Vec<Qual> = quals
+                    .iter()
+                    .filter(|q| q.name != "Emitted")
+                    .cloned()
+                    .collect();
+                let elem = if rest.is_empty() {
+                    (**base).clone()
+                } else {
+                    Ty::Qualified {
+                        quals: rest,
+                        base: base.clone(),
+                    }
+                };
+                found = Some((elem, i));
             }
             Ty::Named { name, args } if name == "Finished" && args.is_empty() => {
                 finished = true;

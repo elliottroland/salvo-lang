@@ -8886,6 +8886,7 @@ fn subst_ast_type(ty: &Type, map: &std::collections::HashMap<&str, &Type>) -> Ty
                     value_args: Vec::new(),
                     at: None,
                     binder: false,
+                    established: false,
                     alias: None,
                     name: base.name.clone(),
                     args: base.args.iter().map(|a| subst_ast_type(a, map)).collect(),

@@ -225,6 +225,30 @@ pub fn next__6<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finis
     return Union2::U1(emitted(elem.unwrap()));
 }
 
+pub fn indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
+    return IdxYield { items: list, at: 0, step: 1 };
+}
+
+pub fn rev_indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
+    return IdxYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdxYield<'s, T: Clone + 'static> {
+    pub items: &'s Vec<T>,
+    pub at: i32,
+    pub step: i32,
+}
+
+pub fn next__7<T: Clone>(p: &mut IdxYield<'_, T>) -> Union2<i32, Finished> {
+    if p.at < 0 || p.at >= (p.items.len() as i32) {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut index = p.at;
+    p.at = p.at + p.step;
+    return Union2::<i32, Finished>::U1(emitted(index));
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Enumerated<'s, T: Clone + 'static> {
     pub index: i32,
@@ -246,7 +270,7 @@ pub struct ListEnumYield<'s, T: Clone + 'static> {
     pub step: i32,
 }
 
-pub fn next__7<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+pub fn next__8<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::<Enumerated<T>, Finished>::U2(finished());
@@ -300,7 +324,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__8<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
@@ -437,7 +461,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__10<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -484,7 +508,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__11(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__12(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -564,7 +588,7 @@ pub fn iter__10(r: &Upto) -> __Pass_Upto {
     return __Pass_Upto { end: r.end, at: r.start };
 }
 
-pub fn next__12(__p: &mut __Pass_Upto) -> Union2<i32, Finished> {
+pub fn next__13(__p: &mut __Pass_Upto) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -620,7 +644,7 @@ __loop3
     }
     let mut __loop4_ran = false;
     let mut __loop5_pass = iter__10(&(upto(0, 0)));
-    while let Union2::U1(mut x) = next__12(&mut __loop5_pass) {
+    while let Union2::U1(mut x) = next__13(&mut __loop5_pass) {
         __loop4_ran = true;
         println(&mut console, &("unreachable".to_string()));
     }

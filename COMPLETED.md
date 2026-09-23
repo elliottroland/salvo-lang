@@ -130,6 +130,44 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 5 — pass minting, and the founding example closed
+(built 2026-09-24).** `for i in rev_indices(xs) { get(xs, i) }` now
+compiles and runs total on both backends — the loop the whole design was
+opened with. Three pieces:
+
+- **`+Q` anywhere in a return type**: `TypeRef.established` marks a
+  `+`-prefixed qualifier in a type sequence; the checker gates it to the
+  qualifier's own file (the `own_qualifiers` gate constructors use), strips
+  established claims from `ret_ty` for the body's return checks, and
+  callers get the full claimed type with their arguments' roots substituted
+  in (the step-3 machinery unchanged). `binary_search` answers
+  `(+Idx(list) Int)?` — narrowing the optional is the last check the
+  result ever needs.
+- **Pass elements carry claims**: `indices(list)`/`rev_indices(list)` in
+  `core.list` declare `: Yield<self, Idx(self.items) Int>` with a `next`
+  returning `Emitted (+Idx(p.items) Int) | Finished`. Two checker finds:
+  `emitted_arm_ty` used to return the arm's *base*, silently dropping
+  every qualifier beside `Emitted` — it now filters the protocol tag out
+  and keeps the rest (flat lists make "Emitted applied to a claimed Int"
+  and "two qualifiers on an Int" one shape, so this is a filter, not an
+  unwrap); and the Yield-obligation matcher needed a `ValueRef` arm
+  matching by the slot's *field* (`self.items` in the clause, `p.items`
+  in the `next` — one slot, two vantage points).
+- **The `for` binds claims to the source**: `pass_source_roots` reads the
+  subject's borrow — a named pass's own fate links, or a minting call's
+  lent arguments via `lending_calls` — and `fill_value_ref_roots` roots
+  the element's templates there. Sound because a source cannot be mutated
+  while a pass over it lives [proj-infer], which is also why pass-minted
+  claims needed no new invalidation story.
+
+Deliberately not done, recorded: the claimed respell of `enumerate`'s
+`Enumerated.index` field (a dependent claim on a *struct field* names a
+value the struct does not contain — the design's RT-2-beyond-v1 case) and
+a claimed `keys` pass for maps (`MapKeyYield` walks a key *snapshot*, not
+the map, so its element cannot honestly name the map). Tests: three new
+`core.list` annex tests (39 std tests, both backends), iter-fn mangling
+moved again (`next__14` → `next__15`). Suite green.
+
 **Refinement types, step 4 — `preserve` (built 2026-09-24).** The opt-back
 from conservative cross-value stripping [qual-preserve]: `=> map: preserve
 KeyOf` in a refinement (the owner speaks for a call it does not own) or in

@@ -7717,10 +7717,10 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
     // passes (two more) 2026-09-13, again when `Bytes` and the fs chunk
     // pass brought two more 2026-09-15, and again when `core.range` joined std
     // 2026-09-23 (its `next` counts even though the module is private), and
-    // again when `reversed`/`enumerate` brought two more (the
+    // again when `reversed`/`enumerate` (then `indices`) brought more (the
     // refinement-types sequence, step 0, 2026-09-23).
     assert!(
-        main.contains("next__14(&mut console, &mut __loop"),
+        main.contains("next__15(&mut console, &mut __loop"),
         "expected the handler threaded into the drive:\n{main}"
     );
 }
