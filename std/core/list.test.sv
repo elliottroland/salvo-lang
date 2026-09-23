@@ -66,3 +66,37 @@ test "the descending index loop reads every element" {
     }
     expect_eq(to_str(total), "[32, 21, 10]")
 }
+
+test "a proven index reads the element with no optional" {
+    // [col-idx] The total `get`: after the assert the claim is in `i`'s
+    // type, the qualified overload wins [fn-overload-rank], and no `!`
+    // appears anywhere.
+    let xs = list_of(10, 20, 30)
+    let i = 2
+    assert!(i is Idx(xs))
+    expect_eq(get(xs, i), 30)
+}
+
+test "an unproven index still answers the optional" {
+    let xs = list_of(10, 20, 30)
+    let i = 7
+    expect(get(xs, i) is None, "out of range answers None")
+}
+
+test "an out-of-range index fails the Idx test" {
+    let xs = list_of(1)
+    let i = 5
+    expect(!(i is Idx(xs)), "5 is not an index of a one-element list")
+}
+
+test "a proven pair swaps totally" {
+    // [col-idx] The total `swap`: no `Bool` to check — the claims did the
+    // checking [col-bounds].
+    let xs: Mut List<Int> = [1, 2, 3]
+    let i = 0
+    let j = 2
+    assert!(i is Idx(xs))
+    assert!(j is Idx(xs))
+    swap(xs, i, j)
+    expect_eq(to_str(xs), "[3, 2, 1]")
+}

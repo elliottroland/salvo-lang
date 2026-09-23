@@ -8,12 +8,25 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
+pub fn Idx_qualifies<T: Clone>(index: i32, list: &Vec<T>) -> bool {
+    return index >= 0 && index < (list.len() as i32);
+}
+
+pub fn get<'a, T: Clone>(list: &'a Vec<T>, index: &i32) -> &'a T {
+    return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:71:12");
+}
+
+pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
+    { let __i = (*i + 0) as i64 as usize; let __j = (*j + 0) as i64 as usize; if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } };
+    return;
+}
+
 pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
     return (list.len() as i32) > 0;
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:153:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:185:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {

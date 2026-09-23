@@ -48,6 +48,38 @@ export intrinsic fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T
 // Possibly gets the element at the given index if the list is long enough
 export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
+// [qual-depend] [col-idx] The claim that an `Int` is a **valid index of one
+// particular list**: `0 <= index < size(list)`, bound to that list's
+// identity, so `Idx(xs) Int` and `Idx(ys) Int` are different facts. Tested
+// with the filled block (`i is Idx(xs)`), stripped by any mutation of the
+// list; the total [get] and [swap] overloads below consume it.
+export qualifier Idx<T>(list: List<T>) of Int {
+    fn qualifies(index: Int, list: List<T>) -> Bool {
+        return index >= 0 && index < size(list)
+    }
+}
+
+// [col-idx] The **total** read: an index carrying the claim answers the
+// element itself — no `None` arm, nothing to `!`. Ranked above the optional
+// [get] by its qualifier [fn-overload-rank], exactly as `first` over a
+// `NonEmpty` list is [col-of-nonempty].
+export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
+=> list, index {
+    // `index + 0` re-derives a plain `Int`: delegating with the claim still
+    // attached re-picks this overload and recurses — the same trap
+    // `first(NonEmpty)` dodges by not delegating to itself [col-of-nonempty].
+    return get(list, index + 0)!
+}
+
+// [col-idx] The **total** exchange: two proven indices cannot be out of
+// range, so there is no `Bool` to check — the claim did the checking
+// [col-bounds].
+export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> None
+=> list: Mut, i, j {
+    swap(list, i + 0, j + 0)
+    return None
+}
+
 // Adds an element to the list. The list takes ownership of `elem`, so it
 // is moved; the list itself is mutated, which is why its surviving
 // qualifiers are listed exhaustively [deduce-syntax].

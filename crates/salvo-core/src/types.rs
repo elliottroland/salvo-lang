@@ -510,6 +510,18 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
         (Ty::Never, _) => true,
         (_, Ty::Any) => true,
+        // [qual-depend] Place identities inside qualifier arguments: rooted
+        // against rooted requires agreement; a root-free side is a template
+        // and stays lenient (an annotation cannot resolve roots).
+        (Ty::ValueRef { roots: ra, .. }, Ty::ValueRef { roots: rb, .. }) => {
+            ra.is_empty() || rb.is_empty() || {
+                let mut x = ra.clone();
+                let mut y = rb.clone();
+                x.sort_unstable();
+                y.sort_unstable();
+                x == y
+            }
+        }
         // A union is a subtype when every arm is.
         (Ty::Union(arms), _) => arms.iter().all(|arm| is_subtype(arm, b)),
         // A qualified union group (`Ok (A | B)`) matches an identical union

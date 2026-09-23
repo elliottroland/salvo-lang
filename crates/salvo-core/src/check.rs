@@ -21475,6 +21475,24 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // slot decides which of the two a position is, so a mismatch here is
         // a written-form mistake the lowering has already reported.
         (Ty::FnName(_), _) | (_, Ty::FnName(_)) => false,
+        // [qual-depend] Place identities: a rooted pattern (the parameter's
+        // slot, substituted with the sibling argument's roots) matches a
+        // rooted claim only when they agree — `KeyOf(m1)` refuses a
+        // `KeyOf(m2)` position. A root-free side is a template (an
+        // annotation, an unsubstituted signature) and stays lenient.
+        (
+            Ty::ValueRef { roots: pr, .. },
+            Ty::ValueRef { roots: ar, .. },
+        ) => {
+            pr.is_empty() || ar.is_empty() || {
+                let mut a = pr.clone();
+                let mut b = ar.clone();
+                a.sort_unstable();
+                b.sort_unstable();
+                a == b
+            }
+        }
+        (Ty::ValueRef { .. }, _) | (_, Ty::ValueRef { .. }) => false,
         (
             Ty::Qualified {
                 quals: pq,
@@ -22358,6 +22376,140 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// [qual-depend] The roots each fixed parameter's argument brings to a
+    /// call: parameter name → the argument place's fate roots. Only place
+    /// arguments contribute — a temporary has no identity a claim could be
+    /// about.
+    fn call_value_roots(
+        &self,
+        fixed: &[&'p ast::Param],
+        args: &[&'p Expr],
+    ) -> HashMap<String, Vec<u32>> {
+        let mut out = HashMap::new();
+        for (p, a) in fixed.iter().zip(args) {
+            let Some(place) = Place::of_expr(a) else { continue };
+            let Some(var) = self.lookup(&place.root) else { continue };
+            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+            if roots.is_empty() {
+                roots.push(var.id);
+            }
+            roots.sort_unstable();
+            roots.dedup();
+            out.insert(p.name.name.clone(), roots);
+        }
+        out
+    }
+
+    /// [qual-depend] Fills the root-free `ValueRef` templates of a
+    /// signature type with the roots the call's arguments bring: the
+    /// parameter type `KeyOf(map) K` becomes `KeyOf` of *this call's* map.
+    fn substitute_value_refs(ty: &Ty, map: &HashMap<String, Vec<u32>>) -> Ty {
+        match ty {
+            Ty::ValueRef { path, roots } if roots.is_empty() => {
+                let base = path.split('.').next().unwrap_or(path);
+                match map.get(base) {
+                    Some(r) => Ty::ValueRef {
+                        path: path.clone(),
+                        roots: r.clone(),
+                    },
+                    None => ty.clone(),
+                }
+            }
+            Ty::Qualified { quals, base } => Ty::Qualified {
+                quals: quals
+                    .iter()
+                    .map(|q| Qual {
+                        effect: q.effect,
+                        name: q.name.clone(),
+                        args: q
+                            .args
+                            .iter()
+                            .map(|a| Self::substitute_value_refs(a, map))
+                            .collect(),
+                    })
+                    .collect(),
+                base: Box::new(Self::substitute_value_refs(base, map)),
+            },
+            Ty::Named { name, args } => Ty::Named {
+                name: name.clone(),
+                args: args
+                    .iter()
+                    .map(|a| Self::substitute_value_refs(a, map))
+                    .collect(),
+            },
+            Ty::Union(arms) => Ty::Union(
+                arms.iter()
+                    .map(|a| Self::substitute_value_refs(a, map))
+                    .collect(),
+            ),
+            Ty::Tuple(elems) => Ty::Tuple(
+                elems
+                    .iter()
+                    .map(|e| Self::substitute_value_refs(e, map))
+                    .collect(),
+            ),
+            Ty::Array(elem) => Ty::Array(Box::new(Self::substitute_value_refs(elem, map))),
+            other => other.clone(),
+        }
+    }
+
+    /// Whether a type mentions a `ValueRef` anywhere — the cheap gate in
+    /// front of the substitutions above.
+    fn ty_has_value_ref(ty: &Ty) -> bool {
+        match ty {
+            Ty::ValueRef { .. } => true,
+            Ty::Qualified { quals, base } => {
+                quals.iter().any(|q| q.args.iter().any(Self::ty_has_value_ref))
+                    || Self::ty_has_value_ref(base)
+            }
+            Ty::Named { args, .. } => args.iter().any(Self::ty_has_value_ref),
+            Ty::Union(arms) => arms.iter().any(Self::ty_has_value_ref),
+            Ty::Tuple(elems) => elems.iter().any(Self::ty_has_value_ref),
+            Ty::Array(elem) => Self::ty_has_value_ref(elem),
+            _ => false,
+        }
+    }
+
+    /// [qual-depend] Whether an argument **positively carries** every
+    /// dependent claim a (substituted) parameter pattern demands: same
+    /// qualifier name, and root sets that agree. Unknown types satisfy
+    /// everything else in resolution [type-unknown-lenient], but a claim
+    /// can never be assumed — that is the whole point of one — so this
+    /// check runs before unification's leniency can.
+    fn dependent_demands_met(pattern: &Ty, arg: &Ty) -> bool {
+        let demanded: Vec<&Qual> = pattern
+            .quals()
+            .iter()
+            .filter(|q| q.args.iter().any(Self::ty_has_value_ref))
+            .collect();
+        if demanded.is_empty() {
+            return true;
+        }
+        demanded.iter().all(|want| {
+            let Some(want_roots) = want.args.iter().find_map(|x| match x {
+                Ty::ValueRef { roots, .. } if !roots.is_empty() => Some(roots),
+                _ => None,
+            }) else {
+                // The sibling brought no identity (a temporary): nothing
+                // can satisfy a claim about it.
+                return false;
+            };
+            arg.quals().iter().any(|have| {
+                have.name == want.name
+                    && have.args.iter().any(|x| match x {
+                        Ty::ValueRef { roots, .. } => {
+                            let mut a = roots.clone();
+                            let mut b = want_roots.clone();
+                            a.sort_unstable();
+                            b.sort_unstable();
+                            !a.is_empty() && a == b
+                        }
+                        _ => false,
+                    })
+            })
+        })
+    }
+
     fn resolve_named_call(
         &mut self,
         name: &str,
@@ -22791,6 +22943,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             self.generics = saved;
+
+            // [qual-depend] A dependent parameter type names sibling
+            // parameters; fill its templates with the roots this call's
+            // arguments bring, so `get(xs, i)` demands a claim about *xs* —
+            // a claim about another list refuses, and the plain overload
+            // takes the call.
+            if patterns.iter().any(Self::ty_has_value_ref) {
+                let vmap = self.call_value_roots(&fixed, args);
+                for p in patterns.iter_mut() {
+                    *p = Self::substitute_value_refs(p, &vmap);
+                }
+                // A dependent claim is never *assumed*: the argument must
+                // positively carry it — an `Unknown` (mid-inference) or
+                // plain argument falls to the unqualified overload, and a
+                // sibling with no identity (a temporary) satisfies nothing.
+                let met = patterns
+                    .iter()
+                    .zip(&arg_tys)
+                    .all(|(p, a)| Self::dependent_demands_met(p, a));
+                if !met {
+                    continue;
+                }
+            }
 
             let mut subst = HashMap::new();
             let ok = patterns
@@ -23593,6 +23768,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = saved;
         let subst = self.settle_type_args(name, decl, &ret, subst, expected, &arg_tys, span);
         let result = substitute_vars(&ret, &subst, &callee_generics);
+        // [qual-depend] A dependent claim in the result names the callee's
+        // parameters; hand the caller the claim about *its* values, bound
+        // to their roots.
+        let result = if Self::ty_has_value_ref(&result) {
+            let fixed: Vec<&'p ast::Param> = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .collect();
+            let vmap = self.call_value_roots(&fixed, args);
+            Self::substitute_value_refs(&result, &vmap)
+        } else {
+            result
+        };
         // [cmp-carry] An ordering is fixed **at construction**, and a keyed
         // container's constructor cannot publish one (its element may be a tuple,
         // which has no `cmp` to resolve — see COMPLETED.md), so the identity flows

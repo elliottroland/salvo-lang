@@ -10,12 +10,25 @@ import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
+fun<T> Idx_qualifies(index: Int, list: List<T>): Boolean {
+    return index >= 0 && index < list.size
+}
+
+fun<T> get(list: List<T>, index: Int): T {
+    return (list.getOrNull(index + 0) ?: throw AssertionError("salvo: value is absent at core.list:71:12"))
+}
+
+fun<T> swap(list: MutableList<T>, i: Int, j: Int) {
+    (list).let { __l -> (i + 0).let { __i -> (j + 0).let { __j -> if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) { val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true } else false } } }
+    return
+}
+
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:153:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:185:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

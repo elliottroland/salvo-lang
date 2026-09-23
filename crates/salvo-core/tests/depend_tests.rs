@@ -176,3 +176,66 @@ fn a_dependent_qualifies_must_take_its_slots() {
         "expected the arity error: {errs:?}"
     );
 }
+
+const OVERLOADS: &str = "\
+struct Box canbe Mut { n: Int }\n\
+struct Key { s: Str }\n\
+qualifier Inside(box: Box) of Key {\n\
+    fn qualifies(key: Key, box: Box) -> Bool {\n\
+        return box.n > 0\n\
+    }\n\
+}\n\
+fn open(box: Box, key: Inside(box) Key) [] -> Int => box, key {\n\
+    return box.n\n\
+}\n\
+fn open(box: Box, key: Key) [] -> Int? => box, key {\n\
+    return None\n\
+}\n";
+
+/// [qual-depend] A parameter's dependent claim names a sibling parameter:
+/// the argument's claim must be about *this call's* value, so a claim about
+/// a different box falls back to the optional overload — visible in the
+/// result type.
+#[test]
+fn a_claim_about_another_value_falls_to_the_plain_overload() {
+    let src = format!(
+        "{OVERLOADS}\
+         fn f(key: Key, right: Box, wrong: Box) [] -> Int => key, right, wrong {{\n    \
+         assert!(key is Inside(wrong))\n    \
+         return open(right, key)\n}}\n"
+    );
+    let errs = errors(&src);
+    // The optional overload answers `Int?`, which does not fit `-> Int`:
+    // the total overload was correctly refused.
+    assert!(
+        errs.iter().any(|e| e.contains("Int?") || e.contains("expected")),
+        "expected the optional result to surface: {errs:?}"
+    );
+}
+
+/// The matching claim picks the total overload, and the call answers the
+/// element type.
+#[test]
+fn a_matching_claim_picks_the_total_overload() {
+    let src = format!(
+        "{OVERLOADS}\
+         fn f(key: Key, box: Box) [] -> Int => key, box {{\n    \
+         assert!(key is Inside(box))\n    \
+         return open(box, key)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// An alias of the depended-on value is the same value: the claim binds
+/// fate roots, not names.
+#[test]
+fn an_alias_of_the_value_still_matches() {
+    let src = format!(
+        "{OVERLOADS}\
+         fn f(key: Key, box: Box) [] -> Int => key, box {{\n    \
+         let same = box\n    \
+         assert!(key is Inside(same))\n    \
+         return open(box, key)\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}

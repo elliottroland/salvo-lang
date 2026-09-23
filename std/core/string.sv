@@ -90,6 +90,32 @@ export intrinsic fn trim_suffix(str: Str, suffix: Str) [] -> Str => str, suffix
 // `None` when that range does not lie within the string.
 export intrinsic fn substr(str: Str, start: Int, end: Int) [] -> Str? => str, start, end
 
+// [col-span] A half-open range into a sequence: [start] inclusive, [end]
+// exclusive. A **struct**, not a tuple — a qualifier cannot apply to a tuple
+// [qual-union-arm], and the pair's validity is exactly what [SpanOf] claims.
+export struct Span {
+    start: Int,
+    end: Int
+}
+
+// [qual-depend] [col-span] The claim that a span **lies within one
+// particular string**: `0 <= start <= end <= size(str)`. Three facts one of
+// which relates the pair's own fields — which is why the pair is minted and
+// claimed *whole*: parse, don't validate. Tested with the filled block
+// (`sp is SpanOf(s)`); the total [substr] below consumes it.
+export qualifier SpanOf(str: Str) of Span {
+    fn qualifies(span: Span, str: Str) -> Bool {
+        return span.start >= 0 && span.start <= span.end && span.end <= size(str)
+    }
+}
+
+// [col-span] The **total** slice: a span carrying the claim answers the
+// substring itself — the optionality was paid once, where the span was
+// tested, instead of at every use.
+export fn substr(str: Str, at: SpanOf(str) Span) [] -> Str => str, at {
+    return substr(str, at.start, at.end)!
+}
+
 // [str] with every character in upper case
 export intrinsic fn to_upper(str: Str) [] -> Str => str
 

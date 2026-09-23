@@ -130,6 +130,48 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Refinement types, step 3 — dependent claims in signatures (built
+2026-09-24).** The consuming half of [qual-depend]: a parameter type may
+fill a value slot with a **sibling parameter**, and std's total overloads
+land on it.
+
+- **Call-site matching**: a candidate's parameter patterns get their
+  root-free `ValueRef` templates substituted with the roots this call's
+  arguments bring (`call_value_roots` / `substitute_value_refs` in
+  `resolve_named_call`'s candidate loop), so `get(xs, i)` demands a claim
+  about *xs*; the result type substitutes the same way, so a dependent
+  claim in a return reaches the caller bound to its values. Root sets
+  compare in `unify`/`is_subtype` (new `ValueRef` arms: rooted-vs-rooted
+  must agree; a root-free side is a template and stays lenient).
+- **A claim is never assumed** — the lesson of the round's one regression:
+  `unify`'s Unknown-leniency let a mid-inference lambda argument satisfy
+  `Idx(list) Int`, so the total overload out-ranked the optional one inside
+  `i -> get(all2, i)!` and the `!` stopped meaning anything.
+  `dependent_demands_met` now runs before unification: the argument must
+  *positively carry* every demanded dependent claim, with agreeing roots,
+  and a sibling with no identity (a temporary) satisfies nothing.
+  [type-unknown-lenient] is about not cascading errors; it cannot be about
+  granting claims.
+- **std**: `Idx<T>(list)` in `core.list` (`0 <= i < size(list)`) with total
+  `get` (answers `proj(list) T` — no `None` arm) and total `swap` (no
+  `Bool` — the claims did the checking) [col-idx]; `Span` +
+  `SpanOf(str)` in `core.string` with total `substr` [col-span] — the
+  parse-don't-validate pattern for the multi-part precondition
+  (`0 <= start <= end <= size`), claimed whole because a qualifier cannot
+  apply to a tuple. Delegation sheds the claim first (`index + 0`) — with
+  it attached, resolution re-picks the total overload and recurses, the
+  `first(NonEmpty)` lesson in dependent form.
+- **Deferred, recorded in ROADMAP.md**: `binary_search`'s `(+Idx(list)
+  Int)?` mint needs `+Q` inside a union arm (step 5, with the pass-element
+  machinery); `KeyOf`'s total `get` wants `preserve` first (step 4), since
+  without it any prior `put` strips the very claim the call would consume;
+  the `Bytes` span twin needs same-name-different-subject value slots.
+
+Tests: three signature tests in `depend_tests.rs` (total picked on matching
+roots, refused across values, alias matches through fate roots), five
+`core.string` annex tests and four new `core.list` ones — both backends.
+Suite: 1403 tests, all green.
+
 **Refinement types, step 2 — dependent qualifiers, local slots (built
 2026-09-23/24).** The first genuinely new semantics of the sequence
 [qual-depend]: a qualifier may declare **value slots** — unprefixed

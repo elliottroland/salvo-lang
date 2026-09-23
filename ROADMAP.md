@@ -144,7 +144,12 @@ independent and can go any time.
    stripping (any `Mut` use of the linked value strips). **Driver:
    `Span`/`substr`/`slice`** (immutable subjects — no invalidation pressure)
    plus `KeyOf` local-only.
-3. **Signatures**: dependent claims in parameter position (sibling-parameter
+3. ✅ **Signatures** — built 2026-09-24 (COMPLETED.md's log, "Refinement
+   types, step 3"). Deferred within it: `binary_search`'s mint needs `+Q`
+   in a union arm (step 5); `KeyOf`'s total `get` follows `preserve`
+   (step 4); the `Bytes` span twin needs same-name-different-subject value
+   slots (unscheduled). As planned: dependent claims in parameter position
+   (sibling-parameter
    references, proj's rule) and return position (`+Q` trusted in the
    owner's file / plain checked; `binary_search -> (+Idx(list) Int)?`), the
    std total overloads (`get`/`swap`/`substr`/`slice`) and minting producers

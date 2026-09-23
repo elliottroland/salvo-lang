@@ -639,6 +639,23 @@ Conventions:
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
     [proj-infer].
+* [col-idx] `core.list` declares `qualifier Idx<T>(list: List<T>) of Int`
+  [qual-depend] — `0 <= index < size(list)`, about one particular list —
+  with **total overloads** consuming it: `get(list, index: Idx(list) Int)
+  -> proj(list) T` (no `None` arm) and `swap(list, i: Idx(list) Int, j:
+  Idx(list) Int) -> None` (no `Bool` — the claims did the checking
+  [col-bounds]). Ranked above their plain siblings [fn-overload-rank].
+  `core.map`'s `KeyOf` gets its total `get` with the `preserve` step, once
+  a map's claims can survive its non-removing mutators.
+* [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
+  — a struct, not a tuple, because a qualifier cannot apply to a tuple
+  [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
+  [qual-depend]: `0 <= start <= end <= size(str)`, the parse-don't-validate
+  pattern for a multi-part precondition (the pair is claimed *whole*, so
+  the cross-field fact rides along). `substr(str, at: SpanOf(str) Span) ->
+  Str` is total. The `Bytes` sibling waits on same-name-different-subject
+  value slots (a second `SpanOf` over `Span` would be a duplicate
+  [qual-overload]; recorded in ROADMAP.md).
 * [col-insertion-order] `Set<T>` and `Map<K, V>` **iterate in insertion
   order, on every backend** (user decision 2026-09-12) — with
   `LinkedHashMap`'s exact semantics: writing a key that is already present
@@ -1142,6 +1159,18 @@ Conventions:
     entry (step 4 of the sequence).
   * One kind of slot per qualifier for now: fn slots [cmp-carry] or value
     slots, not both (nothing in std or the design's catalog mixes them).
+  * **Signatures consume the claims** (step 3): a parameter type may fill
+    a slot with a **sibling parameter** (`fn get<T>(list: List<T>, index:
+    Idx(list) Int)`), and at each call the template is substituted with the
+    roots the arguments bring — so `get(xs, i)` demands a claim about *xs*,
+    a claim about another list refuses (the plain overload takes the call),
+    and an alias of the value still matches (roots, not names). Ranked
+    against the unqualified overload by [fn-overload-rank], the
+    `first(NonEmpty)` pattern.
+  * **A total overload must shed the claim before delegating to its
+    optional sibling** — with it attached, resolution re-picks the total
+    overload and recurses; std's bodies re-derive a plain value
+    (`index + 0`), the [col-of-nonempty] lesson in dependent form.
   * Erased like everything about a qualifier [qual-erasure]: the places
     reach the backends only as the extra arguments of a lowered
     `qualifies` call.
