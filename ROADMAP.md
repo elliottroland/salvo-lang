@@ -33,13 +33,13 @@ the decision log, the plan, and the hard-won operational knowledge.
   this file. The two documents were one until 2026-09-09, so an "above" or
   "below" in moved text may mean the other document.
 - **"The sequence" is finished** (user decision 2026-09-09, all five phases
-  complete 2026-09-16), and so is **"The second sequence"** (all six steps
-  complete 2026-09-18). Both are kept as the record of the order the work was
-  done in, and the themed sections below stay tagged with the phase they
-  belonged to. **The sequence now in progress is "Refinement types — the build
-  sequence"** (decided 2026-09-23, below); around it, the work is: the **open
-  defects**, then the **decisions waiting on the user**, then whatever those
-  decisions schedule.
+  complete 2026-09-16), and so are **"The second sequence"** (all six steps
+  complete 2026-09-18) and **"Refinement types — the build sequence"** (all
+  seven steps complete 2026-09-24). All are kept as the record of the order
+  the work was done in, and the themed sections below stay tagged with the
+  phase they belonged to. With no sequence in progress, the work is: the
+  **open defects**, then the **decisions waiting on the user**, then whatever
+  those decisions schedule.
 - **Before starting anything**: read COMPLETED.md's "Gotchas / lessons learned"
   for traps in the area you are touching, and its decision log for whether the
   question was already answered.
@@ -62,9 +62,9 @@ and hold queues of obligations — on both backends with identical output, with 
 worked example in `examples/actors/`. **"The second sequence" is finished too**
 (steps 1–6, 2026-09-17/18): the `waitfor` package, the task kernel, `on_idle`,
 multi-effect handlers, `core.time` — now module `time` — and the coupling stance,
-each recorded below with what it left behind. **The sequence now in progress
-is "Refinement types — the build sequence"** (decided 2026-09-23, above);
-around it the work is the open defects below, then the decisions waiting on
+each recorded below with what it left behind. **The refinement-types sequence
+is finished too** (all seven steps, 2026-09-24, above). With no sequence in
+progress the work is the open defects below, then the decisions waiting on
 the user — SHAREABLE_HANDLERS.md's calls were
 **all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
 round, including the same-day SH-6 revision to shape-based classification, is
@@ -106,14 +106,14 @@ arc is built** (user decisions 2026-09-20, both sittings the same day —
 deps as owned handles, priced lock waits, generic monitors; COMPLETED.md's
 log and the section below for what it leaves behind).
 
-## Refinement types — the build sequence (user decisions 2026-09-23, all taken)
+## Refinement types — the build sequence — ✅ finished 2026-09-24 (user decisions 2026-09-23)
 
-The design round is **decided whole** — four rounds in one evening, recorded
-in COMPLETED.md's log ("Refinement types via qualifiers — the design, decided
-whole") with the full argument trail in REFINEMENT_TYPES.md, which stays
-alive until this sequence lands and then retires per its charter. Every step
-lands whole (build + tests + spec rules + sweep) before the next; step 0 is
-independent and can go any time.
+All seven steps built and recorded in COMPLETED.md's log ("Refinement types,
+step 0" … "step 6", plus the design entry "Refinement types via qualifiers —
+the design, decided whole"). REFINEMENT_TYPES.md is **retired** per its
+charter — its argument trail lives in the log. Kept as the record of the
+order the work was done in; the open leftovers each step names below are the
+live items.
 
 0. ✅ **Plain iteration vocabulary** — built 2026-09-23 (COMPLETED.md's log,
    "Refinement types, step 0"). `reversed(list)`, `enumerate(list)`,
@@ -1334,6 +1334,27 @@ same day — see "Effects"; the `defers`-block proposal went with `defer`
 itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
+
+### Rust: comparing a borrowed Copy scalar with `==` does not deref
+
+`proj Int` (a total `get`'s result, a `first(NonEmpty)` element) compared
+with `==` against a plain `Int` emits `&i64 == i64` — rustc E0277 — while
+Kotlin compares fine. Checker-clean; refused by the target compiler, so
+loud, never wrong [backend-never-wrong]. Found 2026-09-24 writing
+`expect(get(m, k) == 1, …)` in `core.map`'s annex (worked around with
+`expect_eq`, whose generic parameter unifies at `proj Int`). The fix
+belongs with the one-read-one-mode family ([rs-read-mode], COMPLETED.md's
+2026-09-23 entries): a comparison operand is a read position, and a
+borrowed Copy scalar should be copied out (`*`) there.
+
+Repro:
+```
+let m = mut_map_of(("a", 1))
+let k = "a"
+assert!(k is KeyOf(m))
+if get(m, k) == 1 { }      // rustc: can't compare `&{integer}` with `{integer}`
+```
+
 
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones

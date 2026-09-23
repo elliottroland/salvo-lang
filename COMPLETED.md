@@ -13,7 +13,10 @@ What is built, in one paragraph: both backends (Kotlin, Rust) work end to end,
 verified by compiling and running the emitted code with `kotlinc` and `rustc` to
 byte-identical stdout. The language has structs, tuples, arrays, unions with
 flow-sensitive narrowing, qualifiers (state and provenance, with predicates,
-constructors, refinements and deductions), everything-is-an-expression control
+constructors, refinements, deductions — and **dependent claims**: value slots
+binding a claim to another value's identity, `KeyOf(m)`/`Idx(xs)`/`SpanOf(s)`
+with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
+passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
 designated `close`, and pull iteration reduced to a `next` that `for` drives.
@@ -55,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1391 tests, complete: the toolchain tests are
+cargo test                  # 1409 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
