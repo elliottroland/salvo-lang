@@ -12592,11 +12592,21 @@ fn a_deadline_lowers_to_a_scheduler_call_with_a_fired_builder() {
 /// takes — borrow the `Option`, unwrap the borrow, clone the payload (found
 /// 2026-09-23 writing `std/test.test.sv`, which is the shape below).
 const REREAD_OPTIONAL: &str = r#"
+fn len_of(s: Str) -> Int => s {
+    return size(s)
+}
+
+fn shout(s: Str) -> Str => !s {
+    return s
+}
+
 fn main() [use] {
     use StdOutConsole()
     let maybe: Str? = "hello"
     println("once ${size(maybe!)}")
     println("twice ${size(maybe!)}")
+    println("kept ${len_of(maybe!)}")
+    println("owned ${shout(maybe!)}")
     let n: Int? = 3
     println("copy ${n! + n!}")
 }
@@ -12612,10 +12622,11 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
         .content;
     // Non-Copy payload: borrowed, unwrapped, cloned — so the second read still
     // has something to read.
+    // Four reads of the same local, every one of them borrowing the `Option`.
     assert_eq!(
         main.matches("maybe.as_ref().expect(\"salvo: value is absent").count(),
-        2,
-        "expected both reads to borrow:\n{main}"
+        4,
+        "expected every read to borrow:\n{main}"
     );
     assert!(!main.contains("maybe.expect("), "a read moved the local:\n{main}");
     // A Copy payload needs none of it: the `Option` is Copy, so `.expect` moves
@@ -12625,5 +12636,20 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
         2,
         "expected the Copy payload to stay direct:\n{main}"
     );
-    run_rust_files(&files, "reread-optional", "once 5\ntwice 5\ncopy 6\n");
+    // [rs-read-mode] A **kept** parameter is a read: the unwrap answers the
+    // `&String` straight into the position — no clone, and no second `&`.
+    assert!(
+        main.contains("len_of(maybe.as_ref().expect(\"salvo: value is absent"),
+        "a kept argument cloned:\n{main}"
+    );
+    // …and a *consuming* one still gets a value of its own.
+    assert!(
+        main.contains("shout(maybe.as_ref().expect(\"salvo: value is absent at main:16:28\").clone())"),
+        "a consumed argument did not get an owned value:\n{main}"
+    );
+    run_rust_files(
+        &files,
+        "reread-optional",
+        "once 5\ntwice 5\nkept 5\nowned hello\ncopy 6\n",
+    );
 }

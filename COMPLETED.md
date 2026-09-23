@@ -130,6 +130,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**One read, one mode — the first slice (2026-09-23).** Reading an optional is
+free in Salvo, and on the Rust backend it cost a clone: the emitter chose how to
+render a read before knowing what the position wanted, so it chose the rendering
+every position accepts — an owned value. The emitter now carries a **wanted
+mode** ([rs-read-mode]: `Read` by default, raised to `Own` for the duration of
+`emit_owned`'s walk), and a read of an owned optional local answers the borrow:
+
+```rust
+len_of(maybe.as_ref().expect("…"))            // keeps its argument — no clone
+shout(maybe.as_ref().expect("…").clone())     // consumes it — still a value
+```
+
+Two sites consult the mode, and they share **one predicate**
+(`owned_optional_local`) so they cannot drift: the expression walk's `NonNull`
+arm, and `borrowed_arg`, which needs neither the clone nor a second `&` because
+the unwrap already answers a reference. The four exclusions from the narrow fix
+carry over unchanged — a Copy payload, an `Option<&T>` operand, a `proj` result,
+and a checker-recorded move.
+
+What the slice deliberately did not do, and why, is now three numbered items in
+ROADMAP.md with the Salvo and the Rust of each: **intrinsic arguments** (the
+templates take pre-rendered args and the call path renders them all owned, though
+std declares `=> str, needle` on the ones that keep); **the narrowed path**
+(`narrow_unwrap` still clones unconditionally, and every narrowed read in the
+tree goes through it — its own pass over the goldens); and **a rendering that
+reports whether it produced a reference**, which is the durable answer for sites
+that cannot ask a predicate in advance.
+
+Measured: no example or golden churn at all, because every `!` in std sits on a
+*call* rather than on a local — `std/test.test.sv` is the only local-`!` site in
+the tree, and it is what the two codegen tests were written from.
+
 **A test about a trap (2026-09-23, the `expect_panics` slice).** With the
 harness catching traps [test-recover], a test can be *about* one — before it, a
 test that wanted a failure could only be written by not writing it. `std.test`

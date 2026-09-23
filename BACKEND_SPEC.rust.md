@@ -37,9 +37,24 @@ Conventions:
   is not `Clone`). A *field* operand needed nothing: `emit_owned` already clones
   one. Before this (2026-09-23) two `!`s on one local were two moves, rustc
   E0382, while the checker allowed both — reading an optional is free.
-  * The clone itself is the copy that "One read, one mode" in ROADMAP.md is
-    about: with a mode on the expression walk, both this path and the narrowed
-    one would emit the borrow and clone only where the position needs ownership.
+* [rs-read-mode] The emitter carries a **wanted mode** while it walks an
+  expression: `Read` (a `&T` is enough) or `Own` (a value is needed). `Read` is
+  the default and `emit_owned` raises it for the duration of its walk, so a path
+  that *can* answer with a borrow clones only where the position needs ownership
+  — the copy `[copy-opt-in]` says should not happen without the program asking
+  (2026-09-23, the first slice of ROADMAP.md's "One read, one mode").
+  * Two sites consult it today, and they share one predicate
+    (`owned_optional_local`) so they cannot disagree: the `NonNull` arm of the
+    expression walk, and `borrowed_arg`, which needs neither the clone nor a
+    second `&` because the unwrap already answers a reference. A **kept**
+    parameter therefore receives `p.as_ref().expect(…)` and a **consuming** one
+    `p.as_ref().expect(…).clone()`.
+  * Still owned, and recorded in ROADMAP.md: an argument to an **intrinsic**,
+    whose template takes pre-rendered arguments and is rendered owned regardless
+    of the intrinsic's own declared deduction (`contains(str, needle) => str,
+    needle` keeps both, and the emitted call clones the first). Closing that
+    means giving the intrinsic path the same `param_mode` treatment the named-call
+    path has.
 
 ## Output layout
 

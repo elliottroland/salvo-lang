@@ -1036,6 +1036,17 @@ struct Narrowing {
 }
 
 /// How a name in scope is bound in the emitted Rust [rs-borrows].
+
+/// [rs-read-mode] What a position wants of the value being emitted: `Read` when
+/// a borrow is enough (an interpolation, a `&T` argument, a comparison), `Own`
+/// when it must be a value (a `let`, a `return`, a struct field, a consuming
+/// argument). Only the paths that would otherwise clone consult it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ValueMode {
+    Read,
+    Own,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum BindKind {
     /// An owned binding (locals, moved parameters, lambda/loop bindings).
@@ -1101,6 +1112,12 @@ struct Emitter<'p> {
     effect_env: Vec<EffectEntry>,
     /// How each name in the current fn is bound [rs-borrows].
     bindings: HashMap<String, BindKind>,
+    /// [rs-read-mode] What the position being emitted wants of the value: a
+    /// **read** (a `&T` is enough) or an **owned** value (a store, a return, a
+    /// consuming argument). The unwrap paths consult it and clone only under
+    /// `Own` — otherwise every read of a non-Copy optional pays a copy nobody
+    /// wrote [copy-opt-in]. `Read` is the default; `emit_owned` raises it.
+    mode: ValueMode,
     /// [placeholder] The code `_` renders as: the unpicked arm's read, set while
     /// a qualifier pick's right-hand side is emitted [pick].
     placeholder_code: Option<String>,
@@ -1376,6 +1393,7 @@ impl<'p> Emitter<'p> {
             ret_is_unit: false,
             effect_env: Vec::new(),
             bindings: HashMap::new(),
+            mode: ValueMode::Read,
             placeholder_code: None,
             pick_vars: 0,
             captured_effects: HashSet::new(),
@@ -9396,6 +9414,45 @@ impl<'p> Emitter<'p> {
     /// `span`, given the code for its storage [rs-union-enums]
     /// [rs-option]. Shared by identifier and projection-place reads. The
     /// result is **owned** — see `narrow_unwrap_mut` for a mutable use.
+    /// [rs-read-mode] [rs-opt-borrow] When `expr!`'s operand is an owned
+    /// `Option` held by a **local**, the place holding it — which the unwrap
+    /// reads *through a borrow* so a second read still can.
+    ///
+    /// One predicate, two sites: the expression path ([`Self::emit_expr`]'s
+    /// `NonNull` arm, which adds `.clone()` only under [`ValueMode::Own`]) and
+    /// the borrowed-argument path ([`Self::borrowed_arg`], which needs no clone
+    /// and no `&` because the unwrap already answers a reference). They must
+    /// agree, or one of them emits a clone the other does not.
+    ///
+    /// `None` — keep the moving form (`p.expect(…)`) — for the four cases where
+    /// nothing reads the value again: a Copy payload (the `Option` is Copy too),
+    /// an `Option<&T>` operand (already a borrow), a `proj`-typed result (the
+    /// borrow *is* the value), and a span the checker recorded as a move, where
+    /// a clone would duplicate a linear obligation [rs-linear-move].
+    fn owned_optional_local(&mut self, operand: &Expr, span: Span) -> Option<String> {
+        let Expr::Ident(id) = operand else { return None };
+        if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::OptRef))
+            || self.is_optional_derived_call(operand)
+            || self.checked.repr_ty.contains_key(&(self.file_idx, id.span))
+            || self.checked.linear_moves.contains(&(self.file_idx, id.span))
+            || self.checked.state_takes.contains(&(self.file_idx, id.span))
+            || self.ty_of(span).is_some_and(Self::is_copy_ty)
+            || self.ty_of(span).is_some_and(|t| t.is_proj())
+        {
+            return None;
+        }
+        Some(self.binding_place(&id.name))
+    }
+
+    /// [rs-read-mode] The borrowing unwrap itself: a `&T` out of an owned
+    /// `Option`, with the trap message [assert-trap].
+    fn optional_local_borrow(&mut self, place: &str, span: Span) -> String {
+        format!(
+            "{place}.as_ref().expect(\"salvo: value is absent at {}\")",
+            self.salvo_location(span)
+        )
+    }
+
     fn narrow_unwrap(&mut self, span: Span, storage: String) -> Option<String> {
         let n = self.narrowing_of(span)?;
         let name = storage;
@@ -9642,6 +9699,15 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_owned(&mut self, expr: &Expr) -> String {
+        // [rs-read-mode] Everything below this point is being asked for a
+        // *value*, so the paths that can answer with a borrow add their clone.
+        let saved = std::mem::replace(&mut self.mode, ValueMode::Own);
+        let code = self.emit_owned_inner(expr);
+        self.mode = saved;
+        code
+    }
+
+    fn emit_owned_inner(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::Ident(id) => {
                 if id.name == "None" {
@@ -10231,30 +10297,15 @@ impl<'p> Emitter<'p> {
                 // Found 2026-09-23: two `!`s on one local were two moves (E0382)
                 // while the checker allowed both, since reading an optional is
                 // free. A *field* needed nothing: `emit_owned` already clones one.
-                let reread_local = match operand.as_ref() {
-                    Expr::Ident(id)
-                        if !opt_borrow
-                            // A narrowed read unwraps by itself, above.
-                            && !self.checked.repr_ty.contains_key(&(self.file_idx, id.span))
-                            // A value the checker consumed here *must* move: a
-                            // clone would duplicate a linear obligation, and a
-                            // `Reply<T>` is not `Clone` at all [rs-linear-move].
-                            && !self.checked.linear_moves.contains(&(self.file_idx, id.span))
-                            && !self.checked.state_takes.contains(&(self.file_idx, id.span))
-                            // A Copy payload moves nothing: the `Option` is Copy too.
-                            && !self.ty_of(*span).is_some_and(Self::is_copy_ty)
-                            // A projection result *is* the borrow [proj-type].
-                            && !self.ty_of(*span).is_some_and(|t| t.is_proj()) =>
-                    {
-                        Some(self.binding_place(&id.name))
-                    }
-                    _ => None,
-                };
-                if let Some(place) = reread_local {
-                    return format!(
-                        "{place}.as_ref().expect(\"salvo: value is absent at {}\").clone()",
-                        self.salvo_location(*span)
-                    );
+                if let Some(place) = self.owned_optional_local(operand, *span) {
+                    // [rs-read-mode] Under `Read` the borrow *is* the value, so
+                    // the clone is added only where the position needs an owned
+                    // one — which is what `emit_owned` raises the mode for.
+                    let borrow = self.optional_local_borrow(&place, *span);
+                    return match self.mode {
+                        ValueMode::Read => borrow,
+                        ValueMode::Own => format!("{borrow}.clone()"),
+                    };
                 }
                 // [assert-trap] [rs-assert-trap] The trap is Salvo's, not
                 // `unwrap`'s: the message names the Salvo source and reads the
@@ -11006,6 +11057,13 @@ impl<'p> Emitter<'p> {
                     }
                     _ => return format!("&{}", self.binding_place(&id.name)),
                 }
+            }
+        }
+        // [rs-read-mode] `expr!` on an owned optional local answers a `&T`
+        // already: no clone to borrow back, and no second `&`.
+        if let Expr::NonNull { operand, span } = expr {
+            if let Some(place) = self.owned_optional_local(operand, *span) {
+                return self.optional_local_borrow(&place, *span);
             }
         }
         match expr {
