@@ -12925,10 +12925,10 @@ fn rustc_compiles_and_runs_distinct_pair_calls() {
     run_rust_files(&files, "distinct_pair", "11 3 17 8\n");
 }
 
-/// [rs-lend-mut] Mode-specialized lending (step ③): a user-written
-/// accessor whose result some call site mutates gets a demand-driven
-/// `__mut` emission beside the read one, and the C family is ordinary
-/// std Salvo riding the same mechanism.
+/// [rs-loc] Locator-specialized lending (④a slice 1, re-founding ③'s
+/// mechanism): a user-written accessor whose result some call site
+/// mutates gets a demand-driven `__loc` emission beside the read one,
+/// and the C family is ordinary std Salvo riding the same mechanism.
 const LEND_MUT_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -12949,11 +12949,13 @@ fn main() [use] {
 }
 "#;
 
-/// [rs-lend-mut] Both emissions exist — the read one untouched, the mut
-/// variant with `&mut` lend — and only the mutable-use call site takes
-/// the variant.
+/// [rs-loc] Both emissions exist — the read one untouched, the locator
+/// variant answering position data from a *read-mode* search — and only
+/// the mutable-use call site takes the variant, materializing
+/// `&mut anchor[loc]` in a block whose read borrow ends before the write
+/// borrow begins.
 #[test]
-fn a_mut_used_lender_gets_a_demand_driven_variant() {
+fn a_mut_used_lender_gets_a_demand_driven_locator_variant() {
     let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
@@ -12963,17 +12965,17 @@ fn a_mut_used_lender_gets_a_demand_driven_variant() {
     );
     assert!(
         main.content
-            .contains("pub fn front__mut(es: &mut Vec<Entity>) -> Option<&mut Entity>"),
+            .contains("pub fn front__loc(es: &Vec<Entity>) -> Option<usize>"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains(".get_mut((0) as i64 as usize)"),
+        main.content.contains("heal({ let __l0 = front__loc(&es)"),
         "{}",
         main.content
     );
     assert!(
-        main.content.contains("heal(front__mut(&mut es)"),
+        main.content.contains("&mut es[__l0] })"),
         "{}",
         main.content
     );
@@ -13031,7 +13033,7 @@ fn rustc_compiles_and_runs_the_update_family() {
     run_rust_files(&files, "update_family", "111 220\n");
 }
 
-/// [rs-lend-mut] The v1 cut, loud: an **effect member** lending a mutable
+/// [rs-loc] The cut ④a slice 4 lifts, loud until then: an **effect member** lending a mutable
 /// handle cannot serve a `Mut` position — no named decl exists to emit a
 /// variant of (parked to GB-5's session, GROUP_BORROWING.md; a fn *value*
 /// cannot even spell a wholesale `proj Mut` return, so the member is the
@@ -13064,7 +13066,7 @@ fn main() [use] {
         .err()
         .expect("a lending effect member in a Mut position must be a codegen error");
     assert!(
-        errors.iter().any(|e| e.contains("[rs-lend-mut]")),
+        errors.iter().any(|e| e.contains("[rs-loc]")),
         "got {errors:?}"
     );
 }

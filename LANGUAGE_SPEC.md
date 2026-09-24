@@ -705,7 +705,7 @@ Conventions:
   [col-noteq] [elem-distinct]. Both promise `preserve Idx`
   [qual-preserve]: an in-place write moves no boundary, so sequential
   updates stay total. **Ordinary Salvo, not intrinsics** — the bodies are
-  exactly the mints the proofs legalize, riding [rs-lend-mut] on the Rust
+  exactly the mints the proofs legalize, riding [rs-loc] on the Rust
   backend. Note the parameters carry no container `Mut`: element
   mutability is the element type's [proj-mut].
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`

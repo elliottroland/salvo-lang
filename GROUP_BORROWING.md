@@ -1007,6 +1007,164 @@ The options catalogued for the fn-value half, kept here because they are
 - Rejected relatives, recorded: `RefCell` (P-2/GB-5-C's reasoning), and
   re-running the accessor per use (semantics change under mutation).
 
+### GB-5 second addendum — the locator unification (the ④ sketch; direction chosen by the user 2026-09-24, evening)
+
+**The decision.** Rung ④ is built on **locators as *the* representation of
+every mutable element handle** — not only the covered positions P-2's
+store described. One representation, iterated on by future work, in place
+of the five renderings the ladder had accumulated (①'s statement splices
+and virtual bindings, ②'s pair splices, ③'s `__mut` variants, and the
+covered store this rung was to add). P-2's handle-and-store is
+**absorbed, not reversed**: a covered handle is the locator whose anchor
+is shared. **GhostCell is declined on the record**: effect-style hidden
+threading answers its plumbing virality (the [rs-handle-bundle]
+precedent), but its brand is an invariant *lifetime* introduced by a
+scope, and actor state escapes every scope — one global token would
+serialize all element writes across pools, and the runtime-branded
+variants panic (the rejected posture). It stays in this document as the
+fallback should locators prove insufficient.
+
+**What a locator is.** `(anchor, path)`: a static path skeleton —
+field steps compile to projections and cost nothing — with runtime data
+only at element/key steps (a `usize`, a map key). A lend whose returned
+path varies by branch carries a small **generated path enum** (the
+finite path set is exactly what `lends.rs` already computes);
+re-materialization is a match. Locators compose through call forwarding
+the way ③'s demand closure already composes `__mut` variants, and
+`.expect` keeps `!`'s message and timing. Every access re-materializes
+statement-scoped, so no exclusivity window opens and per-statement
+`noalias` survives.
+
+**The expressibility rule** (the one cut-line, checked at
+*declarations*, not discovered at call sites): **a mutable lend must
+have a data-expressible path**. It recurses cleanly: a pass whose
+`Emitted` arm carries `Mut` is a pass whose `next` must itself mint
+locator-expressibly — which std's list passes do (`get(self.items,
+self.at)`), and which `for` threads from the protocol to the binding, so
+a handle may be returned out of a search loop. `map` falls out
+*correctly* rather than cut: its elements are computed values, and a
+value has no storage to locate — "places can be located, values cannot"
+is the semantic line. What stays out: lends through unbounded generic
+opacity (nothing about a bare `T` is knowable), and nothing else.
+
+**The cuts this lifts** (③'s parked set, plus two of ①/②'s): bound
+handles from user accessors (a locator is a bindable value), the NLL
+loop shape (a found position is data), lending **fn values** and
+**effect members** (a locator crosses those boundaries as an ordinary
+value — the trait carries the generated locator type), pass-hidden
+positions (above), and the statement-position-only restriction on pair
+calls. What it deliberately does *not* decide: mutating **during**
+iteration stays refused by the driven-origins rule — the locator makes
+the shape renderable; its *legality* is ⑤'s write-vs-destroy
+distinction, in sequence.
+
+**Costs, stated.** Mutable access pays bounds/path re-walk per use — the
+price P-2 accepted for covered positions, extended for uniformity; ③'s
+`__mut` returns were the only true zero-walk `&mut` and become
+locator-returning. The **read tier is untouched**: read handles stay
+`&`, `get`'s read path and the passes keep their prices, [copy-opt-in]'s
+economy stands. The bounds checks have their own recorded mitigation
+path (the `Idx`-justified audited `get_unchecked` splice, P-2's note)
+that keeps safe-by-default.
+
+**The B/C comparison, restated against locators** (2026-09-24; carry
+this into COMPLETED.md when the document folds — it is the rationale a
+revisit needs). The three strategies differ on two axes: *who guarantees
+soundness* (rustc for locators; the Salvo checker for pointers and
+RefCell) and *where the cost lands* (mut-access re-walk for locators;
+nothing for pointers; every access plus a flag word per element for
+RefCell).
+
+- **Raw pointers** (GB-5-B) give zero access cost and total
+  expressiveness (no path needed, opacity included) — and cost the
+  founding posture: a checker bug is silent UB. Under-weighted before:
+  a pointer **dangles under reallocation**, so it forecloses ⑤-style
+  relaxations (handles surviving `add`-class events) that a locator
+  survives mechanically — B buys speed today by closing the door the
+  ladder is walking toward. Mitigations, each partial: one audited
+  `Lend<T>` primitive with a written soundness argument; Miri over the
+  e2e suite (audits our tests, not user programs); a debug-checked /
+  release-raw split.
+- **RefCell** (GB-5-C) is the *safe* version of trusting the checker —
+  same trust, deterministic panic instead of UB when the trust fails
+  (it dominates B on failure mode). It still costs the rejected
+  panic-posture, **taxes the read tier** (every `.borrow()` = flag check
+  + guard + a word per element) where locators leave reads at plain `&`,
+  and buys no grow-survival either (`&RefCell<T>` is still a reference
+  into the Vec; only `Rc<RefCell<T>>` survives growth, at which point
+  the representation is the JVM's).
+- **Locators** alone keep rustc as the safety net, the read tier free,
+  and the ⑤ future open. Their own cost has a posture-preserving
+  mitigation: the `Idx`-claim-justified `get_unchecked` splice (P-2's
+  note) removes the bounds check exactly where a proof exists. The
+  recorded escape ladder, should mut-access re-walk ever measure: the
+  audited splice, then debug-RefCell/release-unchecked, then the
+  `Lend<T>` primitive — deliberate steps down the trust ladder, none
+  forced by the architecture.
+
+**Opacity is a liftable cut, not an inherent one.** Two compatible
+workarounds exist for lends through unbounded generics, both addable
+later without disturbing the model: (i) **implicit-supplied locator
+fns** — the house pattern that already pierces opacity everywhere else
+(`?copy`, `?cmp`, `params Yield<It, T>`): the call site, which knows the
+concrete shape, fills a `?loc` implicit; zero-cost, monomorphic. (ii)
+**Type-erased locators** — semantically a locator *is* a
+re-materialization function, so a `Box<dyn for<'a> FnMut(&'a mut A) ->
+&'a mut T>` is the fully general form; one allocation + dynamic dispatch
+per use, at opacity boundaries only. v1 cuts opacity loudly; either lift
+slots in beneath the same contract.
+
+**Locator storage in Rust.** Flat, lifetime-free, mostly-`Copy` data —
+which is exactly *why* locators cross closures, traits and loops freely:
+a single element step is a bare `usize` (①'s `__h0` was already this), a
+key step an owned key, a chain a tuple of its runtime steps (the static
+skeleton lives in the generated re-materialization code, not the data),
+a branch-dependent lend a small generated enum matched by its remat fn,
+and composition nests the inner locator's value. The anchor is never
+*inside* the locator — it is a separate parameter/place at every use,
+which is what keeps storage rules unchanged (a stored handle is refused
+today and stays refused; locators change representation, not lifetime
+discipline).
+
+**No last-value caching in locators** (decided 2026-09-24, the user's
+question answered on the record): a cached pointer inside a locator is
+GB-5-B smuggled back in with a *harder* audit (cache validity is exactly
+the poison analysis, re-verified at runtime boundaries; a bug is UB), and
+a cached `&mut` is the bound-borrow problem again. What caching would
+buy is covered posture-free: repeated same-index access falls to LLVM
+after inlining and to the counted-loop hoist in the indexed `for`
+lowering; proven-index access falls to the `get_unchecked` splice. The
+one honest gap is **map-keyed locators**, which re-hash per use — the
+recorded future answer is *static* slot-stability (SalvoMap slots are
+stable until compaction, so a slot-index locator under a checker
+guarantee of no intervening compaction is fast-where-proven applied to
+maps), not runtime caching.
+
+**The build sequence for ④**: **④a — the locator substrate**:**The build sequence for ④**: **④a — the locator substrate**, in
+slices, suite-green after each: (1) **BUILT 2026-09-24** — locator variants replace ③'s
+`__mut` machinery for named fns (`{name}__loc` answering position data;
+lent parameters drop to *read* mode — the search only reads; the seed
+call site materializes `&mut anchor[loc]`); (2) the bound-mint lift —
+①'s "direct `get(place, i)!` only" cut widens to any
+locator-expressible lending call; (3) lending **fn values** in the
+uniform whole-element case, with the **`?at` acceptance test** (a
+generic find-and-update through an implicit — the shape ③'s cut
+refused); (3′) **the `Locate` bundle in std** (user decision
+2026-09-24: `params Locate<C, L, T>` bundling `at` and a positions
+source, the `Yield` pattern for position-based algorithms — sequenced
+here because it *is* slice 3's idiom); (4) **effect members** lending
+mutably (the ③ cut flips to a rendering, uniform case first); (5) the
+indexed `for`-over-list lowering inside variant bodies — the search-loop
+/ NLL lift. Generated path enums for branch-dependent lends join when a
+std or test case first needs one; until then a non-uniform lend is the
+loud cut. **④b — `canbe` + covered anchors**: the decided grammar
+(GB-1(s)) parsed into clause entries, the same-call exemption exactly
+coverage-shaped (P-6), covered calls rendering against shared anchors,
+two-locals calls **per-site disjoint-specialized** (two plain `&mut` —
+GB-2-B showed two locals cannot alias, so no synthetic store ever needs
+building). Then **⑤ — GB-3-A** as decided, whose write-vs-destroy bit
+is also what would legalize in-place writes during iteration.
+
 ## §8. GB-6 — Kotlin implications (flags, not decisions)
 
 Kotlin gets aliasing for free, which is exactly why it needs watching:
@@ -1247,7 +1405,7 @@ reassignment), the poison consult, the proven-pair call
 (statement-position calls only, loud cut); the [qual-depend]
 reassignment-strips defect fixed en route. ③ **BUILT 2026-09-24** — the
 update family [col-update] as ordinary std Salvo over **mode-specialized
-lending** [rs-lend-mut] (the (a) fork; cuts parked to the GB-5 addendum
+lending** [rs-loc] (the (a) fork; cuts parked to the GB-5 addendum
 above); declared dependent claims made live in their own bodies
 [qual-depend], and the pair rule extended to fn-value and effect-member
 calls.

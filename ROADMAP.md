@@ -447,7 +447,7 @@ COMPLETED.md's log). Status:
   late; fold the refusal into ④'s same-call work.
 - **③ BUILT** (2026-09-24, COMPLETED.md's log): the update family
   [col-update] as ordinary std Salvo, riding **mode-specialized lending**
-  [rs-lend-mut] (option (a), the user's call — user-written accessors
+  [rs-loc] (re-founded as locator variants in ④a slice 1) (option (a), the user's call — user-written accessors
   serve `Mut` positions too; demand-driven `__mut` emissions). The
   `Distinct(i)`→`NotEq(i)` rename landed here [col-noteq], and three
   gaps found en route are fixed (declared dependent claims now live in
@@ -455,8 +455,16 @@ COMPLETED.md's log). Status:
   effect-member calls; a latent double-lifetime retag). **Leftover
   note**: `NotEq` could one day take any `?eq`-capable subject (user
   note 2026-09-24).
-- **④ `canbe` entries + the covered store rendering** (A), **⑤ GB-3-A**
-  — per GROUP_BORROWING.md's decided grammar and the P-round outcomes.
+- **④ NEXT — the locator unification + `canbe`** (direction chosen
+  2026-09-24, evening — GROUP_BORROWING.md's *second* GB-5 addendum): ④a
+  re-founds every mutable-handle rendering on **locators** (`(anchor,
+  path)` — one representation, one declaration-checked expressibility
+  rule, ③'s parked cuts lifted, GhostCell declined on the brand/actor
+  argument, P-2's store absorbed); ④b adds the decided `canbe` grammar
+  and covered anchors on top (two-locals calls per-site
+  disjoint-specialized; the ④a slice plan, `Locate` bundle included,
+  is in the addendum). **⑤ GB-3-A** follows, whose write-vs-destroy
+  bit also decides in-place writes during iteration.
   **The ④ session's table widened** (user decision 2026-09-24, step ③):
   it must also weigh lifting step ③'s lending-fork cuts — bound handles
   from user accessors, the NLL loop shape, lending fn *values* — and the

@@ -1137,29 +1137,34 @@ struct Emitter<'p> {
     /// `emit_call` refuses any distinct-pair call it does not find here —
     /// the v1 cut (statement position only), loud.
     pair_ready: HashSet<Span>,
-    /// [rs-lend-mut] Whether a lending fn's **mut variant** is being
-    /// emitted: lent parameters arrive `&mut`, the return's `proj` renders
-    /// `&mut`, forwarded lending calls take their callees' `__mut`
-    /// variants, and derived-return intrinsic splices take their mut forms.
-    lend_mut_mode: bool,
-    /// [rs-lend-mut] Named lending fns some call site uses mutably —
-    /// closed transitively over return-path forwards. Each gets a demand-
-    /// driven second emission (`{name}__mut`).
+    /// [rs-loc] Whether a lending fn's **locator variant** is being
+    /// emitted: the fn answers *position data* (`usize`,
+    /// `Option<usize>`) instead of a borrow, lent parameters drop to
+    /// *read* mode (the search only reads), forwarded lending calls take
+    /// their callees' `__loc` variants, and derived-return intrinsic
+    /// splices take their locator forms. The caller materializes
+    /// `&mut anchor[loc]` at the use site, statement-scoped.
+    lend_loc_mode: bool,
+    /// [rs-loc] Named lending fns some call site uses mutably — closed
+    /// transitively over return-path forwards. Each gets a demand-driven
+    /// second emission (`{name}__loc`), the locator variant.
     mut_lend_fns: HashSet<salvo_core::FnKey>,
-    /// [rs-lend-mut] The seed call sites (`Checked::mut_lend_calls`
-    /// resolved to named non-intrinsic lenders): rendered against the
-    /// callee's `__mut` variant, lent arguments `&mut`.
+    /// [rs-loc] The seed call sites (`Checked::mut_lend_calls` resolved
+    /// to named non-intrinsic lenders): rendered against the callee's
+    /// `__loc` variant (read-mode arguments) and materialized
+    /// `&mut anchor[loc]` at the site.
     mut_call_sites: HashSet<(usize, Span)>,
-    /// [rs-lend-mut] Return-path lending calls *inside* demanded lenders:
-    /// renamed/mut-spliced only while `lend_mut_mode` (the same span also
+    /// [rs-loc] Return-path lending calls *inside* demanded lenders:
+    /// renamed/loc-spliced only while `lend_loc_mode` (the same span also
     /// renders normally in the read emission).
     mut_forward_sites: HashSet<(usize, Span)>,
-    /// [rs-lend-mut] Mutable-use lending calls with **no named callee** —
-    /// a fn value or effect member lending a mutable handle: the loud v1
-    /// cut (parked to GB-5's session, GROUP_BORROWING.md).
+    /// [rs-loc] Mutable-use lending calls with **no named callee** — a fn
+    /// value or effect member lending a mutable handle: the loud cut
+    /// slices 3–4 of ④a lift (GROUP_BORROWING.md's second addendum).
     mut_lend_cuts: HashSet<(usize, Span)>,
-    /// [rs-lend-mut] The lent parameter names of the `__mut` callee whose
-    /// arguments are being rendered: those positions take `RefMut`.
+    /// [rs-loc] The lent parameter names of the `__loc` callee whose
+    /// arguments are being rendered: those positions take *read* mode —
+    /// the locator search borrows nothing mutably.
     mut_call_lent: HashSet<String>,
     /// [rs-read-mode] What the position being emitted wants of the value: a
     /// **read** (a `&T` is enough) or an **owned** value (a store, a return, a
@@ -1421,7 +1426,7 @@ enum StmtCtx {
     Normal,
 }
 
-/// [rs-lend-mut] The demand sets of mode-specialized lending emission
+/// [rs-loc] The demand sets of mode-specialized lending emission
 /// (group-borrowing ladder step ③, user decision 2026-09-24 — option (a)
 /// over promoting the total `get` to intrinsic, so *user-written* lending
 /// accessors serve `Mut` positions too).
@@ -1498,7 +1503,7 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
     }
 }
 
-/// [rs-lend-mut] Every expression a block can `return` (explicit `return`s
+/// [rs-loc] Every expression a block can `return` (explicit `return`s
 /// plus the tails of value blocks), for the demand closure's forward walk.
 /// Lambda bodies are a barrier: their returns are their own.
 fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
@@ -1597,7 +1602,7 @@ fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
     }
 }
 
-/// [rs-lend-mut] The call span a `Mut`-position argument bottoms out in,
+/// [rs-loc] The call span a `Mut`-position argument bottoms out in,
 /// through `!` and projection steps — the syntactic mirror of the
 /// checker's `mut_lend_call_span`.
 fn mut_lend_call_of(expr: &Expr) -> Option<Span> {
@@ -1643,7 +1648,7 @@ impl<'p> Emitter<'p> {
             handle_seq: 0,
             pair_args: HashMap::new(),
             pair_ready: HashSet::new(),
-            lend_mut_mode: false,
+            lend_loc_mode: false,
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
             mut_forward_sites: lend_mut.forwards,
@@ -3934,16 +3939,16 @@ impl<'p> Emitter<'p> {
 
     fn emit_fn(&mut self, f: &FnDecl) -> String {
         let mut out = self.emit_fn_inner(f, FnStyle::TopLevel, 0);
-        // [rs-lend-mut] A demanded lender is emitted twice: the read
-        // emission above (every read caller keeps it), and the mut
-        // variant — the same body under `lend_mut_mode`.
+        // [rs-loc] A demanded lender is emitted twice: the read emission
+        // above (every read caller keeps it), and the locator variant —
+        // the same body under `lend_loc_mode`, answering position data.
         if self
             .key_of_fn(f)
             .is_some_and(|k| self.mut_lend_fns.contains(&k))
         {
-            self.lend_mut_mode = true;
+            self.lend_loc_mode = true;
             out.push_str(&self.emit_fn_inner(f, FnStyle::TopLevel, 0));
-            self.lend_mut_mode = false;
+            self.lend_loc_mode = false;
         }
         out
     }
@@ -4169,10 +4174,12 @@ impl<'p> Emitter<'p> {
         if param.variadic {
             return ParamMode::Owned; // callers assemble a fresh Vec
         }
-        // [rs-lend-mut] The lent parameter of a mut-variant call arrives
-        // `&mut` whatever the read signature says.
+        // [rs-loc] The lent parameter of a locator-variant call arrives
+        // *read* — the search borrows nothing mutably — whatever the read
+        // signature says (`List<Mut T>` is `&mut` there only because it
+        // lends handles).
         if !self.mut_call_lent.is_empty() && self.mut_call_lent.contains(&param.name.name) {
-            return ParamMode::RefMut;
+            return ParamMode::Ref;
         }
         if self.is_copy_ast_type(&param.ty) {
             return ParamMode::Owned;
@@ -4708,7 +4715,7 @@ impl<'p> Emitter<'p> {
             if p.implicit {
                 continue; // appended below, in the checker's order
             }
-            let lent_here = self.lend_mut_mode
+            let lent_here = self.lend_loc_mode
                 && (f.derived_return
                     .as_ref()
                     .is_some_and(|d| d.name == p.name.name)
@@ -4721,9 +4728,11 @@ impl<'p> Emitter<'p> {
                         })
                         .unwrap_or(false));
             let mode = match style {
-                // [rs-lend-mut] In the mut variant, the lent parameter
-                // arrives `&mut` whatever the read emission chose.
-                FnStyle::TopLevel if lent_here => ParamMode::RefMut,
+                // [rs-loc] In the locator variant, the lent parameter
+                // arrives *read* — the search borrows nothing mutably,
+                // whatever the read emission chose (`List<Mut T>` is
+                // `&mut` there only because it lends handles).
+                FnStyle::TopLevel if lent_here => ParamMode::Ref,
                 FnStyle::TopLevel => self.param_mode(fn_key, p),
                 // [effect-member-overload] [rs-borrows] A handler member's
                 // signature has to match the trait's, so its modes come from
@@ -4922,7 +4931,10 @@ impl<'p> Emitter<'p> {
         // with more, a `'a` is generated mechanically and tags the
         // annotated parameter and the return.
         let mut lifetime_generics = String::new();
-        self.derived_return_fn = f.derived_return.is_some();
+        // [rs-loc] The locator variant returns owned position data, not a
+        // borrow: the derived-return machinery (lifetimes, borrow
+        // forwarding) stands down for it.
+        self.derived_return_fn = f.derived_return.is_some() && !self.lend_loc_mode;
         self.returns_borrowing_struct = matches!(
             f.return_type.as_ref(),
             Some(Type::Named { base, .. }) if self.borrowing_structs.contains(&base.name.name)
@@ -4951,6 +4963,22 @@ impl<'p> Emitter<'p> {
         };
         let ret = if is_main {
             String::new()
+        } else if f.derived_return.is_some() && self.lend_loc_mode {
+            // [rs-loc] The locator variant's return: position data,
+            // optional exactly where the read emission was — `usize` for
+            // a total lend, `Option<usize>` for an optional one. No
+            // lifetimes: nothing is borrowed. Shapes beyond the plain and
+            // optional element lend are this slice's loud cut.
+            match f.return_type.as_ref() {
+                Some(Type::Nullable { .. }) => " -> Option<usize>".to_string(),
+                Some(Type::Named { .. }) => " -> usize".to_string(),
+                other => {
+                    self.error(format!(
+                        "this lending fn's return shape is not                          locator-lowered yet [rs-loc]: `{other:?}`"
+                    ));
+                    String::new()
+                }
+            }
         } else if f.derived_return.is_some() {
             // [rs-proj-struct] When the annotated parameter is itself a
             // borrowing struct (`p: &mut ListYield<'s, T>`), the returned
@@ -5002,7 +5030,7 @@ impl<'p> Emitter<'p> {
                     if let Some(entry) = params.get_mut(idx) {
                         // One retag only: the `&mut` arm's output starts
                         // with `: &`, so a second pass would double the
-                        // lifetime (`&'a 'a mut`, found by [rs-lend-mut]'s
+                        // lifetime (`&'a 'a mut`, found by [rs-loc]'s
                         // variant of the total `get`).
                         *entry = if entry.contains(": &mut ") {
                             entry.replacen(": &mut ", ": &'a mut ", 1)
@@ -5142,9 +5170,9 @@ impl<'p> Emitter<'p> {
             }
         } else if top_level || matches!(style, FnStyle::QualifierFn) {
             let base = self.rust_fn_name(f);
-            // [rs-lend-mut] The mut variant's name.
-            if self.lend_mut_mode {
-                format!("{base}__mut")
+            // [rs-loc] The locator variant's name.
+            if self.lend_loc_mode {
+                format!("{base}__loc")
             } else {
                 base
             }
@@ -5441,10 +5469,6 @@ impl<'p> Emitter<'p> {
                 .clone()
                 .map(|l| format!("{l} "))
                 .unwrap_or_default();
-            // [rs-lend-mut] The mut variant's return lends mutably.
-            if self.lend_mut_mode && self.proj_return {
-                return format!("&{lt}mut {rendered}");
-            }
             return format!("&{lt}{rendered}");
         }
         match ty {
@@ -11742,6 +11766,55 @@ impl<'p> Emitter<'p> {
         self.elem_handle_parts(expr).map(|(r, i, _)| (r, i))
     }
 
+    /// [rs-loc] The **anchor place** of a mutable-lend materialization:
+    /// the argument the seed call passes at the callee's lent parameter.
+    /// `None` unless it is a pure place (a call-result container has no
+    /// storage to re-index).
+    fn lend_anchor_place(&mut self, expr: &Expr, call_span: Span) -> Option<String> {
+        let mut e = expr;
+        loop {
+            match e {
+                Expr::NonNull { operand, .. } => e = operand,
+                Expr::Field { base, .. } => e = base,
+                Expr::TupleIndex { base, .. } => e = base,
+                Expr::Index { base, .. } => e = base,
+                _ => break,
+            }
+        }
+        let Expr::Call { callee, args, .. } = e else {
+            return None;
+        };
+        let key = *self.checked.call_fn.get(&(self.file_idx, call_span))?;
+        let decl = self.fn_by_key(key)?;
+        let lent_name = decl
+            .derived_return
+            .as_ref()
+            .map(|d| d.name.clone())
+            .or_else(|| {
+                decl.return_type
+                    .as_ref()
+                    .and_then(|rt| proj_refs_with_from(rt).into_iter().next())
+                    .and_then(|from| from.into_iter().next())
+            })?;
+        let idx = decl
+            .params
+            .iter()
+            .position(|p| p.name.name == lent_name)?;
+        let arg: &Expr = if let Expr::Field { base, .. } = callee.as_ref() {
+            if idx == 0 {
+                base
+            } else {
+                args.get(idx - 1)?
+            }
+        } else {
+            args.get(idx)?
+        };
+        if !self.place_is_pure(arg) {
+            return None;
+        }
+        Some(self.emit_place(arg))
+    }
+
     fn borrowed_mut_arg(&mut self, expr: &Expr) -> String {
         // [rs-elem-mut] [elem-distinct] A distinct-pair argument was
         // pre-split by the statement's `salvo_pair_mut` preamble into a
@@ -11749,25 +11822,41 @@ impl<'p> Emitter<'p> {
         if let Some(code) = self.pair_args.remove(&expr.span()) {
             return code;
         }
-        // [rs-lend-mut] A lending call whose result serves this `Mut`
-        // position: the call renders against the callee's mut variant and
-        // already answers `&mut T` — pass it through bare. A lender with
-        // no named callee (a fn value, an effect member) is the loud v1
-        // cut, parked to GB-5's session.
+        // [rs-loc] A lending call whose result serves this `Mut`
+        // position: the call renders against the callee's `__loc` variant
+        // (a read-mode search answering position data), and the handle
+        // materializes here — `{ let __l = …; &mut anchor[__l] }`, the
+        // read borrow over before the write borrow begins. The direct
+        // `get` shape short-circuits to its inline splice below instead
+        // (the degenerate locator). A lender with no named callee (a fn
+        // value, an effect member) is the loud cut slices 3–4 lift.
         if let Some(call_span) = mut_lend_call_of(expr) {
             if self.mut_lend_cuts.contains(&(self.file_idx, call_span)) {
                 self.errors.push(format!(
                     "a fn value or effect member lending a mutable handle \
-                     cannot serve a `Mut` position yet [rs-lend-mut] (at {})",
+                     cannot serve a `Mut` position yet [rs-loc] (at {})",
                     self.salvo_location(call_span)
                 ));
                 return String::new();
             }
-            if self.mut_call_sites.contains(&(self.file_idx, call_span))
-                || (self.lend_mut_mode
-                    && self.mut_forward_sites.contains(&(self.file_idx, call_span)))
+            if (self.mut_call_sites.contains(&(self.file_idx, call_span))
+                || (self.lend_loc_mode
+                    && self.mut_forward_sites.contains(&(self.file_idx, call_span))))
+                && self.elem_handle_parts(expr).is_none()
             {
-                return self.emit_expr(expr);
+                let Some(anchor) = self.lend_anchor_place(expr, call_span) else {
+                    self.errors.push(format!(
+                        "cannot materialize this mutable handle: bind the \
+                         container to a variable first — its anchor must be \
+                         a plain place [rs-loc] (at {})",
+                        self.salvo_location(call_span)
+                    ));
+                    return String::new();
+                };
+                let var = format!("__l{}", self.handle_seq);
+                self.handle_seq += 1;
+                let inner = self.emit_expr(expr);
+                return format!("{{ let {var} = {inner}; &mut {anchor}[{var}] }}");
             }
         }
         // [rs-narrow-mut] A *narrowed* place is reached through the mutable
@@ -13780,9 +13869,9 @@ impl<'p> Emitter<'p> {
             } else {
                 crate::intrinsics::Spread::Borrowed
             };
-            // [rs-lend-mut] A return-path forward inside a mut variant
-            // takes the intrinsic's mut form.
-            let mut_lend = self.lend_mut_mode
+            // [rs-loc] A return-path forward inside a locator variant
+            // takes the intrinsic's locator form.
+            let mut_lend = self.lend_loc_mode
                 && self.mut_forward_sites.contains(&(self.file_idx, span));
             if let Some(code) =
                 crate::intrinsics::fn_call(
@@ -14661,11 +14750,11 @@ impl<'p> Emitter<'p> {
             std::mem::replace(&mut self.retagged_generics, borrowed_elem_generics.clone());
         let outer_mints = std::mem::take(&mut self.pending_mints);
         let outer_machines = std::mem::take(&mut self.mint_machines);
-        // [rs-lend-mut] A call rendered against the callee's mut variant:
+        // [rs-loc] A call rendered against the callee's locator variant:
         // a seed site (the result is used mutably here), or a return-path
         // forward inside a variant body being emitted.
         let mut_lend_call = self.mut_call_sites.contains(&(self.file_idx, span))
-            || (self.lend_mut_mode && self.mut_forward_sites.contains(&(self.file_idx, span)));
+            || (self.lend_loc_mode && self.mut_forward_sites.contains(&(self.file_idx, span)));
         let saved_lent = if mut_lend_call {
             let lent: HashSet<String> = f
                 .derived_return
@@ -14720,9 +14809,9 @@ impl<'p> Emitter<'p> {
         } else {
             self.rust_fn_name(f)
         };
-        // [rs-lend-mut] …and the variant's name.
+        // [rs-loc] …and the locator variant's name.
         if mut_lend_call {
-            rs_name = format!("{rs_name}__mut");
+            rs_name = format!("{rs_name}__loc");
         }
         // [rs-shadowed-call] [fn-overload-at] A **local of the same name** shadows the function
         // in Rust's value namespace (E0618: "call expression requires

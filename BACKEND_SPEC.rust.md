@@ -617,38 +617,40 @@ the blanket rule:
     Idx-claimed `get`, `first`, a call-result container) is a reported
     codegen error naming the remedy. Kotlin needs none of this — objects
     alias natively, so the handle is the element reference.
-* [rs-lend-mut] **Mode-specialized lending** (group-borrowing ladder step
-  ③, user decision 2026-09-24 — chosen over promoting the total `get` to
-  intrinsic, so *user-written* accessors serve `Mut` positions): a named
-  lending fn whose result some call site uses mutably gets a
-  **demand-driven second emission**, `{name}__mut`, beside the read one.
-  * The read emission is untouched and stays the default: Salvo's read
-    handles are shared (`cmp(front(es), back(es))` is legal), and shared
-    renders `&` — the `Mut` in a return type is *permission*, the mode is
-    *use*, exactly [fate-move-mode]'s split.
-  * The variant flips exactly four things: lent parameters arrive `&mut`
-    (`proj_refs`' sources), the return's `proj` renders `&mut` under the
-    same lifetime, return-path forwards call their callees' `__mut`
-    variants (demand closes transitively — which is how std's total `get`
-    works with no intrinsic promotion), and derived-return intrinsic
-    splices take their mut forms (`get` → `get_mut`; an intrinsic without
-    a mut form answers nothing and the site reports it
-    [backend-never-wrong]).
-  * Demand: `Checked::mut_lend_calls` (the checker records every lending
-    call whose result is used mutably — a `Mut` argument position or an
-    assignment through it), resolved through `call_fn` and closed over
-    return-path lending calls (`lend_mut_demand`).
-  * **The loud v1 cuts** (parked to GB-5's session — GROUP_BORROWING.md's
-    addendum): an *effect member* lending a mutable handle (no named decl
-    to emit a variant of; a fn value cannot even spell a wholesale
-    `proj Mut` return, so the member is the whole reachable surface), and
-    *bound* handles minted from user accessors (①'s cut stands — no index
-    to capture, and a bound `&mut` violates Rust's aliasing model against
-    checker-legal container reads). A lending body that conditionally
-    returns a borrow found in a loop then touches the container is the
-    known NLL limit: sound, Polonius-accepted, fails loudly in today's
-    rustc.
-  * Kotlin: nothing — objects alias; parity pinned by the e2e cases.
+* [rs-loc] **Locator-specialized lending** (④a slice 1, 2026-09-24 —
+  re-founding step ③'s mode-specialization on the locator model,
+  GROUP_BORROWING.md's second GB-5 addendum): a named lending fn whose
+  result some call site uses mutably gets a **demand-driven locator
+  variant**, `{name}__loc`, beside the read emission.
+  * The variant answers **position data** — `usize` for a total element
+    lend, `Option<usize>` for an optional one, optional exactly where the
+    read emission was, so `!` keeps its message and timing. Its lent
+    parameters drop to *read* mode (the search borrows nothing mutably),
+    and it carries **no lifetimes** — a locator is owned data, which is
+    what lets later slices pass it through closures and traits.
+  * The **use site materializes** the handle, statement-scoped:
+    `{ let __l = callee__loc(&anchor, …).expect(…); &mut anchor[__l] }` —
+    the read borrow over before the write borrow begins, per-statement
+    `noalias` kept. The anchor must be a plain place (a call-result
+    container has no storage to re-index); anything else is a reported
+    error naming the remedy. The direct `get(place, i)` shape
+    short-circuits to its inline splice (the degenerate locator).
+  * Body transform: return-path forwards take their callees' `__loc`
+    variants (demand closes transitively, `lend_mut_demand`); a
+    derived-return intrinsic takes its **locator form** (`get` answers
+    `Some(i)` under a presence test, `None` where the read answered
+    `None`); an intrinsic without one, or a return shape beyond the plain
+    and optional element lend, is a reported error, never a silent read
+    lowering [backend-never-wrong].
+  * The read emission stays the default for read uses: Salvo's read
+    handles are shared, and shared renders `&` — the `Mut` in a return
+    type is *permission*, mode is *use* ([fate-move-mode]'s split).
+  * **The remaining cuts, loud, lifted by ④a's later slices**: lending
+    fn values and effect members (slices 3–4 — a locator crosses those
+    boundaries as ordinary data), search loops over passes (slice 5),
+    branch-dependent path sets (generated path enums, when first
+    needed). Kotlin: nothing — objects alias; parity pinned by the e2e
+    cases.
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

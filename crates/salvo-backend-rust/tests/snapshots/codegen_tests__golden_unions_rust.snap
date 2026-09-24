@@ -179,8 +179,8 @@ pub fn get<'a, T: Clone>(list: &'a Vec<T>, index: &i32) -> &'a T {
     return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
 }
 
-pub fn get__mut<'a, T: Clone>(list: &'a mut Vec<T>, index: &i32) -> &'a mut T {
-    return list.get_mut((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
+pub fn get__loc<T: Clone>(list: &Vec<T>, index: &i32) -> usize {
+    return { let __i = (*index + 0) as i64 as usize; if __i < list.len() { Some(__i) } else { None } }.expect("salvo: value is absent at core.list:90:12");
 }
 
 pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
@@ -189,7 +189,7 @@ pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
-    f(get__mut(list, index));
+    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:109:7"));
     return;
 }
 

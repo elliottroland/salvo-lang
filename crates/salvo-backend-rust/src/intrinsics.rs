@@ -54,17 +54,18 @@ pub fn fn_call(
     type_args: &[String],
     spread: Spread,
     ordering: Option<&str>,
-    // [rs-lend-mut] The call is a return-path forward inside a lending
-    // fn's mut variant: the lowering must lend `&mut`. Only the lenders
-    // with a mut form answer; the rest fall through to `None`, which the
-    // caller reports [backend-never-wrong].
-    mut_lend: bool,
+    // [rs-loc] The call is a return-path forward inside a lending fn's
+    // **locator variant**: the lowering answers *position data* instead
+    // of a borrow. Only the lenders with a locator form answer; the rest
+    // fall through to `None`, which the caller reports
+    // [backend-never-wrong].
+    loc_lend: bool,
 ) -> Option<String> {
     // Unlike Kotlin, rustc infers a `vec![]`'s element type from later
     // use, so pinning it here would churn the output for nothing.
     let _ = type_args;
-    if mut_lend && !matches!((name, recv), ("get", Some("List")) | ("get", Some("[]"))) {
-        // [rs-lend-mut] No mut form for this intrinsic yet: `None` makes
+    if loc_lend && !matches!((name, recv), ("get", Some("List")) | ("get", Some("[]"))) {
+        // [rs-loc] No locator form for this intrinsic yet: `None` makes
         // the reference site report it, never a silently-read lowering.
         return None;
     }
@@ -334,9 +335,15 @@ pub fn fn_call(
         // caller that needs ownership says `copy` [copy-opt-in]. (Until
         // 2026-09-11 every read cloned, even one that only tested `None`.)
         ("get", Some("List")) | ("get", Some("[]")) => {
-            if mut_lend {
-                // [rs-lend-mut] The mut variant's element access.
-                format!("{}.get_mut({})", a(0), index(1))
+            if loc_lend {
+                // [rs-loc] The locator form: the position when present,
+                // `None` where the read would have answered `None` — same
+                // absence semantics, no borrow taken.
+                format!(
+                    "{{ let __i = {}; if __i < {}.len() {{ Some(__i) }} else {{ None }} }}",
+                    index(1),
+                    a(0)
+                )
             } else {
                 format!("{}.get({})", a(0), index(1))
             }

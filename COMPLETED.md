@@ -133,6 +133,42 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The locator substrate, slice 1 — group-borrowing rung ④a begins
+(built 2026-09-24, evening; direction decided the same evening,
+GROUP_BORROWING.md's second GB-5 addendum).** The evening's exploration
+(user-driven) chose **locators as *the* representation of every mutable
+element handle** — one model future work iterates on, in place of the
+five renderings the ladder had accumulated — with GhostCell **declined
+on the record** (effect-style hidden threading answers its plumbing
+virality, but its scope-bound brand lifetime cannot survive actor
+lifecycles; one global token would serialize all element writes across
+pools) and P-2's handle-and-store **absorbed** (a covered handle is the
+locator whose anchor is shared). Also recorded there, for the revisit
+this will one day get: the full B/C comparison restated against locators
+(pointers dangle under reallocation, closing the ⑤ door they'd buy
+speed with; RefCell is the *safe* checker-trust with a read-tier tax and
+no grow-survival either), the mitigation ladder (audited `get_unchecked`
+splice → debug-RefCell/release-unchecked → `Lend<T>` primitive), opacity
+as a liftable cut (implicit-supplied `?at` locator fns — the house
+pattern, usable by convention from day one — or type-erased remat
+closures), locator storage (flat, lifetime-free, mostly-`Copy` data; the
+anchor never inside), **no last-value caching** (a cached pointer is
+GB-5-B with a harder audit; LLVM + the counted-loop hoist + the proven
+`get_unchecked` splice cover the wins posture-free; map re-hashing's
+recorded answer is static slot-stability on SalvoMap), and the `Locate`
+std bundle (user decision — `params Locate<C, L, T>`, sequenced as ④a
+slice 3′). **Slice 1 itself**: ③'s `__mut` variants re-founded as
+`{name}__loc` **locator variants** [rs-loc] — position data out
+(`usize`/`Option<usize>`, optional exactly where the read emission was),
+lent parameters dropped to *read* mode, no lifetimes; use sites
+materialize `{ let __l = callee__loc(&anchor,…).expect(…); &mut
+anchor[__l] }` statement-scoped (anchor must be a plain place, refused
+otherwise); the intrinsic `get` gained its locator form (a presence
+test answering `Some(i)`); the direct-`get` shape short-circuits to its
+inline splice (the degenerate locator). The label swept
+[rs-lend-mut]→[rs-loc] repo-wide. update/update2 unchanged and green
+(`111 220`), accessor demo green (`15 7`). 1439 tests green.
+
 **The update family and mode-specialized lending — group-borrowing
 ladder step ③ (built 2026-09-24; user decisions same day).** Decisions
 first: the Int-subject qualifier shipped in ② is **renamed `NotEq`**
@@ -140,12 +176,12 @@ first: the Int-subject qualifier shipped in ② is **renamed `NotEq`**
 what it claims; generalizing it to any `?eq`-capable subject is a recorded
 ROADMAP note), gains `with Idx` [qual-with]; the family promises
 `preserve Idx` (an in-place write moves no boundary); and the lending
-fork went to **mode-specialized emission** — option (a), chosen over
+fork went to **mode-specialized emission** — option (a) (its `__mut` variants were re-founded as locator variants [rs-loc] in ④a slice 1, same day), chosen over
 promoting the total `get` to intrinsic after a worked comparison (the
 user's call: users must be able to write their own mutable accessors),
 with the fn-value/effect-member/bound-handle/NLL cuts **parked to GB-5's
 session** and the **GhostCell/branded-token representation added to that
-table** (GROUP_BORROWING.md's GB-5 addendum). Built: [rs-lend-mut] — a
+table** (GROUP_BORROWING.md's GB-5 addendum). Built: [rs-loc] — a
 named lending fn used mutably anywhere gets a demand-driven `__mut`
 emission (lent params `&mut`, `proj` return `&mut`, transitive
 return-path forwards, intrinsic mut splices — `get`→`get_mut`; demand

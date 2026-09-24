@@ -778,7 +778,7 @@ pub struct Checked {
     /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
     /// the call.
     pub distinct_pairs: HashMap<Key, (usize, usize)>,
-    /// [rs-lend-mut] Derived-return calls whose **result is used
+    /// [rs-loc] Derived-return calls whose **result is used
     /// mutably** — passed to a `Mut` position or assigned through — keyed
     /// by the call span. The Rust backend renders such a call against the
     /// callee's demand-emitted `__mut` variant (mode-specialized lending,
@@ -13571,7 +13571,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// reach. Every site that mutates through a non-identifier expression
     /// goes through here, so no invalidation site can be forgotten.
     fn fate_mutation_through(&mut self, expr: &Expr, span: Span) {
-        // [rs-lend-mut] A mutation through a lending call's result is the
+        // [rs-loc] A mutation through a lending call's result is the
         // demand that makes the Rust backend emit the callee's mut
         // variant: record the call.
         if let Some(call_span) = self.mut_lend_call_span(expr) {
@@ -13602,7 +13602,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [rs-lend-mut] The innermost **derived-return call** a mutable use
+    /// [rs-loc] The innermost **derived-return call** a mutable use
     /// reaches through: `heal(front(es)!)` and `front(es)!.hp = 1` both
     /// answer `front(es)`'s span. `None` when the expression does not
     /// bottom out in a lending call whose result carries `proj Mut`.
