@@ -2439,11 +2439,35 @@ impl<'p> Emitter<'p> {
                 self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
-            let ret = self.emit_return_type(f.return_type.as_ref());
+            let mut ret = self.emit_return_type(f.return_type.as_ref());
+            let mut params = params;
+            let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
             out.push_str(&format!(
-                "    fn {}(&mut self{params}){ret};\n",
+                "    fn {}{lt}(&mut self{params}){ret};\n",
                 self.member_name(e, i)
             ));
+            // [rs-loc] ④a slice 4 — a member whose return is a **wholesale
+            // mutable lend** gains a locator sibling: position data out,
+            // read-mode parameters. Declaration-driven (a trait is one
+            // surface for every handler and every caller), so such a member
+            // always carries both faces.
+            if f.return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+            {
+                let saved = std::mem::replace(&mut self.lend_loc_mode, true);
+                let loc_params = format!(
+                    "{}{}",
+                    self.emit_member_param_list(f),
+                    self.emit_member_implicits(f)
+                );
+                let loc_ret = self.loc_return_type(f);
+                self.lend_loc_mode = saved;
+                out.push_str(&format!(
+                    "    fn {}__loc(&mut self{loc_params}){loc_ret};\n",
+                    self.member_name(e, i)
+                ));
+            }
         }
         out.push_str("}\n");
         // [rs-effect-fusion] The Has-accessor trait, next to the effect it
@@ -2626,7 +2650,9 @@ impl<'p> Emitter<'p> {
                 self.emit_member_param_list(f),
                 self.emit_member_implicits(f)
             );
-            let ret = self.emit_return_type(f.return_type.as_ref());
+            let mut ret = self.emit_return_type(f.return_type.as_ref());
+            let mut params = params;
+            let lt = self.member_lend_lifetime(f, &mut params, &mut ret);
             let mut args: Vec<String> = f
                 .params
                 .iter()
@@ -2636,13 +2662,36 @@ impl<'p> Emitter<'p> {
             args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
             let args = args.join(", ");
             out.push_str(&format!(
-                "    fn {member}(&mut self{params}){ret} {{\n        \
+                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
                  self.inner.{member}({args})\n    }}\n"
             ));
             forwards.push_str(&format!(
-                "    fn {member}(&mut self{params}){ret} {{\n        \
+                "    fn {member}{lt}(&mut self{params}){ret} {{\n        \
                  self.inner.lock().unwrap().{member}({args})\n    }}\n"
             ));
+            // [rs-loc] ④a slice 4 — both adapters forward the locator face
+            // of a mutable-lending member, or the trait impl is incomplete.
+            if f.return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+            {
+                let saved = std::mem::replace(&mut self.lend_loc_mode, true);
+                let loc_params = format!(
+                    "{}{}",
+                    self.emit_member_param_list(f),
+                    self.emit_member_implicits(f)
+                );
+                let loc_ret = self.loc_return_type(f);
+                self.lend_loc_mode = saved;
+                out.push_str(&format!(
+                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
+                     self.inner.{member}__loc({args})\n    }}\n"
+                ));
+                forwards.push_str(&format!(
+                    "    fn {member}__loc(&mut self{loc_params}){loc_ret} {{\n        \
+                     self.inner.lock().unwrap().{member}__loc({args})\n    }}\n"
+                ));
+            }
         }
         out.push_str("}\n");
         // [rs-monitor] The lock adapter, generic over the handler so one
@@ -2657,6 +2706,21 @@ impl<'p> Emitter<'p> {
                 g_params.trim_start_matches('<').trim_end_matches('>')
             )
         };
+        // [rs-loc] ④a slice 4 — an effect with a **wholesale-lending**
+        // member has no lock adapter: a borrow cannot escape a mutex guard
+        // (E0515), and a member that lends one therefore cannot be shared
+        // across threads. Such an effect is `use local` by nature; sharing
+        // one is reported at the `use`.
+        if e.fns.iter().any(|f| {
+            f.return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+        }) {
+            if self.fusion {
+                out.push_str(&emit_has_impl(&g_params, &name, &e.name.name, &g_args, "self"));
+            }
+            return out;
+        }
         out.push_str(&format!(
             "\npub struct {lock}<H> {{\n    \
              inner: std::sync::Arc<std::sync::Mutex<H>>,\n}}\n\n\
@@ -3335,6 +3399,18 @@ impl<'p> Emitter<'p> {
                         continue;
                     }
                     out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+                    // [rs-loc] ④a slice 4 — the locator face of a
+                    // mutable-lending member: the same body, answering
+                    // position data (the trait declares both).
+                    if f.return_type
+                        .as_ref()
+                        .is_some_and(|rt| fn_type_lends_mut(rt))
+                    {
+                        self.mark_loc_forwards(f);
+                        self.lend_loc_mode = true;
+                        out.push_str(&self.emit_fn_inner(f, FnStyle::HandlerMember(h), 1));
+                        self.lend_loc_mode = false;
+                    }
                 }
                 out.push_str("}\n");
             }
@@ -4092,10 +4168,17 @@ impl<'p> Emitter<'p> {
         let Some(decl) = self.symbols.effects.get(effect).copied() else {
             return rs_ident(name);
         };
+        // [rs-loc] ④a slice 4 — a member call whose result serves a `Mut`
+        // position (or a return-path forward inside a locator variant)
+        // routes to the member's **locator face**.
+        let loc = self.checked.mut_lend_calls.contains(&(self.file_idx, span))
+            || (self.lend_loc_mode
+                && self.mut_forward_sites.contains(&(self.file_idx, span)));
+        let suffix = if loc { "__loc" } else { "" };
         match self.checked.effect_member_calls.get(&(self.file_idx, span)) {
-            Some(&idx) => self.member_name(decl, idx),
+            Some(&idx) => format!("{}{suffix}", self.member_name(decl, idx)),
             None => match salvo_core::effect_members_named(decl, name).as_slice() {
-                [_] | [] => rs_ident(name),
+                [_] | [] => format!("{}{suffix}", rs_ident(name)),
                 _ => {
                     self.error(format!(
                         "internal: `{name}` is overloaded on effect `{effect}` and \
@@ -5139,16 +5222,7 @@ impl<'p> Emitter<'p> {
             // a total lend, `Option<usize>` for an optional one. No
             // lifetimes: nothing is borrowed. Shapes beyond the plain and
             // optional element lend are this slice's loud cut.
-            match f.return_type.as_ref() {
-                Some(Type::Nullable { .. }) => " -> Option<usize>".to_string(),
-                Some(Type::Named { .. }) => " -> usize".to_string(),
-                other => {
-                    self.error(format!(
-                        "this lending fn's return shape is not                          locator-lowered yet [rs-loc]: `{other:?}`"
-                    ));
-                    String::new()
-                }
-            }
+            self.loc_return_type(f)
         } else if f.derived_return.is_some() {
             // [rs-proj-struct] When the annotated parameter is itself a
             // borrowing struct (`p: &mut ListYield<'s, T>`), the returned
@@ -5353,7 +5427,15 @@ impl<'p> Emitter<'p> {
             match style {
                 FnStyle::HandlerMember(h)
                 | FnStyle::DepMember(h)
-                | FnStyle::DepMemberSig(h) => self.handler_member_name(h, f),
+                | FnStyle::DepMemberSig(h) => {
+                    let base = self.handler_member_name(h, f);
+                    // [rs-loc] The locator face of a mutable-lending member.
+                    if self.lend_loc_mode {
+                        format!("{base}__loc")
+                    } else {
+                        base
+                    }
+                }
                 _ => rs_ident(&f.name.name),
             }
         };
@@ -5363,6 +5445,31 @@ impl<'p> Emitter<'p> {
             "pub "
         };
         let mut all_generics: Vec<String> = Vec::new();
+        // [rs-loc] A handler member implementing a **lending** effect member
+        // must repeat the trait's explicit lifetime (elision would tie the
+        // borrow to `&mut self`), and the locator face never borrows at all.
+        let mut ret = ret;
+        if matches!(
+            style,
+            FnStyle::HandlerMember(_) | FnStyle::DepMember(_) | FnStyle::DepMemberSig(_)
+        ) && !self.lend_loc_mode
+        {
+            let mut joined = params.join(", ");
+            if !joined.is_empty() {
+                joined.insert_str(0, ", ");
+            }
+            let lt = self.member_lend_lifetime(f, &mut joined, &mut ret);
+            if !lt.is_empty() {
+                lifetime_generics = String::new();
+                all_generics.push("'a".to_string());
+                let trimmed = joined.trim_start_matches(", ").to_string();
+                params = if trimmed.is_empty() {
+                    Vec::new()
+                } else {
+                    trimmed.split(", ").map(|p| p.to_string()).collect()
+                };
+            }
+        }
         if !lifetime_generics.is_empty() {
             all_generics.push(lifetime_generics.clone());
         }
@@ -6404,6 +6511,85 @@ impl<'p> Emitter<'p> {
             params.join(", "),
             args.join(", ")
         )
+    }
+
+    /// [rs-loc] A **lending** effect member's read face needs an explicit
+    /// lifetime: elision with `&mut self` present ties the returned borrow
+    /// to `self`, not to the lent container (E0521/"lifetime may not live
+    /// long enough" in every adapter). Names `'a`, tags the lent parameter
+    /// and the return, and answers the method's generic list.
+    fn member_lend_lifetime(
+        &mut self,
+        f: &FnDecl,
+        params: &mut String,
+        ret: &mut String,
+    ) -> &'static str {
+        let lends = f
+            .return_type
+            .as_ref()
+            .is_some_and(|rt| type_has_proj(rt));
+        if !lends {
+            return "";
+        }
+        let lent: Vec<String> = f
+            .derived_return
+            .as_ref()
+            .map(|d| vec![d.name.clone()])
+            .or_else(|| {
+                f.return_type
+                    .as_ref()
+                    .and_then(|rt| proj_refs_with_from(rt).into_iter().next())
+            })
+            .unwrap_or_default();
+        if lent.is_empty() {
+            return "";
+        }
+        for name in &lent {
+            let ident = rs_ident(name);
+            let from_mut = format!("{ident}: &mut ");
+            let from_ref = format!("{ident}: &");
+            if params.contains(&from_mut) {
+                *params = params.replacen(&from_mut, &format!("{ident}: &'a mut "), 1);
+            } else if params.contains(&from_ref) {
+                *params = params.replacen(&from_ref, &format!("{ident}: &'a "), 1);
+            }
+        }
+        *ret = ret.replace("&", "&'a ").replace("&'a 'a ", "&'a ");
+        "<'a>"
+    }
+
+    /// [rs-loc] Registers a locator-emitted body's **return-path lending
+    /// calls** as forwards, so they take their locator forms. The
+    /// demand closure does this for named fns; a handler member's locator
+    /// face (④a slice 4) is emitted directly and registers its own.
+    fn mark_loc_forwards(&mut self, f: &FnDecl) {
+        let Some(body) = &f.body else { return };
+        let mut returned: Vec<&Expr> = Vec::new();
+        collect_returned_exprs(body, &mut returned);
+        for mut e in returned {
+            while let Expr::NonNull { operand, .. } = e {
+                e = operand;
+            }
+            if let Expr::Call { span, .. } = e {
+                self.mut_forward_sites.insert((self.file_idx, *span));
+            }
+        }
+    }
+
+    /// [rs-loc] The locator variant's rendered return type: `Option<usize>`
+    /// where the read emission was optional, `usize` otherwise.
+    fn loc_return_type(&mut self, f: &FnDecl) -> String {
+        match f.return_type.as_ref() {
+            Some(Type::Nullable { .. }) => " -> Option<usize>".to_string(),
+            Some(Type::Named { .. }) => " -> usize".to_string(),
+            other => {
+                self.error(format!(
+                    "this lending declaration's return shape is not \
+                     locator-lowered yet [rs-loc]: `{other:?}`"
+                ));
+                String::new()
+            }
+        }
     }
 
     fn implicit_param_type_borrowing(&mut self, ty: &Ty, borrowed_arms: &[usize]) -> String {
@@ -12084,8 +12270,41 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        let key = *self.checked.call_fn.get(&(self.file_idx, call_span))?;
-        let decl = self.fn_by_key(key)?;
+        // [rs-loc] ④a slice 4 — an **effect member** call: the lent
+        // parameter comes from the member's declaration, which the
+        // checker's member resolution names.
+        let member_decl: Option<&'p FnDecl> = self
+            .checked
+            .effect_calls
+            .get(&(self.file_idx, call_span))
+            .and_then(|eff| {
+                let base = match eff.strip_quals() {
+                    Ty::Named { name, .. } => name.clone(),
+                    _ => return None,
+                };
+                let decl = self.symbols.effects.get(base.as_str()).copied()?;
+                let idx = self
+                    .checked
+                    .effect_member_calls
+                    .get(&(self.file_idx, call_span))
+                    .copied();
+                match idx {
+                    Some(i) => decl.fns.get(i),
+                    None => {
+                        let Expr::Ident(fname) = callee.as_ref() else {
+                            return None;
+                        };
+                        decl.fns.iter().find(|m| m.name.name == fname.name)
+                    }
+                }
+            });
+        let decl = match member_decl {
+            Some(d) => d,
+            None => {
+                let key = *self.checked.call_fn.get(&(self.file_idx, call_span))?;
+                self.fn_by_key(key)?
+            }
+        };
         let lent_name = decl
             .derived_return
             .as_ref()
@@ -12136,21 +12355,24 @@ impl<'p> Emitter<'p> {
             // as ordinary data, and the anchor comes from the recorded
             // contract. What remains cut is a lend whose anchor is not a
             // plain place, and effect members (slice 4).
-            let cut = self.mut_lend_cuts.contains(&(self.file_idx, call_span));
+            // [rs-loc] ④a slices 3–4: fn values and effect members lend
+            // through locators like anything else — what remains reported
+            // is a lend whose anchor cannot be re-indexed (below).
             let fn_value = self
                 .checked
                 .fn_value_calls
                 .contains_key(&(self.file_idx, call_span));
-            if cut && !fn_value {
-                self.errors.push(format!(
-                    "an effect member lending a mutable handle cannot serve \
-                     a `Mut` position yet [rs-loc] (at {})",
-                    self.salvo_location(call_span)
-                ));
-                return String::new();
-            }
+            let member = self
+                .checked
+                .effect_member_calls
+                .contains_key(&(self.file_idx, call_span))
+                || self
+                    .checked
+                    .mut_lend_calls
+                    .contains(&(self.file_idx, call_span));
             if (self.mut_call_sites.contains(&(self.file_idx, call_span))
                 || fn_value
+                || member
                 || (self.lend_loc_mode
                     && self.mut_forward_sites.contains(&(self.file_idx, call_span))))
                 && self.elem_handle_parts(expr).is_none()

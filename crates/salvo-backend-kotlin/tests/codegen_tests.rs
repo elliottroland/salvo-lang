@@ -3433,6 +3433,47 @@ fn main() [use] {
 }
 "#;
 
+/// [rs-loc] The lending-effect-member program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_a_lending_effect_member`.
+const LENDING_MEMBER_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+effect Lender {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+}
+
+handler FirstLender of Lender {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
+        return get(es, 0)
+    }
+}
+
+fn run(es: List<Mut Entity>) [Lender] -> None {
+    heal(lease(es)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use FirstLender()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    run(es)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_lending_effect_member() -> KotlinCase {
+    let program = build_program(&[("main.sv", LENDING_MEMBER_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lending_member", "15 7\n")
+}
+
 fn kotlinc_compiles_and_runs_the_locate_bundle() -> KotlinCase {
     let program = build_program(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3471,6 +3512,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_update_family,
     kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_the_locate_bundle,
+    kotlinc_compiles_and_runs_a_lending_effect_member,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

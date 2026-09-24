@@ -13183,43 +13183,71 @@ fn rustc_compiles_and_runs_the_locate_bundle() {
     run_rust_files(&files, "locate_bundle", "5 17\n");
 }
 
-/// [rs-loc] The cut ④a slice 4 lifts, loud until then: an **effect member** lending a mutable
-/// handle cannot serve a `Mut` position — no named decl exists to emit a
-/// variant of (parked to GB-5's session, GROUP_BORROWING.md; a fn *value*
-/// cannot even spell a wholesale `proj Mut` return, so the member is the
-/// whole reachable surface).
-#[test]
-fn a_lending_effect_member_in_a_mut_position_is_refused() {
-    let src = r#"
+/// [rs-loc] ④a slice 4 — an **effect member** lends a mutable handle: the
+/// trait carries both faces (the read one, explicitly lifetime-tagged so
+/// the borrow ties to the container rather than to `&mut self`, and the
+/// `__loc` one), every handler and adapter implements both, and a `Mut`
+/// position routes to the locator face.
+const LENDING_MEMBER_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
 fn heal(e: Mut Entity) -> None => e: Mut {
     e.hp = e.hp + 10
 }
 
-effect Pool {
+effect Lender {
     fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
 }
 
-fn use_pool(es: List<Mut Entity>) [Pool] -> None {
+handler FirstLender of Lender {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es {
+        return get(es, 0)
+    }
+}
+
+fn run(es: List<Mut Entity>) [Lender] -> None {
     heal(lease(es)!)
     return None
 }
 
 fn main() [use] {
     use StdOutConsole()
-    println("never emitted")
+    use FirstLender()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    run(es)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
 }
 "#;
-    let program = build_program(&[("main.sv", src)]);
-    let errors = salvo_backend_rust::emit_program(&program)
-        .err()
-        .expect("a lending effect member in a Mut position must be a codegen error");
+
+#[test]
+fn a_lending_effect_member_carries_both_faces() {
+    let files = generate(&[("main.sv", LENDING_MEMBER_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(
-        errors.iter().any(|e| e.contains("[rs-loc]")),
-        "got {errors:?}"
+        main.content
+            .contains("fn lease<'a>(&mut self, es: &'a Vec<Entity>) -> Option<&'a Entity>;"),
+        "{}",
+        main.content
     );
+    assert!(
+        main.content
+            .contains("fn lease__loc(&mut self, es: &Vec<Entity>) -> Option<usize>;"),
+        "{}",
+        main.content
+    );
+    assert!(main.content.contains("lease__loc(es)"), "{}", main.content);
 }
+
+#[test]
+fn rustc_compiles_and_runs_a_lending_effect_member() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LENDING_MEMBER_DEMO)]);
+    run_rust_files(&files, "lending_member", "15 7\n");
+}
+
 
 /// [rs-elem-mut] The v1 cut, loud: a proven pair call in a *value*
 /// position is refused with a codegen error naming the remedy — never
