@@ -1506,3 +1506,85 @@ fn hover_works_in_a_std_shadowing_file() {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [proj-infer] [lsp-hover] The opaque lends render where they are written —
+/// on the return type, `-> proj(xs) in (Mut View<T>)` — and not as a clause
+/// entry (the pre-2026-09-24 `=> proj(xs)` spelling is gone). The same holds
+/// inside a fn *type*, whose Display carries its own `proj(c) in (…)`.
+#[test]
+fn hover_renders_the_opaque_projection_on_the_return_type() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_opaque_proj");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+struct View<T> canbe Mut {
+    items: proj List<T>,
+    at: Int
+}
+
+fn borrowed<T>(xs: List<T>) -> proj(xs) in (Mut View<T>) => xs {
+    return Mut View<T> { items: xs, at: 0 }
+}
+
+fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It), ?Yield<It, Int>) -> Int => c {
+    let sum = 0
+    let p = iter(c)
+    for n in p {
+        sum = sum + n
+    }
+    return sum
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list_of(1, 2)
+    let v = borrowed(xs)
+    println(\"${v.at}\")
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // The fn declaration: annotation on the return, no `proj` clause entry.
+    let value = hover(&mut lsp, 30, &uri, 5, 4);
+    assert!(
+        value.contains("-> proj(xs) in (Mut View<T>)"),
+        "expected the opaque annotation on the return type: {value}"
+    );
+    assert!(
+        !value.contains("=> proj") && !value.contains(", proj(xs)"),
+        "the lends must not repeat as a clause entry: {value}"
+    );
+
+    // The fn type: its Display carries the annotation on its own return.
+    let value = hover(&mut lsp, 31, &uri, 9, 4);
+    assert!(
+        value.contains("-> proj(c) in (Mut It)"),
+        "expected the fn type's own annotation: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

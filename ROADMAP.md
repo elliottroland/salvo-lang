@@ -422,6 +422,68 @@ program must not print or persist a hash value and expect cross-backend
 identity — an example's `expected.txt` cannot contain one, the posture
 random already has.
 
+## LSP source-root discovery, and a project manifest (direction decided 2026-09-24, sequenced after GROUP_BORROWING.md)
+
+**The defect (user report, 2026-09-24).** Editing std with the *repository
+root* as the editor's workspace folder produces spurious diagnostics —
+the reported one being at `std/core/list.sv:86` on the total `swap`'s
+delegation:
+
+> this call may invalidate `Idx` claims about `list`, which the enclosing
+> function promises to preserve: only calls that themselves preserve `Idx`
+> may take `list` as `Mut`
+
+which reads as the checker ignoring the `preserve Idx` refn eleven lines
+up. It is not: the LSP takes the client's `rootUri` as the analysis root
+(`lsp.rs`), and under the repo root the on-disk file classifies by path as
+module **`std.core.list`** while the embedded copy is **`core.list`** —
+`apply_std_shadow` matches by module path [std-shadow], so the shadow
+misses and both copies load, the disk one as a plain user file. With two
+`swap`s in scope, the refns refuse to attach ("this refinement matches more
+than one `swap` in scope", lines 64–65 of the same file), so
+`preserved_claims` for the delegation lacks `Idx` and the enclosing
+`preserve` promise check fires [qual-preserve]. The line-86 error is
+collateral of the mis-rooted analysis, alongside ~750 lines of other noise
+(the repo's independent trees — `std/`, `examples/*/salvo/`, `demo/`, test
+corpora — analyzed as one program).
+
+Repro (no editor needed):
+
+```bash
+cargo run -- analyze --src .      # from the repo root
+# → refinement-ambiguity errors at std/core/list.sv:64–65,
+#   the preserve error at :86, "intrinsic … is the compiler's to
+#   declare, not yours" per std intrinsic, and more
+cargo run -- analyze --src std    # correct root: no errors
+```
+
+The checker itself is sound here: `analyze --src std` is clean, and
+`hover_works_in_a_std_shadowing_file` (root = `std/`) asserts the
+`preserve Idx` refinement renders at exactly the reported call. The
+**workaround** until this lands: open `std/` as its own workspace folder
+(or add it to a multi-root workspace) — the configuration the 2026-09-24
+std-shadow LSP fix was built for (COMPLETED.md's log).
+
+**The decided direction (user, 2026-09-24): per-document source-root
+discovery in the LSP, anchored by a project manifest** — option (b) of the
+round, chosen over (a) widening [std-shadow] to strip a leading `std/`
+segment (fixes only this case, and silently re-classifies a user's own
+`std/` tree) and (c) documenting the workaround alone. The LSP should pick
+each open document's analysis root as its nearest enclosing source tree
+rather than analyzing the whole workspace as one program; since nothing
+marks a tree today, that wants a **project manifest** (a marker file naming
+the source root, and whatever else earns its place — backend, main,
+target dir are the obvious candidates, each currently CLI-only flags).
+The manifest's shape and contents are a **DECISION** for that session:
+what the file is called, what it may state, whether `salvo run`/`compile`
+/`test` read it too (they should, or the LSP and the CLI disagree about
+what a project is), and what root discovery does with no manifest in
+sight (fall back to `rootUri`, today's behavior).
+
+**Sequenced after the GROUP_BORROWING.md exploration** (user, 2026-09-24)
+— that working document's calls come first; this section is the next
+tooling item after it.
+
 ## Platform handlers — the thread-safety contract (DECISION)
 
 **Where this stands (user decision 2026-09-20, third round):** a platform
@@ -1317,6 +1379,8 @@ links to the section that states the options.
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
 | **Platform-handler thread-safety contract** — the declaration surface, what it asserts, and what the undeclared case means; unblocks the parity-restoring emissions | unscheduled (the assumption stands meanwhile, user decision 2026-09-20) | "Platform handlers — the thread-safety contract" |
+| **Group borrowing** — GB-1…GB-7: whether aliasing `Mut` handles join the language, and in what form | next up (user, 2026-09-24: precedes the LSP-root work) | GROUP_BORROWING.md (working document; delete when decided) |
+| **Project manifest** — name, contents, whether the CLI reads it too; anchors LSP per-document root discovery | after GROUP_BORROWING.md | "LSP source-root discovery, and a project manifest" |
 | **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
@@ -2120,7 +2184,7 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   2026-09-12).** With no written entry, a `proj`-holding instantiation
   still links its result to *every* kept argument — including a container
   the substituted type never mentions (`keep_all(iter(words), tags)` links
-  to `tags`). The remedy today is the written `=> proj(it)` entry,
+  to `tags`). The remedy today is the written `-> proj(it) in (…)` annotation,
   which now takes precedence; the refinement would link only kept
   arguments whose substituted type contains the projection. Build it if
   over-linking bites where the entry is unavailable (an unannotatable

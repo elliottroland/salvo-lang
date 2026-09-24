@@ -334,8 +334,8 @@ export struct ListEnumYield<T> : Yield<self, Enumerated<T>> canbe Mut {
     step: Int
 }
 
-export fn next<T>(p: Mut ListEnumYield<T>) [] -> Emitted Enumerated<T> | Finished
-=> p: Mut, proj(p) {
+export fn next<T>(p: Mut ListEnumYield<T>) [] -> proj(p) in (Emitted Enumerated<T> | Finished)
+=> p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

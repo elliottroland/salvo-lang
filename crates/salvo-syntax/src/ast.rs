@@ -620,7 +620,10 @@ pub enum EffectRef {
 /// `=> !list` (moved; `list: Never` says the same),
 /// `=> .items: proj(list)` (the result's field projects `list`),
 /// `=> v.items: proj(other)` (a parameter's field is re-pointed), and
-/// `=> proj(c)` (opaque: the result holds a borrow of `c`)
+/// the **opaque** entry (`DeductionTarget::Opaque`) synthesized by the
+/// parser from the return-type annotation `-> proj(c) in (T)` — the result
+/// holds a borrow of `c` somewhere inside (user decision 2026-09-24; the
+/// clause spelling `=> proj(c)` is gone)
 /// [proj-infer]. A parameter the clause does not mention is *inferred*
 /// from the body; a bodiless declaration must mention every parameter
 /// except Copy scalars.
@@ -663,8 +666,10 @@ pub enum DeductionTarget {
     Param { name: Ident, path: Vec<Ident> },
     /// A field path of the result (`.items`).
     Result { path: Vec<Ident> },
-    /// The result as a whole, opaquely: a bare `proj(c)` says the
-    /// result *holds* a borrow of `c` somewhere inside [proj-infer].
+    /// The result as a whole, opaquely: the result *holds* a borrow of the
+    /// sources somewhere inside [proj-infer]. Never written as a clause
+    /// entry — the parser synthesizes it from the return-type annotation
+    /// `-> proj(c) in (T)` (on fn declarations and fn types alike).
     Opaque,
 }
 
@@ -954,6 +959,7 @@ impl fmt::Display for Type {
                 params,
                 effects,
                 ret,
+                deductions,
                 ..
             } => {
                 let params: Vec<String> = params.iter().map(|p| p.to_string()).collect();
@@ -963,7 +969,21 @@ impl fmt::Display for Type {
                         effects.iter().map(|e| e.to_string()).collect();
                     write!(f, " [{}]", effects.join(", "))?;
                 }
-                write!(f, " -> {ret}")
+                // [proj-infer] The opaque lends render where they are
+                // written: `-> proj(c) in (T)`.
+                let opaque: Vec<&str> = deductions
+                    .iter()
+                    .flatten()
+                    .filter(|d| matches!(d.target, DeductionTarget::Opaque))
+                    .filter_map(|d| d.proj_sources())
+                    .flatten()
+                    .map(|i| i.name.as_str())
+                    .collect();
+                if opaque.is_empty() {
+                    write!(f, " -> {ret}")
+                } else {
+                    write!(f, " -> proj({}) in ({ret})", opaque.join(", "))
+                }
             }
         }
     }

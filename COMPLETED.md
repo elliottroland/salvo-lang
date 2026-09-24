@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1409 tests, complete: the toolchain tests are
+cargo test                  # 1417 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,64 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The opaque lends move to the return type (2026-09-24, user decision).**
+`=> proj(a, b)` — the opaque deduction entry saying the result *holds*
+borrows of `a` and `b` somewhere inside — read as none of its neighbours
+do: every other entry states what a call does to a parameter, this one
+described the returned value. Respelled as a **return-type annotation**:
+`-> proj(a, b) in (T)`, the parentheses around the type **mandatory** (the
+user's call, so wholesale `proj(a) T` and the annotation never need
+different binding rules against `|`), and the same form sits on a fn
+*type*'s own return — `?iter: (c: C) -> proj(c) in (Mut It)` — which
+**retires the remote `=>[f] proj(c)` group entry** entirely. Both old
+spellings stopped parsing (plain error, no shim, per the
+no-backwards-compatibility invariant). Decided while exploring
+GROUP_BORROWING.md, whose `group(a, d)` entries the old spelling was
+confused against. Bounds of the decision: the annotation stays an
+*annotation*, not a type (same links, same erasure, [proj-type] untouched
+— revisit if it bites); `.f: proj(a)` and re-pointing entries **stay in
+the clause** — their type-level form is the reserved link-parameters
+sketch, to be considered together with GB-1-D's group qualifiers.
+Implementation is deliberately thin: the parser recognizes the form (the
+`in` keyword past the source list is the commit point, `at_opaque_proj_head`)
+and **synthesizes the same `DeductionTarget::Opaque` entry the old parse
+produced**, so `lends.rs`, `deduce.rs`, validation and the emitters are
+byte-for-byte unchanged — the std AST snapshots diffed only in spans.
+Hover renders the annotation where it is written (return type, fn-type
+Display) and subtracts it from the clause tail. Migrated: `core.list`'s
+`ListEnumYield` `next`, both `filter`s in `core.seq`, the container
+combinator in three test crates, widen/analyze tests; specs
+([deduce-syntax] table and bullets, [proj-infer], LANGUAGE.md's table and
+views narrative, [rs-proj-lends]); stale spellings in ROADMAP/COMPLETED
+prose updated in place. New tests: the parser's opaque-annotation test
+(both positions, mandatory-parens error, old form refused) and an LSP
+hover test. 1417 tests green, fresh nextest included.
+
+**The std-editing false positive, and the root-discovery direction
+(2026-09-24, user decision).** A user report — the hover at
+`std/core/list.sv:86` claimed the total `swap`'s delegation "may invalidate
+`Idx` claims … which the enclosing function promises to preserve", as if the
+`preserve Idx` refn at line 65 were being ignored. Investigation exonerated
+the checker: the editor's workspace root was the *repository* root, the LSP
+analyzes under the client's `rootUri`, and under that root the on-disk file
+classifies as module `std.core.list` while the embedded copy is `core.list`
+— so [std-shadow] misses, both copies load, the refns fail to attach
+("matches more than one `swap` in scope"), and the `preserve`-promise check
+[qual-preserve] fires as collateral. `analyze --src std` is clean and
+`hover_works_in_a_std_shadowing_file` covers the exact reported call.
+**Decided**: fix by per-document source-root discovery in the LSP, anchored
+by a **project manifest** — option (b), over widening [std-shadow] by a
+`std/` segment (a silent re-classification of user trees) and over
+documenting the workaround alone — **sequenced after the GROUP_BORROWING.md
+exploration**. The defect, its repro, the workaround (open `std/` as its own
+workspace folder) and the manifest DECISION live in ROADMAP.md's "LSP
+source-root discovery, and a project manifest". Same day, earlier: the
+**GROUP_BORROWING.md working document was opened** (per DESIGN_DOC.md's
+charter) — Nick Smith's group-borrowing model explored against the fate
+analysis and `proj` machinery, seven decision sections GB-1…GB-7, calls
+pending in ROADMAP.md's decisions table; its content propagates only when
+those calls are taken, and then the file is deleted.
 
 **The qualifier pick's runtime form (2026-09-24, user decision).**
 `subject Qual?: rhs` gains the reading `is` always had two of: on a
@@ -431,7 +489,7 @@ cannot write. Two consequences worth keeping:
   `Emitted Enumerated<T>` through the generic `emitted`, and body inference
   cannot see the borrow inside the instantiation — the exact case
   [proj-infer]'s *written* form exists for, so the `next` writes
-  `=> p: Mut, proj(p)` by hand. Without it the Rust signature elides
+  the opaque lend by hand (today's spelling: `-> proj(p) in (…)`). Without it the Rust signature elides
   to `<'_` and rustc E0106s.
 - **[rs-proj-lends] grew the borrowing-struct case**: a lent parameter that
   is itself a borrowing struct defeats elision even alone (two input
@@ -6690,7 +6748,8 @@ deleted when the phase lands.
 **Capturing lambdas are views; written lend entries win (user decision
 2026-09-12, evening).** Walking the projection leftovers surfaced two
 gaps, decided and closed together. (1) *Written-entry precedence*
-([proj-infer]): a bodied generic's `=> proj(it)` was consulted only
+([proj-infer]): a bodied generic's written opaque lend (then spelled
+`=> proj(it)`; `-> proj(it) in (…)` since 2026-09-24) was consulted only
 behind a written-return-type gate that an instantiation-borne projection
 (`-> Mut List<T>`, `T = proj Str`) never passed, so the every-kept-argument
 fallback linked the result to arguments the author had excluded — the fix
@@ -6896,7 +6955,7 @@ as the required spelling — the user preferred inference with the clause as
 fallback; the form is reserved in ROADMAP for per-field precision on
 bodiless callees. **Documented gap**: a generic body cannot see that an
 element of an opaque pass is borrowed (`filter`'s `add(out, x)`), so the
-signature says it (`=> proj(it)`); a user fn storing such an element
+signature says it (`-> proj(it) in (…)`); a user fn storing such an element
 without writing so is caught by rustc, not the checker.
 
 **`ReadOnly` is renamed `proj`, and copying becomes opt-in-only (user decisions
@@ -17533,7 +17592,7 @@ snapshot diffs.
   are the checker's only record of the difference.
 - **A generic body cannot see that an element it stores is borrowed**, because
   the pass is opaque (`it: Mut It`). Std says it in the signature
-  (`=> proj(it)`); a user fn that does not is caught by rustc, not the
+  (`-> proj(it) in (…)`); a user fn that does not is caught by rustc, not the
   checker. Recorded in ROADMAP.
 - **Inference changes what a migration means.** Converting `-> [] T` (consume
   everything) to a clause that mentions nothing turns a `consume(x) {}` test

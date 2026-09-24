@@ -2169,7 +2169,7 @@ fn a_capturing_lambda_is_a_view_of_its_captures() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [proj-infer] A written opaque projection entry (`=> proj(it)`)
+// [proj-infer] A written opaque projection annotation (`-> proj(it) in (…)`)
 // names the lends exactly and takes precedence over the instantiation
 // fallback that links a `proj`-holding result to every kept argument —
 // even where the *written* return type shows no projection (`Mut List<T>`
@@ -2183,7 +2183,7 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
         dir.join("main.sv"),
         "fn eat(xs: List<Str>) -> None => !xs {}\n\n\
          fn keep_all<It, T>(it: Mut It, labels: List<Str>, ?Yield<It, T>) \
-         -> Mut List<T> => it: Mut, proj(it), labels {\n    \
+         -> proj(it) in (Mut List<T>) => it: Mut, labels {\n    \
          let out = mut_list_of<T>()\n    for x in it {\n        add(out, x)\n    }\n    return out\n}\n\n\
          fn main() [use] {\n    use StdOutConsole()\n    \
          let words = list_of(\"ann\", \"bo\")\n    \

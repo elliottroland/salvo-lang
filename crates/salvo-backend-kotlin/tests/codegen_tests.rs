@@ -9158,7 +9158,7 @@ fn iter(bag: Bag) -> Mut ListYield<Int> => bag {
     return iter(bag.items)
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int =>[iter] c, proj(c) => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It), ?Yield<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
     let p = iter(c)
     for n in p {

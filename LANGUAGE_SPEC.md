@@ -667,8 +667,8 @@ Conventions:
   the store is a move, and `copy` would charge every step), while a `proj`
   **field** is the declared lend the pair needs [proj-field]. One pass
   struct serves both directions, stepped `+1` or `-1`.
-  * The pass's `next` writes the opaque lend (`=> p: Mut, proj(p)`)
-    by hand: the result holds the borrow inside a *generic instantiation*
+  * The pass's `next` writes the opaque lend (`-> proj(p) in (Emitted
+    Enumerated<T> | Finished)`) by hand: the result holds the borrow inside a *generic instantiation*
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
     [proj-infer].
@@ -2552,10 +2552,10 @@ Conventions:
     variables teaches nothing and must not match everything.
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
-    combinator work — `total<C, It>(c: C, ?iter: (c: C) -> Mut It,
-    ?Yield<It, Int>) -> Int =>[iter] proj(c) => c`, where nothing but
-    the chosen `iter` says what `It` is (and the group says the pass it
-    returns holds a borrow of `c` [proj-infer]):
+    combinator work — `total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It),
+    ?Yield<It, Int>) -> Int => c`, where nothing but
+    the chosen `iter` says what `It` is (and the fn type's own return says
+    the pass it answers holds a borrow of `c` [proj-infer]):
     `C` is only known after the arguments, so the sweeps between them cannot
     learn `It`, and one implicit determining another needs the sweep repeated.
     Declaration order is therefore not a constraint on the author.
@@ -4884,8 +4884,18 @@ the same day. **Not part of `core`**: the surface is imported, and one
     | `=> list: +A B` | exhaustive, with `A` **re-established by this function** [deduce-reapply] |
     | `=> .f: proj(a)` | the result's field `f` projects `a` [proj-infer] |
     | `=> v.f: proj(a)` | the parameter `v`'s field is re-pointed to project `a` [proj-infer] |
-    | `=> proj(a, b)` | opaque: the result holds a borrow of `a` and `b` somewhere inside [proj-infer] |
     | `=>[f] entry, …` | a group: entries about the fn-typed parameter `f`, whose own parameters are named in its type [fn-contract] |
+
+  * **The opaque lends are not a clause entry** (respelled by user decision
+    2026-09-24; the old `=> proj(a, b)` stopped parsing): a result that is
+    owned but *holds* borrows somewhere inside writes them on the **return
+    type** — `-> proj(a, b) in (T)`, the parentheses around the type
+    **mandatory**, so the form never competes with the wholesale qualifier
+    `proj(a) T` on binding strength against `|` [proj-infer]. The same form
+    sits on a fn *type*'s own return (`?iter: (c: C) -> proj(c) in (Mut
+    It)`), replacing the old remote `=>[f] proj(c)` group entry. The parser
+    synthesizes the internal entry (`DeductionTarget::Opaque`), so
+    validation, `declared_lends` and the hover's lent flags are unchanged.
 
   * A `=>[f]` group reaches a fn type **through its qualifiers**: a
     `once (t: T) -> None` parameter is a qualifier group wrapping the fn type,
@@ -4900,9 +4910,11 @@ the same day. **Not part of `core`**: the surface is imported, and one
     the body. A declaration *without a body* (an effect member, a `platform
     effect` member, an `intrinsic fn`) must mention every parameter except
     Copy scalars [copy-scalar-free], implicits and variadics; a fn *type*
-    keeps its default (kept) and is written only through `=>[f]`, never
-    inline (`f: (v: T) -> [v] U` is a parse error: ambiguous with the next
-    parameter).
+    keeps its default (kept) and its *parameter* entries are written only
+    through `=>[f]`, never inline (`f: (v: T) -> [v] U` is a parse error:
+    ambiguous with the next parameter) — its *lends* are the one inline
+    statement, on its own return (`-> proj(c) in (…)`), since `in` is a
+    keyword and cannot collide.
   * The removal set is computed against the qualifiers the *argument*
     actually carries, not against the parameter's declared set. That is
     what makes the exhaustive form sound: it also drops qualifiers the
@@ -5590,18 +5602,19 @@ the same day. **Not part of `core`**: the surface is imported, and one
     declaration, conservative on any shape it cannot follow: every kept
     parameter). Per field, exact.
   * Without a body — an effect member, an intrinsic, a fn type — the
-    written entries decide (`=> proj(c)`, `=> .items: proj(c)`,
-    `=>[iter] proj(c)`), else conservatively every kept parameter
+    written statements decide (`-> proj(c) in (T)` on the return type,
+    `=> .items: proj(c)` per field — fn types carry the return form too),
+    else conservatively every kept parameter
     (exact for `iter(list)`; only ever over-links).
-  * A written projection entry about the result must name every lend the
-    body performs; it may name more (a generic body — `filter`'s
+  * A written projection statement about the result must name every lend
+    the body performs; it may name more (a generic body — `filter`'s
     `add(out, x)` with `x` an element of an opaque pass — lends through
-    opacity the analysis cannot see, and the entry is how it says so).
+    opacity the analysis cannot see, and the annotation is how it says so).
     A written entry takes **precedence over the instantiation fallback**
     (2026-09-12): where a substituted return holds `proj` the written
     type does not show (`-> Mut List<T>` with `T = proj Str`), a call
     links the result to *every* kept argument unless the author's
-    `=> proj(it)` names the lends — then only those link, still
+    `-> proj(it) in (…)` names the lends — then only those link, still
     flowing through a temporary in the named position to its roots.
   * The caller links the result to the lent arguments, *held*
     [proj-readonly]; returning a view rooted in a local is an error ("a

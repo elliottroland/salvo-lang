@@ -5683,7 +5683,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             from.span,
                             "a `proj` element names no source: the list holds the borrow, \
                              and which parameter it is of is inferred from the body (or \
-                             written as `=> proj(p)` in the deduction clause)"
+                             written on the return type as `proj(p) in (…)`)"
                                 .to_string(),
                         );
                     }
@@ -13841,8 +13841,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // Named but no group, or unnamed: keeps everything.
                     _ => (true, QualEffect::KeepAll),
                 };
-                // [proj-infer] `=>[f] proj(c)` on a fn type: the only
-                // way to say what a bodiless value's result holds.
+                // [proj-infer] `-> proj(c) in (T)` on a fn type (synthesized
+                // into its contract list by the parser): the only way to say
+                // what a bodiless value's result holds.
                 let lent = match (name, deductions) {
                     (Some(id), Some(list)) => list
                         .iter()

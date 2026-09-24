@@ -2207,8 +2207,9 @@ The entries, by shape:
 | `=> list: +Sorted Mut` | exhaustive, and `Sorted` is **re-established by this function** — only in the file that declares it |
 | `=> .items: proj(list)` | the result's field `items` projects `list` (see "Projections") |
 | `=> v.items: proj(other)` | the call re-points the parameter `v`'s field to project `other` |
-| `=> proj(list)` | opaque: the result *holds* a borrow of `list` somewhere inside |
 | `=>[keep] !t` | a group: these entries are about the fn-typed parameter `keep` (its own parameter `t` named in its type, `keep: (t: T) -> Bool`) |
+
+One projection statement is *not* a clause entry: a result that is owned but **holds** borrows somewhere inside writes them on the return type — `-> proj(list) in (T)`, the parentheses mandatory (see "Projections").
 
 Why does an exhaustive entry drop "qualifiers this function never mentions"? Because a function that _mutates_ a value can invalidate any claim about its contents, whether or not that claim appears in its signature. A `clear` that empties a list cannot honestly promise a caller's `NonEmpty` back, even though `clear` has never heard of `NonEmpty`. So a parameter the body mutates must state exactly what survives: the bare and `-` forms are rejected there, and the compiler names the exhaustive form you want. Mutation is the only operation that invalidates a kept value — reading it cannot change its contents, and moving it ends the caller's access.
 
@@ -2331,12 +2332,12 @@ fn iter<T>(list: List<T>) -> Mut ListYield<T> {
 }
 ```
 
-Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the clause says it: `=> proj(list)` ("the result holds a borrow of `list`"), `=> .items: proj(list)` (this field does), or on a fn type `=>[iter] proj(c)`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
+Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the signature says it: `-> proj(list) in (T)` on the return type ("the result holds a borrow of `list` somewhere inside `T`" — the parentheses are mandatory, and the same form sits on a fn type's own return, `?iter: (c: C) -> proj(c) in (Mut It)`), or per field in the clause, `=> .items: proj(list)`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
 
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
 ```
-fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> Mut List<proj T> => it: Mut, proj(it), keep
+fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) -> proj(it) in (Mut List<proj T>) => it: Mut, keep
 ```
 
 The result holds borrows of whatever the pass walks — nothing is copied — and it lives no longer than the source. For a list of your own, `filter_to(dest, it, keep)` copies each kept element into `dest`, and it says so twice: in its `_to` name, and in the `?copy` implicit it takes so that the copy is the element type's own.

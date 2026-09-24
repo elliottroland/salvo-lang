@@ -1398,13 +1398,15 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
 /// [deduce-syntax] The `=>` clause: every entry form, a group scoped to a
 /// fn-typed parameter, and a clause continued on the next line. The bracket
 /// form after `->` is a plain parse error (no compatibility [decision
-/// 2026-09-03]).
+/// 2026-09-03]). The opaque lends are the return-type annotation
+/// `-> proj(a) in (T)` [proj-infer] (user decision 2026-09-24), which the
+/// parser synthesizes into the clause as a `DeductionTarget::Opaque` entry.
 #[test]
 fn the_deduction_clause_parses_every_entry_form() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
-    let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> Pair<T, U>\n\
+    let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> proj(a) in (Pair<T, U>)\n\
                =>[keep] !t\n\
-               => !a, b: None, c: Mut, d: -Q, .first: proj(a), .second: proj(a, b), c.items: proj(b), proj(a) {\n\
+               => !a, b: None, c: Mut, d: -Q, .first: proj(a), .second: proj(a, b), c.items: proj(b) {\n\
                }\n";
     let (module, diags) = salvo_syntax::parse_module(src);
     let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
@@ -2465,4 +2467,62 @@ fn test_stays_an_ordinary_name() {
     );
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");
+}
+
+/// [proj-infer] The opaque projection annotation `-> proj(a, b) in (T)`
+/// (user decision 2026-09-24, respelling the old clause entry `=> proj(a)`):
+/// parses on fn declarations and on fn types, synthesizing the
+/// `DeductionTarget::Opaque` entry; the parentheses around the type are
+/// **mandatory**; the old clause spelling is a plain parse error.
+#[test]
+fn the_opaque_projection_is_a_return_annotation() {
+    use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
+    // On a fn declaration: sources synthesize into the clause, and the
+    // parenthesized type — a union here — is the return type.
+    let src = "fn view(a: List<Int>, b: List<Int>) -> proj(a, b) in (Mut View | None)\n=> a, b {\n}\n";
+    let (module, diags) = salvo_syntax::parse_module(src);
+    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
+    let list = f.deductions.as_ref().expect("clause");
+    let opaque: Vec<_> = list
+        .iter()
+        .filter(|d| matches!(d.target, DeductionTarget::Opaque))
+        .collect();
+    assert_eq!(opaque.len(), 1, "{list:?}");
+    let DeductionKind::Proj(srcs) = &opaque[0].kind else { panic!("expected proj sources") };
+    assert_eq!(
+        srcs.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        vec!["a", "b"]
+    );
+    assert!(
+        matches!(f.return_type, Some(Type::Union { .. })),
+        "the inner type is the return type: {:?}",
+        f.return_type
+    );
+
+    // On a fn type: the entry lands in the fn type's own contract list,
+    // where the old remote `=>[iter] proj(c)` group used to put it.
+    let src = "fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It)) -> Int => c {\n    return 0\n}\n";
+    let (module, diags) = salvo_syntax::parse_module(src);
+    assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
+    let iter = f.params.iter().find(|p| p.name.name == "iter").unwrap();
+    let Type::Fn { deductions: Some(group), ret, .. } = &iter.ty else {
+        panic!("expected a fn type with a contract: {:?}", iter.ty)
+    };
+    assert!(group.iter().any(|d| matches!(d.target, DeductionTarget::Opaque)));
+    assert!(matches!(**ret, Type::Named { .. }), "inner type is the ret: {ret:?}");
+
+    // The parentheses around the type are mandatory.
+    let src = "fn view(a: List<Int>) -> proj(a) in Mut View => a {\n}\n";
+    let (_, diags) = salvo_syntax::parse_module(src);
+    assert!(
+        diags.iter().any(|d| d.is_error() && d.message.contains("parenthesized")),
+        "{diags:?}"
+    );
+
+    // The old clause spelling stopped parsing (plain error, no shim).
+    let src = "fn view(a: List<Int>) -> Mut View => a, proj(a) {\n}\n";
+    let (_, diags) = salvo_syntax::parse_module(src);
+    assert!(diags.iter().any(|d| d.is_error()), "{diags:?}");
 }

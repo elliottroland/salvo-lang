@@ -1464,7 +1464,21 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
         sig.push_str(&format!(" [{}]", effects.join(", ")));
     }
 
+    // [proj-infer] The opaque lends render where they are written — on the
+    // return type: `-> proj(p) in (T)`.
+    let opaque: Vec<&str> = decl
+        .deductions
+        .iter()
+        .flatten()
+        .filter(|d| matches!(d.target, salvo_syntax::ast::DeductionTarget::Opaque))
+        .filter_map(|d| d.proj_sources())
+        .flatten()
+        .map(|i| i.name.as_str())
+        .collect();
     match &decl.return_type {
+        Some(ty) if !opaque.is_empty() => {
+            sig.push_str(&format!(" -> proj({}) in ({ty})", opaque.join(", ")))
+        }
         Some(ty) => sig.push_str(&format!(" -> {ty}")),
         None => sig.push_str(" -> None"),
     }
@@ -1486,11 +1500,14 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
     if !clause.is_empty() {
         sig.push_str(&format!(" => {clause}"));
     }
-    // Fn-typed parameters with a written group render theirs too.
+    // Fn-typed parameters with a written group render theirs too. (The
+    // opaque lends entry renders inline in the parameter's own type — a
+    // list holding only that would render an empty group.)
     for p in &decl.params {
         if let salvo_syntax::ast::Type::Fn { deductions: Some(list), .. } = &p.ty {
-            if !list.is_empty() {
-                sig.push_str(&format!(" =>[{}] {}", p.name.name, render_declared(list)));
+            let rendered = render_declared(list);
+            if !rendered.is_empty() {
+                sig.push_str(&format!(" =>[{}] {rendered}", p.name.name));
             }
         }
     }
@@ -1546,9 +1563,22 @@ fn render_deductions(
             }
         })
         .collect();
+    // [proj-infer] Lends already shown on the return type
+    // (`-> proj(p) in (T)`) are not repeated here; what remains is lends
+    // written per field (`.f: proj(a)`) or inferred from the body.
+    let opaque: HashSet<&str> = decl
+        .deductions
+        .iter()
+        .flatten()
+        .filter(|d| matches!(d.target, salvo_syntax::ast::DeductionTarget::Opaque))
+        .filter_map(|d| d.proj_sources())
+        .flatten()
+        .map(|i| i.name.as_str())
+        .collect();
     let lent: Vec<&str> = deductions
         .iter()
         .filter(|d| d.lent)
+        .filter(|d| !opaque.contains(d.param.as_str()))
         .map(|d| d.param.as_str())
         .collect();
     if !lent.is_empty() {
@@ -1588,6 +1618,9 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
         .iter()
         // A bare kept entry says what the default says: nothing to show.
         .filter(|d| !matches!(d.kind, DeductionKind::KeepAll))
+        // [proj-infer] The opaque lends render on the return type
+        // (`-> proj(p) in (T)`), where they are written.
+        .filter(|d| !matches!(d.target, DeductionTarget::Opaque))
         .map(|d| {
             let t = target(d);
             match &d.kind {

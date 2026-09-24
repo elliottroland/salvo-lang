@@ -1773,6 +1773,9 @@ impl<'s> Parser<'s> {
         let mut return_type = None;
         let mut constructs = None;
         let mut derived_return = None;
+        // [proj-infer] `-> proj(a, b) in (T)`: the opaque lends, held for
+        // synthesis into the deduction list once the clause is parsed.
+        let mut opaque_lends: Option<(Vec<Ident>, Span)> = None;
         if self.at(&TokenKind::Arrow) && self.same_line() {
             self.bump();
             if self.at(&TokenKind::LBracket) {
@@ -1793,7 +1796,13 @@ impl<'s> Parser<'s> {
                 self.bump();
                 constructs = Some(self.parse_type_ref()?);
             }
-            let ty = self.parse_type()?;
+            let ty = if self.at_opaque_proj_head() {
+                let (sources, ty, span) = self.parse_opaque_proj_return()?;
+                opaque_lends = Some((sources, span));
+                ty
+            } else {
+                self.parse_type()?
+            };
             // [proj-anywhere] The derived-return summary the checker and the
             // emitters consume: the parameter named by the *first* `proj` in
             // the return type. `proj(p) T` is an ordinary qualifier
@@ -1803,7 +1812,18 @@ impl<'s> Parser<'s> {
         }
         // [deduce-syntax] `=> …` groups: the unnamed ones are the fn's own
         // clause; `=>[f] …` belongs to the fn-typed parameter `f`.
-        let deductions = self.parse_deduction_clause(&mut params)?;
+        let mut deductions = self.parse_deduction_clause(&mut params)?;
+        // [proj-infer] The opaque return annotation *is* a written lends
+        // entry: synthesized here so the checker's written-entry machinery
+        // (validation, `declared_lends`, the hover's `lent` flags) is
+        // untouched by the respelling.
+        if let Some((sources, span)) = opaque_lends {
+            deductions.get_or_insert_with(Vec::new).push(Deduction {
+                target: DeductionTarget::Opaque,
+                kind: DeductionKind::Proj(sources),
+                span,
+            });
+        }
 
         // [iter-fn] An `iter fn`'s body opens with the pass's own fields. It is
         // parsed here rather than as a statement so the body that follows is an
@@ -2007,6 +2027,70 @@ impl<'s> Parser<'s> {
     /// A group may start on the line after the return type; the body's `{`
     /// follows the last entry on its line. Returns the fn's own entries,
     /// `None` when no unnamed group was written.
+    /// [proj-infer] Whether the cursor sits on an **opaque projection**
+    /// return annotation — `proj(a, b) in (T)`. Pure lookahead: a wholesale
+    /// `proj(a) T` return also starts with `proj(`, so the `in` past the
+    /// source list is what commits. Sources are bare parameter names, so the
+    /// scan is bounded and cannot be fooled by nested groups.
+    fn at_opaque_proj_head(&self) -> bool {
+        if !matches!(self.kind(), TokenKind::KwProj) {
+            return false;
+        }
+        if !matches!(self.peek_at(1).kind, TokenKind::LParen) {
+            return false;
+        }
+        let mut i = 2;
+        while matches!(self.peek_at(i).kind, TokenKind::Ident(_) | TokenKind::Comma) {
+            i += 1;
+        }
+        matches!(self.peek_at(i).kind, TokenKind::RParen)
+            && matches!(self.peek_at(i + 1).kind, TokenKind::KwIn)
+    }
+
+    /// [proj-infer] The **opaque projection** annotation on a return type:
+    /// `proj(a, b) in (T)` — the returned value is *owned* and holds borrows
+    /// of the named parameters somewhere inside (a view), where the written
+    /// type cannot show them. Respelled from the old clause entry
+    /// `=> proj(a, b)` (user decision 2026-09-24); the parentheses around
+    /// the type are **mandatory**, so this form never competes with the
+    /// wholesale qualifier `proj(a) T` on binding strength against `|`.
+    /// Answers the sources, the inner type, and the whole annotation's span;
+    /// the caller synthesizes the `DeductionTarget::Opaque` entry, which is
+    /// how everything downstream ([proj-infer]'s written-lends machinery)
+    /// stays unchanged.
+    fn parse_opaque_proj_return(&mut self) -> Option<(Vec<Ident>, Type, Span)> {
+        let start = self.expect(&TokenKind::KwProj)?.span;
+        self.expect(&TokenKind::LParen)?;
+        let mut sources: Vec<Ident> = Vec::new();
+        if !self.at(&TokenKind::RParen) {
+            loop {
+                sources.push(self.ident()?);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+        let close = self.expect(&TokenKind::RParen)?.span;
+        if sources.is_empty() {
+            self.error(
+                "an opaque projection needs its sources: `proj(a) in (T)`",
+                start.to(close),
+            );
+        }
+        self.expect(&TokenKind::KwIn)?;
+        if !self.at(&TokenKind::LParen) {
+            self.error(
+                "the opaque projection's type is parenthesized: `proj(a, b) in (T)`",
+                self.peek().span,
+            );
+            return None;
+        }
+        self.bump();
+        let ty = self.parse_type()?;
+        let end = self.expect(&TokenKind::RParen)?.span;
+        Some((sources, ty, start.to(end)))
+    }
+
     fn parse_deduction_clause(&mut self, params: &mut [Param]) -> Option<Option<Vec<Deduction>>> {
         let mut own: Option<Vec<Deduction>> = None;
         while self.at(&TokenKind::FatArrow) {
@@ -2144,18 +2228,10 @@ impl<'s> Parser<'s> {
                 kind: DeductionKind::Deferred,
             });
         }
-        // Bare `proj(…)`: opaque.
-        if matches!(&self.peek().kind, TokenKind::KwProj) {
-            let r = self.parse_type_ref()?;
-            if r.from.is_empty() {
-                self.error("a bare `proj` deduction needs its sources: `proj(c)`", r.span);
-            }
-            return Some(Deduction {
-                span: start.to(r.span),
-                target: DeductionTarget::Opaque,
-                kind: DeductionKind::Proj(r.from),
-            });
-        }
+        // (The bare `proj(…)` opaque entry moved to the return type —
+        // `-> proj(a, b) in (T)`, user decision 2026-09-24 [proj-infer]; a
+        // `proj` here now falls through to the identifier expectation and is
+        // a plain parse error.)
         // The target: `.f.g` (result path) or `x` / `x.f` (parameter path).
         let mut path: Vec<Ident> = Vec::new();
         let target = if self.at(&TokenKind::Dot) {
@@ -2465,6 +2541,28 @@ impl<'s> Parser<'s> {
                     span,
                 );
                 return None;
+            }
+            // [proj-infer] `-> proj(c) in (T)` on a fn type: the value's
+            // result holds borrows of its own parameter `c` — written inline,
+            // where the old spelling was a remote `=>[f] proj(c)` group on
+            // the enclosing declaration (user decision 2026-09-24). The
+            // synthesized entry lands in the fn type's own contract list,
+            // which an `=>[f]` group extends rather than replaces.
+            if self.at_opaque_proj_head() {
+                let (sources, ret, dspan) = self.parse_opaque_proj_return()?;
+                let entry = Deduction {
+                    target: DeductionTarget::Opaque,
+                    kind: DeductionKind::Proj(sources),
+                    span: dspan,
+                };
+                return Some(Type::Fn {
+                    params: elems,
+                    param_names: names,
+                    effects,
+                    deductions: Some(vec![entry]),
+                    ret: Box::new(ret),
+                    span: start.to(dspan),
+                });
             }
             let ret = self.parse_type()?;
             let span = start.to(ret.span());
