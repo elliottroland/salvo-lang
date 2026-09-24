@@ -182,26 +182,31 @@ export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
     // Swap them, so that we don't have to shift everything
     heap.swap(0, heap.size() - 1)
     let elem = heap.remove_at(heap.size() - 1)!
-    let i = 0
+    // The root is a valid index (the early return above handled the
+    // one-element heap, and `remove_at` left at least one element), and the
+    // pick **applies** the claim [pick-qualifies]: from here every read in
+    // the sift is the total `get` [col-idx] — no `!` anywhere.
+    let i = 0 Idx(heap)?: return elem
     while i < heap.size() {
-        let i_child = i * 2 + 1
+        // If there are no children, then we're done.
+        let i_child = i * 2 + 1 Idx(heap)?: break
 
-        // If there are no children, then we're good
-        if i_child >= heap.size() {
+        // We want to compare with the smallest of the two child indices,
+        // because if we swap this child will become the root.
+        let i_right = i_child + 1
+        if i_right is Idx(heap) && heap.get(i_right) < heap.get(i_child) {
+            i_child = i_right
+        }
+
+        // If the parent is already smaller than the smallest child, then the
+        // heap property is preserved
+        if heap.get(i) <= heap.get(i_child) {
             break
         }
 
-        // We want to compare with the smallest of the two child indices, because if we swap this child will become the root
-        if i_child + 1 < heap.size() && heap.get(i_child + 1)! < heap.get(i_child)! {
-            i_child += 1
-        }
-
-        // If the parent is already smaller than the smallest child, then the heap property is preserved
-        if heap.get(i)! <= heap.get(i_child)! {
-            break
-        }
-
-        // Otherwise, we swap and proceed down the new path
+        // Otherwise, we swap and proceed down the new path — the total
+        // exchange, since both indices carry the claim, and it preserves
+        // them [qual-preserve].
         heap.swap(i, i_child)
         i = i_child
     }

@@ -146,3 +146,27 @@ test "binary_search answers a proven index" {
         expect(false, "20 is in the list")
     }
 }
+
+test "the qualifier pick applies an Idx claim or takes the right side" {
+    // [pick-qualifies] `expr Idx(xs)?: break` is the runtime pick: when
+    // the claim holds the value carries it — the total `get` below needs
+    // no `!` — and when it does not, the right side runs.
+    let xs = list_of(10, 20, 30)
+    let sum = 0
+    let i = 0
+    while i < 10 {
+        let child = i * 2 + 1 Idx(xs)?: break
+        sum = sum + get(xs, child)
+        i = i + 1
+    }
+    // i = 0 reads index 1 (20); i = 1 asks for index 3, which does not
+    // exist, so the pick took the `break`.
+    expect_eq(sum, 20)
+}
+
+test "a pick with a value right side joins like an if" {
+    let xs = list_of(7)
+    let picked = 5 Idx(xs)?: 0
+    // 5 is out of range, so the right side's value is the expression's.
+    expect_eq(picked + 0, 0)
+}

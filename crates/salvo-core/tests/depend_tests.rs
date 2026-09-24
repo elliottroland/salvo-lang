@@ -367,3 +367,66 @@ fn different_constants_refuse() {
         "a Percent(0, 255) must not fill a Percent(0, 100) position"
     );
 }
+
+/// [pick-qualifies] The qualifier pick's runtime form: a predicate
+/// qualifier on a non-union subject calls `qualifies`, and the picked
+/// value carries the claim — the widen check sees it below a diverging
+/// right side.
+#[test]
+fn a_predicate_pick_applies_the_claim() {
+    let src = format!(
+        "{PRESERVE}\
+         fn f(key: Key, box: Box) [] -> Bool => key, box {{\n    \
+         let inside = key Inside(box)?: return false\n    \
+         return inside is ^Inside\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// A `^` on a predicate pick is refused: there is no tag to lift — the
+/// pick establishes.
+#[test]
+fn a_predicate_pick_refuses_the_lift() {
+    let src = format!(
+        "{PRESERVE}\
+         fn f(key: Key, box: Box) [] -> Bool => key, box {{\n    \
+         let inside = key ^Inside(box)?: return false\n    \
+         return true\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("drop the `^`")),
+        "expected the lift refusal: {errs:?}"
+    );
+}
+
+/// A constructive qualifier has no runtime test, so a pick cannot decide.
+#[test]
+fn a_constructive_pick_is_refused() {
+    let src = "\
+        struct Key { s: Str }\n\
+        qualifier Blessed of Key\n\
+        fn bless(key: Key) -> +Blessed Key { return key }\n\
+        fn f(key: Key) [] -> Bool => key {\n    \
+        let b = key Blessed?: return false\n    \
+        return true\n}\n";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| e.contains("constructive")),
+        "expected the constructive refusal: {errs:?}"
+    );
+}
+
+/// [elvis-guard] A leaving right side takes its flow effects with it: a
+/// `return elem` there must not consume `elem` on the fall-through path —
+/// found on `std.heap`'s sift (2026-09-24).
+#[test]
+fn a_leaving_right_side_keeps_its_consumptions_to_itself() {
+    let src = format!(
+        "{PRESERVE}\
+         fn f(key: Key, box: Box, prize: Key) [] -> Key => key, box, !prize {{\n    \
+         let inside = key Inside(box)?: return prize\n    \
+         return prize\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}

@@ -133,6 +133,40 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The qualifier pick's runtime form (2026-09-24, user decision).**
+`subject Qual?: rhs` gains the reading `is` always had two of: on a
+**non-union** subject, a predicate qualifier's pick calls `qualifies` at
+runtime and, when the claim holds, the value is the claimed subject
+[pick-qualifies] — `let i_child = i * 2 + 1 Idx(heap)?: break` leaves
+`i_child` an `Idx(heap) Int`, dependent slots and constants filled exactly
+as an `is` fills them (the validation is one shared helper now,
+`check_predicate_quals`). `^` is refused (a predicate pick establishes;
+there is no tag to lift), a constructive qualifier is refused (no runtime
+test), and a value-yielding right side drops the claim unless it carries
+it — a claim and its absence are one representation, never two union arms.
+The parser's pick lookahead learned to skip a name's `<…>`/`(…)` groups;
+both emitters lower the predicate condition over the pick's temporary
+(Rust grew `emit_predicate_test_on`, since the by-`Expr` form would have
+re-evaluated the subject).
+
+**The bug it flushed out**: a `?: return elem` **consumed `elem` on the
+fall-through path** — the elvis right side was checked inline, so a
+leaving side's moves poisoned code it never shares a path with. All three
+`?:` forms (plain, arm pick, predicate pick) now snapshot before the right
+side and restore when it diverges [elvis-guard] — found the moment
+`std.heap`'s sift used the new form, since its `?: return elem` sat above
+the fn's own `return elem`.
+
+`std.heap`'s `pop` is the showcase the user asked for: the sift-down now
+claims the root once and reads with **no `!` at all** — `0 Idx(heap)?:
+return elem`, `i * 2 + 1 Idx(heap)?: break`, `i_right is Idx(heap)` for
+the sibling, and the total `swap` of two proven indices. Tests: four pick
+tests in `depend_tests.rs` (20 total), two `core.list` annex tests (45 std
+tests, both backends), heap suite unchanged and green. One flow find
+recorded along the way: a claim assigned inside a loop survives the
+back-edge join, so a pre-loop `assert!`/pick that claims the induction
+variable keeps every iteration total.
+
 **The LSP through the std shadow, and the grammar's new words (2026-09-24,
 user report).** Editing the standard library goes through [std-shadow] —
 opening the repo's `std/` makes every module an on-disk shadowing file —

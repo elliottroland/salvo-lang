@@ -352,6 +352,33 @@ Conventions:
     *sub-union* of the storage, produced by the arm mapping [rewrap]. So
     `attempt(t) ^Ok?: return _` works over `Ok Int | Err Str | Thrown Str`,
     where `_` is the two-arm `Err Str | Thrown Str`.
+* [pick-qualifies] A predicate qualifier on a **non-union** subject is the
+  pick's *runtime* form (user decision 2026-09-24) — the same duality `is`
+  has between arm identity [is-narrowing] and a `qualifies` call
+  [is-qualifies], reached from `?:` instead of a condition:
+
+  ```
+  let i_child = i * 2 + 1 Idx(heap)?: break
+  // i_child: Idx(heap) Int
+  ```
+
+  The subject is evaluated once into the pick's temporary, `qualifies` is
+  called on it (dependent slots filled exactly as an `is` fills them
+  [qual-depend], constants included [qual-const]), and when the claim holds
+  the temporary *is* the value — claimed. When it does not, the right side
+  runs; `_` there is the plain subject.
+  * **`^` is refused**: a predicate pick establishes; the subject carries
+    no tag to lift off. A constructive qualifier is refused too — no
+    runtime test exists, so nothing could decide the pick
+    [qual-constructive].
+  * **A value-yielding right side drops the claim** unless it carries it:
+    a claim and its absence are one representation, never two union arms —
+    `5 Idx(xs)?: 0` is an `Int`. A diverging right side leaves the claimed
+    type, and narrows a place subject below [elvis-guard].
+  * `qualifies` effects must be available at the pick, as at any test site
+    [is-qualifies-effects].
+  * Lowered as the elvis conditional with the predicate call as its
+    condition, on both backends; the claim itself erases [qual-erasure].
 * [safe-call] `receiver?.member` / `receiver?.member(args)` reaches a field or
   a dot-notation function on the **non-`None`** side of an optional (user
   decision 2026-09-21, step 4). The result is the member's own type **plus
@@ -377,6 +404,12 @@ Conventions:
     emits a conditional whose arms are the narrowed read and `null`
     [kt-safe-call]. Rust emits the same shape over the `Option`
     [rs-safe-call].
+* [elvis-guard] **A leaving right side takes its flow effects with it**: a
+  `return elem` there moves `elem` on a path the fall-through never shares,
+  so its consumptions are restored at the join (found on `std.heap`'s
+  sift, 2026-09-24 — the pick's `?: return elem` poisoned the fn's own
+  final `return elem`). A value-yielding right side merges its effects as
+  ever, since both paths continue.
 * [elvis-guard] A `?:` (plain or a pick) whose right side **leaves** narrows its
   subject on the path below (user decision 2026-09-21): the value was there, or
   the code would not be running. The same facts an `is` guard leaves

@@ -10039,6 +10039,52 @@ impl<'p> Emitter<'p> {
                     None
                 };
                 let test = self.is_test_of(*span).cloned();
+                // [pick-qualifies] A predicate pick's condition is the
+                // `qualifies` call, exactly as a predicate `is` lowers — over
+                // the temporary, never a re-evaluation of the subject. Its
+                // value is the subject unchanged (a claim erases), so both
+                // sides read the temporary too.
+                let predicate = test.is_none()
+                    .then(|| {
+                        self.checked
+                            .predicate_tests
+                            .get(&(self.file_idx, *span))
+                            .cloned()
+                    })
+                    .flatten();
+                if let Some(checks) = predicate {
+                    let subject_ty = self.ty_of(subject.span()).cloned();
+                    let copy = subject_ty.as_ref().is_some_and(Self::is_copy_ty);
+                    let subj_arg = if copy {
+                        tmp.clone()
+                    } else {
+                        format!("&{tmp}")
+                    };
+                    let cond =
+                        self.emit_predicate_test_on(subj_arg, subject_ty.as_ref(), &checks);
+                    let body = if copy {
+                        tmp.clone()
+                    } else {
+                        format!("{tmp}.clone()")
+                    };
+                    let saved = self.placeholder_code.replace(body.clone());
+                    let r = self.emit_expr(rhs);
+                    self.placeholder_code = saved;
+                    if hoist {
+                        match saved_subject {
+                            Some(prev) => {
+                                self.is_temps.insert((self.file_idx, subject.span()), prev);
+                            }
+                            None => {
+                                self.is_temps.remove(&(self.file_idx, subject.span()));
+                            }
+                        }
+                        return format!(
+                            "{{ let {tmp} = {subj_code}; if {cond} {{ {body} }} else {{ {r} }} }}"
+                        );
+                    }
+                    return format!("if {cond} {{ {body} }} else {{ {r} }}");
+                }
                 let cond = match &test {
                     Some(t) => self.emit_union_test(&tmp, t),
                     None => "true".to_string(),
@@ -10893,6 +10939,18 @@ impl<'p> Emitter<'p> {
         } else {
             self.borrowed_arg(subject)
         };
+        self.emit_predicate_test_on(subj, subject_ty.as_ref(), quals)
+    }
+
+    /// [pick-qualifies] The same, over an already-rendered subject — a
+    /// pick's hoisted temporary, which must not be re-evaluated.
+    fn emit_predicate_test_on(
+        &mut self,
+        subj: String,
+        subject_ty: Option<&Ty>,
+        quals: &[PredicateCheck],
+    ) -> String {
+        let subject_ty = subject_ty.cloned();
         let mut parts: Vec<String> = Vec::new();
         for check in quals {
             let q = &check.name;

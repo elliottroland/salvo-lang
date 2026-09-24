@@ -5881,7 +5881,18 @@ impl<'p> Emitter<'p> {
                 let test = self.is_test_of(*span).cloned();
                 let cond = match &test {
                     Some(t) => self.emit_union_test(&tmp, t),
-                    None => "true".to_string(),
+                    // [pick-qualifies] A predicate pick's condition is the
+                    // `qualifies` call, exactly as a predicate `is` lowers —
+                    // the subject reads out of the temporary.
+                    None => match self
+                        .checked
+                        .predicate_tests
+                        .get(&(self.file_idx, *span))
+                        .cloned()
+                    {
+                        Some(checks) => self.emit_predicate_test(&tmp, &checks),
+                        None => "true".to_string(),
+                    },
                 };
                 let picked = self.checked.elvis_picks.get(&(self.file_idx, *span)).cloned();
                 // [rewrap] A side spanning several arms is a *sub-union*: mapped

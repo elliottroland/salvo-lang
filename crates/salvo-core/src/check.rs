@@ -16796,20 +16796,110 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         }
         let Ty::Union(arms) = &subj_ty else {
-            self.error(
-                span,
-                format!(
-                    "`{}?:` needs a union on its left, but `{subj_ty}` is one type: \
-                     nothing can take the right-hand side",
-                    pick.quals
-                        .iter()
-                        .map(|q| q.name.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ),
-            );
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
+            // [pick-qualifies] A predicate qualifier on a non-union subject
+            // is the pick's *runtime* form (user decision 2026-09-24), the
+            // same duality `is` has [is-qualifies]: `i * 2 + 1 Idx(heap)?:
+            // break` calls `qualifies` and, when it holds, the value is the
+            // claimed subject — `Idx(heap) Int`. The right side runs when
+            // the claim does not hold; `_` there is the plain subject.
+            let resolved: Vec<Option<&'p QualifierDecl>> = pat
+                .quals
+                .iter()
+                .map(|q| {
+                    let subj = subj_ty.clone();
+                    self.qualifier_for(q.as_str(), Some(&subj))
+                })
+                .collect();
+            let is_predicate =
+                resolved.iter().all(|d| d.is_some_and(|d| d.has_body));
+            if !is_predicate {
+                let constructive = pat
+                    .quals
+                    .iter()
+                    .zip(&resolved)
+                    .find(|(_, d)| d.is_some_and(|d| !d.has_body))
+                    .map(|(q, _)| q.clone());
+                match constructive {
+                    // [qual-constructive] No runtime test exists, so nothing
+                    // could decide the pick.
+                    Some(q) => self.error(
+                        span,
+                        format!(
+                            "`{q}` is a constructive qualifier; values only gain \
+                             it from constructor functions, so a pick cannot \
+                             test for it on a non-union value"
+                        ),
+                    ),
+                    None => self.error(
+                        span,
+                        format!(
+                            "`{}?:` needs a union arm or a predicate qualifier on \
+                             its left, but `{subj_ty}` is one type with no \
+                             runtime test",
+                            pat.quals.join(" ")
+                        ),
+                    ),
+                }
+                let _ = self.check_expr(rhs, None);
+                return Ty::Unknown;
+            }
+            if pick.lift {
+                // A predicate pick *establishes*; the subject carries no tag
+                // to lift off.
+                self.error(
+                    span,
+                    format!(
+                        "`^` lifts a tag the subject already carries; a \
+                         predicate pick establishes `{}` instead — drop the `^`",
+                        pat.quals.join(" ")
+                    ),
+                );
+                let _ = self.check_expr(rhs, None);
+                return Ty::Unknown;
+            }
+            let dependent_args =
+                self.check_predicate_quals(&pat, &resolved, &subj_ty, span);
+            let quals: Vec<Qual> = pat
+                .quals
+                .iter()
+                .map(|n| Qual {
+                    effect: false,
+                    name: n.clone(),
+                    args: dependent_args.get(n).cloned().unwrap_or_default(),
+                })
+                .collect();
+            let picked = subj_ty.clone().qualify(quals);
+            self.out.elvis_picks.insert(self.key(span), picked.clone());
+            // [placeholder] `_` is the subject as it was: the claim did not
+            // hold, and nothing else changed.
+            self.out.pick_left.insert(self.key(span), subj_ty.clone());
+            let saved = self.placeholder_ty.replace(subj_ty.clone());
+            // [elvis-guard] A right side that leaves takes its flow effects
+            // with it: a `return elem` there moves `elem` on a path the code
+            // below never shares, so the consumption must not poison the
+            // fall-through (found on `std.heap`'s sift, 2026-09-24).
+            let entry = self.snapshot_narrows();
+            let rhs_ty = self.check_expr(rhs, None);
+            self.placeholder_ty = saved;
+            if matches!(rhs_ty, Ty::Never) {
+                self.restore_narrows(&entry);
+                // [elvis-guard] The claim held on the path below.
+                let repr = self.repr_of(subject, &subj_ty);
+                self.install_elvis_guard(subject, &picked, &repr);
+                return picked;
+            }
+            // A value-yielding right side keeps the claim only when it
+            // carries it too; otherwise the expression is the *unclaimed*
+            // join — a claim and its absence are one representation, never
+            // two union arms.
+            let join = if is_subtype(&rhs_ty, &picked) {
+                picked
+            } else {
+                self.mk_union(vec![subj_ty.clone(), rhs_ty.clone()])
+            };
+            let rhs_repr = self.repr_of(rhs, &rhs_ty);
+            self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
+            return join;
         };
         let (matched, remaining): (Vec<Ty>, Vec<Ty>) = arms
             .iter()
@@ -16934,9 +17024,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.pick_left.insert(self.key(span), left.clone());
         // [placeholder] `_` is the unpicked arm, tag and all.
         let saved = self.placeholder_ty.replace(left);
+        // [elvis-guard] A leaving right side takes its flow effects with it
+        // (see the predicate pick above).
+        let entry = self.snapshot_narrows();
         let rhs_ty = self.check_expr(rhs, None);
         self.placeholder_ty = saved;
         if matches!(rhs_ty, Ty::Never) {
+            self.restore_narrows(&entry);
             // [elvis-guard] The pick held, so the subject reads as the matched
             // arm on the path below. Note **`arm`, not `picked`**: the lift
             // applies to the value the expression produced, while the place
@@ -18751,6 +18845,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the program can spell. It earns its keep only where a
                 // *qualifier* is picked and the unpicked side carries a tag
                 // (step 5), so `_` stays an error until then.
+                // [elvis-guard] A leaving right side takes its flow effects
+                // with it (see the pick's twin note in `check_pick`).
+                let entry = self.snapshot_narrows();
                 let rhs_ty = self.check_expr(rhs, None);
                 self.out
                     .elvis_picks
@@ -18774,6 +18871,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // branch that escapes does [type-any-never] — and it *proves*
                 // the subject was there, so the place narrows [elvis-guard].
                 if matches!(rhs_ty, Ty::Never) {
+                    self.restore_narrows(&entry);
                     let repr = self.repr_of(subject, &subj_ty);
                     self.install_elvis_guard(subject, &picked, &repr);
                     return picked;
@@ -20567,6 +20665,159 @@ impl<'p, 'r> Checker<'p, 'r> {
         );
     }
 
+    /// [is-qualifies] [qual-depend] Validates a predicate-qualifier check —
+    /// applicability, the filled value slots (places resolved to fate roots,
+    /// constants taken whole), the `qualifies` effects — records the runtime
+    /// lowering in `predicate_tests` at `span`, and answers the lowered
+    /// value arguments per qualifier for the then-narrow. Shared by `is`
+    /// and the qualifier pick [pick-qualifies].
+    fn check_predicate_quals(
+        &mut self,
+        pat: &CheckPat,
+        resolved: &[Option<&'p QualifierDecl>],
+        subj_ty: &Ty,
+        span: Span,
+    ) -> HashMap<String, Vec<Ty>> {
+        let mut dependent_args: HashMap<String, Vec<Ty>> = HashMap::new();
+        for (q, decl) in pat.quals.iter().zip(resolved) {
+            let Some(decl) = *decl else { continue };
+            if !self.qual_applies(decl, subj_ty.strip_quals()) {
+                self.error(
+                    span,
+                    format!("qualifier `{q}` does not apply to `{subj_ty}`"),
+                );
+            }
+        }
+        // [qual-depend] A dependent qualifier's value slots are filled
+        // with places: validate arity, resolve each place in scope,
+        // check its type against the slot's, and record the fate roots
+        // the claim will bind to.
+        let mut checks: Vec<PredicateCheck> = Vec::new();
+        for ((q, decl), args) in pat.quals.iter().zip(resolved).zip(&pat.qual_args) {
+            let slots: Vec<ast::ValueSlot> =
+                decl.map(|d| d.value_slots.clone()).unwrap_or_default();
+            if slots.is_empty() && !args.is_empty() {
+                self.error(
+                    args[0].1,
+                    format!("`{q}` takes no value arguments"),
+                );
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                continue;
+            }
+            if slots.len() != args.len() {
+                let filled: Vec<String> =
+                    slots.iter().map(|s| s.name.name.clone()).collect();
+                self.error(
+                    span,
+                    format!(
+                        "`{q}` depends on {} value(s) ({}): write the filled \
+                         form, `{q}({})`",
+                        slots.len(),
+                        filled.join(", "),
+                        filled.join(", ")
+                    ),
+                );
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
+                continue;
+            }
+            let mut rendered = Vec::new();
+            let mut roots: Vec<u32> = Vec::new();
+            for (slot, (path, pspan)) in slots.iter().zip(args) {
+                // [qual-const] A constant fills its slot whole: nothing
+                // to resolve, nothing to invalidate.
+                if path.parse::<i64>().is_ok() {
+                    rendered.push(PredicateArg {
+                        path: path.clone(),
+                        copy: true,
+                    });
+                    continue;
+                }
+                let Some((place_ty, place_roots)) = self.place_ty_and_roots(path) else {
+                    self.error(
+                        *pspan,
+                        format!("`{path}` is not a value in scope"),
+                    );
+                    continue;
+                };
+                let want = self.lower_type(&slot.ty);
+                // Loose by design: the slot's type mentions the
+                // qualifier's own generics (`Map<K, V>`), which have no
+                // binding here — the base name is the honest check, and
+                // the `qualifies` signature validation already tied the
+                // slot to the predicate's parameter.
+                let fits = match (&place_ty.strip_quals(), &want.strip_quals()) {
+                    (Ty::Named { name: a, .. }, Ty::Named { name: b, .. }) => a == b,
+                    (_, Ty::Var(_)) | (_, Ty::Unknown) | (Ty::Unknown, _) => true,
+                    _ => false,
+                };
+                if !fits {
+                    self.error(
+                        *pspan,
+                        format!(
+                            "`{path}` fills the `{}` slot of `{q}`, which needs \
+                             `{want}`, not `{place_ty}`",
+                            slot.name.name
+                        ),
+                    );
+                }
+                roots.extend(place_roots);
+                rendered.push(PredicateArg {
+                    path: path.clone(),
+                    copy: matches!(&place_ty.strip_quals(), Ty::Named { name, args }
+                        if args.is_empty()
+                            && matches!(name.as_str(), "Int" | "Long" | "Bool" | "Char" | "Float" | "Double" | "Byte")),
+                });
+            }
+            roots.sort_unstable();
+            roots.dedup();
+            if !args.is_empty() {
+                dependent_args.insert(
+                    q.clone(),
+                    args.iter()
+                        .map(|(path, _)| match path.parse::<i64>() {
+                            // [qual-const] Constants are complete facts.
+                            Ok(n) => Ty::ConstInt(n),
+                            Err(_) => Ty::ValueRef {
+                                path: path.clone(),
+                                roots: roots.clone(),
+                            },
+                        })
+                        .collect::<Vec<Ty>>(),
+                );
+            }
+            checks.push(PredicateCheck { name: q.clone(), args: rendered });
+        }
+        self.out.predicate_tests.insert(self.key(span), checks);
+        // The `qualifies` call happens here at runtime: its declared
+        // effects must be available in this scope
+        // [is-qualifies-effects].
+        for (q, decl) in pat.quals.iter().zip(resolved) {
+            let Some(decl) = *decl else { continue };
+            let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
+                continue;
+            };
+            for eff in qf.effects.iter().flatten() {
+                let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = eff else { continue };
+                let ename = r.name.name.as_str();
+                let available = self
+                    .effect_env
+                    .iter()
+                    .any(|c| matches!(&c.ty, Ty::Named { name, .. } if name == ename));
+                if !available {
+                    self.error(
+                        span,
+                        format!(
+                            "predicate qualifier `{q}` requires effect `{ename}`, \
+                             but no handler for it is in scope (declare it in the \
+                             function's effect list or `use` a handler)"
+                        ),
+                    );
+                }
+            }
+        }
+        dependent_args
+    }
+
     /// Analyzes an `is` expression: checks the subject, records the runtime
     /// lowering (`is_tests`), and computes matched/remaining types.
     fn is_info(&mut self, is_expr: &'p Expr) -> IsInfo {
@@ -20609,147 +20860,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // argument is `m` bound to its fate roots.
         let mut dependent_args: HashMap<String, Vec<Ty>> = HashMap::new();
         if is_predicate {
-            for (q, decl) in pat.quals.iter().zip(&resolved) {
-                let Some(decl) = *decl else { continue };
-                if !self.qual_applies(decl, subj_ty.strip_quals()) {
-                    self.error(
-                        *span,
-                        format!("qualifier `{q}` does not apply to `{subj_ty}`"),
-                    );
-                }
-            }
             if let Some(base) = &pat.base {
                 if !is_subtype(subj_ty.strip_quals(), base) {
                     self.error(*span, "this check can never succeed".to_string());
                 }
             }
-            // [qual-depend] A dependent qualifier's value slots are filled
-            // with places: validate arity, resolve each place in scope,
-            // check its type against the slot's, and record the fate roots
-            // the claim will bind to.
-            let mut checks: Vec<PredicateCheck> = Vec::new();
-            for ((q, decl), args) in pat.quals.iter().zip(&resolved).zip(&pat.qual_args) {
-                let slots: Vec<ast::ValueSlot> =
-                    decl.map(|d| d.value_slots.clone()).unwrap_or_default();
-                if slots.is_empty() && !args.is_empty() {
-                    self.error(
-                        args[0].1,
-                        format!("`{q}` takes no value arguments"),
-                    );
-                    checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
-                    continue;
-                }
-                if slots.len() != args.len() {
-                    let filled: Vec<String> =
-                        slots.iter().map(|s| s.name.name.clone()).collect();
-                    self.error(
-                        *span,
-                        format!(
-                            "`{q}` depends on {} value(s) ({}): write the filled \
-                             form, `{q}({})`",
-                            slots.len(),
-                            filled.join(", "),
-                            filled.join(", ")
-                        ),
-                    );
-                    checks.push(PredicateCheck { name: q.clone(), args: Vec::new() });
-                    continue;
-                }
-                let mut rendered = Vec::new();
-                let mut roots: Vec<u32> = Vec::new();
-                for (slot, (path, pspan)) in slots.iter().zip(args) {
-                    // [qual-const] A constant fills its slot whole: nothing
-                    // to resolve, nothing to invalidate.
-                    if path.parse::<i64>().is_ok() {
-                        rendered.push(PredicateArg {
-                            path: path.clone(),
-                            copy: true,
-                        });
-                        continue;
-                    }
-                    let Some((place_ty, place_roots)) = self.place_ty_and_roots(path) else {
-                        self.error(
-                            *pspan,
-                            format!("`{path}` is not a value in scope"),
-                        );
-                        continue;
-                    };
-                    let want = self.lower_type(&slot.ty);
-                    // Loose by design: the slot's type mentions the
-                    // qualifier's own generics (`Map<K, V>`), which have no
-                    // binding here — the base name is the honest check, and
-                    // the `qualifies` signature validation already tied the
-                    // slot to the predicate's parameter.
-                    let fits = match (&place_ty.strip_quals(), &want.strip_quals()) {
-                        (Ty::Named { name: a, .. }, Ty::Named { name: b, .. }) => a == b,
-                        (_, Ty::Var(_)) | (_, Ty::Unknown) | (Ty::Unknown, _) => true,
-                        _ => false,
-                    };
-                    if !fits {
-                        self.error(
-                            *pspan,
-                            format!(
-                                "`{path}` fills the `{}` slot of `{q}`, which needs \
-                                 `{want}`, not `{place_ty}`",
-                                slot.name.name
-                            ),
-                        );
-                    }
-                    roots.extend(place_roots);
-                    rendered.push(PredicateArg {
-                        path: path.clone(),
-                        copy: matches!(&place_ty.strip_quals(), Ty::Named { name, args }
-                            if args.is_empty()
-                                && matches!(name.as_str(), "Int" | "Long" | "Bool" | "Char" | "Float" | "Double" | "Byte")),
-                    });
-                }
-                roots.sort_unstable();
-                roots.dedup();
-                if !args.is_empty() {
-                    dependent_args.insert(
-                        q.clone(),
-                        args.iter()
-                            .map(|(path, _)| match path.parse::<i64>() {
-                                // [qual-const] Constants are complete facts.
-                                Ok(n) => Ty::ConstInt(n),
-                                Err(_) => Ty::ValueRef {
-                                    path: path.clone(),
-                                    roots: roots.clone(),
-                                },
-                            })
-                            .collect::<Vec<Ty>>(),
-                    );
-                }
-                checks.push(PredicateCheck { name: q.clone(), args: rendered });
-            }
-            self.out.predicate_tests.insert(self.key(*span), checks);
-            // The `qualifies` call happens here at runtime: its declared
-            // effects must be available in this scope
-            // [is-qualifies-effects].
-            for (q, decl) in pat.quals.iter().zip(&resolved) {
-                let Some(decl) = *decl else { continue };
-                let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
-                    continue;
-                };
-                for eff in qf.effects.iter().flatten() {
-                    let (EffectRef::Effect(r) | EffectRef::LocalEffect(r)) = eff else { continue };
-                    let ename = r.name.name.as_str();
-                    let available = self
-                        .effect_env
-                        .iter()
-                        .any(|c| matches!(&c.ty, Ty::Named { name, .. } if name == ename));
-                    if !available {
-                        self.error(
-                            *span,
-                            format!(
-                                "predicate qualifier `{q}` requires effect `{ename}`, \
-                                 but no handler for it is in scope (declare it in the \
-                                 function's effect list or `use` a handler)"
-                            ),
-                        );
-                    }
-                }
-            }
+            dependent_args = self.check_predicate_quals(&pat, &resolved, &subj_ty, *span);
         } else if let Some(test) = self.union_test_for(&repr, &pat) {
             // Runtime lowering against the declared union representation
             // [is-narrowing] [is-precise].

@@ -333,6 +333,15 @@ subject was absent.
 The subject is evaluated once, so it can be a call. A pick that matches no arm,
 or that matches every arm and leaves the right side unreachable, is an error.
 
+On a value that is **not** a union, a pick of a predicate qualifier is the runtime test — the same duality `is` has, reached from `?:` instead of a condition. The claim is *applied* when it holds, which is what makes a bounds-checked loop read without a single `!`:
+
+```
+let i_child = i * 2 + 1 Idx(heap)?: break
+// i_child is an Idx(heap) Int here: get(heap, i_child) answers the element
+```
+
+The right side runs when the claim does not hold — `_` there is the plain subject — and a right side that yields a value drops the claim (`5 Idx(xs)?: 0` is an `Int`): a claim and its absence are one representation, never two union arms.
+
 Because the result carries a `None` arm, each link re-tests and the chain reads
 left to right. The receiver has to be a variable or a field of one: the form
 reads it twice, once to ask and once to reach the member, so a call belongs in a

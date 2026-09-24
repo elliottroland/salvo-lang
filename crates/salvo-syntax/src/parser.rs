@@ -3512,7 +3512,9 @@ impl<'s> Parser<'s> {
     }
 
     /// [pick] Whether a qualifier pick starts here: `[^]Name+` followed by
-    /// `?:`. Pure lookahead — nothing is consumed.
+    /// `?:`, each name optionally carrying a value-argument block
+    /// (`Idx(heap)?:` [qual-depend]) or type arguments. Pure lookahead —
+    /// nothing is consumed.
     fn peek_elvis_pick(&self) -> Option<()> {
         let mut i = 0usize;
         if matches!(self.peek_at(i).kind, TokenKind::Caret) {
@@ -3524,6 +3526,30 @@ impl<'s> Parser<'s> {
                 TokenKind::Ident(n) if n.chars().next().is_some_and(|c| c.is_uppercase()) => {
                     i += 1;
                     names += 1;
+                    // `<…>` type arguments and `(…)` value arguments ride
+                    // with the name; skip each balanced group.
+                    for (open, close) in
+                        [(TokenKind::Lt, TokenKind::Gt), (TokenKind::LParen, TokenKind::RParen)]
+                    {
+                        if self.peek_at(i).kind == open {
+                            let mut depth = 0usize;
+                            loop {
+                                let k = &self.peek_at(i).kind;
+                                if *k == open {
+                                    depth += 1;
+                                } else if *k == close {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        i += 1;
+                                        break;
+                                    }
+                                } else if matches!(k, TokenKind::Eof) {
+                                    return None;
+                                }
+                                i += 1;
+                            }
+                        }
+                    }
                 }
                 TokenKind::Caret if names > 0 => i += 1,
                 _ => break,
