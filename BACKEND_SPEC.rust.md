@@ -645,12 +645,38 @@ the blanket rule:
   * The read emission stays the default for read uses: Salvo's read
     handles are shared, and shared renders `&` — the `Mut` in a return
     type is *permission*, mode is *use* ([fate-move-mode]'s split).
-  * **The remaining cuts, loud, lifted by ④a's later slices**: lending
-    fn values and effect members (slices 3–4 — a locator crosses those
-    boundaries as ordinary data), search loops over passes (slice 5),
-    branch-dependent path sets (generated path enums, when first
-    needed). Kotlin: nothing — objects alias; parity pinned by the e2e
-    cases.
+  * **Bound handles** (④a slice 2): any locator-expressible lending call
+    mints one — the captured locator re-materializes `anchor[__hN]` per
+    use, so container *reads* between uses stay legal (a bound `&mut`
+    would be E0502). ①'s "direct `get` only" cut is retired.
+  * **Fn values** (slice 3): a fn type whose return is a wholesale
+    mutable lend renders as a **locator closure** —
+    `impl FnMut(&C, &L) -> Option<usize>`, read-mode parameters — and a
+    lambda filling such a position emits in locator mode. This is what
+    lets a mutable handle cross a closure boundary at all; a
+    `&mut`-returning `FnMut` would tie the borrow to the closure. The
+    `?at`/`Locate` idiom [col-locate] rides it, with implicit positions
+    rendered the same way (`implicit_param_type_borrowing`).
+  * **Effect members** (slice 4): a member whose return is a wholesale
+    mutable lend carries **both faces** — the read one, explicitly
+    lifetime-tagged (`fn lease<'a>(&mut self, es: &'a Vec<T>) ->
+    Option<&'a T>`, since elision with `&mut self` present would tie the
+    borrow to `self`), and `{member}__loc`. Declaration-driven: the
+    trait, every handler impl and the monitor adapter all carry both, and
+    a `Mut` position routes to the locator face. Such an effect has **no
+    lock adapter**: a borrow cannot escape a mutex guard, so a
+    mutable-lending effect is local by nature.
+  * **Search loops** (slice 5): inside a locator variant, a `for`
+    directly over a list lowers to an *indexed* loop and the element
+    binding becomes a captured-index handle, so `return e` answers the
+    found **position**. That is the pass-hidden-position and NLL-loop
+    case, both lifted.
+  * **What remains cut, loud**: a lend whose anchor is not a plain place
+    of a known indexable type (a bare generic container has no index —
+    the recorded lift is the type-erased locator, GROUP_BORROWING.md's
+    second GB-5 addendum), and branch-dependent path sets (generated
+    path enums, when a case first needs one). Kotlin: nothing — objects
+    alias; parity pinned by the e2e cases.
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

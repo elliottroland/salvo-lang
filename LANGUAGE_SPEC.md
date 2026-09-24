@@ -708,6 +708,16 @@ Conventions:
   exactly the mints the proofs legalize, riding [rs-loc] on the Rust
   backend. Note the parameters carry no container `Mut`: element
   mutability is the element type's [proj-mut].
+* [col-locate] `core.list` declares `params Locate<C, L, T> { fn at(c: C,
+  l: L) -> proj(c) Mut T? }` (user decision 2026-09-24, ④a slice 3′): what a
+  **position-based** algorithm needs, as a params group [implicit-group] —
+  one function turning a container and a position into the element's
+  mutable handle, so the algorithm stays generic over *what a position is*
+  (an index for a list, a key for a map, a cursor of your own) while the
+  caller, which knows the shape, fills it. The `Yield` pattern for places
+  rather than elements, and the idiom that pierces generic opacity for
+  mutable lends. std ships the canonical `at` for a list (`get` under the
+  group's name). Rust renders such a position as a **locator** [rs-loc].
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`

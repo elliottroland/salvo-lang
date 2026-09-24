@@ -455,23 +455,28 @@ COMPLETED.md's log). Status:
   effect-member calls; a latent double-lifetime retag). **Leftover
   note**: `NotEq` could one day take any `?eq`-capable subject (user
   note 2026-09-24).
-- **④ NEXT — the locator unification + `canbe`** (direction chosen
-  2026-09-24, evening — GROUP_BORROWING.md's *second* GB-5 addendum): ④a
-  re-founds every mutable-handle rendering on **locators** (`(anchor,
-  path)` — one representation, one declaration-checked expressibility
-  rule, ③'s parked cuts lifted, GhostCell declined on the brand/actor
-  argument, P-2's store absorbed); ④b adds the decided `canbe` grammar
-  and covered anchors on top (two-locals calls per-site
-  disjoint-specialized; the ④a slice plan, `Locate` bundle included,
-  is in the addendum). **⑤ GB-3-A** follows, whose write-vs-destroy
-  bit also decides in-place writes during iteration.
-  **The ④ session's table widened** (user decision 2026-09-24, step ③):
-  it must also weigh lifting step ③'s lending-fork cuts — bound handles
-  from user accessors, the NLL loop shape, lending fn *values* — and the
-  **GhostCell/branded-token representation** as an alternative to the
-  store itself. The option analysis lives in GROUP_BORROWING.md's GB-5
-  addendum. Also recorded there: `NotEq` generalizes to any `?eq`-capable
-  subject one day (user note 2026-09-24).
+- **④a BUILT** (2026-09-24, COMPLETED.md's log): the locator substrate
+  [rs-loc] in five slices — locator variants, bound mints, fn values,
+  std's `Locate` bundle [col-locate], effect members, search loops. Every
+  parked lending cut is lifted; what remains cut is a non-indexable
+  anchor (generic containers — the type-erased-locator lift) and
+  branch-dependent path sets.
+- **④b NEXT — `canbe` entries + covered anchors**: the decided grammar
+  (GB-1(s)) parsed into clause entries, the same-call exemption exactly
+  coverage-shaped (P-6), covered calls rendering against **shared
+  anchors** (the locator whose anchor several handles share — P-2's store,
+  absorbed into ④a's model), two-locals calls **per-site
+  disjoint-specialized** (GB-2-B: two locals cannot alias, so no
+  synthetic store is ever built). Also owed here: the **Kotlin copy
+  audit** (GB-6 — covered positions legalize observable aliasing, so any
+  copy of a group member becomes a parity bug on *that* backend).
+- **⑤ GB-3-A** follows, whose write-vs-destroy bit also decides in-place
+  writes during iteration.
+- Recorded leftovers in GROUP_BORROWING.md's second GB-5 addendum: the
+  type-erased-locator lift (generic containers), branch-dependent path
+  enums, GhostCell as the declined-but-kept fallback, the
+  `get_unchecked` mitigation ladder, and `NotEq` over any `?eq`-capable
+  subject (user note 2026-09-24).
 
 ## LSP source-root discovery, and a project manifest (direction decided 2026-09-24, sequenced after GROUP_BORROWING.md)
 

@@ -1158,10 +1158,6 @@ struct Emitter<'p> {
     /// renamed/loc-spliced only while `lend_loc_mode` (the same span also
     /// renders normally in the read emission).
     mut_forward_sites: HashSet<(usize, Span)>,
-    /// [rs-loc] Mutable-use lending calls with **no named callee** — a fn
-    /// value or effect member lending a mutable handle: the loud cut
-    /// slices 3–4 of ④a lift (GROUP_BORROWING.md's second addendum).
-    mut_lend_cuts: HashSet<(usize, Span)>,
     /// [rs-loc] Whether the adapter closure being built wraps a callee's
     /// **locator variant**: its parameters are read-mode.
     loc_adapter: bool,
@@ -1437,7 +1433,6 @@ struct LendMutDemand {
     demanded: HashSet<salvo_core::FnKey>,
     seeds: HashSet<(usize, Span)>,
     forwards: HashSet<(usize, Span)>,
-    cuts: HashSet<(usize, Span)>,
 }
 
 /// Seeds are `Checked::mut_lend_calls` resolved through `call_fn`; the
@@ -1455,7 +1450,6 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
     let mut demanded: HashSet<salvo_core::FnKey> = HashSet::new();
     let mut seeds = HashSet::new();
     let mut forwards = HashSet::new();
-    let mut cuts = HashSet::new();
     let mut worklist: Vec<salvo_core::FnKey> = Vec::new();
     // [rs-loc] Bound mints join the seeds (④a slice 2): a `let` the
     // checker marked as a mutable-handle bind (`handle_muts`) whose value
@@ -1510,9 +1504,10 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
     }
     for key in &seeds_in {
         match checked.call_fn.get(key) {
-            None => {
-                cuts.insert(*key);
-            }
+            // [rs-loc] No named callee: a fn value or effect member,
+            // both of which lend through locators (④a slices 3–4) —
+            // rendered at the use site, nothing to demand here.
+            None => {}
             Some(fk) => match fn_of(*fk) {
                 Some(decl) if !decl.intrinsic => {
                     seeds.insert(*key);
@@ -1554,7 +1549,6 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
         demanded,
         seeds,
         forwards,
-        cuts,
     }
 }
 
@@ -1822,7 +1816,6 @@ impl<'p> Emitter<'p> {
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
             mut_forward_sites: lend_mut.forwards,
-            mut_lend_cuts: lend_mut.cuts,
             mut_call_lent: HashSet::new(),
             mode: ValueMode::Read,
             placeholder_code: None,

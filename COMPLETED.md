@@ -133,6 +133,43 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The locator substrate, slices 2–5 — group-borrowing rung ④a complete
+(built 2026-09-24, evening).** Every mutable-handle shape the ladder had
+cut now lowers through **one** representation [rs-loc]. **Slice 2** (the
+bound-mint lift): any locator-expressible lending call mints a bound
+handle — the captured locator re-materializes `anchor[__hN]` per use, so
+container *reads* between uses stay legal where a bound `&mut` would be
+E0502; ①'s "direct `get` only" cut retired. **Slice 3** (fn values): a fn
+type whose return is a wholesale mutable lend renders as a locator closure
+(`impl FnMut(&C, &L) -> Option<usize>`, read-mode parameters), a lambda
+filling such a position emits in locator mode, and the checker learned to
+record `derived_calls` for wholesale-lending fn-value calls (the missing
+link — a fn *type* keeps no source names, so the sources are its kept
+non-Copy arguments). **Slice 3′** (the user's `Locate` idea): std ships
+`params Locate<C, L, T>` + the canonical list `at` [col-locate], and
+implicit positions render as locators too — a generic algorithm hands out
+mutable handles because the caller supplies the accessor, which is the
+opacity workaround usable *by convention* rather than as future work.
+**Slice 4** (effect members): a mutable-lending member carries **both
+faces** — the read one explicitly lifetime-tagged (elision with `&mut
+self` present would tie the borrow to `self`; this was a latent gap in
+member lends, never exercised before) and `{member}__loc` — across the
+trait, every handler impl and the monitor adapter, with a `Mut` position
+routing to the locator face; such an effect gets **no lock adapter**,
+since a borrow cannot escape a mutex guard, so a mutable-lending effect is
+local by nature. **Slice 5** (search loops): inside a locator variant a
+`for` over a list lowers to an *indexed* loop and the element binding
+becomes a captured-index handle, so `return e` answers the found
+position — the pass-hidden-position and NLL-loop cases, both lifted, and
+the `indices(es)` form worked already (returns are data, so nothing
+borrows across the loop). What remains cut, loudly: a lend whose anchor is
+not a plain place of a known indexable type (a bare generic *container*
+has no index — the recorded lift is the type-erased locator) and
+branch-dependent path sets. Kotlin needed nothing throughout; parity is
+pinned by five e2e case pairs (`15 7`, `107 7`, `5 17`, `50 13`, `111
+220`). 1448 tests green, warning-free, full suite including toolchain
+e2e.
+
 **The locator substrate, slice 1 — group-borrowing rung ④a begins
 (built 2026-09-24, evening; direction decided the same evening,
 GROUP_BORROWING.md's second GB-5 addendum).** The evening's exploration
@@ -15765,7 +15802,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1439)
+## Test inventory (all green: 1448)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
