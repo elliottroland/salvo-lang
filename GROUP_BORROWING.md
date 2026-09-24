@@ -1153,7 +1153,7 @@ refused); (3′) **BUILT 2026-09-24** — **the `Locate` bundle in std** (user d
 2026-09-24: `params Locate<C, L, T>` bundling `at` and a positions
 source, the `Yield` pattern for position-based algorithms — sequenced
 here because it *is* slice 3's idiom); (4) **BUILT 2026-09-24** — **effect members** lending
-mutably (the ③ cut flips to a rendering, uniform case first); (5) the
+mutably (the ③ cut flips to a rendering, uniform case first); (5) **BUILT 2026-09-24** — the
 indexed `for`-over-list lowering inside variant bodies — the search-loop
 / NLL lift. Generated path enums for branch-dependent lends join when a
 std or test case first needs one; until then a non-uniform lend is the

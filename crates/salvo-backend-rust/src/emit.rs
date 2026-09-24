@@ -7214,6 +7214,19 @@ impl<'p> Emitter<'p> {
     /// the checker recorded the optional coercion, and `None` passes
     /// through.
     fn emit_return_value(&mut self, v: &Expr) -> String {
+        // [rs-loc] ④a slice 5 — inside a locator variant, returning a
+        // *bound element handle* answers its captured index: the loop found
+        // the position, and position data is what a locator variant hands
+        // back. (`Some(...)` wrapping is the ordinary coercion's job.)
+        if self.lend_loc_mode {
+            if let Expr::Ident(id) = v {
+                if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::ElemMut)) {
+                    if let Some((_, idx)) = self.elem_places.get(&id.name).cloned() {
+                        return self.apply_coercion(v.span(), idx);
+                    }
+                }
+            }
+        }
         // [rs-proj-struct] A borrowing struct literal is returned by value:
         // its `proj` fields are borrows (rendered in `emit_struct_lit`), the
         // struct itself is an owned cursor.
@@ -9389,10 +9402,37 @@ impl<'p> Emitter<'p> {
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{pad}let mut {ran} = false;\n"));
                 }
-                match (&producer, &pass) {
-                    (Some((header, ..)), _) => out.push_str(header),
-                    (None, Some(header)) => out.push_str(header),
-                    (None, None) => out.push_str(&format!("{pad}for {var} in {iter} {{\n")),
+                // [rs-loc] ④a slice 5 — inside a **locator variant**, a
+                // `for` directly over a list (or array) lowers to an
+                // *indexed* loop and the element binding becomes a
+                // captured-index handle: that is what lets a search loop
+                // return the position it found, where the element binding
+                // itself is a borrow no locator could be read out of.
+                let mut loc_index_loop = false;
+                if self.lend_loc_mode && producer.is_none() && pass.is_none() {
+                    if let Pattern::Ident(name) = pattern {
+                        if elem_ok && self.place_is_pure(iterable) {
+                            let root = self.emit_place(iterable);
+                            let ivar = format!("__li{}", self.handle_seq);
+                            self.handle_seq += 1;
+                            out.push_str(&format!(
+                                "{pad}for {ivar} in 0..{root}.len() {{\n"
+                            ));
+                            self.bindings.insert(name.name.clone(), BindKind::ElemMut);
+                            self.elem_places
+                                .insert(name.name.clone(), (root, ivar));
+                            loc_index_loop = true;
+                        }
+                    }
+                }
+                if !loc_index_loop {
+                    match (&producer, &pass) {
+                        (Some((header, ..)), _) => out.push_str(header),
+                        (None, Some(header)) => out.push_str(header),
+                        (None, None) => {
+                            out.push_str(&format!("{pad}for {var} in {iter} {{\n"))
+                        }
+                    }
                 }
                 if let Some(ran) = &ran {
                     out.push_str(&format!("{inner_pad}{ran} = true;\n"));

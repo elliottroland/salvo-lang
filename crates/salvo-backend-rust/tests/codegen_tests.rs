@@ -12863,6 +12863,66 @@ fn rustc_compiles_and_runs_elem_mut_handles() {
     run_rust_files(&files, "elem_mut", "2 13\n");
 }
 
+/// [rs-loc] ④a slice 5 — a **search loop** whose element binding is
+/// returned: inside the locator variant the `for` over a list becomes an
+/// *indexed* loop and the binding a captured-index handle, so the found
+/// **position** travels out. The shape a `&mut` return could never take
+/// (the NLL/pass-hidden-position case).
+const SEARCH_LOOP_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn wounded(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+    for e in es {
+        if e.hp < 10 {
+            return e
+        }
+    }
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
+    heal(wounded(es)!)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn a_search_loop_returns_the_found_position() {
+    let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("pub fn wounded__loc(es: &Vec<Entity>) -> Option<usize>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("for __li0 in 0..es.len()"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("return Some(__li0);"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_search_loop_lender() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
+    run_rust_files(&files, "search_loop", "50 13\n");
+}
+
 /// [elem-distinct] [rs-elem-mut] The distinct-pair shapes: a proven pair of
 /// statement-scoped handles in one call, a proven pair of *bound* handles in
 /// one call, and interleaved mutation through two bound handles — the checker

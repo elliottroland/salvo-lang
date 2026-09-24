@@ -3466,6 +3466,40 @@ fn main() [use] {
 }
 "#;
 
+/// [rs-loc] The search-loop lender, byte-identical stdout to the Rust
+/// backend's `rustc_compiles_and_runs_a_search_loop_lender`.
+const SEARCH_LOOP_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn wounded(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+    for e in es {
+        if e.hp < 10 {
+            return e
+        }
+    }
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 50 }, Mut Entity { hp: 3 })
+    heal(wounded(es)!)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_search_loop_lender() -> KotlinCase {
+    let program = build_program(&[("main.sv", SEARCH_LOOP_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "search_loop", "50 13\n")
+}
+
 fn kotlinc_compiles_and_runs_a_lending_effect_member() -> KotlinCase {
     let program = build_program(&[("main.sv", LENDING_MEMBER_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3513,6 +3547,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_the_locate_bundle,
     kotlinc_compiles_and_runs_a_lending_effect_member,
+    kotlinc_compiles_and_runs_a_search_loop_lender,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
