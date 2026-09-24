@@ -133,6 +133,37 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Rung ⑤ (GB-3-A) attempted and reverted — the finding is the result
+(2026-09-24, evening).** Built the obvious form of the child-group
+refinement: poison relaxed for a derivation whose remaining path is all
+**field** steps, with such a binding rendered as a *virtual place* (the
+path re-materialized per use) so the Rust emission could survive the
+mutation. It type-checked and ran the motivating example on both backends
+(`let rings = e.rings` living across `damage(e)`, `1 15`) — and a
+pre-existing test (`a_whole_variable_mutation_still_poisons_every_field`)
+caught what the motivating example hides. The three-line probe: `let tags
+= h.tags; replace(h)` where `replace` assigns `h.tags = mut_list_of(9, 9,
+9)`; `size(tags)` prints **3 on Rust** (a virtual place re-reads its path)
+and **1 on Kotlin** (the binding holds the object the field used to
+carry). A [backend-parity] violation — precisely the divergence
+[fate-poison]'s uniform discipline exists to keep unobservable — and the
+alternative rendering, a bound `&`, is E0502 against the very mutation
+being legalized. So the two candidate renderings fail in opposite
+directions, and the relaxation was reverted whole (suite clean, the
+divergent program correctly refused again). **The finding**: a field step
+is a destroyability boundary *whenever the field can be reassigned*, and a
+`Mut` struct's fields always can — so GB-3-A needs the destroy-vs-write
+distinction at **field granularity in contracts** (P-5's recorded v2: a
+`preserve`-family clause item stating a call does not *replace* a named
+field, distinct from `preserve Idx`, since index-validity and
+storage-stability are different facts). P-5's v1 posture — an internal
+std-intrinsic table, user fns conservative — cannot reach this case
+because the offending mutation is a *user* fn's. That clause is now the
+next **DECISION** in the area (ROADMAP), and the same distinction would
+decide in-place writes during iteration. Worth stating plainly: the rung
+produced no feature, and the reason it produced none is the useful part.
+1454 tests green.
+
 **`canbe` and covered anchors — group-borrowing rung ④b (built
 2026-09-24, evening).** The decided grammar (GB-1(s), all of it) now
 parses, checks and lowers: `=> a canbe d`, the anchored `canbe in` with
