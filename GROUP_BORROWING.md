@@ -626,7 +626,7 @@ claim** on the [qual-depend] machinery, which is the blog's `distinct(x, y)`
 escape hatch promoted to the whole model:
 
 ```
-qualifier Distinct(i: Int) of Int {
+qualifier NotEq(i: Int) of Int {
     fn qualifies(j: Int, i: Int) -> Bool {
         return j != i
     }
@@ -634,7 +634,7 @@ qualifier Distinct(i: Int) of Int {
 
 fn attack_at(entities: Mut List<Entity>,
              i: Idx(entities) Int,
-             j: Distinct(i) Idx(entities) Int) -> None
+             j: NotEq(i) Idx(entities) Int) -> None
 => entities: Mut {
     // two exclusive mutable projections, proven apart
     let a = nth(entities, i)
@@ -653,14 +653,14 @@ GB-5 entirely** — `proj Mut X` renders `&mut X` (the mutable twin of
 - *For*: in-place element mutation *and* the two-element shapes, with no new
   memory model, no representation fork, no parity inversion (GB-6's audits
   become unnecessary); the claim machinery is built and fresh, and the
-  runtime test (`j is Distinct(i)`) is ordinary refinement narrowing.
+  runtime test (`j is NotEq(i)`) is ordinary refinement narrowing.
 - *Against*: `i == j` is *refused*, not meaningful — self-attack, self-transfer
   and every aliasing-means-something case are outside the model, and that is
   precisely the property groups exist to provide; every call site owes a
   proof or a branch; exclusive mutable projections are real checker work
   (mint-time exclusivity is today's poison rule inverted) and real emitter
   work (`&mut` projections with lifetime ties, the split helper); and
-  `Distinct` is a claim between two *values* used as an aliasing fact about
+  `NotEq` is a claim between two *values* used as an aliasing fact about
   two *places* — sound for indices into one container, but the rule that
   keeps it from being claimed across containers needs stating.
 
@@ -728,7 +728,7 @@ store-plus-index rendering for exactly those positions. So **D is not an
 alternative to A — D is A's substrate**, and the build sequence is a
 ladder: exclusive `proj Mut` first (plain `&mut` emission, no new
 representation), the `canbe` relaxation on top (GB-5's store, only where
-covered). D's `Distinct(i)` claims become optional rather than structural —
+covered). D's `NotEq(i)` claims become optional rather than structural —
 a covered call supersedes them wherever aliasing is tolerable, and they
 remain available where a caller wants proven-disjoint handles without
 paying the covered rendering.
@@ -949,6 +949,64 @@ GB-3-C), with the fn-value/effect-member corners cut loudly.** B and C
 should be recorded as rejected with reasons, so the question does not reopen
 silently.
 
+### GB-5 addendum — the lending fork joins this table (user decision 2026-09-24, step ③)
+
+Step ③ chose **mode-specialized emission** for *named* lending fns (the
+option ROADMAP carried as "(a)"): a fn whose result is used mutably at some
+call site gets a second, demand-driven `__mut` emission — lent parameters
+`&mut`, derived-return intrinsic splices in their mut forms, forwarded
+lending calls to the callee's own `__mut` variant. Chosen over promoting
+the total `get` to intrinsic precisely so *users* can write lending
+accessors that serve `Mut` positions. Its v1 cuts, **all parked to this
+section's session** (the user's call: whatever the store decision does
+should address them):
+
+- **Bound handles from user accessors** (no index to capture, so ①'s
+  virtual binding cannot apply, and a real bound `&mut` violates Rust's
+  aliasing model against checker-legal container reads — a semantics
+  mismatch, not NLL conservatism).
+- **The NLL loop shape** (a lending body that conditionally returns a
+  borrow found in a loop, then touches the container: sound, accepted by
+  Polonius, refused by today's rustc — fails loudly in generated code).
+- **Lending fn *values*** — the genuinely hard half of the fork: a
+  closure is one value with one capture environment, so the two-emission
+  trick cannot reach it. Effect members are *not* parked: a trait carries
+  two methods, so demand-driven `member__mut` emission is the natural
+  extension when wanted.
+
+The options catalogued for the fn-value half, kept here because they are
+**the same representation question as option A's store**:
+
+- **Type-driven mode** — a fn value typed `-> proj(c) in (Mut T)` emits
+  as the mut closure only; the checker refuses read-handle *coexistence*
+  through such values (a targeted narrowing at exactly the P-9 spot,
+  scoped to one construct; consistent with fn-value contracts being
+  declared rather than inferred [fn-contract]).
+- **Locators (the safe lazy wrapper)** — the lending closure answers
+  *data* that re-materializes the place per use (index/path), and the use
+  site decides read vs mut at the last moment. A locator **is**
+  option A's (store, index); it also lifts the bound-accessor-handle cut
+  as a byproduct. Only for lends whose path is expressible as data
+  (`lends.rs` already traces it); opaque-generic lends stay out.
+- **Branded cells (GhostCell)** — *new on this table*: elements live in
+  `GhostCell<'brand, T>`, handles are freely-aliasing shared `&`s, and
+  every read/write goes through a **token** (`&token` reads,
+  `&mut token` writes) the compiler threads as an implicit parameter
+  [implicit-param]. The unsafe lives inside the published pattern, whose
+  soundness is machine-checked (Yanovski/Dang/Jung/Dreyer, ICFP 2021) —
+  generated code stays safe Rust, and "writes serialized through one
+  exclusive thing" is exactly Salvo's semantics. Costs: `List<Mut T>`
+  changes representation, every use threads the token, `noalias` is
+  forfeited on cell contents. A genuine alternative *to the store
+  itself*, not just to the fn-value corner — weigh it against A when this
+  session convenes.
+- **An audited raw-pointer `Lend<T>` primitive** — option B in a coat;
+  stays rejected on P-2's record unless that reversal is deliberately
+  taken (mitigations would be: one primitive, a written soundness
+  argument keyed to the checker's discipline, Miri in the e2e suite).
+- Rejected relatives, recorded: `RefCell` (P-2/GB-5-C's reasoning), and
+  re-running the accessor per use (semantics change under mutation).
+
 ## §8. GB-6 — Kotlin implications (flags, not decisions)
 
 Kotlin gets aliasing for free, which is exactly why it needs watching:
@@ -1070,7 +1128,10 @@ with all four cells visible.
 
 ## Final — decisions pending before implementation (refreshed 2026-09-24)
 
-**Decided so far** (all 2026-09-24): the GB-1 spelling round in full
+**Decided so far** (all 2026-09-24; the qualifier the P-rounds called
+`Distinct(i)` shipped as **`NotEq(i)`** — renamed by the user at step ③,
+since `core.set` already owns `Distinct` for a `List` subject and NotEq
+says what it claims): the GB-1 spelling round in full
 (GB-1(s): `canbe` entries, symmetric, non-transitive, `canbe in` paths,
 `|` lists, shared-anchor rule, "alias group" as diagnostic vocabulary);
 GB-1's shape (D's split, qualifier half dissolved into the `proj` anchor);
@@ -1085,7 +1146,7 @@ feature). What remains, in the order the calls are needed:
 | P-4 | **`canbe` inference**: are entries written-only, or may [deduce-infer] claim one (a body forwarding two parameters into a covered callee needs the entry — does the middle fn write it, or does the fixpoint infer it)? | GB-1-A's inference note, [decl-explicit] | Written-only at first (aliasability stays visible in every signature); revisit if forwarding chains make it bite |
 | P-5 | **GB-3 invalidation for v1**: confirm C — mutation through a covered handle poisons other members' derivations wholesale; the child-group refinement (A) waits until it bites | GB-3 | C for v1; reject B on the record |
 | P-6 | **GB-4 ratifications**: views and linear values refused as group members; state claims strip across the alias group (provenance rides); the same-call exemption exactly coverage-shaped; Copy-scalar members refused (GB-6) | GB-4, GB-6 | Ratify all four as written |
-| P-7 | **`Distinct(i)` claims**: ship them (proven-disjoint handles without the covered rendering), or drop — covered calls supersede them wherever aliasing is tolerable | GB-2-D | Drop for now; record as a later refinement of the ladder |
+| P-7 | **`NotEq(i)` claims**: ship them (proven-disjoint handles without the covered rendering), or drop — covered calls supersede them wherever aliasing is tolerable | GB-2-D | Drop for now; record as a later refinement of the ladder |
 | P-8 | **C's details, if stage 1 ships**: `update2`'s `i == j` rule (same element passed twice, refuse dynamically, or copy) and the family's exact members | GB-2-C | Same element twice, documented — the aliasing-tolerant reading D and A also take |
 
 P-1 governs everything; P-2 and P-3 are the load-bearing semantic/backend
@@ -1112,7 +1173,7 @@ pair; P-4–P-8 can be taken in any order once those stand.
   position receiving one element twice, which linearity itself enforces
   and only the C family could even attempt. Views stay refused (isolation,
   not linearity).
-- **P-7 — resolved via P-8**: `Distinct(i)` is an ordinary dependent
+- **P-7 — resolved via P-8**: `NotEq(i)` is an ordinary dependent
   qualifier on existing [qual-depend] machinery — **std ships it with
   `update2`**, no compiler work. The later refinement is only the
   compiler-side use (group splitting / `split_at_mut`-keyed D-handle
@@ -1121,7 +1182,7 @@ pair; P-4–P-8 can be taken in any order once those stand.
   `i == j` is incoherent for owned moves (one value cannot move out
   twice). The family takes **`Mut` callbacks**: `update(list, i: Idx(list)
   Int, f: (elem: Mut T) -> None)` → `f(&mut list[i])`;
-  `update2(list, i: Idx(list) Int, j: Distinct(i) Idx(list) Int,
+  `update2(list, i: Idx(list) Int, j: NotEq(i) Idx(list) Int,
   f: (a: Mut T, b: Mut T) -> None)` → safe `split_at_mut`. No moves, so no
   linear hazard (P-6) and no `Default` bound; wholesale replacement stays
   `set`, linear discharge stays `remove_*`. v1 family: `update`, `update2`,
@@ -1164,8 +1225,8 @@ pair; P-4–P-8 can be taken in any order once those stand.
 - **P-8 — DECIDED, with a resequencing**: the C family is **ordinary
   Salvo**, not intrinsics — which is possible exactly because, after
   P-3's lifts and P-9, `update` is `f(get(list, i))` and `update2` is
-  `f(get(list, i), get(list, j))` under a `Distinct(i)` claim. The
-  compiler work sequenced in instead: (1) a proven `Distinct` claim
+  `f(get(list, i), get(list, j))` under a `NotEq(i)` claim. The
+  compiler work sequenced in instead: (1) a proven `NotEq` claim
   exempts a second mint from D's exclusivity — the first refinement of
   the computed-index may-alias rule [fate-field-disjoint]; (2)
   proven-disjoint handles do not poison each other; (3) a general Rust
@@ -1179,13 +1240,19 @@ lifts, root-poisoning with the acting handle exempted, P-9's `handle_muts`
 mode table, the `get_mut` splice and captured-index virtual bindings,
 `List<Mut T>` parameters arriving `&mut`; the v1 cut (bound mints only
 from a direct `get(place, i)!`) reported loudly. ② **BUILT 2026-09-24**
-— [elem-distinct] + [col-distinct]: `Distinct` in std, link
-index-identity (`FateLink.elem_idx`, erased on index reassignment),
-the poison consult, the proven-pair call (`Checked::distinct_pairs`),
-and `salvo_pair_mut` in `runtime/seq.rs` (statement-position calls only,
-loud cut); the [qual-depend] reassignment-strips defect fixed en route.
+— [elem-distinct] + [col-noteq]: `NotEq` in std (named `Distinct` for a
+few hours), link index-identity (`FateLink.elem_idx`, erased on index
+reassignment), the poison consult, the proven-pair call
+(`Checked::distinct_pairs`), and `salvo_pair_mut` in `runtime/seq.rs`
+(statement-position calls only, loud cut); the [qual-depend]
+reassignment-strips defect fixed en route. ③ **BUILT 2026-09-24** — the
+update family [col-update] as ordinary std Salvo over **mode-specialized
+lending** [rs-lend-mut] (the (a) fork; cuts parked to the GB-5 addendum
+above); declared dependent claims made live in their own bodies
+[qual-depend], and the pair rule extended to fn-value and effect-member
+calls.
 ① P-3's lifts + P-9 (the D substrate) →
-② `Distinct` in std + the three compiler pieces → ③ the C family as plain
+② `NotEq` in std + the three compiler pieces → ③ the C family as plain
 std code → ④ `canbe` entries + the covered store rendering (A) →
 ⑤ GB-3-A. The document folds into COMPLETED.md's log, spec rules and the
 ROADMAP plan as each step lands, and is deleted after ⑤, per its charter.

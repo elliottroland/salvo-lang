@@ -772,12 +772,18 @@ pub struct Checked {
     /// argument; the Rust backend renders the result as a borrow.
     pub derived_calls: HashMap<Key, Vec<usize>>,
     /// [elem-distinct] Calls taking **two mutable element handles of one
-    /// container, proven apart** by a live `Distinct` claim, keyed by the
+    /// container, proven apart** by a live `NotEq` claim, keyed by the
     /// call span: the two parameter indices. The Rust backend renders the
     /// pair through `salvo_pair_mut` (one `split_at_mut`, two `&mut`)
     /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
     /// the call.
     pub distinct_pairs: HashMap<Key, (usize, usize)>,
+    /// [rs-lend-mut] Derived-return calls whose **result is used
+    /// mutably** — passed to a `Mut` position or assigned through — keyed
+    /// by the call span. The Rust backend renders such a call against the
+    /// callee's demand-emitted `__mut` variant (mode-specialized lending,
+    /// step ③ of the group-borrowing ladder); Kotlin needs nothing.
+    pub mut_lend_calls: HashSet<Key>,
     /// Calls *through fn-typed values* [fn-contract], keyed by the call
     /// span: the effective per-argument contract (post-default), for the
     /// Rust backend's argument rendering.
@@ -1432,7 +1438,7 @@ struct FateLink {
     /// handle: the ultimate fate-root id of the index variable in
     /// `get(list, i)` (resolved to `core.list`'s `get`), captured at the
     /// mint. Two handle links into the same root at the same path whose
-    /// identities are proven apart by a live `Distinct` claim name disjoint
+    /// identities are proven apart by a live `NotEq` claim name disjoint
     /// storage, so mutation through one spares the other from poison.
     /// Erased (eagerly, at the event) when the index variable is reassigned
     /// or stepped — a surviving identity always means "the element selected
@@ -5990,6 +5996,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         self.locals.push(top);
+        // [qual-depend] A parameter's declared dependent claim names
+        // sibling parameters, and they are all in scope now: fill the
+        // claim's fate roots, so inside the body the claim is *live* —
+        // consumed by claim-demanding overloads and stripped by mutation
+        // or reassignment of the depended-on value — exactly as an
+        // `is`-established one. (The signature callers match against
+        // stays a root-free template; this rooting is the body's view.
+        // Gap found building the C family, 2026-09-24: `fn f(es: List<T>,
+        // i: Idx(es) Int)` could not use the total `get` on its own
+        // parameters.)
+        self.root_declared_claims();
         self.check_block_value(body);
         // [linear-obligation] A moved-in linear parameter must be
         // discharged by the body.
@@ -6018,6 +6035,78 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.can_spawn = saved_can_spawn;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
+    }
+
+    /// [qual-depend] Roots the dependent claims declared on the current
+    /// frame's parameters: every root-free `ValueRef` in a declared type
+    /// resolves its written path against the sibling parameters. Two-pass
+    /// (collect, then write) over the top frame.
+    fn root_declared_claims(&mut self) {
+        let Some(frame) = self.locals.last() else { return };
+        // name -> ultimate roots, for path-base resolution.
+        let roots_of: HashMap<String, Vec<u32>> = frame
+            .iter()
+            .map(|(name, var)| {
+                let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+                roots.sort_unstable();
+                roots.dedup();
+                if roots.is_empty() {
+                    roots.push(var.id);
+                }
+                (name.clone(), roots)
+            })
+            .collect();
+        fn fill(ty: &Ty, roots_of: &HashMap<String, Vec<u32>>) -> Ty {
+            match ty {
+                Ty::ValueRef { path, roots } if roots.is_empty() => {
+                    let base = path.split('.').next().unwrap_or(path);
+                    match roots_of.get(base) {
+                        Some(r) => Ty::ValueRef {
+                            path: path.clone(),
+                            roots: r.clone(),
+                        },
+                        None => ty.clone(),
+                    }
+                }
+                Ty::Qualified { quals, base } => Ty::Qualified {
+                    quals: quals
+                        .iter()
+                        .map(|q| Qual {
+                            effect: q.effect,
+                            name: q.name.clone(),
+                            args: q.args.iter().map(|a| fill(a, roots_of)).collect(),
+                        })
+                        .collect(),
+                    base: Box::new(fill(base, roots_of)),
+                },
+                Ty::Named { name, args } => Ty::Named {
+                    name: name.clone(),
+                    args: args.iter().map(|a| fill(a, roots_of)).collect(),
+                },
+                Ty::Union(arms) => Ty::Union(arms.iter().map(|a| fill(a, roots_of)).collect()),
+                Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| fill(e, roots_of)).collect()),
+                Ty::Array(elem) => Ty::Array(Box::new(fill(elem, roots_of))),
+                other => other.clone(),
+            }
+        }
+        let updates: Vec<(String, Ty, Ty)> = frame
+            .iter()
+            .filter(|(_, var)| Self::ty_has_value_ref(&var.declared))
+            .map(|(name, var)| {
+                (
+                    name.clone(),
+                    fill(&var.declared, &roots_of),
+                    fill(&var.narrowed, &roots_of),
+                )
+            })
+            .collect();
+        let Some(frame) = self.locals.last_mut() else { return };
+        for (name, declared, narrowed) in updates {
+            if let Some(var) = frame.get_mut(&name) {
+                var.declared = declared;
+                var.narrowed = narrowed;
+            }
+        }
     }
 
     // ================= effects =================
@@ -7855,9 +7944,74 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// mutating `p.tags` leaves a value derived from `p.name` usable. An
     /// event on the whole variable (`[]`) is a prefix of every path and so
     /// poisons everything, as before; `None` is the conservative unknown.
+    /// [elem-distinct] The two-mutable-element-handles-in-one-call rule,
+    /// shared by named calls, calls through fn values and effect members
+    /// ([fn-contract]'s "keep the two in sync" applied to this rule):
+    /// `mut_kept[i]` says argument `i` lands in a kept `Mut` position. A
+    /// second handle into a container an earlier argument already handles
+    /// is accepted — and recorded in `Checked::distinct_pairs` for the
+    /// pair lowering [rs-elem-mut] — only when the minting indices are
+    /// proven apart; anything less is refused, naming the remedy.
+    fn check_elem_handle_pairs(&mut self, args: &[&'p Expr], mut_kept: &[bool], span: Span) {
+        let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
+        let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
+        for (i, arg) in args.iter().enumerate() {
+            if !mut_kept.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let mutable_handle = self
+                .out
+                .ty_of(self.file_idx, arg.span())
+                .is_some_and(|t| t.is_proj() && Self::carries_mut(t));
+            if !mutable_handle {
+                continue;
+            }
+            let links = match arg {
+                Expr::Ident(id) => self
+                    .lookup(&id.name)
+                    .map(|v| v.links.clone())
+                    .unwrap_or_default(),
+                other => self.links_for_value(other, other.span()),
+            };
+            for l in links.iter().filter(|l| l.borrowed && !l.held) {
+                let Some((_, prev_idx, prev_path, prev_param)) =
+                    handles.iter().find(|(r, ..)| *r == l.root_id)
+                else {
+                    handles.push((l.root_id, l.elem_idx, l.path.clone(), i));
+                    continue;
+                };
+                let proven = match (*prev_idx, l.elem_idx) {
+                    (Some(a), Some(b)) if a != b && l.path.is_some() && *prev_path == l.path => {
+                        proven_pairs
+                            .get_or_insert_with(|| self.live_distinct_pairs())
+                            .contains(&(a, b))
+                    }
+                    _ => false,
+                };
+                let key = self.key(span);
+                if proven && !self.out.distinct_pairs.contains_key(&key) {
+                    self.out.distinct_pairs.insert(key, (*prev_param, i));
+                } else {
+                    let root = &l.root_name;
+                    self.error(
+                        arg.span(),
+                        format!(
+                            "a mutable element handle of `{root}` cannot be \
+                             passed here: an earlier argument of this call is \
+                             already a mutable handle into `{root}`, and the \
+                             two may be the same element; prove them apart \
+                             first (`j is NotEq(i)`), or mutate through \
+                             one handle at a time"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
     /// [elem-distinct] Every root-id pair currently proven apart by a live
-    /// `Distinct` claim, both orientations: a variable whose narrowed type
-    /// carries `Distinct(i)` relates its own ultimate root to `i`'s. Claims
+    /// `NotEq` claim, both orientations: a variable whose narrowed type
+    /// carries `NotEq(i)` relates its own ultimate root to `i`'s. Claims
     /// are matched by the qualifier's name, the posture every std claim
     /// takes (`Sorted`, `Mut`); [qual-depend]'s stripping keeps a live
     /// claim honest — mutation *or reassignment* of either side removes it.
@@ -7879,7 +8033,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let Ty::Qualified { quals, .. } = &var.narrowed else {
                     continue;
                 };
-                for q in quals.iter().filter(|q| q.name == "Distinct") {
+                for q in quals.iter().filter(|q| q.name == "NotEq") {
                     for a in &q.args {
                         if let Ty::ValueRef { roots, .. } = a {
                             if let [other] = roots.as_slice() {
@@ -7931,7 +8085,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [elem-distinct] `acting_elem` is the acting handle's minting-index
     /// identity, when it has one: a sibling link into the same root **at
     /// the same path** whose own identity is proven apart by a live
-    /// `Distinct` claim names disjoint storage, so it is spared. Anything
+    /// `NotEq` claim names disjoint storage, so it is spared. Anything
     /// short of the full proof — either identity missing, paths differing,
     /// no live claim — poisons as before [fate-poison].
     #[allow(clippy::too_many_arguments)]
@@ -8690,6 +8844,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         contract: Option<&[FnParamContract]>,
         span: Span,
     ) {
+        // [elem-distinct] The handle-pair rule applies to these calls
+        // exactly as to named ones.
+        let mut_kept: Vec<bool> = (0..args.len())
+            .map(|i| {
+                let declared_mut = params
+                    .get(i)
+                    .is_some_and(|t| t.quals().iter().any(|q| q.name == "Mut"));
+                match contract.and_then(|c| c.get(i)) {
+                    Some(e) => e.kept && e.mutable,
+                    None => declared_mut,
+                }
+            })
+            .collect();
+        self.check_elem_handle_pairs(args, &mut_kept, span);
         let mut consumed_here: Vec<String> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
             if let Some(name) = consumed_here
@@ -13403,6 +13571,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// reach. Every site that mutates through a non-identifier expression
     /// goes through here, so no invalidation site can be forgotten.
     fn fate_mutation_through(&mut self, expr: &Expr, span: Span) {
+        // [rs-lend-mut] A mutation through a lending call's result is the
+        // demand that makes the Rust backend emit the callee's mut
+        // variant: record the call.
+        if let Some(call_span) = self.mut_lend_call_span(expr) {
+            self.out.mut_lend_calls.insert(self.key(call_span));
+        }
         let mut sources = Vec::new();
         Self::provenance(expr, &mut sources);
         let names: Vec<String> = sources.iter().map(|s| s.name.clone()).collect();
@@ -13426,6 +13600,44 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+    }
+
+    /// [rs-lend-mut] The innermost **derived-return call** a mutable use
+    /// reaches through: `heal(front(es)!)` and `front(es)!.hp = 1` both
+    /// answer `front(es)`'s span. `None` when the expression does not
+    /// bottom out in a lending call whose result carries `proj Mut`.
+    fn mut_lend_call_span(&self, expr: &Expr) -> Option<Span> {
+        let mut e = expr;
+        // The type carrying `proj Mut` is the *unwrapped* one for an
+        // optional lender (`(proj(es) Mut T)?` at the call, `proj Mut T`
+        // at the `!`), so remember the innermost unwrap.
+        let mut unwrap_span: Option<Span> = None;
+        loop {
+            match e {
+                Expr::NonNull { operand, span } => {
+                    unwrap_span = Some(*span);
+                    e = operand;
+                }
+                Expr::Field { base, .. } => e = base,
+                Expr::TupleIndex { base, .. } => e = base,
+                Expr::Index { base, .. } => e = base,
+                _ => break,
+            }
+        }
+        let Expr::Call { span, .. } = e else {
+            return None;
+        };
+        // The evidence is the *type*: any call answering a `proj Mut`
+        // handle is a lend, whoever answers it — a named fn (the demand
+        // seed), an intrinsic (①'s splice territory), or an effect member
+        // (the loud v1 cut, no named decl to emit a variant of).
+        let handle_ty = |sp: Span| {
+            self.out
+                .ty_of(self.file_idx, sp)
+                .is_some_and(|t| t.is_proj() && Self::carries_mut(t))
+        };
+        let mutable_handle = handle_ty(*span) || unwrap_span.is_some_and(handle_ty);
+        mutable_handle.then_some(*span)
     }
 
     /// A mutation of a whole variable: every projection fact under it
@@ -24088,7 +24300,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // one call — `attack(get(es, i)!, get(es, j)!)`, or two bound
         // handles — are the two-`&mut` shape the Rust rendering cannot
         // express unless the elements are provably different. A pair whose
-        // minting indices a live `Distinct` claim proves apart is accepted
+        // minting indices a live `NotEq` claim proves apart is accepted
         // and recorded for the pair lowering [rs-elem-mut]; anything short
         // of the proof is refused here, naming the remedy. (Before this
         // rule the shape passed the checker and died at rustc — a
@@ -24099,73 +24311,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .filter(|p| !p.variadic && !p.implicit)
                 .count();
-            let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
-            let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
-            for (i, arg) in args.iter().enumerate() {
-                if i >= fixed_count {
-                    break;
-                }
-                let param = &decl.params[i];
-                let Some(d) = contract.iter().find(|d| d.param == param.name.name) else {
-                    continue;
-                };
-                if !d.kept
-                    || !crate::deduce::declared_quals(&param.ty)
-                        .iter()
-                        .any(|q| q == "Mut")
-                {
-                    continue;
-                }
-                let mutable_handle = self
-                    .out
-                    .ty_of(self.file_idx, arg.span())
-                    .is_some_and(|t| t.is_proj() && Self::carries_mut(t));
-                if !mutable_handle {
-                    continue;
-                }
-                let links = match arg {
-                    Expr::Ident(id) => self
-                        .lookup(&id.name)
-                        .map(|v| v.links.clone())
-                        .unwrap_or_default(),
-                    other => self.links_for_value(other, other.span()),
-                };
-                for l in links.iter().filter(|l| l.borrowed && !l.held) {
-                    let Some((_, prev_idx, prev_path, prev_param)) =
-                        handles.iter().find(|(r, ..)| *r == l.root_id)
-                    else {
-                        handles.push((l.root_id, l.elem_idx, l.path.clone(), i));
-                        continue;
-                    };
-                    let proven = match (*prev_idx, l.elem_idx) {
-                        (Some(a), Some(b))
-                            if a != b && l.path.is_some() && *prev_path == l.path =>
-                        {
-                            proven_pairs
-                                .get_or_insert_with(|| self.live_distinct_pairs())
-                                .contains(&(a, b))
-                        }
-                        _ => false,
-                    };
-                    let key = self.key(span);
-                    if proven && !self.out.distinct_pairs.contains_key(&key) {
-                        self.out.distinct_pairs.insert(key, (*prev_param, i));
-                    } else {
-                        let root = &l.root_name;
-                        self.error(
-                            arg.span(),
-                            format!(
-                                "a mutable element handle of `{root}` cannot be \
-                                 passed here: an earlier argument of this call is \
-                                 already a mutable handle into `{root}`, and the \
-                                 two may be the same element; prove them apart \
-                                 first (`j is Distinct(i)`), or mutate through \
-                                 one handle at a time"
-                            ),
-                        );
-                    }
-                }
-            }
+            let mut_kept: Vec<bool> = args
+                .iter()
+                .enumerate()
+                .map(|(i, _)| {
+                    i < fixed_count
+                        && decl.params.get(i).is_some_and(|param| {
+                            contract
+                                .iter()
+                                .find(|d| d.param == param.name.name)
+                                .is_some_and(|d| {
+                                    d.kept
+                                        && crate::deduce::declared_quals(&param.ty)
+                                            .iter()
+                                            .any(|q| q == "Mut")
+                                })
+                        })
+                })
+                .collect();
+            self.check_elem_handle_pairs(args, &mut_kept, span);
         }
         if let Some(contract) = contract {
             let fixed_count = decl

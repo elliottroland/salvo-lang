@@ -422,7 +422,7 @@ program must not print or persist a hash value and expect cross-backend
 identity — an example's `expected.txt` cannot contain one, the posture
 random already has.
 
-## Group borrowing — the ladder (building; steps ①–② landed 2026-09-24)
+## Group borrowing — the ladder (building; steps ①–③ landed 2026-09-24)
 
 The decided design and full build sequence live in **GROUP_BORROWING.md**
 (the working document stays open until every rung lands, per its charter);
@@ -435,23 +435,35 @@ COMPLETED.md's log). Status:
   acting handle; Rust renders statement-scoped `get_mut` splices and
   captured-index virtual bindings; the v1 cut (bound mints only from a
   direct `get(place, i)!`) is a loud codegen error.
-- **② BUILT** (2026-09-24, COMPLETED.md's log): `Distinct` awareness —
-  [elem-distinct] + [col-distinct]. Element links carry the minting
+- **② BUILT** (2026-09-24, COMPLETED.md's log): `NotEq` awareness —
+  [elem-distinct] + [col-noteq]. Element links carry the minting
   index's identity (erased on reassignment of the index), poison consults
-  a live `Distinct` claim before killing a sibling, one call may take two
+  a live `NotEq` claim before killing a sibling, one call may take two
   proven handles (`salvo_pair_mut`, statement position only — the loud v1
   cut), and the [qual-depend] reassignment-strips defect found en route is
   fixed. **Leftover, deliberately:** a mutable element handle beside its
   *container* (or beside a read projection of it) in one call is not
   checker-refused — the shape fails at rustc (E0499/E0502), honest but
   late; fold the refusal into ④'s same-call work.
-- **③ NEXT — the C family** (`update`, `update2`) as ordinary std Salvo — note
-  the total `get` in their bodies must be dodged for now (`get(list,
-  i + 0)!`), since ①'s cut refuses non-intrinsic mints; lifting that
-  cleanly (mode-specialized emission of lending fns, or making the total
-  `get` intrinsic) is part of ③.
+- **③ BUILT** (2026-09-24, COMPLETED.md's log): the update family
+  [col-update] as ordinary std Salvo, riding **mode-specialized lending**
+  [rs-lend-mut] (option (a), the user's call — user-written accessors
+  serve `Mut` positions too; demand-driven `__mut` emissions). The
+  `Distinct(i)`→`NotEq(i)` rename landed here [col-noteq], and three
+  gaps found en route are fixed (declared dependent claims now live in
+  their own body [qual-depend]; the pair rule covers fn-value and
+  effect-member calls; a latent double-lifetime retag). **Leftover
+  note**: `NotEq` could one day take any `?eq`-capable subject (user
+  note 2026-09-24).
 - **④ `canbe` entries + the covered store rendering** (A), **⑤ GB-3-A**
   — per GROUP_BORROWING.md's decided grammar and the P-round outcomes.
+  **The ④ session's table widened** (user decision 2026-09-24, step ③):
+  it must also weigh lifting step ③'s lending-fork cuts — bound handles
+  from user accessors, the NLL loop shape, lending fn *values* — and the
+  **GhostCell/branded-token representation** as an alternative to the
+  store itself. The option analysis lives in GROUP_BORROWING.md's GB-5
+  addendum. Also recorded there: `NotEq` generalizes to any `?eq`-capable
+  subject one day (user note 2026-09-24).
 
 ## LSP source-root discovery, and a project manifest (direction decided 2026-09-24, sequenced after GROUP_BORROWING.md)
 

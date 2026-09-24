@@ -133,11 +133,49 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The update family and mode-specialized lending — group-borrowing
+ladder step ③ (built 2026-09-24; user decisions same day).** Decisions
+first: the Int-subject qualifier shipped in ② is **renamed `NotEq`**
+(`Distinct` was taken — `core.set`'s list-subject claim — and NotEq says
+what it claims; generalizing it to any `?eq`-capable subject is a recorded
+ROADMAP note), gains `with Idx` [qual-with]; the family promises
+`preserve Idx` (an in-place write moves no boundary); and the lending
+fork went to **mode-specialized emission** — option (a), chosen over
+promoting the total `get` to intrinsic after a worked comparison (the
+user's call: users must be able to write their own mutable accessors),
+with the fn-value/effect-member/bound-handle/NLL cuts **parked to GB-5's
+session** and the **GhostCell/branded-token representation added to that
+table** (GROUP_BORROWING.md's GB-5 addendum). Built: [rs-lend-mut] — a
+named lending fn used mutably anywhere gets a demand-driven `__mut`
+emission (lent params `&mut`, `proj` return `&mut`, transitive
+return-path forwards, intrinsic mut splices — `get`→`get_mut`; demand
+seeded by `Checked::mut_lend_calls`, closed in `lend_mut_demand`), and
+std's `update`/`update2` [col-update] as **ordinary Salvo** whose bodies
+are exactly the mints the proofs legalize. En route, three gaps found
+and fixed: **a parameter's declared dependent claim was a root-free
+template in its own body** ([qual-depend] — `fn f(es, i: Idx(es) Int)`
+could not use the total `get`; roots now fill at declaration,
+`root_declared_claims`), **the [elem-distinct] pair rule missed calls
+through fn values and effect members** (extracted to
+`check_elem_handle_pairs`, hooked into `apply_call_contract` — before
+this, `f(get(es,i), get(es,j))` passed unproven and died at rustc), and
+a latent double-lifetime retag (`&'a 'a mut`) in the multi-ref-param
+signature builder, exercised for the first time by a mut lent param.
+The elem-handle machinery now also accepts the **direct total-get
+shape** (`get(list, i)` claimed, no `!`) for splices and pairs. The
+checker's mut-lend recording is type-evidence (`proj Mut` result), so an
+effect member lending mutably is refused loudly at emission — the whole
+reachable cut surface, since a fn type cannot spell a wholesale
+`proj Mut` return. Kotlin: nothing; parity pinned (`111 220`, `15 7`).
+Tests: three checker tests (declared-claim totality, fn-value pair
+refusal/proof), two lend-mut Rust goldens + two rustc e2e, the
+effect-member cut, the Kotlin update-family case. 1439 tests green.
+
 **Distinct awareness — group-borrowing ladder step ② (built 2026-09-24;
 sketch approved by the user same day).** Two mutable element handles of one
 container, proven different elements, now coexist — the first refinement of
 [fate-field-disjoint]'s may-alias-all rule. std ships
-`qualifier Distinct(i: Int) of Int` beside `Idx` [col-distinct]; the
+`qualifier NotEq(i: Int) of Int` beside `Idx` [col-noteq] (named `Distinct` when it landed; renamed same day, see the rename entry); the
 compiler work is [elem-distinct]: element links carry the **identity of
 their minting index** (`FateLink.elem_idx` — the index variable's ultimate
 fate-root id, stamped only for `core.list`'s `get`, nominal deliberately: a
@@ -148,7 +186,7 @@ when the index is reassigned or stepped (chosen over generation counters:
 no per-variable state, no consult-time staleness check, the analysis's
 invalidate-at-the-event style — loop soundness rides `check_loop_body`'s
 second pass), poison **consults a live claim** before killing a sibling
-(equal paths + both identities + `Distinct` by fate-root agreement, either
+(equal paths + both identities + `NotEq` by fate-root agreement, either
 orientation), and one call may take two proven handles
 (`Checked::distinct_pairs`; an unproven pair is refused at the call — it
 used to pass the checker and die in rustc, E0499, a checker/emitter
@@ -15691,7 +15729,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1432)
+## Test inventory (all green: 1439)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

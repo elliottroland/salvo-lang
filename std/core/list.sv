@@ -65,14 +65,14 @@ export qualifier Idx<T>(list: List<T>) of Int {
     refn swap(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
 }
 
-// [qual-depend] [col-distinct] The claim that an `Int` **differs from one
-// particular other `Int`**: `j is Distinct(i)` proves `j != i`, bound to
+// [qual-depend] [col-noteq] The claim that an `Int` **differs from one
+// particular other `Int`**: `j is NotEq(i)` proves `j != i`, bound to
 // `i`'s identity. For two element handles of one list it is the proof that
 // they cannot alias — mutation through one leaves the other standing
 // [elem-distinct], and a call may take both at once — which is what the
 // `update2` family stands on. Reassigning either side strips it
 // [qual-depend], like any dependent claim.
-export qualifier Distinct(i: Int) of Int {
+export qualifier NotEq(i: Int) of Int with Idx {
     fn qualifies(j: Int, i: Int) -> Bool {
         return j != i
     }
@@ -97,6 +97,29 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> None
 => list: Mut, list: preserve Idx, i, j {
     swap(list, i + 0, j + 0)
+    return None
+}
+
+// [col-update] Applies [f] to the element at [index], **in place**: the
+// callback receives the mutable element handle [proj-mut], so nothing is
+// copied, moved out, or put back. An in-place write moves no boundary, so
+// existing `Idx` claims survive the call [qual-preserve].
+export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None
+=> list: preserve Idx, index, f {
+    f(get(list, index))
+    return None
+}
+
+// [col-update] Applies [f] to the elements at [i] and [j] at once — the
+// two-handle transaction. The indices must be proven apart (`j is
+// NotEq(i)` [col-noteq]): two handles to one element cannot exist
+// [elem-distinct], and with the proof the pair costs one `split_at_mut`
+// on the Rust backend [rs-elem-mut]. Ordinary Salvo, not an intrinsic —
+// the body is exactly the two mints the proof legalizes.
+export fn update2<T>(list: List<Mut T>, i: Idx(list) Int, j: NotEq(i) Idx(list) Int,
+                     f: (a: Mut T, b: Mut T) -> None) [] -> None
+=> list: preserve Idx, i, j, f {
+    f(get(list, i), get(list, j))
     return None
 }
 

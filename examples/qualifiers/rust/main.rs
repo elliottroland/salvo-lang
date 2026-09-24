@@ -1,6 +1,8 @@
 #![allow(non_snake_case, non_camel_case_types, unused_mut, unused_parens, unused_imports, dead_code, unreachable_code, unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]
 #[path = "unions.rs"]
 pub mod unions;
+#[path = "seq.rs"]
+pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
 #[path = "core/array.rs"]

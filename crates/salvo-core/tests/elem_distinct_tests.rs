@@ -1,6 +1,6 @@
 //! [elem-distinct] Distinct awareness for mutable element handles
 //! (group-borrowing ladder step ②): element links carry the identity of
-//! their minting index, poison consults a live `Distinct` claim before
+//! their minting index, poison consults a live `NotEq` claim before
 //! killing a sibling handle, the identity dies with a reassignment of the
 //! index, and one call may take two handles only when they are proven
 //! apart.
@@ -14,13 +14,23 @@ const STD_PRELUDE: &str =
 
 /// A miniature `core.list`: the mint recognition is nominal — `get`
 /// declared by the `core.list` module — so the tests declare exactly the
-/// surface the feature reads [elem-distinct], plus `Distinct` itself
-/// [col-distinct].
+/// surface the feature reads [elem-distinct], plus `NotEq` itself
+/// [col-noteq].
 const STD_LIST: &str = "\
 export intrinsic type List<T> canbe Mut\n\
 export intrinsic fn list_of<T>(first: T, ...rest: T[]) [] -> List<T> => !first\n\
+export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
 export intrinsic fn get<T>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index\n\
-export qualifier Distinct(i: Int) of Int {\n\
+export qualifier Idx<T>(list: List<T>) of Int {\n\
+    fn qualifies(index: Int, list: List<T>) -> Bool {\n\
+        return index >= 0 && index < size(list)\n\
+    }\n\
+}\n\
+export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T\n\
+=> list, index {\n\
+    return get(list, index + 0)!\n\
+}\n\
+export qualifier NotEq(i: Int) of Int with Idx {\n\
     fn qualifies(j: Int, i: Int) -> Bool {\n\
         return j != i\n\
     }\n\
@@ -85,14 +95,14 @@ fn attack(a: Mut Entity, d: Mut Entity) [] -> None => a: Mut, d: Mut {\n\
 }\n";
 
 /// [elem-distinct] Two bound handles whose minting indices a live
-/// `Distinct` claim proves apart survive each other's mutations: the
+/// `NotEq` claim proves apart survive each other's mutations: the
 /// sibling names disjoint storage, so the poison spares it.
 #[test]
 fn two_proven_distinct_handles_coexist_across_mutation() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         if j is Distinct(i) {{\n        \
+         if j is NotEq(i) {{\n        \
          let a = get(es, i)!\n        \
          let d = get(es, j)!\n        \
          a.hp = a.hp + 1\n        \
@@ -126,7 +136,7 @@ fn without_a_claim_the_sibling_handle_poisons() {
 
 /// [elem-distinct] The identity means "the element selected by the index
 /// variable's *current* value": reassigning the index erases it, and the
-/// conservative poison returns — even though the `Distinct` claim's
+/// conservative poison returns — even though the `NotEq` claim's
 /// variables still exist.
 #[test]
 fn reassigning_the_index_restores_the_conservative_poison() {
@@ -134,7 +144,7 @@ fn reassigning_the_index_restores_the_conservative_poison() {
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
          let k = i + 0\n    \
-         if j is Distinct(k) {{\n        \
+         if j is NotEq(k) {{\n        \
          let a = get(es, k)!\n        \
          let d = get(es, j)!\n        \
          k = k + 1\n        \
@@ -158,7 +168,7 @@ fn the_same_index_still_poisons() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         if j is Distinct(i) {{\n        \
+         if j is NotEq(i) {{\n        \
          let a = get(es, i)!\n        \
          let d = get(es, i)!\n        \
          a.hp = a.hp + 1\n        \
@@ -181,7 +191,7 @@ fn a_proven_pair_may_land_in_one_call() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None => es, i, j {{\n    \
-         if j is Distinct(i) {{\n        \
+         if j is NotEq(i) {{\n        \
          attack(get(es, i)!, get(es, j)!)\n    \
          }}\n    \
          return None\n}}\n"
@@ -214,11 +224,59 @@ fn a_proven_bound_pair_may_land_in_one_call() {
     let src = format!(
         "{PRELUDE}\
          fn f(es: List<Mut Entity>, i: Int, j: Int) [] -> None {{\n    \
-         if j is Distinct(i) {{\n        \
+         if j is NotEq(i) {{\n        \
          let a = get(es, i)!\n        \
          let d = get(es, j)!\n        \
          attack(a, d)\n    \
          }}\n    \
+         return None\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [qual-depend] A parameter's **declared** dependent claim is live in the
+/// body — its roots fill from the sibling parameters at declaration — so
+/// the claim-demanding total overload resolves. (Before 2026-09-24 the
+/// declared claim stayed a root-free template and only `is`-established
+/// claims worked.)
+#[test]
+fn a_declared_claim_serves_the_total_overload_in_the_body() {
+    let src = format!(
+        "{PRELUDE}\
+         fn read(es: List<Mut Entity>, i: Idx(es) Int) [] -> Int => es, i {{\n    \
+         return get(es, i).hp\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [elem-distinct] The pair rule covers calls **through fn values** too
+/// ([fn-contract]'s keep-in-sync duty): two unproven handles into one
+/// container are refused at the second argument.
+#[test]
+fn an_unproven_pair_through_a_fn_value_is_refused() {
+    let src = format!(
+        "{PRELUDE}\
+         fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int,\n\
+                   f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
+         f(get(es, i), get(es, j))\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("prove them apart")),
+        "expected the unproven-pair refusal: {errs:?}"
+    );
+}
+
+/// [elem-distinct] …and the declared `NotEq` proof legalizes it — the
+/// `update2` shape, ordinary Salvo end to end [col-update].
+#[test]
+fn a_declared_noteq_proof_carries_a_fn_value_pair() {
+    let src = format!(
+        "{PRELUDE}\
+         fn touch2(es: List<Mut Entity>, i: Idx(es) Int, j: NotEq(i) Idx(es) Int,\n\
+                   f: (a: Mut Entity, b: Mut Entity) -> None) [] -> None {{\n    \
+         f(get(es, i), get(es, j))\n    \
          return None\n}}\n"
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));

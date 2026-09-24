@@ -686,12 +686,28 @@ Conventions:
   refinement-types design, total end to end — and `binary_search`'s found
   arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
   the result ever needs.
-* [col-distinct] `core.list` declares `qualifier Distinct(i: Int) of Int`
-  [qual-depend] — `j != i`, bound to `i`'s identity — the proof that two
-  element handles of one list cannot alias [elem-distinct]. Established by
-  the ordinary filled test (`j is Distinct(i)`), stripped by mutation *or
-  reassignment* of either side [qual-depend]. Ships ahead of the `update2`
-  family (ladder step ③), which consumes it.
+* [col-noteq] `core.list` declares `qualifier NotEq(i: Int) of Int with
+  Idx` [qual-depend] [qual-with] — `j != i`, bound to `i`'s identity — the
+  proof that two element handles of one list cannot alias [elem-distinct].
+  Established by the ordinary filled test (`j is NotEq(i)`), stripped by
+  mutation *or reassignment* of either side [qual-depend]. Named for what
+  it claims (user decision 2026-09-24: `NotEq` over `Distinct`, which
+  `core.set` already uses for a `List` subject — and a `NotEq` over any
+  `?eq`-capable subject is the recorded generalization, ROADMAP). Ships
+  ahead of the `update2` family (ladder step ③), which consumes it.
+* [col-update] `core.list`'s **in-place update family** (step ③ of the
+  group-borrowing ladder, user decisions 2026-09-24): `update(list:
+  List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None)` hands the
+  callback the mutable element handle [proj-mut] — nothing copied, moved
+  out, or put back — and `update2(list, i: Idx(list) Int, j: NotEq(i)
+  Idx(list) Int, f: (a: Mut T, b: Mut T) -> None)` is the two-element
+  transaction, its indices proven apart by the declared claim
+  [col-noteq] [elem-distinct]. Both promise `preserve Idx`
+  [qual-preserve]: an in-place write moves no boundary, so sequential
+  updates stay total. **Ordinary Salvo, not intrinsics** — the bodies are
+  exactly the mints the proofs legalize, riding [rs-lend-mut] on the Rust
+  backend. Note the parameters carry no container `Mut`: element
+  mutability is the element type's [proj-mut].
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -1211,7 +1227,13 @@ Conventions:
   * **Signatures consume the claims** (step 3): a parameter type may fill
     a slot with a **sibling parameter** (`fn get<T>(list: List<T>, index:
     Idx(list) Int)`), and at each call the template is substituted with the
-    roots the arguments bring — so `get(xs, i)` demands a claim about *xs*,
+    roots the arguments bring. **And supply them** (2026-09-24, found
+    building [col-update]): inside the declaring fn's own body the claim
+    is *live* — its roots fill from the sibling parameters at declaration
+    (`root_declared_claims`), so the body may hand its claimed parameter
+    to a claim-demanding overload, and mutation or reassignment of the
+    depended-on parameter strips it like any live claim. The signature
+    callers match against stays a root-free template — so `get(xs, i)` demands a claim about *xs*,
     a claim about another list refuses (the plain overload takes the call),
     and an alias of the value still matches (roots, not names). Ranked
     against the unqualified overload by [fn-overload-rank], the
@@ -5599,7 +5621,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
     of the container fall (a computed index may-aliases every element
-    [fate-field-disjoint] — unless a live `Distinct` claim proves the two
+    [fate-field-disjoint] — unless a live `NotEq` claim proves the two
     apart [elem-distinct]), the acting handle itself survives (its storage
     did not move), and a parameter root is recorded as mutated so its
     inferred contract takes the exhaustive form [deduce-syntax].
@@ -5624,7 +5646,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     own fields are its own); one with a wholesale or alias link may not.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
   step ② of GROUP_BORROWING.md's ladder): two mutable element handles of
-  one container whose minting indices a live `Distinct` claim proves apart
+  one container whose minting indices a live `NotEq` claim proves apart
   name **disjoint storage**, and the analysis knows it — the first
   refinement of [fate-field-disjoint]'s may-alias-all rule for computed
   indices. The rules:
@@ -5645,7 +5667,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     erasure late in a body reaches uses before it.)
   * **Poison consults the claim**: mutation through a handle spares a
     sibling link iff both identities are present, different, the link
-    paths are equal, and a live `Distinct` claim relates the two index
+    paths are equal, and a live `NotEq` claim relates the two index
     variables (either orientation, matched by fate-root agreement
     [qual-depend]). Anything short of the full proof poisons as before
     [fate-poison]. The same index minted twice is certainly the same

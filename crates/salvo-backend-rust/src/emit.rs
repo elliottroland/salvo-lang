@@ -1137,6 +1137,30 @@ struct Emitter<'p> {
     /// `emit_call` refuses any distinct-pair call it does not find here —
     /// the v1 cut (statement position only), loud.
     pair_ready: HashSet<Span>,
+    /// [rs-lend-mut] Whether a lending fn's **mut variant** is being
+    /// emitted: lent parameters arrive `&mut`, the return's `proj` renders
+    /// `&mut`, forwarded lending calls take their callees' `__mut`
+    /// variants, and derived-return intrinsic splices take their mut forms.
+    lend_mut_mode: bool,
+    /// [rs-lend-mut] Named lending fns some call site uses mutably —
+    /// closed transitively over return-path forwards. Each gets a demand-
+    /// driven second emission (`{name}__mut`).
+    mut_lend_fns: HashSet<salvo_core::FnKey>,
+    /// [rs-lend-mut] The seed call sites (`Checked::mut_lend_calls`
+    /// resolved to named non-intrinsic lenders): rendered against the
+    /// callee's `__mut` variant, lent arguments `&mut`.
+    mut_call_sites: HashSet<(usize, Span)>,
+    /// [rs-lend-mut] Return-path lending calls *inside* demanded lenders:
+    /// renamed/mut-spliced only while `lend_mut_mode` (the same span also
+    /// renders normally in the read emission).
+    mut_forward_sites: HashSet<(usize, Span)>,
+    /// [rs-lend-mut] Mutable-use lending calls with **no named callee** —
+    /// a fn value or effect member lending a mutable handle: the loud v1
+    /// cut (parked to GB-5's session, GROUP_BORROWING.md).
+    mut_lend_cuts: HashSet<(usize, Span)>,
+    /// [rs-lend-mut] The lent parameter names of the `__mut` callee whose
+    /// arguments are being rendered: those positions take `RefMut`.
+    mut_call_lent: HashSet<String>,
     /// [rs-read-mode] What the position being emitted wants of the value: a
     /// **read** (a `&T` is enough) or an **owned** value (a store, a return, a
     /// consuming argument). The unwrap paths consult it and clone only under
@@ -1397,6 +1421,202 @@ enum StmtCtx {
     Normal,
 }
 
+/// [rs-lend-mut] The demand sets of mode-specialized lending emission
+/// (group-borrowing ladder step ③, user decision 2026-09-24 — option (a)
+/// over promoting the total `get` to intrinsic, so *user-written* lending
+/// accessors serve `Mut` positions too).
+struct LendMutDemand {
+    demanded: HashSet<salvo_core::FnKey>,
+    seeds: HashSet<(usize, Span)>,
+    forwards: HashSet<(usize, Span)>,
+    cuts: HashSet<(usize, Span)>,
+}
+
+/// Seeds are `Checked::mut_lend_calls` resolved through `call_fn`; the
+/// closure follows **return-path** lending calls inside each demanded
+/// body (an intrinsic forward becomes a mut splice, a named one demands
+/// the callee's variant too). A seed with no named callee — a fn value or
+/// effect member lending mutably — is the loud v1 cut.
+fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
+    let fn_of = |key: salvo_core::FnKey| -> Option<&FnDecl> {
+        match program.modules.get(key.file)?.items.get(key.item)? {
+            Item::Fn(f) => Some(f),
+            _ => None,
+        }
+    };
+    let mut demanded: HashSet<salvo_core::FnKey> = HashSet::new();
+    let mut seeds = HashSet::new();
+    let mut forwards = HashSet::new();
+    let mut cuts = HashSet::new();
+    let mut worklist: Vec<salvo_core::FnKey> = Vec::new();
+    for key in &checked.mut_lend_calls {
+        match checked.call_fn.get(key) {
+            None => {
+                cuts.insert(*key);
+            }
+            Some(fk) => match fn_of(*fk) {
+                Some(decl) if !decl.intrinsic => {
+                    seeds.insert(*key);
+                    worklist.push(*fk);
+                }
+                // An intrinsic lender in a `Mut` position is ①'s
+                // statement-scoped splice territory [rs-elem-mut].
+                _ => {}
+            },
+        }
+    }
+    while let Some(fk) = worklist.pop() {
+        if !demanded.insert(fk) {
+            continue;
+        }
+        let Some(decl) = fn_of(fk) else { continue };
+        let Some(body) = &decl.body else { continue };
+        let mut returned: Vec<&Expr> = Vec::new();
+        collect_returned_exprs(body, &mut returned);
+        for mut e in returned {
+            while let Expr::NonNull { operand, .. } = e {
+                e = operand;
+            }
+            let Expr::Call { span, .. } = e else { continue };
+            let Some(fk2) = checked.call_fn.get(&(fk.file, *span)) else {
+                continue;
+            };
+            let Some(decl2) = fn_of(*fk2) else { continue };
+            if decl2.derived_return.is_some() {
+                forwards.insert((fk.file, *span));
+                if !decl2.intrinsic {
+                    worklist.push(*fk2);
+                }
+            }
+        }
+    }
+    LendMutDemand {
+        demanded,
+        seeds,
+        forwards,
+        cuts,
+    }
+}
+
+/// [rs-lend-mut] Every expression a block can `return` (explicit `return`s
+/// plus the tails of value blocks), for the demand closure's forward walk.
+/// Lambda bodies are a barrier: their returns are their own.
+fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
+    fn expr<'a>(e: &'a Expr, out: &mut Vec<&'a Expr>) {
+        match e {
+            Expr::Return { value, .. } => {
+                if let Some(v) = value {
+                    out.push(v);
+                    expr(v, out);
+                }
+            }
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (cond, block) in branches {
+                    expr(cond, out);
+                    collect_returned_exprs(block, out);
+                }
+                if let Some(b) = else_block {
+                    collect_returned_exprs(b, out);
+                }
+            }
+            Expr::When {
+                subject, branches, ..
+            } => {
+                expr(subject, out);
+                for b in branches {
+                    collect_returned_exprs(&b.body, out);
+                }
+            }
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (cond, block) in branches {
+                    expr(cond, out);
+                    collect_returned_exprs(block, out);
+                }
+                collect_returned_exprs(else_block, out);
+            }
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
+                expr(cond, out);
+                collect_returned_exprs(body, out);
+                if let Some(b) = else_block {
+                    collect_returned_exprs(b, out);
+                }
+            }
+            Expr::For {
+                iterable,
+                body,
+                else_block,
+                ..
+            } => {
+                expr(iterable, out);
+                collect_returned_exprs(body, out);
+                if let Some(b) = else_block {
+                    collect_returned_exprs(b, out);
+                }
+            }
+            Expr::Elvis { subject, rhs, .. } => {
+                expr(subject, out);
+                expr(rhs, out);
+            }
+            Expr::NonNull { operand, .. } => expr(operand, out),
+            Expr::Try { body, .. } | Expr::WaitFor { body, .. } => {
+                collect_returned_exprs(body, out)
+            }
+            // A lambda's returns are its own.
+            Expr::Lambda { .. } => {}
+            _ => {}
+        }
+    }
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Let { value, .. } => expr(value, out),
+            Stmt::Assign { target, value, .. } => {
+                expr(target, out);
+                expr(value, out);
+            }
+            Stmt::Use { handler, .. } => expr(handler, out),
+            Stmt::Expr(e) => expr(e, out),
+            Stmt::Rename(_) => {}
+        }
+    }
+    // A value block's tail is returned by the construct holding it.
+    if let Some(Stmt::Expr(tail)) = block.stmts.last() {
+        out.push(tail);
+    }
+}
+
+/// [rs-lend-mut] The call span a `Mut`-position argument bottoms out in,
+/// through `!` and projection steps — the syntactic mirror of the
+/// checker's `mut_lend_call_span`.
+fn mut_lend_call_of(expr: &Expr) -> Option<Span> {
+    let mut e = expr;
+    loop {
+        match e {
+            Expr::NonNull { operand, .. } => e = operand,
+            Expr::Field { base, .. } => e = base,
+            Expr::TupleIndex { base, .. } => e = base,
+            Expr::Index { base, .. } => e = base,
+            _ => break,
+        }
+    }
+    match e {
+        Expr::Call { span, .. } => Some(*span),
+        _ => None,
+    }
+}
+
 impl<'p> Emitter<'p> {
     fn new(
         symbols: &'p Symbols<'p>,
@@ -1405,6 +1625,7 @@ impl<'p> Emitter<'p> {
         file_idx: usize,
         file_name: &str,
     ) -> Self {
+        let lend_mut = lend_mut_demand(program, checked);
         Emitter {
             symbols,
             checked,
@@ -1422,6 +1643,12 @@ impl<'p> Emitter<'p> {
             handle_seq: 0,
             pair_args: HashMap::new(),
             pair_ready: HashSet::new(),
+            lend_mut_mode: false,
+            mut_lend_fns: lend_mut.demanded,
+            mut_call_sites: lend_mut.seeds,
+            mut_forward_sites: lend_mut.forwards,
+            mut_lend_cuts: lend_mut.cuts,
+            mut_call_lent: HashSet::new(),
             mode: ValueMode::Read,
             placeholder_code: None,
             pick_vars: 0,
@@ -3706,7 +3933,19 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_fn(&mut self, f: &FnDecl) -> String {
-        self.emit_fn_inner(f, FnStyle::TopLevel, 0)
+        let mut out = self.emit_fn_inner(f, FnStyle::TopLevel, 0);
+        // [rs-lend-mut] A demanded lender is emitted twice: the read
+        // emission above (every read caller keeps it), and the mut
+        // variant — the same body under `lend_mut_mode`.
+        if self
+            .key_of_fn(f)
+            .is_some_and(|k| self.mut_lend_fns.contains(&k))
+        {
+            self.lend_mut_mode = true;
+            out.push_str(&self.emit_fn_inner(f, FnStyle::TopLevel, 0));
+            self.lend_mut_mode = false;
+        }
+        out
     }
 
     /// [spawn-inherit] [rs-handle-bundle] The hidden handle-bundle parameter
@@ -3929,6 +4168,11 @@ impl<'p> Emitter<'p> {
     fn param_mode(&mut self, key: Option<salvo_core::FnKey>, param: &Param) -> ParamMode {
         if param.variadic {
             return ParamMode::Owned; // callers assemble a fresh Vec
+        }
+        // [rs-lend-mut] The lent parameter of a mut-variant call arrives
+        // `&mut` whatever the read signature says.
+        if !self.mut_call_lent.is_empty() && self.mut_call_lent.contains(&param.name.name) {
+            return ParamMode::RefMut;
         }
         if self.is_copy_ast_type(&param.ty) {
             return ParamMode::Owned;
@@ -4464,7 +4708,22 @@ impl<'p> Emitter<'p> {
             if p.implicit {
                 continue; // appended below, in the checker's order
             }
+            let lent_here = self.lend_mut_mode
+                && (f.derived_return
+                    .as_ref()
+                    .is_some_and(|d| d.name == p.name.name)
+                    || f.return_type
+                        .as_ref()
+                        .map(|rt| {
+                            proj_refs_with_from(rt)
+                                .into_iter()
+                                .any(|from| from.iter().any(|n| *n == p.name.name))
+                        })
+                        .unwrap_or(false));
             let mode = match style {
+                // [rs-lend-mut] In the mut variant, the lent parameter
+                // arrives `&mut` whatever the read emission chose.
+                FnStyle::TopLevel if lent_here => ParamMode::RefMut,
                 FnStyle::TopLevel => self.param_mode(fn_key, p),
                 // [effect-member-overload] [rs-borrows] A handler member's
                 // signature has to match the trait's, so its modes come from
@@ -4741,9 +5000,15 @@ impl<'p> Emitter<'p> {
                         i
                     };
                     if let Some(entry) = params.get_mut(idx) {
-                        *entry = entry
-                            .replacen(": &mut ", ": &'a mut ", 1)
-                            .replacen(": &", ": &'a ", 1);
+                        // One retag only: the `&mut` arm's output starts
+                        // with `: &`, so a second pass would double the
+                        // lifetime (`&'a 'a mut`, found by [rs-lend-mut]'s
+                        // variant of the total `get`).
+                        *entry = if entry.contains(": &mut ") {
+                            entry.replacen(": &mut ", ": &'a mut ", 1)
+                        } else {
+                            entry.replacen(": &", ": &'a ", 1)
+                        };
                     }
                 }
                 "'a "
@@ -4876,7 +5141,13 @@ impl<'p> Emitter<'p> {
                 "main".to_string()
             }
         } else if top_level || matches!(style, FnStyle::QualifierFn) {
-            self.rust_fn_name(f)
+            let base = self.rust_fn_name(f);
+            // [rs-lend-mut] The mut variant's name.
+            if self.lend_mut_mode {
+                format!("{base}__mut")
+            } else {
+                base
+            }
         } else {
             // [effect-member-overload] A handler member implements one
             // *overload* of its effect's member, and the trait names the
@@ -5170,6 +5441,10 @@ impl<'p> Emitter<'p> {
                 .clone()
                 .map(|l| format!("{l} "))
                 .unwrap_or_default();
+            // [rs-lend-mut] The mut variant's return lends mutably.
+            if self.lend_mut_mode && self.proj_return {
+                return format!("&{lt}mut {rendered}");
+            }
             return format!("&{lt}{rendered}");
         }
         match ty {
@@ -9670,14 +9945,19 @@ impl<'p> Emitter<'p> {
     /// that shape, its result is not a `Mut`-carrying projection, or the
     /// container is not a pure place.
     fn elem_handle_parts(&mut self, expr: &Expr) -> Option<(String, String, Span)> {
-        let Expr::NonNull { operand, span } = expr else {
-            return None;
+        // The optional intrinsic `get` arrives asserted (`get(es, i)!`);
+        // the total Idx-claimed `get` is the element itself, no `!`
+        // [col-idx] — both shapes carry the container and the index.
+        let (operand, span) = match expr {
+            Expr::NonNull { operand, span } => (operand.as_ref(), *span),
+            call @ Expr::Call { span, .. } => (call, *span),
+            _ => return None,
         };
-        let t = self.ty_of(*span)?;
+        let t = self.ty_of(span)?;
         if !(t.is_proj() && t.quals().iter().any(|q| q.name == "Mut")) {
             return None;
         }
-        let Expr::Call { callee, args, .. } = operand.as_ref() else {
+        let Expr::Call { callee, args, .. } = operand else {
             return None;
         };
         let Expr::Ident(fname) = callee.as_ref() else {
@@ -9691,7 +9971,7 @@ impl<'p> Emitter<'p> {
         }
         let root = self.emit_place(&args[0]);
         let idx = format!("({}) as usize", self.emit_owned(&args[1]));
-        Some((root, idx, *span))
+        Some((root, idx, span))
     }
 
     /// The place expression for a bound name: `self.x` for handler
@@ -11469,6 +11749,27 @@ impl<'p> Emitter<'p> {
         if let Some(code) = self.pair_args.remove(&expr.span()) {
             return code;
         }
+        // [rs-lend-mut] A lending call whose result serves this `Mut`
+        // position: the call renders against the callee's mut variant and
+        // already answers `&mut T` — pass it through bare. A lender with
+        // no named callee (a fn value, an effect member) is the loud v1
+        // cut, parked to GB-5's session.
+        if let Some(call_span) = mut_lend_call_of(expr) {
+            if self.mut_lend_cuts.contains(&(self.file_idx, call_span)) {
+                self.errors.push(format!(
+                    "a fn value or effect member lending a mutable handle \
+                     cannot serve a `Mut` position yet [rs-lend-mut] (at {})",
+                    self.salvo_location(call_span)
+                ));
+                return String::new();
+            }
+            if self.mut_call_sites.contains(&(self.file_idx, call_span))
+                || (self.lend_mut_mode
+                    && self.mut_forward_sites.contains(&(self.file_idx, call_span)))
+            {
+                return self.emit_expr(expr);
+            }
+        }
         // [rs-narrow-mut] A *narrowed* place is reached through the mutable
         // unwrap, which is already a `&mut T` into the storage. Without
         // this the fallback below borrowed the read form — a clone — and
@@ -11723,6 +12024,7 @@ impl<'p> Emitter<'p> {
                 &[],
                 crate::intrinsics::Spread::None,
                 None,
+                false,
             ) {
                 Some(code) => code,
                 None => {
@@ -13478,6 +13780,10 @@ impl<'p> Emitter<'p> {
             } else {
                 crate::intrinsics::Spread::Borrowed
             };
+            // [rs-lend-mut] A return-path forward inside a mut variant
+            // takes the intrinsic's mut form.
+            let mut_lend = self.lend_mut_mode
+                && self.mut_forward_sites.contains(&(self.file_idx, span));
             if let Some(code) =
                 crate::intrinsics::fn_call(
                     &f.name.name,
@@ -13486,6 +13792,7 @@ impl<'p> Emitter<'p> {
                     &[],
                     spread,
                     ordering.as_deref(),
+                    mut_lend,
                 )
             {
                 return code;
@@ -13936,6 +14243,7 @@ impl<'p> Emitter<'p> {
             &[],
             crate::intrinsics::Spread::None,
             None,
+            false,
         ) {
             Some(code) => code,
             None => {
@@ -14353,6 +14661,29 @@ impl<'p> Emitter<'p> {
             std::mem::replace(&mut self.retagged_generics, borrowed_elem_generics.clone());
         let outer_mints = std::mem::take(&mut self.pending_mints);
         let outer_machines = std::mem::take(&mut self.mint_machines);
+        // [rs-lend-mut] A call rendered against the callee's mut variant:
+        // a seed site (the result is used mutably here), or a return-path
+        // forward inside a variant body being emitted.
+        let mut_lend_call = self.mut_call_sites.contains(&(self.file_idx, span))
+            || (self.lend_mut_mode && self.mut_forward_sites.contains(&(self.file_idx, span)));
+        let saved_lent = if mut_lend_call {
+            let lent: HashSet<String> = f
+                .derived_return
+                .as_ref()
+                .map(|d| d.name.clone())
+                .into_iter()
+                .chain(
+                    f.return_type
+                        .as_ref()
+                        .map(|rt| proj_refs_with_from(rt).into_iter().flatten())
+                        .into_iter()
+                        .flatten(),
+                )
+                .collect();
+            Some(std::mem::replace(&mut self.mut_call_lent, lent))
+        } else {
+            None
+        };
         let (mut prelude, args) = {
             let rendered = self.emit_args_for_params(&f.params, args, key);
             if all.is_empty() {
@@ -14380,12 +14711,19 @@ impl<'p> Emitter<'p> {
         // A call through an import alias keeps the alias [rs-imports]; a
         // [fn-rename] rename is erased instead, so the call spells the
         // declaration's own (mangled) name. The checker says which it is.
+        if let Some(saved) = saved_lent {
+            self.mut_call_lent = saved;
+        }
         let renamed = self.checked.renamed_calls.contains(&(self.file_idx, span));
         let mut rs_name = if name != f.name.name && !renamed {
             rs_ident(name)
         } else {
             self.rust_fn_name(f)
         };
+        // [rs-lend-mut] …and the variant's name.
+        if mut_lend_call {
+            rs_name = format!("{rs_name}__mut");
+        }
         // [rs-shadowed-call] [fn-overload-at] A **local of the same name** shadows the function
         // in Rust's value namespace (E0618: "call expression requires
         // function"), where Kotlin keeps the two in separate namespaces. Such

@@ -114,7 +114,7 @@ fun<T> Idx_qualifies(index: Int, list: List<T>): Boolean {
     return index >= 0 && index < list.size
 }
 
-fun Distinct_qualifies(j: Int, i: Int): Boolean {
+fun NotEq_qualifies(j: Int, i: Int): Boolean {
     return j != i
 }
 
@@ -127,12 +127,22 @@ fun<T> swap(list: MutableList<T>, i: Int, j: Int) {
     return
 }
 
+fun<T> update(list: List<T>, index: Int, f: (T) -> Unit) {
+    f(get(list, index))
+    return
+}
+
+fun<T> update2(list: List<T>, i: Int, j: Int, f: (T, T) -> Unit) {
+    f(get(list, i), get(list, j))
+    return
+}
+
 fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
     return list.size > 0
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:205:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:228:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

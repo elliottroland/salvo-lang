@@ -8821,7 +8821,7 @@ fn rustc_compiles_and_runs_generated_constructors() {
 
 
 // ===== C-6 the claims a list can carry [col-nonempty] [col-sorted-list]
-// [col-distinct] =====
+// [col-noteq] =====
 
 /// Shared verbatim with the Kotlin backend's `kotlinc_compiles_and_runs_list_claims`
 /// — same source, same expected stdout. The parity is the point: the whole
@@ -12886,7 +12886,7 @@ fn main() [use] {
         Mut Entity { hp: 20, energy: 8 })
     let i = 0
     let j = 1
-    if j is Distinct(i) {
+    if j is NotEq(i) {
         attack(get(es, i)!, get(es, j)!)
         let a = get(es, i)!
         let d = get(es, j)!
@@ -12925,6 +12925,150 @@ fn rustc_compiles_and_runs_distinct_pair_calls() {
     run_rust_files(&files, "distinct_pair", "11 3 17 8\n");
 }
 
+/// [rs-lend-mut] Mode-specialized lending (step ③): a user-written
+/// accessor whose result some call site mutates gets a demand-driven
+/// `__mut` emission beside the read one, and the C family is ordinary
+/// std Salvo riding the same mechanism.
+const LEND_MUT_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn front(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+    return get(es, 0)
+}
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    heal(front(es)!)
+    let hp = front(es)!.hp
+    println("${hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+/// [rs-lend-mut] Both emissions exist — the read one untouched, the mut
+/// variant with `&mut` lend — and only the mutable-use call site takes
+/// the variant.
+#[test]
+fn a_mut_used_lender_gets_a_demand_driven_variant() {
+    let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("pub fn front(es: &mut Vec<Entity>) -> Option<&Entity>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content
+            .contains("pub fn front__mut(es: &mut Vec<Entity>) -> Option<&mut Entity>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains(".get_mut((0) as i64 as usize)"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("heal(front__mut(&mut es)"),
+        "{}",
+        main.content
+    );
+    // The read call site keeps the read emission.
+    assert!(
+        main.content.contains("front(&mut es)"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_mut_lending_accessor() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
+    run_rust_files(&files, "lend_mut", "15 7\n");
+}
+
+/// [col-update] The C family end to end: `update` writes in place through
+/// the callback's handle, `update2` takes the proven pair, and the
+/// `preserve Idx` promise keeps the trailing reads total.
+const UPDATE_FAMILY_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 10 }, Mut Entity { hp: 20 })
+    let i = 0
+    let j = 1
+    if i is Idx(es) {
+        if j is Idx(es) {
+            update(es, i, (e: Mut Entity) -> { e.hp = e.hp + 1 })
+            if j is NotEq(i) {
+                update2(es, i, j, (a: Mut Entity, b: Mut Entity) -> {
+                    a.hp = a.hp + 100
+                    b.hp = b.hp + 200
+                })
+            }
+            println("${get(es, i).hp} ${get(es, j).hp}")
+        }
+    }
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_the_update_family() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", UPDATE_FAMILY_DEMO)]);
+    run_rust_files(&files, "update_family", "111 220\n");
+}
+
+/// [rs-lend-mut] The v1 cut, loud: an **effect member** lending a mutable
+/// handle cannot serve a `Mut` position — no named decl exists to emit a
+/// variant of (parked to GB-5's session, GROUP_BORROWING.md; a fn *value*
+/// cannot even spell a wholesale `proj Mut` return, so the member is the
+/// whole reachable surface).
+#[test]
+fn a_lending_effect_member_in_a_mut_position_is_refused() {
+    let src = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+effect Pool {
+    fn lease(es: List<Mut Entity>) -> (proj(es) Mut Entity)? => es
+}
+
+fn use_pool(es: List<Mut Entity>) [Pool] -> None {
+    heal(lease(es)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    println("never emitted")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("a lending effect member in a Mut position must be a codegen error");
+    assert!(
+        errors.iter().any(|e| e.contains("[rs-lend-mut]")),
+        "got {errors:?}"
+    );
+}
+
 /// [rs-elem-mut] The v1 cut, loud: a proven pair call in a *value*
 /// position is refused with a codegen error naming the remedy — never
 /// silently wrong output [backend-never-wrong].
@@ -12944,7 +13088,7 @@ fn main() [use] {
     let es: List<Mut Entity> = list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
     let i = 0
     let j = 1
-    if j is Distinct(i) {
+    if j is NotEq(i) {
         let x = poke(get(es, i)!, get(es, j)!)
         println("${x}")
     }

@@ -7,13 +7,14 @@ use crate::core_nonempty::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::seq::*;
 use crate::unions::*;
 
 pub fn Idx_qualifies<T: Clone>(index: i32, list: &Vec<T>) -> bool {
     return index >= 0 && index < (list.len() as i32);
 }
 
-pub fn Distinct__Int_qualifies(j: i32, i: i32) -> bool {
+pub fn NotEq_qualifies(j: i32, i: i32) -> bool {
     return j != i;
 }
 
@@ -21,8 +22,23 @@ pub fn get<'a, T: Clone>(list: &'a Vec<T>, index: &i32) -> &'a T {
     return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
 }
 
+pub fn get__mut<'a, T: Clone>(list: &'a mut Vec<T>, index: &i32) -> &'a mut T {
+    return list.get_mut((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
+}
+
 pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
     { let __i = (*i + 0) as i64 as usize; let __j = (*j + 0) as i64 as usize; if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } };
+    return;
+}
+
+pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
+    f(get__mut(list, index));
+    return;
+}
+
+pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
+    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:122:5");
+    f(__pm0, __pm1);
     return;
 }
 
@@ -31,7 +47,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:205:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:228:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
