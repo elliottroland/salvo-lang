@@ -1162,6 +1162,9 @@ struct Emitter<'p> {
     /// value or effect member lending a mutable handle: the loud cut
     /// slices 3–4 of ④a lift (GROUP_BORROWING.md's second addendum).
     mut_lend_cuts: HashSet<(usize, Span)>,
+    /// [rs-loc] Whether the adapter closure being built wraps a callee's
+    /// **locator variant**: its parameters are read-mode.
+    loc_adapter: bool,
     /// [rs-loc] The lent parameter names of the `__loc` callee whose
     /// arguments are being rendered: those positions take *read* mode —
     /// the locator search borrows nothing mutably.
@@ -1480,6 +1483,31 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
             }
         }
     }
+    // [rs-loc] ④a slice 3′ — a named lending fn **passed as a value** (an
+    // implicit fill, the `?at`/`Locate` idiom) is used as a locator by
+    // whoever calls it, so its variant is demanded too. The checker
+    // resolved every implicit fill, which is where the answer lives.
+    let mut value_demanded: Vec<salvo_core::FnKey> = Vec::new();
+    for filled in checked.implicit_args.values() {
+        for a in filled {
+            let fk = match a {
+                salvo_core::ImplicitArg::Resolved { key, .. }
+                | salvo_core::ImplicitArg::OriginNext { next_fn: key, .. } => *key,
+                _ => continue,
+            };
+            let Some(decl) = fn_of(fk) else { continue };
+            if decl.intrinsic || decl.body.is_none() {
+                continue;
+            }
+            if decl
+                .return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+            {
+                value_demanded.push(fk);
+            }
+        }
+    }
     for key in &seeds_in {
         match checked.call_fn.get(key) {
             None => {
@@ -1496,6 +1524,7 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
             },
         }
     }
+    worklist.extend(value_demanded.iter().copied());
     while let Some(fk) = worklist.pop() {
         if !demanded.insert(fk) {
             continue;
@@ -1728,6 +1757,20 @@ fn fn_type_lends_mut(ret: &Type) -> bool {
     wholesale_mut(ret)
 }
 
+/// [rs-loc] The checker-type sibling of `fn_type_lends_mut`: whether a
+/// return type is a **wholesale mutable lend** (`proj Mut T`, or its
+/// optional), which renders as a locator.
+fn ty_lends_mut(ret: &Ty) -> bool {
+    let wholesale_mut = |t: &Ty| t.is_proj() && t.quals().iter().any(|q| q.name == "Mut");
+    if wholesale_mut(ret) {
+        return true;
+    }
+    match ret {
+        Ty::Union(arms) => arms.iter().any(wholesale_mut),
+        _ => false,
+    }
+}
+
 /// [rs-loc] The call span a `Mut`-position argument bottoms out in,
 /// through `!` and projection steps — the syntactic mirror of the
 /// checker's `mut_lend_call_span`.
@@ -1775,6 +1818,7 @@ impl<'p> Emitter<'p> {
             pair_args: HashMap::new(),
             pair_ready: HashSet::new(),
             lend_loc_mode: false,
+            loc_adapter: false,
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
             mut_forward_sites: lend_mut.forwards,
@@ -6367,6 +6411,31 @@ impl<'p> Emitter<'p> {
             return self.rust_ty(ty);
         };
         let ps = self.fn_ty_param_renderings(ty);
+        // [rs-loc] ④a slice 3′ — an implicit whose return is a **wholesale
+        // mutable lend** (`params Locate`'s `at`) is a *locator* position:
+        // position data out, every parameter read. The `?at` idiom's whole
+        // point is that a generic algorithm hands out mutable handles, and
+        // this is the rendering that lets one cross the boundary.
+        if ty_lends_mut(ret) {
+            let reads: Vec<String> = ps
+                .iter()
+                .map(|p| {
+                    if p.starts_with('&') {
+                        p.replacen("&mut ", "&", 1)
+                    } else {
+                        p.clone()
+                    }
+                })
+                .collect();
+            let optional = matches!(ret.as_ref(), Ty::Union(arms)
+                if arms.iter().any(|a| a.is_none_ty()));
+            let loc_ret = if optional {
+                "Option<usize>"
+            } else {
+                "usize"
+            };
+            return format!("&mut dyn FnMut({}) -> {loc_ret}", reads.join(", "));
+        }
         let _ = params;
         let ret = if ret.is_none_ty() {
             String::new()
@@ -11631,7 +11700,24 @@ impl<'p> Emitter<'p> {
         else {
             return None;
         };
-        let rust_name = self.rust_fn_name(decl);
+        // [rs-loc] ④a slice 3′ — filling a **locator-typed** position: the
+        // adapter wraps the callee's locator variant, whose parameters are
+        // read-mode and whose answer is position data. Without this the
+        // adapter handed a `&` to a `&mut` parameter (the position lends
+        // its container read-only) and reported a contradiction that is
+        // really a representation mismatch.
+        let lends_mut_position = match expected {
+            Type::Fn { ret, .. } => fn_type_lends_mut(ret),
+            _ => false,
+        };
+        let loc_variant =
+            lends_mut_position && key.is_some_and(|k| self.mut_lend_fns.contains(&k));
+        let saved_loc_adapter = std::mem::replace(&mut self.loc_adapter, loc_variant);
+        let rust_name = if loc_variant {
+            format!("{}__loc", self.rust_fn_name(decl))
+        } else {
+            self.rust_fn_name(decl)
+        };
         // [fn-effects] The adapter takes the *expected* effect parameters —
         // the caller passes them whatever this fn does with them — and
         // forwards the ones the declaration actually needs. A named fn with
@@ -11783,6 +11869,7 @@ impl<'p> Emitter<'p> {
         } else {
             "&mut "
         };
+        self.loc_adapter = saved_loc_adapter;
         Some(if peels.is_empty() {
             format!(
                 "{borrow}|{}| {rust_name}({})",
@@ -11973,10 +12060,27 @@ impl<'p> Emitter<'p> {
                     args.get(idx)
                 };
                 if let Some(arg) = arg {
-                    if self.place_is_pure(arg) {
-                        return Some(self.emit_place(arg));
+                    if !self.place_is_pure(arg) {
+                        return None;
                     }
-                    return None;
+                    // [rs-loc] The anchor must be **indexable** at this
+                    // Rust type: a locator crosses any boundary, but
+                    // materializing it re-indexes the container, and a
+                    // bare generic has no index. The recorded lift is the
+                    // type-erased locator (a remat closure) —
+                    // GROUP_BORROWING.md's second GB-5 addendum.
+                    let indexable = self
+                        .ty_of(arg.span())
+                        .map(|t| t.strip_quals().clone())
+                        .is_some_and(|t| match &t {
+                            Ty::Named { name, .. } => name == "List",
+                            Ty::Array(_) => true,
+                            _ => false,
+                        });
+                    if !indexable {
+                        return None;
+                    }
+                    return Some(self.emit_place(arg));
                 }
             }
         }
@@ -12053,9 +12157,9 @@ impl<'p> Emitter<'p> {
             {
                 let Some(anchor) = self.lend_anchor_place(expr, call_span) else {
                     self.errors.push(format!(
-                        "cannot materialize this mutable handle: bind the \
-                         container to a variable first — its anchor must be \
-                         a plain place [rs-loc] (at {})",
+                        "cannot materialize this mutable handle: its container \
+                         must be a plain place of a known indexable type (a \
+                         generic container has no index yet) [rs-loc] (at {})",
                         self.salvo_location(call_span)
                     ));
                     return String::new();
@@ -14534,7 +14638,17 @@ impl<'p> Emitter<'p> {
     ) -> String {
         let already_mut = handed == Some(true);
         let already_ref = handed == Some(false);
-        match self.param_mode(key, p) {
+        // [rs-loc] A locator variant's parameters are read-mode whatever the
+        // read emission chose: the search borrows nothing mutably.
+        let mode = if self.loc_adapter {
+            match self.param_mode(key, p) {
+                ParamMode::Owned => ParamMode::Owned,
+                _ => ParamMode::Ref,
+            }
+        } else {
+            self.param_mode(key, p)
+        };
+        match mode {
             ParamMode::Owned if already_mut || already_ref => format!("({code}).clone()"),
             ParamMode::Owned => code.to_string(),
             // `&mut T` coerces to `&T`; a borrowed position is `&T` already.
@@ -14776,7 +14890,24 @@ impl<'p> Emitter<'p> {
                             } else if decl.intrinsic {
                                 self.intrinsic_fn_value_body(decl, &params)
                             } else {
-                                let target = self.rust_fn_name(decl);
+                                // [rs-loc] ④a slice 3′ — the implicit fills a
+                                // **locator-typed** position (the `?at`
+                                // idiom over `params Locate`): the adapter
+                                // wraps the callee's locator variant, whose
+                                // parameters are read-mode and whose answer
+                                // is position data.
+                                let loc_variant = decl
+                                    .return_type
+                                    .as_ref()
+                                    .is_some_and(|rt| fn_type_lends_mut(rt))
+                                    && self.mut_lend_fns.contains(key);
+                                let saved_loc_adapter =
+                                    std::mem::replace(&mut self.loc_adapter, loc_variant);
+                                let target = if loc_variant {
+                                    format!("{}__loc", self.rust_fn_name(decl))
+                                } else {
+                                    self.rust_fn_name(decl)
+                                };
                                 // [rs-borrows] The adapter is a *call*, so
                                 // each argument takes the callee's own
                                 // parameter mode: a kept struct parameter is
@@ -14803,6 +14934,7 @@ impl<'p> Emitter<'p> {
                                         )
                                     })
                                     .collect();
+                                self.loc_adapter = saved_loc_adapter;
                                 let call = format!("{target}({})", args.join(", "));
                                 // [copy-scalar-free] A pass that walks data
                                 // emits `&T`; when the position wants a

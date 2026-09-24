@@ -127,6 +127,10 @@ fun<T> swap(list: MutableList<T>, i: Int, j: Int) {
     return
 }
 
+fun<T> at(list: List<T>, index: Int): T? {
+    return list.getOrNull(index)
+}
+
 fun<T> update(list: List<T>, index: Int, f: (T) -> Unit) {
     f(get(list, index))
     return
@@ -142,7 +146,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:228:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:250:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

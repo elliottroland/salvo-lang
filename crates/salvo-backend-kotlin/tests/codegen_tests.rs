@@ -3411,6 +3411,36 @@ fn main() [use] {
 }
 "#;
 
+/// [col-locate] The `Locate`-bundle program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_the_locate_bundle`.
+const LOCATE_BUNDLE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn heal_at<L>(c: List<Mut Entity>, l: L, ?Locate<List<Mut Entity>, L, Entity>) -> None {
+    heal(at(c, l)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    heal_at(es, 1)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_the_locate_bundle() -> KotlinCase {
+    let program = build_program(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "locate_bundle", "5 17\n")
+}
+
 fn kotlinc_compiles_and_runs_a_lending_fn_value() -> KotlinCase {
     let program = build_program(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3440,6 +3470,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_the_update_family,
     kotlinc_compiles_and_runs_a_lending_fn_value,
+    kotlinc_compiles_and_runs_the_locate_bundle,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

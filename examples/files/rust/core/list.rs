@@ -31,13 +31,17 @@ pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
     return;
 }
 
+pub fn at<T: Clone>(list: &mut Vec<T>, index: i32) -> Option<&T> {
+    return list.get((index) as i64 as usize);
+}
+
 pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
-    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:109:7"));
+    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:131:7"));
     return;
 }
 
 pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
-    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:122:5");
+    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:144:5");
     f(__pm0, __pm1);
     return;
 }
@@ -47,7 +51,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:228:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:250:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {

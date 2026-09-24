@@ -100,6 +100,28 @@ export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> N
     return None
 }
 
+// [col-locate] What a **position-based** algorithm needs, as a params group
+// [implicit-group]: one function turning a container and a position into the
+// element's mutable handle. The caller — which knows the concrete shape —
+// fills it, so the algorithm itself stays generic over *what a position is*:
+// an `Idx` for a list, a key for a map, a cursor for a structure of your own.
+// The `Yield` pattern, for places rather than elements.
+//
+// A locator is what the Rust backend renders this as [rs-loc]: position data
+// crossing the closure boundary, materialized at the use site — which is why
+// a generic algorithm may hand out mutable handles at all.
+export params Locate<C, L, T> {
+    fn at(c: C, l: L) -> proj(c) Mut T?
+}
+
+// [col-locate] The canonical `at` for a list, which is `get` under the
+// group's name — the way `cmp`/`eq` have canonical implementations for the
+// intrinsic types [cmp-groups]. A position for a list is its index.
+export fn at<T>(list: List<Mut T>, index: Int) [] -> proj(list) Mut T?
+=> list, index {
+    return get(list, index)
+}
+
 // [col-update] Applies [f] to the element at [index], **in place**: the
 // callback receives the mutable element handle [proj-mut], so nothing is
 // copied, moved out, or put back. An in-place write moves no boundary, so

@@ -13133,6 +13133,56 @@ fn rustc_compiles_and_runs_a_lending_fn_value() {
     run_rust_files(&files, "lending_fn_value", "5 17\n");
 }
 
+/// [col-locate] [rs-loc] ④a slice 3′ — std's `Locate` bundle: a generic
+/// algorithm hands out mutable handles because the caller supplies `at`,
+/// and the implicit renders as a **locator** closure (position data out,
+/// read-mode parameters) with the handle materialized at the use site.
+const LOCATE_BUNDLE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn heal_at<L>(c: List<Mut Entity>, l: L, ?Locate<List<Mut Entity>, L, Entity>) -> None {
+    heal(at(c, l)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    heal_at(es, 1)
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn a_locate_implicit_renders_as_a_locator_closure() {
+    let files = generate(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("at: &mut dyn FnMut(&Vec<Entity>, &L) -> Option<usize>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("at__loc("),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_the_locate_bundle() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
+    run_rust_files(&files, "locate_bundle", "5 17\n");
+}
+
 /// [rs-loc] The cut ④a slice 4 lifts, loud until then: an **effect member** lending a mutable
 /// handle cannot serve a `Mut` position — no named decl exists to emit a
 /// variant of (parked to GB-5's session, GROUP_BORROWING.md; a fn *value*

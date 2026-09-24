@@ -1149,7 +1149,7 @@ call site materializes `&mut anchor[loc]`); (2) **BUILT 2026-09-24** — the bou
 locator-expressible lending call; (3) **BUILT 2026-09-24** — lending **fn values** in the
 uniform whole-element case, with the **`?at` acceptance test** (a
 generic find-and-update through an implicit — the shape ③'s cut
-refused); (3′) **the `Locate` bundle in std** (user decision
+refused); (3′) **BUILT 2026-09-24** — **the `Locate` bundle in std** (user decision
 2026-09-24: `params Locate<C, L, T>` bundling `at` and a positions
 source, the `Yield` pattern for position-based algorithms — sequenced
 here because it *is* slice 3's idiom); (4) **effect members** lending
