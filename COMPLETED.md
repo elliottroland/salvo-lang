@@ -133,6 +133,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The LSP through the std shadow, and the grammar's new words (2026-09-24,
+user report).** Editing the standard library goes through [std-shadow] —
+opening the repo's `std/` makes every module an on-disk shadowing file —
+and the LSP was blind there: `apply_std_shadow` flips the disk file to
+`is_std`, and every LSP path filtered on `!is_std`, so a std developer got
+**no hover at all**, stderr-only diagnostics, and — worst — the open
+buffer's overlay was *added beside* the shadowing file instead of replacing
+it, so every declaration in the module reported as a duplicate (117
+diagnostics for `core.list`). `SourceFile` gained `is_shadow` (set by
+`apply_std_shadow`: `is_std` for the checker's rules, a real document for
+the tooling), and the overlay replacement, the hover/definition file
+lookups, diagnostics publishing and the doc-linker all admit shadows.
+Regression test: `hover_works_in_a_std_shadowing_file` hovers the real
+`core.list`'s total-`swap` delegation and asserts the `preserve Idx`
+refinement section renders — the report's own case.
+
+The TextMate grammar (the only highlighter — the LSP has no semantic
+tokens) gained three contextual shapes and lost a dead one: `preserve`
+(before a capitalized qualifier name), `defer` (before a parameter name —
+it had never been added), `self` between `<`/`,` and `,`/`>` (the
+[group-self] shorthand in `: Yield<self, T>` and `Ordered<self>`), and the
+`[from:` pattern deleted (orphaned by the `proj(x)` respell). The
+contextual-coverage unit test's word list updated to match.
+
 **Refinement types, step 6 — constant slots (built 2026-09-24).** The third
 slot kind [qual-const]: `core.range`'s `qualifier InRange(lo: Int, hi: Int)
 of Int`, used as `InRange(0, 65535) Int` — one declaration, a distinct type

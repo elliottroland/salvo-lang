@@ -166,14 +166,24 @@
           "match": "\\bon(?=\\s+[A-Za-z_])"
         },
         {
-          "comment": "the projection source — a keyword by position, not a reserved word",
-          "name": "keyword.other.salvo",
-          "match": "(?<=\\[)from(?=\\s*:)"
-        },
-        {
           "comment": "the enclosing-handler selector — a keyword by position, not a reserved word",
           "name": "variable.language.salvo",
           "match": "(?<=@)self\\b"
+        },
+        {
+          "comment": "the declaring type in an obligation — a keyword by position, not a reserved word",
+          "name": "variable.language.salvo",
+          "match": "(?<=[<,])\\s*self\\b(?=\\s*[,>])"
+        },
+        {
+          "comment": "the preserve entry — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\bpreserve(?=\\s+[A-Z])"
+        },
+        {
+          "comment": "the defer entry — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\bdefer(?=\\s+[a-z_])"
         },
         {
           "name": "constant.language.boolean.salvo",

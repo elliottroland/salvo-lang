@@ -121,19 +121,37 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the placement clause",
     ),
-    // `proj(list)`: the borrow source of a projection. The `[` is what
-    // keeps a *field* named `from` plain.
-    (
-        "(?<=\\\\[)from(?=\\\\s*:)",
-        "keyword.other.salvo",
-        "the projection source",
-    ),
     // `k@self(…)`: the selector naming the enclosing handler, and special only
     // immediately after `@`.
     (
         "(?<=@)self\\\\b",
         "variable.language.salvo",
         "the enclosing-handler selector",
+    ),
+    // `: Yield<self, T>`, `: auto Ordered<self>`: the declaring type in an
+    // obligation's argument list [group-self] — special only between the
+    // angle bracket or comma and the comma or closing bracket, so a
+    // variable named `self` elsewhere stays plain (it cannot be declared
+    // anyway, but the grammar should not rely on that).
+    (
+        "(?<=[<,])\\\\s*self\\\\b(?=\\\\s*[,>])",
+        "variable.language.salvo",
+        "the declaring type in an obligation",
+    ),
+    // `=> map: preserve KeyOf` [qual-preserve]: the preservation entry of a
+    // deduction or refinement — a capitalized qualifier name follows, which
+    // is the parser's own test.
+    (
+        "\\\\bpreserve(?=\\\\s+[A-Z])",
+        "keyword.other.salvo",
+        "the preserve entry",
+    ),
+    // `=> defer out` [defer-deduction]: the deferred-consumption entry — a
+    // parameter name follows, which is the parser's own test.
+    (
+        "\\\\bdefer(?=\\\\s+[a-z_])",
+        "keyword.other.salvo",
+        "the defer entry",
     ),
 ];
 
@@ -507,9 +525,12 @@ mod tests {
                 "`export {word} …` would not highlight: the lookahead omits `{word}`"
             );
         }
-        // The asynchronous expression forms, which have no constant of their
-        // own (they are recognised inline by `at_word`).
-        for word in ["spawn", "waitfor", "replyto", "send", "iter", "on", "from"] {
+        // The asynchronous expression forms and the deduction entries,
+        // which have no constant of their own (they are recognised inline
+        // by `at_word`). `from` left the list with the `proj(x)` respell
+        // (the refinement-types sequence, step 1); `preserve` and `defer`
+        // joined it.
+        for word in ["spawn", "waitfor", "replyto", "send", "iter", "on", "preserve", "defer"] {
             assert!(
                 CONTEXTUAL_PATTERNS.iter().any(|(regex, _, _)| regex.contains(word)),
                 "expected a contextual pattern for `{word}`"

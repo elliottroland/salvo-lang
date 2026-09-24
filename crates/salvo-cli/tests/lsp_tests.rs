@@ -1371,3 +1371,138 @@ fn main() [use] -> None {
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
+
+/// [qual-preserve] [qual-refn-docs] A `preserve` refinement reaches the hover
+/// of the refined call — including a call written inside a wrapper whose own
+/// clause repeats the promise, the shape std's total `swap` has.
+#[test]
+fn hover_shows_preserve_refinements() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_preserve");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+struct Box canbe Mut { n: Int }
+struct Key { s: Str }
+
+qualifier Inside(box: Box) of Key {
+    fn qualifies(key: Key, box: Box) -> Bool {
+        return box.n > 0
+    }
+
+    // Bumping never empties the box.
+    refn bump(box: Mut Box) => box: preserve Inside
+}
+
+fn bump(box: Mut Box) [] -> None => box: Mut {
+    box.n = box.n + 1
+}
+
+fn wrap(box: Mut Box) [] -> None
+=> box: Mut, box: preserve Inside {
+    bump(box)
+    return None
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+
+    // Hovering the `bump` call inside `wrap` (line 19, zero-based 18).
+    let value = hover(&mut lsp, 40, &uri, 18, 5);
+    assert!(
+        value.contains("**Refinements** — in scope here:"),
+        "unexpected hover: {value}"
+    );
+    assert!(
+        value.contains("- `[box: preserve Inside]` — from `Inside`"),
+        "expected the preserve entry: {value}"
+    );
+    assert!(
+        value.contains("Bumping never empties the box."),
+        "the refinement's own docs should be merged in: {value}"
+    );
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [std-shadow] [cli-lsp] The standard library is developed through the
+/// shadow path: opening the repo's `std/` makes every std module an
+/// on-disk shadowing file — `is_std` for the checker, a real document for
+/// the editor. Hover must work there (the file-index lookup admits
+/// shadows), the open buffer must *replace* the disk content rather than
+/// be added beside it (or every declaration duplicates), and the
+/// refinements section shows `preserve` entries [qual-preserve] — checked
+/// against the real `core.list`, at the total `swap`'s delegation.
+#[test]
+fn hover_works_in_a_std_shadowing_file() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../std");
+    let root = root.canonicalize().unwrap();
+    let source = std::fs::read_to_string(root.join("core/list.sv")).unwrap();
+    let line = source
+        .lines()
+        .position(|l| l.contains("swap(list, i + 0, j + 0)"))
+        .expect("the delegation line") as u32;
+    let col = source
+        .lines()
+        .nth(line as usize)
+        .unwrap()
+        .find("swap")
+        .unwrap() as u32;
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("core/list.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    // The buffer replaces the shadowing file's disk content: no duplicate
+    // declarations, and std analyzes clean.
+    let params = expect_diagnostics(&lsp.rx);
+    assert_eq!(
+        params["diagnostics"].as_array().unwrap().len(),
+        0,
+        "diagnostics: {params}"
+    );
+    let value = hover(&mut lsp, 40, &uri, line, col + 1);
+    assert!(
+        value.contains("-> Bool"),
+        "expected the Bool swap's signature: {value}"
+    );
+    assert!(
+        value.contains("- `[list: preserve Idx]` — from `Idx`"),
+        "expected the preserve refinement: {value}"
+    );
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}),
+    );
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}

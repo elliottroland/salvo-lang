@@ -231,8 +231,11 @@ impl Server<'_> {
             .collect();
         for diag in &analysis.diagnostics {
             let file = &analysis.program.files[diag.file];
-            if file.is_std {
+            if file.is_std && !file.is_shadow {
                 // Embedded std has no on-disk URI; it should be clean.
+                // [std-shadow] A shadowing file is on disk — the standard
+                // library being developed — so its diagnostics go to the
+                // editor like any file's.
                 eprintln!("salvo lsp: diagnostic in std: {}", diag.message);
                 continue;
             }
@@ -304,7 +307,7 @@ impl Server<'_> {
             .program
             .files
             .iter()
-            .position(|f| !f.is_std && self.root.join(&f.name) == path)?;
+            .position(|f| (!f.is_std || f.is_shadow) && self.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
         let link = self.doc_linker(&analysis.program);
@@ -509,7 +512,7 @@ impl Server<'_> {
     ) -> impl Fn(usize, Span) -> Option<String> + 'a {
         move |file: usize, span: Span| {
             let target = program.files.get(file)?;
-            if target.is_std {
+            if target.is_std && !target.is_shadow {
                 return None;
             }
             let target_path = self.root.join(&target.name);
@@ -832,7 +835,7 @@ impl Server<'_> {
             .program
             .files
             .iter()
-            .position(|f| !f.is_std && self.root.join(&f.name) == path)?;
+            .position(|f| (!f.is_std || f.is_shadow) && self.root.join(&f.name) == path)?;
         let content = &analysis.program.files[file_idx].content;
         let offset = position_to_offset(content, doc.position);
 
@@ -865,8 +868,9 @@ impl Server<'_> {
 
         let (_, site) = best?;
         let target = analysis.program.files.get(site.file)?;
-        if target.is_std {
+        if target.is_std && !target.is_shadow {
             // The embedded std is not on disk; nothing to navigate to.
+            // [std-shadow] A shadowing file is, and navigates like any.
             return None;
         }
         let target_path = self.root.join(&target.name);

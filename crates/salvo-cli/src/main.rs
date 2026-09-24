@@ -920,6 +920,7 @@ fn run_test_pass(
         module: harness_module.clone(),
         content: source,
         is_std: false,
+        is_shadow: false,
         // [test-implicit-import] The harness *is* test code: marking it so gives
         // it `std.test` without an import line, which is also what keeps it
         // clear of an `import <module>.test` for an annex of `test` itself.

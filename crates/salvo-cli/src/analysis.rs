@@ -76,7 +76,11 @@ pub fn analyze_sources(
     // Overlay: open-editor contents win over the disk [cli-lsp]. Files
     // not on disk yet (new unsaved buffers under the root) are added.
     if !overlay.is_empty() {
-        for file in sources.files.iter_mut().filter(|f| !f.is_std) {
+        // [std-shadow] A shadowing file is `is_std` for the checker but a
+        // real on-disk file for the editor: its open buffer replaces its
+        // disk content like any other, or the buffer would be *added*
+        // beside it and every declaration would report as a duplicate.
+        for file in sources.files.iter_mut().filter(|f| !f.is_std || f.is_shadow) {
             if let Some(content) = overlay.get(&root.join(&file.name)) {
                 file.content = content.clone();
             }
@@ -86,7 +90,7 @@ pub fn analyze_sources(
             if sources
                 .files
                 .iter()
-                .any(|f| !f.is_std && Path::new(&f.name) == rel)
+                .any(|f| (!f.is_std || f.is_shadow) && Path::new(&f.name) == rel)
             {
                 continue;
             }

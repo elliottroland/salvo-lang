@@ -33,6 +33,11 @@ pub struct SourceFile {
     pub content: String,
     /// True for files that come from the embedded standard library.
     pub is_std: bool,
+    /// [std-shadow] True for an **on-disk** file that shadows (or is) a
+    /// std module — `is_std` for the checker's rules, but a real path the
+    /// tooling can hover, diagnose and link, which is how the standard
+    /// library is developed.
+    pub is_shadow: bool,
     /// [test-file] True for a `<name>.test.sv` **test annex**: the
     /// companion holding module `<name>`'s tests. Loaded only by
     /// `salvo test` (and by `salvo analyze`, which checks everything), so a
@@ -170,6 +175,7 @@ impl SourceSet {
             module,
             content,
             is_std,
+            is_shadow: false,
             is_test: false,
         });
     }
@@ -183,6 +189,7 @@ impl SourceSet {
             module,
             content,
             is_std: false,
+            is_shadow: false,
             is_test: true,
         });
     }
@@ -373,6 +380,7 @@ impl SourceSet {
         for file in &mut self.files {
             if !file.is_test && shadowed.contains(&file.module) {
                 file.is_std = true;
+                file.is_shadow = true;
                 notes.push(format!(
                     "`{}` shadows the embedded standard library's module `{}`",
                     file.name, file.module
