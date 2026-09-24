@@ -2336,6 +2336,8 @@ Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced
 
 A container can hold **mutable** elements too — and that mutability is the element type's, not the container handle's: container `Mut` permits reshaping (`add`, `remove_at`, `set`, `swap`), while `List<Mut T>` elements hand out **mutable handles**. `get(squad, i)!` over a `List<Mut Entity>` answers a `proj(squad) Mut Entity`, and mutating through it — `hero.hp = hero.hp - 3`, or passing it to a `Mut Entity` parameter — writes the element in place. Every such write counts as a mutation of the container: values derived from it are invalidated, exactly as a mutating call would invalidate them, while the acting handle itself stays live. A handle that is only ever read imposes nothing, so any number can coexist; a projection whose element type has no `Mut` stays read-only, and `copy` remains the way to a value of your own.
 
+Two mutable handles at once take a **proof**. The analysis cannot tell `squad[i]` from `squad[j]` — `i` might equal `j` — so a write through one invalidates the other, and a call taking both (`attack(get(squad, i)!, get(squad, j)!)`) is refused. `core.list`'s `Distinct` qualifier is the proof: after `j is Distinct(i)`, the two indices are known to differ, the handles are known to name different elements — the write through one leaves the other standing, and the two-handle call is accepted. The claim is a fact about the indices' *current values*: reassigning either side takes it away, like any dependent claim.
+
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
 ```

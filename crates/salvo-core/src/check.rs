@@ -771,6 +771,13 @@ pub struct Checked {
     /// argument the result borrows. The checker links the result to that
     /// argument; the Rust backend renders the result as a borrow.
     pub derived_calls: HashMap<Key, Vec<usize>>,
+    /// [elem-distinct] Calls taking **two mutable element handles of one
+    /// container, proven apart** by a live `Distinct` claim, keyed by the
+    /// call span: the two parameter indices. The Rust backend renders the
+    /// pair through `salvo_pair_mut` (one `split_at_mut`, two `&mut`)
+    /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
+    /// the call.
+    pub distinct_pairs: HashMap<Key, (usize, usize)>,
     /// Calls *through fn-typed values* [fn-contract], keyed by the call
     /// span: the effective per-argument contract (post-default), for the
     /// Rust backend's argument rendering.
@@ -1421,6 +1428,18 @@ struct FateLink {
     /// a `for` element of a view), which *is* the root's data
     /// [proj-readonly].
     held: bool,
+    /// [elem-distinct] The **identity of the minting index** of an element
+    /// handle: the ultimate fate-root id of the index variable in
+    /// `get(list, i)` (resolved to `core.list`'s `get`), captured at the
+    /// mint. Two handle links into the same root at the same path whose
+    /// identities are proven apart by a live `Distinct` claim name disjoint
+    /// storage, so mutation through one spares the other from poison.
+    /// Erased (eagerly, at the event) when the index variable is reassigned
+    /// or stepped — a surviving identity always means "the element selected
+    /// by that variable's *current* value". `None` for every other
+    /// derivation: may-alias, today's conservative rule
+    /// [fate-field-disjoint].
+    elem_idx: Option<u32>,
 }
 
 impl FateLink {
@@ -7524,6 +7543,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
+                // [elem-distinct] An element mint stamps the identity of its
+                // index on every link that has none yet: nearest-the-root
+                // wins, so a nested mint (`get(get(grid, i)!, j)`) keeps the
+                // outer container's discriminator (`i`) — the one that names
+                // disjoint subtrees of the shared root.
+                if let Some(mint) = self.elem_mint_index(*span, callee, args) {
+                    for l in &mut links {
+                        if l.elem_idx.is_none() {
+                            l.elem_idx = Some(mint);
+                        }
+                    }
+                }
                 return links;
             }
         }
@@ -7543,6 +7574,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             path: l.path.clone(),
                             borrowed: l.borrowed,
                             held: l.held,
+                            elem_idx: l.elem_idx,
                         })
                         .collect()
                 })
@@ -7576,6 +7608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     path: extra.clone(),
                     borrowed: src_borrowed,
                     held: false,
+                    elem_idx: None,
                 },
                 &mut links,
             );
@@ -7602,6 +7635,42 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         links
+    }
+
+    /// [elem-distinct] The minting-index identity of an element-handle
+    /// call: `call_span` resolved to `core.list`'s `get` — the two
+    /// overloads whose result is *exactly the element at the index* — and
+    /// the index argument is a plain local. Answers the index variable's
+    /// ultimate fate-root id (its own id when it is a root); any other
+    /// shape answers `None` and stays may-alias [fate-field-disjoint].
+    /// Nominal recognition is deliberate: a user fn with a derived return
+    /// may lend *any* projection of its container, so only the `get` whose
+    /// semantics the compiler knows may name an element discriminator.
+    fn elem_mint_index(&self, call_span: Span, callee: &Expr, args: &[Expr]) -> Option<u32> {
+        let key = *self.out.call_fn.get(&(self.file_idx, call_span))?;
+        let entry = self
+            .scope
+            .fns
+            .values()
+            .flatten()
+            .find(|e| e.key == key)?;
+        if entry.decl.name.name != "get" || entry.module.to_string() != "core.list" {
+            return None;
+        }
+        let index = if matches!(callee, Expr::Field { .. }) {
+            args.first()
+        } else {
+            args.get(1)
+        }?;
+        let Expr::Ident(id) = index else { return None };
+        let var = self.lookup(&id.name)?;
+        match var.links.as_slice() {
+            [] => Some(var.id),
+            links => {
+                let root = links[0].root_id;
+                links.iter().all(|l| l.root_id == root).then_some(root)
+            }
+        }
     }
 
     /// [fate-partial-move] Assigning a place makes it whole again: drops
@@ -7786,6 +7855,63 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// mutating `p.tags` leaves a value derived from `p.name` usable. An
     /// event on the whole variable (`[]`) is a prefix of every path and so
     /// poisons everything, as before; `None` is the conservative unknown.
+    /// [elem-distinct] Every root-id pair currently proven apart by a live
+    /// `Distinct` claim, both orientations: a variable whose narrowed type
+    /// carries `Distinct(i)` relates its own ultimate root to `i`'s. Claims
+    /// are matched by the qualifier's name, the posture every std claim
+    /// takes (`Sorted`, `Mut`); [qual-depend]'s stripping keeps a live
+    /// claim honest — mutation *or reassignment* of either side removes it.
+    fn live_distinct_pairs(&self) -> HashSet<(u32, u32)> {
+        let mut pairs = HashSet::new();
+        for frame in &self.locals {
+            for var in frame.values() {
+                let subject = match var.links.as_slice() {
+                    [] => var.id,
+                    links => {
+                        let root = links[0].root_id;
+                        if links.iter().all(|l| l.root_id == root) {
+                            root
+                        } else {
+                            continue;
+                        }
+                    }
+                };
+                let Ty::Qualified { quals, .. } = &var.narrowed else {
+                    continue;
+                };
+                for q in quals.iter().filter(|q| q.name == "Distinct") {
+                    for a in &q.args {
+                        if let Ty::ValueRef { roots, .. } = a {
+                            if let [other] = roots.as_slice() {
+                                pairs.insert((subject, *other));
+                                pairs.insert((*other, subject));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        pairs
+    }
+
+    /// [elem-distinct] Reassigning (or stepping) an index variable erases
+    /// every element identity minted from it: the identity means "the
+    /// element selected by the variable's *current* value", and the current
+    /// value just changed. Eager, at the event — the invalidation style of
+    /// the whole analysis — so a surviving identity needs no staleness
+    /// check at consult time.
+    fn erase_elem_identities(&mut self, id: u32) {
+        for frame in &mut self.locals {
+            for var in frame.values_mut() {
+                for l in &mut var.links {
+                    if l.elem_idx == Some(id) {
+                        l.elem_idx = None;
+                    }
+                }
+            }
+        }
+    }
+
     fn poison_derived(
         &mut self,
         root_id: u32,
@@ -7794,13 +7920,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         event_path: Option<&[Step]>,
     ) {
-        self.poison_derived_except(root_id, root_name, event, span, event_path, root_id);
+        self.poison_derived_except(root_id, root_name, event, span, event_path, root_id, None);
     }
 
     /// [proj-mut] `poison_derived` with one exempt variable: a mutation
     /// *through* a mutable element handle poisons the root's other
     /// derivations, but must not kill the acting handle itself — its
     /// storage did not move.
+    ///
+    /// [elem-distinct] `acting_elem` is the acting handle's minting-index
+    /// identity, when it has one: a sibling link into the same root **at
+    /// the same path** whose own identity is proven apart by a live
+    /// `Distinct` claim names disjoint storage, so it is spared. Anything
+    /// short of the full proof — either identity missing, paths differing,
+    /// no live claim — poisons as before [fate-poison].
+    #[allow(clippy::too_many_arguments)]
     fn poison_derived_except(
         &mut self,
         root_id: u32,
@@ -7809,16 +7943,34 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         event_path: Option<&[Step]>,
         exempt: u32,
+        acting_elem: Option<u32>,
     ) {
+        let distinct = match acting_elem {
+            Some(_) => self.live_distinct_pairs(),
+            None => HashSet::new(),
+        };
         for frame in &mut self.locals {
             for var in frame.values_mut() {
                 if var.id == root_id || var.id == exempt {
                     continue;
                 }
-                let hit = var
-                    .links
-                    .iter()
-                    .any(|l| l.root_id == root_id && l.overlaps_event(event_path));
+                let hit = var.links.iter().any(|l| {
+                    if l.root_id != root_id || !l.overlaps_event(event_path) {
+                        return false;
+                    }
+                    // [elem-distinct] The spare: same container place,
+                    // both element identities present, proven apart.
+                    if let (Some(i), Some(k)) = (acting_elem, l.elem_idx) {
+                        let same_place = match (event_path, &l.path) {
+                            (Some(a), Some(b)) => a == b.as_slice(),
+                            _ => false,
+                        };
+                        if same_place && i != k && distinct.contains(&(i, k)) {
+                            return false;
+                        }
+                    }
+                    true
+                });
                 if hit {
                     var.narrowed = Ty::Never;
                     var.poison = Some(Poison {
@@ -13155,6 +13307,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             if handle_mut {
                 for l in links.clone() {
                     self.record_param_mutation(&l.root_name);
+                    // [elem-distinct] The acting link's index identity rides
+                    // along: siblings proven apart survive the event.
                     self.poison_derived_except(
                         l.root_id,
                         &l.root_name,
@@ -13162,6 +13316,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span,
                         l.path.as_deref(),
                         id,
+                        l.elem_idx,
                     );
                     self.out.handle_muts.insert((self.file_idx, l.bind_span));
                 }
@@ -17574,6 +17729,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     let links = self.apply_binding_mode(&id.name, links);
                     let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
+                    let root_var_id = root.as_ref().map(|&(id, _)| id);
                     if let Some((root_id, root_name)) = root {
                         self.poison_derived(
                             root_id,
@@ -17584,6 +17740,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // [fate-field-disjoint].
                             Some(&[]),
                         );
+                    }
+                    // [qual-depend] The old value is gone, so every
+                    // dependent claim bound to it describes a value that no
+                    // longer exists: reassignment strips them exactly as
+                    // mutation does. (Before this, an `Idx(xs)` claim held
+                    // across `xs = [9]` kept resolving the total `get` — a
+                    // checked out-of-bounds read; defect fixed 2026-09-24.)
+                    self.strip_dependent_claims(&id.name, &[]);
+                    // [elem-distinct] And element identities minted from the
+                    // old value die with it.
+                    if let Some(var_id) = root_var_id {
+                        self.erase_elem_identities(var_id);
                     }
                     if let Some(var) = self.lookup_mut(&id.name) {
                         var.narrowed = value_ty;
@@ -18807,6 +18975,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 match operand.as_ref() {
                     Expr::Ident(id) => {
                         let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
+                        let root_var_id = root.as_ref().map(|&(id, _)| id);
                         if let Some((root_id, root_name)) = root {
                             self.poison_derived(
                                 root_id,
@@ -18817,6 +18986,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 // [fate-field-disjoint].
                                 Some(&[]),
                             );
+                        }
+                        // [qual-depend] A step rebinds the variable, so
+                        // dependent claims bound to its old value strip,
+                        // exactly as reassignment's do — before the links
+                        // are severed, since the claim roots to strip are
+                        // the old value's.
+                        self.strip_dependent_claims(&id.name, &[]);
+                        // [elem-distinct] Element identities minted from
+                        // the stepped variable die with the old value.
+                        if let Some(var_id) = root_var_id {
+                            self.erase_elem_identities(var_id);
                         }
                         if let Some(var) = self.lookup_mut(&id.name) {
                             var.links = Vec::new();
@@ -20390,6 +20570,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     root_id: cap.var_id,
                     root_name: cap.name.clone(),
                     bind_span: span,
+                    elem_idx: None,
                     // [fate-lambda] A capture is read through whatever
                     // the body does with it; the capture analysis
                     // records the variable, not a projection, so the
@@ -23903,6 +24084,89 @@ impl<'p, 'r> Checker<'p, 'r> {
                 None => Some(crate::deduce::optimistic(decl)),
             },
         };
+        // [elem-distinct] Two mutable element handles of one container in
+        // one call — `attack(get(es, i)!, get(es, j)!)`, or two bound
+        // handles — are the two-`&mut` shape the Rust rendering cannot
+        // express unless the elements are provably different. A pair whose
+        // minting indices a live `Distinct` claim proves apart is accepted
+        // and recorded for the pair lowering [rs-elem-mut]; anything short
+        // of the proof is refused here, naming the remedy. (Before this
+        // rule the shape passed the checker and died at rustc — a
+        // checker/emitter disagreement, closed 2026-09-24.)
+        if let Some(contract) = &contract {
+            let fixed_count = decl
+                .params
+                .iter()
+                .filter(|p| !p.variadic && !p.implicit)
+                .count();
+            let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
+            let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
+            for (i, arg) in args.iter().enumerate() {
+                if i >= fixed_count {
+                    break;
+                }
+                let param = &decl.params[i];
+                let Some(d) = contract.iter().find(|d| d.param == param.name.name) else {
+                    continue;
+                };
+                if !d.kept
+                    || !crate::deduce::declared_quals(&param.ty)
+                        .iter()
+                        .any(|q| q == "Mut")
+                {
+                    continue;
+                }
+                let mutable_handle = self
+                    .out
+                    .ty_of(self.file_idx, arg.span())
+                    .is_some_and(|t| t.is_proj() && Self::carries_mut(t));
+                if !mutable_handle {
+                    continue;
+                }
+                let links = match arg {
+                    Expr::Ident(id) => self
+                        .lookup(&id.name)
+                        .map(|v| v.links.clone())
+                        .unwrap_or_default(),
+                    other => self.links_for_value(other, other.span()),
+                };
+                for l in links.iter().filter(|l| l.borrowed && !l.held) {
+                    let Some((_, prev_idx, prev_path, prev_param)) =
+                        handles.iter().find(|(r, ..)| *r == l.root_id)
+                    else {
+                        handles.push((l.root_id, l.elem_idx, l.path.clone(), i));
+                        continue;
+                    };
+                    let proven = match (*prev_idx, l.elem_idx) {
+                        (Some(a), Some(b))
+                            if a != b && l.path.is_some() && *prev_path == l.path =>
+                        {
+                            proven_pairs
+                                .get_or_insert_with(|| self.live_distinct_pairs())
+                                .contains(&(a, b))
+                        }
+                        _ => false,
+                    };
+                    let key = self.key(span);
+                    if proven && !self.out.distinct_pairs.contains_key(&key) {
+                        self.out.distinct_pairs.insert(key, (*prev_param, i));
+                    } else {
+                        let root = &l.root_name;
+                        self.error(
+                            arg.span(),
+                            format!(
+                                "a mutable element handle of `{root}` cannot be \
+                                 passed here: an earlier argument of this call is \
+                                 already a mutable handle into `{root}`, and the \
+                                 two may be the same element; prove them apart \
+                                 first (`j is Distinct(i)`), or mutate through \
+                                 one handle at a time"
+                            ),
+                        );
+                    }
+                }
+            }
+        }
         if let Some(contract) = contract {
             let fixed_count = decl
                 .params

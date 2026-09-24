@@ -55,3 +55,22 @@ impl<T> SalvoTake<T> for Vec<T> {
         }
     }
 }
+
+/// [rs-elem-mut] Two `&mut` elements of one `Vec` at once — the rendering
+/// of a call taking two mutable element handles the checker proved apart
+/// (`Distinct`, [elem-distinct]): one `split_at_mut` at the higher index,
+/// one element out of each half. `i != j` is checker-guaranteed; `None`
+/// when either index is out of range, so the caller's `.expect` carries
+/// the same message and timing as a single handle's `!`.
+pub fn salvo_pair_mut<T>(xs: &mut [T], i: usize, j: usize) -> Option<(&mut T, &mut T)> {
+    if i == j || i >= xs.len() || j >= xs.len() {
+        return None;
+    }
+    if i < j {
+        let (lo, hi) = xs.split_at_mut(j);
+        Some((&mut lo[i], &mut hi[0]))
+    } else {
+        let (lo, hi) = xs.split_at_mut(i);
+        Some((&mut hi[0], &mut lo[j]))
+    }
+}

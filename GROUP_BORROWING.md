@@ -1178,8 +1178,13 @@ pair; P-4–P-8 can be taken in any order once those stand.
 lifts, root-poisoning with the acting handle exempted, P-9's `handle_muts`
 mode table, the `get_mut` splice and captured-index virtual bindings,
 `List<Mut T>` parameters arriving `&mut`; the v1 cut (bound mints only
-from a direct `get(place, i)!`) reported loudly. ① P-3's lifts + P-9 (the
-D substrate) →
+from a direct `get(place, i)!`) reported loudly. ② **BUILT 2026-09-24**
+— [elem-distinct] + [col-distinct]: `Distinct` in std, link
+index-identity (`FateLink.elem_idx`, erased on index reassignment),
+the poison consult, the proven-pair call (`Checked::distinct_pairs`),
+and `salvo_pair_mut` in `runtime/seq.rs` (statement-position calls only,
+loud cut); the [qual-depend] reassignment-strips defect fixed en route.
+① P-3's lifts + P-9 (the D substrate) →
 ② `Distinct` in std + the three compiler pieces → ③ the C family as plain
 std code → ④ `canbe` entries + the covered store rendering (A) →
 ⑤ GB-3-A. The document folds into COMPLETED.md's log, spec rules and the

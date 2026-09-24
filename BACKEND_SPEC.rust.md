@@ -603,6 +603,15 @@ the blanket rule:
     `Mut T[]` — `type_has_elem_mut`) renders `&mut Vec<T>`: the container
     lends mutable handles, so the write must reach the caller's storage
     through it even though no structural mutation is permitted.
+  * A **proven-distinct pair in one call** ([elem-distinct],
+    `Checked::distinct_pairs`) renders as a `salvo_pair_mut` preamble —
+    `let (__pm0, __pm1) = salvo_pair_mut(&mut es[..], i, j).expect(…);`,
+    one `split_at_mut` [rs-runtime-source], `i != j` checker-guaranteed —
+    and the call takes the two `&mut` halves. The `.expect` keeps the
+    message and timing of a single handle's `!`. Statement-position calls
+    only (the v1 cut): a pair call in a value position is a reported
+    codegen error naming the remedy, as is a pair argument that is neither
+    a direct `get(place, i)!` mint nor a bound handle.
   * **The v1 cut** [backend-never-wrong]: a bound mutable handle minted from
     anything but a direct `get(place, i)!` over a pure place (the total
     Idx-claimed `get`, `first`, a call-result container) is a reported

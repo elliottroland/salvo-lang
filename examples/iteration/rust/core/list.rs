@@ -13,8 +13,12 @@ pub fn Idx_qualifies<T: Clone>(index: i32, list: &Vec<T>) -> bool {
     return index >= 0 && index < (list.len() as i32);
 }
 
+pub fn Distinct__Int_qualifies(j: i32, i: i32) -> bool {
+    return j != i;
+}
+
 pub fn get<'a, T: Clone>(list: &'a Vec<T>, index: &i32) -> &'a T {
-    return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:77:12");
+    return list.get((*index + 0) as i64 as usize).expect("salvo: value is absent at core.list:90:12");
 }
 
 pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
@@ -27,7 +31,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:192:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:205:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {

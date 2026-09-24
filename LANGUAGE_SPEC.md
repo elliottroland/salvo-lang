@@ -686,6 +686,12 @@ Conventions:
   refinement-types design, total end to end — and `binary_search`'s found
   arm is `(+Idx(list) Int)?`, so narrowing the optional is the last check
   the result ever needs.
+* [col-distinct] `core.list` declares `qualifier Distinct(i: Int) of Int`
+  [qual-depend] — `j != i`, bound to `i`'s identity — the proof that two
+  element handles of one list cannot alias [elem-distinct]. Established by
+  the ordinary filled test (`j is Distinct(i)`), stripped by mutation *or
+  reassignment* of either side [qual-depend]. Ships ahead of the `update2`
+  family (ladder step ③), which consumes it.
 * [col-span] `core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
   [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
@@ -1195,7 +1201,11 @@ Conventions:
     about the *map's* contents, and stripping is per-parameter only for
     claims about the parameter itself [deduce-syntax]. Reads keep it;
     mutating an unrelated value keeps it. The opt-back is the `preserve`
-    entry (step 4 of the sequence).
+    entry (step 4 of the sequence). **Reassignment and `++`/`--` strip
+    too** — the old value is gone, so a claim bound to it describes
+    nothing (defect fixed 2026-09-24: an `Idx(xs)` claim held across
+    `xs = [9]` kept resolving the total `get` — a checked out-of-bounds
+    read at runtime).
   * One kind of slot per qualifier for now: fn slots [cmp-carry] or value
     slots, not both (nothing in std or the design's catalog mixes them).
   * **Signatures consume the claims** (step 3): a parameter type may fill
@@ -5589,7 +5599,8 @@ the same day. **Not part of `core`**: the surface is imported, and one
     `++`, a `Mut` argument position — and is a mutation event on the
     handle's *roots* at the linked paths [fate-poison]: sibling derivations
     of the container fall (a computed index may-aliases every element
-    [fate-field-disjoint]), the acting handle itself survives (its storage
+    [fate-field-disjoint] — unless a live `Distinct` claim proves the two
+    apart [elem-distinct]), the acting handle itself survives (its storage
     did not move), and a parameter root is recorded as mutated so its
     inferred contract takes the exhaustive form [deduce-syntax].
   * **Mode is inferred per binding** (P-9, the [fate-move-mode] pattern):
@@ -5611,6 +5622,45 @@ the same day. **Not part of `core`**: the surface is imported, and one
     wholesale projection, `held` a borrow an owned object carries
     [proj-infer]. A variable whose every link is held may be mutated (its
     own fields are its own); one with a wholesale or alias link may not.
+* [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
+  step ② of GROUP_BORROWING.md's ladder): two mutable element handles of
+  one container whose minting indices a live `Distinct` claim proves apart
+  name **disjoint storage**, and the analysis knows it — the first
+  refinement of [fate-field-disjoint]'s may-alias-all rule for computed
+  indices. The rules:
+  * **Element links carry the identity of their minting index**: a handle
+    minted by `get(list, i)` — resolved to `core.list`'s `get`, either
+    overload — records `i`'s ultimate fate-root id on its links.
+    Recognition is **nominal** deliberately: a user fn with a derived
+    return may lend *any* projection of its container, so only the `get`
+    whose semantics the compiler knows may name an element discriminator.
+    A nested mint keeps the identity nearest the root
+    (`get(get(grid, i)!, j)` carries `i` — the discriminator of disjoint
+    subtrees under the shared root); any other index shape carries none.
+  * **The identity dies with the index variable's value**: reassignment
+    or `++`/`--` of the index erases it from every link, eagerly at the
+    event — a surviving identity always means "the element selected by the
+    variable's *current* value", so the poison consult needs no staleness
+    check. (Loop bodies re-check under the post-iteration state, so an
+    erasure late in a body reaches uses before it.)
+  * **Poison consults the claim**: mutation through a handle spares a
+    sibling link iff both identities are present, different, the link
+    paths are equal, and a live `Distinct` claim relates the two index
+    variables (either orientation, matched by fate-root agreement
+    [qual-depend]). Anything short of the full proof poisons as before
+    [fate-poison]. The same index minted twice is certainly the same
+    element — no claim is consulted.
+  * **One call may take two proven handles** — `attack(get(es, i)!,
+    get(es, j)!)`, or two bound handles — recorded in
+    `Checked::distinct_pairs` for the Rust pair lowering [rs-elem-mut].
+    An **unproven** pair is refused at the second argument, naming the
+    remedy (before this rule the shape passed the checker and failed in
+    rustc, E0499 — a checker/emitter disagreement).
+  * Implementation: `FateLink.elem_idx` (the identity),
+    `elem_mint_index` (the nominal mint recognition),
+    `erase_elem_identities` (the eager invalidation),
+    `live_distinct_pairs` + the spare in `poison_derived_except` (the
+    consult), and the pair pre-pass in `resolve_named_call`.
 * [proj-field] **Any struct may hold `proj` fields**, written without a
   source (`items: proj List<T>`): the struct declares *that* it projects,
   each literal decides *what* (user decision 2026-09-11; replaces the

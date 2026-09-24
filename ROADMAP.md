@@ -422,7 +422,7 @@ program must not print or persist a hash value and expect cross-backend
 identity — an example's `expected.txt` cannot contain one, the posture
 random already has.
 
-## Group borrowing — the ladder (building; step ① landed 2026-09-24)
+## Group borrowing — the ladder (building; steps ①–② landed 2026-09-24)
 
 The decided design and full build sequence live in **GROUP_BORROWING.md**
 (the working document stays open until every rung lands, per its charter);
@@ -435,17 +435,17 @@ COMPLETED.md's log). Status:
   acting handle; Rust renders statement-scoped `get_mut` splices and
   captured-index virtual bindings; the v1 cut (bound mints only from a
   direct `get(place, i)!`) is a loud codegen error.
-- **② NEXT — `Distinct` awareness.** std ships
-  `qualifier Distinct(i: Int) of Int` (plain [qual-depend] machinery);
-  the compiler work is: element links carry the **identity of the minting
-  index** (today the element path is may-alias-all
-  [fate-field-disjoint]), poison consults a live `Distinct` claim between
-  two handles' indices before killing the sibling, and the Rust pair
-  lowering (`salvo_pair_mut` in `runtime/seq.rs`, `split_at_mut` with
-  index ordering) covers two proven-disjoint handles in **one call** —
-  single-statement uses already work via ①'s virtual bindings. The link
-  index-identity is the design piece; sketch it before coding.
-- **③ the C family** (`update`, `update2`) as ordinary std Salvo — note
+- **② BUILT** (2026-09-24, COMPLETED.md's log): `Distinct` awareness —
+  [elem-distinct] + [col-distinct]. Element links carry the minting
+  index's identity (erased on reassignment of the index), poison consults
+  a live `Distinct` claim before killing a sibling, one call may take two
+  proven handles (`salvo_pair_mut`, statement position only — the loud v1
+  cut), and the [qual-depend] reassignment-strips defect found en route is
+  fixed. **Leftover, deliberately:** a mutable element handle beside its
+  *container* (or beside a read projection of it) in one call is not
+  checker-refused — the shape fails at rustc (E0499/E0502), honest but
+  late; fold the refusal into ④'s same-call work.
+- **③ NEXT — the C family** (`update`, `update2`) as ordinary std Salvo — note
   the total `get` in their bodies must be dodged for now (`get(list,
   i + 0)!`), since ①'s cut refuses non-intrinsic mints; lifting that
   cleanly (mode-specialized emission of lending fns, or making the total

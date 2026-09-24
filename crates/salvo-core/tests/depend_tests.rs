@@ -430,3 +430,48 @@ fn a_leaving_right_side_keeps_its_consumptions_to_itself() {
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
+
+/// [qual-depend] **Reassignment strips dependent claims exactly as
+/// mutation does**: the old value is gone, so a claim bound to it
+/// describes nothing. Before the 2026-09-24 fix an `Idx(xs)` claim held
+/// across `xs = [9]` kept resolving the total `get` — a checked
+/// out-of-bounds read at runtime.
+#[test]
+fn reassigning_the_linked_value_strips_the_claim() {
+    let src = format!(
+        "{PRELUDE}\
+         fn f(key: Key) [] -> Bool => key {{\n    \
+         let box = Mut Box {{ n: 1 }}\n    \
+         assert!(key is Inside(box))\n    \
+         box = Mut Box {{ n: 2 }}\n    \
+         return key is ^Inside\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("Inside")),
+        "expected the widen to miss the stripped claim: {errs:?}"
+    );
+}
+
+/// [qual-depend] `i++` rebinds the variable, so dependent claims bound to
+/// its old value strip too — the step is a reassignment in every flow
+/// sense [inc-dec].
+#[test]
+fn stepping_a_linked_int_strips_the_claim() {
+    let src = "\
+        qualifier Above(floor: Int) of Int {\n\
+            fn qualifies(n: Int, floor: Int) -> Bool {\n\
+                return n > floor\n\
+            }\n\
+        }\n\
+        fn f(n: Int, base: Int) [] -> Bool => n, base {\n    \
+        let floor = base + 0\n    \
+        assert!(n is Above(floor))\n    \
+        floor++\n    \
+        return n is ^Above\n}\n";
+    let errs = errors(src);
+    assert!(
+        errs.iter().any(|e| e.contains("Above")),
+        "expected the widen to miss the stripped claim: {errs:?}"
+    );
+}

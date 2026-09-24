@@ -65,6 +65,19 @@ export qualifier Idx<T>(list: List<T>) of Int {
     refn swap(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
 }
 
+// [qual-depend] [col-distinct] The claim that an `Int` **differs from one
+// particular other `Int`**: `j is Distinct(i)` proves `j != i`, bound to
+// `i`'s identity. For two element handles of one list it is the proof that
+// they cannot alias — mutation through one leaves the other standing
+// [elem-distinct], and a call may take both at once — which is what the
+// `update2` family stands on. Reassigning either side strips it
+// [qual-depend], like any dependent claim.
+export qualifier Distinct(i: Int) of Int {
+    fn qualifies(j: Int, i: Int) -> Bool {
+        return j != i
+    }
+}
+
 // [col-idx] The **total** read: an index carrying the claim answers the
 // element itself — no `None` arm, nothing to `!`. Ranked above the optional
 // [get] by its qualifier [fn-overload-rank], exactly as `first` over a

@@ -1120,11 +1120,23 @@ struct Emitter<'p> {
     effect_env: Vec<EffectEntry>,
     /// How each name in the current fn is bound [rs-borrows].
     bindings: HashMap<String, BindKind>,
-    /// [rs-elem-mut] The spliced place of each `ElemMut` binding
-    /// (`es[__h0]`), keyed by variable name.
-    elem_places: HashMap<String, String>,
+    /// [rs-elem-mut] The container root and captured index of each
+    /// `ElemMut` binding (`es`, `__h0` — spliced as `es[__h0]`), keyed by
+    /// variable name. Kept apart so the distinct-pair preamble can name
+    /// them separately in `salvo_pair_mut(&mut es[..], __h0, __h1)`.
+    elem_places: HashMap<String, (String, String)>,
     /// [rs-elem-mut] Fresh-name counter for captured handle indices.
     handle_seq: usize,
+    /// [rs-elem-mut] [elem-distinct] The pre-split `&mut` locals of a
+    /// distinct-pair call, keyed by argument span: the statement preamble
+    /// bound `salvo_pair_mut`'s two halves, and the argument renderer
+    /// passes them through instead of splicing `get_mut`. Consumed on use.
+    pair_args: HashMap<Span, String>,
+    /// [rs-elem-mut] Distinct-pair calls whose preamble ran: the statement
+    /// path inserts the call span before emitting the call, and
+    /// `emit_call` refuses any distinct-pair call it does not find here —
+    /// the v1 cut (statement position only), loud.
+    pair_ready: HashSet<Span>,
     /// [rs-read-mode] What the position being emitted wants of the value: a
     /// **read** (a `&T` is enough) or an **owned** value (a store, a return, a
     /// consuming argument). The unwrap paths consult it and clone only under
@@ -1408,6 +1420,8 @@ impl<'p> Emitter<'p> {
             bindings: HashMap::new(),
             elem_places: HashMap::new(),
             handle_seq: 0,
+            pair_args: HashMap::new(),
+            pair_ready: HashSet::new(),
             mode: ValueMode::Read,
             placeholder_code: None,
             pick_vars: 0,
@@ -6909,7 +6923,7 @@ impl<'p> Emitter<'p> {
                     self.handle_seq += 1;
                     self.bindings.insert(name.name.clone(), BindKind::ElemMut);
                     self.elem_places
-                        .insert(name.name.clone(), format!("{root}[{var}]"));
+                        .insert(name.name.clone(), (root.clone(), var.clone()));
                     return format!(
                         "{pad}let {var} = {idx};\n{pad}{root}.get({var})\
                          .expect(\"salvo: value is absent at {}\");\n",
@@ -8478,6 +8492,18 @@ impl<'p> Emitter<'p> {
     fn emit_expr_stmt(&mut self, expr: &Expr, indent: usize, ctx: StmtCtx) -> String {
         let pad = "    ".repeat(indent);
         match expr {
+            // [rs-elem-mut] [elem-distinct] A call taking two mutable
+            // element handles of one container, proven apart: the pair
+            // preamble splits the container once and the call takes the
+            // two `&mut` halves.
+            Expr::Call { span, .. }
+                if self
+                    .checked
+                    .distinct_pairs
+                    .contains_key(&(self.file_idx, *span)) =>
+            {
+                self.emit_distinct_pair_call(expr, indent)
+            }
             Expr::If {
                 branches,
                 else_block,
@@ -9677,7 +9703,7 @@ impl<'p> Emitter<'p> {
             Some(BindKind::ElemMut) => self
                 .elem_places
                 .get(name)
-                .cloned()
+                .map(|(root, idx)| format!("{root}[{idx}]"))
                 .unwrap_or_else(|| rs_ident(name)),
             // [iter-fn] A slot's default place is the *shared* borrow
             // through its `Option`: correct for every read, and a path that
@@ -11352,7 +11378,97 @@ impl<'p> Emitter<'p> {
     }
 
     /// Renders an argument for a `&mut T` parameter position [rs-borrows].
+    /// [rs-elem-mut] [elem-distinct] A statement-position call taking two
+    /// mutable element handles of one container, proven apart
+    /// (`Checked::distinct_pairs`): a `salvo_pair_mut` preamble splits the
+    /// container at the two captured indices — one `split_at_mut`, no
+    /// aliasing — and the call takes the two `&mut` halves through
+    /// `pair_args`. The `.expect` carries the same message and timing a
+    /// single handle's `!` does [rs-runtime-source].
+    fn emit_distinct_pair_call(&mut self, expr: &Expr, indent: usize) -> String {
+        let pad = "    ".repeat(indent);
+        let Expr::Call {
+            callee, args, span, ..
+        } = expr
+        else {
+            unreachable!("guarded by the statement arm");
+        };
+        let (p0, p1) = self.checked.distinct_pairs[&(self.file_idx, *span)];
+        let arg_of = |p: usize| -> Option<&Expr> {
+            if let Expr::Field { base, .. } = callee.as_ref() {
+                if p == 0 {
+                    Some(base)
+                } else {
+                    args.get(p - 1)
+                }
+            } else {
+                args.get(p)
+            }
+        };
+        let (a_expr, b_expr) = match (arg_of(p0), arg_of(p1)) {
+            (Some(a), Some(b)) => (a, b),
+            _ => {
+                self.errors.push(
+                    "internal: a distinct-pair call names parameters its arguments do not cover [rs-elem-mut]"
+                        .to_string(),
+                );
+                return String::new();
+            }
+        };
+        let (a_parts, b_parts) = (self.pair_arg_parts(a_expr), self.pair_arg_parts(b_expr));
+        let ((root_a, idx_a), (root_b, idx_b)) = match (a_parts, b_parts) {
+            (Some(a), Some(b)) if a.0 == b.0 => (a, b),
+            _ => {
+                self.errors.push(format!(
+                    "cannot lower this two-handle call: both mutable element handles must be minted directly from one container (`get(list, i)!`) or be bound handles of it — other shapes are not lowered yet [rs-elem-mut] (at {})",
+                    self.salvo_location(*span)
+                ));
+                return String::new();
+            }
+        };
+        let va = format!("__pm{}", self.handle_seq);
+        self.handle_seq += 1;
+        let vb = format!("__pm{}", self.handle_seq);
+        self.handle_seq += 1;
+        self.needs_seq = true;
+        let loc = self.salvo_location(*span);
+        let mut out = format!(
+            "{pad}let ({va}, {vb}) = salvo_pair_mut(&mut {root_a}[..], {idx_a}, {idx_b})\
+             .expect(\"salvo: value is absent at {loc}\");\n"
+        );
+        let _ = root_b;
+        self.pair_args.insert(a_expr.span(), va);
+        self.pair_args.insert(b_expr.span(), vb);
+        self.pair_ready.insert(*span);
+        let call = self.emit_expr(expr);
+        out.push_str(&format!("{pad}{call};
+"));
+        // The overrides are single-use; a rendering path that bypassed
+        // them would leave stale entries behind.
+        self.pair_args.remove(&a_expr.span());
+        self.pair_args.remove(&b_expr.span());
+        out
+    }
+
+    /// [rs-elem-mut] The container root and index of one distinct-pair
+    /// argument: a bound handle's captured parts, or a direct
+    /// `get(list, i)!` mint's.
+    fn pair_arg_parts(&mut self, expr: &Expr) -> Option<(String, String)> {
+        if let Expr::Ident(id) = expr {
+            if matches!(self.bindings.get(id.name.as_str()), Some(BindKind::ElemMut)) {
+                return self.elem_places.get(&id.name).cloned();
+            }
+        }
+        self.elem_handle_parts(expr).map(|(r, i, _)| (r, i))
+    }
+
     fn borrowed_mut_arg(&mut self, expr: &Expr) -> String {
+        // [rs-elem-mut] [elem-distinct] A distinct-pair argument was
+        // pre-split by the statement's `salvo_pair_mut` preamble into a
+        // `&mut` local: pass it through, once.
+        if let Some(code) = self.pair_args.remove(&expr.span()) {
+            return code;
+        }
         // [rs-narrow-mut] A *narrowed* place is reached through the mutable
         // unwrap, which is already a `&mut T` into the storage. Without
         // this the fallback below borrowed the read form — a clone — and
@@ -12623,6 +12739,23 @@ impl<'p> Emitter<'p> {
         named: &[NamedArg],
         span: Span,
     ) -> String {
+        // [rs-elem-mut] [elem-distinct] A distinct-pair call is lowered by
+        // the statement path's `salvo_pair_mut` preamble; reaching it any
+        // other way (a value position, a nested expression) is a shape v1
+        // does not lower — refused loudly, never silently wrong
+        // [backend-never-wrong].
+        if self
+            .checked
+            .distinct_pairs
+            .contains_key(&(self.file_idx, span))
+            && !self.pair_ready.remove(&span)
+        {
+            self.errors.push(format!(
+                "cannot lower this two-handle call in a value position: give the call its own statement — other shapes are not lowered yet [rs-elem-mut] (at {})",
+                self.salvo_location(span)
+            ));
+        }
+
         // [actor-use-addr] [rs-actor] A send to an actor: build the
         // protocol's message and enqueue it on the target's mailbox. The
         // receiver names *where* it goes, not an argument.

@@ -133,6 +133,45 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Distinct awareness — group-borrowing ladder step ② (built 2026-09-24;
+sketch approved by the user same day).** Two mutable element handles of one
+container, proven different elements, now coexist — the first refinement of
+[fate-field-disjoint]'s may-alias-all rule. std ships
+`qualifier Distinct(i: Int) of Int` beside `Idx` [col-distinct]; the
+compiler work is [elem-distinct]: element links carry the **identity of
+their minting index** (`FateLink.elem_idx` — the index variable's ultimate
+fate-root id, stamped only for `core.list`'s `get`, nominal deliberately: a
+user fn with a derived return may lend any projection, so only the `get`
+whose semantics the compiler knows may name a discriminator; a nested mint
+keeps the identity nearest the root), the identity is **erased eagerly**
+when the index is reassigned or stepped (chosen over generation counters:
+no per-variable state, no consult-time staleness check, the analysis's
+invalidate-at-the-event style — loop soundness rides `check_loop_body`'s
+second pass), poison **consults a live claim** before killing a sibling
+(equal paths + both identities + `Distinct` by fate-root agreement, either
+orientation), and one call may take two proven handles
+(`Checked::distinct_pairs`; an unproven pair is refused at the call — it
+used to pass the checker and die in rustc, E0499, a checker/emitter
+disagreement found by probe and closed here). Rust [rs-elem-mut]: a pair
+call renders as a `salvo_pair_mut` preamble (`runtime/seq.rs`,
+`split_at_mut` with index ordering, `Option` so the `.expect` matches `!`'s
+message and timing) whose two `&mut` halves are the arguments; statement
+position only, the loud v1 cut, and `elem_places` now keeps root and index
+apart for it. Kotlin: nothing — aliasing is native; the parity case pins
+`11 3 17 8` on both. **En route, a live soundness hole was found and fixed
+[qual-depend]: reassignment and `++`/`--` never stripped dependent
+claims** — `i is Idx(xs); xs = [9]; get(xs, i)` passed the checker and
+panicked out of bounds at runtime (probe-verified before the fix; the strip
+now fires at both rebind sites, before links are severed, since the claim
+roots to strip are the old value's). Tests: two strip tests in
+depend_tests, seven checker tests in the new `elem_distinct_tests.rs`
+(mini-std harness — the nominal recognition wants a real `core.list`
+module, which `SourceSet::add(..., is_std)` provides), two Rust codegen
+tests + a rustc e2e, the value-position refusal, and the Kotlin parity
+case. 1432 tests green. Adjacent shapes deliberately left to rustc (noted
+in ROADMAP): a handle beside its *container* (or beside a read projection
+of it) in one call still fails at rustc rather than in the checker.
+
 **Mutable element handles — group-borrowing ladder step ① (built
 2026-09-24; user decisions same day, GROUP_BORROWING.md's P-rounds).**
 Element mutability is the **element type's**: `List<Mut T>` hands out
@@ -15652,7 +15691,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1391)
+## Test inventory (all green: 1432)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

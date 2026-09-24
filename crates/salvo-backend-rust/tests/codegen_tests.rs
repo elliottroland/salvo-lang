@@ -12862,3 +12862,102 @@ fn rustc_compiles_and_runs_elem_mut_handles() {
     let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
     run_rust_files(&files, "elem_mut", "2 13\n");
 }
+
+/// [elem-distinct] [rs-elem-mut] The distinct-pair shapes: a proven pair of
+/// statement-scoped handles in one call, a proven pair of *bound* handles in
+/// one call, and interleaved mutation through two bound handles — the checker
+/// spares the sibling, the emitter splits the container once per pair call.
+const DISTINCT_PAIR_DEMO: &str = r#"
+struct Entity canbe Mut {
+    hp: Int,
+    energy: Int
+}
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(
+        Mut Entity { hp: 10, energy: 5 },
+        Mut Entity { hp: 20, energy: 8 })
+    let i = 0
+    let j = 1
+    if j is Distinct(i) {
+        attack(get(es, i)!, get(es, j)!)
+        let a = get(es, i)!
+        let d = get(es, j)!
+        a.hp = a.hp + 1
+        d.hp = d.hp + 1
+        attack(a, d)
+    }
+    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp} ${get(es, 1)!.energy}")
+}
+"#;
+
+/// [rs-elem-mut] A proven pair call renders as one `salvo_pair_mut`
+/// preamble (a `split_at_mut`, no aliasing) whose two `&mut` halves are the
+/// call's arguments — for the temporary shape and the bound-handle shape
+/// alike [rs-runtime-source].
+#[test]
+fn a_distinct_pair_call_splits_the_container_once() {
+    let files = generate(&[("main.sv", DISTINCT_PAIR_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    let splices = main.content.matches("salvo_pair_mut(&mut es[..],").count();
+    assert_eq!(splices, 2, "one preamble per pair call:\n{}", main.content);
+    assert!(
+        main.content.contains("attack(__pm0, __pm1);"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_distinct_pair_calls() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", DISTINCT_PAIR_DEMO)]);
+    run_rust_files(&files, "distinct_pair", "11 3 17 8\n");
+}
+
+/// [rs-elem-mut] The v1 cut, loud: a proven pair call in a *value*
+/// position is refused with a codegen error naming the remedy — never
+/// silently wrong output [backend-never-wrong].
+#[test]
+fn a_distinct_pair_call_in_a_value_position_is_refused() {
+    let src = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn poke(a: Mut Entity, d: Mut Entity) -> Int => a: Mut, d: Mut {
+    a.hp = a.hp + 1
+    d.hp = d.hp + 1
+    return a.hp
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 1 }, Mut Entity { hp: 2 })
+    let i = 0
+    let j = 1
+    if j is Distinct(i) {
+        let x = poke(get(es, i)!, get(es, j)!)
+        println("${x}")
+    }
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("a value-position pair call must be a codegen error");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("give the call its own statement")),
+        "got {errors:?}"
+    );
+}

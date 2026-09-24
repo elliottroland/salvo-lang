@@ -3329,8 +3329,51 @@ fn kotlinc_compiles_and_runs_elem_mut_handles() -> KotlinCase {
     kotlin_case(files, "elem_mut", "2 13\n")
 }
 
+/// [elem-distinct] The distinct-pair program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_distinct_pair_calls` — Kotlin
+/// aliases natively, so the parity is the assertion.
+const DISTINCT_PAIR_DEMO: &str = r#"
+struct Entity canbe Mut {
+    hp: Int,
+    energy: Int
+}
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(
+        Mut Entity { hp: 10, energy: 5 },
+        Mut Entity { hp: 20, energy: 8 })
+    let i = 0
+    let j = 1
+    if j is Distinct(i) {
+        attack(get(es, i)!, get(es, j)!)
+        let a = get(es, i)!
+        let d = get(es, j)!
+        a.hp = a.hp + 1
+        d.hp = d.hp + 1
+        attack(a, d)
+    }
+    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp} ${get(es, 1)!.energy}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
+    let program = build_program(&[("main.sv", DISTINCT_PAIR_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "distinct_pair", "11 3 17 8\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_elem_mut_handles,
+    kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
