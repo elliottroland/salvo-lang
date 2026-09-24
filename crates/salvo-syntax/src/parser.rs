@@ -32,6 +32,10 @@ pub struct Parser<'s> {
     comments: HashMap<u32, String>,
     /// Byte offset of the start of each line, for offset -> line lookup.
     line_starts: Vec<u32>,
+    /// [canbe-entry] Entries a **plural** `canbe` subject desugared to
+    /// (`a|b|c canbe in es` is one entry per subject), taken by the clause
+    /// loop after the entry that produced them.
+    pending_deductions: Vec<Deduction>,
     /// Depth of explicit grouping (parens/brackets); newlines are ignored
     /// inside groups.
     group_depth: u32,
@@ -106,6 +110,7 @@ impl<'s> Parser<'s> {
             diagnostics: Vec::new(),
             comments,
             line_starts,
+            pending_deductions: Vec::new(),
             group_depth: 0,
             no_struct: false,
         }
@@ -2109,6 +2114,8 @@ impl<'s> Parser<'s> {
                     return None;
                 };
                 entries.push(entry);
+                // [canbe-entry] A plural subject's extra entries.
+                entries.extend(std::mem::take(&mut self.pending_deductions));
                 if self.eat(&TokenKind::Comma).is_none() {
                     break;
                 }
@@ -2234,6 +2241,8 @@ impl<'s> Parser<'s> {
         // a plain parse error.)
         // The target: `.f.g` (result path) or `x` / `x.f` (parameter path).
         let mut path: Vec<Ident> = Vec::new();
+        // [canbe-entry] Extra subjects of a plural `canbe` entry.
+        let mut plural_subjects: Vec<Ident> = Vec::new();
         let target = if self.at(&TokenKind::Dot) {
             self.bump();
             path.push(self.ident()?);
@@ -2244,6 +2253,19 @@ impl<'s> Parser<'s> {
             None
         } else {
             let name = self.ident()?;
+            // [canbe-entry] A **plural subject** — `a|b|c canbe in es` — is
+            // sugar for one entry per subject (GB-1(s)); the extra subjects
+            // are collected here, before the relation is read.
+            let mut extra_subjects: Vec<Ident> = Vec::new();
+            while self.at(&TokenKind::Pipe)
+                && matches!(&self.peek_at(1).kind, TokenKind::Ident(_))
+            {
+                self.bump();
+                extra_subjects.push(self.ident()?);
+            }
+            if !extra_subjects.is_empty() {
+                plural_subjects = extra_subjects;
+            }
             while self.at(&TokenKind::Dot) {
                 self.bump();
                 path.push(self.ident()?);
@@ -2251,6 +2273,64 @@ impl<'s> Parser<'s> {
             Some(name)
         };
         let mut end = path.last().map(|i| i.span).or(target.as_ref().map(|n| n.span)).unwrap_or(start);
+        // [canbe-entry] `a canbe d`, `a canbe b|c`, `track canbe in
+        // lib.tracks|pool.spares` — the alias-group relation (user
+        // decisions 2026-09-24, GB-1(s)). `canbe` is a keyword already
+        // (the qualifier-compatibility clause), so no contextual dance is
+        // needed; what follows decides the form.
+        if self.at(&TokenKind::KwCanbe) {
+            self.bump();
+            let anchored = self.at(&TokenKind::KwIn);
+            if anchored {
+                self.bump();
+            }
+            let mut others: Vec<Vec<Ident>> = Vec::new();
+            loop {
+                let mut one = vec![self.ident()?];
+                while self.at(&TokenKind::Dot) {
+                    self.bump();
+                    one.push(self.ident()?);
+                }
+                end = one.last().map(|i| i.span).unwrap_or(end);
+                others.push(one);
+                if self.eat(&TokenKind::Pipe).is_none() {
+                    break;
+                }
+            }
+            let Some(name) = target else {
+                self.error(
+                    "a `canbe` entry names parameters, not a result path",
+                    start.to(end),
+                );
+                return None;
+            };
+            if !path.is_empty() {
+                self.error(
+                    "a `canbe` entry's subject is a parameter, not a field path",
+                    start.to(end),
+                );
+            }
+            // [canbe-entry] A plural subject desugars to one entry per
+            // subject; the extras are queued for the clause loop to take.
+            for subject in plural_subjects {
+                self.pending_deductions.push(Deduction {
+                    span: start.to(end),
+                    target: DeductionTarget::Param {
+                        name: subject,
+                        path: Vec::new(),
+                    },
+                    kind: DeductionKind::CanBe {
+                        others: others.clone(),
+                        anchored,
+                    },
+                });
+            }
+            return Some(Deduction {
+                span: start.to(end),
+                target: DeductionTarget::Param { name, path: Vec::new() },
+                kind: DeductionKind::CanBe { others, anchored },
+            });
+        }
         let kind = if self.eat(&TokenKind::Colon).is_some() {
             // `: proj(…)`
             if matches!(&self.peek().kind, TokenKind::KwProj) {

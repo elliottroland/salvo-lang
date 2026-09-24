@@ -778,6 +778,13 @@ pub struct Checked {
     /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
     /// the call.
     pub distinct_pairs: HashMap<Key, (usize, usize)>,
+    /// [canbe-entry] Calls whose callee declared the argument pair **may
+    /// alias** (`=> a canbe d`), keyed by call span: the covered parameter
+    /// index pairs. The Rust backend renders such positions against a
+    /// **shared anchor** — one locator per argument, materialized inside
+    /// the callee rather than at the call [rs-loc] — since two `&mut` into
+    /// one container cannot coexist.
+    pub covered_calls: HashMap<Key, Vec<(usize, usize)>>,
     /// [rs-loc] Derived-return calls whose **result is used
     /// mutably** — passed to a `Mut` position or assigned through — keyed
     /// by the call span. The Rust backend renders such a call against the
@@ -7944,6 +7951,54 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// mutating `p.tags` leaves a value derived from `p.name` usable. An
     /// event on the whole variable (`[]`) is a prefix of every path and so
     /// poisons everything, as before; `None` is the conservative unknown.
+    /// [canbe-entry] The **covered** parameter-index pairs of a callee: its
+    /// `canbe` entries desugared to binary symmetric relations (GB-1(s)).
+    /// A `canbe in` entry is *anchored*: two parameters anchored in the
+    /// same container path may coincide, so the mutual relation falls out
+    /// of the shared anchor.
+    fn covered_pairs(decl: &'p FnDecl) -> HashSet<(usize, usize)> {
+        let mut out: HashSet<(usize, usize)> = HashSet::new();
+        let idx = |n: &str| decl.params.iter().position(|p| p.name.name == n);
+        let Some(list) = &decl.deductions else {
+            return out;
+        };
+        // Anchored subjects, by rendered path: the shared-anchor rule.
+        let mut anchored: HashMap<String, Vec<usize>> = HashMap::new();
+        for d in list {
+            let ast::DeductionKind::CanBe { others, anchored: is_anchored } = &d.kind else {
+                continue;
+            };
+            let ast::DeductionTarget::Param { name, .. } = &d.target else {
+                continue;
+            };
+            let Some(subject) = idx(&name.name) else { continue };
+            for path in others {
+                if *is_anchored {
+                    let rendered: Vec<String> =
+                        path.iter().map(|i| i.name.clone()).collect();
+                    anchored
+                        .entry(rendered.join("."))
+                        .or_default()
+                        .push(subject);
+                } else if let Some(other) = path.first().and_then(|i| idx(&i.name)) {
+                    out.insert((subject, other));
+                    out.insert((other, subject));
+                }
+            }
+        }
+        for subjects in anchored.values() {
+            for (a, b) in subjects
+                .iter()
+                .enumerate()
+                .flat_map(|(i, a)| subjects[i + 1..].iter().map(move |b| (*a, *b)))
+            {
+                out.insert((a, b));
+                out.insert((b, a));
+            }
+        }
+        out
+    }
+
     /// [elem-distinct] The two-mutable-element-handles-in-one-call rule,
     /// shared by named calls, calls through fn values and effect members
     /// ([fn-contract]'s "keep the two in sync" applied to this rule):
@@ -7952,7 +8007,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is accepted — and recorded in `Checked::distinct_pairs` for the
     /// pair lowering [rs-elem-mut] — only when the minting indices are
     /// proven apart; anything less is refused, naming the remedy.
-    fn check_elem_handle_pairs(&mut self, args: &[&'p Expr], mut_kept: &[bool], span: Span) {
+    fn check_elem_handle_pairs(
+        &mut self,
+        args: &[&'p Expr],
+        mut_kept: &[bool],
+        span: Span,
+        covered: &HashSet<(usize, usize)>,
+    ) {
         let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
         let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
         for (i, arg) in args.iter().enumerate() {
@@ -7989,6 +8050,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => false,
                 };
                 let key = self.key(span);
+                // [canbe-entry] The callee declared the pair may alias:
+                // the same-call rule stands down, and the covered
+                // positions render against a shared anchor [rs-loc].
+                if covered.contains(&(*prev_param, i)) {
+                    self.out
+                        .covered_calls
+                        .entry(key)
+                        .or_default()
+                        .push((*prev_param, i));
+                    continue;
+                }
                 if proven && !self.out.distinct_pairs.contains_key(&key) {
                     self.out.distinct_pairs.insert(key, (*prev_param, i));
                 } else {
@@ -8857,7 +8929,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
-        self.check_elem_handle_pairs(args, &mut_kept, span);
+        // [canbe-entry] A call through a fn value or an effect member has
+        // no `canbe` surface yet (the entries live on declarations), so
+        // nothing is covered here.
+        self.check_elem_handle_pairs(args, &mut_kept, span, &HashSet::new());
         let mut consumed_here: Vec<String> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
             if let Some(name) = consumed_here
@@ -14235,7 +14310,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 | ast::DeductionKind::Proj(_)
                                 // [qual-preserve] About other values' claims,
                                 // not this parameter's own list.
-                                | ast::DeductionKind::Preserve(_) => {
+                                | ast::DeductionKind::Preserve(_)
+                                // [canbe-entry] A relation between two
+                                // parameters; it says nothing about either
+                                // one's qualifier list.
+                                | ast::DeductionKind::CanBe { .. } => {
                                     (true, QualEffect::KeepAll)
                                 }
                                 ast::DeductionKind::Exhaustive { quals, reapplied } => {
@@ -24357,7 +24436,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         })
                 })
                 .collect();
-            self.check_elem_handle_pairs(args, &mut_kept, span);
+            self.check_elem_handle_pairs(args, &mut_kept, span, &Self::covered_pairs(decl));
         }
         if let Some(contract) = contract {
             let fixed_count = decl

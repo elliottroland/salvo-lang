@@ -1157,7 +1157,7 @@ mutably (the ③ cut flips to a rendering, uniform case first); (5) **BUILT 2026
 indexed `for`-over-list lowering inside variant bodies — the search-loop
 / NLL lift. Generated path enums for branch-dependent lends join when a
 std or test case first needs one; until then a non-uniform lend is the
-loud cut. **④b — `canbe` + covered anchors**: the decided grammar
+loud cut. **④b — BUILT 2026-09-24 — `canbe` + covered anchors**: the decided grammar
 (GB-1(s)) parsed into clause entries, the same-call exemption exactly
 coverage-shaped (P-6), covered calls rendering against shared anchors,
 two-locals calls **per-site disjoint-specialized** (two plain `&mut` —

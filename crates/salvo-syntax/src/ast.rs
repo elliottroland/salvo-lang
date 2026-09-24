@@ -715,6 +715,15 @@ pub enum DeductionKind {
     /// entry (it is about *other* values' claims, not this parameter's own
     /// qualifier list).
     Preserve(Vec<TypeRef>),
+    /// [canbe-entry] `=> a canbe d` — the two parameters **may name the
+    /// same object** (user decisions 2026-09-24, GB-1(s)): symmetric,
+    /// non-transitive, exempt from the one-entry-per-parameter rule. The
+    /// target is the left subject; `others` the right-hand `|` list, each
+    /// of which relates to the subject pairwise (a hub, not a clique).
+    /// `anchored` marks the `canbe in` form — the subject may be an
+    /// *element* of the named container paths, so two parameters anchored
+    /// in the same path may coincide.
+    CanBe { others: Vec<Vec<Ident>>, anchored: bool },
 }
 
 // --- Types ---

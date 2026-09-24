@@ -133,6 +133,30 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`canbe` and covered anchors — group-borrowing rung ④b (built
+2026-09-24, evening).** The decided grammar (GB-1(s), all of it) now
+parses, checks and lowers: `=> a canbe d`, the anchored `canbe in` with
+path lists, `|` hubs on the right, plural subjects on the left (desugared
+to one entry per subject in the parser), symmetric and non-transitive,
+exempt from the once-per-parameter rule on `preserve`'s precedent
+[canbe-entry]. The checker resolves a callee's coverage to parameter-index
+pairs (`covered_pairs`, with the shared-anchor rule for anchored entries)
+and the same-call rule **stands down exactly for covered pairs** —
+recorded in `Checked::covered_calls`; an uncovered callee still demands a
+`NotEq` proof, so the exemption is coverage-shaped (P-6). Rust
+[rs-loc]: a covered callee takes **one shared anchor plus a `usize`
+locator per covered position** (`attack(__anchor: &mut Vec<Entity>, __c0:
+usize, __c1: usize)`), materializing `__anchor[__cN]` per statement; the
+call passes `&mut container` once. P-2's handle-and-store, arrived at
+through the locator model rather than beside it. Two `&mut` into one
+container can never coexist, so coverage changes the *representation*
+instead of relaxing a check — and aliasing is then exact: the
+both-handles-one-element case prints identically on both backends (`8 3
+18` covered, `2 2` in the GB-6 audit). Two-locals coverage needs no
+synthetic store (GB-2-B: two locals cannot alias). The **Kotlin copy audit
+GB-6 asked for** came back clean: no defensive copy sits at a covered
+position, and the parity case pins it. 1454 tests green, warning-free.
+
 **The locator substrate, slices 2–5 — group-borrowing rung ④a complete
 (built 2026-09-24, evening).** Every mutable-handle shape the ladder had
 cut now lowers through **one** representation [rs-loc]. **Slice 2** (the
@@ -15802,7 +15826,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1448)
+## Test inventory (all green: 1454)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

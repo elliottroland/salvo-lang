@@ -3492,6 +3492,47 @@ fn main() [use] {
 }
 "#;
 
+/// [canbe-entry] The covered-call program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_a_covered_call` — Kotlin
+/// aliases natively, so the parity *is* the assertion for a feature whose
+/// whole point is observable aliasing.
+const CANBE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int, energy: Int }
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None
+=> a canbe d, a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(
+        Mut Entity { hp: 10, energy: 5 },
+        Mut Entity { hp: 20, energy: 8 })
+    let i = 0
+    let j = 1
+    if i is Idx(es) {
+        if j is Idx(es) {
+            attack(get(es, i), get(es, j))
+            // …and the aliasing case the entry exists for: one element,
+            // both handles.
+            attack(get(es, i), get(es, i))
+        }
+    }
+    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_covered_call() -> KotlinCase {
+    let program = build_program(&[("main.sv", CANBE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "canbe_covered", "8 3 18\n")
+}
+
 fn kotlinc_compiles_and_runs_a_search_loop_lender() -> KotlinCase {
     let program = build_program(&[("main.sv", SEARCH_LOOP_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3548,6 +3589,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_locate_bundle,
     kotlinc_compiles_and_runs_a_lending_effect_member,
     kotlinc_compiles_and_runs_a_search_loop_lender,
+    kotlinc_compiles_and_runs_a_covered_call,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

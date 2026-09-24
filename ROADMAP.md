@@ -461,17 +461,16 @@ COMPLETED.md's log). Status:
   parked lending cut is lifted; what remains cut is a non-indexable
   anchor (generic containers — the type-erased-locator lift) and
   branch-dependent path sets.
-- **④b NEXT — `canbe` entries + covered anchors**: the decided grammar
-  (GB-1(s)) parsed into clause entries, the same-call exemption exactly
-  coverage-shaped (P-6), covered calls rendering against **shared
-  anchors** (the locator whose anchor several handles share — P-2's store,
-  absorbed into ④a's model), two-locals calls **per-site
-  disjoint-specialized** (GB-2-B: two locals cannot alias, so no
-  synthetic store is ever built). Also owed here: the **Kotlin copy
-  audit** (GB-6 — covered positions legalize observable aliasing, so any
-  copy of a group member becomes a parity bug on *that* backend).
-- **⑤ GB-3-A** follows, whose write-vs-destroy bit also decides in-place
-  writes during iteration.
+- **④b BUILT** (2026-09-24, COMPLETED.md's log): the `canbe` grammar in
+  full [canbe-entry], the coverage-shaped same-call exemption, and the
+  shared-anchor rendering [rs-loc]. The GB-6 Kotlin copy audit came back
+  clean.
+- **⑤ NEXT — GB-3-A**: the child-group invalidation refinement (a
+  crosses-destroyability-boundary bit on link path segments; no new
+  syntax for the base rule, per the P-5 exploration), whose
+  write-vs-destroy distinction also decides **in-place writes during
+  iteration** (today refused by the driven-origins rule; the locator model
+  already makes the shape renderable).
 - Recorded leftovers in GROUP_BORROWING.md's second GB-5 addendum: the
   type-erased-locator lift (generic containers), branch-dependent path
   enums, GhostCell as the declined-but-kept fallback, the

@@ -12923,6 +12923,72 @@ fn rustc_compiles_and_runs_a_search_loop_lender() {
     run_rust_files(&files, "search_loop", "50 13\n");
 }
 
+/// [canbe-entry] [rs-loc] ④b — a callee declaring `=> a canbe d` takes
+/// two element handles that **may be the same element**: the covered
+/// positions render as one shared anchor plus a locator each (two `&mut`
+/// into one container cannot coexist), and the same-call rule stands down
+/// without any disjointness proof.
+const CANBE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int, energy: Int }
+
+fn attack(a: Mut Entity, d: Mut Entity) -> None
+=> a canbe d, a: Mut, d: Mut {
+    a.energy = a.energy - 1
+    d.hp = d.hp - 2
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(
+        Mut Entity { hp: 10, energy: 5 },
+        Mut Entity { hp: 20, energy: 8 })
+    let i = 0
+    let j = 1
+    if i is Idx(es) {
+        if j is Idx(es) {
+            attack(get(es, i), get(es, j))
+            // …and the aliasing case the entry exists for: one element,
+            // both handles.
+            attack(get(es, i), get(es, i))
+        }
+    }
+    println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn covered_positions_render_as_anchor_and_locators() {
+    let files = generate(&[("main.sv", CANBE_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content
+            .contains("pub fn attack(__anchor: &mut Vec<Entity>, __c0: usize, __c1: usize)"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("__anchor[__c0].energy = __anchor[__c0].energy - 1;"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("attack(&mut es,"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_covered_call() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", CANBE_DEMO)]);
+    run_rust_files(&files, "canbe_covered", "8 3 18\n");
+}
+
 /// [elem-distinct] [rs-elem-mut] The distinct-pair shapes: a proven pair of
 /// statement-scoped handles in one call, a proven pair of *bound* handles in
 /// one call, and interleaved mutation through two bound handles — the checker

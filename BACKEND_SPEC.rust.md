@@ -671,6 +671,19 @@ the blanket rule:
     binding becomes a captured-index handle, so `return e` answers the
     found **position**. That is the pass-hidden-position and NLL-loop
     case, both lifted.
+  * **Covered positions** ([canbe-entry], rung ④b): a callee whose clause
+    declares `canbe` coverage renders its covered parameters as **one
+    shared anchor plus a `usize` locator each** —
+    `fn attack(__anchor: &mut Vec<Entity>, __c0: usize, __c1: usize)` —
+    and materializes `__anchor[__cN]` per statement inside the body. The
+    call site passes `&mut container` once and the positions after it. Two
+    `&mut` into one container cannot coexist, which is why coverage
+    changes the *representation* rather than relaxing a check; aliasing is
+    then exact (one storage), so a covered call behaves identically to
+    Kotlin's native aliasing — including the case where both handles are
+    the same element. Reported, loudly: a covered argument that is not an
+    element handle of a bound container, and covered positions naming
+    *different* containers (they share no anchor).
   * **What remains cut, loud**: a lend whose anchor is not a plain place
     of a known indexable type (a bare generic container has no index —
     the recorded lift is the type-erased locator, GROUP_BORROWING.md's

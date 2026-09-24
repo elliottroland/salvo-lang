@@ -281,3 +281,43 @@ fn a_declared_noteq_proof_carries_a_fn_value_pair() {
     );
     assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
 }
+
+/// [canbe-entry] ④b — a callee declaring `=> a canbe d` takes two element
+/// handles of one container with **no disjointness proof**: the same-call
+/// rule stands down exactly for the covered pair.
+#[test]
+fn a_covered_pair_needs_no_proof() {
+    let src = format!(
+        "{PRELUDE}\
+         fn duel(a: Mut Entity, d: Mut Entity) [] -> None\n\
+         => a canbe d, a: Mut, d: Mut {{\n    \
+         a.hp = a.hp - 1\n    \
+         d.hp = d.hp - 2\n    \
+         return None\n}}\n\
+         fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
+         duel(get(es, i), get(es, j))\n    \
+         return None\n}}\n"
+    );
+    assert!(errors(&src).is_empty(), "got {:?}", errors(&src));
+}
+
+/// [canbe-entry] …and an *uncovered* callee still refuses the pair: the
+/// exemption is exactly coverage-shaped (P-6).
+#[test]
+fn an_uncovered_callee_still_refuses_the_pair() {
+    let src = format!(
+        "{PRELUDE}\
+         fn duel(a: Mut Entity, d: Mut Entity) [] -> None => a: Mut, d: Mut {{\n    \
+         a.hp = a.hp - 1\n    \
+         d.hp = d.hp - 2\n    \
+         return None\n}}\n\
+         fn f(es: List<Mut Entity>, i: Idx(es) Int, j: Idx(es) Int) [] -> None {{\n    \
+         duel(get(es, i), get(es, j))\n    \
+         return None\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("prove them apart")),
+        "expected the uncovered refusal: {errs:?}"
+    );
+}

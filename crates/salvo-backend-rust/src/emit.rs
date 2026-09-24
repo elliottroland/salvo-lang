@@ -1158,6 +1158,16 @@ struct Emitter<'p> {
     /// renamed/loc-spliced only while `lend_loc_mode` (the same span also
     /// renders normally in the read emission).
     mut_forward_sites: HashSet<(usize, Span)>,
+    /// [canbe-entry] [rs-loc] Fns with `canbe` coverage: the covered
+    /// parameters render as one shared **anchor** parameter plus a
+    /// `usize` locator each, since two `&mut` into one container cannot
+    /// coexist. Keyed by fn key, valued by the covered parameter indices
+    /// in declaration order.
+    covered_fns: HashMap<salvo_core::FnKey, Vec<usize>>,
+    /// [canbe-entry] The covered parameters of the fn being emitted, by
+    /// name: inside such a body a covered parameter is a virtual place
+    /// (`__anchor[__cN]`).
+    covered_here: HashMap<String, String>,
     /// [rs-loc] Whether the adapter closure being built wraps a callee's
     /// **locator variant**: its parameters are read-mode.
     loc_adapter: bool,
@@ -1751,6 +1761,50 @@ fn fn_type_lends_mut(ret: &Type) -> bool {
     wholesale_mut(ret)
 }
 
+/// [canbe-entry] Every fn whose clause declares `canbe` coverage, with the
+/// covered parameter indices (declaration order). The Rust rendering
+/// replaces those parameters with one shared anchor plus a locator each.
+fn covered_fns(
+    program: &Program,
+    checked: &Checked,
+) -> HashMap<salvo_core::FnKey, Vec<usize>> {
+    let _ = checked;
+    let mut out: HashMap<salvo_core::FnKey, Vec<usize>> = HashMap::new();
+    for (file, module) in program.modules.iter().enumerate() {
+        for (item_idx, item) in module.items.iter().enumerate() {
+            let Item::Fn(f) = item else { continue };
+            let Some(list) = &f.deductions else { continue };
+            let mut covered: Vec<usize> = Vec::new();
+            for d in list {
+                let DeductionKind::CanBe { others, anchored } = &d.kind else {
+                    continue;
+                };
+                let DeductionTarget::Param { name, .. } = &d.target else {
+                    continue;
+                };
+                let mut names: Vec<String> = vec![name.name.clone()];
+                if !anchored {
+                    names.extend(others.iter().filter_map(|p| {
+                        p.first().map(|i| i.name.clone())
+                    }));
+                }
+                for n in names {
+                    if let Some(i) = f.params.iter().position(|p| p.name.name == n) {
+                        if !covered.contains(&i) {
+                            covered.push(i);
+                        }
+                    }
+                }
+            }
+            if !covered.is_empty() {
+                covered.sort_unstable();
+                out.insert(salvo_core::FnKey { file, item: item_idx }, covered);
+            }
+        }
+    }
+    out
+}
+
 /// [rs-loc] The checker-type sibling of `fn_type_lends_mut`: whether a
 /// return type is a **wholesale mutable lend** (`proj Mut T`, or its
 /// optional), which renders as a locator.
@@ -1813,6 +1867,8 @@ impl<'p> Emitter<'p> {
             pair_ready: HashSet::new(),
             lend_loc_mode: false,
             loc_adapter: false,
+            covered_fns: covered_fns(program, checked),
+            covered_here: HashMap::new(),
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
             mut_forward_sites: lend_mut.forwards,
@@ -4681,6 +4737,8 @@ impl<'p> Emitter<'p> {
         let saved_handle_fields = std::mem::take(&mut self.handle_fields);
         self.borrowed_arm_locals.clear();
         let saved_mutated = std::mem::take(&mut self.mutated);
+        // [canbe-entry] Covered parameters are per-fn.
+        let saved_covered = std::mem::take(&mut self.covered_here);
         let saved_derived = self.derived_return_fn;
         collect_mutated(body, &mut self.mutated);
         let saved_taken = std::mem::take(&mut self.taken_names);
@@ -4960,6 +5018,32 @@ impl<'p> Emitter<'p> {
         for (i, p) in f.params.iter().enumerate() {
             if p.implicit {
                 continue; // appended below, in the checker's order
+            }
+            // [canbe-entry] A **covered** parameter renders as a locator
+            // (`__cN: usize`) against one shared anchor parameter, emitted
+            // once before the first covered position: two `&mut` into one
+            // container cannot coexist, so the callee takes the container
+            // and the positions and materializes per statement [rs-loc].
+            if let Some(covered) = fn_key.and_then(|k| self.covered_fns.get(&k).cloned()) {
+                if covered.contains(&i) {
+                    if covered.first() == Some(&i) {
+                        let elem = self.emit_type(&p.ty);
+                        let elem = elem.trim_start_matches('&').trim_start_matches("mut ");
+                        params.push(format!("__anchor: &mut Vec<{elem}>"));
+                        self.bindings
+                            .insert("__anchor".to_string(), BindKind::RefMut);
+                        ref_param_count += 1;
+                    }
+                    let loc = format!("__c{i}");
+                    params.push(format!("{loc}: usize"));
+                    self.bindings
+                        .insert(p.name.name.clone(), BindKind::ElemMut);
+                    self.elem_places
+                        .insert(p.name.name.clone(), ("__anchor".to_string(), loc));
+                    self.covered_here
+                        .insert(p.name.name.clone(), "__anchor".to_string());
+                    continue;
+                }
             }
             let lent_here = self.lend_loc_mode
                 && (f.derived_return
@@ -5479,6 +5563,7 @@ impl<'p> Emitter<'p> {
             self.bindings = saved_bindings;
             self.handle_fields = saved_handle_fields;
             self.mutated = saved_mutated;
+        self.covered_here = saved_covered;
             self.implicits = saved_implicits;
             self.in_iterator_fn = saved_in_iterator;
             self.derived_return_fn = saved_derived;
@@ -15401,7 +15486,55 @@ impl<'p> Emitter<'p> {
         } else {
             None
         };
-        let (mut prelude, args) = {
+        // [canbe-entry] A **covered** call hands the callee one shared
+        // anchor plus a locator per covered position: the arguments'
+        // containers are the same place (the checker's coverage rule), and
+        // two `&mut` into it cannot coexist [rs-loc].
+        let covered_idx: Vec<usize> = key
+            .and_then(|k| self.covered_fns.get(&k).cloned())
+            .unwrap_or_default();
+        let (mut prelude, args) = if !covered_idx.is_empty() {
+            let mut rendered: Vec<String> = Vec::new();
+            let mut anchor: Option<String> = None;
+            for (i, arg) in args.iter().enumerate() {
+                if !covered_idx.contains(&i) {
+                    let mode = self.param_mode(key, &f.params[i]);
+                    let ty = f.params[i].ty.clone();
+                    rendered.push(self.emit_arg(arg, mode, Some(&ty)));
+                    continue;
+                }
+                let (root, idx) = match self.pair_arg_parts(arg) {
+                    Some(parts) => parts,
+                    None => {
+                        self.errors.push(format!(
+                            "cannot lower this covered argument: a `canbe` \
+                             position takes an element handle of a bound \
+                             container (`get(list, i)`) [rs-loc] (at {})",
+                            self.salvo_location(arg.span())
+                        ));
+                        continue;
+                    }
+                };
+                match &anchor {
+                    None => {
+                        rendered.push(format!("&mut {root}"));
+                        anchor = Some(root);
+                    }
+                    Some(first) if *first == root => {}
+                    Some(first) => {
+                        self.errors.push(format!(
+                            "cannot lower this covered call: its `canbe` \
+                             positions name different containers (`{first}` \
+                             and `{root}`), which share no anchor [rs-loc] \
+                             (at {})",
+                            self.salvo_location(span)
+                        ));
+                    }
+                }
+                rendered.push(idx);
+            }
+            (Vec::new(), rendered)
+        } else {
             let rendered = self.emit_args_for_params(&f.params, args, key);
             if all.is_empty() {
                 (Vec::new(), rendered)

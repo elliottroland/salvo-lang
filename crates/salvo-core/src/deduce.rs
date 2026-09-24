@@ -414,7 +414,15 @@ pub(crate) fn from_written(
             // [qual-preserve] A `preserve` entry accompanies the parameter's
             // ordinary one — it speaks about *other* values' claims — so it
             // is exempt from the once-rule on both sides.
-            let is_preserve = |x: &Deduction| matches!(x.kind, DeductionKind::Preserve(_));
+            // [canbe-entry] …and so does the alias-group relation: `=> a canbe
+            // d, a: Mut` is two statements about `a` (user decision
+            // 2026-09-24, on `preserve`'s precedent).
+            let is_preserve = |x: &Deduction| {
+                matches!(
+                    x.kind,
+                    DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
+                )
+            };
             if !is_preserve(d)
                 && list[..i].iter().any(|prev| {
                     !is_preserve(prev)
@@ -442,9 +450,11 @@ pub(crate) fn from_written(
             let name = p.name.name.clone();
             let lent = lent_names.contains(name.as_str());
             let Some(d) = list.iter().find(|d| {
-                // [qual-preserve] Not an ownership entry.
-                !matches!(d.kind, DeductionKind::Preserve(_))
-                    && d.param_name().is_some_and(|n| n.name == name)
+                // [qual-preserve] [canbe-entry] Not an ownership entry.
+                !matches!(
+                    d.kind,
+                    DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
+                ) && d.param_name().is_some_and(|n| n.name == name)
             }) else {
                 // [deduce-syntax] Unmentioned: inferred from the body (the
                 // fixpoint replaces this optimistic start), or, without a
@@ -460,6 +470,19 @@ pub(crate) fn from_written(
             };
             let invalidates = mutated.contains(&name);
             let effect = match &d.kind {
+                // [canbe-entry] The alias-group relation says nothing about
+                // keptness or qualifiers: it is a statement about *which
+                // parameters may coincide*, read by the call-site legality
+                // rules and by the Rust anchor rendering.
+                DeductionKind::CanBe { .. } => {
+                    return ParamDeduction {
+                        param: name,
+                        kept: true,
+                        effect: QualEffect::KeepAll,
+                        lent: false,
+                        written: false,
+                    };
+                }
                 // [defer-deduction] Consumed either way: a deferred
                 // obligation leaves the caller's hands exactly as a moved
                 // one does — what differs is only what the *body* may do
@@ -642,8 +665,10 @@ fn validate_written(
 ) {
     for ((w, i), p) in written.iter().zip(inferred).zip(&decl.params) {
         let Some(entry) = list.iter().find(|d| {
-            !matches!(d.kind, DeductionKind::Preserve(_))
-                && d.param_name().is_some_and(|n| n.name == w.param)
+            !matches!(
+                d.kind,
+                DeductionKind::Preserve(_) | DeductionKind::CanBe { .. }
+            ) && d.param_name().is_some_and(|n| n.name == w.param)
         }) else {
             continue;
         };

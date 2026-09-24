@@ -5654,6 +5654,31 @@ the same day. **Not part of `core`**: the surface is imported, and one
     wholesale projection, `held` a borrow an owned object carries
     [proj-infer]. A variable whose every link is held may be mutated (its
     own fields are its own); one with a wholesale or alias link may not.
+* [canbe-entry] **`canbe` — the alias-group relation** (user decisions
+  2026-09-24, GB-1(s); built as rung ④b): a deduction-clause entry saying
+  two parameters **may name the same object** — `=> a canbe d`. Symmetric
+  (writing both directions would be noise) and **non-transitive** (the
+  relation is a graph, not an equivalence). Exempt from the
+  one-entry-per-parameter rule, on `preserve`'s precedent: `=> a canbe d,
+  a: Mut` is two statements about `a`. Forms, all desugaring to binary
+  symmetric relations:
+  * **`=> track canbe in lib.tracks`** — the *anchored* form: the parameter
+    may be an element of the named container path, and two parameters
+    anchored in the **same** path may therefore coincide (the
+    shared-anchor rule: the container-rooted n-way case costs one entry
+    per parameter, linear in n).
+  * **`|` lists on both sides**: on the right a hub (`a canbe b|c` is a↔b
+    and a↔c, *not* b↔c — the sentence says exactly what the rule means);
+    on the left plural-subject sugar (`a|b|c canbe in es` is the three
+    anchored entries). `canbe in` takes path lists the same way.
+  * **What coverage buys**: the same-call rule stands down for a covered
+    pair [deduce-same-call] — two element handles of one container need no
+    disjointness proof [elem-distinct] — and the Rust backend renders the
+    covered positions against a **shared anchor** [rs-loc].
+  * Written-only (P-4): aliasability stays visible in every signature; no
+    inference claims an entry. The entry says nothing about keptness or
+    qualifiers. Diagnostic vocabulary keeps the word "alias group" for the
+    connected component, while the surface never needs it.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
   step ② of GROUP_BORROWING.md's ladder): two mutable element handles of
   one container whose minting indices a live `NotEq` claim proves apart

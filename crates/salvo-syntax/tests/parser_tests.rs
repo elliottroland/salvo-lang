@@ -1476,6 +1476,15 @@ fn the_deduction_clause_parses_every_entry_form() {
             DeductionKind::Preserve(q) => {
                 format!("Preserve[{}]", q.iter().map(|r| r.name.name.as_str()).collect::<Vec<_>>().join(" "))
             }
+            // [canbe-entry] The alias-group relation.
+            DeductionKind::CanBe { others, anchored } => {
+                let shown: Vec<String> = others
+                    .iter()
+                    .map(|p| p.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join("."))
+                    .collect();
+                let head = if *anchored { "CanBeIn" } else { "CanBe" };
+                format!("{head}[{}]", shown.join("|"))
+            }
         }
     }
 }
@@ -2525,4 +2534,36 @@ fn the_opaque_projection_is_a_return_annotation() {
     let src = "fn view(a: List<Int>) -> Mut View => a, proj(a) {\n}\n";
     let (_, diags) = salvo_syntax::parse_module(src);
     assert!(diags.iter().any(|d| d.is_error()), "{diags:?}");
+}
+
+/// [canbe-entry] The alias-group entry's decided grammar (GB-1(s), user
+/// decisions 2026-09-24): the core form, a `|` hub on the right, a plural
+/// subject on the left, and the anchored `canbe in` with a path list.
+#[test]
+fn canbe_entries_parse_in_every_decided_form() {
+    let src = "\
+        fn f(a: Mut Int, b: Mut Int, c: Mut Int) -> None => a canbe b {}\n\
+        fn g(a: Mut Int, b: Mut Int, c: Mut Int) -> None => a canbe b|c {}\n\
+        fn h(a: Mut Int, b: Mut Int, c: Mut Int, es: Mut Int) -> None\n\
+        => a|b|c canbe in es {}\n\
+        fn k(t: Mut Int, lib: Mut Int, pool: Mut Int) -> None\n\
+        => t canbe in lib|pool {}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(module.items.len(), 4);
+}
+
+/// [canbe-entry] A `canbe` entry names parameters: a result path is an
+/// error, so the entry cannot be confused with a projection one.
+#[test]
+fn a_canbe_entry_refuses_a_result_path() {
+    let src = "fn f(a: Mut Int) -> None => .x canbe a {}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(src);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("names parameters")),
+        "{diagnostics:?}"
+    );
 }
