@@ -12987,6 +12987,54 @@ fn a_mut_used_lender_gets_a_demand_driven_locator_variant() {
     );
 }
 
+/// [rs-loc] ④a slice 2 — the bound-mint lift: a handle from a user
+/// accessor binds (①'s "direct `get` only" cut widened), re-materializes
+/// per use, and tolerates container *reads* between uses — the exact
+/// shape a bound `&mut` could never survive (E0502).
+const BOUND_ACCESSOR_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn front(es: List<Mut Entity>) -> (proj(es) Mut Entity)? {
+    return get(es, 0)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    let boss = front(es)!
+    boss.hp = boss.hp + 100
+    let n = size(es)
+    boss.hp = boss.hp + n
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn a_bound_accessor_handle_is_a_captured_locator() {
+    let files = generate(&[("main.sv", BOUND_ACCESSOR_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("let __h0 = front__loc(&es)"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("es[__h0].hp = es[__h0].hp"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_bound_accessor_handle() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", BOUND_ACCESSOR_DEMO)]);
+    run_rust_files(&files, "bound_accessor", "107 7\n");
+}
+
 #[test]
 fn rustc_compiles_and_runs_a_mut_lending_accessor() {
     if !rustc_available() {

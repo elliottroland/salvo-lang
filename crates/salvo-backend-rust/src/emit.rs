@@ -1454,7 +1454,33 @@ fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
     let mut forwards = HashSet::new();
     let mut cuts = HashSet::new();
     let mut worklist: Vec<salvo_core::FnKey> = Vec::new();
-    for key in &checked.mut_lend_calls {
+    // [rs-loc] Bound mints join the seeds (④a slice 2): a `let` the
+    // checker marked as a mutable-handle bind (`handle_muts`) whose value
+    // is a lending call demands the callee's locator variant exactly as a
+    // statement-scoped use does.
+    let mut seeds_in: Vec<(usize, Span)> = checked.mut_lend_calls.iter().copied().collect();
+    for (file_idx, module) in program.modules.iter().enumerate() {
+        for item in &module.items {
+            let bodies: Vec<&Block> = match item {
+                Item::Fn(f) => f.body.iter().collect(),
+                Item::Handler(h) => h.fns.iter().filter_map(|f| f.body.as_ref()).collect(),
+                _ => Vec::new(),
+            };
+            for body in bodies {
+                let mut lets: Vec<(Span, &Expr)> = Vec::new();
+                collect_let_values(body, &mut lets);
+                for (span, value) in lets {
+                    if !checked.handle_muts.contains(&(file_idx, span)) {
+                        continue;
+                    }
+                    if let Some(call_span) = mut_lend_call_of(value) {
+                        seeds_in.push((file_idx, call_span));
+                    }
+                }
+            }
+        }
+    }
+    for key in &seeds_in {
         match checked.call_fn.get(key) {
             None => {
                 cuts.insert(*key);
@@ -1599,6 +1625,82 @@ fn collect_returned_exprs<'a>(block: &'a Block, out: &mut Vec<&'a Expr>) {
     // A value block's tail is returned by the construct holding it.
     if let Some(Stmt::Expr(tail)) = block.stmts.last() {
         out.push(tail);
+    }
+}
+
+/// [rs-loc] Every `let` in a block, recursively (bound mutable-handle
+/// mints live in nested branches too). Lambda bodies are a barrier.
+fn collect_let_values<'a>(block: &'a Block, out: &mut Vec<(Span, &'a Expr)>) {
+    fn expr<'a>(e: &'a Expr, out: &mut Vec<(Span, &'a Expr)>) {
+        match e {
+            Expr::If {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (c, b) in branches {
+                    expr(c, out);
+                    collect_let_values(b, out);
+                }
+                if let Some(b) = else_block {
+                    collect_let_values(b, out);
+                }
+            }
+            Expr::When { branches, .. } => {
+                for b in branches {
+                    collect_let_values(&b.body, out);
+                }
+            }
+            Expr::WhenCond {
+                branches,
+                else_block,
+                ..
+            } => {
+                for (c, b) in branches {
+                    expr(c, out);
+                    collect_let_values(b, out);
+                }
+                collect_let_values(else_block, out);
+            }
+            Expr::While {
+                cond,
+                body,
+                else_block,
+                ..
+            } => {
+                expr(cond, out);
+                collect_let_values(body, out);
+                if let Some(b) = else_block {
+                    collect_let_values(b, out);
+                }
+            }
+            Expr::For {
+                body, else_block, ..
+            } => {
+                collect_let_values(body, out);
+                if let Some(b) = else_block {
+                    collect_let_values(b, out);
+                }
+            }
+            Expr::Try { body, .. } | Expr::WaitFor { body, .. } => {
+                collect_let_values(body, out)
+            }
+            _ => {}
+        }
+    }
+    for stmt in &block.stmts {
+        match stmt {
+            Stmt::Let { value, span, .. } => {
+                out.push((*span, value));
+                expr(value, out);
+            }
+            Stmt::Assign { target, value, .. } => {
+                expr(target, out);
+                expr(value, out);
+            }
+            Stmt::Expr(e) => expr(e, out),
+            _ => {}
+        }
     }
 }
 
@@ -7229,10 +7331,29 @@ impl<'p> Emitter<'p> {
                         self.salvo_location(span)
                     );
                 }
+                // [rs-loc] ④a slice 2 — the bound-mint lift: any named
+                // lending call with a plain-place anchor mints a bound
+                // handle. The captured locator re-materializes
+                // `anchor[__hN]` per use, exactly as ①'s captured index
+                // does.
+                if let Some(call_span) = mut_lend_call_of(value) {
+                    if self.mut_call_sites.contains(&(self.file_idx, call_span)) {
+                        if let Some(anchor) = self.lend_anchor_place(value, call_span) {
+                            let var = format!("__h{}", self.handle_seq);
+                            self.handle_seq += 1;
+                            let code = self.emit_expr(value);
+                            self.bindings.insert(name.name.clone(), BindKind::ElemMut);
+                            self.elem_places
+                                .insert(name.name.clone(), (anchor, var.clone()));
+                            return format!("{pad}let {var} = {code};\n");
+                        }
+                    }
+                }
                 self.errors.push(format!(
                     "cannot lower the mutable element handle `{}`: mint it \
-                     directly from its container (`let {} = get(list, i)!`) — \
-                     other mint shapes are not lowered yet [rs-elem-mut]",
+                     from its container (`let {} = get(list, i)!`) or from a \
+                     lending fn over a bound container — other mint shapes \
+                     are not lowered yet [rs-loc]",
                     name.name, name.name
                 ));
             }

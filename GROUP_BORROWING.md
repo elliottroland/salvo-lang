@@ -1144,7 +1144,7 @@ maps), not runtime caching.
 slices, suite-green after each: (1) **BUILT 2026-09-24** — locator variants replace ③'s
 `__mut` machinery for named fns (`{name}__loc` answering position data;
 lent parameters drop to *read* mode — the search only reads; the seed
-call site materializes `&mut anchor[loc]`); (2) the bound-mint lift —
+call site materializes `&mut anchor[loc]`); (2) **BUILT 2026-09-24** — the bound-mint lift —
 ①'s "direct `get(place, i)!` only" cut widens to any
 locator-expressible lending call; (3) lending **fn values** in the
 uniform whole-element case, with the **`?at` acceptance test** (a
