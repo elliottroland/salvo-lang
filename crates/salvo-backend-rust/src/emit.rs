@@ -1704,6 +1704,30 @@ fn collect_let_values<'a>(block: &'a Block, out: &mut Vec<(Span, &'a Expr)>) {
     }
 }
 
+/// [rs-loc] Whether a fn type's return is a **wholesale mutable lend** —
+/// `-> proj(c) Mut T` or its optional — which is what renders as a
+/// locator (④a slice 3): the closure answers position data, and the use
+/// site materializes `&mut anchor[loc]`. The held form
+/// (`-> proj(c) in (T)`) is an owned value carrying borrows and is not
+/// this case.
+fn fn_type_lends_mut(ret: &Type) -> bool {
+    fn wholesale_mut(t: &Type) -> bool {
+        match strip_top_proj_ast(t) {
+            Some(inner) => match &inner {
+                Type::Named { qualifiers, .. } => {
+                    qualifiers.iter().any(|q| q.name.name == "Mut")
+                }
+                other => wholesale_mut(other),
+            },
+            None => match t {
+                Type::Nullable { inner, .. } => wholesale_mut(inner),
+                _ => false,
+            },
+        }
+    }
+    wholesale_mut(ret)
+}
+
 /// [rs-loc] The call span a `Mut`-position argument bottoms out in,
 /// through `!` and projection steps — the syntactic mirror of the
 /// checker's `mut_lend_call_span`.
@@ -5586,6 +5610,34 @@ impl<'p> Emitter<'p> {
                 effects,
                 ..
             } => {
+                // [rs-loc] ④a slice 3 — a fn value whose return is a
+                // wholesale mutable lend renders as a **locator-returning**
+                // closure: position data out, every parameter read (the
+                // search borrows nothing mutably), and the use site
+                // materializes `&mut anchor[loc]`. That is what lets a
+                // mutable handle cross a closure boundary at all — a
+                // `&mut`-returning `FnMut` would tie the borrow to the
+                // closure.
+                if fn_type_lends_mut(ret) {
+                    let ps: Vec<String> = params
+                        .iter()
+                        .map(|p| {
+                            let base = self.emit_type(p);
+                            if self.is_copy_ast_type(p) {
+                                base
+                            } else if base.starts_with('&') {
+                                base
+                            } else {
+                                format!("&{base}")
+                            }
+                        })
+                        .collect();
+                    let loc_ret = match ret.as_ref() {
+                        Type::Nullable { .. } => "Option<usize>",
+                        _ => "usize",
+                    };
+                    return format!("impl FnMut({}) -> {loc_ret}", ps.join(", "));
+                }
                 // Only meaningful in parameter position [fn-lambda].
                 // [fn-contract] Argument types follow the contract:
                 // kept non-Copy borrow, kept `Mut` borrows mutably,
@@ -11905,6 +11957,29 @@ impl<'p> Emitter<'p> {
         let Expr::Call { callee, args, .. } = e else {
             return None;
         };
+        // [rs-loc] The borrowed-argument index the checker recorded for
+        // this call [readonly-return] — the one source that serves named
+        // callees, intrinsics and **fn values** alike (④a slice 3), since
+        // a fn value has no declaration to read a parameter name from.
+        if let Some(sources) = self.checked.derived_calls.get(&(self.file_idx, call_span)) {
+            if let Some(&idx) = sources.first() {
+                let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
+                    if idx == 0 {
+                        Some(base)
+                    } else {
+                        args.get(idx - 1)
+                    }
+                } else {
+                    args.get(idx)
+                };
+                if let Some(arg) = arg {
+                    if self.place_is_pure(arg) {
+                        return Some(self.emit_place(arg));
+                    }
+                    return None;
+                }
+            }
+        }
         let key = *self.checked.call_fn.get(&(self.file_idx, call_span))?;
         let decl = self.fn_by_key(key)?;
         let lent_name = decl
@@ -11952,15 +12027,26 @@ impl<'p> Emitter<'p> {
         // (the degenerate locator). A lender with no named callee (a fn
         // value, an effect member) is the loud cut slices 3–4 lift.
         if let Some(call_span) = mut_lend_call_of(expr) {
-            if self.mut_lend_cuts.contains(&(self.file_idx, call_span)) {
+            // [rs-loc] ④a slice 3: a **fn value** lending a mutable handle
+            // is no longer cut — its locator crosses the closure boundary
+            // as ordinary data, and the anchor comes from the recorded
+            // contract. What remains cut is a lend whose anchor is not a
+            // plain place, and effect members (slice 4).
+            let cut = self.mut_lend_cuts.contains(&(self.file_idx, call_span));
+            let fn_value = self
+                .checked
+                .fn_value_calls
+                .contains_key(&(self.file_idx, call_span));
+            if cut && !fn_value {
                 self.errors.push(format!(
-                    "a fn value or effect member lending a mutable handle \
-                     cannot serve a `Mut` position yet [rs-loc] (at {})",
+                    "an effect member lending a mutable handle cannot serve \
+                     a `Mut` position yet [rs-loc] (at {})",
                     self.salvo_location(call_span)
                 ));
                 return String::new();
             }
             if (self.mut_call_sites.contains(&(self.file_idx, call_span))
+                || fn_value
                 || (self.lend_loc_mode
                     && self.mut_forward_sites.contains(&(self.file_idx, call_span))))
                 && self.elem_handle_parts(expr).is_none()
@@ -13807,6 +13893,9 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_arg(&mut self, arg: &Expr, mode: ParamMode, param_ty: Option<&Type>) -> String {
+        // [rs-loc] Set when this argument is a lambda filling a
+        // locator-typed position; its emission runs in locator mode.
+        let mut loc_lambda = false;
         // [fn-contract] A named fn passed into a fn-typed position wraps
         // in an adapter closure matching the expected contract.
         if let (Some(pt @ Type::Fn { .. }), Expr::Ident(id)) = (param_ty, arg) {
@@ -13826,6 +13915,29 @@ impl<'p> Emitter<'p> {
         // known to be `Copy`), while an annotated `(n: Int) -> …` rendered
         // `|n: i32|` and rustc rejected the call (`E0631`).
         if let (Some(Type::Fn { .. }), Expr::Lambda { .. }) = (param_ty, arg) {
+            // [rs-loc] A lambda filling a locator-typed position is emitted
+            // in locator mode: its return-path lending calls take their
+            // locator forms, so the closure answers position data.
+            if let Some(Type::Fn { ret, .. }) = param_ty {
+                if fn_type_lends_mut(ret) {
+                    if let Expr::Lambda { body, .. } = arg {
+                        let mut returned: Vec<&Expr> = Vec::new();
+                        match body {
+                            LambdaBody::Expr(e) => returned.push(e),
+                            LambdaBody::Block(b) => collect_returned_exprs(b, &mut returned),
+                        }
+                        for mut e in returned {
+                            while let Expr::NonNull { operand, .. } = e {
+                                e = operand;
+                            }
+                            if let Expr::Call { span, .. } = e {
+                                self.mut_forward_sites.insert((self.file_idx, *span));
+                            }
+                        }
+                        loc_lambda = true;
+                    }
+                }
+            }
             self.pending_lambda_conv = param_ty.map(|pt| self.fn_type_param_conventions(pt));
             // [yield-proj] Parameters typed at a retagged element generic
             // arrive with one extra reference; the lambda peels it.
@@ -13856,7 +13968,12 @@ impl<'p> Emitter<'p> {
         if let Some(adapted) = self.adapt_borrowed_arms_to_owned(arg, param_ty, mode) {
             return adapted;
         }
-        match mode {
+        {
+            // [rs-loc] A locator-typed lambda argument emits in locator
+            // mode: its return-path lending calls answer position data.
+            let want_loc = loc_lambda || self.lend_loc_mode;
+            let saved_loc = std::mem::replace(&mut self.lend_loc_mode, want_loc);
+            let out = match mode {
             ParamMode::Owned => self.emit_expr(arg),
             ParamMode::Ref => {
                 // A coerced argument is a fresh temporary: borrow it.
@@ -13875,6 +13992,9 @@ impl<'p> Emitter<'p> {
                     self.borrowed_mut_arg(arg)
                 }
             }
+            };
+            self.lend_loc_mode = saved_loc;
+            out
         }
     }
 

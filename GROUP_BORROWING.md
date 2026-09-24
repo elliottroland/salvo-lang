@@ -1146,7 +1146,7 @@ slices, suite-green after each: (1) **BUILT 2026-09-24** — locator variants re
 lent parameters drop to *read* mode — the search only reads; the seed
 call site materializes `&mut anchor[loc]`); (2) **BUILT 2026-09-24** — the bound-mint lift —
 ①'s "direct `get(place, i)!` only" cut widens to any
-locator-expressible lending call; (3) lending **fn values** in the
+locator-expressible lending call; (3) **BUILT 2026-09-24** — lending **fn values** in the
 uniform whole-element case, with the **`?at` acceptance test** (a
 generic find-and-update through an implicit — the shape ③'s cut
 refused); (3′) **the `Locate` bundle in std** (user decision

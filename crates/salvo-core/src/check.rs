@@ -23047,6 +23047,34 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // arguments (default: keeps everything).
                     let arg_refs: Vec<&'p Expr> = args.iter().collect();
                     self.apply_fn_value_contract(&arg_refs, &params, contract.as_deref(), span);
+                    // [readonly-return] [rs-loc] A fn value whose return is a
+                    // **wholesale** projection lends that argument outright
+                    // (`?at: (c: C, k: Int) -> proj(c) Mut T?`): record it
+                    // like any derived-return call, so the result links to
+                    // the argument [fate-link] and the backends know which
+                    // one it borrows. The type keeps no source names, so the
+                    // sources are the kept non-Copy arguments —
+                    // conservative in the same direction as the held case
+                    // below.
+                    let wholesale = ret.is_proj()
+                        || matches!(ret.as_ref(), Ty::Union(arms)
+                            if arms.iter().any(|a| a.is_proj()));
+                    if wholesale {
+                        let sources: Vec<usize> = (0..params.len())
+                            .filter(|&i| {
+                                contract
+                                    .as_deref()
+                                    .and_then(|c| c.get(i))
+                                    .is_none_or(|e| e.kept)
+                                    && params
+                                        .get(i)
+                                        .is_some_and(|t| !crate::types::is_copy_scalar(t))
+                            })
+                            .collect();
+                        if !sources.is_empty() {
+                            self.out.derived_calls.insert(self.key(span), sources);
+                        }
+                    }
                     // [proj-infer] A fn value has no body to read: its result
                     // holds a borrow of the arguments its type declares
                     // (`[p: proj]`), or conservatively of every kept one.

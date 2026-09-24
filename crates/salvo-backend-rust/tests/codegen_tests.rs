@@ -13081,6 +13081,58 @@ fn rustc_compiles_and_runs_the_update_family() {
     run_rust_files(&files, "update_family", "111 220\n");
 }
 
+/// [rs-loc] ④a slice 3 — a **lending fn value** serves a `Mut`
+/// position: the closure answers a locator (position data crosses the
+/// boundary where a `&mut` could not), and the use site materializes. The
+/// `?at` idiom — a generic accessor supplied by the caller, the house
+/// pattern that pierces opacity — is the acceptance test.
+const LENDING_FN_VALUE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn bump_at(es: List<Mut Entity>, i: Int,
+           at: (c: List<Mut Entity>, k: Int) -> proj(c) Mut Entity?) -> None {
+    heal(at(es, i)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> get(c, k))
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+#[test]
+fn a_lending_fn_value_renders_as_a_locator_closure() {
+    let files = generate(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("-> Option<usize>"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("&mut es[__l0] }") || main.content.contains("&mut es[__l1] }"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_lending_fn_value() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
+    run_rust_files(&files, "lending_fn_value", "5 17\n");
+}
+
 /// [rs-loc] The cut ④a slice 4 lifts, loud until then: an **effect member** lending a mutable
 /// handle cannot serve a `Mut` position — no named decl exists to emit a
 /// variant of (parked to GB-5's session, GROUP_BORROWING.md; a fn *value*

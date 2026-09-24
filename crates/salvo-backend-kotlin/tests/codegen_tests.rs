@@ -3388,6 +3388,37 @@ fn main() [use] {
 }
 "#;
 
+/// [rs-loc] The `?at` lending-fn-value program, byte-identical stdout to
+/// the Rust backend's `rustc_compiles_and_runs_a_lending_fn_value`.
+const LENDING_FN_VALUE_DEMO: &str = r#"
+struct Entity canbe Mut { hp: Int }
+
+fn heal(e: Mut Entity) -> None => e: Mut {
+    e.hp = e.hp + 10
+}
+
+fn bump_at(es: List<Mut Entity>, i: Int,
+           at: (c: List<Mut Entity>, k: Int) -> proj(c) Mut Entity?) -> None {
+    heal(at(es, i)!)
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let es: List<Mut Entity> = list_of(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
+    bump_at(es, 1, (c: List<Mut Entity>, k: Int) -> get(c, k))
+    println("${get(es, 0)!.hp} ${get(es, 1)!.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_lending_fn_value() -> KotlinCase {
+    let program = build_program(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "lending_fn_value", "5 17\n")
+}
+
 fn kotlinc_compiles_and_runs_the_update_family() -> KotlinCase {
     let program = build_program(&[("main.sv", UPDATE_FAMILY_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3408,6 +3439,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_the_update_family,
+    kotlinc_compiles_and_runs_a_lending_fn_value,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
