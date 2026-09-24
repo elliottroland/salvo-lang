@@ -422,6 +422,37 @@ program must not print or persist a hash value and expect cross-backend
 identity — an example's `expected.txt` cannot contain one, the posture
 random already has.
 
+## Group borrowing — the ladder (building; step ① landed 2026-09-24)
+
+The decided design and full build sequence live in **GROUP_BORROWING.md**
+(the working document stays open until every rung lands, per its charter);
+the decisions are all taken (the P-rounds, recorded there and in
+COMPLETED.md's log). Status:
+
+- **① BUILT** (2026-09-24, COMPLETED.md's log): mutable element handles —
+  [proj-mut] + [rs-elem-mut], P-9's mode-inferred bindings. `List<Mut T>`
+  lends; two read handles coexist; mutation poisons siblings, not the
+  acting handle; Rust renders statement-scoped `get_mut` splices and
+  captured-index virtual bindings; the v1 cut (bound mints only from a
+  direct `get(place, i)!`) is a loud codegen error.
+- **② NEXT — `Distinct` awareness.** std ships
+  `qualifier Distinct(i: Int) of Int` (plain [qual-depend] machinery);
+  the compiler work is: element links carry the **identity of the minting
+  index** (today the element path is may-alias-all
+  [fate-field-disjoint]), poison consults a live `Distinct` claim between
+  two handles' indices before killing the sibling, and the Rust pair
+  lowering (`salvo_pair_mut` in `runtime/seq.rs`, `split_at_mut` with
+  index ordering) covers two proven-disjoint handles in **one call** —
+  single-statement uses already work via ①'s virtual bindings. The link
+  index-identity is the design piece; sketch it before coding.
+- **③ the C family** (`update`, `update2`) as ordinary std Salvo — note
+  the total `get` in their bodies must be dodged for now (`get(list,
+  i + 0)!`), since ①'s cut refuses non-intrinsic mints; lifting that
+  cleanly (mode-specialized emission of lending fns, or making the total
+  `get` intrinsic) is part of ③.
+- **④ `canbe` entries + the covered store rendering** (A), **⑤ GB-3-A**
+  — per GROUP_BORROWING.md's decided grammar and the P-round outcomes.
+
 ## LSP source-root discovery, and a project manifest (direction decided 2026-09-24, sequenced after GROUP_BORROWING.md)
 
 **The defect (user report, 2026-09-24).** Editing std with the *repository
