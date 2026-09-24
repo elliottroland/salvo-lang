@@ -582,6 +582,32 @@ the blanket rule:
   position written as the owned union is adapted arm by arm for Copy
   payloads and is a codegen error otherwise (a hidden clone this backend
   refuses).
+* [rs-elem-mut] [proj-mut] **Mutable element handles** (P-3 + P-9, user
+  decisions 2026-09-24) have two renderings, and neither is a bound `&mut`:
+  * A **statement-scoped** handle — `bump(get(es, i)!)` in a `&mut`
+    position — splices the mut lowering directly:
+    `bump(es.get_mut((i) as usize).expect("salvo: value is absent at …"))`.
+    The `&mut` lives exactly as long as the call, so no exclusivity window
+    opens.
+  * A **bound** handle (its bind event in `Checked::handle_muts`) is
+    **virtual**: `let __hN = (i) as usize;` plus a presence check at the
+    mint (where `!` traps, matching Kotlin's `!!` timing —
+    `es.get(__hN).expect(…)`), and the binding's every use re-materializes
+    the place (`es[__hN].n = …`, `bump(&mut es[__hN])`, `es[__hN].clone()`
+    in owned positions) — `BindKind::ElemMut` + `elem_places`. Deliberately
+    not a bound `&mut`: Salvo's poison discipline permits reads of the
+    container between uses of the handle, which a live `&mut` binding would
+    make E0502 — the same alignment argument as [rs-borrow-locals], resolved
+    the other way.
+  * A kept parameter whose **elements** carry `Mut` (`List<Mut T>`,
+    `Mut T[]` — `type_has_elem_mut`) renders `&mut Vec<T>`: the container
+    lends mutable handles, so the write must reach the caller's storage
+    through it even though no structural mutation is permitted.
+  * **The v1 cut** [backend-never-wrong]: a bound mutable handle minted from
+    anything but a direct `get(place, i)!` over a pure place (the total
+    Idx-claimed `get`, `first`, a call-result container) is a reported
+    codegen error naming the remedy. Kotlin needs none of this — objects
+    alias natively, so the handle is the element reference.
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).

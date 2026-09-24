@@ -751,6 +751,12 @@ pub struct Checked {
     /// the ancestors were consumed at the binding. The Rust backend
     /// emits these as real moves instead of clones.
     pub binding_modes: HashSet<Key>,
+    /// [proj-mut] Bind events of **mutable element handles** (P-9, user
+    /// decision 2026-09-24: mode is inferred per binding): a `let` binding a
+    /// `proj Mut` value that some downstream use mutates. The Rust backend
+    /// renders such a binding as a captured-index path handle rather than a
+    /// `&` borrow, so the mutation reaches the container's storage.
+    pub handle_muts: HashSet<Key>,
     /// Projection expressions in *moved* positions whose provenance
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
@@ -4987,9 +4993,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn arg_fits_param(&self, arg: &Ty, param: &Ty, kept: bool) -> bool {
         is_subtype(arg, param)
             || (kept
-                && !Self::carries_mut(param)
                 && arg.is_proj()
-                && is_subtype(&arg.strip_top_proj(), param))
+                && is_subtype(&arg.strip_top_proj(), param)
+                // [proj-mut] A `Mut` position needs mutation permission,
+                // which a projection has exactly when it carries `Mut` — a
+                // mutable element handle (`get` over `List<Mut T>`). A
+                // read-only projection still never fits (P-3's lift, user
+                // decisions 2026-09-24; the narrowing of [proj-readonly]).
+                && (!Self::carries_mut(param) || Self::carries_mut(arg)))
     }
 
     /// [effect-available] Where a name's **one overload set** sends a call
@@ -7783,9 +7794,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         event_path: Option<&[Step]>,
     ) {
+        self.poison_derived_except(root_id, root_name, event, span, event_path, root_id);
+    }
+
+    /// [proj-mut] `poison_derived` with one exempt variable: a mutation
+    /// *through* a mutable element handle poisons the root's other
+    /// derivations, but must not kill the acting handle itself — its
+    /// storage did not move.
+    fn poison_derived_except(
+        &mut self,
+        root_id: u32,
+        root_name: &str,
+        event: FateEvent,
+        span: Span,
+        event_path: Option<&[Step]>,
+        exempt: u32,
+    ) {
         for frame in &mut self.locals {
             for var in frame.values_mut() {
-                if var.id == root_id {
+                if var.id == root_id || var.id == exempt {
                     continue;
                 }
                 let hit = var
@@ -7838,7 +7865,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the way to a value of one's own.
         if links.iter().any(|l| l.borrowed && !l.held) {
             let why = if action == "mutate" {
-                " — a `proj` value never satisfies a `Mut` position"
+                " — a read-only projection never satisfies a `Mut` position \
+                 (a mutable handle needs a `Mut` element type, `List<Mut T>` [proj-mut])"
             } else {
                 ""
             };
@@ -13108,6 +13136,35 @@ impl<'p, 'r> Checker<'p, 'r> {
             // advanced. A wholesale projection or a plain alias cannot
             // [proj-readonly].
             if links.iter().all(|l| l.held) {
+                self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
+                return;
+            }
+            // [proj-mut] A projection carrying `Mut` is a **mutable element
+            // handle** (P-3's lift of [proj-readonly], user decisions
+            // 2026-09-24): mutating through it is legal, and it is a
+            // mutation event on the handle's *roots* at the linked paths —
+            // sibling derivations fall [fate-poison], the handle itself
+            // stays usable (its storage did not move), and a parameter root
+            // is recorded as mutated so its inferred contract takes the
+            // exhaustive form [deduce-syntax]. The bind event is recorded
+            // for the emitter (P-9: mode is inferred per binding).
+            let handle_mut = self
+                .lookup(name)
+                .map(|v| v.narrowed.clone())
+                .is_some_and(|t| t.is_proj() && Self::carries_mut(&t));
+            if handle_mut {
+                for l in links.clone() {
+                    self.record_param_mutation(&l.root_name);
+                    self.poison_derived_except(
+                        l.root_id,
+                        &l.root_name,
+                        FateEvent::Mutated,
+                        span,
+                        l.path.as_deref(),
+                        id,
+                    );
+                    self.out.handle_muts.insert((self.file_idx, l.bind_span));
+                }
                 self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
                 return;
             }
@@ -23507,9 +23564,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 let msg = match why {
                     ProjBlock::Mutates => format!(
-                        "{what} is a projection (`{arg_shown}`), which can only be read — a \
-                         `proj` value never satisfies a `Mut` position; `{callee}` mutates \
-                         `{pname}`. Use `copy(...)` for a value of your own"
+                        "{what} is a read-only projection (`{arg_shown}`), and `{callee}` \
+                         mutates `{pname}` — a mutable handle needs a `Mut` element type \
+                         (`List<Mut T>`) [proj-mut]. Use `copy(...)` for a value of your own"
                     ),
                     ProjBlock::Consumes => format!(
                         "{what} is a projection (`{arg_shown}`), and `{callee}` consumes \

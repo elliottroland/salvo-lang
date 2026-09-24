@@ -1173,7 +1173,13 @@ pair; P-4–P-8 can be taken in any order once those stand.
   with index ordering, safe, `i != j` checker-guaranteed)
   [rs-runtime-source].
 
-**The build sequence**: ① P-3's lifts + P-9 (the D substrate) →
+**The build sequence** (progress markers as steps land): ① **BUILT
+2026-09-24** — [proj-mut] + [rs-elem-mut]: the acceptance and mutation
+lifts, root-poisoning with the acting handle exempted, P-9's `handle_muts`
+mode table, the `get_mut` splice and captured-index virtual bindings,
+`List<Mut T>` parameters arriving `&mut`; the v1 cut (bound mints only
+from a direct `get(place, i)!`) reported loudly. ① P-3's lifts + P-9 (the
+D substrate) →
 ② `Distinct` in std + the three compiler pieces → ③ the C family as plain
 std code → ④ `canbe` entries + the covered store rendering (A) →
 ⑤ GB-3-A. The document folds into COMPLETED.md's log, spec rules and the

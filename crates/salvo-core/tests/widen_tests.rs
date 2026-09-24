@@ -479,10 +479,13 @@ fn a_proj_field_is_allowed_on_any_struct_and_names_no_source() {
 }
 
 /// [proj-infer] A constructed view is an owned object: it may be advanced
-/// (its `Mut` is real) while it keeps the source alive; a wholesale
-/// projection of a `Mut` value is still read-only [proj-readonly].
+/// (its `Mut` is real) while it keeps the source alive. Since [proj-mut]
+/// (P-3's lift, user decisions 2026-09-24) a wholesale projection that
+/// *carries `Mut`* — an element handle out of `List<Mut T>` — may be
+/// mutated too; only the read-only projection stays read-only
+/// [proj-readonly].
 #[test]
-fn a_held_view_may_be_advanced_but_a_projection_may_not() {
+fn a_held_view_may_be_advanced_and_a_mut_element_handle_may_too() {
     let src = format!(
         "{VIEW_PRELUDE}\
          fn main() {{\n    let xs = list_of(1, 2)\n    let v = view(xs)\n    advance(v)\n    advance(v)\n}}\n\
@@ -495,16 +498,27 @@ fn a_held_view_may_be_advanced_but_a_projection_may_not() {
         !errs.iter().any(|e| e.contains("cannot mutate `v`")),
         "advancing a held view must be allowed: {errs:?}"
     );
+    // [proj-mut] The projection carries `Mut`: a mutable element handle,
+    // which the `Mut` position accepts.
     let src = format!(
         "{VIEW_PRELUDE}\
          fn main(vs: List<Mut View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
     );
     let errs = errors(&src);
-    // [proj-type] Caught at the type level: `proj Mut View<Int>` never
-    // satisfies a `Mut` position.
     assert!(
-        errs.iter().any(|e| e.contains("`v` is a projection (`proj Mut View<Int>`), which can only be read")),
-        "{errs:?}"
+        !errs.iter().any(|e| e.contains("can only be read")),
+        "a Mut-carrying handle may be mutated: {errs:?}"
+    );
+    // A read-only projection still may not.
+    let src = format!(
+        "{VIEW_PRELUDE}\
+         fn main(vs: List<View<Int>>) {{\n    let v = first(vs)!\n    advance(v)\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("can only be read") || e.contains("no matching overload")),
+        "a read-only projection must still be refused: {errs:?}"
     );
 }
 
@@ -589,5 +603,40 @@ fn a_written_proj_entry_keeps_and_declares() {
     assert!(
         errs.iter().any(|e| e.contains("`v` cannot be used here")),
         "{errs:?}"
+    );
+}
+
+/// [proj-mut] The mutable-element-handle discipline (P-3's lifts + P-9,
+/// user decisions 2026-09-24): two *read* handles coexist; mutating through
+/// one handle poisons a sibling derivation of the container; the acting
+/// handle itself survives its own mutation (its storage did not move).
+#[test]
+fn mutable_element_handles_poison_siblings_but_not_themselves() {
+    // Std-free: `at` reproduces the intrinsic `get`'s shape — a derived
+    // optional return — so the handle type (`proj Mut Counter`) and links
+    // are identical to `get(xs, i)!`'s.
+    let prelude = "struct Counter canbe Mut {\n    n: Int\n}\n\
+                   fn at<T>(list: List<T>, i: Int) -> (proj(list) T)? => list, i {\n    return None\n}\n";
+    // Two read handles, then reads: fine (P-9: mode is inferred, and
+    // nothing here mutates).
+    let src = format!(
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = at(xs, 0)!\n    let b = at(xs, 1)!\n    return a.n + b.n\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(errs.is_empty(), "two read handles must coexist: {errs:?}");
+    // The handle survives its own mutation.
+    let src = format!(
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let h = at(xs, 0)!\n    h.n = 5\n    return h.n\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(errs.is_empty(), "a handle survives its own mutation: {errs:?}");
+    // A sibling derivation of the container dies at the mutation.
+    let src = format!(
+        "{prelude}fn f(xs: List<Mut Counter>) -> Int {{\n    let a = at(xs, 0)!\n    let h = at(xs, 0)!\n    h.n = 5\n    return a.n\n}}\n"
+    );
+    let errs = errors(&src);
+    assert!(
+        errs.iter().any(|e| e.contains("`a` cannot be used here")),
+        "the sibling must be poisoned: {errs:?}"
     );
 }

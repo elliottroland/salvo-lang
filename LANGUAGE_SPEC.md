@@ -5557,13 +5557,14 @@ the same day. **Not part of `core`**: the surface is imported, and one
     bind a view of a temporary"). Rust exposed it (E0716); the rule keeps
     the backends in agreement. A possible later automation (hoisting the
     temporary) is recorded in ROADMAP.
-* [proj-readonly] A `proj` value is **read-only whatever its `Mut` says**
-  (user decision 2026-09-11): `proj Mut X` is a legal type — the value came
-  out of a mutable slot — but it never satisfies a `Mut` position (`Mut X <:
-  proj Mut X`, not the reverse); passing it where `Mut` is required, or
-  mutating it, reports the projection and the `copy` remedy. `copy` is the
-  way out and yields an owned `Mut X`. Moving a wholesale projection is
-  refused the same way — except a Copy scalar [copy-scalar-free].
+* [proj-readonly] A `proj` value **without `Mut` is read-only** (user
+  decision 2026-09-11; narrowed 2026-09-24 by [proj-mut], which is P-3 of
+  the group-borrowing ladder): a plain projection never satisfies a `Mut`
+  position; passing it where `Mut` is required, or mutating it, reports the
+  projection and the `copy` remedy (and, since [proj-mut], the
+  `List<Mut T>` route). `copy` is the way out and yields an owned `Mut X`.
+  Moving a wholesale projection is refused the same way — `Mut`-carrying or
+  not — except a Copy scalar [copy-scalar-free].
   * A **parameter** written with a top-level `proj Mut` is an error at the
     *declaration* (user decision 2026-09-12): the `proj` promises to accept
     borrowed values, but the `Mut` makes the position one no projection can
@@ -5572,6 +5573,38 @@ the same day. **Not part of `core`**: the surface is imported, and one
     accepts `proj Mut` arguments — or drop the `proj`). Nested occurrences
     (`Mut List<proj Mut Str>`) and non-parameter positions (locals, fields,
     returns) keep the type legal.
+* [proj-mut] **A projection carrying `Mut` is a mutable element handle**
+  (user decisions 2026-09-24 — P-3 and P-9 of GROUP_BORROWING.md's ladder;
+  the partial repeal of [proj-readonly]'s original blanket rule). Element
+  mutability is the **element type's, not the container handle's**:
+  container `Mut` is *structural* permission (`add`/`remove`/`set`/`swap`),
+  while `List<Mut T>` elements hand out in-place-mutable handles — the
+  generic `get` instantiated at `T = Mut Entity` answers
+  `(proj(list) Mut Entity)?` by ordinary substitution, and that `Mut` is
+  the permission. The rules:
+  * `proj Mut X` **satisfies a kept `Mut X` position** — the acceptance
+    that [proj-readonly] refused; a projection without `Mut` still never
+    does. Consuming positions still refuse every projection.
+  * **Mutating through the handle is legal** — a projection assignment,
+    `++`, a `Mut` argument position — and is a mutation event on the
+    handle's *roots* at the linked paths [fate-poison]: sibling derivations
+    of the container fall (a computed index may-aliases every element
+    [fate-field-disjoint]), the acting handle itself survives (its storage
+    did not move), and a parameter root is recorded as mutated so its
+    inferred contract takes the exhaustive form [deduce-syntax].
+  * **Mode is inferred per binding** (P-9, the [fate-move-mode] pattern):
+    a handle some downstream use mutates is recorded in
+    `Checked::handle_muts` at its bind event, for the Rust backend's
+    rendering [rs-elem-mut]; handles only read keep today's borrow
+    renderings, so any number coexist.
+  * The **declaration-site refusals stand**: a parameter written top-level
+    `proj Mut` is still an error ([proj-readonly]'s declaration half), and
+    a `proj Mut` that is not element-anchored has no minting surface.
+    Destruction under a live handle needs no new rule — any structural
+    `Mut` use of the container poisons the handles it lent.
+  * Implementation: `arg_fits_param` (the acceptance), `fate_mutation_at`
+    (the mutation event, with the acting handle exempted from its own
+    poison — `poison_derived_except`), `handle_muts` (the P-9 table).
   * Implementation: the projection lives in the lowered type
     ([proj-type], 2026-09-12; before that it was erased and carried only
     on links) *and* on the fate link — `FateLink.borrowed && !held` is a

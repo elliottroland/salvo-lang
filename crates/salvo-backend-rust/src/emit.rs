@@ -1066,6 +1066,14 @@ enum BindKind {
     /// A handler constructor param or state field: accessed as `self.x`
     /// inside handler members.
     SelfField,
+    /// [rs-elem-mut] A **mutable element handle** ([proj-mut], P-9's
+    /// mode-inferred bindings): the local is virtual — its place is a
+    /// captured-index projection of the container (`es[__h0]`), held in
+    /// `elem_places` and re-materialized at every use. Not a bound `&mut`,
+    /// deliberately: Salvo's poison discipline permits reads of the
+    /// container between uses of the handle, which a live `&mut` binding
+    /// would make E0502.
+    ElemMut,
 }
 
 /// How a callee expects one parameter [rs-borrows].
@@ -1112,6 +1120,11 @@ struct Emitter<'p> {
     effect_env: Vec<EffectEntry>,
     /// How each name in the current fn is bound [rs-borrows].
     bindings: HashMap<String, BindKind>,
+    /// [rs-elem-mut] The spliced place of each `ElemMut` binding
+    /// (`es[__h0]`), keyed by variable name.
+    elem_places: HashMap<String, String>,
+    /// [rs-elem-mut] Fresh-name counter for captured handle indices.
+    handle_seq: usize,
     /// [rs-read-mode] What the position being emitted wants of the value: a
     /// **read** (a `&T` is enough) or an **owned** value (a store, a return, a
     /// consuming argument). The unwrap paths consult it and clone only under
@@ -1393,6 +1406,8 @@ impl<'p> Emitter<'p> {
             ret_is_unit: false,
             effect_env: Vec::new(),
             bindings: HashMap::new(),
+            elem_places: HashMap::new(),
+            handle_seq: 0,
             mode: ValueMode::Read,
             placeholder_code: None,
             pick_vars: 0,
@@ -3925,7 +3940,10 @@ impl<'p> Emitter<'p> {
         if !kept {
             return ParamMode::Owned;
         }
-        if type_has_mut(&param.ty) {
+        if type_has_mut(&param.ty) || type_has_elem_mut(&param.ty) {
+            // [rs-elem-mut] A container with `Mut` elements lends mutable
+            // handles, so it arrives `&mut` even when kept without its own
+            // `Mut` [proj-mut].
             ParamMode::RefMut
         } else {
             ParamMode::Ref
@@ -3942,7 +3960,11 @@ impl<'p> Emitter<'p> {
             // [fn-contract] Fn values are borrowed: `&mut impl FnMut`.
             return ParamMode::RefMut;
         }
-        if type_has_mut(ty) {
+        if type_has_mut(ty) || type_has_elem_mut(ty) {
+            // [rs-elem-mut] `List<Mut T>` lends mutable element handles, so
+            // the container parameter itself must arrive `&mut` even though
+            // no *structural* mutation is permitted — the handle's write
+            // reaches the caller's storage through it [proj-mut].
             ParamMode::RefMut
         } else {
             ParamMode::Ref
@@ -6869,6 +6891,39 @@ impl<'p> Emitter<'p> {
                 return format!("{pad}self.{field} = {value_code};\n");
             }
         }
+        // [rs-elem-mut] [proj-mut] A **mutable element handle**'s mint (P-9:
+        // the checker recorded this bind event as mutated downstream). The
+        // binding is virtual: capture the index once, check presence at the
+        // mint (where `!` traps, matching Kotlin's `!!` timing), and splice
+        // the place per use. Deliberately *not* a bound `&mut`: Salvo's
+        // discipline permits reads of the container between uses of the
+        // handle, which a live `&mut` binding would make E0502.
+        if let Pattern::Ident(name) = pattern {
+            if self
+                .checked
+                .handle_muts
+                .contains(&(self.file_idx, stmt_span))
+            {
+                if let Some((root, idx, span)) = self.elem_handle_parts(value) {
+                    let var = format!("__h{}", self.handle_seq);
+                    self.handle_seq += 1;
+                    self.bindings.insert(name.name.clone(), BindKind::ElemMut);
+                    self.elem_places
+                        .insert(name.name.clone(), format!("{root}[{var}]"));
+                    return format!(
+                        "{pad}let {var} = {idx};\n{pad}{root}.get({var})\
+                         .expect(\"salvo: value is absent at {}\");\n",
+                        self.salvo_location(span)
+                    );
+                }
+                self.errors.push(format!(
+                    "cannot lower the mutable element handle `{}`: mint it \
+                     directly from its container (`let {} = get(list, i)!`) — \
+                     other mint shapes are not lowered yet [rs-elem-mut]",
+                    name.name, name.name
+                ));
+            }
+        }
         // [rs-borrow-locals] S3: a borrow-mode binding from a pure place
         // emits a real borrow — the local holds `&T` and reads thread
         // through the existing reference-binding rendering (clone in
@@ -9582,11 +9637,48 @@ impl<'p> Emitter<'p> {
         })
     }
 
+    /// [rs-elem-mut] The container place and index of a mutable-handle
+    /// mint — `get(place, i)!` over a container with `Mut` elements
+    /// [proj-mut]: the pieces the virtual binding and the statement-scoped
+    /// `get_mut` splice are built from. `None` when the expression is not
+    /// that shape, its result is not a `Mut`-carrying projection, or the
+    /// container is not a pure place.
+    fn elem_handle_parts(&mut self, expr: &Expr) -> Option<(String, String, Span)> {
+        let Expr::NonNull { operand, span } = expr else {
+            return None;
+        };
+        let t = self.ty_of(*span)?;
+        if !(t.is_proj() && t.quals().iter().any(|q| q.name == "Mut")) {
+            return None;
+        }
+        let Expr::Call { callee, args, .. } = operand.as_ref() else {
+            return None;
+        };
+        let Expr::Ident(fname) = callee.as_ref() else {
+            return None;
+        };
+        if fname.name != "get" || args.len() != 2 {
+            return None;
+        }
+        if !self.place_is_pure(&args[0]) {
+            return None;
+        }
+        let root = self.emit_place(&args[0]);
+        let idx = format!("({}) as usize", self.emit_owned(&args[1]));
+        Some((root, idx, *span))
+    }
+
     /// The place expression for a bound name: `self.x` for handler
     /// fields, the (possibly escaped) name otherwise.
     fn binding_place(&self, name: &str) -> String {
         match self.bindings.get(name) {
             Some(BindKind::SelfField) => format!("self.{}", rs_ident(name)),
+            // [rs-elem-mut] The captured-index projection of the container.
+            Some(BindKind::ElemMut) => self
+                .elem_places
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| rs_ident(name)),
             // [iter-fn] A slot's default place is the *shared* borrow
             // through its `Option`: correct for every read, and a path that
             // wanted to mutate through it fails to compile rather than
@@ -9648,7 +9740,10 @@ impl<'p> Emitter<'p> {
                 }
                 // [rs-opt-borrow] The whole `Option<&T>` is a Copy value,
                 // not a place worth borrowing: the clone path handles it.
-                Some(BindKind::OptRef) | None => None,
+                // [rs-elem-mut] A handle rebind keeps the clone path too —
+                // a `&` bound to the spliced place would hold a borrow of
+                // the container across the handle's later mutations.
+                Some(BindKind::OptRef) | Some(BindKind::ElemMut) | None => None,
             },
             Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
                 Some(format!("&{}", self.emit_place(value)))
@@ -9673,7 +9768,8 @@ impl<'p> Emitter<'p> {
                     Some(BindKind::Owned) | Some(BindKind::SelfField) => {
                         Some(format!("&{}", self.binding_place(&id.name)))
                     }
-                    Some(BindKind::OptRef) | None => None,
+                    // [rs-elem-mut] The clone path: see `borrow_value`.
+                    Some(BindKind::OptRef) | Some(BindKind::ElemMut) | None => None,
                 }
             }
             Expr::Field { base, span, .. } => {
@@ -9852,7 +9948,9 @@ impl<'p> Emitter<'p> {
                         format!("{place}.clone()")
                     }
                     Some(BindKind::Ref) | Some(BindKind::RefMut) => format!("*{place}"),
-                    Some(BindKind::SelfField) if !copy => format!("{place}.clone()"),
+                    Some(BindKind::SelfField) | Some(BindKind::ElemMut) if !copy => {
+                        format!("{place}.clone()")
+                    }
                     // [monitor-handler] [rs-monitor] A plain effect's addr is
                     // a lock-wrapper value (`Arc`-backed), not a `Copy` index:
                     // an owned read clones the handle, so a handle bound once
@@ -11221,7 +11319,7 @@ impl<'p> Emitter<'p> {
                     Some(BindKind::Ref) | Some(BindKind::RefMut) => {
                         return self.binding_place(&id.name)
                     }
-                    Some(BindKind::SelfField) => {
+                    Some(BindKind::SelfField) | Some(BindKind::ElemMut) => {
                         return format!("&{}", self.binding_place(&id.name))
                     }
                     _ => return format!("&{}", self.binding_place(&id.name)),
@@ -11270,12 +11368,22 @@ impl<'p> Emitter<'p> {
                 match self.bindings.get(id.name.as_str()) {
                     // Already `&mut`: implicit reborrow at the call.
                     Some(BindKind::RefMut) => return self.binding_place(&id.name),
-                    Some(BindKind::SelfField) => {
+                    Some(BindKind::SelfField) | Some(BindKind::ElemMut) => {
                         return format!("&mut {}", self.binding_place(&id.name))
                     }
                     _ => return format!("&mut {}", self.binding_place(&id.name)),
                 }
             }
+        }
+        // [rs-elem-mut] A statement-scoped mutable element handle —
+        // `bump(get(es, i)!)` — splices `get_mut` directly: the `&mut` lives
+        // exactly as long as the call, so no exclusivity window opens. The
+        // fallback below would borrow a temporary and mutate the clone.
+        if let Some((root, idx, span)) = self.elem_handle_parts(expr) {
+            return format!(
+                "{root}.get_mut({idx}).expect(\"salvo: value is absent at {}\")",
+                self.salvo_location(span)
+            );
         }
         match expr {
             Expr::Field { .. } | Expr::TupleIndex { .. } | Expr::Index { .. } => {
@@ -14806,6 +14914,21 @@ fn type_has_mut(ty: &Type) -> bool {
             qualifiers.iter().any(|q| q.name.name == "Mut")
         }
         Type::Nullable { inner, .. } => type_has_mut(inner),
+        _ => false,
+    }
+}
+
+/// [rs-elem-mut] Whether a container type's **elements** carry `Mut` —
+/// `List<Mut T>`, `Mut T[]` — which is what makes the container lend
+/// mutable handles [proj-mut]. Element depth only: a `Mut` further down
+/// (`List<Pair<Mut T>>`) is unreachable by a handle today.
+fn type_has_elem_mut(ty: &Type) -> bool {
+    match ty {
+        Type::Named { base, .. } if base.name.name == "List" => {
+            base.args.iter().any(type_has_mut)
+        }
+        Type::Array { elem, .. } => type_has_mut(elem),
+        Type::Nullable { inner, .. } => type_has_elem_mut(inner),
         _ => false,
     }
 }

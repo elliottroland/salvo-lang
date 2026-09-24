@@ -12785,3 +12785,80 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
         "size 5\nkept 5\nheld hello\nowned hello\nfield 5\ncopy 8\n",
     );
 }
+
+// ===== mutable element handles [proj-mut] [rs-elem-mut] =====
+
+/// [proj-mut] Mutation through element handles of a `List<Mut T>`: a
+/// statement-scoped one (`bump(get(xs, 0)!)` → a `get_mut` splice), a bound
+/// one in a callee (a captured-index virtual binding), and reads afterwards
+/// observing both mutations — the aliasing semantics Kotlin gets natively.
+const ELEM_MUT_DEMO: &str = r#"
+struct Counter canbe Mut {
+    n: Int
+}
+
+fn bump(c: Mut Counter) -> None => c: Mut {
+    c.n = c.n + 1
+}
+
+fn poke(xs: List<Mut Counter>) -> None {
+    let h = get(xs, 1)!
+    h.n = h.n + 10
+    bump(h)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
+    bump(get(xs, 0)!)
+    poke(xs)
+    let a = get(xs, 0)!
+    let b = get(xs, 1)!
+    println("${a.n} ${b.n}")
+}
+"#;
+
+/// [rs-elem-mut] The three renderings: the container parameter arrives
+/// `&mut` (element-level `Mut` lends), the statement-scoped handle splices
+/// `get_mut`, and the bound handle is a captured index re-materialized at
+/// every use — never a bound `&mut`.
+#[test]
+fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
+    let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("pub fn poke(xs: &mut Vec<Counter>)"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let __h0 = (1) as usize;"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("xs[__h0].n = xs[__h0].n + 10;"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("bump(&mut xs[__h0]);"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains(".get_mut((0) as usize)"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_elem_mut_handles() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
+    run_rust_files(&files, "elem_mut", "2 13\n");
+}

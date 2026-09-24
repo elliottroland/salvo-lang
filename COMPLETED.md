@@ -133,6 +133,35 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**Mutable element handles — group-borrowing ladder step ① (built
+2026-09-24; user decisions same day, GROUP_BORROWING.md's P-rounds).**
+Element mutability is the **element type's**: `List<Mut T>` hands out
+mutable handles — the generic `get` at `T = Mut Counter` already answered
+`(proj(list) Mut Counter)?` by substitution, and [proj-mut] makes the `Mut`
+mean something. Lifted: `proj Mut X` fits kept `Mut X` positions
+(`arg_fits_param`), and mutation through a `Mut`-carrying projection is
+legal — a mutation event on the handle's roots (sibling derivations of the
+container poison; the acting handle is exempted, `poison_derived_except`;
+parameter roots are recorded as mutated). P-9: **mode is inferred per
+binding** (the S2 pattern) — mutated-downstream handles land in
+`Checked::handle_muts`; read-only handles keep every existing rendering, so
+two read handles coexist (`cmp(a, b)` over `List<Mut Entity>` stays legal).
+Rust [rs-elem-mut]: statement-scoped handles splice `get_mut`; bound
+handles are **virtual** (captured index + presence check at the mint,
+place re-materialized per use — a bound `&mut` would E0502 against
+checker-legal container reads between uses, the [rs-borrow-locals]
+alignment argument resolved the other way); `List<Mut T>`/`Mut T[]` kept
+parameters render `&mut Vec<T>` (`type_has_elem_mut`). Kotlin: nothing —
+objects alias natively; the e2e case pins output parity (`2 13` on both).
+The v1 cut, reported loudly: bound mints only from a direct
+`get(place, i)!` over a pure place. [proj-readonly] narrowed, not
+repealed: read-only projections and the declaration-site `proj Mut`
+parameter error stand. Tests: the poison/coexistence checker test
+(std-free, via a local derived-return `at`), the two Rust codegen tests,
+the Kotlin case, and the rewritten
+`a_held_view_may_be_advanced_and_a_mut_element_handle_may_too` (its old
+second half asserted the repealed refusal). 1421 tests green.
+
 **The opaque lends move to the return type (2026-09-24, user decision).**
 `=> proj(a, b)` — the opaque deduction entry saying the result *holds*
 borrows of `a` and `b` somewhere inside — read as none of its neighbours

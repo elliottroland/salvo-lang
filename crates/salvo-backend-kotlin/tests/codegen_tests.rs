@@ -3291,7 +3291,46 @@ fn main() [use] {
     )
 }
 
+/// [proj-mut] Mutable element handles over `List<Mut T>`: statement-scoped
+/// and bound handles mutate the elements in place, and reads afterwards see
+/// both mutations — natively on this backend (objects alias), so the case
+/// exists to pin the *output parity* with the Rust lowering [rs-elem-mut].
+const ELEM_MUT_DEMO: &str = r#"
+struct Counter canbe Mut {
+    n: Int
+}
+
+fn bump(c: Mut Counter) -> None => c: Mut {
+    c.n = c.n + 1
+}
+
+fn poke(xs: List<Mut Counter>) -> None {
+    let h = get(xs, 1)!
+    h.n = h.n + 10
+    bump(h)
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let xs: List<Mut Counter> = list_of(Mut Counter { n: 1 }, Mut Counter { n: 2 })
+    bump(get(xs, 0)!)
+    poke(xs)
+    let a = get(xs, 0)!
+    let b = get(xs, 1)!
+    println("${a.n} ${b.n}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_elem_mut_handles() -> KotlinCase {
+    let program = build_program(&[("main.sv", ELEM_MUT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "elem_mut", "2 13\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,
