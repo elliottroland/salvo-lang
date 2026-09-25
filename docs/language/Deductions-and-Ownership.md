@@ -156,7 +156,26 @@ fn iter<T>(list: List<T>) -> Mut ListYield<T> {
 
 Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced in place), its non-`proj` fields are its own, and it may be moved, stored, or passed on. What it may not do is outlive what it borrows. The compiler tracks this as shared fate too: `let p = iter(xs)` links `p` to `xs`, so `xs` cannot be moved or mutated while `p` is alive — and nothing had to be written on `iter`, because **which parameters a result holds borrows of is inferred from the body**: the literal stores `list` in a `proj` field, so `iter` lends `list`. Where there is no body — an effect member, an intrinsic, a fn-typed parameter — the signature says it: `-> proj(list) in (T)` on the return type ("the result holds a borrow of `list` somewhere inside `T`" — the parentheses are mandatory, and the same form sits on a fn type's own return, `?iter: (c: C) -> proj(c) in (Mut It)`), or per field in the clause, `=> .items: proj(list)`. A written entry must name every lend the body performs; it may name more (a generic body lends through opacity the analysis cannot see). Returning a view rooted in a *local* is an error: the local dies with the call.
 
+## A parameter cannot be assigned
+
 A parameter is a **constant binding**: `n = n + 1` inside a function is an error, whatever `n`'s type — bind a local (`let next = n + 1`) instead. To change what the caller holds, assign a *field* of the parameter (`h.tags = …`), which is what the clause below describes.
+
+## Which field a call mutates
+
+```
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn damage(e: Mut Entity, n: Int) -> None => e.hp: Mut, n {
+    e.hp = e.hp - n
+}
+
+let rings = e.rings
+damage(e, 5)
+println("${size(rings)}")          // fine: the call touched `.hp`, not `.rings`
+```
 
 A deduction clause can also say *which field* a call mutates, and whether it **changes** that field or **replaces** it. `=> e: Mut` means "mutated somewhere in `e`", so everything derived from `e` is invalidated; `=> e.hp: Mut` says the mutation lands on that field alone, and a value derived from a different field — `let rings = e.rings` — survives the call. `=> !e.rings` is the other half: the field itself is **replaced**, so whatever was derived from it is gone. The difference is storage identity, and it decides what survives: after a call that only changes the *contents* of `e.rings`, a handle to that list is still a handle to that list (`let rings = e.rings` keeps working, and sees the change), while a value read *out* of it — an element — does not, because an element may be gone. A written field entry is checked against the body, since every caller's precision rests on it.
 
@@ -164,15 +183,9 @@ Where a function writes no clause, the field set is **inferred** from its body, 
 
 This is also what lets a **qualifier hold about a field**: `if h.tags is NonEmpty { … }` narrows that field, the claim is used inside the branch, it survives a call that only touches `h.n`, and it falls the moment `h.tags` itself is mutated.
 
-A container can hold **mutable** elements too — and that mutability is the element type's, not the container handle's: container `Mut` permits reshaping (`add`, `remove_at`, `set`, `swap`), while `List<Mut T>` elements hand out **mutable handles**. `get(squad, i)!` over a `List<Mut Entity>` answers a `proj(squad) Mut Entity`, and mutating through it — `hero.hp = hero.hp - 3`, or passing it to a `Mut Entity` parameter — writes the element in place. Every such write counts as a mutation of the container: values derived from it are invalidated, exactly as a mutating call would invalidate them, while the acting handle itself stays live. A handle that is only ever read imposes nothing, so any number can coexist; a projection whose element type has no `Mut` stays read-only, and `copy` remains the way to a value of your own.
-
-A function of your own can hand back a mutable handle too: `fn front(es: List<Mut Entity>) -> (proj(es) Mut Entity)?` lends an element, and the handle it returns may be mutated, bound across statements, or found by a search loop (`for e in es { if e.hp < 10 { return e } }`). Where the algorithm should not know what a *position* is, `params Locate<C, L, T>` is the bundle to take: one `at` function the caller supplies, the way `Ordered` supplies `cmp` — which is how a generic function hands out mutable handles into a container it has never heard of.
-
-For the common cases std wraps the proofs into an **update family**: `update(squad, i, hero -> { hero.hp = hero.hp - 3 })` writes one element in place through a callback, and `update2(squad, i, j, (a, d) -> { … })` is the two-element transaction — its `j` parameter declares `NotEq(i)`, so the proof is demanded where the call is made and the family's bodies are ordinary Salvo. Both preserve `Idx` claims: an in-place write moves no boundary, so a sequence of updates stays total end to end.
-
-Two mutable handles at once take a **proof** — or a **declaration**. A function that means to accept two handles which might be the same object says so: `fn attack(a: Mut Entity, d: Mut Entity) -> None => a canbe d` declares that its two parameters may name one entity, and a caller may then hand it `get(squad, i)` and `get(squad, j)` with nothing proven about `i` and `j` — self-attack included, behaving the same on both backends. `canbe` is symmetric and non-transitive, `a canbe b|c` relates `a` to each of the two, and the anchored form (`track canbe in lib.tracks`) says the parameter may be an element of a named container, so two parameters anchored in the same one may coincide.
-
-Where no such declaration exists, two handles at once take a proof. The analysis cannot tell `squad[i]` from `squad[j]` — `i` might equal `j` — so a write through one invalidates the other, and a call taking both (`attack(get(squad, i)!, get(squad, j)!)`) is refused. `core.list`'s `NotEq` qualifier is the proof: after `j is NotEq(i)`, the two indices are known to differ, the handles are known to name different elements — the write through one leaves the other standing, and the two-handle call is accepted. The claim is a fact about the indices' *current values*: reassigning either side takes it away, like any dependent claim.
+For the handles this precision exists to protect — mutable elements, the
+`update` family, proven-disjoint pairs and declared aliasing — see
+[Mutable handles and aliasing](Mutable-Handles.md).
 
 A container can hold borrows too: `List<proj T>` is a list of projected elements, and it is what `filter` returns:
 
