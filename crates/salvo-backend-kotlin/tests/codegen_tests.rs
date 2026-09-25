@@ -3572,6 +3572,33 @@ fn main() [use] {
 }
 "#;
 
+/// [rs-cmp-deref] The borrowed-scalar comparison program, byte-identical
+/// stdout to the Rust backend's
+/// `rustc_compiles_and_runs_a_borrowed_scalar_comparison`.
+const CMP_DEREF_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list_of(10, 20, 30)
+    let i = 1
+    if i is Idx(xs) {
+        // A borrowed Copy scalar in a *comparison*: the operand is copied out.
+        if get(xs, i) == 20 { println("eq") }
+        if get(xs, i) < 30 { println("lt") }
+        // Arithmetic and interpolation need no deref (Rust implements
+        // `&i32 + i32`), and must not grow one.
+        println("${get(xs, i) + 1}")
+    }
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_borrowed_scalar_comparison() -> KotlinCase {
+    let program = build_program(&[("main.sv", CMP_DEREF_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "cmp_deref", "eq\nlt\n21\n")
+}
+
 fn kotlinc_compiles_and_runs_a_contents_mutation_handle() -> KotlinCase {
     let program = build_program(&[("main.sv", CONTENTS_MUTATION_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3655,6 +3682,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_covered_call,
     kotlinc_compiles_and_runs_a_field_granular_mutation,
     kotlinc_compiles_and_runs_a_contents_mutation_handle,
+    kotlinc_compiles_and_runs_a_borrowed_scalar_comparison,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

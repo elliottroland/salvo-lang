@@ -195,6 +195,33 @@ decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
 
 
+**The borrowed-Copy-scalar comparison defect, closed (2026-09-25).** Repro,
+kept intact:
+
+```
+let m = mut_map_of(("a", 1))
+let k = "a"
+assert!(k is KeyOf(m))
+if get(m, k) == 1 { }      // rustc: can't compare `&{integer}` with `{integer}`
+```
+
+Investigation narrowed it well below what the filing assumed: **only
+comparisons break**. Rust provides `impl Add<i32> for &i32`, so
+`get(xs, i) + 1` was always fine, as were interpolation, `!`-unwrapped
+optionals and `for` elements (both already deref on their own paths) — but
+no `PartialEq`/`PartialOrd` exists between `&T` and `T`, so `==`, `!=`, `<`,
+`<=`, `>`, `>=` are the whole surface. Also learnt: the checker **erases
+`proj` on Copy scalars** [copy-scalar-free], so the operand's type reads as
+plain `Int` and cannot be the signal; the derived-call table is, and it is
+exact (a lending call is the only reference-yielding shape left in that
+position). Fixed as [rs-cmp-deref]: a comparison operand that is a
+derived-return call of a Copy-scalar type renders `*call`. `core.map`'s annex
+now writes the comparison form on purpose, where it previously used
+`expect_eq` to dodge the bug, so the fix is pinned in std as well as in a
+codegen golden and a rustc/kotlinc parity pair (`eq lt 21`). 1472 tests
+green.
+
+
 **The group-borrowing working document folded and deleted (2026-09-25).**
 Every rung landed (① mutable element handles → ② `NotEq` awareness → ③ the
 update family over mode-specialized lending → ④a the locator substrate →
@@ -16022,7 +16049,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1470)
+## Test inventory (all green: 1472)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

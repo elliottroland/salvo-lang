@@ -617,6 +617,18 @@ the blanket rule:
     Idx-claimed `get`, `first`, a call-result container) is a reported
     codegen error naming the remedy. Kotlin needs none of this — objects
     alias natively, so the handle is the element reference.
+* [rs-cmp-deref] **A borrowed Copy scalar is copied out in a comparison**
+  (2026-09-25): Rust implements `&i32 + i32` but not `&i32 == i32`
+  (E0277) — and `&i32 < i32` likewise — so a lending call's scalar result
+  (the total `get` at an `Idx`/`KeyOf` claim, `first(NonEmpty)`) is
+  dereferenced in a comparison operand and **nowhere else**: arithmetic,
+  interpolation, `!`-unwrapped optionals and `for` elements already render
+  correctly, and non-Copy operands must not be touched (a deref there would
+  move out of a borrow). Keyed on the checker's derived-call table plus a
+  Copy-scalar type, so it fires exactly on the shape that breaks. Kotlin has
+  no references and needs nothing. The defect this closes was found writing
+  `expect(get(m, k) == 1, …)`, which `core.map`'s annex now spells that way
+  deliberately.
 * [rs-loc] **Locator-specialized lending** (④a slice 1, 2026-09-24 —
   re-founding step ③'s mode-specialization on the locator model,
   ROADMAP.md's "Recorded refinements"): a named lending fn whose

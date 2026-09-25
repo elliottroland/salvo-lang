@@ -11411,6 +11411,17 @@ impl<'p> Emitter<'p> {
                 let prec = bin_prec(*op);
                 let l = self.emit_operand_left(lhs, prec);
                 let r = self.emit_operand(rhs, prec);
+                // [rs-cmp-deref] A **comparison** of a borrowed Copy scalar
+                // copies it out first: Rust implements `&i32 + i32` but not
+                // `&i32 == i32` (E0277), so a lending call's scalar result —
+                // the total `get`'s, a `first(NonEmpty)`'s — must be
+                // dereferenced in this position, where arithmetic and
+                // interpolation need nothing. Kotlin has no references and
+                // needs nothing either. (Defect found 2026-09-24 writing
+                // `expect(get(m, k) == 1, …)`; the checker is right to accept
+                // it, so the rendering is what was wrong.)
+                let l = self.deref_cmp_operand(*op, lhs, l);
+                let r = self.deref_cmp_operand(*op, rhs, r);
                 // [op-promote] A widened operand casts to the promoted
                 // type: Rust has no mixed-width operators (`i32 + i64` is
                 // E0277), where Kotlin's operator set covers the mixes.
@@ -11835,6 +11846,38 @@ impl<'p> Emitter<'p> {
     }
 
     /// Left operands of the same precedence stay flat (left-assoc).
+    /// [rs-cmp-deref] Copies a borrowed Copy scalar out of a **comparison**
+    /// operand. The reference-yielding shape that needs it is a
+    /// derived-return call (`get(xs, i)` at a claim, `first(NonEmpty)`) whose
+    /// result is a Copy scalar: `!`-unwrapped optionals and `for` elements
+    /// already deref on their own paths, and non-Copy operands must not be
+    /// touched (a deref there would move out of a borrow).
+    fn deref_cmp_operand(&mut self, op: BinaryOp, expr: &Expr, code: String) -> String {
+        let comparison = matches!(
+            op,
+            BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::Gt
+                | BinaryOp::GtEq
+        );
+        if !comparison {
+            return code;
+        }
+        let lends = self
+            .checked
+            .derived_calls
+            .contains_key(&(self.file_idx, expr.span()));
+        let copy = self
+            .ty_of(expr.span())
+            .is_some_and(|t| Self::is_copy_ty(t));
+        if lends && copy {
+            return format!("*{code}");
+        }
+        code
+    }
+
     fn emit_operand_left(&mut self, expr: &Expr, parent_prec: u8) -> String {
         let code = self.emit_expr(expr);
         match expr {

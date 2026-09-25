@@ -12923,6 +12923,53 @@ fn rustc_compiles_and_runs_a_search_loop_lender() {
     run_rust_files(&files, "search_loop", "50 13\n");
 }
 
+/// [rs-cmp-deref] A borrowed Copy scalar is **copied out in a comparison**:
+/// Rust implements `&i32 + i32` but not `&i32 == i32` (E0277), so a lending
+/// call's scalar result — the total `get`'s — derefs there and nowhere else.
+/// Kotlin has no references and needs nothing.
+const CMP_DEREF_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let xs = list_of(10, 20, 30)
+    let i = 1
+    if i is Idx(xs) {
+        // A borrowed Copy scalar in a *comparison*: the operand is copied out.
+        if get(xs, i) == 20 { println("eq") }
+        if get(xs, i) < 30 { println("lt") }
+        // Arithmetic and interpolation need no deref (Rust implements
+        // `&i32 + i32`), and must not grow one.
+        println("${get(xs, i) + 1}")
+    }
+}
+"#;
+
+#[test]
+fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
+    let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("if *get") && main.content.contains("== 20"),
+        "{}",
+        main.content
+    );
+    // Arithmetic keeps the borrow: no deref grew there.
+    assert!(
+        !main.content.contains("(*get") || main.content.contains("+ 1"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_borrowed_scalar_comparison() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
+    run_rust_files(&files, "cmp_deref", "eq\nlt\n21\n");
+}
+
 /// [deduce-field] Rung ⑤ v1 — a **field-granular** mutation entry
 /// (`=> e.hp: Mut`) narrows the event a call produces, so a derivation of
 /// a *disjoint* field survives it by the ordinary overlap rule. The

@@ -27,10 +27,11 @@ test "assert! establishes the claim for the rest of the scope" {
     let m = mut_map_of(("a", 1))
     let k = "a"
     assert!(k is KeyOf(m))
-    // The claim is in `k`'s type from here on; today that is visible to
-    // tooling (hover) and to the invalidation rule — the consuming overloads
-    // arrive with the signatures step.
-    expect_eq(get(m, k), 1)
+    // The claim is in `k`'s type from here on, and the total [get] consumes
+    // it: no `None` arm, nothing to `!`. Written as a **comparison** rather
+    // than `expect_eq` on purpose — a borrowed Copy scalar in that position
+    // is what [rs-cmp-deref] fixed (the defect this line found).
+    expect(get(m, k) == 1, "the total read answers the stored value")
 }
 
 test "put preserves KeyOf claims, so the total read follows a write" {

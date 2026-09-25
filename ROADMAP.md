@@ -1500,32 +1500,11 @@ itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
 
-### Rust: comparing a borrowed Copy scalar with `==` does not deref
-
-`proj Int` (a total `get`'s result, a `first(NonEmpty)` element) compared
-with `==` against a plain `Int` emits `&i64 == i64` — rustc E0277 — while
-Kotlin compares fine. Checker-clean; refused by the target compiler, so
-loud, never wrong [backend-never-wrong]. Found 2026-09-24 writing
-`expect(get(m, k) == 1, …)` in `core.map`'s annex (worked around with
-`expect_eq`, whose generic parameter unifies at `proj Int`). The fix
-belongs with the one-read-one-mode family ([rs-read-mode], COMPLETED.md's
-2026-09-23 entries): a comparison operand is a read position, and a
-borrowed Copy scalar should be copied out (`*`) there.
-
-Repro:
-```
-let m = mut_map_of(("a", 1))
-let k = "a"
-assert!(k is KeyOf(m))
-if get(m, k) == 1 { }      // rustc: can't compare `&{integer}` with `{integer}`
-```
-
-
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Ten open**, and **these are next**: the user's direction of 2026-09-23 is
+**Nine open**, and **these are next**: the user's direction of 2026-09-23 is
 to clear them once the refinement work is done, before the variance and
 qualifier-dropping sections above. (**Closed 2026-09-23**: `x!` in a **`Mut`
 intrinsic parameter** position mutated a clone — `add(xs!, 3)` on a
