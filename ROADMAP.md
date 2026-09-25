@@ -465,12 +465,21 @@ COMPLETED.md's log). Status:
   full [canbe-entry], the coverage-shaped same-call exemption, and the
   shared-anchor rendering [rs-loc]. The GB-6 Kotlin copy audit came back
   clean.
-- **⑤ NEXT — GB-3-A**: the child-group invalidation refinement (a
-  crosses-destroyability-boundary bit on link path segments; no new
-  syntax for the base rule, per the P-5 exploration), whose
-  write-vs-destroy distinction also decides **in-place writes during
-  iteration** (today refused by the driven-origins rule; the locator model
-  already makes the shape renderable).
+- **⑤ IN PROGRESS — field-granular mutation entries** (the first attempt
+  at GB-3-A was reverted on a backend-parity finding; design **decided
+  2026-09-25**, user — GROUP_BORROWING.md's ⑤ section has the probe, the
+  parity argument and the staging). `=> h.tags: Mut` narrows the event a
+  call produces (today's whole-value event comes from the parameter type's
+  `Mut`), `=> !h.tags` states a **replacement** (the field's storage
+  identity destroyed — consumption, one level down), a field entry stands
+  alone, and **no new invalidation rule is needed** because
+  [fate-field-disjoint]'s overlap test already does the work. **v1**:
+  field-granular events, written entries validated against the body, then
+  inference. **v2**: the crosses-destroyability-boundary bit on links, so
+  `h.tags: Mut` spares a container handle while killing element
+  derivations. The same distinction decides **in-place writes during
+  iteration**, and the follow-on it opens is **qualifiers on struct
+  fields**.
 - Recorded leftovers in GROUP_BORROWING.md's second GB-5 addendum: the
   type-erased-locator lift (generic containers), branch-dependent path
   enums, GhostCell as the declined-but-kept fallback, the

@@ -1162,8 +1162,89 @@ loud cut. **④b — BUILT 2026-09-24 — `canbe` + covered anchors**: the decid
 coverage-shaped (P-6), covered calls rendering against shared anchors,
 two-locals calls **per-site disjoint-specialized** (two plain `&mut` —
 GB-2-B showed two locals cannot alias, so no synthetic store ever needs
-building). Then **⑤ — GB-3-A** as decided, whose write-vs-destroy bit
+building). Then **⑤ — GB-3-A**, whose write-vs-destroy bit
 is also what would legalize in-place writes during iteration.
+
+### ⑤ — the first attempt, its finding, and the decided design
+
+**Attempted 2026-09-24 and reverted.** The obvious form — relax poison
+when the path between the event and the derivation is all **field** steps,
+and render such a binding as a *virtual place* (the path re-materialized
+per use) so the Rust emission survives the mutation — ran the motivating
+example on both backends and was then killed by a three-line probe:
+
+```
+let tags = h.tags
+replace(h)                  // assigns h.tags = mut_list_of(9, 9, 9)
+println("${size(tags)}")    // Rust: 3 (re-read). Kotlin: 1 (old object).
+```
+
+A [backend-parity] violation, precisely the divergence [fate-poison]'s
+uniform discipline exists to keep unobservable — and the alternative
+rendering, a bound `&`, is E0502 against the very mutation being
+legalized, so the two candidates fail in opposite directions. A **second**
+hole (user observation): the rule was unsound for element derivations too,
+since `first(h.tags)` records its link as root `h`, path `[.tags]` — pure
+field steps, with the element-crossing *nowhere in the path* — so
+inspecting path steps cannot tell a container handle from a derivation
+into its contents. The implementation escaped that one only by an
+accidental side condition.
+
+**The decided design (user decisions 2026-09-25): field-granular mutation
+entries.** `=> h: Mut` means *h was mutated anywhere* and keeps today's
+behaviour; a finer entry says where. Consequences, all simplifications:
+
+- **No new invalidation rule.** [fate-field-disjoint]'s overlap test
+  already spares a link whose path is disjoint from the event's. Today a
+  *call* can only produce the event `[]`, because the event is driven by
+  the **parameter's declared type** carrying `Mut`, not by the clause. So
+  field entries **replace that whole-value event with their own paths**,
+  and the motivating example is covered by plain disjointness: `damage`
+  declaring `=> e.hp: Mut` leaves a derivation of `e.rings` standing.
+- **The parity hazard cannot recur**: sparing now requires the field to be
+  *untouched*, and re-reading an untouched field yields the same object on
+  both backends. The reverted virtual-place rendering becomes correct with
+  a sound precondition.
+- **No language restriction needed** — `=> h: Mut` keeps its meaning, so
+  no existing program changes.
+- **A field entry stands alone** (user requirement): `=> h.tags: Mut`
+  must not need `=> h: Mut` beside it, or the narrowing would be undone.
+  A parameter with claims to account for adds an ordinary non-`Mut` entry
+  (`=> h.tags: Mut, h: NonEmpty`), which states survival without widening
+  the event.
+
+**Replacement versus mutation, at field level** (user observation, and the
+key to v2): replacement *is* consumption of the field, so the existing
+vocabulary states it one level down — **`=> !h.tags`** (the field's
+storage identity is destroyed) versus **`=> h.tags: Mut`** (identity
+survives, contents change). Parity-safe, because in the `Mut` case both
+backends observe the *same object*. Two notes: at field level `!` means
+**replaced, not gone** (the caller loses identity continuity, not access),
+and on a linear field it is exactly the entry that obliges the callee to
+discharge what was there.
+
+**The staging** (both accepted; v1 first):
+
+- **v1 — field-granular events, no link bit.** `=> h.tags: Mut` and
+  `=> !h.tags` both parse and both poison at-or-below `[.tags]`; the win
+  is *disjointness across calls*. Written entries are **validated against
+  the body** — a declared field set the body exceeds is an error — which
+  is the same computation inference needs, so inference follows. Both
+  spellings are accepted from v1 even though they behave alike there, so
+  no signature needs rewriting when v2 lands.
+- **v2 — the crosses-destroyability-boundary bit on links.** With it,
+  `h.tags: Mut` spares a *container-handle* derivation at `[.tags]` while
+  still killing derivations that reach **into** the contents. The bit must
+  be explicit and must ride the derived-return links (the `first(h.tags)`
+  fact above), not syntactic index steps. This is the remainder of GB-3-A.
+
+**The follow-on it opens** (neither version): **qualifiers on struct
+fields**. Flow facts are already keyed by place (`place_narrows`) and
+invalidation already takes a place, so field-granular events make claim
+invalidation precise as a side effect — `=> h.tags: Mut` would clear
+claims about `h.tags` and leave ones about `h.name` standing. The boundary
+the user identified: a parameter *type* has nowhere to state a field
+claim, so the story is locals plus deduction-driven clearing.
 
 ## §8. GB-6 — Kotlin implications (flags, not decisions)
 
