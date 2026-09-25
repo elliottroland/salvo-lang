@@ -1752,7 +1752,7 @@ fn collect_let_values<'a>(block: &'a Block, out: &mut Vec<(Span, &'a Expr)>) {
 /// `-> proj(c) Mut T` or its optional — which is what renders as a
 /// locator (④a slice 3): the closure answers position data, and the use
 /// site materializes `&mut anchor[loc]`. The held form
-/// (`-> proj(c) in (T)`) is an owned value carrying borrows and is not
+/// (`-> T holds proj(c)`) is an owned value carrying borrows and is not
 /// this case.
 fn fn_type_lends_mut(ret: &Type) -> bool {
     fn wholesale_mut(t: &Type) -> bool {

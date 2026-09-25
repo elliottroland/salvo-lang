@@ -1464,8 +1464,8 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
         sig.push_str(&format!(" [{}]", effects.join(", ")));
     }
 
-    // [proj-infer] The opaque lends render where they are written — on the
-    // return type: `-> proj(p) in (T)`.
+    // [proj-infer] The opaque lends render where they are written — after
+    // the return type: `-> T holds proj(p)`.
     let opaque: Vec<&str> = decl
         .deductions
         .iter()
@@ -1477,7 +1477,7 @@ fn fn_decl_signature(decl: &FnDecl, inferred: Option<&[ParamDeduction]>) -> Stri
         .collect();
     match &decl.return_type {
         Some(ty) if !opaque.is_empty() => {
-            sig.push_str(&format!(" -> proj({}) in ({ty})", opaque.join(", ")))
+            sig.push_str(&format!(" -> {ty} holds proj({})", opaque.join(", ")))
         }
         Some(ty) => sig.push_str(&format!(" -> {ty}")),
         None => sig.push_str(" -> None"),
@@ -1563,8 +1563,8 @@ fn render_deductions(
             }
         })
         .collect();
-    // [proj-infer] Lends already shown on the return type
-    // (`-> proj(p) in (T)`) are not repeated here; what remains is lends
+    // [proj-infer] Lends already shown after the return type
+    // (`-> T holds proj(p)`) are not repeated here; what remains is lends
     // written per field (`.f: proj(a)`) or inferred from the body.
     let opaque: HashSet<&str> = decl
         .deductions
@@ -1619,7 +1619,7 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
         // A bare kept entry says what the default says: nothing to show.
         .filter(|d| !matches!(d.kind, DeductionKind::KeepAll))
         // [proj-infer] The opaque lends render on the return type
-        // (`-> proj(p) in (T)`), where they are written.
+        // (`-> T holds proj(p)`), where they are written.
         .filter(|d| !matches!(d.target, DeductionTarget::Opaque))
         .map(|d| {
             let t = target(d);

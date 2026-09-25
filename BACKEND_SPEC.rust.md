@@ -557,7 +557,7 @@ the blanket rule:
   the pass's *source*, so the reborrow of `p` stays free for the next
   turn, exactly as [rs-proj-struct] ties a derived return (added
   2026-09-23 for `Enumerated<T>`, the first view struct a `next`
-  answers). A **lent implicit position** (`?iter: (c: C) -> proj(c) in (Mut It)`) renders `&'c C` under a lifetime `'c`
+  answers). A **lent implicit position** (`?iter: (c: C) -> Mut It holds proj(c)`) renders `&'c C` under a lifetime `'c`
   named on the enclosing fn's kept parameter `c` — the result's type
   (`It`) is fixed at the call site, so the borrow it holds cannot be a
   fresh per-call one; the enclosing fn must keep `c` (a consumed one has

@@ -80,6 +80,12 @@ pub enum TokenKind {
     /// [obligation-spelling] `linear` — the exactly-once obligation:
     /// `linear struct X` declarations and `canbe linear` bounds.
     KwLinear,
+    /// [proj-infer] `holds` — the opaque-projection annotation after a
+    /// return type (`-> T holds proj(a)`). Reserved rather than contextual
+    /// because a type is a chain of space-separated qualifiers, so a bare
+    /// word after one would be read as another qualifier (user decision
+    /// 2026-09-25).
+    KwHolds,
 
     // Punctuation and operators
     LParen,
@@ -186,6 +192,9 @@ pub const KEYWORDS: &[(&str, TokenKind)] = &[
     ("proj", TokenKind::KwProj),
     ("once", TokenKind::KwOnce),
     ("linear", TokenKind::KwLinear),
+    // [proj-infer] `holds` — the opaque projection, after the type it is
+    // about: `-> Mut List<proj T> holds proj(it)`.
+    ("holds", TokenKind::KwHolds),
 ];
 
 impl TokenKind {

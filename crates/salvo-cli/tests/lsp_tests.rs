@@ -1508,9 +1508,9 @@ fn hover_works_in_a_std_shadowing_file() {
 }
 
 /// [proj-infer] [lsp-hover] The opaque lends render where they are written —
-/// on the return type, `-> proj(xs) in (Mut View<T>)` — and not as a clause
+/// on the return type, `-> Mut View<T> holds proj(xs)` — and not as a clause
 /// entry (the pre-2026-09-24 `=> proj(xs)` spelling is gone). The same holds
-/// inside a fn *type*, whose Display carries its own `proj(c) in (…)`.
+/// inside a fn *type*, whose Display carries its own `… holds proj(c)`.
 #[test]
 fn hover_renders_the_opaque_projection_on_the_return_type() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_opaque_proj");
@@ -1523,11 +1523,11 @@ struct View<T> canbe Mut {
     at: Int
 }
 
-fn borrowed<T>(xs: List<T>) -> proj(xs) in (Mut View<T>) => xs {
+fn borrowed<T>(xs: List<T>) -> Mut View<T> holds proj(xs) => xs {
     return Mut View<T> { items: xs, at: 0 }
 }
 
-fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It), ?Yield<It, Int>) -> Int => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
     let sum = 0
     let p = iter(c)
     for n in p {
@@ -1565,7 +1565,7 @@ fn main() [use] {
     // The fn declaration: annotation on the return, no `proj` clause entry.
     let value = hover(&mut lsp, 30, &uri, 5, 4);
     assert!(
-        value.contains("-> proj(xs) in (Mut View<T>)"),
+        value.contains("-> Mut View<T> holds proj(xs)"),
         "expected the opaque annotation on the return type: {value}"
     );
     assert!(
@@ -1576,7 +1576,7 @@ fn main() [use] {
     // The fn type: its Display carries the annotation on its own return.
     let value = hover(&mut lsp, 31, &uri, 9, 4);
     assert!(
-        value.contains("-> proj(c) in (Mut It)"),
+        value.contains("-> Mut It holds proj(c)"),
         "expected the fn type's own annotation: {value}"
     );
 

@@ -414,9 +414,9 @@ Module {
                 docs: [
                     "The elements of [it] that [keep] accepts, in order — as a **view**: the",
                     "result holds borrows of the elements, so nothing is copied [copy-opt-in],",
-                    "and it lives no longer than the pass's source. `proj(it) in (…)` is the",
+                    "and it lives no longer than the pass's source. `holds proj(it)` is the",
                     "written lend [proj-infer]: a generic body cannot show the analysis that an",
-                    "element of an opaque pass is stored, so the return type says it. For a list",
+                    "element of an opaque pass is stored, so the signature says it. For a list",
                     "of your own to keep, see [filter_to].",
                 ],
                 exported: true,
@@ -426,18 +426,18 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "filter",
-                    span: 2015..2021,
+                    span: 2010..2016,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "It",
-                        span: 2022..2024,
+                        span: 2017..2019,
                     },
                     Ident {
                         name: "T",
-                        span: 2026..2027,
+                        span: 2021..2022,
                     },
                 ],
                 generic_canbe: [],
@@ -446,14 +446,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "it",
-                            span: 2029..2031,
+                            span: 2024..2026,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 2033..2036,
+                                        span: 2028..2031,
                                     },
                                     args: [],
                                     value_args: [],
@@ -462,13 +462,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2033..2036,
+                                    span: 2028..2031,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "It",
-                                    span: 2037..2039,
+                                    span: 2032..2034,
                                 },
                                 args: [],
                                 value_args: [],
@@ -477,17 +477,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2037..2039,
+                                span: 2032..2034,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2029..2039,
+                        span: 2024..2034,
                     },
                     Param {
                         name: Ident {
                             name: "keep",
-                            span: 2041..2045,
+                            span: 2036..2040,
                         },
                         ty: Fn {
                             params: [
@@ -496,7 +496,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 2048..2049,
+                                            span: 2043..2044,
                                         },
                                         args: [],
                                         value_args: [],
@@ -505,7 +505,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2048..2049,
+                                        span: 2043..2044,
                                     },
                                 },
                             ],
@@ -519,7 +519,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Bool",
-                                        span: 2054..2058,
+                                        span: 2049..2053,
                                     },
                                     args: [],
                                     value_args: [],
@@ -528,21 +528,21 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2054..2058,
+                                    span: 2049..2053,
                                 },
                             },
-                            span: 2047..2058,
+                            span: 2042..2053,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2041..2058,
+                        span: 2036..2053,
                     },
                 ],
                 implicit_groups: [
                     TypeRef {
                         name: Ident {
                             name: "Yield",
-                            span: 2061..2066,
+                            span: 2056..2061,
                         },
                         args: [
                             Named {
@@ -550,7 +550,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "It",
-                                        span: 2067..2069,
+                                        span: 2062..2064,
                                     },
                                     args: [],
                                     value_args: [],
@@ -559,7 +559,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2067..2069,
+                                    span: 2062..2064,
                                 },
                             },
                             Named {
@@ -567,7 +567,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "T",
-                                        span: 2071..2072,
+                                        span: 2066..2067,
                                     },
                                     args: [],
                                     value_args: [],
@@ -576,7 +576,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2071..2072,
+                                    span: 2066..2067,
                                 },
                             },
                         ],
@@ -586,7 +586,7 @@ Module {
                         binder: false,
                         established: false,
                         alias: None,
-                        span: 2061..2073,
+                        span: 2056..2068,
                     },
                 ],
                 effects: Some(
@@ -598,7 +598,7 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "it",
-                                    span: 2115..2117,
+                                    span: 2111..2113,
                                 },
                                 path: [],
                             },
@@ -607,7 +607,7 @@ Module {
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
-                                            span: 2119..2122,
+                                            span: 2115..2118,
                                         },
                                         args: [],
                                         value_args: [],
@@ -616,23 +616,23 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2119..2122,
+                                        span: 2115..2118,
                                     },
                                 ],
                                 reapplied: [],
                             },
-                            span: 2115..2122,
+                            span: 2111..2118,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "keep",
-                                    span: 2124..2128,
+                                    span: 2120..2124,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 2124..2128,
+                            span: 2120..2124,
                         },
                         Deduction {
                             target: Opaque,
@@ -640,11 +640,11 @@ Module {
                                 [
                                     Ident {
                                         name: "it",
-                                        span: 2086..2088,
+                                        span: 2104..2106,
                                     },
                                 ],
                             ),
-                            span: 2081..2111,
+                            span: 2093..2107,
                         },
                     ],
                 ),
@@ -654,7 +654,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Mut",
-                                    span: 2094..2097,
+                                    span: 2076..2079,
                                 },
                                 args: [],
                                 value_args: [],
@@ -663,13 +663,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2094..2097,
+                                span: 2076..2079,
                             },
                         ],
                         base: TypeRef {
                             name: Ident {
                                 name: "List",
-                                span: 2098..2102,
+                                span: 2080..2084,
                             },
                             args: [
                                 Named {
@@ -677,7 +677,7 @@ Module {
                                         TypeRef {
                                             name: Ident {
                                                 name: "proj",
-                                                span: 2103..2107,
+                                                span: 2085..2089,
                                             },
                                             args: [],
                                             value_args: [],
@@ -686,13 +686,13 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 2103..2107,
+                                            span: 2085..2089,
                                         },
                                     ],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 2108..2109,
+                                            span: 2090..2091,
                                         },
                                         args: [],
                                         value_args: [],
@@ -701,7 +701,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2108..2109,
+                                        span: 2090..2091,
                                     },
                                 },
                             ],
@@ -711,7 +711,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 2098..2110,
+                            span: 2080..2092,
                         },
                     },
                 ),
@@ -723,7 +723,7 @@ Module {
                                 pattern: Ident(
                                     Ident {
                                         name: "out",
-                                        span: 2139..2142,
+                                        span: 2135..2138,
                                     },
                                 ),
                                 ty: None,
@@ -731,7 +731,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "mut_list_of",
-                                            span: 2145..2156,
+                                            span: 2141..2152,
                                         },
                                     ),
                                     type_args: [
@@ -740,7 +740,7 @@ Module {
                                                 TypeRef {
                                                     name: Ident {
                                                         name: "proj",
-                                                        span: 2157..2161,
+                                                        span: 2153..2157,
                                                     },
                                                     args: [],
                                                     value_args: [],
@@ -749,13 +749,13 @@ Module {
                                                     binder: false,
                                                     established: false,
                                                     alias: None,
-                                                    span: 2157..2161,
+                                                    span: 2153..2157,
                                                 },
                                             ],
                                             base: TypeRef {
                                                 name: Ident {
                                                     name: "T",
-                                                    span: 2162..2163,
+                                                    span: 2158..2159,
                                                 },
                                                 args: [],
                                                 value_args: [],
@@ -764,28 +764,28 @@ Module {
                                                 binder: false,
                                                 established: false,
                                                 alias: None,
-                                                span: 2162..2163,
+                                                span: 2158..2159,
                                             },
                                         },
                                     ],
                                     args: [],
                                     named: [],
-                                    span: 2145..2166,
+                                    span: 2141..2162,
                                 },
-                                span: 2135..2166,
+                                span: 2131..2162,
                             },
                             Expr(
                                 For {
                                     pattern: Ident(
                                         Ident {
                                             name: "x",
-                                            span: 2175..2176,
+                                            span: 2171..2172,
                                         },
                                     ),
                                     iterable: Ident(
                                         Ident {
                                             name: "it",
-                                            span: 2180..2182,
+                                            span: 2176..2178,
                                         },
                                     ),
                                     body: Block {
@@ -798,7 +798,7 @@ Module {
                                                                 callee: Ident(
                                                                     Ident {
                                                                         name: "keep",
-                                                                        span: 2196..2200,
+                                                                        span: 2192..2196,
                                                                     },
                                                                 ),
                                                                 type_args: [],
@@ -806,12 +806,12 @@ Module {
                                                                     Ident(
                                                                         Ident {
                                                                             name: "x",
-                                                                            span: 2201..2202,
+                                                                            span: 2197..2198,
                                                                         },
                                                                     ),
                                                                 ],
                                                                 named: [],
-                                                                span: 2196..2203,
+                                                                span: 2192..2199,
                                                             },
                                                             Block {
                                                                 stmts: [
@@ -820,7 +820,7 @@ Module {
                                                                             callee: Ident(
                                                                                 Ident {
                                                                                     name: "add",
-                                                                                    span: 2218..2221,
+                                                                                    span: 2214..2217,
                                                                                 },
                                                                             ),
                                                                             type_args: [],
@@ -828,34 +828,34 @@ Module {
                                                                                 Ident(
                                                                                     Ident {
                                                                                         name: "out",
-                                                                                        span: 2222..2225,
+                                                                                        span: 2218..2221,
                                                                                     },
                                                                                 ),
                                                                                 Ident(
                                                                                     Ident {
                                                                                         name: "x",
-                                                                                        span: 2227..2228,
+                                                                                        span: 2223..2224,
                                                                                     },
                                                                                 ),
                                                                             ],
                                                                             named: [],
-                                                                            span: 2218..2229,
+                                                                            span: 2214..2225,
                                                                         },
                                                                     ),
                                                                 ],
-                                                                span: 2204..2239,
+                                                                span: 2200..2235,
                                                             },
                                                         ),
                                                     ],
                                                     else_block: None,
-                                                    span: 2193..2239,
+                                                    span: 2189..2235,
                                                 },
                                             ),
                                         ],
-                                        span: 2183..2245,
+                                        span: 2179..2241,
                                     },
                                     else_block: None,
-                                    span: 2171..2245,
+                                    span: 2167..2241,
                                 },
                             ),
                             Expr(
@@ -864,18 +864,18 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "out",
-                                                span: 2257..2260,
+                                                span: 2253..2256,
                                             },
                                         ),
                                     ),
-                                    span: 2250..2260,
+                                    span: 2246..2256,
                                 },
                             ),
                         ],
-                        span: 2129..2262,
+                        span: 2125..2258,
                     },
                 ),
-                span: 2012..2262,
+                span: 2007..2258,
             },
         ),
         Fn(
@@ -891,22 +891,22 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "reduce",
-                    span: 2403..2409,
+                    span: 2399..2405,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "It",
-                        span: 2410..2412,
+                        span: 2406..2408,
                     },
                     Ident {
                         name: "T",
-                        span: 2414..2415,
+                        span: 2410..2411,
                     },
                     Ident {
                         name: "A",
-                        span: 2417..2418,
+                        span: 2413..2414,
                     },
                 ],
                 generic_canbe: [],
@@ -915,14 +915,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "it",
-                            span: 2420..2422,
+                            span: 2416..2418,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 2424..2427,
+                                        span: 2420..2423,
                                     },
                                     args: [],
                                     value_args: [],
@@ -931,13 +931,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2424..2427,
+                                    span: 2420..2423,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "It",
-                                    span: 2428..2430,
+                                    span: 2424..2426,
                                 },
                                 args: [],
                                 value_args: [],
@@ -946,24 +946,24 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2428..2430,
+                                span: 2424..2426,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2420..2430,
+                        span: 2416..2426,
                     },
                     Param {
                         name: Ident {
                             name: "init",
-                            span: 2432..2436,
+                            span: 2428..2432,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "A",
-                                    span: 2438..2439,
+                                    span: 2434..2435,
                                 },
                                 args: [],
                                 value_args: [],
@@ -972,17 +972,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2438..2439,
+                                span: 2434..2435,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2432..2439,
+                        span: 2428..2435,
                     },
                     Param {
                         name: Ident {
                             name: "f",
-                            span: 2441..2442,
+                            span: 2437..2438,
                         },
                         ty: Fn {
                             params: [
@@ -991,7 +991,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "A",
-                                            span: 2445..2446,
+                                            span: 2441..2442,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1000,7 +1000,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2445..2446,
+                                        span: 2441..2442,
                                     },
                                 },
                                 Named {
@@ -1008,7 +1008,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 2448..2449,
+                                            span: 2444..2445,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1017,7 +1017,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2448..2449,
+                                        span: 2444..2445,
                                     },
                                 },
                             ],
@@ -1032,7 +1032,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "A",
-                                        span: 2454..2455,
+                                        span: 2450..2451,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1041,21 +1041,21 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2454..2455,
+                                    span: 2450..2451,
                                 },
                             },
-                            span: 2444..2455,
+                            span: 2440..2451,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2441..2455,
+                        span: 2437..2451,
                     },
                 ],
                 implicit_groups: [
                     TypeRef {
                         name: Ident {
                             name: "Yield",
-                            span: 2458..2463,
+                            span: 2454..2459,
                         },
                         args: [
                             Named {
@@ -1063,7 +1063,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "It",
-                                        span: 2464..2466,
+                                        span: 2460..2462,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1072,7 +1072,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2464..2466,
+                                    span: 2460..2462,
                                 },
                             },
                             Named {
@@ -1080,7 +1080,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "T",
-                                        span: 2468..2469,
+                                        span: 2464..2465,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1089,7 +1089,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2468..2469,
+                                    span: 2464..2465,
                                 },
                             },
                         ],
@@ -1099,7 +1099,7 @@ Module {
                         binder: false,
                         established: false,
                         alias: None,
-                        span: 2458..2470,
+                        span: 2454..2466,
                     },
                 ],
                 effects: Some(
@@ -1111,7 +1111,7 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "it",
-                                    span: 2483..2485,
+                                    span: 2479..2481,
                                 },
                                 path: [],
                             },
@@ -1120,7 +1120,7 @@ Module {
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
-                                            span: 2487..2490,
+                                            span: 2483..2486,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1129,23 +1129,23 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2487..2490,
+                                        span: 2483..2486,
                                     },
                                 ],
                                 reapplied: [],
                             },
-                            span: 2483..2490,
+                            span: 2479..2486,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "f",
-                                    span: 2492..2493,
+                                    span: 2488..2489,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 2492..2493,
+                            span: 2488..2489,
                         },
                     ],
                 ),
@@ -1155,7 +1155,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "A",
-                                span: 2478..2479,
+                                span: 2474..2475,
                             },
                             args: [],
                             value_args: [],
@@ -1164,7 +1164,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 2478..2479,
+                            span: 2474..2475,
                         },
                     },
                 ),
@@ -1176,30 +1176,30 @@ Module {
                                 pattern: Ident(
                                     Ident {
                                         name: "acc",
-                                        span: 2504..2507,
+                                        span: 2500..2503,
                                     },
                                 ),
                                 ty: None,
                                 value: Ident(
                                     Ident {
                                         name: "init",
-                                        span: 2510..2514,
+                                        span: 2506..2510,
                                     },
                                 ),
-                                span: 2500..2514,
+                                span: 2496..2510,
                             },
                             Expr(
                                 For {
                                     pattern: Ident(
                                         Ident {
                                             name: "x",
-                                            span: 2523..2524,
+                                            span: 2519..2520,
                                         },
                                     ),
                                     iterable: Ident(
                                         Ident {
                                             name: "it",
-                                            span: 2528..2530,
+                                            span: 2524..2526,
                                         },
                                     ),
                                     body: Block {
@@ -1208,14 +1208,14 @@ Module {
                                                 target: Ident(
                                                     Ident {
                                                         name: "acc",
-                                                        span: 2541..2544,
+                                                        span: 2537..2540,
                                                     },
                                                 ),
                                                 value: Call {
                                                     callee: Ident(
                                                         Ident {
                                                             name: "f",
-                                                            span: 2547..2548,
+                                                            span: 2543..2544,
                                                         },
                                                     ),
                                                     type_args: [],
@@ -1223,26 +1223,26 @@ Module {
                                                         Ident(
                                                             Ident {
                                                                 name: "acc",
-                                                                span: 2549..2552,
+                                                                span: 2545..2548,
                                                             },
                                                         ),
                                                         Ident(
                                                             Ident {
                                                                 name: "x",
-                                                                span: 2554..2555,
+                                                                span: 2550..2551,
                                                             },
                                                         ),
                                                     ],
                                                     named: [],
-                                                    span: 2547..2556,
+                                                    span: 2543..2552,
                                                 },
-                                                span: 2541..2556,
+                                                span: 2537..2552,
                                             },
                                         ],
-                                        span: 2531..2562,
+                                        span: 2527..2558,
                                     },
                                     else_block: None,
-                                    span: 2519..2562,
+                                    span: 2515..2558,
                                 },
                             ),
                             Expr(
@@ -1251,18 +1251,18 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "acc",
-                                                span: 2574..2577,
+                                                span: 2570..2573,
                                             },
                                         ),
                                     ),
-                                    span: 2567..2577,
+                                    span: 2563..2573,
                                 },
                             ),
                         ],
-                        span: 2494..2579,
+                        span: 2490..2575,
                     },
                 ),
-                span: 2400..2579,
+                span: 2396..2575,
             },
         ),
         Fn(
@@ -1280,18 +1280,18 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "map",
-                    span: 2895..2898,
+                    span: 2891..2894,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "T",
-                        span: 2899..2900,
+                        span: 2895..2896,
                     },
                     Ident {
                         name: "U",
-                        span: 2902..2903,
+                        span: 2898..2899,
                     },
                 ],
                 generic_canbe: [],
@@ -1300,14 +1300,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "list",
-                            span: 2905..2909,
+                            span: 2901..2905,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "List",
-                                    span: 2911..2915,
+                                    span: 2907..2911,
                                 },
                                 args: [
                                     Named {
@@ -1315,7 +1315,7 @@ Module {
                                         base: TypeRef {
                                             name: Ident {
                                                 name: "T",
-                                                span: 2916..2917,
+                                                span: 2912..2913,
                                             },
                                             args: [],
                                             value_args: [],
@@ -1324,7 +1324,7 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 2916..2917,
+                                            span: 2912..2913,
                                         },
                                     },
                                 ],
@@ -1334,17 +1334,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2911..2918,
+                                span: 2907..2914,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2905..2918,
+                        span: 2901..2914,
                     },
                     Param {
                         name: Ident {
                             name: "f",
-                            span: 2920..2921,
+                            span: 2916..2917,
                         },
                         ty: Fn {
                             params: [
@@ -1353,7 +1353,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 2924..2925,
+                                            span: 2920..2921,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1362,7 +1362,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2924..2925,
+                                        span: 2920..2921,
                                     },
                                 },
                             ],
@@ -1376,7 +1376,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "U",
-                                        span: 2930..2931,
+                                        span: 2926..2927,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1385,14 +1385,14 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 2930..2931,
+                                    span: 2926..2927,
                                 },
                             },
-                            span: 2923..2931,
+                            span: 2919..2927,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2920..2931,
+                        span: 2916..2927,
                     },
                 ],
                 implicit_groups: [],
@@ -1405,23 +1405,23 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "list",
-                                    span: 2954..2958,
+                                    span: 2950..2954,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 2954..2958,
+                            span: 2950..2954,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "f",
-                                    span: 2960..2961,
+                                    span: 2956..2957,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 2960..2961,
+                            span: 2956..2957,
                         },
                     ],
                 ),
@@ -1431,7 +1431,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Mut",
-                                    span: 2939..2942,
+                                    span: 2935..2938,
                                 },
                                 args: [],
                                 value_args: [],
@@ -1440,13 +1440,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2939..2942,
+                                span: 2935..2938,
                             },
                         ],
                         base: TypeRef {
                             name: Ident {
                                 name: "List",
-                                span: 2943..2947,
+                                span: 2939..2943,
                             },
                             args: [
                                 Named {
@@ -1454,7 +1454,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "U",
-                                            span: 2948..2949,
+                                            span: 2944..2945,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1463,7 +1463,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 2948..2949,
+                                        span: 2944..2945,
                                     },
                                 },
                             ],
@@ -1473,13 +1473,13 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 2943..2950,
+                            span: 2939..2946,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 2892..2950,
+                span: 2888..2946,
             },
         ),
         Fn(
@@ -1492,14 +1492,14 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "filter",
-                    span: 2982..2988,
+                    span: 2978..2984,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "T",
-                        span: 2989..2990,
+                        span: 2985..2986,
                     },
                 ],
                 generic_canbe: [],
@@ -1508,14 +1508,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "list",
-                            span: 2992..2996,
+                            span: 2988..2992,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "List",
-                                    span: 2998..3002,
+                                    span: 2994..2998,
                                 },
                                 args: [
                                     Named {
@@ -1523,7 +1523,7 @@ Module {
                                         base: TypeRef {
                                             name: Ident {
                                                 name: "T",
-                                                span: 3003..3004,
+                                                span: 2999..3000,
                                             },
                                             args: [],
                                             value_args: [],
@@ -1532,7 +1532,7 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 3003..3004,
+                                            span: 2999..3000,
                                         },
                                     },
                                 ],
@@ -1542,17 +1542,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 2998..3005,
+                                span: 2994..3001,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 2992..3005,
+                        span: 2988..3001,
                     },
                     Param {
                         name: Ident {
                             name: "keep",
-                            span: 3007..3011,
+                            span: 3003..3007,
                         },
                         ty: Fn {
                             params: [
@@ -1561,7 +1561,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 3014..3015,
+                                            span: 3010..3011,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1570,7 +1570,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3014..3015,
+                                        span: 3010..3011,
                                     },
                                 },
                             ],
@@ -1584,7 +1584,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Bool",
-                                        span: 3020..3024,
+                                        span: 3016..3020,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1593,14 +1593,14 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3020..3024,
+                                    span: 3016..3020,
                                 },
                             },
-                            span: 3013..3024,
+                            span: 3009..3020,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3007..3024,
+                        span: 3003..3020,
                     },
                 ],
                 implicit_groups: [],
@@ -1613,23 +1613,23 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "list",
-                                    span: 3068..3072,
+                                    span: 3065..3069,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 3068..3072,
+                            span: 3065..3069,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "keep",
-                                    span: 3074..3078,
+                                    span: 3071..3075,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 3074..3078,
+                            span: 3071..3075,
                         },
                         Deduction {
                             target: Opaque,
@@ -1637,11 +1637,11 @@ Module {
                                 [
                                     Ident {
                                         name: "list",
-                                        span: 3037..3041,
+                                        span: 3056..3060,
                                     },
                                 ],
                             ),
-                            span: 3032..3064,
+                            span: 3045..3061,
                         },
                     ],
                 ),
@@ -1651,7 +1651,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Mut",
-                                    span: 3047..3050,
+                                    span: 3028..3031,
                                 },
                                 args: [],
                                 value_args: [],
@@ -1660,13 +1660,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3047..3050,
+                                span: 3028..3031,
                             },
                         ],
                         base: TypeRef {
                             name: Ident {
                                 name: "List",
-                                span: 3051..3055,
+                                span: 3032..3036,
                             },
                             args: [
                                 Named {
@@ -1674,7 +1674,7 @@ Module {
                                         TypeRef {
                                             name: Ident {
                                                 name: "proj",
-                                                span: 3056..3060,
+                                                span: 3037..3041,
                                             },
                                             args: [],
                                             value_args: [],
@@ -1683,13 +1683,13 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 3056..3060,
+                                            span: 3037..3041,
                                         },
                                     ],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 3061..3062,
+                                            span: 3042..3043,
                                         },
                                         args: [],
                                         value_args: [],
@@ -1698,7 +1698,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3061..3062,
+                                        span: 3042..3043,
                                     },
                                 },
                             ],
@@ -1708,13 +1708,13 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 3051..3063,
+                            span: 3032..3044,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 2979..3063,
+                span: 2975..3044,
             },
         ),
         Fn(
@@ -1727,18 +1727,18 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "reduce",
-                    span: 3099..3105,
+                    span: 3096..3102,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "T",
-                        span: 3106..3107,
+                        span: 3103..3104,
                     },
                     Ident {
                         name: "A",
-                        span: 3109..3110,
+                        span: 3106..3107,
                     },
                 ],
                 generic_canbe: [],
@@ -1747,14 +1747,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "list",
-                            span: 3112..3116,
+                            span: 3109..3113,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "List",
-                                    span: 3118..3122,
+                                    span: 3115..3119,
                                 },
                                 args: [
                                     Named {
@@ -1762,7 +1762,7 @@ Module {
                                         base: TypeRef {
                                             name: Ident {
                                                 name: "T",
-                                                span: 3123..3124,
+                                                span: 3120..3121,
                                             },
                                             args: [],
                                             value_args: [],
@@ -1771,7 +1771,7 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 3123..3124,
+                                            span: 3120..3121,
                                         },
                                     },
                                 ],
@@ -1781,24 +1781,24 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3118..3125,
+                                span: 3115..3122,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3112..3125,
+                        span: 3109..3122,
                     },
                     Param {
                         name: Ident {
                             name: "init",
-                            span: 3127..3131,
+                            span: 3124..3128,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "A",
-                                    span: 3133..3134,
+                                    span: 3130..3131,
                                 },
                                 args: [],
                                 value_args: [],
@@ -1807,17 +1807,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3133..3134,
+                                span: 3130..3131,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3127..3134,
+                        span: 3124..3131,
                     },
                     Param {
                         name: Ident {
                             name: "f",
-                            span: 3136..3137,
+                            span: 3133..3134,
                         },
                         ty: Fn {
                             params: [
@@ -1826,6 +1826,23 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "A",
+                                            span: 3137..3138,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 3137..3138,
+                                    },
+                                },
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "T",
                                             span: 3140..3141,
                                         },
                                         args: [],
@@ -1836,23 +1853,6 @@ Module {
                                         established: false,
                                         alias: None,
                                         span: 3140..3141,
-                                    },
-                                },
-                                Named {
-                                    qualifiers: [],
-                                    base: TypeRef {
-                                        name: Ident {
-                                            name: "T",
-                                            span: 3143..3144,
-                                        },
-                                        args: [],
-                                        value_args: [],
-                                        from: [],
-                                        at: None,
-                                        binder: false,
-                                        established: false,
-                                        alias: None,
-                                        span: 3143..3144,
                                     },
                                 },
                             ],
@@ -1867,7 +1867,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "A",
-                                        span: 3149..3150,
+                                        span: 3146..3147,
                                     },
                                     args: [],
                                     value_args: [],
@@ -1876,14 +1876,14 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3149..3150,
+                                    span: 3146..3147,
                                 },
                             },
-                            span: 3139..3150,
+                            span: 3136..3147,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3136..3150,
+                        span: 3133..3147,
                     },
                 ],
                 implicit_groups: [],
@@ -1896,34 +1896,34 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "list",
-                                    span: 3163..3167,
+                                    span: 3160..3164,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 3163..3167,
+                            span: 3160..3164,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "f",
-                                    span: 3169..3170,
+                                    span: 3166..3167,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 3169..3170,
+                            span: 3166..3167,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "init",
-                                    span: 3173..3177,
+                                    span: 3170..3174,
                                 },
                                 path: [],
                             },
                             kind: Moved,
-                            span: 3172..3177,
+                            span: 3169..3174,
                         },
                     ],
                 ),
@@ -1933,7 +1933,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "A",
-                                span: 3158..3159,
+                                span: 3155..3156,
                             },
                             args: [],
                             value_args: [],
@@ -1942,13 +1942,13 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 3158..3159,
+                            span: 3155..3156,
                         },
                     },
                 ),
                 constructs: None,
                 body: None,
-                span: 3096..3159,
+                span: 3093..3156,
             },
         ),
         Fn(
@@ -1969,26 +1969,26 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "map_to",
-                    span: 3682..3688,
+                    span: 3679..3685,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "D",
-                        span: 3689..3690,
+                        span: 3686..3687,
                     },
                     Ident {
                         name: "It",
-                        span: 3692..3694,
+                        span: 3689..3691,
                     },
                     Ident {
                         name: "T",
-                        span: 3696..3697,
+                        span: 3693..3694,
                     },
                     Ident {
                         name: "U",
-                        span: 3699..3700,
+                        span: 3696..3697,
                     },
                 ],
                 generic_canbe: [],
@@ -1997,14 +1997,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "dest",
-                            span: 3707..3711,
+                            span: 3704..3708,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 3713..3716,
+                                        span: 3710..3713,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2013,13 +2013,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3713..3716,
+                                    span: 3710..3713,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "D",
-                                    span: 3717..3718,
+                                    span: 3714..3715,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2028,24 +2028,24 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3717..3718,
+                                span: 3714..3715,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3707..3718,
+                        span: 3704..3715,
                     },
                     Param {
                         name: Ident {
                             name: "it",
-                            span: 3724..3726,
+                            span: 3721..3723,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 3728..3731,
+                                        span: 3725..3728,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2054,13 +2054,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3728..3731,
+                                    span: 3725..3728,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "It",
-                                    span: 3732..3734,
+                                    span: 3729..3731,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2069,17 +2069,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3732..3734,
+                                span: 3729..3731,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3724..3734,
+                        span: 3721..3731,
                     },
                     Param {
                         name: Ident {
                             name: "f",
-                            span: 3740..3741,
+                            span: 3737..3738,
                         },
                         ty: Fn {
                             params: [
@@ -2088,7 +2088,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 3744..3745,
+                                            span: 3741..3742,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2097,7 +2097,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3744..3745,
+                                        span: 3741..3742,
                                     },
                                 },
                             ],
@@ -2111,7 +2111,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "U",
-                                        span: 3750..3751,
+                                        span: 3747..3748,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2120,19 +2120,19 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3750..3751,
+                                    span: 3747..3748,
                                 },
                             },
-                            span: 3743..3751,
+                            span: 3740..3748,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 3740..3751,
+                        span: 3737..3748,
                     },
                     Param {
                         name: Ident {
                             name: "add",
-                            span: 3758..3761,
+                            span: 3755..3758,
                         },
                         ty: Fn {
                             params: [
@@ -2141,7 +2141,7 @@ Module {
                                         TypeRef {
                                             name: Ident {
                                                 name: "Mut",
-                                                span: 3770..3773,
+                                                span: 3767..3770,
                                             },
                                             args: [],
                                             value_args: [],
@@ -2150,13 +2150,13 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 3770..3773,
+                                            span: 3767..3770,
                                         },
                                     ],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "D",
-                                            span: 3774..3775,
+                                            span: 3771..3772,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2165,7 +2165,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3774..3775,
+                                        span: 3771..3772,
                                     },
                                 },
                                 Named {
@@ -2173,7 +2173,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "U",
-                                            span: 3783..3784,
+                                            span: 3780..3781,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2182,7 +2182,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3783..3784,
+                                        span: 3780..3781,
                                     },
                                 },
                             ],
@@ -2190,13 +2190,13 @@ Module {
                                 Some(
                                     Ident {
                                         name: "dest",
-                                        span: 3764..3768,
+                                        span: 3761..3765,
                                     },
                                 ),
                                 Some(
                                     Ident {
                                         name: "elem",
-                                        span: 3777..3781,
+                                        span: 3774..3778,
                                     },
                                 ),
                             ],
@@ -2207,7 +2207,7 @@ Module {
                                         target: Param {
                                             name: Ident {
                                                 name: "dest",
-                                                span: 3835..3839,
+                                                span: 3832..3836,
                                             },
                                             path: [],
                                         },
@@ -2216,7 +2216,7 @@ Module {
                                                 TypeRef {
                                                     name: Ident {
                                                         name: "Mut",
-                                                        span: 3841..3844,
+                                                        span: 3838..3841,
                                                     },
                                                     args: [],
                                                     value_args: [],
@@ -2225,23 +2225,23 @@ Module {
                                                     binder: false,
                                                     established: false,
                                                     alias: None,
-                                                    span: 3841..3844,
+                                                    span: 3838..3841,
                                                 },
                                             ],
                                             reapplied: [],
                                         },
-                                        span: 3835..3844,
+                                        span: 3832..3841,
                                     },
                                     Deduction {
                                         target: Param {
                                             name: Ident {
                                                 name: "elem",
-                                                span: 3847..3851,
+                                                span: 3844..3848,
                                             },
                                             path: [],
                                         },
                                         kind: Moved,
-                                        span: 3846..3851,
+                                        span: 3843..3848,
                                     },
                                 ],
                             ),
@@ -2250,7 +2250,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "None",
-                                        span: 3789..3793,
+                                        span: 3786..3790,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2259,21 +2259,21 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3789..3793,
+                                    span: 3786..3790,
                                 },
                             },
-                            span: 3763..3793,
+                            span: 3760..3790,
                         },
                         variadic: false,
                         implicit: true,
-                        span: 3758..3793,
+                        span: 3755..3790,
                     },
                 ],
                 implicit_groups: [
                     TypeRef {
                         name: Ident {
                             name: "Yield",
-                            span: 3800..3805,
+                            span: 3797..3802,
                         },
                         args: [
                             Named {
@@ -2281,7 +2281,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "It",
-                                        span: 3806..3808,
+                                        span: 3803..3805,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2290,7 +2290,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3806..3808,
+                                    span: 3803..3805,
                                 },
                             },
                             Named {
@@ -2298,7 +2298,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "T",
-                                        span: 3810..3811,
+                                        span: 3807..3808,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2307,7 +2307,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 3810..3811,
+                                    span: 3807..3808,
                                 },
                             },
                         ],
@@ -2317,7 +2317,7 @@ Module {
                         binder: false,
                         established: false,
                         alias: None,
-                        span: 3800..3812,
+                        span: 3797..3809,
                     },
                 ],
                 effects: Some(
@@ -2329,7 +2329,7 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "it",
-                                    span: 3855..3857,
+                                    span: 3852..3854,
                                 },
                                 path: [],
                             },
@@ -2338,7 +2338,7 @@ Module {
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
-                                            span: 3859..3862,
+                                            span: 3856..3859,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2347,23 +2347,23 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 3859..3862,
+                                        span: 3856..3859,
                                     },
                                 ],
                                 reapplied: [],
                             },
-                            span: 3855..3862,
+                            span: 3852..3859,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "f",
-                                    span: 3864..3865,
+                                    span: 3861..3862,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 3864..3865,
+                            span: 3861..3862,
                         },
                     ],
                 ),
@@ -2373,7 +2373,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Mut",
-                                    span: 3821..3824,
+                                    span: 3818..3821,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2382,13 +2382,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 3821..3824,
+                                span: 3818..3821,
                             },
                         ],
                         base: TypeRef {
                             name: Ident {
                                 name: "D",
-                                span: 3825..3826,
+                                span: 3822..3823,
                             },
                             args: [],
                             value_args: [],
@@ -2397,7 +2397,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 3825..3826,
+                            span: 3822..3823,
                         },
                     },
                 ),
@@ -2410,13 +2410,13 @@ Module {
                                     pattern: Ident(
                                         Ident {
                                             name: "x",
-                                            span: 3876..3877,
+                                            span: 3873..3874,
                                         },
                                     ),
                                     iterable: Ident(
                                         Ident {
                                             name: "it",
-                                            span: 3881..3883,
+                                            span: 3878..3880,
                                         },
                                     ),
                                     body: Block {
@@ -2426,7 +2426,7 @@ Module {
                                                     callee: Ident(
                                                         Ident {
                                                             name: "add",
-                                                            span: 3894..3897,
+                                                            span: 3891..3894,
                                                         },
                                                     ),
                                                     type_args: [],
@@ -2434,14 +2434,14 @@ Module {
                                                         Ident(
                                                             Ident {
                                                                 name: "dest",
-                                                                span: 3898..3902,
+                                                                span: 3895..3899,
                                                             },
                                                         ),
                                                         Call {
                                                             callee: Ident(
                                                                 Ident {
                                                                     name: "f",
-                                                                    span: 3904..3905,
+                                                                    span: 3901..3902,
                                                                 },
                                                             ),
                                                             type_args: [],
@@ -2449,23 +2449,23 @@ Module {
                                                                 Ident(
                                                                     Ident {
                                                                         name: "x",
-                                                                        span: 3906..3907,
+                                                                        span: 3903..3904,
                                                                     },
                                                                 ),
                                                             ],
                                                             named: [],
-                                                            span: 3904..3908,
+                                                            span: 3901..3905,
                                                         },
                                                     ],
                                                     named: [],
-                                                    span: 3894..3909,
+                                                    span: 3891..3906,
                                                 },
                                             ),
                                         ],
-                                        span: 3884..3915,
+                                        span: 3881..3912,
                                     },
                                     else_block: None,
-                                    span: 3872..3915,
+                                    span: 3869..3912,
                                 },
                             ),
                             Expr(
@@ -2474,18 +2474,18 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "dest",
-                                                span: 3927..3931,
+                                                span: 3924..3928,
                                             },
                                         ),
                                     ),
-                                    span: 3920..3931,
+                                    span: 3917..3928,
                                 },
                             ),
                         ],
-                        span: 3866..3933,
+                        span: 3863..3930,
                     },
                 ),
-                span: 3679..3933,
+                span: 3676..3930,
             },
         ),
         Fn(
@@ -2503,22 +2503,22 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "filter_to",
-                    span: 4234..4243,
+                    span: 4231..4240,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "D",
-                        span: 4244..4245,
+                        span: 4241..4242,
                     },
                     Ident {
                         name: "It",
-                        span: 4247..4249,
+                        span: 4244..4246,
                     },
                     Ident {
                         name: "T",
-                        span: 4251..4252,
+                        span: 4248..4249,
                     },
                 ],
                 generic_canbe: [],
@@ -2527,14 +2527,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "dest",
-                            span: 4259..4263,
+                            span: 4256..4260,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 4265..4268,
+                                        span: 4262..4265,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2543,13 +2543,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4265..4268,
+                                    span: 4262..4265,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "D",
-                                    span: 4269..4270,
+                                    span: 4266..4267,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2558,24 +2558,24 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 4269..4270,
+                                span: 4266..4267,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 4259..4270,
+                        span: 4256..4267,
                     },
                     Param {
                         name: Ident {
                             name: "it",
-                            span: 4276..4278,
+                            span: 4273..4275,
                         },
                         ty: Named {
                             qualifiers: [
                                 TypeRef {
                                     name: Ident {
                                         name: "Mut",
-                                        span: 4280..4283,
+                                        span: 4277..4280,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2584,13 +2584,13 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4280..4283,
+                                    span: 4277..4280,
                                 },
                             ],
                             base: TypeRef {
                                 name: Ident {
                                     name: "It",
-                                    span: 4284..4286,
+                                    span: 4281..4283,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2599,17 +2599,17 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 4284..4286,
+                                span: 4281..4283,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 4276..4286,
+                        span: 4273..4283,
                     },
                     Param {
                         name: Ident {
                             name: "keep",
-                            span: 4292..4296,
+                            span: 4289..4293,
                         },
                         ty: Fn {
                             params: [
@@ -2618,7 +2618,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 4299..4300,
+                                            span: 4296..4297,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2627,7 +2627,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 4299..4300,
+                                        span: 4296..4297,
                                     },
                                 },
                             ],
@@ -2641,7 +2641,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "Bool",
-                                        span: 4305..4309,
+                                        span: 4302..4306,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2650,19 +2650,19 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4305..4309,
+                                    span: 4302..4306,
                                 },
                             },
-                            span: 4298..4309,
+                            span: 4295..4306,
                         },
                         variadic: false,
                         implicit: false,
-                        span: 4292..4309,
+                        span: 4289..4306,
                     },
                     Param {
                         name: Ident {
                             name: "add",
-                            span: 4316..4319,
+                            span: 4313..4316,
                         },
                         ty: Fn {
                             params: [
@@ -2671,7 +2671,7 @@ Module {
                                         TypeRef {
                                             name: Ident {
                                                 name: "Mut",
-                                                span: 4328..4331,
+                                                span: 4325..4328,
                                             },
                                             args: [],
                                             value_args: [],
@@ -2680,13 +2680,13 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 4328..4331,
+                                            span: 4325..4328,
                                         },
                                     ],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "D",
-                                            span: 4332..4333,
+                                            span: 4329..4330,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2695,7 +2695,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 4332..4333,
+                                        span: 4329..4330,
                                     },
                                 },
                                 Named {
@@ -2703,7 +2703,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 4341..4342,
+                                            span: 4338..4339,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2712,7 +2712,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 4341..4342,
+                                        span: 4338..4339,
                                     },
                                 },
                             ],
@@ -2720,13 +2720,13 @@ Module {
                                 Some(
                                     Ident {
                                         name: "dest",
-                                        span: 4322..4326,
+                                        span: 4319..4323,
                                     },
                                 ),
                                 Some(
                                     Ident {
                                         name: "elem",
-                                        span: 4335..4339,
+                                        span: 4332..4336,
                                     },
                                 ),
                             ],
@@ -2737,7 +2737,7 @@ Module {
                                         target: Param {
                                             name: Ident {
                                                 name: "dest",
-                                                span: 4417..4421,
+                                                span: 4414..4418,
                                             },
                                             path: [],
                                         },
@@ -2746,7 +2746,7 @@ Module {
                                                 TypeRef {
                                                     name: Ident {
                                                         name: "Mut",
-                                                        span: 4423..4426,
+                                                        span: 4420..4423,
                                                     },
                                                     args: [],
                                                     value_args: [],
@@ -2755,23 +2755,23 @@ Module {
                                                     binder: false,
                                                     established: false,
                                                     alias: None,
-                                                    span: 4423..4426,
+                                                    span: 4420..4423,
                                                 },
                                             ],
                                             reapplied: [],
                                         },
-                                        span: 4417..4426,
+                                        span: 4414..4423,
                                     },
                                     Deduction {
                                         target: Param {
                                             name: Ident {
                                                 name: "elem",
-                                                span: 4429..4433,
+                                                span: 4426..4430,
                                             },
                                             path: [],
                                         },
                                         kind: Moved,
-                                        span: 4428..4433,
+                                        span: 4425..4430,
                                     },
                                 ],
                             ),
@@ -2780,7 +2780,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "None",
-                                        span: 4347..4351,
+                                        span: 4344..4348,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2789,19 +2789,19 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4347..4351,
+                                    span: 4344..4348,
                                 },
                             },
-                            span: 4321..4351,
+                            span: 4318..4348,
                         },
                         variadic: false,
                         implicit: true,
-                        span: 4316..4351,
+                        span: 4313..4348,
                     },
                     Param {
                         name: Ident {
                             name: "copy",
-                            span: 4358..4362,
+                            span: 4355..4359,
                         },
                         ty: Fn {
                             params: [
@@ -2810,7 +2810,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "T",
-                                            span: 4368..4369,
+                                            span: 4365..4366,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2819,7 +2819,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 4368..4369,
+                                        span: 4365..4366,
                                     },
                                 },
                             ],
@@ -2827,7 +2827,7 @@ Module {
                                 Some(
                                     Ident {
                                         name: "v",
-                                        span: 4365..4366,
+                                        span: 4362..4363,
                                     },
                                 ),
                             ],
@@ -2838,7 +2838,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "T",
-                                        span: 4374..4375,
+                                        span: 4371..4372,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2847,21 +2847,21 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4374..4375,
+                                    span: 4371..4372,
                                 },
                             },
-                            span: 4364..4375,
+                            span: 4361..4372,
                         },
                         variadic: false,
                         implicit: true,
-                        span: 4358..4375,
+                        span: 4355..4372,
                     },
                 ],
                 implicit_groups: [
                     TypeRef {
                         name: Ident {
                             name: "Yield",
-                            span: 4382..4387,
+                            span: 4379..4384,
                         },
                         args: [
                             Named {
@@ -2869,7 +2869,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "It",
-                                        span: 4388..4390,
+                                        span: 4385..4387,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2878,7 +2878,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4388..4390,
+                                    span: 4385..4387,
                                 },
                             },
                             Named {
@@ -2886,7 +2886,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "T",
-                                        span: 4392..4393,
+                                        span: 4389..4390,
                                     },
                                     args: [],
                                     value_args: [],
@@ -2895,7 +2895,7 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 4392..4393,
+                                    span: 4389..4390,
                                 },
                             },
                         ],
@@ -2905,7 +2905,7 @@ Module {
                         binder: false,
                         established: false,
                         alias: None,
-                        span: 4382..4394,
+                        span: 4379..4391,
                     },
                 ],
                 effects: Some(
@@ -2917,7 +2917,7 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "it",
-                                    span: 4437..4439,
+                                    span: 4434..4436,
                                 },
                                 path: [],
                             },
@@ -2926,7 +2926,7 @@ Module {
                                     TypeRef {
                                         name: Ident {
                                             name: "Mut",
-                                            span: 4441..4444,
+                                            span: 4438..4441,
                                         },
                                         args: [],
                                         value_args: [],
@@ -2935,23 +2935,23 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 4441..4444,
+                                        span: 4438..4441,
                                     },
                                 ],
                                 reapplied: [],
                             },
-                            span: 4437..4444,
+                            span: 4434..4441,
                         },
                         Deduction {
                             target: Param {
                                 name: Ident {
                                     name: "keep",
-                                    span: 4446..4450,
+                                    span: 4443..4447,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 4446..4450,
+                            span: 4443..4447,
                         },
                     ],
                 ),
@@ -2961,7 +2961,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Mut",
-                                    span: 4403..4406,
+                                    span: 4400..4403,
                                 },
                                 args: [],
                                 value_args: [],
@@ -2970,13 +2970,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 4403..4406,
+                                span: 4400..4403,
                             },
                         ],
                         base: TypeRef {
                             name: Ident {
                                 name: "D",
-                                span: 4407..4408,
+                                span: 4404..4405,
                             },
                             args: [],
                             value_args: [],
@@ -2985,7 +2985,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 4407..4408,
+                            span: 4404..4405,
                         },
                     },
                 ),
@@ -2998,13 +2998,13 @@ Module {
                                     pattern: Ident(
                                         Ident {
                                             name: "x",
-                                            span: 4461..4462,
+                                            span: 4458..4459,
                                         },
                                     ),
                                     iterable: Ident(
                                         Ident {
                                             name: "it",
-                                            span: 4466..4468,
+                                            span: 4463..4465,
                                         },
                                     ),
                                     body: Block {
@@ -3017,7 +3017,7 @@ Module {
                                                                 callee: Ident(
                                                                     Ident {
                                                                         name: "keep",
-                                                                        span: 4482..4486,
+                                                                        span: 4479..4483,
                                                                     },
                                                                 ),
                                                                 type_args: [],
@@ -3025,12 +3025,12 @@ Module {
                                                                     Ident(
                                                                         Ident {
                                                                             name: "x",
-                                                                            span: 4487..4488,
+                                                                            span: 4484..4485,
                                                                         },
                                                                     ),
                                                                 ],
                                                                 named: [],
-                                                                span: 4482..4489,
+                                                                span: 4479..4486,
                                                             },
                                                             Block {
                                                                 stmts: [
@@ -3039,7 +3039,7 @@ Module {
                                                                             callee: Ident(
                                                                                 Ident {
                                                                                     name: "add",
-                                                                                    span: 4504..4507,
+                                                                                    span: 4501..4504,
                                                                                 },
                                                                             ),
                                                                             type_args: [],
@@ -3047,14 +3047,14 @@ Module {
                                                                                 Ident(
                                                                                     Ident {
                                                                                         name: "dest",
-                                                                                        span: 4508..4512,
+                                                                                        span: 4505..4509,
                                                                                     },
                                                                                 ),
                                                                                 Call {
                                                                                     callee: Ident(
                                                                                         Ident {
                                                                                             name: "copy",
-                                                                                            span: 4514..4518,
+                                                                                            span: 4511..4515,
                                                                                         },
                                                                                     ),
                                                                                     type_args: [],
@@ -3062,32 +3062,32 @@ Module {
                                                                                         Ident(
                                                                                             Ident {
                                                                                                 name: "x",
-                                                                                                span: 4519..4520,
+                                                                                                span: 4516..4517,
                                                                                             },
                                                                                         ),
                                                                                     ],
                                                                                     named: [],
-                                                                                    span: 4514..4521,
+                                                                                    span: 4511..4518,
                                                                                 },
                                                                             ],
                                                                             named: [],
-                                                                            span: 4504..4522,
+                                                                            span: 4501..4519,
                                                                         },
                                                                     ),
                                                                 ],
-                                                                span: 4490..4532,
+                                                                span: 4487..4529,
                                                             },
                                                         ),
                                                     ],
                                                     else_block: None,
-                                                    span: 4479..4532,
+                                                    span: 4476..4529,
                                                 },
                                             ),
                                         ],
-                                        span: 4469..4538,
+                                        span: 4466..4535,
                                     },
                                     else_block: None,
-                                    span: 4457..4538,
+                                    span: 4454..4535,
                                 },
                             ),
                             Expr(
@@ -3096,18 +3096,18 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "dest",
-                                                span: 4550..4554,
+                                                span: 4547..4551,
                                             },
                                         ),
                                     ),
-                                    span: 4543..4554,
+                                    span: 4540..4551,
                                 },
                             ),
                         ],
-                        span: 4451..4556,
+                        span: 4448..4553,
                     },
                 ),
-                span: 4231..4556,
+                span: 4228..4553,
             },
         ),
         Fn(
@@ -3128,14 +3128,14 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "drop",
-                    span: 5042..5046,
+                    span: 5039..5043,
                 },
                 scoped_to: None,
                 structural: false,
                 generics: [
                     Ident {
                         name: "T",
-                        span: 5047..5048,
+                        span: 5044..5045,
                     },
                 ],
                 generic_canbe: [],
@@ -3144,14 +3144,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "value",
-                            span: 5050..5055,
+                            span: 5047..5052,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "T",
-                                    span: 5057..5058,
+                                    span: 5054..5055,
                                 },
                                 args: [],
                                 value_args: [],
@@ -3160,12 +3160,12 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 5057..5058,
+                                span: 5054..5055,
                             },
                         },
                         variadic: false,
                         implicit: false,
-                        span: 5050..5058,
+                        span: 5047..5055,
                     },
                 ],
                 implicit_groups: [],
@@ -3178,12 +3178,12 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "value",
-                                    span: 5075..5080,
+                                    span: 5072..5077,
                                 },
                                 path: [],
                             },
                             kind: Moved,
-                            span: 5074..5080,
+                            span: 5071..5077,
                         },
                     ],
                 ),
@@ -3193,7 +3193,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 5066..5070,
+                                span: 5063..5067,
                             },
                             args: [],
                             value_args: [],
@@ -3202,7 +3202,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 5066..5070,
+                            span: 5063..5067,
                         },
                     },
                 ),
@@ -3210,10 +3210,10 @@ Module {
                 body: Some(
                     Block {
                         stmts: [],
-                        span: 5081..5084,
+                        span: 5078..5081,
                     },
                 ),
-                span: 5039..5084,
+                span: 5036..5081,
             },
         ),
     ],

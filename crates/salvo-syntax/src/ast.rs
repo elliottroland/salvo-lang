@@ -621,7 +621,7 @@ pub enum EffectRef {
 /// `=> .items: proj(list)` (the result's field projects `list`),
 /// `=> v.items: proj(other)` (a parameter's field is re-pointed), and
 /// the **opaque** entry (`DeductionTarget::Opaque`) synthesized by the
-/// parser from the return-type annotation `-> proj(c) in (T)` — the result
+/// parser from the return-type annotation `-> T holds proj(c)` — the result
 /// holds a borrow of `c` somewhere inside (user decision 2026-09-24; the
 /// clause spelling `=> proj(c)` is gone)
 /// [proj-infer]. A parameter the clause does not mention is *inferred*
@@ -669,7 +669,7 @@ pub enum DeductionTarget {
     /// The result as a whole, opaquely: the result *holds* a borrow of the
     /// sources somewhere inside [proj-infer]. Never written as a clause
     /// entry — the parser synthesizes it from the return-type annotation
-    /// `-> proj(c) in (T)` (on fn declarations and fn types alike).
+    /// `-> T holds proj(c)` (on fn declarations and fn types alike).
     Opaque,
 }
 
@@ -979,7 +979,7 @@ impl fmt::Display for Type {
                     write!(f, " [{}]", effects.join(", "))?;
                 }
                 // [proj-infer] The opaque lends render where they are
-                // written: `-> proj(c) in (T)`.
+                // written: after the return type, `-> T holds proj(c)`.
                 let opaque: Vec<&str> = deductions
                     .iter()
                     .flatten()
@@ -991,7 +991,7 @@ impl fmt::Display for Type {
                 if opaque.is_empty() {
                     write!(f, " -> {ret}")
                 } else {
-                    write!(f, " -> proj({}) in ({ret})", opaque.join(", "))
+                    write!(f, " -> {ret} holds proj({})", opaque.join(", "))
                 }
             }
         }

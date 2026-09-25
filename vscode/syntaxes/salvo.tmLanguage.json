@@ -108,7 +108,7 @@
         },
         {
           "name": "keyword.other.salvo",
-          "match": "\\b(as|of|with|canbe|is|use|proj|once|linear)\\b"
+          "match": "\\b(as|of|with|canbe|is|use|proj|once|linear|holds)\\b"
         },
         {
           "comment": "the export modifier — a keyword by position, not a reserved word",

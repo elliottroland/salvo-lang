@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1480 tests, complete: the toolchain tests are
+cargo test                  # 1482 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,61 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The opaque lend reads the type first: `T holds proj(a, b)` (2026-09-25,
+user decision).** The user found `filter`'s
+`-> proj(it) in (Mut List<proj T>)` cryptic, and named the reason exactly: the
+prefix form looks as though the result *were* the projection rather than
+holding one. Four options were put up — a source on the nested `proj`
+(`Mut List<proj(it) T>`), a postfix annotation, both, or inferring the whole
+thing — and the call was **postfix now, nested source later with link
+parameters**, spelled `T holds proj(a, b)` so that `proj` stays in the form and
+carries its own parentheses.
+
+What the round turned on was measurement rather than taste. Three facts,
+probed before the options were written: only **one** of std's three `in (…)`
+sites is the opaque case the form exists for (`next` on `ListEnumYield`, whose
+borrow lives inside `Enumerated<T>`'s `elem` field) — the other two are
+`filter`, where the projection is visible in the type; the nested source is
+**already refused** with a diagnostic pointing at `in`, because the link is
+recorded against the whole result and not the position; and the annotation
+buys **precision, not correctness** — deleted, the conservative fallback still
+poisons the view when the pass's source moves, but it also links the result to
+the *predicate*, so mutating a variable the callback captured stops compiling.
+That last one is now a test (`a_written_lend_narrows_which_arguments_the_result_holds`,
+with its sibling for the half no annotation can remove), because it is the
+answer to "why not just delete it".
+
+The reading the form now has, as a pair of one-word statements: `proj(x) T`
+says the value **is** a borrow of `x`; `T holds proj(x)` says it *holds* one.
+Two things fell out of building it. **`holds` had to be reserved**, not
+contextual like `preserve`: a type is a chain of space-separated qualifiers, so
+`Mut List<proj T> holds proj(it)` parsed `holds` as another qualifier and
+`proj(it)` as the base type — the first attempt produced sixteen errors in std
+and no ambiguity anywhere else, and reserving it puts `holds` beside `proj`,
+`once` and `linear` as a lowercase type-position word. And the parentheses
+**moved off the interesting thing**: the prefix form had to wrap the *type* to
+keep `|` unambiguous, while `holds proj(a, b)` needs none of its own — which is
+also what keeps it apart from the next parameter inside a fn type's list, the
+problem `in` was chosen for.
+
+Implementation stayed as thin as the respelling it replaces: the parser reads
+`holds proj(…)` after the return type (and after a fn type's own return) and
+synthesizes the same `DeductionTarget::Opaque` entry, so `lends.rs`,
+`deduce.rs`, validation and both emitters are untouched — the std AST snapshots
+diffed in spans and in the two doc-comment lines that were reworded, nothing
+else. Swept: std's three sites, ten test sources, the hover and fn-type
+`Display`, the TextMate grammar's keyword table (a test enforces the
+partition), `docs/language/`, LANGUAGE_SPEC, BACKEND_SPEC.rust and the prose in
+both planning documents. Both older spellings are plain parse errors, per the
+no-compatibility invariant and the precedent that the `with` → `canbe` rename
+set; the parser test pins all three shapes plus the "`holds` is not an
+identifier any more" half. **Option A is recorded in ROADMAP** as the use case
+that makes link parameters worth building: with per-position links real, a
+source on a nested `proj` stops being sugar whose precision the analysis does
+not keep, and the note carries what its implementation would need (including
+the hole found while probing: a nested source in a *parameter* type is
+silently accepted and means nothing). 1482 tests green.
 
 **The two `examples/borrowing/` defects, fixed (2026-09-25, user request).**
 Both were checker/emitter disagreements — Kotlin ran the program, the Rust
@@ -773,10 +828,10 @@ second half asserted the repealed refusal). 1421 tests green.
 borrows of `a` and `b` somewhere inside — read as none of its neighbours
 do: every other entry states what a call does to a parameter, this one
 described the returned value. Respelled as a **return-type annotation**:
-`-> proj(a, b) in (T)`, the parentheses around the type **mandatory** (the
+`-> T holds proj(a, b)`, the parentheses around the type **mandatory** (the
 user's call, so wholesale `proj(a) T` and the annotation never need
 different binding rules against `|`), and the same form sits on a fn
-*type*'s own return — `?iter: (c: C) -> proj(c) in (Mut It)` — which
+*type*'s own return — `?iter: (c: C) -> Mut It holds proj(c)` — which
 **retires the remote `=>[f] proj(c)` group entry** entirely. Both old
 spellings stopped parsing (plain error, no shim, per the
 no-backwards-compatibility invariant). Decided while exploring
@@ -1124,7 +1179,7 @@ cannot write. Two consequences worth keeping:
   `Emitted Enumerated<T>` through the generic `emitted`, and body inference
   cannot see the borrow inside the instantiation — the exact case
   [proj-infer]'s *written* form exists for, so the `next` writes
-  the opaque lend by hand (today's spelling: `-> proj(p) in (…)`). Without it the Rust signature elides
+  the opaque lend by hand (today's spelling: `-> … holds proj(p)`). Without it the Rust signature elides
   to `<'_` and rustc E0106s.
 - **[rs-proj-lends] grew the borrowing-struct case**: a lent parameter that
   is itself a borrowing struct defeats elision even alone (two input
@@ -7384,7 +7439,7 @@ deleted when the phase lands.
 2026-09-12, evening).** Walking the projection leftovers surfaced two
 gaps, decided and closed together. (1) *Written-entry precedence*
 ([proj-infer]): a bodied generic's written opaque lend (then spelled
-`=> proj(it)`; `-> proj(it) in (…)` since 2026-09-24) was consulted only
+`=> proj(it)`; `-> … holds proj(it)` since 2026-09-24) was consulted only
 behind a written-return-type gate that an instantiation-borne projection
 (`-> Mut List<T>`, `T = proj Str`) never passed, so the every-kept-argument
 fallback linked the result to arguments the author had excluded — the fix
@@ -7590,7 +7645,7 @@ as the required spelling — the user preferred inference with the clause as
 fallback; the form is reserved in ROADMAP for per-field precision on
 bodiless callees. **Documented gap**: a generic body cannot see that an
 element of an opaque pass is borrowed (`filter`'s `add(out, x)`), so the
-signature says it (`-> proj(it) in (…)`); a user fn storing such an element
+signature says it (`-> … holds proj(it)`); a user fn storing such an element
 without writing so is caught by rustc, not the checker.
 
 **`ReadOnly` is renamed `proj`, and copying becomes opt-in-only (user decisions
@@ -16258,7 +16313,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1480)
+## Test inventory (all green: 1482)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -17461,6 +17516,18 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A word that follows a type has to be reserved, because a type is a chain
+  of words.** `Mut List<proj T> holds proj(it)` parsed `holds` as one more
+  qualifier and `proj(it)` as the base type, so the postfix annotation
+  produced sixteen errors in std before `holds` joined the keyword table. A
+  contextual keyword works where the *shape* around it is unmistakable
+  (`preserve` inside a deduction clause, `send fn`); it cannot work in a
+  position where an ordinary identifier is also legal. The corollary for
+  future syntax: a new word after a type or before a type is a reserved word,
+  and the cheap check is whether `cargo run -- analyze --src std` still passes
+  after adding the form to one std signature. (`cargo run -- lang tm-grammar`
+  must be regenerated with it, and a test enforces the partition.)
+
 - **A synthesized parameter is a bug wherever the real one already exists.**
   The covered-position rendering [rs-loc] synthesized `__anchor: &mut Vec<T>`
   unconditionally, which is right for `=> a canbe d` (no parameter names the
@@ -18266,7 +18333,7 @@ snapshot diffs.
   are the checker's only record of the difference.
 - **A generic body cannot see that an element it stores is borrowed**, because
   the pass is opaque (`it: Mut It`). Std says it in the signature
-  (`-> proj(it) in (…)`); a user fn that does not is caught by rustc, not the
+  (`-> … holds proj(it)`); a user fn that does not is caught by rustc, not the
   checker. Recorded in ROADMAP.
 - **Inference changes what a migration means.** Converting `-> [] T` (consume
   everything) to a clause that mentions nothing turns a `consume(x) {}` test

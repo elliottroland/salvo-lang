@@ -165,7 +165,7 @@ pub fn kept_params(decl: &FnDecl) -> Vec<usize> {
 }
 
 /// The parameters named as sources by written projection entries about the
-/// *result* — the opaque return annotation `-> proj(a) in (T)` (synthesized
+/// *result* — the opaque return annotation `-> T holds proj(a)` (synthesized
 /// as `DeductionTarget::Opaque`) and `=> .items: proj(a)` — if any were
 /// written. (An entry about a *parameter's* field, `v.items: proj(x)`,
 /// re-points that parameter and is not a lend of the result.)
@@ -206,7 +206,7 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
     // [proj-infer] A written projection entry decides outright — *before*
     // the written-return gate below, because instantiation can make a
     // result hold borrows the written type does not show (`-> Mut List<T>`
-    // with `T = proj Str`): the author's `-> proj(it) in (…)` names the
+    // with `T = proj Str`): the author's `-> … holds proj(it)` names the
     // lends exactly, and must win over the every-kept-argument fallback
     // the caller would otherwise apply.
     if let Some(declared) = declared_lends(decl) {

@@ -31,6 +31,9 @@ const OTHER_KEYWORDS: &[&str] = &[
     "as", "of", "with", "canbe", "is", "use",
     // [obligation-spelling] The obligation keywords.
     "proj", "once", "linear",
+    // [proj-infer] The opaque projection, after the type it is about
+    // (`-> T holds proj(a)`).
+    "holds",
 ];
 const BOOLEAN_KEYWORDS: &[&str] = &["true", "false"];
 

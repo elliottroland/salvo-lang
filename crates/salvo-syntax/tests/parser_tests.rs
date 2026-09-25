@@ -1399,12 +1399,12 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
 /// fn-typed parameter, and a clause continued on the next line. The bracket
 /// form after `->` is a plain parse error (no compatibility [decision
 /// 2026-09-03]). The opaque lends are the return-type annotation
-/// `-> proj(a) in (T)` [proj-infer] (user decision 2026-09-24), which the
+/// `-> T holds proj(a)` [proj-infer] (user decision 2026-09-24), which the
 /// parser synthesizes into the clause as a `DeductionTarget::Opaque` entry.
 #[test]
 fn the_deduction_clause_parses_every_entry_form() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
-    let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> proj(a) in (Pair<T, U>)\n\
+    let src = "fn f<T, U>(a: List<T>, b: List<U>, c: Mut View, keep: (t: T) -> Bool, d: Q Int, e: Int) -> Pair<T, U> holds proj(a)\n\
                =>[keep] !t\n\
                => !a, b: None, c: Mut, d: -Q, .first: proj(a), .second: proj(a, b), c.items: proj(b) {\n\
                }\n";
@@ -2478,17 +2478,19 @@ fn test_stays_an_ordinary_name() {
     assert!(errors.is_empty(), "{errors:?}");
 }
 
-/// [proj-infer] The opaque projection annotation `-> proj(a, b) in (T)`
-/// (user decision 2026-09-24, respelling the old clause entry `=> proj(a)`):
+/// [proj-infer] The opaque projection annotation `-> T holds proj(a, b)`
+/// (user decision 2026-09-25, respelling the prefix `proj(a, b) in (T)` of
+/// the day before, which read as though the result *were* the projection):
 /// parses on fn declarations and on fn types, synthesizing the
-/// `DeductionTarget::Opaque` entry; the parentheses around the type are
-/// **mandatory**; the old clause spelling is a plain parse error.
+/// `DeductionTarget::Opaque` entry, reads the type first, needs no
+/// parentheses of its own (`proj(…)` carries them), and both older
+/// spellings are plain parse errors.
 #[test]
 fn the_opaque_projection_is_a_return_annotation() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
     // On a fn declaration: sources synthesize into the clause, and the
     // parenthesized type — a union here — is the return type.
-    let src = "fn view(a: List<Int>, b: List<Int>) -> proj(a, b) in (Mut View | None)\n=> a, b {\n}\n";
+    let src = "fn view(a: List<Int>, b: List<Int>) -> Mut View | None holds proj(a, b)\n=> a, b {\n}\n";
     let (module, diags) = salvo_syntax::parse_module(src);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     let Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
@@ -2511,7 +2513,7 @@ fn the_opaque_projection_is_a_return_annotation() {
 
     // On a fn type: the entry lands in the fn type's own contract list,
     // where the old remote `=>[iter] proj(c)` group used to put it.
-    let src = "fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It)) -> Int => c {\n    return 0\n}\n";
+    let src = "fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c)) -> Int => c {\n    return 0\n}\n";
     let (module, diags) = salvo_syntax::parse_module(src);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     let Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
@@ -2522,16 +2524,29 @@ fn the_opaque_projection_is_a_return_annotation() {
     assert!(group.iter().any(|d| matches!(d.target, DeductionTarget::Opaque)));
     assert!(matches!(**ret, Type::Named { .. }), "inner type is the ret: {ret:?}");
 
-    // The parentheses around the type are mandatory.
-    let src = "fn view(a: List<Int>) -> proj(a) in Mut View => a {\n}\n";
+    // `holds` needs its sources, and they live inside `proj(…)`.
+    let src = "fn view(a: List<Int>) -> Mut View holds proj() => a {\n}\n";
     let (_, diags) = salvo_syntax::parse_module(src);
     assert!(
-        diags.iter().any(|d| d.is_error() && d.message.contains("parenthesized")),
+        diags
+            .iter()
+            .any(|d| d.is_error() && d.message.contains("holds` needs the sources")),
         "{diags:?}"
     );
 
-    // The old clause spelling stopped parsing (plain error, no shim).
-    let src = "fn view(a: List<Int>) -> Mut View => a, proj(a) {\n}\n";
+    // Both older spellings stopped parsing (plain errors, no shim): the
+    // prefix annotation of 2026-09-24 and the clause entry before it.
+    for src in [
+        "fn view(a: List<Int>) -> proj(a) in (Mut View) => a {\n}\n",
+        "fn view(a: List<Int>) -> Mut View => a, proj(a) {\n}\n",
+    ] {
+        let (_, diags) = salvo_syntax::parse_module(src);
+        assert!(diags.iter().any(|d| d.is_error()), "{src}: {diags:?}");
+    }
+
+    // `holds` is reserved, which is what keeps a type's qualifier chain from
+    // eating it — so it is not an identifier any more.
+    let src = "fn holds(a: Int) -> Int => a {\n    return a\n}\n";
     let (_, diags) = salvo_syntax::parse_module(src);
     assert!(diags.iter().any(|d| d.is_error()), "{diags:?}");
 }

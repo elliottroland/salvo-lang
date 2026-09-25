@@ -437,7 +437,7 @@ fn a_state_field_may_share_a_name_with_a_subject_field() {
 /// learning sweep ran after the arguments were typed, `next` was reported as
 /// ambiguous with `It` still `?`.
 const CONTAINER_COMBINATOR: &str = r#"
-fn total<C, It>(c: C, ?iter: (c: C) -> proj(c) in (Mut It), ?Yield<It, Int>) -> Int =>[iter] c => c {
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int =>[iter] c => c {
     let sum = 0
     let p = iter(c)
     for n in p {

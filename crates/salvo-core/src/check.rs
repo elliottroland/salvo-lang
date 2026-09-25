@@ -5782,9 +5782,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(from) = r.from.first() {
                         self.error(
                             from.span,
-                            "a `proj` element names no source: the list holds the borrow, \
-                             and which parameter it is of is inferred from the body (or \
-                             written on the return type as `proj(p) in (…)`)"
+                            "a `proj` element names no source: the container holds the \
+                             borrow, and which parameter it is of is inferred from the \
+                             body — or written after the type, `T holds proj(p)`"
                                 .to_string(),
                         );
                     }
@@ -14760,7 +14760,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // Named but no group, or unnamed: keeps everything.
                     _ => (true, QualEffect::KeepAll),
                 };
-                // [proj-infer] `-> proj(c) in (T)` on a fn type (synthesized
+                // [proj-infer] `-> T holds proj(c)` on a fn type (synthesized
                 // into its contract list by the parser): the only way to say
                 // what a bodiless value's result holds.
                 let lent = match (name, deductions) {

@@ -776,3 +776,55 @@ fn f(h: Ranked<Person, Int>(by_age) Mut List<Person>) [] -> Int => h {
         "expected the all-or-none error: {errs:?}"
     );
 }
+
+// ===== the written opaque lend [proj-infer] =====
+
+/// [proj-infer] What `filter`'s written lend **buys**, over std's own
+/// declaration: `-> Mut List<proj T> holds proj(it)` names the pass as the
+/// only source, so a later mutation of something the *predicate* captured
+/// leaves the filtered view standing. Without the annotation the
+/// conservative fallback links the result to every kept argument — the
+/// callback included — and this program is refused.
+///
+/// The spelling is the 2026-09-25 respelling (`T holds proj(x)` after the
+/// type, reading "is a `T`, holds a borrow of `x`"); the fact it pins is why
+/// the annotation exists at all, which is what made the respelling worth
+/// doing rather than deleting the annotation.
+#[test]
+fn a_written_lend_narrows_which_arguments_the_result_holds() {
+    let errs = std_errors(
+        "fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let words: List<Str> = list_of(\"a\", \"bb\")\n    \
+         let limits: Mut List<Int> = mut_list_of(1)\n    \
+         let p = iter(words)\n    \
+         let long = filter(p, (s: Str) -> { return size(s) > first(limits)! })\n    \
+         add(limits, 2)\n    \
+         println(\"${size(long)}\")\n}\n",
+    );
+    assert!(
+        errs.is_empty(),
+        "the lend names `it`, so the captured `limits` is not a source: {errs:?}"
+    );
+}
+
+/// [proj-infer] …and the lend it *does* name still links: moving the pass's
+/// source poisons the view, which is the half no annotation could remove.
+#[test]
+fn a_written_lend_still_links_the_source_it_names() {
+    let errs = std_errors(
+        "fn eat(words: List<Str>) [] -> None => !words {\n    \
+         return None\n}\n\
+         fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let words: List<Str> = list_of(\"a\", \"bb\")\n    \
+         let p = iter(words)\n    \
+         let long = filter(p, (s: Str) -> { return size(s) > 1 })\n    \
+         eat(words)\n    \
+         println(\"${size(long)}\")\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("shares its fate")),
+        "moving the source must poison the view: {errs:?}"
+    );
+}

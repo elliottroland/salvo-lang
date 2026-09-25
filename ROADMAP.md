@@ -2288,7 +2288,7 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   2026-09-12).** With no written entry, a `proj`-holding instantiation
   still links its result to *every* kept argument — including a container
   the substituted type never mentions (`keep_all(iter(words), tags)` links
-  to `tags`). The remedy today is the written `-> proj(it) in (…)` annotation,
+  to `tags`). The remedy today is the written `-> … holds proj(it)` annotation,
   which now takes precedence; the refinement would link only kept
   arguments whose substituted type contains the projection. Build it if
   over-linking bites where the entry is unavailable (an unannotatable
@@ -2329,6 +2329,24 @@ BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
   field shares one `'s`, which rustc unifies to the shortest source — sound,
   less flexible). Elision would follow Rust's. Not built; the `.f:
   proj(a)` entries cover per-field precision wherever there is a body.
+  * **Use case recorded 2026-09-25 (user decision): a source on a nested
+    `proj`** — `-> Mut List<proj(it) T>` where today one writes
+    `-> Mut List<proj T> holds proj(it)` [proj-infer]. It is the reading the
+    user asked for on `filter` (option A of that day's round; `holds` is
+    option B, built), and it is refused today because the link is recorded
+    against the **whole result**, not the position: the syntax would promise
+    a per-position precision the analysis does not keep (`Map<proj(k) K,
+    proj(v) V>` reads as two holdings and records one set). With link
+    parameters that precision becomes real, so the nested source stops being
+    sugar and becomes the per-position form — which is why the two are
+    sequenced this way round. When it lands: allow a source in type-argument
+    position (the parser already accepts `proj(x)` nested — it is how
+    `Emitted (proj(p) T)` works, and `first_proj_source` already declines to
+    descend into type arguments, so the *result* is not mistaken for a
+    wholesale projection), refuse `holds` where a nested source says the same
+    thing so there is one spelling per situation, and close the hole found
+    while probing this: a nested source in a **parameter** type
+    (`xs: List<proj(other) Str>`) is silently accepted and means nothing.
 - **Accumulator bodies** (`best = person; …; return best` under a projected
   return) are out of scope: reassignable borrowed locals are a recorded
   refinement of [readonly-return].

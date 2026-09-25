@@ -570,7 +570,7 @@ fn a_view_keeps_its_source_alive_through_an_inferred_lend() {
 fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         fn mk<T>(a: List<T>, b: List<T>) -> proj(a) in (Mut View<T>) => a, b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
+         fn mk<T>(a: List<T>, b: List<T>) -> Mut View<T> holds proj(a) => a, b {{\n    return Mut View<T> {{ items: b, at: 0 }}\n}}\n"
     );
     let errs = errors(&src);
     assert!(
@@ -592,7 +592,7 @@ fn declared_lends_must_match_the_body_and_locals_cannot_be_lent() {
 fn a_written_proj_entry_keeps_and_declares() {
     let src = format!(
         "{VIEW_PRELUDE}\
-         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> proj(xs) in (Mut View<Int>) => xs, tag\n}}\n\
+         effect Src {{\n    fn borrowed(xs: List<Int>, tag: Str) -> Mut View<Int> holds proj(xs) => xs, tag\n}}\n\
          fn eat(xs: List<Int>) -> Int => !xs {{ return 0 }}\n\
          fn main(xs: List<Int>, tag: Str) [Src] {{\n    let v = borrowed(xs, tag)\n    advance(v)\n    eat(xs)\n    advance(v)\n}}\n"
     );
