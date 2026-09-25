@@ -443,10 +443,23 @@ What it decided is in the log entries (2026-09-24 and -25) and in
   a live `NotEq` claim before killing a sibling, one call may take two
   proven handles (`salvo_pair_mut`, statement position only — the loud v1
   cut), and the [qual-depend] reassignment-strips defect found en route is
-  fixed. **Leftover, deliberately:** a mutable element handle beside its
-  *container* (or beside a read projection of it) in one call is not
-  checker-refused — the shape fails at rustc (E0499/E0502), honest but
-  late; fold the refusal into ④'s same-call work.
+  fixed. **Leftover, mostly closed 2026-09-25:** a mutable element handle
+  beside its *container* in one call used to fail at rustc (E0499/E0502)
+  rather than at the checker, and the recorded plan was to refuse it.
+  Both reproduced instances are fixed instead, which is the better outcome:
+  the **anchored `canbe in` form** lowers (its anchor *is* the container
+  parameter, so the pair shares it rather than borrowing it twice
+  [rs-loc] — and that form is now how a handle travels beside its own
+  container), and a **read before a mutation in one expression** is hoisted
+  [rs-mut-arg-hoist]. What is left of the note: a handle beside a *read
+  projection* of its container in one call, where neither applies because
+  the earlier sibling is neither a place nor coverable — no repro in hand,
+  and the hoist reports the mutable-data cases loudly. **Still open after ④**
+  (2026-09-25): the fold never happened, and the two reproduced instances
+  are filed under "Open defects" below — the anchored `canbe in` form,
+  where the shape is *mandatory* rather than avoidable (so refusing it is
+  not the fix), and a plain `Mut` argument beside a read of the same
+  variable in one interpolation.
 - **③ BUILT** (2026-09-24, COMPLETED.md's log): the update family
   [col-update] as ordinary std Salvo, riding **mode-specialized lending**
   [rs-loc] (re-founded as locator variants in ④a slice 1) (option (a), the user's call — user-written accessors
@@ -1506,7 +1519,14 @@ move to COMPLETED.md with their repro intact.
 
 **Nine open**, and **these are next**: the user's direction of 2026-09-23 is
 to clear them once the refinement work is done, before the variance and
-qualifier-dropping sections above. (**Closed 2026-09-23**: `x!` in a **`Mut`
+qualifier-dropping sections above. (**Closed 2026-09-25**, both found while
+writing `examples/borrowing/` and fixed the same day — repros and root causes
+in COMPLETED.md: the **anchored `canbe in` form did not lower** on the Rust
+backend (its anchor is a parameter and a second `&mut` was synthesized beside
+it, so every anchored call was E0499 — a documented form that could not run at
+all), and a **read before a mutation in one expression** emitted E0502
+(`"${b.n} ${bumped(b)}"`), now hoisted into a `let` in front of the expression
+[rs-mut-arg-hoist]. **Closed 2026-09-23**: `x!` in a **`Mut`
 intrinsic parameter** position mutated a clone — `add(xs!, 3)` on a
 `Mut List<Int>?` local emitted `xs.as_ref().expect(…).clone().push(3)`, printing
 `1` where Kotlin printed `2`; the argument now reaches the payload through
@@ -1564,7 +1584,11 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   the current key's virtue is that it cannot go stale, and a
   source-plus-version key trades that for speed — the user's call. The Rust
   backend's per-test runner does not have the problem (its cases build one
-  at a time, inside their own gate).
+  at a time, inside their own gate). **Measured again 2026-09-25** after
+  `examples/borrowing/` added a case: the Kotlin codegen binary is ~15s warm
+  (the entry above recorded ~7.5s), and a warm `cargo test` is ~28s against a
+  ~15s budget — the growth is the registry, exactly as predicted, so the
+  source-keyed stamp is worth more than it was.
 
 - **Iterating a *temporary* container emits Rust that does not compile**
   (found 2026-09-18 while building loop destructuring; pre-existing, and

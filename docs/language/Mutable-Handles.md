@@ -102,11 +102,14 @@ fn main() [use] {
 The handle may be used where it is minted, bound across statements, or —
 as here — **found by a loop**, where the position is never written down.
 
-That shape is worth pausing on, because it is the one Rust cannot express:
-a function that searches a collection and returns a mutable reference to
-what it found conflicts with the borrow it needs to keep searching. Salvo
-accepts it, and the Rust backend renders it by handing back the *position*
-rather than a reference — see [What the backends do](#what-the-backends-do).
+That shape is worth pausing on. Rust can write the *function* — with
+`iter_mut` and NLL, a search returning `Option<&mut Entity>` compiles — but
+it cannot then use the result the way the program above does: a live `&mut`
+into `squad` forbids even a **read** of `squad`, so `size(squad)` or a
+second lookup between two writes through the handle is E0502. Salvo accepts
+that, and the Rust backend renders the handle by handing back the *position*
+rather than a reference — see
+[What the backends do](#what-the-backends-do).
 
 A generic function can lend too, if the caller supplies the accessor. That
 is what `params Locate` is for — the bundle pattern, applied to positions:
@@ -235,7 +238,14 @@ fn shuffle(lib: Mut Library, track: Mut Track, other: Mut Track) -> None
 
 Two parameters anchored in the *same* path are maybe-elements of one
 container, so the mutual aliasing falls out of the shared anchor rather
-than needing a `canbe` between them.
+than needing a `canbe` between them. The anchor is a path rooted at a
+**parameter** — a value the callee has — and naming it is also what lets
+handles travel *beside the container they came from*, which is the one
+thing a plain `canbe` cannot say:
+
+```
+shuffle(lib, get(lib.tracks, i)!, get(lib.tracks, j)!)
+```
 
 Aliasability is **written, never inferred**: it changes what a caller may
 pass, so it stays visible in the signature.
@@ -312,21 +322,29 @@ boss.hp = boss.hp + n                 squad[__h0].hp = squad[__h0].hp + n;
 That is what buys the flexibility. A bound `&mut squad[i]` would forbid the
 `size(squad)` in the middle — Salvo's rules allow it, because a *read* of
 the container cannot invalidate a handle into it, and the position-based
-rendering is what lets Rust agree. The same trick carries the shapes Rust
-refuses outright:
+rendering is what lets Rust agree. The same trick carries every other shape
+a live `&mut` could not survive:
 
-* **A search that lends what it found** returns a position, so the
-  borrow-that-must-outlive-the-loop never exists.
+* **A search that lends what it found** returns a position, so there is no
+  borrow to keep alive past the loop — and the caller may go on reading the
+  container it searched.
 * **A handle across a closure or trait boundary** — `params Locate`'s `at`,
-  an effect member that lends — travels as data, where a `&mut`-returning
-  closure would tie the borrow to the closure.
+  an effect member that lends — travels as data, so the borrow is created on
+  the far side of the boundary instead of crossing it.
 * **Two handles that may be one** (`canbe`) render as *one* shared anchor
   plus two positions, so the aliasing is exact: both positions index the
-  same storage, which is what Kotlin does natively.
+  same storage, which is what Kotlin does natively. This one Rust cannot
+  express at all: `&mut` has no way to say "these may coincide" (E0499).
+  Under the anchored form the anchor is the parameter itself, so the
+  container is borrowed once and the handles are indices into it —
+  `shuffle(lib: &mut Library, __c1: usize, __c2: usize)`.
 * **Proven-disjoint handles** (`NotEq`) render as a single `split_at_mut`,
-  the pattern a Rust programmer writes by hand.
+  the pattern a Rust programmer writes by hand — and the one rustc's own
+  E0499 suggests.
 * **A handle across a disjoint mutation** re-reads its path, which agrees
-  with Kotlin precisely because the field it names was untouched.
+  with Kotlin precisely because the field it names was untouched. Rust
+  splits borrows by field *within* a function, never across a call, so the
+  hand translation is E0502.
 
 The cost is honest: a position is re-indexed per use, where a `&mut` is
 free, and the bounds check is paid unless a claim has removed it. Read

@@ -12866,8 +12866,10 @@ fn rustc_compiles_and_runs_elem_mut_handles() {
 /// [rs-loc] ④a slice 5 — a **search loop** whose element binding is
 /// returned: inside the locator variant the `for` over a list becomes an
 /// *indexed* loop and the binding a captured-index handle, so the found
-/// **position** travels out. The shape a `&mut` return could never take
-/// (the NLL/pass-hidden-position case).
+/// **position** travels out. Rust can write this function (NLL accepts an
+/// `iter_mut` search returning `Option<&mut T>`); what it cannot do is read
+/// the container while the result is live, which is what the position
+/// rendering buys — see `examples/borrowing/README.md`.
 const SEARCH_LOOP_DEMO: &str = r#"
 struct Entity canbe Mut { hp: Int }
 
@@ -13124,6 +13126,184 @@ fn rustc_compiles_and_runs_a_covered_call() {
     }
     let files = generate(&[("main.sv", CANBE_DEMO)]);
     run_rust_files(&files, "canbe_covered", "8 3 18\n");
+}
+
+/// [canbe-entry] [rs-loc] The **anchored** form (`=> t canbe in lib.tracks`):
+/// its anchor is a path rooted at a parameter, so the callee's shared anchor
+/// *is* that parameter — the container travels in its own position and the
+/// covered ones add nothing but an index. Synthesizing a second `&mut` for it
+/// made every anchored call E0499, which is the defect this closes
+/// (2026-09-25): the form was documented and could not run on Rust at all.
+const CANBE_ANCHORED_DEMO: &str = r#"
+struct Fighter canbe Mut { name: Str, hp: Int, energy: Int }
+
+struct Squad canbe Mut {
+    banner: Str,
+    members: List<Mut Fighter>
+}
+
+fn trade(squad: Mut Squad, one: Mut Fighter, other: Mut Fighter) -> None
+=> one|other canbe in squad.members, squad: Mut, one: Mut, other: Mut {
+    one.energy = one.energy - 1
+    other.energy = other.energy + 1
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let squad = Mut Squad { banner: "red", members: list_of(
+        Mut Fighter { name: "Ada", hp: 30, energy: 4 },
+        Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
+    let i = 0
+    let j = 1
+    trade(squad, get(squad.members, i)!, get(squad.members, j)!)
+    // …and the aliasing case the entry exists for: one fighter, both roles.
+    trade(squad, get(squad.members, i)!, get(squad.members, i)!)
+    println("${get(squad.members, 0)!.energy} ${get(squad.members, 1)!.energy}")
+}
+"#;
+
+#[test]
+fn an_anchored_canbe_indexes_the_anchor_parameter() {
+    let files = generate(&[("main.sv", CANBE_ANCHORED_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // One borrow of the container, two positions — and no `__anchor`, since
+    // the anchor is a parameter the callee already has.
+    assert!(
+        main.content
+            .contains("pub fn trade(squad: &mut Squad, __c1: usize, __c2: usize)"),
+        "{}",
+        main.content
+    );
+    assert!(
+        !main.content.contains("__anchor"),
+        "the anchored form must not synthesize a second borrow:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("squad.members[__c1].energy = squad.members[__c1].energy - 1;"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("trade(&mut squad, (i) as usize, (j) as usize);"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_an_anchored_canbe_call() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", CANBE_ANCHORED_DEMO)]);
+    run_rust_files(&files, "canbe_anchored", "3 10\n");
+}
+
+/// [rs-mut-arg-hoist] A read that sits *before* a mutation in one expression:
+/// Rust holds the read's borrow for the whole expression (E0502) where the
+/// language only orders the two (`arguments are evaluated left to right`,
+/// [deduce-same-call]), so the read is hoisted into a `let` in front of it.
+/// Both shapes: a `format!` part (which borrows every argument) and a call
+/// argument in a borrowed position. Closes the defect filed 2026-09-25.
+const READ_BEFORE_MUT_DEMO: &str = r#"
+struct Box canbe Mut { n: Int, tag: Str }
+
+fn bumped(b: Mut Box) -> Int => b: Mut {
+    b.n = b.n + 1
+    return b.n
+}
+
+fn label(s: Str, n: Int) -> Str => s, n {
+    return "${s}/${n}"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = Mut Box { n: 1, tag: "t" }
+    // An interpolated place read, then a call that mutates it.
+    println("1. ${b.n} ${bumped(b)}")
+    // The same across a call's arguments, where the read is a borrow.
+    println("2. ${label(b.tag, bumped(b))}")
+    // The other order needs nothing: the mutation is over before the read.
+    println("3. ${bumped(b)} ${b.n}")
+}
+"#;
+
+#[test]
+fn a_read_before_a_mutation_is_hoisted_out_of_the_expression() {
+    let files = generate(&[("main.sv", READ_BEFORE_MUT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // The interpolation reads the local, not the place.
+    assert!(
+        main.content
+            .contains("{ let __r1 = b.n; format!(\"1. {} {}\", __r1, bumped(&mut b)) }"),
+        "{}",
+        main.content
+    );
+    // The call argument does too — owned here, since a borrow is what
+    // collided; `&__r2` is what the position takes.
+    assert!(
+        main.content
+            .contains("{ let __r2 = b.tag.clone(); label(&__r2, bumped(&mut b)) }"),
+        "{}",
+        main.content
+    );
+    // …and the read *after* the mutation is untouched: it must see the new
+    // value, on both backends.
+    assert!(
+        main.content.contains("format!(\"3. {} {}\", bumped(&mut b), b.n)"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_read_before_a_mutation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", READ_BEFORE_MUT_DEMO)]);
+    run_rust_files(&files, "read_before_mut", "1. 1 2\n2. t/3\n3. 4 4\n");
+}
+
+/// [rs-mut-arg-hoist] …and the shape the hoist cannot take: the read is
+/// **mutable data**, so copying it out of the way would be a snapshot on Rust
+/// and a live handle on Kotlin. Reported with the two remedies the program
+/// can choose between, never silently either way [backend-never-wrong].
+#[test]
+fn a_mutable_read_before_a_mutation_is_refused() {
+    let src = r#"
+struct Holder canbe Mut { items: Mut List<Int>, n: Int }
+
+fn grow(h: Mut Holder) -> Int => h: Mut {
+    add(h.items, 9)
+    return size(h.items)
+}
+
+fn pair(xs: List<Int>, n: Int) -> Str => xs, n {
+    return "${to_str(xs)}/${n}"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let h = Mut Holder { items: mut_list_of(1, 2), n: 0 }
+    println("${pair(h.items, grow(h))}")
+}
+"#;
+    let program = build_program(&[("main.sv", src)]);
+    let errors = salvo_backend_rust::emit_program(&program)
+        .err()
+        .expect("a mutable read before a mutation must be a codegen error");
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.contains("copy(h.items)") && e.contains("its own statement")),
+        "got {errors:?}"
+    );
 }
 
 /// [elem-distinct] [rs-elem-mut] The distinct-pair shapes: a proven pair of

@@ -392,6 +392,10 @@ pub(crate) fn from_written(
     mutated: &HashSet<String>,
     mut error: impl FnMut(Span, String),
 ) -> Vec<ParamDeduction> {
+    // [canbe-entry] A plural subject (`a|b canbe in es`) desugars to one
+    // entry per subject, each carrying the same right-hand side, so a bad
+    // name in it would otherwise be reported once per subject.
+    let mut said: HashSet<Span> = HashSet::new();
     for (i, d) in list.iter().enumerate() {
         // Every parameter an entry names — plainly, as a field path's root,
         // or as a projection source — must exist.
@@ -408,6 +412,43 @@ pub(crate) fn from_written(
                     n.span,
                     format!("deduction names unknown parameter `{}`", n.name),
                 );
+            }
+        }
+        // [canbe-entry] The relation's right-hand side names parameters too:
+        // the other parameter for the plain form, the container's *root*
+        // parameter for the anchored one. Unvalidated, a typo was silently
+        // ignored — and the Rust rendering reads the anchor path as a place
+        // in the callee, so it has to be one [rs-loc].
+        if let DeductionKind::CanBe { others, anchored } = &d.kind {
+            for path in others {
+                let Some(root) = path.first() else { continue };
+                if !said.insert(root.span) {
+                    continue;
+                }
+                if !decl.params.iter().any(|p| p.name.name == root.name) {
+                    error(
+                        root.span,
+                        format!("deduction names unknown parameter `{}`", root.name),
+                    );
+                } else if !anchored && path.len() > 1 {
+                    error(
+                        root.span,
+                        format!(
+                            "`canbe` relates parameters, so `{}` cannot name a \
+                             field path; `canbe in {}` is the anchored form, \
+                             which says a parameter may be an *element* of \
+                             that container",
+                            path.iter()
+                                .map(|i| i.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join("."),
+                            path.iter()
+                                .map(|i| i.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(".")
+                        ),
+                    );
+                }
             }
         }
         if let Some(pn) = d.param_name() {

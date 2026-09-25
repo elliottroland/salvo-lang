@@ -3363,6 +3363,62 @@ fn main() [use] {
 }
 "#;
 
+/// [canbe-entry] The **anchored** `canbe in` program, byte-identical stdout to
+/// the Rust backend's `rustc_compiles_and_runs_an_anchored_canbe_call`. Kotlin
+/// always ran this shape; the Rust side could not until 2026-09-25, which is
+/// what makes this pair the regression test.
+const CANBE_ANCHORED_DEMO: &str = r#"
+struct Fighter canbe Mut { name: Str, hp: Int, energy: Int }
+
+struct Squad canbe Mut {
+    banner: Str,
+    members: List<Mut Fighter>
+}
+
+fn trade(squad: Mut Squad, one: Mut Fighter, other: Mut Fighter) -> None
+=> one|other canbe in squad.members, squad: Mut, one: Mut, other: Mut {
+    one.energy = one.energy - 1
+    other.energy = other.energy + 1
+    return None
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let squad = Mut Squad { banner: "red", members: list_of(
+        Mut Fighter { name: "Ada", hp: 30, energy: 4 },
+        Mut Fighter { name: "Bo", hp: 8, energy: 9 }) }
+    let i = 0
+    let j = 1
+    trade(squad, get(squad.members, i)!, get(squad.members, j)!)
+    trade(squad, get(squad.members, i)!, get(squad.members, i)!)
+    println("${get(squad.members, 0)!.energy} ${get(squad.members, 1)!.energy}")
+}
+"#;
+
+/// [rs-mut-arg-hoist] A read before a mutation in one expression: Kotlin
+/// evaluates left to right and needs nothing, which is *why* the Rust side
+/// hoists rather than reorders — this pair is the parity assertion.
+const READ_BEFORE_MUT_DEMO: &str = r#"
+struct Box canbe Mut { n: Int, tag: Str }
+
+fn bumped(b: Mut Box) -> Int => b: Mut {
+    b.n = b.n + 1
+    return b.n
+}
+
+fn label(s: Str, n: Int) -> Str => s, n {
+    return "${s}/${n}"
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let b = Mut Box { n: 1, tag: "t" }
+    println("1. ${b.n} ${bumped(b)}")
+    println("2. ${label(b.tag, bumped(b))}")
+    println("3. ${bumped(b)} ${b.n}")
+}
+"#;
+
 /// [col-update] The C family, byte-identical stdout to the Rust backend's
 /// `rustc_compiles_and_runs_the_update_family`.
 const UPDATE_FAMILY_DEMO: &str = r#"
@@ -3663,6 +3719,22 @@ fn kotlinc_compiles_and_runs_the_update_family() -> KotlinCase {
     kotlin_case(files, "update_family", "111 220\n")
 }
 
+fn kotlinc_compiles_and_runs_an_anchored_canbe_call() -> KotlinCase {
+    let program = build_program(&[("main.sv", CANBE_ANCHORED_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "canbe_anchored", "3 10\n")
+}
+
+fn kotlinc_compiles_and_runs_a_read_before_a_mutation() -> KotlinCase {
+    let program = build_program(&[("main.sv", READ_BEFORE_MUT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "read_before_mut", "1. 1 2\n2. t/3\n3. 4 4\n")
+}
+
 fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
     let program = build_program(&[("main.sv", DISTINCT_PAIR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3680,6 +3752,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_lending_effect_member,
     kotlinc_compiles_and_runs_a_search_loop_lender,
     kotlinc_compiles_and_runs_a_covered_call,
+    kotlinc_compiles_and_runs_an_anchored_canbe_call,
+    kotlinc_compiles_and_runs_a_read_before_a_mutation,
     kotlinc_compiles_and_runs_a_field_granular_mutation,
     kotlinc_compiles_and_runs_a_contents_mutation_handle,
     kotlinc_compiles_and_runs_a_borrowed_scalar_comparison,
@@ -3713,6 +3787,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_narrowed_reads,
     // the checked-in examples, one case each
     kotlin_example_actors,
+    kotlin_example_borrowing,
     kotlin_example_collections,
     kotlin_example_effects,
     kotlin_example_files,
@@ -12666,6 +12741,10 @@ fn example_case(name: &str) -> KotlinCase {
 
 fn kotlin_example_actors() -> KotlinCase {
     example_case("actors")
+}
+
+fn kotlin_example_borrowing() -> KotlinCase {
+    example_case("borrowing")
 }
 
 fn kotlin_example_collections() -> KotlinCase {

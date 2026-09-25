@@ -696,6 +696,20 @@ the blanket rule:
     the same element. Reported, loudly: a covered argument that is not an
     element handle of a bound container, and covered positions naming
     *different* containers (they share no anchor).
+    * **An anchored entry's anchor is a parameter** (`=> t canbe in
+      lib.tracks` — the path is rooted at one), so the callee keeps that
+      parameter and the covered positions add nothing but their index:
+      `fn trade(squad: &mut Squad, __c1: usize, __c2: usize)`, indexing
+      `squad.members[__cN]`. Only the plain `a canbe d` form, whose anchor
+      no parameter names, grows an `__anchor` of its own. Synthesizing one
+      *beside* the parameter is what made every anchored call E0499
+      (`trade(&mut squad, &mut squad.members, …)`) — the form was
+      documented and could not run on this backend at all until
+      2026-09-25. The anchored form is therefore also what licenses
+      **handles passed beside their own container** in one call: the pair
+      shares the anchor rather than borrowing it twice. The call site
+      checks the agreement it rests on — a handle of a *different*
+      container than the clause anchors it in is reported, naming both.
   * **What remains cut, loud**: a lend whose anchor is not a plain place
     of a known indexable type (a bare generic container has no index —
     the recorded lift is the type-erased locator, COMPLETED.md's log's
@@ -705,6 +719,38 @@ the blanket rule:
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).
+* [rs-mut-arg-hoist] **A read before a mutation, in one expression** (built
+  2026-09-25, closing the defect of the same day). Rust holds a read borrow
+  for the whole expression it sits in, so a sibling that mutably borrows the
+  same place collides with it — `format!("{} {}", b.n, bumped(&mut b))` and
+  `label(&b.tag, bumped(&mut b))` are both E0502 — while the language only
+  orders the two ([deduce-same-call]: arguments are evaluated left to right,
+  and a read is not a consumption), and Kotlin runs them. So the *read* is
+  hoisted into a `let` in front of the expression, which is the order the
+  language already gives it:
+  `{ let __r1 = b.n; format!("{} {}", __r1, bumped(&mut b)) }`.
+  * **Which siblings**: a call's arguments and an interpolation's parts —
+    the two positions where a rendering holds a borrow. A sibling is a
+    hoist candidate when it *is* a place and the position borrows it (a
+    `Ref`/`RefMut` parameter mode; in `format!` a Copy scalar, since
+    anything else is already owned by a `.clone()` or a `to_str`), and it
+    is hoisted only when a **later** sibling mutably borrows an overlapping
+    place — the callee's parameter modes say which arguments those are, for
+    the nested calls too. Overlap is prefix-wise over place paths, with a
+    subscript stopping the path at its container [fate-field-disjoint], so
+    a read of `e.rings` beside a mutation of `e.hp` is left alone.
+  * **What it will not do**: a read of **mutable data** cannot be copied out
+    of the way, because a snapshot on Rust against a live handle on Kotlin
+    is exactly the divergence the rule exists to prevent. That shape is
+    reported instead, naming the two things the program can say instead —
+    `copy(place)` for the snapshot, or the mutating call in a statement of
+    its own [backend-never-wrong].
+  * **Cut**: the modes come from the callee the checker resolved, so a call
+    through an **effect member or a fn value** plans nothing and keeps
+    whatever rustc makes of it (the state before this rule, not a new
+    divergence). Covered and proven-pair calls plan nothing either — they
+    render their own positions and preamble, and leave no read borrow
+    standing.
 
 ## Unions [rs-union-enums]
 

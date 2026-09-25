@@ -1159,11 +1159,10 @@ struct Emitter<'p> {
     /// renders normally in the read emission).
     mut_forward_sites: HashSet<(usize, Span)>,
     /// [canbe-entry] [rs-loc] Fns with `canbe` coverage: the covered
-    /// parameters render as one shared **anchor** parameter plus a
-    /// `usize` locator each, since two `&mut` into one container cannot
-    /// coexist. Keyed by fn key, valued by the covered parameter indices
-    /// in declaration order.
-    covered_fns: HashMap<salvo_core::FnKey, Vec<usize>>,
+    /// parameters render as one shared **anchor** plus a `usize` locator
+    /// each, since two `&mut` into one container cannot coexist. Keyed by
+    /// fn key.
+    covered_fns: HashMap<salvo_core::FnKey, Covered>,
     /// [deduce-field] Bindings the checker marked as **virtual places**
     /// (they survive a narrowed mutation of their root): the rendered
     /// place, re-materialized at every use instead of bound as a borrow —
@@ -1174,6 +1173,12 @@ struct Emitter<'p> {
     /// name: inside such a body a covered parameter is a virtual place
     /// (`__anchor[__cN]`).
     covered_here: HashMap<String, String>,
+    /// [rs-mut-arg-hoist] Sibling expressions hoisted out of the call or
+    /// interpolation they sit in, because a later sibling mutably borrows
+    /// the same place and Rust holds a read borrow for the whole enclosing
+    /// expression. Keyed by the expression's span, valued by the local the
+    /// hoist bound it to.
+    hoisted_reads: HashMap<(usize, Span), String>,
     /// [rs-loc] Whether the adapter closure being built wraps a callee's
     /// **locator variant**: its parameters are read-mode.
     loc_adapter: bool,
@@ -1767,20 +1772,38 @@ fn fn_type_lends_mut(ret: &Type) -> bool {
     wholesale_mut(ret)
 }
 
+/// [canbe-entry] [rs-loc] One fn's `canbe` coverage, as the Rust rendering
+/// needs it: which parameters are covered, and where their shared anchor
+/// comes from.
+#[derive(Clone, Debug, Default)]
+struct Covered {
+    /// The covered parameter indices, in declaration order.
+    params: Vec<usize>,
+    /// The **anchored** form's container path (`=> track canbe in
+    /// lib.tracks` → `["lib", "tracks"]`), rooted at a parameter. The
+    /// anchor is then that parameter, which the callee already takes —
+    /// synthesizing a second `&mut` for it is what made every anchored
+    /// call E0499 (the defect closed 2026-09-25). `None` is the plain
+    /// `a canbe d` form, whose anchor no parameter names, so the callee
+    /// grows one.
+    anchor: Option<Vec<String>>,
+}
+
 /// [canbe-entry] Every fn whose clause declares `canbe` coverage, with the
 /// covered parameter indices (declaration order). The Rust rendering
 /// replaces those parameters with one shared anchor plus a locator each.
 fn covered_fns(
     program: &Program,
     checked: &Checked,
-) -> HashMap<salvo_core::FnKey, Vec<usize>> {
+) -> HashMap<salvo_core::FnKey, Covered> {
     let _ = checked;
-    let mut out: HashMap<salvo_core::FnKey, Vec<usize>> = HashMap::new();
+    let mut out: HashMap<salvo_core::FnKey, Covered> = HashMap::new();
     for (file, module) in program.modules.iter().enumerate() {
         for (item_idx, item) in module.items.iter().enumerate() {
             let Item::Fn(f) = item else { continue };
             let Some(list) = &f.deductions else { continue };
             let mut covered: Vec<usize> = Vec::new();
+            let mut anchors: Vec<Vec<String>> = Vec::new();
             for d in list {
                 let DeductionKind::CanBe { others, anchored } = &d.kind else {
                     continue;
@@ -1789,7 +1812,17 @@ fn covered_fns(
                     continue;
                 };
                 let mut names: Vec<String> = vec![name.name.clone()];
-                if !anchored {
+                if *anchored {
+                    // The anchor is the container the parameter may be an
+                    // element of — a path rooted at another parameter.
+                    for path in others {
+                        let rendered: Vec<String> =
+                            path.iter().map(|i| i.name.clone()).collect();
+                        if !rendered.is_empty() && !anchors.contains(&rendered) {
+                            anchors.push(rendered);
+                        }
+                    }
+                } else {
                     names.extend(others.iter().filter_map(|p| {
                         p.first().map(|i| i.name.clone())
                     }));
@@ -1804,7 +1837,14 @@ fn covered_fns(
             }
             if !covered.is_empty() {
                 covered.sort_unstable();
-                out.insert(salvo_core::FnKey { file, item: item_idx }, covered);
+                // Several distinct anchors in one clause share no storage,
+                // so there is no one container to index: reported at the
+                // call site, where the arguments name it.
+                let anchor = (anchors.len() == 1).then(|| anchors[0].clone());
+                out.insert(
+                    salvo_core::FnKey { file, item: item_idx },
+                    Covered { params: covered, anchor },
+                );
             }
         }
     }
@@ -1875,6 +1915,7 @@ impl<'p> Emitter<'p> {
             loc_adapter: false,
             covered_fns: covered_fns(program, checked),
             covered_here: HashMap::new(),
+            hoisted_reads: HashMap::new(),
             virtual_places: HashMap::new(),
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
@@ -5027,28 +5068,42 @@ impl<'p> Emitter<'p> {
                 continue; // appended below, in the checker's order
             }
             // [canbe-entry] A **covered** parameter renders as a locator
-            // (`__cN: usize`) against one shared anchor parameter, emitted
-            // once before the first covered position: two `&mut` into one
+            // (`__cN: usize`) against one shared anchor: two `&mut` into one
             // container cannot coexist, so the callee takes the container
             // and the positions and materializes per statement [rs-loc].
+            // The *anchored* form (`=> t canbe in lib.tracks`) names that
+            // container itself, so the anchor is the parameter the callee
+            // already has — synthesizing a second `&mut` for it made every
+            // such call E0499 (defect closed 2026-09-25). Only the plain
+            // `a canbe d` form, whose anchor no parameter names, grows one.
             if let Some(covered) = fn_key.and_then(|k| self.covered_fns.get(&k).cloned()) {
-                if covered.contains(&i) {
-                    if covered.first() == Some(&i) {
-                        let elem = self.emit_type(&p.ty);
-                        let elem = elem.trim_start_matches('&').trim_start_matches("mut ");
-                        params.push(format!("__anchor: &mut Vec<{elem}>"));
-                        self.bindings
-                            .insert("__anchor".to_string(), BindKind::RefMut);
-                        ref_param_count += 1;
-                    }
+                if covered.params.contains(&i) {
+                    let anchor = match &covered.anchor {
+                        Some(path) => path
+                            .iter()
+                            .map(|s| rs_ident(s))
+                            .collect::<Vec<_>>()
+                            .join("."),
+                        None => {
+                            if covered.params.first() == Some(&i) {
+                                let elem = self.emit_type(&p.ty);
+                                let elem =
+                                    elem.trim_start_matches('&').trim_start_matches("mut ");
+                                params.push(format!("__anchor: &mut Vec<{elem}>"));
+                                self.bindings
+                                    .insert("__anchor".to_string(), BindKind::RefMut);
+                                ref_param_count += 1;
+                            }
+                            "__anchor".to_string()
+                        }
+                    };
                     let loc = format!("__c{i}");
                     params.push(format!("{loc}: usize"));
                     self.bindings
                         .insert(p.name.name.clone(), BindKind::ElemMut);
                     self.elem_places
-                        .insert(p.name.name.clone(), ("__anchor".to_string(), loc));
-                    self.covered_here
-                        .insert(p.name.name.clone(), "__anchor".to_string());
+                        .insert(p.name.name.clone(), (anchor.clone(), loc));
+                    self.covered_here.insert(p.name.name.clone(), anchor);
                     continue;
                 }
             }
@@ -12788,6 +12843,11 @@ impl<'p> Emitter<'p> {
                 .collect();
             return format!("\"{}\".to_string()", escape_string(&text));
         }
+        // [rs-mut-arg-hoist] `format!` borrows every argument for the whole
+        // call, so a part that is a **place** read collides with a later part
+        // that mutably borrows it (E0502) — the hoist evaluates the reads
+        // first, which is the order the language gives them anyway.
+        let hoists = self.plan_interp_hoists(&interps);
         let mut fmt = String::new();
         let mut args: Vec<String> = Vec::new();
         for part in parts {
@@ -12803,7 +12863,13 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
-        format!("format!(\"{fmt}\", {})", args.join(", "))
+        for part in &interps {
+            self.hoisted_reads.remove(&(self.file_idx, part.span()));
+        }
+        Self::wrap_hoisted(
+            &hoists,
+            format!("format!(\"{fmt}\", {})", args.join(", ")),
+        )
     }
 
     /// [interp-to-str] One interpolated value: the `to_str` the checker
@@ -12811,6 +12877,11 @@ impl<'p> Emitter<'p> {
     /// natively.
     fn emit_interp_value(&mut self, expr: &Expr) -> String {
         let key = (self.file_idx, expr.span());
+        // [rs-mut-arg-hoist] This part was read into a local before the
+        // `format!`, because a later part mutates the place it read.
+        if let Some(name) = self.hoisted_reads.get(&key).cloned() {
+            return name;
+        }
         // [interp-struct] A struct with no `to_str` of its own renders
         // field-wise, in the language's format rather than Rust `Debug`'s.
         if let Some(name) = self.checked.interp_struct.get(&key).cloned() {
@@ -13918,7 +13989,19 @@ impl<'p> Emitter<'p> {
             let call = self.emit_call_inner(callee, type_args, args, named, span);
             return self.wrap_may_throw_call(&site, call, self.expr_indent);
         }
-        self.emit_call_inner(callee, type_args, args, named, span)
+        // [rs-mut-arg-hoist] An argument read *before* one that mutably
+        // borrows the same place leaves the call: Rust holds the read borrow
+        // for the whole expression (E0502), where the language only says the
+        // arguments are evaluated left to right [deduce-same-call].
+        let hoists = self.plan_call_hoists(callee, args, span);
+        let call = self.emit_call_inner(callee, type_args, args, named, span);
+        for arg in args {
+            self.hoisted_reads.remove(&(self.file_idx, arg.span()));
+        }
+        if let Some(recv) = dot_receiver(callee) {
+            self.hoisted_reads.remove(&(self.file_idx, recv.span()));
+        }
+        Self::wrap_hoisted(&hoists, call)
     }
 
     fn emit_call_inner(
@@ -14420,6 +14503,15 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_arg(&mut self, arg: &Expr, mode: ParamMode, param_ty: Option<&Type>) -> String {
+        // [rs-mut-arg-hoist] This argument was hoisted out of the call
+        // because a later one mutably borrows the same place: it is now a
+        // local, read in whatever mode the position wants.
+        if let Some(name) = self.hoisted_reads.get(&(self.file_idx, arg.span())).cloned() {
+            return match mode {
+                ParamMode::Owned => name,
+                _ => format!("&{name}"),
+            };
+        }
         // [rs-loc] Set when this argument is a lambda filling a
         // locator-typed position; its emission runs in locator mode.
         let mut loc_lambda = false;
@@ -15573,12 +15665,34 @@ impl<'p> Emitter<'p> {
         // anchor plus a locator per covered position: the arguments'
         // containers are the same place (the checker's coverage rule), and
         // two `&mut` into it cannot coexist [rs-loc].
-        let covered_idx: Vec<usize> = key
+        let covered = key
             .and_then(|k| self.covered_fns.get(&k).cloned())
             .unwrap_or_default();
+        let covered_idx: Vec<usize> = covered.params.clone();
+        // The anchored form's anchor is a parameter of the callee, so the
+        // container travels in its *own* position and the covered positions
+        // add nothing but their index. The argument filling that parameter
+        // is the one the positions must index into, which is what the
+        // agreement check below compares them against.
+        let anchor_param: Option<usize> = covered.anchor.as_ref().and_then(|path| {
+            let root = path.first()?;
+            f.params.iter().position(|p| p.name.name == *root)
+        });
         let (mut prelude, args) = if !covered_idx.is_empty() {
             let mut rendered: Vec<String> = Vec::new();
             let mut anchor: Option<String> = None;
+            if let (Some(pi), Some(path)) = (anchor_param, covered.anchor.as_ref()) {
+                // `squad` for `canbe in squad.members`, plus the field steps:
+                // the place the callee will index, spelled at the call so the
+                // handles can be checked against it.
+                if let Some(arg) = args.get(pi) {
+                    let mut place = self.emit_place(arg);
+                    for step in path.iter().skip(1) {
+                        place = format!("{place}.{}", rs_ident(step));
+                    }
+                    anchor = Some(place);
+                }
+            }
             for (i, arg) in args.iter().enumerate() {
                 if !covered_idx.contains(&i) {
                     let mode = self.param_mode(key, &f.params[i]);
@@ -15604,6 +15718,15 @@ impl<'p> Emitter<'p> {
                         anchor = Some(root);
                     }
                     Some(first) if *first == root => {}
+                    Some(first) if anchor_param.is_some() => {
+                        self.errors.push(format!(
+                            "cannot lower this covered argument: the clause \
+                             anchors it in `{first}`, but this handle is an \
+                             element of `{root}` — pass a handle of the \
+                             anchored container [rs-loc] (at {})",
+                            self.salvo_location(arg.span())
+                        ));
+                    }
                     Some(first) => {
                         self.errors.push(format!(
                             "cannot lower this covered call: its `canbe` \
@@ -15812,13 +15935,189 @@ impl<'p> Emitter<'p> {
         (prelude, out)
     }
 
+    // ============ [rs-mut-arg-hoist] a read before a mutation ============
+
+    /// [rs-mut-arg-hoist] The places an expression **mutably borrows** while
+    /// it is evaluated: every argument of a call inside it that lands in a
+    /// `&mut` position. Rust holds such a borrow for the whole enclosing
+    /// expression, so a *sibling* of that expression rendered as a read
+    /// borrow of the same place has to leave the expression — which the
+    /// language allows, since arguments are evaluated left to right and a
+    /// read is not a consumption [deduce-same-call] [backend-parity].
+    fn mut_borrowed_places(&mut self, expr: &Expr, out: &mut Vec<Vec<String>>) {
+        if let Expr::Call { callee, args, span, .. } = expr {
+            let key = self.checked.call_fn.get(&(self.file_idx, *span)).copied();
+            if let Some((key, decl)) = key.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) {
+                // The receiver of a dot call is the first argument
+                // [fn-dot], so the modes line up with the parameters.
+                let mut all: Vec<&Expr> = Vec::new();
+                if let Some(recv) = dot_receiver(callee) {
+                    all.push(recv);
+                }
+                all.extend(args.iter());
+                let params: Vec<Param> =
+                    decl.params.iter().filter(|p| !p.implicit).cloned().collect();
+                for (i, arg) in all.iter().enumerate() {
+                    let Some(p) = params.get(i) else { break };
+                    if self.param_mode(Some(key), p) == ParamMode::RefMut {
+                        if let Some(path) = place_path(arg) {
+                            out.push(path);
+                        }
+                    }
+                }
+            }
+        }
+        for child in child_exprs(expr) {
+            self.mut_borrowed_places(child, out);
+        }
+    }
+
+    /// [rs-mut-arg-hoist] Plans the hoists for one list of sibling
+    /// expressions — a call's arguments, or an interpolation's parts.
+    /// `holds_borrow[i]` says sibling `i` is rendered as a borrow of the
+    /// place it is (so a later `&mut` of that place collides), and
+    /// `mut_here[i]` that sibling `i` *is* the `&mut`. Returns the `let`
+    /// lines to put in front of the expression; each hoisted sibling is
+    /// recorded in `hoisted_reads`, which the rendering paths consult.
+    fn plan_read_hoists(
+        &mut self,
+        siblings: &[&Expr],
+        holds_borrow: &[bool],
+        mut_here: &[bool],
+    ) -> Vec<String> {
+        // What each sibling mutably borrows: the nested calls' `&mut`
+        // arguments, plus the sibling itself when this call is the mutator.
+        let muts: Vec<Vec<Vec<String>>> = siblings
+            .iter()
+            .enumerate()
+            .map(|(j, s)| {
+                let mut paths = Vec::new();
+                self.mut_borrowed_places(s, &mut paths);
+                if mut_here.get(j).copied().unwrap_or(false) {
+                    if let Some(path) = place_path(s) {
+                        paths.push(path);
+                    }
+                }
+                paths
+            })
+            .collect();
+        let mut prelude: Vec<String> = Vec::new();
+        for (i, sibling) in siblings.iter().enumerate() {
+            if !holds_borrow.get(i).copied().unwrap_or(false) {
+                continue;
+            }
+            let Some(path) = place_path(sibling) else { continue };
+            let hit = muts[i + 1..]
+                .iter()
+                .flatten()
+                .any(|m| paths_overlap(m, &path));
+            if !hit {
+                continue;
+            }
+            // Hoisting needs an *owned* temporary, so the read has to be
+            // copyable without the copy being observable: a scalar or
+            // immutable data [copy-semantics]. Mutable data cannot be
+            // copied behind the program's back — the caller would stop
+            // seeing the callee's writes on one backend only — so that
+            // shape is reported instead of quietly diverging
+            // [backend-never-wrong].
+            let copyable = self
+                .ty_of(sibling.span())
+                .map(|t| Self::is_copy_ty(t) || !ty_carries_mut(t))
+                .unwrap_or(false);
+            if !copyable {
+                let place = path.join(".");
+                self.errors.push(format!(
+                    "cannot lower this call: `{place}` is read here while a \
+                     later argument mutates it, and it is mutable data — a \
+                     copy would be a snapshot on one backend and a live \
+                     handle on the other, so the program has to choose: \
+                     `copy({place})` for the snapshot, or give the mutating \
+                     call its own statement first [rs-mut-arg-hoist] (at {})",
+                    self.salvo_location(sibling.span())
+                ));
+                continue;
+            }
+            let code = self.emit_owned(sibling);
+            self.hoist_id += 1;
+            let name = format!("__r{}", self.hoist_id);
+            prelude.push(format!("let {name} = {code};"));
+            self.hoisted_reads
+                .insert((self.file_idx, sibling.span()), name);
+        }
+        prelude
+    }
+
+    /// [rs-mut-arg-hoist] The same, for an **interpolation**: `format!`
+    /// takes a reference to every argument, so a part that is a place read
+    /// holds a borrow for the whole call. Only a place whose type is a Copy
+    /// scalar renders bare (anything else is already owned — a `.clone()` or
+    /// a `to_str` call — and so holds nothing), which is also the hoist that
+    /// is free.
+    fn plan_interp_hoists(&mut self, parts: &[&Expr]) -> Vec<String> {
+        let holds: Vec<bool> = parts
+            .iter()
+            .map(|p| {
+                is_place_expr(p)
+                    && self.ty_of(p.span()).map(Self::is_copy_ty).unwrap_or(false)
+            })
+            .collect();
+        let mut_here = vec![false; parts.len()];
+        self.plan_read_hoists(parts, &holds, &mut_here)
+    }
+
+    /// [rs-mut-arg-hoist] The same, for one **call**: the modes come from
+    /// the callee the checker resolved, so the plan knows which arguments
+    /// are borrows and which are the `&mut`. A callee the tables do not
+    /// name (an effect member, a fn value) plans nothing — the shape then
+    /// keeps whatever rustc makes of it, which is the state this rule
+    /// improves on rather than a silent difference.
+    fn plan_call_hoists(&mut self, callee: &Expr, args: &[Expr], span: Span) -> Vec<String> {
+        let Some(key) = self.checked.call_fn.get(&(self.file_idx, span)).copied() else {
+            return Vec::new();
+        };
+        let Some(decl) = self.fn_by_key(key) else {
+            return Vec::new();
+        };
+        // A covered call renders its own positions against a shared anchor
+        // [canbe-entry], and a pair call its own `split_at_mut` preamble
+        // [rs-elem-mut]: neither leaves a read borrow standing.
+        if self.covered_fns.contains_key(&key)
+            || self.checked.distinct_pairs.contains_key(&(self.file_idx, span))
+        {
+            return Vec::new();
+        }
+        let mut all: Vec<&Expr> = Vec::new();
+        if let Some(recv) = dot_receiver(callee) {
+            all.push(recv);
+        }
+        all.extend(args.iter());
+        let params: Vec<Param> = decl.params.iter().filter(|p| !p.implicit).cloned().collect();
+        let modes: Vec<Option<ParamMode>> = all
+            .iter()
+            .enumerate()
+            .map(|(i, _)| params.get(i).map(|p| self.param_mode(Some(key), p)))
+            .collect();
+        let holds: Vec<bool> = all
+            .iter()
+            .zip(&modes)
+            .map(|(a, m)| {
+                is_place_expr(a) && matches!(m, Some(ParamMode::Ref) | Some(ParamMode::RefMut))
+            })
+            .collect();
+        let mut_here: Vec<bool> = modes
+            .iter()
+            .map(|m| matches!(m, Some(ParamMode::RefMut)))
+            .collect();
+        self.plan_read_hoists(&all, &holds, &mut_here)
+    }
+
     /// [effect-args-hoisted] Hoists any argument whose code mentions one of
     /// `passed` — the implicit values this same call hands over — so the
     /// argument's borrow ends before the call takes its own.
     fn hoist_reborrows(
         &mut self,
-        passed: &[String],
-        args: Vec<String>,
+        passed: &[String],        args: Vec<String>,
     ) -> (Vec<String>, Vec<String>) {
         let names: Vec<String> = passed
             .iter()
@@ -17176,6 +17475,109 @@ fn mailbox_capacity_expr(mailbox: &Expr) -> Option<&Expr> {
         }
         _ => None,
     })
+}
+
+/// [rs-mut-arg-hoist] The place a expression names, as a path: `b.tag` is
+/// `["b", "tag"]`. A subscript stops the path at its container (`xs[i]` is
+/// `["xs"]`), since two computed indices cannot be told apart — the same
+/// may-alias rule the fate analysis uses [fate-field-disjoint].
+fn place_path(expr: &Expr) -> Option<Vec<String>> {
+    match expr {
+        Expr::Ident(id) => Some(vec![id.name.clone()]),
+        Expr::Field { base, field, .. } => {
+            let mut path = place_path(base)?;
+            path.push(field.name.clone());
+            Some(path)
+        }
+        Expr::TupleIndex { base, .. } => place_path(base),
+        Expr::Index { base, .. } => place_path(base),
+        _ => None,
+    }
+}
+
+/// [rs-mut-arg-hoist] Whether two places may name the same storage: one is
+/// a prefix of the other (`b` reaches `b.tag`; `b.tag` and `b.n` do not
+/// meet) [fate-field-disjoint].
+fn paths_overlap(a: &[String], b: &[String]) -> bool {
+    a.iter().zip(b.iter()).all(|(x, y)| x == y)
+}
+
+/// [rs-mut-arg-hoist] Whether a checker type carries `Mut` anywhere, so a
+/// copy of it would be observable [copy-semantics].
+fn ty_carries_mut(ty: &Ty) -> bool {
+    if ty.quals().iter().any(|q| q.name == "Mut") {
+        return true;
+    }
+    match ty.strip_quals() {
+        Ty::Named { args, .. } => args.iter().any(ty_carries_mut),
+        Ty::Union(arms) => arms.iter().any(ty_carries_mut),
+        Ty::Tuple(elems) => elems.iter().any(ty_carries_mut),
+        Ty::Array(elem) => ty_carries_mut(elem),
+        _ => false,
+    }
+}
+
+/// [fn-dot] The receiver of a dot call, which the emitter folds in as the
+/// first argument.
+fn dot_receiver(callee: &Expr) -> Option<&Expr> {
+    match callee {
+        Expr::Field { base, .. } => Some(base.as_ref()),
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
+            base.as_ref().map(|b| b.as_ref())
+        }
+        _ => None,
+    }
+}
+
+/// [rs-mut-arg-hoist] The sub-expressions of an expression, for the walks
+/// that look for a call inside one. Blocks are deliberately not followed: a
+/// borrow taken inside a branch or a lambda body does not outlive it into
+/// the enclosing expression.
+fn child_exprs(expr: &Expr) -> Vec<&Expr> {
+    match expr {
+        Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => vec![base],
+        Expr::Scoped { base, .. } | Expr::EffectScoped { base, .. } => {
+            base.iter().map(|b| b.as_ref()).collect()
+        }
+        Expr::Call { callee, args, .. } => {
+            let mut out: Vec<&Expr> = vec![callee.as_ref()];
+            out.extend(args.iter());
+            out
+        }
+        Expr::Index { base, index, .. } => vec![base, index],
+        Expr::ArrayLit { elems, .. } | Expr::SetLit { elems, .. } | Expr::Tuple { elems, .. } => {
+            elems.iter().collect()
+        }
+        Expr::MapLit { entries, .. } => entries.iter().flat_map(|(k, v)| [k, v]).collect(),
+        Expr::StructLit { fields, .. } => fields
+            .iter()
+            .map(|f| match &f.kind {
+                StructLitFieldKind::Named { value, .. } => value,
+                StructLitFieldKind::Spread(e) => e,
+            })
+            .collect(),
+        Expr::Unary { operand, .. }
+        | Expr::NonNull { operand, .. }
+        | Expr::IncDec { operand, .. }
+        | Expr::Spread { operand, .. } => vec![operand.as_ref()],
+        Expr::Binary { lhs, rhs, .. } => vec![lhs.as_ref(), rhs.as_ref()],
+        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => vec![subject.as_ref()],
+        Expr::Elvis { subject, rhs, .. } => vec![subject.as_ref(), rhs.as_ref()],
+        Expr::SafeField { inner, .. } => vec![inner.as_ref()],
+        Expr::Assert { cond, message, .. } => {
+            let mut out: Vec<&Expr> = vec![cond.as_ref()];
+            out.extend(message.iter().map(|m| m.as_ref()));
+            out
+        }
+        Expr::Str { parts, .. } => parts
+            .iter()
+            .filter_map(|p| match p {
+                StrExprPart::Interp(e) => Some(e.as_ref()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn is_place_expr(expr: &Expr) -> bool {

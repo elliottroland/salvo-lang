@@ -1,0 +1,11 @@
+1. found Ada, hp 30
+1. copied out [Ada]
+1. window at 1: Bo
+1. 1 of 2 still standing
+2. bench 2, front Cy (a reading, not a handle)
+2. Ada at 33 after a read in the middle
+2. after the searches: 33 28
+3. 105 209 (total reads: `Idx` survived)
+4. 31 hp / 103 energy after striking itself
+4. Red: 1 8
+5. supplies 7, banners [red, blue]

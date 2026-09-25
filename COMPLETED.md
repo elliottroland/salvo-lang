@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1417 tests, complete: the toolchain tests are
+cargo test                  # 1480 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,123 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The two `examples/borrowing/` defects, fixed (2026-09-25, user request).**
+Both were checker/emitter disagreements — Kotlin ran the program, the Rust
+emission did not compile — so both belonged to the backend, and neither needed
+a language change.
+
+**The anchored `canbe in` form now lowers.** The bug was one line of
+reasoning: a covered call renders its positions against a shared anchor
+[rs-loc], and the anchor was *always* synthesized (`__anchor: &mut Vec<T>`) —
+but an **anchored** entry names its container, and that container is a path
+rooted at a parameter, so the callee already had it. Passing it twice
+(`trade(&mut squad, &mut squad.members, __c1, __c2)`) is E0499 by
+construction, which is why a documented form could not run at all. Now
+`covered_fns` carries the anchor path beside the covered indices: with one,
+the anchor is that parameter and the covered positions add nothing but their
+index — `fn trade(squad: &mut Squad, __c1: usize, __c2: usize)`, indexing
+`squad.members[__cN]` — and the plain `a canbe d` form, whose anchor no
+parameter names, still grows one. The call site checks the agreement this
+rests on (a handle of a container the clause does not anchor it in is
+reported, naming both), and the *consequence worth naming*: the anchored form
+is now how a handle travels **beside its own container** in one call, which is
+the shape the ladder's ② leftover had parked as "fails at rustc, honest but
+late". Fixing it beat refusing it. En route, a checker gap: `canbe`'s
+right-hand side was never validated, so `=> a canbe nosuch` was silently
+ignored and `=> a canbe s.members` silently meant nothing — both are errors
+now, the second naming `canbe in` as the form that means it, and a plural
+subject reports once rather than once per subject [canbe-entry].
+
+**A read before a mutation in one expression is hoisted** [rs-mut-arg-hoist].
+Rust holds a read borrow for the whole expression it sits in, so
+`format!("{} {}", b.n, bumped(&mut b))` and `label(&b.tag, bumped(&mut b))`
+are E0502 — while the language only *orders* the two ([deduce-same-call]:
+arguments left to right, and a read is not a consumption) and Kotlin prints
+both. The fix evaluates the read first, which is the order the language
+already gives it: `{ let __r1 = b.n; format!("{} {}", __r1, bumped(&mut b)) }`.
+What it took was precision about *which* sibling actually holds a borrow —
+probing found that only a **place** in a borrowed position does (a nested call
+returning an owned value is fine: `pair(total(&h.items), grow(&mut h))`
+compiles, because the borrow ends when `total` returns; and in `format!` only
+a Copy scalar renders bare, since anything else is already a `.clone()` or a
+`to_str`). So the trigger is narrow and nothing else churned: 1474 tests were
+green before the new ones were added, with no golden or example output
+changing. The one shape it will *not* rescue is a read of **mutable data**,
+where a copy would be a snapshot on Rust against a live handle on Kotlin —
+exactly the divergence the rule exists to prevent — so that is reported with
+the two things the program can say instead (`copy(place)`, or the mutating
+call in its own statement), both probe-verified to compile and print
+identically. Remaining cut, recorded in the spec: calls through effect members
+and fn values plan nothing, since the modes come from the callee the checker
+resolved.
+
+`examples/borrowing/` grew a section for the anchored form now that it runs
+(`rotate`, with the squad and two of its members in one call), so the fix has
+a worked example as well as tests: two checker tests, three Rust codegen tests
+(the anchored rendering, the hoist rendering, the mutable-data refusal) and
+four e2e parity pairs. 1480 tests green.
+
+**`examples/borrowing/` — the group-borrowing ladder as a worked example
+(2026-09-25, user request).** The tenth example, and the first to cover
+[proj-mut] [elem-distinct] [col-noteq] [col-update] [col-locate]
+[canbe-entry] [deduce-field] in one program: a read projection and what it
+costs to move one (`add(names, copy(ada.name))`), a **view** struct with a
+`proj` field, `filter`'s `Mut List<proj T>`, the `Mut List<T>` versus
+`List<Mut T>` contrast, a bound handle held across a read of its container, a
+search that lends (`wounded`), a generic lend through `params Locate`, a
+`NotEq`-proven pair plus `update`/`update2`, an alias group (`strike`, called
+both with distinct handles and with one element twice) and a field-granular
+clause whose handle survives (`spend` / `hoist`). Ten output lines, identical
+on both backends. Registered in `KOTLIN_CASES` as `kotlin_example_borrowing`;
+the Rust side picks it up from `example_names()` automatically.
+
+The user asked for functions that cannot be written in Rust, so each claim
+was **checked against rustc rather than asserted** (1.98.0), and two of the
+claims already in the repo did not survive the check. What rustc really
+refuses, with the probe for each in the example's README: a handle held
+across a *read* of its container (E0502), two element handles of one
+container in one call (E0499, whose own `help:` names the `split_at_mut` the
+backend emits), two handles that **may be the same** (E0499 — and here no
+signature helps, so a Rust programmer writes the aliasing case as a second
+function), and a handle into one field across a call mutating another (E0502:
+Rust splits borrows by field within a function, never across a call). What it
+does *not* refuse, contrary to `docs/language/Mutable-Handles.md`: a search
+returning `Option<&mut T>` compiles under NLL (the best-so-far variant too),
+and a caller-supplied lending accessor is expressible with a higher-ranked
+bound (`for<'a> Fn(&'a mut Vec<T>, usize) -> Option<&'a mut T>`). Both
+sentences in that page were rewritten to say what is actually true — the
+*use* of either result alongside the container is the refused part — as was
+the search-loop test's doc comment, and the "shapes Rust refuses outright"
+bullet list now marks which bullets are exclusion-rule impossibilities and
+which are `&mut` lifetime problems. The lesson is in the gotchas: a claim
+about another compiler's limits ages, and the example that rests on it should
+carry the probe.
+
+Two defects fell out of writing it, both filed in ROADMAP with repros, both
+Kotlin-runs/Rust-fails (so checker/emitter disagreements rather than
+restrictions): the **anchored `canbe in` form does not lower** — the anchor is
+always a parameter and the emitter passes it twice, `trade(&mut members, &mut
+members, …)`, E0499 — which matters more than the ladder's recorded leftover
+suggested, because the documented `shuffle`/`canbe in lib.tracks` shape *is*
+that pattern and therefore cannot run at all today; and a **`Mut` argument
+beside a read of the same variable in one expression**
+(`"${b.n} ${bumped(b)}"` → `format!("{} {}", b.n, bumped(&mut b))`, E0502),
+which needs no handles and is fixed by hoisting the reads, since Kotlin runs
+the program and the language says it is legal [deduce-same-call]. The example
+sidesteps the second by giving its view-reading function a non-`Mut`
+parameter, which it wanted anyway. (**Both fixed the same day** — the entry
+above.)
+
+1474 tests green, fresh nextest included (2m39) — the same count as before,
+which is the point of how the examples are wired: the per-backend example
+tests iterate `example_names()` and the Kotlin run rides the one batching
+driver, so a tenth example adds assertions rather than tests. It does cost
+wall time, though, and the bill lands on the known warm-run defect: the
+Kotlin codegen binary is now ~15s warm against the ~7.5s recorded when that
+defect was filed, and a warm `cargo test` ~28s against a ~15s budget. The
+measurement is appended to the defect (ROADMAP) — the registry grows, so the
+source-keyed stamp is worth more than it was.
 
 **Rung ⑤ (GB-3-A) attempted and reverted — the finding is the result
 (2026-09-24, evening).** Built the obvious form of the child-group
@@ -16141,7 +16258,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1474)
+## Test inventory (all green: 1480)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -17343,6 +17460,45 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A synthesized parameter is a bug wherever the real one already exists.**
+  The covered-position rendering [rs-loc] synthesized `__anchor: &mut Vec<T>`
+  unconditionally, which is right for `=> a canbe d` (no parameter names the
+  container) and wrong for `=> t canbe in lib.tracks` (one does) — so every
+  anchored call passed the same container twice and was E0499 by construction.
+  The tell is an rustc error naming *one* variable in both roles
+  (`trade(&mut squad, &mut squad.members, …)`). When a rendering invents a
+  parameter, ask what the clause already names; and note that the shape a
+  synthesized anchor cannot express — a handle beside its own container — is
+  exactly what the named anchor makes legal, so the feature and the fix were
+  the same thing.
+
+- **An emitted expression holds its borrows to the end of the expression, so
+  siblings interact.** `format!` takes a reference to every argument and a
+  call holds its argument borrows for the whole call, so a read rendered as
+  `&place` collides with a later `&mut` of the same place (E0502) even though
+  the language only orders the two. Two things were needed to fix it without
+  churn: knowing *which* renderings actually hold a borrow (only a **place**
+  in a borrowed position — a nested call returning an owned value is fine,
+  since its borrow ends at its return, and `format!` clones everything that is
+  not a Copy scalar), and knowing when a hoist is *sound* (a copy of mutable
+  data is observable, so that case is reported rather than copied). Probe the
+  boundary before generalizing: three of the five shapes that look broken
+  compile.
+
+- **A claim about another compiler's limits ages; probe it before writing it
+  down.** "Rust cannot express a search that lends what it found" was in
+  `docs/language/Mutable-Handles.md` and in a test's doc comment, and it is
+  false on rustc 1.98: NLL accepts `fn wounded(es: &mut Vec<Entity>) ->
+  Option<&mut Entity>`, best-so-far variant included, and a caller-supplied
+  lending accessor is expressible with a higher-ranked bound. What rustc
+  actually refuses is *using* such a result alongside the container (E0502) —
+  a consequence of the exclusion rule, so it will not age. The habit that
+  costs nothing: write the hand translation, run `rustc`, paste the error into
+  the prose. `examples/borrowing/README.md` carries one probe per claim for
+  exactly this reason. (Watch for the sandbox's `TMPDIR`: a bare `rustc` may
+  fail with "couldn't create a temp dir", which looks like a compile error and
+  is not — point `TMPDIR` at a repo-local directory.)
 
 - **The Rust emitter's ambient mode at a statement is `Read`, so an owned
   position that walks with `emit_place` has to raise it.** `emit_expr` raises the

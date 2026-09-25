@@ -1873,3 +1873,69 @@ fn a_claim_about_a_field_falls_when_that_field_is_mutated() {
         "expected the claim to be gone, got: {errs:?}"
     );
 }
+
+/// [canbe-entry] The relation's **right-hand side** names parameters too, and
+/// a name that is not one is now reported rather than silently ignored: the
+/// plain form relates two parameters, the anchored form's container is rooted
+/// at one, and the Rust rendering reads that anchor as a place in the callee
+/// [rs-loc], so it has to be there. (Found 2026-09-25 while closing the
+/// anchored form's lowering defect.)
+#[test]
+fn canbe_names_parameters_on_both_sides() {
+    let src = "
+struct Entity canbe Mut { hp: Int }
+struct Squad canbe Mut { members: List<Mut Entity> }
+
+fn plain(a: Mut Entity, d: Mut Entity) -> None => a canbe nosuch, a: Mut, d: Mut {
+    a.hp = a.hp - 1
+}
+
+fn anchored(one: Mut Entity, other: Mut Entity) -> None
+=> one|other canbe in nowhere.members, one: Mut, other: Mut {
+    one.hp = one.hp - 1
+}
+
+fn pathless(s: Mut Squad, one: Mut Entity) -> None => one canbe s.members, one: Mut, s: Mut {
+    one.hp = one.hp - 1
+}
+
+fn fine(s: Mut Squad, one: Mut Entity, other: Mut Entity) -> None
+=> one|other canbe in s.members, one: Mut, other: Mut, s: Mut {
+    one.hp = one.hp - 1
+    other.hp = other.hp + 1
+}
+"
+    .to_string();
+    let (_, checked) = check_src(&src);
+    let messages: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("unknown parameter `nosuch`"))
+            .count(),
+        1,
+        "the plain form's other side must be a parameter: {messages:?}"
+    );
+    // One report, not one per subject: the plural subject desugars to two
+    // entries carrying the same right-hand side.
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("unknown parameter `nowhere`"))
+            .count(),
+        1,
+        "the anchored form's container must be rooted at a parameter, once: {messages:?}"
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| m.contains("cannot name a field path"))
+            .count(),
+        1,
+        "the plain form takes no path — `canbe in` is the anchored form: {messages:?}"
+    );
+    assert!(
+        messages.len() == 3,
+        "`fine` must be accepted: {messages:?}"
+    );
+}

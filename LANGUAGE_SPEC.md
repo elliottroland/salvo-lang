@@ -5747,7 +5747,10 @@ the same day. **Not part of `core`**: the surface is imported, and one
     may be an element of the named container path, and two parameters
     anchored in the **same** path may therefore coincide (the
     shared-anchor rule: the container-rooted n-way case costs one entry
-    per parameter, linear in n).
+    per parameter, linear in n). The path is **rooted at a parameter** —
+    the anchor is a value the callee has — which is also what lets the
+    anchored form license handles passed *beside their own container* in
+    one call [rs-loc].
   * **`|` lists on both sides**: on the right a hub (`a canbe b|c` is a↔b
     and a↔c, *not* b↔c — the sentence says exactly what the rule means);
     on the left plural-subject sugar (`a|b|c canbe in es` is the three
@@ -5760,6 +5763,12 @@ the same day. **Not part of `core`**: the surface is imported, and one
     inference claims an entry. The entry says nothing about keptness or
     qualifiers. Diagnostic vocabulary keeps the word "alias group" for the
     connected component, while the surface never needs it.
+  * **Both sides name parameters**, and a name that is not one is an error
+    (2026-09-25, found closing the anchored form's lowering defect): the
+    plain form relates two *parameters*, so a field path on its right is
+    refused with `canbe in` named as the form that means it; the anchored
+    form's container is a path whose **root** is a parameter. A plural
+    subject reports its right-hand side once, not once per subject.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
   step ② of COMPLETED.md's log (the group-borrowing ladder)): two mutable element handles of
   one container whose minting indices a live `NotEq` claim proves apart
