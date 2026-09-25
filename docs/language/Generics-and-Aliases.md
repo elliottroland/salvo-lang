@@ -68,4 +68,4 @@ Type aliases can be convenient for making union and tuple types more readable. Y
 type Result<S, T> = Ok S | Err T
 ```
 
-Type aliases need to be imported like everything else (see below for details).
+Type aliases need to be imported like everything else ([Modules](Modules.md)).

@@ -1,8 +1,6 @@
 # Throwing
 
-## Throwing: leaving early with a message
-
-Handlers so far always *resume*: an effect operation runs and control comes back. `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
+An effect handler normally *resumes*: the operation runs and control comes back to the caller ([Effects and handlers](Effects-and-Handlers.md)). `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
 
 ```
 effect Throw<M> {

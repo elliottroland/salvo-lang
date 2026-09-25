@@ -38,13 +38,20 @@ done < <(grep -o '](\([A-Za-z-]*\)\.md)' "$src/README.md" | sed 's/](\(.*\)\.md)
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# One page per file, with the "generated" banner the first thing a reader (or
-# an editor) sees.
+# One page per file, with the "generated" banner the first thing an editor
+# sees. The wiki titles a page from its **file name**, so the page's own
+# `# Title` heading (which `docs/language/` needs, since GitHub renders a
+# bare file without one) is dropped here — otherwise every page shows its
+# name twice. Page links lose their `.md` for the same reason: `docs/language/`
+# links `Foo.md` so the files resolve when browsed on GitHub, while the wiki
+# addresses a page as `Foo`.
 for page in "${pages[@]}"; do
-  title="${page//-/ }"
   {
     printf '<!-- Generated from docs/language/%s.md by tools/sync-wiki.sh. Edit that file, not this page. -->\n\n' "$page"
-    cat "$src/$page.md"
+    awk 'NR == 1 && /^# / { next } NR == 2 && dropped_title { next } { print }' \
+      dropped_title=1 "$src/$page.md" \
+      | awk 'NR == 1 && $0 == "" { next } { print }' \
+      | sed -E 's/\]\(([A-Za-z-]+)\.md\)/](\1)/g'
   } > "$tmp/$page.md"
 done
 

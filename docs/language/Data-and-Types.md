@@ -32,7 +32,7 @@ let str: Str = "hello, world!"
 
 There is no equivalent to Rust's string literal type `str`.
 
-A string being immutable does not mean building one has to be quadratic: `Str` opts into the `Mut` auto-qualifier (see below), so `Mut Str` is *a string under construction*. It is asked for explicitly — a literal is never a `Mut Str` — and it is the only place the string functions come in a mutating flavour:
+A string being immutable does not mean building one has to be quadratic: `Str` opts into the `Mut` auto-qualifier ([Qualifiers](Qualifiers.md)), so `Mut Str` is *a string under construction*. It is asked for explicitly — a literal is never a `Mut Str` — and it is the only place the string functions come in a mutating flavour:
 
 ```
 let text: Mut Str = mut_str("hello")
@@ -132,9 +132,9 @@ while remove_first(queue) is Ticket next {
 
 Because the binding and the test are two reads of one subject, a call subject is only allowed where that single evaluation has somewhere to live: as the whole condition of a `while`, or of an `if`'s first branch. Inside a `&&` chain or an `elif` condition it is an error naming the remedy — bind it with `let` first — since hoisting it there would run it when short-circuiting says it should not. A variable or field chain is unrestricted, because reading one twice costs nothing.
 
-It makes no sense to have duplicate types in a union (unless they are qualified, see below): `Str | Str` is equivalent and simplified to `Str`.
+It makes no sense to have duplicate types in a union (unless they are qualified — see [Qualifiers](Qualifiers.md)): `Str | Str` is equivalent and simplified to `Str`.
 
-The type of a variable can never get more general (although its qualifiers can change, more on this later), and we don't support variable shadowing. In the above example, it is only because the type of `string_or_number` _started_ as a union, it could move between `Str` and `Int`.
+The type of a variable can never get more general (although its qualifiers can change — see [Qualifiers](Qualifiers.md)), and we don't support variable shadowing. In the above example, it is only because the type of `string_or_number` _started_ as a union, it could move between `Str` and `Int`.
 
 ## Structs
 

@@ -1,7 +1,5 @@
 # Passes: how `for` works
 
-## Iteration: passes and `next`
-
 Iteration is ordinary Salvo, not a built-in protocol. A **pass** is a value
 that holds a position in a sequence, and a pass is advanced by a `next`
 returning either an element or the end:

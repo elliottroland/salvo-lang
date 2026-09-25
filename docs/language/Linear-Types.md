@@ -1,8 +1,6 @@
 # Linear types
 
-## Linear types: values that must be used
-
-Everything above makes values *affine*: they can be used at most once. Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type declares **linearity** with a modifier, and its file supplies the death:
+Salvo's ownership rules make values *affine*: they can be used at most once (see [Deductions and ownership](Deductions-and-Ownership.md)). Resource types want the other half too — a file handle that is never closed, a transaction that is never committed or rolled back, is a bug. A type declares **linearity** with a modifier, and its file supplies the death:
 
 ```
 linear struct FileHandle {

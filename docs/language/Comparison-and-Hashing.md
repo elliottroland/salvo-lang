@@ -1,7 +1,5 @@
 # Comparison, equality and hashing
 
-## Comparison, equality and hashing
-
 Three capabilities are declared exactly this way, in `core.compare`:
 
 ```

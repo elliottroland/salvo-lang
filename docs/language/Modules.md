@@ -65,7 +65,7 @@ This is what makes interop itself a matter of *declaration*: a Salvo
 program reaches its target language through a `platform effect` — or a
 `platform handler`, a host implementation of an ordinary Salvo effect —
 whose member functions you declare and the compiler turns into an interface
-for the host to implement (see the backends section) — there is no way to
+for the host to implement (see [Backends](Backends.md)) — there is no way to
 name a Kotlin method or a Rust function that some declaration in scope does
 not already stand for. Dot-notation still reads like a method call
 (`text.shout()` is `shout(text)`), but the function has to exist. The same

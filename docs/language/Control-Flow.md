@@ -44,7 +44,7 @@ when [subject variable] {
 }
 ```
 
-There is no `else` branch in this form -- the arms *are* the cases, and covering them is what the compiler checks. The subject must be a union-typed variable. The subject together with a check should form a valid boolean expression that could work for an if-expression when concatenated (i.e. `[subject] [check]` should be the boolean expression). As with if-expressions, any type/qualifier checking proven in the condition allows us to refer to the subject within that block by the more specific type. The branches of the when expression each resolve to a value like the `if`-`elif`-`else` chain. To reuse an example from earlier:
+There is no `else` branch in this form -- the arms *are* the cases, and covering them is what the compiler checks. The subject must be a union-typed variable. The subject together with a check should form a valid boolean expression that could work for an if-expression when concatenated (i.e. `[subject] [check]` should be the boolean expression). As with if-expressions, any type/qualifier checking proven in the condition allows us to refer to the subject within that block by the more specific type. The branches of the when expression each resolve to a value like the `if`-`elif`-`else` chain. For example:
 
 ```
 let result: Ok Str | Err Str | Err Bool = some_function()

@@ -1,7 +1,5 @@
 # Collections
 
-## Collections
-
 `List<T>`, `Set<T>` and `Map<K, V>` are the everyday collections, and each has a literal:
 
 ```
@@ -157,7 +155,7 @@ let numbers: Int[] = array_of(1, 2, 3)
 let zeros: Int[] = array_by(5, i -> 0)
 ```
 
-The array's size can be fetched from `numbers.size()` (see below for dot-notation of functions) and the array can be 0-indexed using `numbers[index]`. Indexing is an array's alone: a list exposes element access as `get(xs, i)`.
+The array's size can be fetched from `numbers.size()` (see [dot-notation](Functions.md) for calling a function that way) and the array can be 0-indexed using `numbers[index]`. Indexing is an array's alone: a list exposes element access as `get(xs, i)`.
 
 ## Any and Never
 

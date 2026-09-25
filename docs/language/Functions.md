@@ -137,7 +137,7 @@ params Yield<It, T> {
 // declared one for a pass of your own, since this module beats core.
 ```
 
-We have already seen some examples of functions, so now we will move to the extra bits around the arrow: effects and deductions.
+Beyond the declaration itself, two things hang off the arrow: effects and deductions.
 
 ## Implicit parameters
 

@@ -209,7 +209,21 @@ whose only job is readability on GitHub — is **generated** from the pages by
 `tools/sync-wiki.sh` (with `--check`), which also writes `_Sidebar.md` and
 appends a contents table to the hand-written `Home.md`; each page carries a
 banner naming its source, since editing the wiki directly is lost work.
-Two hygiene tests keep it honest: every page must be indexed (a page the
+A follow-up pass the same day made the pages read as *isolated* documents
+rather than as slices of one: the wiki titles a page from its file name, so
+`sync-wiki.sh` now drops each page's own `# Title` (kept in
+`docs/language/`, where GitHub renders a bare file without one) and strips
+`.md` from page links, since a wiki addresses `Foo` where a file browser
+wants `Foo.md`. Six `##` headings that merely repeated their page's title
+went; openings that assumed a reading order were rewritten ("Everything
+above makes values affine" → a link to Deductions and ownership; "Handlers
+so far always resume" → a link to Effects and handlers; "We have already
+seen some examples of functions" → the sentence it was avoiding); ten
+"see below"-style references that now pointed at other pages became page
+links; the seam where `## Qualifiers` and `## Qualifiers continued` had been
+joined gained a real bridge section ("How a qualifier is established")
+instead of "now that we know how functions work"; and Lambdas-and-Variadics
+put its sections in its title's order. Two hygiene tests keep it honest: every page must be indexed (a page the
 index misses is invisible, and the sidebar is built from that order), and
 the wiki must be current *when present* — skipping when absent, the way the
 toolchain tests do, because a clone need not have it. Decided against a thin

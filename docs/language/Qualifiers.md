@@ -1,7 +1,5 @@
 # Qualifiers
 
-## Qualifiers
-
 Salvo introduces the notion of _qualifiers_, which act like annotations on data which can expose more or less functionality for them. Qualifiers do not generally have their own definition: their behavior is entirely defined by which functions act on them and how they change them.
 
 A qualifier is defined by being attached to another type. We can then use this quality to define more specific functions on types. So, for our `Person` type, we could define a qualifier of having a surname:
@@ -75,7 +73,7 @@ let p: Old Surname Person | None = check_old_surname(person)
 
 The same qualifier CANNOT be applied multiple times to the same type (i.e. `Old Old Person` is invalid). However, we will see that nested qualifiers _are_ possible.
 
-Note that on a qualifier declaration `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in the linear types section). The same word appears in one other place, where it cannot be confused with this one: after a `use` or `spawn`, `with` names the dependency instances to supply (see "Inheriting the scope, and overriding it with `with`").
+Note that on a qualifier declaration `with` is only ever this compatibility clause between two qualifiers. Declaring that a type or a type parameter _may carry_ a qualifier is a different thing, and uses `canbe` (see auto-qualifiers below, and `canbe linear` in [Linear types](Linear-Types.md)). The same word appears in one other place, where it cannot be confused with this one: after a `use` or `spawn`, `with` names the dependency instances to supply (see "Inheriting the scope, and overriding it with `with`").
 
 ## Auto-qualifiers and `Mut`
 
@@ -104,18 +102,21 @@ intrinsic type List<T> canbe Mut
 intrinsic type Str canbe Mut
 ```
 
-Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in the backends section.
+Applying `Mut` to a type whose declaration does not say `canbe Mut` is a compile-time error. How a backend maps a `Mut` type is described in [Backends](Backends.md).
 
 `Mut` is also the one qualifier whose *removal* can cost something. Dropping a qualifier is ordinarily free — it only forgets a claim — and a `Mut List<T>` used as a `List<T>` really is the same value. But a backend may render `Mut T` as a *different type* than `T` (Kotlin's `Mut Str` is a `StringBuilder`, which is not a `String`), and there the drop is a conversion. Salvo hides that: the compiler records where a `Mut` is dropped and the backend supplies whatever conversion it needs, at every such place — arguments, returns, annotations, struct fields, union arms, interpolation and operators. Never in the source changes, and a `Mut Str` behaves like the `Str` it is being used as.
 
+## How a qualifier is established
 
-# Qualifiers continued
-
-Now that we know how functions work, we can return to the topic of qualifiers and discuss how they are defined.
+A qualifier arrives on a value in one of two ways: **by predication** — a
+test proves the claim holds — or **by construction**, where a function says
+it establishes the claim. The two sections below take them in turn; both
+declare their machinery inside the qualifier itself, so a claim and the way
+to obtain it live together.
 
 ## Predicate qualifiers
 
-We have not really described how to _add_ qualifiers to a type. There are basically two ways: by construction or by predication. A predicate qualifier is one in which we can write the predicate which allows us to see that the qualifier applies to a type. In this case, we define the function `qualifies` inside the qualifier, which takes a parameter of the given type and returns a boolean. This function does not support deductions because it can only ever be additive to the qualifiers of the type and can never move the value. It can, however, require effects, in which case the effects must have handlers in the context like any other function call:
+A predicate qualifier is one whose claim can be *tested*. In this case, we define the function `qualifies` inside the qualifier, which takes a parameter of the given type and returns a boolean. This function does not support deductions because it can only ever be additive to the qualifiers of the type and can never move the value. It can, however, require effects, in which case the effects must have handlers in the context like any other function call:
 
 ```
 qualifier Positive of Int {
@@ -138,7 +139,7 @@ qualifier Negative of Int {
 }
 ```
 
-To access this, you can use the standard `is` syntax we have already seen. When applied to a non-union type of the relevant kind (in this case `Int`), then it calls the `qualifies` function and allows casting:
+A claim is tested with the same `is` syntax that narrows a union ([Control flow](Control-Flow.md)). When applied to a non-union type of the relevant kind (in this case `Int`), then it calls the `qualifies` function and allows casting:
 
 ```
 let number: Int = random_int()
