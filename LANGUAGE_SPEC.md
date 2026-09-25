@@ -1,6 +1,6 @@
 # Salvo Language Spec — Labeled Rules
 
-A companion to [LANGUAGE.md](LANGUAGE.md) (the narrative spec). This file
+A companion to [docs/language/](docs/language/) (the narrative spec). This file
 states every language feature as a short, labeled rule, with the compiler's
 implementation decisions as sub-bullets. It assumes familiarity with the
 language; its purpose is precision and greppability.
@@ -10,9 +10,9 @@ Conventions:
 * Rule labels are stable identifiers: `[area-topic]`. Compiler code and
   tests reference them in comments (`grep -rn '\[qual-erasure\]'` finds the
   rule, its implementation, and its tests).
-* Top-level bullets are *language rules* (what LANGUAGE.md means).
+* Top-level bullets are *language rules* (what docs/language/ means).
   Sub-bullets are *compiler decisions* (how the implementation realizes the
-  rule, including deliberate cuts). When behavior is ambiguous, LANGUAGE.md
+  rule, including deliberate cuts). When behavior is ambiguous, docs/language/
   decides; when they conflict, fix one and note it in COMPLETED.md.
 * This file is backend-neutral. Each backend has its own
   `BACKEND_SPEC.<backend>.md` (e.g. [BACKEND_SPEC.kotlin.md](BACKEND_SPEC.kotlin.md)),
@@ -3727,8 +3727,8 @@ The concurrency surface: **an actor is an effect handler bound
 asynchronously**. Designed across 2026-09-14/15 (user decisions; the argument
 trail and the decided summary are in COMPLETED.md's decision log), and
 being built in slices — so each rule below states what already holds and what
-does not exist yet. Nothing here is in LANGUAGE.md until the feature runs;
-LANGUAGE.md remains the source of truth for everything that does.
+does not exist yet. Nothing here is in docs/language/ until the feature runs;
+docs/language/ remains the source of truth for everything that does.
 
 * [actor-kind] An **actor** is a handler whose members run one at a time,
   on a scheduler, in the order their invocations arrived: a state struct plus

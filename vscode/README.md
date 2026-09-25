@@ -1,7 +1,7 @@
 # Salvo for VS Code
 
 Syntax highlighting and language-server support (diagnostics + type-on-hover)
-for the Salvo programming language (see `README.md` and `LANGUAGE.md` at the
+for the Salvo programming language (see `README.md` and `docs/language/` at the
 repository root). The language server is the `salvo` compiler itself, started
 as `salvo lsp` over stdio.
 

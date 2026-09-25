@@ -360,7 +360,7 @@ fn interpolating_an_optional_is_rejected() {
 }
 
 // [interp-no-none] The `is`-binding and `!` forms interpolate fine — and
-// this is exactly the LANGUAGE.md nullability idiom.
+// this is exactly the docs/language/ nullability idiom.
 #[test]
 fn interpolating_a_narrowed_optional_is_accepted() {
     let errors = check_errors(

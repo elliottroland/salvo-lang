@@ -5,7 +5,7 @@ item. The record of what is *already* built — and the reasoning that got it
 there — is [COMPLETED.md](COMPLETED.md); this document assumes it and points
 into it rather than repeating it. The two replaced PROGRESS.md (2026-09-09).
 
-Companion documents: [LANGUAGE.md](LANGUAGE.md) is the narrative spec (source of
+Companion documents: [docs/language/](docs/language/) is the narrative spec (source of
 truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a labeled
 rule (`[qual-erasure]` style) with the compiler decisions under it;
 `BACKEND_SPEC.<backend>.md` ([kotlin](BACKEND_SPEC.kotlin.md),
@@ -132,7 +132,7 @@ live items.
    `Emitted`/`Ok`/`Err`/`Thrown`, the round's one semantic change (they
    start surviving exhaustive stripping and composing without `with`; sweep-
    check nothing relied on the old stripping), plus the provenance range
-   documentation in LANGUAGE.md (authority and protocol role, one kind).
+   documentation in docs/language/ (authority and protocol role, one kind).
    Sweep: std, specs, examples, corpus, inline test sources.
 2. ✅ **Local slots** — built 2026-09-23/24 (COMPLETED.md's log,
    "Refinement types, step 2"); the `Span`/`substr`/`slice` driver moved
@@ -329,7 +329,7 @@ ORDERING.md, which held the sequence and the reasoning, is deleted; the record i
 COMPLETED.md's decision log, and the rules are [cmp-groups], [cmp-hash-values],
 [cmp-canonical], [cmp-auto], [op-order], [op-equality], [cmp-carry], [cmp-binder],
 [col-membership], [col-keyed-slots], [col-sorted-list], plus "A structure that
-holds an ordering" in LANGUAGE.md. In one line each: the three capabilities are
+holds an ordering" in docs/language/. In one line each: the three capabilities are
 `params` groups, a canonical is `@`-scoped to its type, `auto fn` generates a
 structural member beside hand-written ones, the operators resolve through the
 groups, a structure or a claim **names the ordering it holds** as a type argument,
@@ -854,7 +854,7 @@ sections.
    (a `Ticker` whose reading is a zero deadline on the timer the test advances)
    demonstrated on both backends with identical output; `examples/time/` as the
    worked example, which teaches the posture rather than the API; and a
-   **"## Time" chapter in LANGUAGE.md**. One std change was needed and it was
+   **docs/language/Time.md**. One std change was needed and it was
    load-bearing: `ManualTime` now fires an **already-due deadline at
    registration**, as the real timer does — without it a reading parks forever.
    The record is COMPLETED.md's log (which also carries T-2's argument trail,
@@ -899,8 +899,8 @@ Found while building step 1; none blocks step 2.
   compile-and-run cases and `examples/time/` exercise it on both backends. The
   previously tested paths were `main`, a plain fn, and a *spawned* handler on a
   dedicated thread.
-- **The actor surface is only partly in LANGUAGE.md.** Phase 5 and steps 1–2
-  put every actor rule in LANGUAGE_SPEC.md; LANGUAGE.md has the linearity
+- **The actor surface is only partly in docs/language/.** Phase 5 and steps 1–2
+  put every actor rule in LANGUAGE_SPEC.md; docs/language/ has the linearity
   chapter's "the actor owes until it ends" bullet and, since 2026-09-17, a
   **"Where work runs"** chapter (user request) covering pools, placement, the
   serving rule, every case of *when* a task runs, what a wait serves, and the
@@ -1167,7 +1167,7 @@ blocks anything.
   parse error.
 - **No example shows `export`.** Every program in `examples/` is a single file,
   so none of them needs the modifier and a reader of the examples never meets
-  it — LANGUAGE.md's modules chapter and the tests are the only places it
+  it — the language docs' modules chapter and the tests are the only places it
   appears. A two-file example (a library module plus a `main.sv` that imports
   it) would fix that and would be the first multi-module example in the tree.
 - **Member- and field-level visibility is unasked**, and one consequence is
@@ -1196,7 +1196,7 @@ Kotlin tuple classes, and `for (k, v) in pairs` on both backends). What remains:
 
 The testing framework's core is built and `salvo test` runs std's own suite
 (the decisions, the build and what it turned up are in COMPLETED.md's log;
-the rules are [test-decl] … [test-report] and the chapter in LANGUAGE.md).
+the rules are [test-decl] … [test-report] and the chapter in docs/language/).
 What was deliberately **cut from the MVP**, in the order the decisions put it:
 
 - **`context` scopes** — decided in shape already (TF-9, user decision

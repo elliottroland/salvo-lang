@@ -19,7 +19,7 @@ ownership, or borrowing in the source.
   data, functions define behavior, qualifiers refine types, effects carry
   capabilities.
 
-The compiler is written in Rust. See [LANGUAGE.md](LANGUAGE.md) for the full
+The compiler is written in Rust. See [docs/language/](docs/language/) for the full
 specification, [examples/](examples/) for programs that compile and run today —
 each checked in with the Rust and Kotlin the compiler generated for it and the
 output it prints — [ROADMAP.md](ROADMAP.md) for what is still to come, and

@@ -7011,7 +7011,7 @@ fn kotlinc_compiles_and_runs_aliased_effects() -> KotlinCase {
 // ===== std array functions =====
 // [type-array] Arrays get the `core.list` function surface minus
 // construction and mutation: `size`, `get`, `first`, `iter` (user
-// decision 2026-09-02 — the LANGUAGE.md `CyclicRandom` example calls
+// decision 2026-09-02 — the docs/language/ `CyclicRandom` example calls
 // `values.size()` on a `T[]`).
 
 const ARRAY_STD_DEMO: &str = r#"

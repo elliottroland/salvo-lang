@@ -58,7 +58,7 @@ it for every decision section.
   and their fresh labels — and state that until the user decides, nothing has
   propagated. Include the delete-when-decided charter here.
 - **`Sources:` paragraph:** cite the ROADMAP.md sections, COMPLETED.md log
-  entries, LANGUAGE.md / LANGUAGE_SPEC.md / backend-spec sections, and the rule
+  entries, docs/language/ / LANGUAGE_SPEC.md / backend-spec sections, and the rule
   **labels** you rely on — and the user's stated intent. **Verify every label
   exists before citing it** (`grep -rn '\[label-name\]' *.md`); a cited label
   that no longer exists is a bug (AGENTS.md).

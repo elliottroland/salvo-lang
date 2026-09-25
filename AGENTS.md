@@ -4,10 +4,15 @@ Guidance for AI agents (and humans) contributing to this repository.
 
 ## Read these first, always
 
-1. **`LANGUAGE.md`** — the Salvo language specification. It is the source of
-   truth for syntax and semantics; parser, checker, and backends are all
-   built to match it. When behavior is ambiguous, LANGUAGE.md decides.
-2. **`LANGUAGE_SPEC.md`** — the labeled-rule companion to LANGUAGE.md:
+1. **`docs/language/`** — the Salvo language specification, as pages
+   ([`README.md`](docs/language/README.md) is the index and the reading
+   order). It is the source of truth for syntax and semantics; parser,
+   checker, and backends are all built to match it. When behavior is
+   ambiguous, these pages decide. **Read the pages your task touches** —
+   they are 50–380 lines each — rather than the whole set; the complete
+   labeled rule set to *grep* is LANGUAGE_SPEC.md, below.
+2. **`LANGUAGE_SPEC.md`** — the labeled-rule companion to the language
+   pages:
    every feature as a short rule with a stable label like `[qual-erasure]`,
    plus the compiler decisions under it. Rule labels are referenced from
    compiler code and tests — `grep -rn '\[rule-name\]'` jumps between the
@@ -34,7 +39,7 @@ Guidance for AI agents (and humans) contributing to this repository.
 
 Do not begin implementation work without reading these. ROADMAP.md tells you
 *what is left and what has been decided about it*; COMPLETED.md tells you
-*where we got to and why*; LANGUAGE.md tells you *what correct means*;
+*where we got to and why*; `docs/language/` tells you *what correct means*;
 LANGUAGE_SPEC.md (+ the backend spec, when applicable) tells you *precisely
 which rules are in play and where they live in the code*.
 
@@ -42,7 +47,8 @@ which rules are in play and where they live in the code*.
 
 | File | What it is | When to load |
 |---|---|---|
-| `LANGUAGE.md` | Narrative language spec — source of truth | Always |
+| `docs/language/` | Narrative language spec, as pages — source of truth | The pages your task touches |
+| `wiki/` | **Generated** copy of `docs/language/` for reading on GitHub (`tools/sync-wiki.sh`); a separate git repository, gitignored here, and expected to be present | Never edit it — edit `docs/language/` |
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
@@ -80,7 +86,7 @@ The spec files carry the rule labels; keep them in sync with the code:
   backend sub-bullets or as a new backend-prefixed rule.
 - Renaming or removing a rule → `grep -rn '\[old-label\]'` and update every
   reference; a label in code that no longer exists in a spec is a bug.
-- Fixing a LANGUAGE.md spec bug → also check whether a LANGUAGE_SPEC.md
+- Fixing a spec bug in `docs/language/` → also check whether a LANGUAGE_SPEC.md
   rule states the old behavior, and note the fix in COMPLETED.md.
 
 ## Repository layout
@@ -89,7 +95,7 @@ The spec files carry the rule labels; keep them in sync with the code:
 crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
-│   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
+│   └── tests/corpus/     # language-docs example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 ├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
@@ -116,6 +122,9 @@ SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
                             # installed: SALVO_E2E_FRESH=1 cargo test --no-fail-fast
 SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
+
+tools/sync-wiki.sh               # regenerate wiki/ from docs/language/
+                                 # (`--check` is what the docs test runs)
 
 cargo run -- test --src std      # the standard library's own tests, in Salvo
                                  # (`std/*.test.sv`); one `cargo test` runs this
@@ -249,7 +258,8 @@ Salvo source.
   - **Rewrite every affected example** in the same change: `std/`,
     `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
     `examples/**` (source *and* its checked-in generated code and expected
-    output), LANGUAGE.md / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets,
+    output), `docs/language/` / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets
+    (and `tools/sync-wiki.sh` afterwards, so `wiki/` follows),
     README, and the syntax references in COMPLETED.md and ROADMAP.md
     (neither is a historical archive — record the change in the decision log
     instead of leaving stale syntax in prose).
@@ -299,8 +309,9 @@ Salvo source.
   output: update the insta snapshots deliberately and check the
   kotlinc/rustc end-to-end tests still pass.
 - Keep the spec documents and the implementation consistent. If you find a
-  spec bug, fix LANGUAGE.md (and any stale LANGUAGE_SPEC.md rule) *and*
-  note it in COMPLETED.md (there is precedent — several LANGUAGE.md/std
+  spec bug, fix the page in `docs/language/` (and any stale LANGUAGE_SPEC.md
+  rule) *and* note it in COMPLETED.md (there is precedent — several
+  language-docs/std
   inconsistencies were fixed this way during M0–M8).
 - Backend-prefixed rule labels (`kt-…`) may only be referenced from that
   backend's crate; `salvo-core`/`salvo-syntax` reference backend-neutral
@@ -311,7 +322,7 @@ Salvo source.
 
 1. Read ROADMAP.md → pick the item, and check whether it is marked
    **DECISION** (if so, the call is the user's before any code).
-2. Read the relevant LANGUAGE.md sections for the feature, and grep the
+2. Read the relevant `docs/language/` pages for the feature, and grep the
    affected `[rule-labels]` in LANGUAGE_SPEC.md (plus the backend spec if
    the task touches a backend crate).
 3. Check COMPLETED.md's "Gotchas / lessons learned" for traps in the area

@@ -1,7 +1,7 @@
 //! Per-module name resolution.
 //!
 //! Each source file gets a [`ModuleScope`]: the names visible to code in
-//! that file. Visibility rules per LANGUAGE.md [mod-visibility]:
+//! that file. Visibility rules per docs/language/ [mod-visibility]:
 //!
 //! * everything declared in the same module,
 //! * everything in `core.*` (implicitly imported),

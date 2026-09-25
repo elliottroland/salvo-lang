@@ -1,4 +1,4 @@
-//! Parser integration tests: the standard library and a corpus of LANGUAGE.md
+//! Parser integration tests: the standard library and a corpus of docs/language/
 //! examples must parse without errors, with AST snapshots for regressions.
 
 use std::path::{Path, PathBuf};
@@ -111,7 +111,7 @@ fn snapshot_std_seq() {
     insta::assert_debug_snapshot!(parse_clean(&std_core("seq.sv")));
 }
 
-// --- LANGUAGE.md example corpus ---
+// --- docs/language/ example corpus ---
 
 #[test]
 fn snapshot_corpus_structs() {

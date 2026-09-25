@@ -33,7 +33,7 @@ extension, worked [examples/](examples/), and `salvo test` — `test "name" { �
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
 
-Companion documents: [LANGUAGE.md](LANGUAGE.md) is the narrative spec (source of
+Companion documents: [docs/language/](docs/language/) is the narrative spec (source of
 truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a labeled
 rule (`[qual-erasure]` style) with the compiler decisions under it;
 `BACKEND_SPEC.<backend>.md` ([kotlin](BACKEND_SPEC.kotlin.md),
@@ -108,7 +108,7 @@ crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds std/ via include_dir,
 │                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
-│   └── tests/corpus/     # LANGUAGE.md-example .sv files + insta snapshots
+│   └── tests/corpus/     # language-docs-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 ├── salvo-backend-kotlin/ # Kotlin emitter (emit.rs) + golden/kotlinc tests
@@ -193,6 +193,34 @@ because the offending mutation is a *user* fn's. That clause is now the
 next **DECISION** in the area (ROADMAP), and the same distinction would
 decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
+
+
+**The language spec split into pages, and a generated wiki (2026-09-25,
+user decision).** `LANGUAGE.md` — 3647 lines, sections from 18 to 1675 lines
+— became **`docs/language/`**: 20 pages of 54–380 lines, split on *meaning*
+rather than on headings (the old `## Functions` alone became Functions,
+Lambdas-and-Variadics, Iteration, Passes, Comparison-and-Hashing,
+Effects-and-Handlers, Throwing, Deductions-and-Ownership and Linear-Types).
+The split was verified **lossless** line by line before the original was
+deleted, every page gained a title and a place in
+`docs/language/README.md`'s reading order, and the six cross-section anchor
+links became page links. `wiki/` — a separate, gitignored git repository
+whose only job is readability on GitHub — is **generated** from the pages by
+`tools/sync-wiki.sh` (with `--check`), which also writes `_Sidebar.md` and
+appends a contents table to the hand-written `Home.md`; each page carries a
+banner naming its source, since editing the wiki directly is lost work.
+Two hygiene tests keep it honest: every page must be indexed (a page the
+index misses is invisible, and the sidebar is built from that order), and
+the wiki must be current *when present* — skipping when absent, the way the
+toolchain tests do, because a clone need not have it. Decided against a thin
+`LANGUAGE.md` redirect: the index lives with the pages, where GitHub renders
+it on directory browse, and a husk at the root is what this repo's own rules
+dislike. The three documents' jobs are now distinct — `docs/language/` for
+someone *using* Salvo, LANGUAGE_SPEC.md's labeled rules for whoever *changes
+the compiler*, `wiki/` for reading. All 96 references were swept, AGENTS.md's
+read-first instruction now says to read the pages a task touches (with
+LANGUAGE_SPEC.md as the complete rule set to grep), and its documentation map
+gained the `wiki/` row. 1474 tests green.
 
 
 **The borrowed-Copy-scalar comparison defect, closed (2026-09-25).** Repro,
@@ -586,7 +614,7 @@ Hover renders the annotation where it is written (return type, fn-type
 Display) and subtracts it from the clause tail. Migrated: `core.list`'s
 `ListEnumYield` `next`, both `filter`s in `core.seq`, the container
 combinator in three test crates, widen/analyze tests; specs
-([deduce-syntax] table and bullets, [proj-infer], LANGUAGE.md's table and
+([deduce-syntax] table and bullets, [proj-infer], the language docs' table and
 views narrative, [rs-proj-lends]); stale spellings in ROADMAP/COMPLETED
 prose updated in place. New tests: the parser's opaque-annotation test
 (both positions, mandatory-parens error, old form refused) and an LSP
@@ -842,7 +870,7 @@ is exactly `contains_key`. What landed:
   qualifier for now (fn or value, not both).
 
 Tests: `depend_tests.rs` (7, checker-level), `std/core/map.test.sv` (4,
-runtime, both backends — `core.map`'s first annex). LANGUAGE.md gained the
+runtime, both backends — `core.map`'s first annex). docs/language/ gained the
 "Dependent qualifiers" section; LANGUAGE_SPEC.md the [qual-depend] rule.
 The `Span`/`substr`/`slice` driver moved to step 3 with the total
 overloads that make it consumable — a dependent claim nothing can consume
@@ -878,7 +906,7 @@ sequence, step 1):
   (core.throw). The round's one semantic change: tags now survive
   exhaustive stripping and compose with state claims without `with`
   (`Ok NonEmpty List<Int>` — tested), and the sweep-check found nothing
-  relying on the old stripping (zero non-snapshot failures). LANGUAGE.md's
+  relying on the old stripping (zero non-snapshot failures). the language docs'
   provenance section now teaches the two families — authority and protocol
   role — as two uses of one kind, with content-dependence (not
   mint-onlyness) as the discriminator from state claims.
@@ -1258,7 +1286,7 @@ The calls:
   `!`/`assert!`/subscript/division-by-zero, **wrapping** for integer overflow.
   The `!` and `assert!` rows are built; subscript, division and overflow are
   *decided, not yet built*.
-- **A-7**: the ladder — prove, require, handle, assert — stated in LANGUAGE.md.
+- **A-7**: the ladder — prove, require, handle, assert — stated in docs/language/.
 
 What was built, and what it cost:
 
@@ -1421,7 +1449,7 @@ annexes, `salvo test` to run them, `std.test` for assertions, and `std/heap.sv`
 option space had been worked out on 2026-09-19 in a working document
 (TESTING.md, three rounds, now deleted per its own charter); this session took
 the remaining calls and built the core. The rules are [test-decl] …
-[test-report] plus [std-shadow]; LANGUAGE.md has a "Testing" chapter; what was
+[test-report] plus [std-shadow]; docs/language/ has a "Testing" chapter; what was
 cut is a section in ROADMAP.md.
 
 The calls, each the user's:
@@ -2117,7 +2145,7 @@ the operator rule that goes with it.
   aliasing to get two orderings into one scope and aliasing to dodge the choice
   between them. The user caught this: the name-based reading I had described
   would have let the alias silently pick one.
-- Rules [cmp-carry] and [cmp-binder] extended; LANGUAGE.md's section rewritten
+- Rules [cmp-carry] and [cmp-binder] extended; the language docs' section rewritten
   around the new spellings. Four new tests in `carry_tests.rs` (the spread, the
   unconstrained slot, the alias, and the refusal) — 17 there now.
 
@@ -2147,7 +2175,7 @@ container consults equality).
   resolve-every-member test saw no error because its prelude's `Hashed` still had
   one member. A hand-copied std surface is a place where a language change can
   look landed without being.
-- Rules: [cmp-groups] and [implicit-group] updated; LANGUAGE.md's group listing
+- Rules: [cmp-groups] and [implicit-group] updated; the language docs' group listing
   now shows the pair and explains which of the two bundles and why. Three new
   tests in `compare_tests.rs` (the merge, the clash at two types, and
   resolve-all with its narrower-spread remedy).
@@ -2195,7 +2223,7 @@ name whose `eq` is `cmp(a, b) == 0`.
   positions), `examples/collections` (source, README and both regenerated
   outputs) and `examples/time`'s regenerated output. The generated-code diff is
   member *order* only — `eq` now arrives with `hash` rather than with `cmp`.
-- Rule [cmp-default] became **[cmp-auto]** and was rewritten; LANGUAGE.md's
+- Rule [cmp-default] became **[cmp-auto]** and was rewritten; the language docs'
   section on generation was rewritten around the mixed example. Three new tests
   in `compare_tests.rs` (the mixed form, the two spellings being one thing, and
   the six refusals), and one e2e demo struct converted to the clause-less form so
@@ -2872,7 +2900,7 @@ inside an `is` check**: one rule where there were two, and `^Q` now reads as
 A sweep lesson, paid for twice: **a line-by-line rewrite that reconstructs the
 line must keep the line ending.** Two passes of `re.match` + f-string
 reconstruction silently *merged* each rewritten line with the next one, in the
-corpus, in LANGUAGE.md and in six places across the two codegen test files. The
+corpus, in docs/language/ and in six places across the two codegen test files. The
 tell is `git diff --numstat`: insertions fewer than deletions in a pure rename
 means lines were lost. Worth checking that on every mechanical sweep.
 
@@ -2931,7 +2959,7 @@ family"). The reason is the reader's, not the compiler's: a bottom type spelled
 `Nothing` sitting beside the `None` that fills a `T?` invited exactly the
 confusion the two words suggest, and `Never` says what the type actually
 captures. It also lines up with `!` in Rust and `never` in TypeScript, the two
-languages LANGUAGE.md already cites for it.
+languages docs/language/ already cites for it.
 
 No compatibility shim, per the standing rule: `Nothing` is now
 `error: unknown type`, and that is the whole transition.
@@ -3395,12 +3423,12 @@ each job, and what survived:
   unknown name.
 - **The sweep**: every `[use, spawn, waitfor]` in the test suites, corpus and
   examples; `TestTicker` loses its declaration in the example, both backends'
-  codegen tests and LANGUAGE.md's own snippet; std's prose
+  codegen tests and the language docs' own snippet; std's prose
   (`core/actor.sv`, `time.sv`); the grant-check tests rewritten to assert
   the new rules (any function waits, any placement spawns a waiting handler,
   a waiting task needs nothing; the on-clause consumption test unchanged);
   [waitfor-effect] rewritten as the deletion record, [waitfor-dedicated] as
-  placement-by-choice; README, LANGUAGE.md's task-body and coupling prose.
+  placement-by-choice; README, the language docs' task-body and coupling prose.
   `examples/time` runs identically after the sweep — the posture's cost
   paragraph now describes the round trip, not a thread per waiting actor.
 
@@ -3452,7 +3480,7 @@ whose cursor lives behind its mailbox, its façade bound in `main` *and*
 supplied to a spawned actor's dependency clause, three draws sequenced by the
 `waitfor` (`main drew 12345` / `actor drew 95040` / `main drew 58585`), and
 `[waitfor]` written nowhere. New labels **[rs-mixed]** / **[kt-mixed]**; the
-[mixed-handler] rule is in LANGUAGE_SPEC.md and the narrative in LANGUAGE.md.
+[mixed-handler] rule is in LANGUAGE_SPEC.md and the narrative in docs/language/.
 
 - **The handle rework the façade forced** (§7's finding 3): a façade must not
   sit behind the monitor's mutex — a second caller blocked on it serves
@@ -3889,7 +3917,7 @@ visibility — leftovers".
 last of the second sequence: how a `Clock`/`Ticker` reading and a `Timer`
 deadline agree in a test. The call had been made a day earlier and the step is
 what makes it real — a rule [time-coupling], a case per backend, a worked
-example, and a chapter in LANGUAGE.md.
+example, and a chapter in docs/language/.
 
 **What the stance is, and the alternatives it was chosen over** (T-2's argument
 trail, preserved here because TIME.md is now deleted):
@@ -3935,7 +3963,7 @@ real one fires immediately is a fake that lies. Everything else was writing:
 the [time-coupling] rule, a `time-coupling` compile-and-run case per backend
 (identical output), `examples/time/` — the example the step-5 leftovers said was
 owed, and it teaches the posture rather than the API — and a **"## Time"
-chapter in LANGUAGE.md**, which closes half of the prose the step-1 leftovers
+chapter in docs/language/**, which closes half of the prose the step-1 leftovers
 recorded as owed (the actor *surface* prose is still owed).
 
 **TIME.md's own sketch was wrong in two ways, which is the finding worth
@@ -4944,7 +4972,7 @@ both emitters — generated code appears in the user's own stack traces, which i
 exactly where a second name for one thing costs; the scheduler's internals
 (`ActorState`, `actors`) and its **runtime message**, now "salvo: deadlock: all
 actors idle while main waits"; every diagnostic that said "process";
-`tests/async_tests.rs` → `tests/actor_tests.rs`; and the prose of LANGUAGE.md,
+`tests/async_tests.rs` → `tests/actor_tests.rs`; and the prose of docs/language/,
 LANGUAGE_SPEC.md (whose section is now "Actors — effect handlers bound
 asynchronously") and both backend specs. Tests: **1051**, unchanged — a rename
 that changes a test count is a rename that changed behaviour.
@@ -5037,7 +5065,7 @@ last thing standing between the phase and its worked examples. Tests: **1051
 outcomes are the rules above, the argument trails they rest on are in this entry
 and in the 2026-09-15 decision entry, and the document itself is deleted. The
 one sentence of its own it asked to have written verbatim — "the process owes
-until it ends" — is in LANGUAGE.md and in [linear-state].
+until it ends" — is in docs/language/ and in [linear-state].
 
 **Two deliberate cuts, both recorded in the rules:** there is **no positional
 write for a list** (`replace(list, i, v)` would have to answer `None` for an
@@ -5689,7 +5717,7 @@ and 3 checker tests in this slice, on top of the declaration slice's 2 and 5.
 The rules are now written down: LANGUAGE_SPEC.md gained an "Asynchronous
 effect handlers" section ([actor-kind] … [actor-use-addr]), which also
 closed the dangling-label bug the declaration slice left (two labels lived in
-code with no rule behind them). LANGUAGE.md is deliberately untouched until
+code with no rule behind them). docs/language/ is deliberately untouched until
 the feature runs.
 
 **The half-built form is refused on both sides, and that is the point.** A
@@ -5940,14 +5968,14 @@ now declares four `close` overloads (the `Chunks` discharger) and two more
 blocks — disk and `MemFs` — identically. Rules: LANGUAGE_SPEC.md gained
 [bytes-type] and [fs-read-to] ([fs-bytes], [fs-surface] and [type-basic]
 rewritten around them); BACKEND_SPEC.kotlin.md gained [kt-bytes];
-BACKEND_SPEC.rust.md's [type-basic] states the `Vec<u8>` mapping; LANGUAGE.md
+BACKEND_SPEC.rust.md's [type-basic] states the `Vec<u8>` mapping; docs/language/
 carries the type in its basic-types list and the new reads in "Files".
 
 **Bytes, and the worked example — phase 4 is complete (2026-09-14).** The
 last two items of the filesystem: the byte payload deliverable (§5.10.2 E of
 the retired FILE_SYSTEM.md) and `examples/files/`. With them, **phase 4 of
 the sequence is done** and FILE_SYSTEM.md is deleted, its decided outcomes
-having moved into LANGUAGE.md / LANGUAGE_SPEC.md and this log. Its `FS-`/`O-`
+having moved into docs/language/ / LANGUAGE_SPEC.md and this log. Its `FS-`/`O-`
 labels and `§`-references survive in code comments and test docs as the
 attribution of a user decision; they now read against **this log**, exactly as
 OBLIGATIONS.md's did after phase 3.
@@ -5968,7 +5996,7 @@ surface: `to_byte(Int)`/`to_int(Byte)` and `to_bytes(Str)`/`str_of_bytes(List<By
 half of the decided deliverable, and a parity fix rather than a
 beautification: `Byte` mapped to the JVM's *signed* `Byte`, so the same octet
 printed `-1` on Kotlin where Rust's `u8` printed `255`. It maps to `UByte`
-now, which interpolates and compares unsigned, and LANGUAGE.md's claim that
+now, which interpolates and compares unsigned, and the language docs' claim that
 Salvo's unsigned `Byte` "is `Byte` in Kotlin" was a spec bug, fixed with it.
 
 **What the deliverable could *not* deliver, and why (a DECISION is now open).**
@@ -6027,7 +6055,7 @@ Rules: LANGUAGE_SPEC.md gained [byte-value] and [fs-bytes], and [fs-double],
 [fs-v1-cuts] and [op-arith]'s `Byte` bullet were rewritten;
 BACKEND_SPEC.kotlin.md gained [kt-byte-unsigned] (with the `UByteArray`
 finding); BACKEND_SPEC.rust.md's [type-basic] gained the cast-parenthesization
-rule; LANGUAGE.md's basic-types list and "Files" section carry bytes.
+rule; the language docs' basic-types list and "Files" section carry bytes.
 
 **`MemFs` and `RestrictedFs` — the fs doubles (phase 4 item 6.4,
 2026-09-14).** std can now run a filesystem in memory and scope one to a
@@ -6089,7 +6117,7 @@ listed, a ranged open with its byte position, then `RestrictedFs("notes")`
 intercepting it inside an `if true` block (inside, through `..`, an escape and
 an absolute path) and the unrestricted filesystem answering again after it.
 Rules: LANGUAGE_SPEC.md gained [fs-double], [fs-restricted] and
-[str-byte-size]; LANGUAGE.md's "Files" section gained both handlers;
+[str-byte-size]; the language docs' "Files" section gained both handlers;
 ROADMAP.md's S-IO list is down to bytes and an example.
 
 **One overload set: an effect member and a fn of the same name compete
@@ -6140,7 +6168,7 @@ deciding first — plus each backend's fs case now calling `close(p)` (the fn)
 and `close(s)` (the member) in one program, with the emitted fn asserted in
 the golden test. Three golden assertions moved to `close__2`, because a user's
 `close` is now the *second* overload of that name program-wide (std declares
-the first). Rules: LANGUAGE_SPEC.md [effect-available] rewritten; LANGUAGE.md
+the first). Rules: LANGUAGE_SPEC.md [effect-available] rewritten; docs/language/
 "Two effects, one member name" gained the member-versus-fn half.
 
 **The filesystem surface — `core.fs` and `core.hostfs` (phase 4 item 6.3;
@@ -6228,7 +6256,7 @@ the Kotlin fusion-carrier assertion and the `USELESS_CAST` reversal. Four
 test programs were renamed off std's new names (`Fs`, `InStream`, `Lines`),
 which is what a fresh std module costs. Rules: LANGUAGE_SPEC.md gained
 [fs-surface] [fs-token] [fs-errors-at-close] [fs-host-split] [fs-v1-cuts]
-[type-none-unit] and the [effect-available] amendment; LANGUAGE.md gained a
+[type-none-unit] and the [effect-available] amendment; docs/language/ gained a
 "Files" section; both backend specs carry the fusion, skeleton and cast
 rules.
 
@@ -6278,7 +6306,7 @@ miniature** — `linear struct InStream canbe Mut` and `OutStream`, an
 overloaded `close` per token, `read_line`/`write` mutating through them, a
 `MemFs` discharging both — printing the same four lines on both backends.
 Rules: LANGUAGE_SPEC.md [linear-group] (members join, bodies are contexts),
-BACKEND_SPEC.rust.md [rs-effects] (the mode rule), LANGUAGE.md's linearity
+BACKEND_SPEC.rust.md [rs-effects] (the mode rule), the language docs' linearity
 section.
 
 **One finding from proving the shape is now an open question, not a
@@ -6345,7 +6373,7 @@ a compile-and-run case over one shared program (an effect with `close(InFile)`,
 `@Fs`) printing the same three lines on both. Rules: LANGUAGE_SPEC.md
 [effect-member-overload] rewritten (and [effect-member-unique],
 [effect-member-call] restated), BACKEND_SPEC.{kotlin,rust}.md gained the
-naming rule; LANGUAGE.md's "Two effects, one member name" now covers
+naming rule; the language docs' "Two effects, one member name" now covers
 overloading within one effect too.
 
 **`platform handler`, both backends (S-IO item 5, FS-1 resolved as O-M2 —
@@ -6403,7 +6431,7 @@ the whole arc — run fails naming the `use`, generate, implement, run — on
 both backends. Rules: LANGUAGE_SPEC.md [platform-handler] (with
 [platform-tree], [backend-companion], [cli-platform] and [platform-effect]
 updated around it), BACKEND_SPEC.kotlin.md [kt-platform-handler],
-BACKEND_SPEC.rust.md [rs-platform-handler]; LANGUAGE.md gained "A host
+BACKEND_SPEC.rust.md [rs-platform-handler]; docs/language/ gained "A host
 implementation of an ordinary effect" under the platform layer.
 
 **std's route was verified end to end by hand**, since it has no shipped
@@ -6531,7 +6559,7 @@ stateful interceptors, an interceptor over an interceptor, a plain shadowing
 that was shadowed, and one instance of a generic effect intercepted while
 its sibling keeps its handler — to identical stdout. Tests: 876 passing
 (from 870), fresh. The rules are LANGUAGE_SPEC.md [effect-intercept] and the
-restated [use-no-dup]; LANGUAGE.md gained a "Handlers with dependencies, and
+restated [use-no-dup]; docs/language/ gained a "Handlers with dependencies, and
 interception" section, which is also where handler dependencies get their
 first narrative treatment outside the platform-interop section.
 
@@ -6572,7 +6600,7 @@ error naming std's new explicit conversions: twelve `to_int`/`to_long`/
 pairwise (Kotlin `toX()` ≡ Rust `as`: saturating float→int, low-32-bits
 `Long`→`Int`). Unsuffixed literals **adopt** the expected numeric type
 (`let x: Long = 1`, optionals through the sole value arm; suffixed literals
-and variables never adopt), replacing LANGUAGE.md's "no implicit widenings —
+and variables never adopt), replacing the language docs' "no implicit widenings —
 write `1L`" rule; both emitters render adopted literals at their checked
 type (`1i64`/`1L`, `3f64`/`3.0`), since Kotlin refuses a bare `1` for a
 `Long` *parameter*. Found while testing, pre-existing, now an open defect in
@@ -6760,7 +6788,7 @@ assembled_once` on the emitted shape, and mixed-spread plus container-claim
 cases in each backend's compile-and-run registry, sharing source and expected
 stdout verbatim. Specs: `[qual-overload]` in LANGUAGE_SPEC.md, a
 `[fn-variadic]` sub-bullet for mixed tails, `[rs-fn-mangling]` extended in
-BACKEND_SPEC.rust.md, and LANGUAGE.md's Collections section. **Recorded, not
+BACKEND_SPEC.rust.md, and the language docs' Collections section. **Recorded, not
 fixed**: a user-declared variadic of a *primitive* element type breaks on
 Kotlin (`vararg ns: Int` is an `IntArray`, not an `Array<Int>`), found while
 testing mixed spread but reproducible without one.
@@ -6820,7 +6848,7 @@ wrong Rust**: the ordinary variadic path had always refused a mixed
 plain-plus-spread call, but the intrinsic path had no such guard and its
 lowerings read the spread as the whole variadic, so only `first.clone()` came
 out. Now refused on both paths, and recorded as a feature gap — it is
-LANGUAGE.md's own spelling for `non_empty_list`, which is therefore an
+the language docs' own spelling for `non_empty_list`, which is therefore an
 `intrinsic` with a native lowering per backend. (3) `=>[f]` rejected a
 `once`-qualified fn-typed parameter, locking the contract out of exactly the
 parameter that most wants one: a callback that *consumes* what it is given can
@@ -6850,7 +6878,7 @@ compile-and-run case per backend, sharing source and expected stdout
 *verbatim* (asserted identical), since ordering and the equal-run answer are
 exactly where the two could drift. Specs: `[col-nonempty]`,
 `[col-sorted-list]`, `[col-distinct]` in LANGUAGE_SPEC.md, a `[fn-contract]`
-sub-bullet for the qualifier-group fix, LANGUAGE.md's Collections and
+sub-bullet for the qualifier-group fix, the language docs' Collections and
 constructor sections (its `non_empty_list` example had a body that no longer
 compiles), and `[type-array]` in both LANGUAGE_SPEC.md and
 BACKEND_SPEC.rust.md. **Left for the user in ROADMAP.md**: whether two
@@ -6961,7 +6989,7 @@ output on both backends. All ten golden snapshots re-accepted; every example
 regenerated. Specs: `[col-literal]`, `[col-equality]`,
 `[col-hashed-ordered]`, `[col-sorted]`, `[col-by]`, `[col-convert]` in
 LANGUAGE_SPEC.md; `[kt-float-eq]`, `[kt-ordered]` in BACKEND_SPEC.kotlin.md;
-LANGUAGE.md, BACKEND_SPEC.rust.md and `examples/README.md` updated. A
+docs/language/, BACKEND_SPEC.rust.md and `examples/README.md` updated. A
 label audit at the end closed four spec gaps: `[col-insertion-order]` and
 `[col-to-str]` were referenced from 30-odd sites in code and had no rule, so
 both are now written (the second says the `to_str` format is the language's,
@@ -7049,8 +7077,8 @@ Salvo spelling ([rs-borrows]), so a top-level projection into it is a plain
 reborrow — verified by compiling and running the probe under rustc. Test:
 `a_proj_mut_parameter_is_refused_at_the_declaration` (widen_tests); spec:
 [proj-readonly] sub-bullet in LANGUAGE_SPEC.md, one sentence in
-LANGUAGE.md's read-only rule. Nothing in std/examples wrote the spelling.
-The same review reworded the over-broad prose (user-approved): LANGUAGE.md's
+the language docs' read-only rule. Nothing in std/examples wrote the spelling.
+The same review reworded the over-broad prose (user-approved): the language docs'
 "passing a projection where an owned value is expected is an error" and the
 [proj-type] subtyping bullet now state the kept-aware rule the checker
 actually implements — a top-level projection fits a kept, non-`Mut`
@@ -7335,7 +7363,7 @@ assignment, and tying `'r` for re-pointing. The sweep was mechanical
 (a throwaway script, then a pass restoring the consumptions the old
 exhaustive lists implied on bodied test helpers — `consume(x) {}` infers
 *kept*, which the tests did not mean): std, corpus, examples (regenerated),
-every inline test source, LANGUAGE.md/LANGUAGE_SPEC.md/README. Std shrank:
+every inline test source, docs/language/ / LANGUAGE_SPEC.md/README. Std shrank:
 intrinsics keep their full clauses, bodied fns mostly lost theirs. **Tests**:
 842 (from 828), all green with `--no-fail-fast`. **Gotcha found on the
 way**: plain `cargo test` stops at the first failing test *binary*, so "one
@@ -7548,7 +7576,7 @@ std or the examples wants it. See ROADMAP "L5".
 Tests: 797 (was 788). Seven checker tests (three accept, four reject — each
 accept verified to fail without the change), plus a field-disjoint program run
 end to end on both backends, the Rust one asserting the borrow shape rather
-than trusting it. LANGUAGE.md's "whole-variable granularity" bullet is replaced
+than trusting it. the language docs' "whole-variable granularity" bullet is replaced
 by the new rule; `[fate-field-disjoint]` is the label.
 
 **L5's move half: partial moves (2026-09-10, same day).** Built immediately
@@ -7609,7 +7637,7 @@ Tests: 806 (was 797). Seven more checker tests (six verified to fail without
 the change; the seventh, the kept-parameter refusal, holds either way and is
 there to pin Rust's rule), plus a partial-move program run end to end on both
 backends, the Rust one asserting the raw-place move and the live sibling read.
-LANGUAGE.md gained the worked example; the previous entry's "what is left"
+docs/language/ gained the worked example; the previous entry's "what is left"
 paragraph is superseded by this one.
 
 **Phase 1 closes: the riding-along polish, and option (e)'s residue
@@ -8089,7 +8117,7 @@ being written:
   rejected.** The checker has recorded the `iter` to mint with since R5
   (`PassDriver::mint_iter_fn`) and **neither emitter read it**: the loop bound the
   *container* to its pass local and called `next` on it. `salvo analyze` was
-  clean, so LANGUAGE.md's promise that "`for x in bag` works as soon as
+  clean, so the language docs' promise that "`for x in bag` works as soon as
   `iter(bag)` does" was false on both backends — a [backend-never-wrong]
   violation that had been invisible because every checked-in example wrote
   `iter(bag)` at the call site instead. Both emitters now call it; the seq demo
@@ -10391,7 +10419,7 @@ that still shape the code, and where to look for the mechanics.
   through a different path than `analyze_cond`. Two pieces of evidence
   that the leniency was costing us: the loops demo's Kotlin and Rust
   sources had silently diverged (`${capped}` vs `${capped!}`) because
-  only Rust complained, and three LANGUAGE.md nullability examples
+  only Rust complained, and three docs/language/ nullability examples
   interpolated `${person.surname}` after `person.surname is Str`,
   relying on field narrowing Salvo does not do — all now use the
   spec's own `is Str surname` binding idiom.
@@ -10496,7 +10524,7 @@ that still shape the code, and where to look for the mechanics.
     reject user qualifiers, which is the `with` confusion [canbe-optin]
     already warns about.
   - Two real bugs fell out: `core.string`'s `char_at(index: Positive Int)`
-    used an undeclared qualifier lifted from a LANGUAGE.md example — no
+    used an undeclared qualifier lifted from a docs/language/ example — no
     caller could ever have satisfied it — now plain `Int`; and four
     std-less test preludes never declared `Int`/`Str`.
   - `Ok`/`Err`/`ok`/`err` now live in **`core.result`**, not
@@ -10516,7 +10544,7 @@ that still shape the code, and where to look for the mechanics.
 - **Arrays get a std function surface (user decision 2026-09-02)** —
   `[type-array]`. Arrays already had literals, indexing, and native
   `for` iteration on both backends; only functions were missing, which
-  is why LANGUAGE.md's `CyclicRandom` example (`values.size()` on a
+  is why the language docs' `CyclicRandom` example (`values.size()` on a
   `T[]`) did not compile. New `core.array` module mirrors `core.list`
   minus construction (literals are the constructor) and mutation
   (fixed size): `size`, `get`, `first`, `iter`, with the same
@@ -10638,7 +10666,7 @@ the decided model). What landed:
   spec'd but unchecked, and became load-bearing: Kotlin's identity-copy
   is only correct if non-`Mut` values really are immutable). Arrays
   stay index-assignable without `Mut` (status quo; `copy` does a real
-  array copy). Fixed a LANGUAGE.md spec bug the enforcement exposed:
+  array copy). Fixed a docs/language/ spec bug the enforcement exposed:
   the `Mut` example mutated `person` instead of `mutable_person`.
 - **Rust emission**: fate-linked bindings clone — `let`/assignment
   values and `for` iterables that are bare identifiers of owned
@@ -12028,7 +12056,7 @@ Sequencing note: L1 lands in stages (S1 strict checker-only → S2
 move-mode bindings → S3 borrow emission); S1+L2 closed real
 rustc-rejection gaps; L3 and L4 are done (2026-09-02);
 L5 is largely subsumed by shared fate (field-disjoint precision only);
-L6 landed 2026-09-02 with its own LANGUAGE.md section and the
+L6 landed 2026-09-02 with its own docs/language/ section and the
 [linear-*] rule family. Per AGENTS.md, each phase lands with
 LANGUAGE_SPEC.md rules and tests at every affected layer.
 
@@ -13024,7 +13052,7 @@ Emitted T | Finished }`, replacing `params Iterator<St, T>` — and a pass is
   new `Mut`-built-pass test. `iter_effect_tests`' `canbe once` fixtures
   are [iter-effects] position tests, untouched until R5 deletes that
   apparatus.
-- LANGUAGE.md's hand-written-iterator section and [iter-resolve]/
+- the language docs' hand-written-iterator section and [iter-resolve]/
   [iter-protocol] in LANGUAGE_SPEC.md rewritten to the declaration form;
   the full [iter-*] rewrite stays R6's.
 
@@ -13890,7 +13918,7 @@ shipping set is safe; an early-stopping combinator (`take`, `first`) needs the
 `[kt-generator]`, `[seq-iterable]`, `[seq-lazy]`, `[seq-into]`,
 `[linear-canbe]`, `[linear-discard]`, `[linear-composite]`,
 `[linear-generics]`; fold the superseded iterator sections of this file into
-history; update LANGUAGE.md and README.
+history; update docs/language/ and README.
 
 ### Unknowns to settle before writing much
 
@@ -14165,7 +14193,7 @@ turns out to need it; nothing in this design forecloses it.
 5. **Boxing at the meeting point.** Each iterator function has its own
    state type, so a position holding either of two producers gets one
    boxed value there and nowhere else. Recorded with an example in
-   LANGUAGE.md ("Planned change: Salvo-level pull iterators") for further
+   docs/language/ ("Planned change: Salvo-level pull iterators") for further
    thought. The alternative — rejecting such positions
    [backend-never-wrong] — would have kept Rust output free of `dyn`
    entirely at the price of banning an `Iter<T>` struct field.
@@ -14260,7 +14288,7 @@ once Iter<T>   // pass: a position in a sequence, consumed by driving it
 Why `once` fits with nothing invented:
 
 - It is already specified as **never droppable** ("it restricts rather
-  than refines", LANGUAGE.md; [qual-*]: the compiler owns permissions,
+  than refines", docs/language/; [qual-*]: the compiler owns permissions,
   which drop, and obligations, which do not). A pass must never be
   forgettable into a replayable recipe, and it cannot be.
 - Its **variance is already inverted and already the direction needed**:
@@ -15172,7 +15200,7 @@ site plus a diagnostic, with the LSP surfacing the same message.
     it returns when it is done.
 - **I6** — Sweep: ~48 test fns and 10 of 23 insta snapshots mention
   `Iter`/`yield`; `[fn-iterator]`, `[iter-effect-free]`, `[rs-iter-lazy]`,
-  `[seq-iterable]` rewritten; the LANGUAGE.md planned-change subsection
+  `[seq-iterable]` rewritten; the docs/language/ planned-change subsection
   folded into the section proper.
 
 ### I1 as built (2026-09-07)
@@ -15874,7 +15902,7 @@ overload, mangling exists to keep the target from re-resolving them
 [kt-fn-mangling], and the checker's choice is authoritative everywhere
 downstream. What had never been *designed* was the ranking; it is now, along
 with the scope ladder and the two ways a caller overrides both. The rule is
-at the top of this file and in LANGUAGE.md; the labelled rules are
+at the top of this file and in docs/language/; the labelled rules are
 [fn-overload] [fn-overload-scope] [fn-overload-rank]
 [fn-overload-ambiguous] [fn-overload-at] [fn-rename]
 [fn-overload-duplicate] [fn-value-select] [effect-member-call].
@@ -15905,7 +15933,7 @@ their arguments. The user's answers, in the order asked:
 - **Effect availability does not filter candidates**: selection is by types,
   and a missing handler is its own diagnostic.
 - **Renames apply everywhere a name resolves**, including fn values and
-  implicit parameters — documented in LANGUAGE.md with examples, as asked.
+  implicit parameters — documented in docs/language/ with examples, as asked.
 - **Implicit parameters take no part in ranking**; an unresolvable one is a
   failure at the winner, not a demotion.
 - **`@Effect` for members is deferred** and recorded (see the top of this
@@ -16049,7 +16077,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1472)
+## Test inventory (all green: 1474)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -16744,10 +16772,10 @@ cache, with per-test timings.
   were added [platform-effect]: the flag is set by the modifier, a plain
   `effect` leaves it clear so nothing existing changed meaning, and
   `platform type` / `platform fn` are parse errors naming the form) (the
-  corpus grew three LANGUAGE.md examples with E3: a
+  corpus grew three docs/language/ examples with E3: a
   `defer` in `control_flow.sv`, `throw`/`try` in `effects.sv`, an effectful
   fn type in `functions.sv`) - std +
-  LANGUAGE.md-corpus parse-clean assertions with
+  docs/language/-corpus parse-clean assertions with
   insta AST snapshots (`tests/corpus/*.sv`, plus `std/core/result.sv`),
   error-reporting tests,
   lexer unit tests for numeric literal suffixes [lit-numeric] (`1L`,
@@ -16871,7 +16899,7 @@ cache, with per-test timings.
   [effect-member-generics], and an aliased effect type resolving to the
   handler registered under the canonical type
   [effect-disambiguation], and the std array functions with the
-  LANGUAGE.md `CyclicRandom` handler [type-array]);
+  docs/language/ `CyclicRandom` handler [type-array]);
   handler-dependency assertions
   ([effect-handler-deps]: the dependency as a constructor field, the
   member signature still matching the interface, the `use` site supplying
@@ -17081,7 +17109,7 @@ cache, with per-test timings.
   ambiguity error [backend-never-wrong], and an aliased effect type
   resolving to the handler registered under the canonical type
   [effect-disambiguation], and the std array functions with the
-  LANGUAGE.md `CyclicRandom` handler [type-array]); and twenty-five rustc
+  docs/language/ `CyclicRandom` handler [type-array]); and twenty-five rustc
   compile+run tests with exact stdout assertions mirroring the kotlinc
   set (demo, unions, qualifiers, effects, loops, multi-module, copy,
   the S2 zero-clone move-mode demo, the S3 borrow demo, the L6 linear
@@ -18898,7 +18926,7 @@ snapshot diffs.
   applicability — which silently skips undeclared qualifiers.
 - std is checked by the same rules as user code, so an aspirational
   signature there rots quietly: `char_at(index: Positive Int)` had been
-  copied out of a LANGUAGE.md example with no `Positive` qualifier
+  copied out of a docs/language/ example with no `Positive` qualifier
   anywhere, and no call could have satisfied it if there had been one.
 - Where a std declaration *lives* is a code-size decision, not just
   taste. `ok`/`err` in `core.basic` would have emitted a dead
@@ -18999,7 +19027,7 @@ snapshot diffs.
   rebuild. The backend test crates read `std/` from disk and see new
   files immediately, which makes the discrepancy easy to misread.
 - (optionals) A new strictness rule is also a *documentation* audit: the
-  interpolation ban immediately flagged three LANGUAGE.md examples that
+  interpolation ban immediately flagged three docs/language/ examples that
   read `${person.surname}` after `person.surname is Str` — the spec was
   quietly assuming Kotlin-style field smart-casts. Fix the examples to
   the binding form (`is Str surname`), which the spec already used
@@ -19138,7 +19166,7 @@ snapshot diffs.
   load-bearing: Kotlin's identity lowering of `copy` is only correct if
   non-`Mut` values really are immutable. When a backend decision leans
   on a checker rule, verify the rule is actually enforced, not just
-  written down. (Enforcing it also exposed a LANGUAGE.md example bug:
+  written down. (Enforcing it also exposed a docs/language/ example bug:
   the `Mut` struct example mutated `person` instead of
   `mutable_person`.)
 - (S1) Poison rides the existing consumed-state machinery: a poisoned
@@ -19314,7 +19342,7 @@ snapshot diffs.
 - A companion file with the same stem as a code-producing module would
   silently overwrite the generated `.kt` at write time (both map to the
   same path); `emit_program` errors on the collision instead. The
-  LANGUAGE.md pattern keeps companion modules externals-only.
+  docs/language/ pattern keeps companion modules externals-only.
 - Aliased Salvo imports need Kotlin alias imports only for items that
   exist as Kotlin symbols; alias-importing an *inlined* external (define
   template) would reference a nonexistent symbol and fail kotlinc.

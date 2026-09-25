@@ -141,7 +141,7 @@ Conventions:
   what gives the single evaluation.
 * [type-basic] Internal types map natively: `Str`→`String`, `Int`→`i32`,
   `Long`→`i64`, `Float`→`f32`, `Double`→`f64`, `Bool`→`bool`,
-  `Char`→`char`, `Byte`→`u8`, `Never`→`!` (LANGUAGE.md's original
+  `Char`→`char`, `Byte`→`u8`, `Never`→`!` (the language docs' original
   `u64` for `Long` was a spec bug — `Long` is signed; fixed during M8).
   `Any` has no Rust mapping yet: referencing it is a codegen error
   ([backend-never-wrong]).
@@ -349,7 +349,7 @@ Conventions:
 
 ## Ownership and borrowing [rs-borrows]
 
-The central design (per LANGUAGE.md "Deductions"): the checker's deduction
+The central design (per docs/language/Deductions-and-Ownership.md): the checker's deduction
 tables (`Checked::deductions`, [deduce-syntax] [deduce-infer]) are the
 ownership contract. Salvo source has no references; the Rust backend
 derives them mechanically:
