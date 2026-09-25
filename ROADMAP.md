@@ -424,10 +424,12 @@ random already has.
 
 ## Group borrowing — the ladder (building; steps ①–③ landed 2026-09-24)
 
-The decided design and full build sequence live in **GROUP_BORROWING.md**
-(the working document stays open until every rung lands, per its charter);
-the decisions are all taken (the P-rounds, recorded there and in
-COMPLETED.md's log). Status:
+Every rung has landed; the working document folded into COMPLETED.md's
+decision log and the specs on 2026-09-25 and was deleted, per its charter.
+What it decided is in the log entries (2026-09-24 and -25) and in
+[proj-mut], [elem-distinct], [col-noteq], [col-update], [col-locate],
+[canbe-entry], [deduce-field], [qual-field-place], [rs-loc] and
+[rs-elem-mut]. Status:
 
 - **① BUILT** (2026-09-24, COMPLETED.md's log): mutable element handles —
   [proj-mut] + [rs-elem-mut], P-9's mode-inferred bindings. `List<Mut T>`
@@ -477,13 +479,53 @@ COMPLETED.md's log). Status:
   fields**.
   The same write-vs-destroy distinction decides **in-place writes during
   iteration**, today refused by the driven-origins rule.
-- Recorded leftovers in GROUP_BORROWING.md's second GB-5 addendum: the
-  type-erased-locator lift (generic containers), branch-dependent path
-  enums, GhostCell as the declined-but-kept fallback, the
-  `get_unchecked` mitigation ladder, and `NotEq` over any `?eq`-capable
-  subject (user note 2026-09-24).
+### Recorded refinements (the ladder's leftovers)
 
-## LSP source-root discovery, and a project manifest (direction decided 2026-09-24, sequenced after GROUP_BORROWING.md)
+Each was considered and deliberately deferred; the reasoning is in
+COMPLETED.md's log for 2026-09-24/25.
+
+- **Locators through opaque anchors.** A mutable lend materializes by
+  re-indexing its anchor, so a *generic container* has no index and is a
+  loud cut [rs-loc]. Two compatible lifts: **implicit-supplied locator
+  fns** — the `?at`/`Locate` idiom [col-locate], already usable by
+  convention, which pierces opacity at the call site the way `?cmp` does —
+  and **type-erased locators**, a boxed re-materialization closure for the
+  fully general case (one allocation and a dynamic call, at opacity
+  boundaries only).
+- **Branch-dependent path sets.** A lend whose returned path varies by
+  branch wants a small generated path enum, matched by the
+  re-materialization. `lends.rs` already computes the finite path set;
+  nothing has needed it yet.
+- **GhostCell / branded tokens — declined, kept as the fallback.** The
+  soundness-proven alternative to the locator model (elements in
+  `GhostCell<'brand, T>`, aliasing `&` handles, writes through a token the
+  compiler threads like an effect). Declined because the brand is a
+  scope-bound *lifetime* and actor state escapes every scope: one global
+  token would serialize element writes across pools, and the
+  runtime-branded variants panic (the rejected posture). If locators ever
+  prove insufficient, this is the next thing to weigh.
+- **The bounds-check mitigation ladder**, in order of posture preserved:
+  an `Idx`-claim-justified audited `get_unchecked` splice; then
+  debug-checked / release-unchecked; then an audited raw-pointer `Lend<T>`
+  primitive. Raw pointers and `RefCell` are **rejected on the record** —
+  the first abandons "a checker bug is a compile error, never UB" and
+  dangles under reallocation (closing the door this ladder walked through),
+  the second taxes every read and buys no grow-survival either.
+- **`NotEq` over any `?eq`-capable subject** [col-noteq]: today it is
+  `Int`-only, which is all element disjointness needs.
+- **The sharing story, decided once.** When the `Cell` **DECISION** is
+  taken, the 2×2 table it belongs in — shared-immutable versus
+  shared-mutable, invalidation-checked versus unchecked (today's fate
+  links, frozen `Reg`, `canbe` groups, `Cell`) — should be on that table,
+  together with the observation that `proj` is the degenerate group (a
+  read-only member of a singleton group under maximal invalidation
+  sensitivity), so the two are points on one dial rather than two features.
+- **In-place writes during iteration.** Refused by the driven-origins rule
+  [iter-fn]. The contents-versus-replacement distinction [deduce-field] is
+  what would license it — a write that destroys no storage cannot invalidate
+  the pass — and the locator model already makes the shape renderable.
+
+## LSP source-root discovery, and a project manifest (direction decided 2026-09-24; next up)
 
 **The defect (user report, 2026-09-24).** Editing std with the *repository
 root* as the editor's workspace folder produces spurious diagnostics —
@@ -541,9 +583,8 @@ what the file is called, what it may state, whether `salvo run`/`compile`
 what a project is), and what root discovery does with no manifest in
 sight (fall back to `rootUri`, today's behavior).
 
-**Sequenced after the GROUP_BORROWING.md exploration** (user, 2026-09-24)
-— that working document's calls come first; this section is the next
-tooling item after it.
+**Next up** (user, 2026-09-24: the group-borrowing ladder came first; it
+closed 2026-09-25).
 
 ## Platform handlers — the thread-safety contract (DECISION)
 
@@ -1440,8 +1481,7 @@ links to the section that states the options.
 | **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
 | **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
 | **Platform-handler thread-safety contract** — the declaration surface, what it asserts, and what the undeclared case means; unblocks the parity-restoring emissions | unscheduled (the assumption stands meanwhile, user decision 2026-09-20) | "Platform handlers — the thread-safety contract" |
-| **Group borrowing** — GB-1…GB-7: whether aliasing `Mut` handles join the language, and in what form | next up (user, 2026-09-24: precedes the LSP-root work) | GROUP_BORROWING.md (working document; delete when decided) |
-| **Project manifest** — name, contents, whether the CLI reads it too; anchors LSP per-document root discovery | after GROUP_BORROWING.md | "LSP source-root discovery, and a project manifest" |
+| **Project manifest** — name, contents, whether the CLI reads it too; anchors LSP per-document root discovery | next up (the group-borrowing ladder closed 2026-09-25) | "LSP source-root discovery, and a project manifest" |
 | **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was

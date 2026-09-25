@@ -1601,7 +1601,17 @@ fn field_errors(src: &str) -> Vec<String> {
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
              export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
-             export intrinsic fn first<T>(list: List<T>) [] -> (proj(list) T)? => list\n"
+             export intrinsic type Bool\n\
+             export intrinsic fn first<T>(list: List<T>) [] -> (proj(list) T)? => list\n\
+             export intrinsic fn first_or_none<T>(list: List<T>) [] -> (proj(list) T)? => list\n\
+             export qualifier NonEmpty<T> of List<T> {{\n\
+                 fn qualifies(list: List<T>) -> Bool {{\n\
+                     return size(list) > 0\n\
+                 }}\n\
+             }}\n\
+             export fn first<T>(list: NonEmpty List<T>) [] -> proj(list) T => list {{\n\
+                 return first_or_none(list)!\n\
+             }}\n"
         ),
         true,
     );
@@ -1757,4 +1767,109 @@ fn a_parameter_s_field_and_a_local_stay_assignable() {
          return next\n}\n",
     );
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [deduce-field] **Inference** (2026-09-25): a callee that wrote *no*
+/// clause still narrows the event its callers see, read off its body — so
+/// ordinary code gets the precision without annotating. Note `=> e: Mut`
+/// does *not*, and must not: written, it means "mutated anywhere".
+#[test]
+fn a_mutated_field_set_is_inferred_from_the_body() {
+    let inferred = field_errors(
+        "fn quiet(e: Mut Entity, n: Int) [] -> None {\n    \
+         e.hp = e.hp - n\n}\n\
+         fn f(e: Mut Entity) [] -> Int {\n    \
+         let rings = e.rings\n    \
+         quiet(e, 5)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(inferred.is_empty(), "expected a clean check, got: {inferred:?}");
+
+    let written_wide = field_errors(
+        "fn loud(e: Mut Entity, n: Int) [] -> None => e: Mut, n {\n    \
+         e.hp = e.hp - n\n}\n\
+         fn f(e: Mut Entity) [] -> Int {\n    \
+         let rings = e.rings\n    \
+         loud(e, 5)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(
+        written_wide.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "a written `e: Mut` means anywhere: {written_wide:?}"
+    );
+}
+
+/// [deduce-field] Inference is **conservative**: a body that replaces the
+/// field, or hands the whole value to a mutator, narrows nothing.
+#[test]
+fn inference_stays_conservative_where_it_must() {
+    let replaces = field_errors(
+        "fn quiet(e: Mut Entity, n: Int) [] -> None {\n    \
+         e.hp = e.hp - n\n    \
+         e.rings = mut_list_of()\n}\n\
+         fn f(e: Mut Entity) [] -> Int {\n    \
+         let rings = e.rings\n    \
+         quiet(e, 5)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(
+        replaces.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "expected the poison, got: {replaces:?}"
+    );
+
+    let forwards = field_errors(
+        "fn quiet(e: Mut Entity, n: Int) [] -> None {\n    \
+         e.hp = e.hp - n\n    \
+         wipe(e)\n}\n\
+         fn f(e: Mut Entity) [] -> Int {\n    \
+         let rings = e.rings\n    \
+         quiet(e, 5)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(
+        forwards.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "expected the poison, got: {forwards:?}"
+    );
+}
+
+// ===== [qual-field-place] qualifiers on struct fields (the ⑤ follow-on) =====
+
+/// [qual-field-place] A qualifier claim about a **field place** narrows, is
+/// consumed by overload resolution, and — now that events are
+/// field-granular [deduce-field] — **survives a mutation of a disjoint
+/// field**. That last part is what the rung's work bought: flow facts were
+/// always place-keyed [flow-place], so the feature was waiting on the
+/// precision of invalidation, not on new machinery.
+#[test]
+fn a_claim_about_a_field_survives_a_disjoint_field_mutation() {
+    let errs = field_errors(
+        "fn bump(e: Mut Entity) [] -> None {\n    \
+         e.hp = e.hp + 1\n}\n\
+         fn f(e: Mut Entity) [] -> Int {\n    \
+         if e.rings is NonEmpty {\n        \
+         bump(e)\n        \
+         return first(e.rings).power\n    \
+         }\n    \
+         return 0\n}\n",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [qual-field-place] …and a mutation of the **claimed** field clears it: the
+/// total overload stops resolving, so the optional one answers and the
+/// program must narrow again.
+#[test]
+fn a_claim_about_a_field_falls_when_that_field_is_mutated() {
+    let errs = field_errors(
+        "fn f(e: Mut Entity) [] -> Int {\n    \
+         if e.rings is NonEmpty {\n        \
+         shrink(e)\n        \
+         return first(e.rings).power\n    \
+         }\n    \
+         return 0\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("power") || e.contains("None")),
+        "expected the claim to be gone, got: {errs:?}"
+    );
 }

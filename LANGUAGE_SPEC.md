@@ -5616,7 +5616,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     (`Mut List<proj Mut Str>`) and non-parameter positions (locals, fields,
     returns) keep the type legal.
 * [proj-mut] **A projection carrying `Mut` is a mutable element handle**
-  (user decisions 2026-09-24 — P-3 and P-9 of GROUP_BORROWING.md's ladder;
+  (user decisions 2026-09-24 — P-3 and P-9 of COMPLETED.md's log (the group-borrowing ladder);
   the partial repeal of [proj-readonly]'s original blanket rule). Element
   mutability is the **element type's, not the container handle's**:
   container `Mut` is *structural* permission (`add`/`remove`/`set`/`swap`),
@@ -5692,15 +5692,21 @@ the same day. **Not part of `core`**: the surface is imported, and one
   * **Written entries are checked against the body**: every mutation the
     body performs on the parameter must be covered by a declared path, or
     the promise the callers rely on is a lie — an error naming the widening
-    remedy. v1 is written-only; inference of the field sets is the next
-    step, and an unannotated fn keeps the conservative whole-value event.
+    remedy.
+  * **Inferred where unwritten** (2026-09-25): a callee with no clause entry
+    for the parameter gets its field set read off its body and propagated
+    through the deduction fixpoint, so ordinary code has the precision
+    without annotating. Conservative by construction — an unknown path, a
+    replacement, or handing the whole value to a mutator publishes the whole
+    value, which narrows nothing. A **written** `=> h: Mut` still means
+    *anywhere*: writing it is a choice, and inference never overrides it.
   * Rust: a binding that **survives** a narrowed mutation cannot be a live
     borrow (the callee still takes the whole value `&mut`), so it renders
     as a *virtual place* — the path re-materialized per use [rs-loc].
     Sound precisely because survival means the field was untouched, so the
     re-read sees the object Kotlin's binding holds. (The first attempt at
     this rung relaxed poison for *any* field path and broke that parity;
-    GROUP_BORROWING.md's ⑤ section keeps the probe.)
+    COMPLETED.md's log (rung ⑤) keeps the probe.)
   * **v2 (built 2026-09-25): contents versus replacement.** A **contents**
     mutation (`=> h.tags: Mut`, and any call mutating through the place)
     leaves the mutated thing's own storage in place, so a derivation that
@@ -5716,6 +5722,19 @@ the same day. **Not part of `core`**: the surface is imported, and one
     places, which is what keeps Rust in step with Kotlin (and what the
     historical `diverged` case needed: `let t = h.tags; add(h.tags, 2)`
     now compiles and prints the same on both).
+* [qual-field-place] **Qualifiers hold about struct fields** (the ⑤
+  follow-on, verified 2026-09-25): `if h.tags is NonEmpty { … }` narrows the
+  **field place**, the claim is consumed by overload resolution inside the
+  branch (the total `first` resolves), it **survives a mutation of a
+  disjoint field** — which is what [deduce-field] bought — and it falls when
+  the claimed field is itself mutated. No new machinery was needed: flow
+  facts were already keyed by place [flow-place] and invalidation already
+  took a place, so the feature was waiting on the *precision of
+  invalidation*, not on a mechanism.
+  * The boundary: a parameter **type** has nowhere to state a field claim
+    (`h: Mut Holder` cannot say `.tags: NonEmpty`), so such claims are
+    established and consumed *within* a function. Carrying one across a call
+    boundary would need type-level syntax, which nothing yet asks for.
 * [canbe-entry] **`canbe` — the alias-group relation** (user decisions
   2026-09-24, GB-1(s); built as rung ④b): a deduction-clause entry saying
   two parameters **may name the same object** — `=> a canbe d`. Symmetric
@@ -5742,7 +5761,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     qualifiers. Diagnostic vocabulary keeps the word "alias group" for the
     connected component, while the surface never needs it.
 * [elem-distinct] **Distinct awareness** (user decisions 2026-09-24 —
-  step ② of GROUP_BORROWING.md's ladder): two mutable element handles of
+  step ② of COMPLETED.md's log (the group-borrowing ladder)): two mutable element handles of
   one container whose minting indices a live `NotEq` claim proves apart
   name **disjoint storage**, and the analysis knows it — the first
   refinement of [fate-field-disjoint]'s may-alias-all rule for computed

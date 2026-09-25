@@ -12412,7 +12412,7 @@ impl<'p> Emitter<'p> {
                     // materializing it re-indexes the container, and a
                     // bare generic has no index. The recorded lift is the
                     // type-erased locator (a remat closure) —
-                    // GROUP_BORROWING.md's second GB-5 addendum.
+                    // ROADMAP.md's "Recorded refinements".
                     let indexable = self
                         .ty_of(arg.span())
                         .map(|t| t.strip_quals().clone())

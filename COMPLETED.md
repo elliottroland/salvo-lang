@@ -195,6 +195,55 @@ decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
 
 
+**The group-borrowing working document folded and deleted (2026-09-25).**
+Every rung landed (① mutable element handles → ② `NotEq` awareness → ③ the
+update family over mode-specialized lending → ④a the locator substrate →
+④b `canbe` and covered anchors → ⑤ field-granular mutation entries,
+contents-versus-replacement, inference, and the field-qualifier follow-on),
+so per its charter the document's outcomes moved to this log and the specs
+and the file was deleted. What survived it, and where: the **decisions and
+their reasoning** are the log entries above; the **rules** are
+[proj-mut] [elem-distinct] [col-noteq] [col-update] [col-locate]
+[canbe-entry] [deduce-field] [qual-field-place] [param-const] in
+LANGUAGE_SPEC.md and [rs-loc] [rs-elem-mut] in BACKEND_SPEC.rust.md; the
+**deferred refinements** — opaque-anchor locator lifts, branch-dependent
+path enums, GhostCell as the declined-but-kept fallback, the bounds-check
+mitigation ladder with raw pointers and `RefCell` rejected on the record,
+`NotEq` over any `?eq` subject, the one-table sharing story for the `Cell`
+decision, and in-place writes during iteration — are ROADMAP.md's "Recorded
+refinements (the ladder's leftovers)". The exploration itself, including
+the options explored and abandoned along the way, is recoverable from git
+history if a future reader wants the full argument rather than its
+conclusions.
+
+
+**Field-set inference, and qualifiers on struct fields — rung ⑤ closed
+(2026-09-25).** Two pieces, one of which turned out to be already built.
+**Inference**: a callee with no clause entry for a parameter now gets its
+mutated field set read off its body and propagated through the deduction
+fixpoint (`MutFieldFacts`, threaded across rounds exactly as
+`param_mutations` is, and part of the fixpoint's driving facts — a narrowing
+found in one round changes what the next round's callers see). So ordinary
+unannotated code gets the precision: `fn damage(e: Mut Entity, n: Int)` with
+no clause leaves a derivation of `e.rings` standing. Conservative by
+construction — an unknown path, a replacement, or handing the whole value to
+a mutator publishes the whole value, which narrows nothing (both cases
+probe-verified). A **written** `=> e: Mut` still means anywhere: writing it
+is a choice and inference never overrides it. **Qualifiers on struct
+fields** needed no new machinery at all: probing found that a claim about a
+field place already narrows, is already consumed by overload resolution (the
+total `first` resolves inside the branch), already survives a
+disjoint-field mutation — which is what [deduce-field] and the inference
+bought — and already falls when the claimed field is mutated (`first` drops
+back to the optional overload). Flow facts were always keyed by place
+[flow-place] and invalidation always took a place; the feature was waiting
+on the *precision of invalidation*, not on a mechanism, so the follow-on is
+recorded as delivered with tests pinning all four behaviours
+[qual-field-place]. Its boundary, which the user identified in the design
+discussion: a parameter *type* has nowhere to state a field claim, so such
+claims live within a function. 1470 tests green.
+
+
 **A parameter is a constant binding — the assignment defect closed
 (2026-09-25, user decision).** Filed while probing rung ⑤, then found to be
 broader than filed: assigning **any** parameter breaks Kotlin, whose
@@ -343,7 +392,7 @@ e2e.
 
 **The locator substrate, slice 1 — group-borrowing rung ④a begins
 (built 2026-09-24, evening; direction decided the same evening,
-GROUP_BORROWING.md's second GB-5 addendum).** The evening's exploration
+ROADMAP.md's "Recorded refinements").** The evening's exploration
 (user-driven) chose **locators as *the* representation of every mutable
 element handle** — one model future work iterates on, in place of the
 five renderings the ladder had accumulated — with GhostCell **declined
@@ -389,7 +438,7 @@ promoting the total `get` to intrinsic after a worked comparison (the
 user's call: users must be able to write their own mutable accessors),
 with the fn-value/effect-member/bound-handle/NLL cuts **parked to GB-5's
 session** and the **GhostCell/branded-token representation added to that
-table** (GROUP_BORROWING.md's GB-5 addendum). Built: [rs-loc] — a
+table** (ROADMAP.md's "Recorded refinements"). Built: [rs-loc] — a
 named lending fn used mutably anywhere gets a demand-driven `__mut`
 emission (lent params `&mut`, `proj` return `&mut`, transitive
 return-path forwards, intrinsic mut splices — `get`→`get_mut`; demand
@@ -455,7 +504,7 @@ in ROADMAP): a handle beside its *container* (or beside a read projection
 of it) in one call still fails at rustc rather than in the checker.
 
 **Mutable element handles — group-borrowing ladder step ① (built
-2026-09-24; user decisions same day, GROUP_BORROWING.md's P-rounds).**
+2026-09-24; user decisions same day, COMPLETED.md's log (the P-rounds)).**
 Element mutability is the **element type's**: `List<Mut T>` hands out
 mutable handles — the generic `get` at `T = Mut Counter` already answered
 `(proj(list) Mut Counter)?` by substitution, and [proj-mut] makes the `Mut`
@@ -495,7 +544,7 @@ different binding rules against `|`), and the same form sits on a fn
 **retires the remote `=>[f] proj(c)` group entry** entirely. Both old
 spellings stopped parsing (plain error, no shim, per the
 no-backwards-compatibility invariant). Decided while exploring
-GROUP_BORROWING.md, whose `group(a, d)` entries the old spelling was
+the group-borrowing working document (now folded into this log), whose `group(a, d)` entries the old spelling was
 confused against. Bounds of the decision: the annotation stays an
 *annotation*, not a type (same links, same erasure, [proj-type] untouched
 — revisit if it bites); `.f: proj(a)` and re-pointing entries **stay in
@@ -531,11 +580,11 @@ classifies as module `std.core.list` while the embedded copy is `core.list`
 **Decided**: fix by per-document source-root discovery in the LSP, anchored
 by a **project manifest** — option (b), over widening [std-shadow] by a
 `std/` segment (a silent re-classification of user trees) and over
-documenting the workaround alone — **sequenced after the GROUP_BORROWING.md
+documenting the workaround alone — **sequenced after the COMPLETED.md's log
 exploration**. The defect, its repro, the workaround (open `std/` as its own
 workspace folder) and the manifest DECISION live in ROADMAP.md's "LSP
 source-root discovery, and a project manifest". Same day, earlier: the
-**GROUP_BORROWING.md working document was opened** (per DESIGN_DOC.md's
+**COMPLETED.md's log working document was opened** (per DESIGN_DOC.md's
 charter) — Nick Smith's group-borrowing model explored against the fate
 analysis and `proj` machinery, seven decision sections GB-1…GB-7, calls
 pending in ROADMAP.md's decisions table; its content propagates only when
@@ -15973,7 +16022,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1466)
+## Test inventory (all green: 1470)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose

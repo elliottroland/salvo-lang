@@ -1038,6 +1038,13 @@ pub fn check_program<'p>(
     // not keep "everything else", since mutation can invalidate
     // qualifiers the signature never mentions.
     let mut mutations: HashMap<FnKey, HashSet<String>> = HashMap::new();
+    // [deduce-field] Inferred **mutated field paths** per (fn, parameter):
+    // the bodies' own mutations, classified, so a callee that wrote no field
+    // entry still narrows the event its callers see. Threaded across rounds
+    // exactly like `mutations`, and part of the fixpoint's driving facts —
+    // a narrowing discovered in one round changes what the next round's
+    // callers see.
+    let mut mut_fields: MutFieldFacts = HashMap::new();
     // [actor-replyto] Handlers whose members mint a self-targeted
     // continuation. Only grows, and complete after round one — so the `use`
     // refusal it drives lands in the round whose diagnostics are kept.
@@ -1061,6 +1068,7 @@ pub fn check_program<'p>(
         &mut candidates,
         &mut claims,
         &mut mutations,
+        &mut mut_fields,
         &mut parking,
     );
     crate::deduce::infer(program, &mut out, &claims, &mutations);
@@ -1068,6 +1076,7 @@ pub fn check_program<'p>(
     let mut prev_candidates = candidates.clone();
     let mut prev_claims = claims.clone();
     let mut prev_mutations = mutations.clone();
+    let mut prev_mut_fields = mut_fields.clone();
 
     // [deduce-fixpoint] Iterate check → infer until the driving facts
     // stabilize (inferred deductions, move-mode candidates, parameter
@@ -1091,6 +1100,7 @@ pub fn check_program<'p>(
             &mut candidates,
             &mut claims,
             &mut mutations,
+            &mut mut_fields,
             &mut parking,
         );
         // Deductions are a whole-program fact (strictest over the call
@@ -1100,7 +1110,8 @@ pub fn check_program<'p>(
         let stable = out.deductions == inferred
             && candidates == prev_candidates
             && claims == prev_claims
-            && mutations == prev_mutations;
+            && mutations == prev_mutations
+            && mut_fields == prev_mut_fields;
         if stable {
             propagate_handle_requirements(&mut out);
             return out;
@@ -1137,6 +1148,7 @@ pub fn check_program<'p>(
         prev_candidates = candidates.clone();
         prev_claims = claims.clone();
         prev_mutations = mutations.clone();
+        prev_mut_fields = mut_fields.clone();
     }
 }
 
@@ -1195,6 +1207,7 @@ fn check_once<'p>(
     move_candidates: &mut HashSet<Key>,
     param_claims: &mut HashMap<FnKey, HashSet<String>>,
     param_mutations: &mut HashMap<FnKey, HashSet<String>>,
+    mut_fields: &mut MutFieldFacts,
     parking_handlers: &mut HashSet<String>,
 ) -> Checked {
     let mut out = Checked::default();
@@ -1226,6 +1239,7 @@ fn check_once<'p>(
             move_candidates,
             param_claims,
             param_mutations,
+            mut_fields,
             parking_handlers,
         );
         checker.collect_implicit_signatures(ast);
@@ -1244,6 +1258,7 @@ fn check_once<'p>(
             move_candidates,
             param_claims,
             param_mutations,
+            mut_fields,
             parking_handlers,
         );
         checker.check_module(ast);
@@ -1550,6 +1565,11 @@ struct VarState {
     moved_places: Vec<MovedPlace>,
 }
 
+/// [deduce-field] Inferred mutation field paths: per fn, per parameter, the
+/// set of `(path, contents_only)` facts the body established. An entry
+/// containing the empty path means "mutated anywhere" — no narrowing.
+type MutFieldFacts = HashMap<FnKey, HashMap<String, Vec<(Vec<Step>, bool)>>>;
+
 /// Flow state of every local, per scope frame [deduce-consume].
 type NarrowSnapshot = Vec<HashMap<String, VarState>>;
 
@@ -1666,7 +1686,7 @@ struct Checker<'p, 'r> {
     /// a written field entry (`=> h.tags: Mut` must cover every mutation
     /// the body performs on `h`) and, next, for inferring one. `None` is an
     /// unknown path — conservative, so it covers nothing.
-    own_mut_paths: Vec<(String, Option<Vec<Step>>)>,
+    own_mut_paths: Vec<(String, Option<Vec<Step>>, bool)>,
     /// Fresh-id counter for local bindings [fate-link].
     next_var_id: u32,
     /// Move-mode candidates [fate-move-mode]: bind events (keyed by bind
@@ -1684,6 +1704,10 @@ struct Checker<'p, 'r> {
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
     param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+    /// [deduce-field] Inferred mutated field paths, per (fn, parameter):
+    /// this round writes the bodies it walks, and call sites read what the
+    /// previous rounds established.
+    mut_fields: &'r mut MutFieldFacts,
     /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
     /// continuation — the names of every handler in which a `replyto` /
     /// `replyto!` resolved lexically. Collected across rounds like
@@ -1952,6 +1976,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         move_candidates: &'r mut HashSet<Key>,
         param_claims: &'r mut HashMap<FnKey, HashSet<String>>,
         param_mutations: &'r mut HashMap<FnKey, HashSet<String>>,
+        mut_fields: &'r mut MutFieldFacts,
         parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
@@ -1987,6 +2012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             param_claims,
             parking_handlers,
             param_mutations,
+            mut_fields,
             own_fn: None,
             own_contract: None,
             own_discharges: std::collections::HashSet::new(),
@@ -6053,6 +6079,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         // mutation the body performed must be covered by a declared path,
         // or the narrowing would be a lie (2026-09-25).
         self.check_declared_mut_fields(f);
+        // [deduce-field] …and publish what the body did, so a callee that
+        // wrote *no* field entry still narrows the event its callers see
+        // (inference, 2026-09-25). Conservative by construction: an unknown
+        // path publishes the whole value, which narrows nothing.
+        if let Some(key) = self.own_fn {
+            let mut per_param: HashMap<String, Vec<(Vec<Step>, bool)>> = HashMap::new();
+            for (name, path, contents_only) in &self.own_mut_paths {
+                let entry = per_param.entry(name.clone()).or_default();
+                match path {
+                    Some(p) => {
+                        if !entry.iter().any(|(q, k)| q == p && *k == *contents_only) {
+                            entry.push((p.clone(), *contents_only));
+                        }
+                    }
+                    // Unknown: the whole value, and a replacement (the
+                    // strongest reading).
+                    None => {
+                        if !entry.iter().any(|(q, _)| q.is_empty()) {
+                            entry.push((Vec::new(), false));
+                        }
+                    }
+                }
+            }
+            for (name, paths) in per_param {
+                self.mut_fields
+                    .entry(key)
+                    .or_default()
+                    .insert(name, paths);
+            }
+        }
         self.own_mut_paths = saved_mut_paths;
         // [linear-obligation] A moved-in linear parameter must be
         // discharged by the body.
@@ -6137,7 +6193,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 out
             };
-            for (name, path) in self.own_mut_paths.clone() {
+            for (name, path, _) in self.own_mut_paths.clone() {
                 if name != p.name.name {
                     continue;
                 }
@@ -13735,8 +13791,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_param_mutation(name);
         // [deduce-field] …and *where*, for the written-entry validation.
         if self.lookup(name).is_some_and(|v| v.is_param) {
-            self.own_mut_paths
-                .push((name.to_string(), event_path.map(|p| p.to_vec())));
+            self.own_mut_paths.push((
+                name.to_string(),
+                event_path.map(|p| p.to_vec()),
+                contents_only,
+            ));
         }
         let Some(var) = self.lookup(name) else { return };
         let (id, links) = (var.id, var.links.clone());
@@ -24971,7 +25030,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .unwrap_or_default();
                     // [deduce-field] Which fields this callee says it
                     // mutates (`=> h.tags: Mut`, `=> !h.tags`).
-                    let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name);
+                    let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name)
+                        .or_else(|| {
+                            // [deduce-field] No written entry: the *inferred*
+                            // set, from the callee's own body (empty until a
+                            // round has walked it — the fixpoint's job).
+                            best.key
+                                .and_then(|k| self.mut_fields.get(&k))
+                                .and_then(|per| per.get(&param.name.name))
+                                .cloned()
+                        });
                     let preserved = self.preserved_claims(
                         best.key,
                         decl,

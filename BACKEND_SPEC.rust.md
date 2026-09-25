@@ -619,7 +619,7 @@ the blanket rule:
     alias natively, so the handle is the element reference.
 * [rs-loc] **Locator-specialized lending** (④a slice 1, 2026-09-24 —
   re-founding step ③'s mode-specialization on the locator model,
-  GROUP_BORROWING.md's second GB-5 addendum): a named lending fn whose
+  ROADMAP.md's "Recorded refinements"): a named lending fn whose
   result some call site uses mutably gets a **demand-driven locator
   variant**, `{name}__loc`, beside the read emission.
   * The variant answers **position data** — `usize` for a total element
@@ -686,7 +686,7 @@ the blanket rule:
     *different* containers (they share no anchor).
   * **What remains cut, loud**: a lend whose anchor is not a plain place
     of a known indexable type (a bare generic container has no index —
-    the recorded lift is the type-erased locator, GROUP_BORROWING.md's
+    the recorded lift is the type-erased locator, COMPLETED.md's log's
     second GB-5 addendum), and branch-dependent path sets (generated
     path enums, when a case first needs one). Kotlin: nothing — objects
     alias; parity pinned by the e2e cases.
