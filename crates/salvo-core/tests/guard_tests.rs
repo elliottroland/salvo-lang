@@ -187,10 +187,15 @@ fn an_assignment_on_the_surviving_path_resets_the_narrowing() {
 
 /// But an assignment inside the *exiting* branch does not: that path never
 /// reaches the code below (the same reason a fall-through merge ignores it).
+///
+/// The assigned name is a **local** rather than the parameter: a parameter is
+/// a constant binding [param-const], and what this test is about is the
+/// narrowing reset, not who may be assigned.
 #[test]
 fn an_assignment_in_the_exiting_branch_does_not_reset() {
     let errs = errors(
-        "fn describe(s: Str?, other: Str?) -> Str => s, other {\n    \
+        "fn describe(input: Str?, other: Str?) -> Str => input, other {\n    \
+         let s = input\n    \
          if s is None {\n        s = other\n        return \"none\"\n    }\n    \
          let text: Str = s\n    return \"got\"\n}\n",
     );

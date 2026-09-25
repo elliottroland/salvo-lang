@@ -6083,6 +6083,35 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = saved_generics;
     }
 
+    /// [param-const] **A parameter cannot be assigned** (user decision
+    /// 2026-09-25): parameters are constant bindings — the reading a future
+    /// `const` will extend to struct fields, for scalars and non-scalars
+    /// alike, so the rule is the same shape everywhere. A handler's *state*
+    /// field is not a parameter in this sense and stays assignable.
+    ///
+    /// Before this the construct was accepted and then refused by the target
+    /// compilers — Kotlin because parameters are `val`, and Rust for any
+    /// borrowed one — a checker/emitter disagreement rather than a feature
+    /// (ROADMAP's defect, filed 2026-09-25).
+    fn reject_param_assignment(&mut self, name: &str, span: Span, how: &str) -> bool {
+        let is_param = self
+            .lookup(name)
+            .is_some_and(|v| v.is_param && !v.is_handler_state && !v.lambda_kept);
+        if !is_param {
+            return false;
+        }
+        self.error(
+            span,
+            format!(
+                "cannot {how} parameter `{name}`: a parameter is a constant \
+                 binding. Bind a local instead (`let next = {name} + 1`), or — \
+                 to change what the caller holds — assign a field of it \
+                 (`{name}.field = …`)"
+            ),
+        );
+        true
+    }
+
     /// [deduce-field] Checks a written field-granular mutation entry
     /// against the body: each parameter with such entries may only be
     /// mutated at-or-below one of them. A mutation of the whole parameter
@@ -18306,6 +18335,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                 } else if let Expr::Ident(id) = target {
                     let value_ty = value_ty.clone();
+                    // [param-const] A parameter is a constant binding.
+                    self.reject_param_assignment(&id.name, id.span, "assign to");
                     // [linear-obligation] Overwriting a variable that
                     // still owns a linear value drops it.
                     let owes = self
@@ -19596,6 +19627,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [fate-derived-readonly].
                 match operand.as_ref() {
                     Expr::Ident(id) => {
+                        // [param-const] `n++` on a parameter is an
+                        // assignment to it.
+                        self.reject_param_assignment(&id.name, id.span, "step");
                         let root = self.lookup(&id.name).map(|var| (var.id, id.name.clone()));
                         let root_var_id = root.as_ref().map(|&(id, _)| id);
                         if let Some((root_id, root_name)) = root {

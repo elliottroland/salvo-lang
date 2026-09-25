@@ -5654,6 +5654,20 @@ the same day. **Not part of `core`**: the surface is imported, and one
     wholesale projection, `held` a borrow an owned object carries
     [proj-infer]. A variable whose every link is held may be mutated (its
     own fields are its own); one with a wholesale or alias link may not.
+* [param-const] **A parameter is a constant binding** (user decision
+  2026-09-25): assigning one — `n = n + 1`, `n++`, `h = Holder {…}` — is an
+  error, whatever its type. The reading is that a parameter is `const`, and
+  a future `const` on **struct fields** will say the same thing for scalars
+  and non-scalars alike, so one rule holds everywhere rather than a
+  by-type split. The remedies the diagnostic names: bind a local
+  (`let next = n + 1`), or assign a **field** of the parameter
+  (`h.tags = …`) to change what the caller holds. A handler's *state* field
+  is not a parameter in this sense and stays assignable.
+  * Closed a defect rather than added a restriction: the construct was
+    accepted and then refused by the target compilers — Kotlin because
+    parameters are `val`, Rust for any borrowed one — so it was a
+    checker/emitter disagreement [backend-never-wrong]. Nothing in std,
+    the examples or the corpora relied on it.
 * [deduce-field] **Field-granular mutation entries** (user decisions
   2026-09-25; rung ⑤ v1 of the group-borrowing ladder): a clause entry may
   name a parameter's **field** and so say *where* a call mutates.

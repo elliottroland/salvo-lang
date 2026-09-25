@@ -1710,3 +1710,51 @@ fn a_field_entry_the_body_exceeds_is_refused() {
         "expected the promise error, got: {errs:?}"
     );
 }
+
+// ===== [param-const] a parameter is a constant binding =====
+
+/// [param-const] Assigning a parameter is refused — for a scalar as much as
+/// for a struct, since the rule is about the *binding*, not the type (user
+/// decision 2026-09-25, pre-aligning with `const`). Before this the
+/// construct type-checked and was then refused by the target compilers:
+/// Kotlin because parameters are `val`, Rust for any borrowed one.
+#[test]
+fn assigning_a_parameter_is_refused() {
+    let scalar = field_errors("fn f(n: Int) [] -> Int => n {\n    n = n + 1\n    return n\n}\n");
+    assert!(
+        scalar.iter().any(|e| e.contains("cannot assign to parameter `n`")),
+        "expected the refusal, got: {scalar:?}"
+    );
+
+    let whole = field_errors(
+        "fn f(e: Mut Entity) [] -> None => e: Mut {\n    \
+         e = Mut Entity { hp: 1, rings: mut_list_of() }\n}\n",
+    );
+    assert!(
+        whole.iter().any(|e| e.contains("cannot assign to parameter `e`")),
+        "expected the refusal, got: {whole:?}"
+    );
+}
+
+/// [param-const] `n++` is an assignment to `n`, so it is refused too.
+#[test]
+fn stepping_a_parameter_is_refused() {
+    let errs = field_errors("fn f(n: Int) [] -> Int => n {\n    n++\n    return n\n}\n");
+    assert!(
+        errs.iter().any(|e| e.contains("cannot step parameter `n`")),
+        "expected the refusal, got: {errs:?}"
+    );
+}
+
+/// [param-const] What stays legal: assigning a **field** of a parameter (the
+/// way to change what the caller holds), and binding a local.
+#[test]
+fn a_parameter_s_field_and_a_local_stay_assignable() {
+    let errs = field_errors(
+        "fn f(e: Mut Entity, n: Int) [] -> Int => e.hp: Mut, n {\n    \
+         e.hp = e.hp - n\n    \
+         let next = n + 1\n    \
+         return next\n}\n",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}

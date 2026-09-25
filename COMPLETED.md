@@ -195,6 +195,32 @@ decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
 
 
+**A parameter is a constant binding — the assignment defect closed
+(2026-09-25, user decision).** Filed while probing rung ⑤, then found to be
+broader than filed: assigning **any** parameter breaks Kotlin, whose
+parameters are `val` — so the ordinary idiom `n = n + 1` on a scalar
+parameter type-checked, ran on Rust and failed to compile on Kotlin, while
+a borrowed or `Mut` parameter failed on both. A checker/emitter
+disagreement, not a feature. Three fixes were on the table (refuse
+everything; make both work, which needs a decided meaning for replacing a
+borrowed parameter; or split by ambiguity and allow the scalar case with a
+Kotlin shadow). The user chose to **refuse all of it** [param-const], on
+the reading that a parameter *is* `const` — and that a future `const` on
+struct fields will say the same for scalars and non-scalars alike, so one
+consistent rule beats a by-type split. Implemented as one checker refusal
+covering assignment and `++`/`--`, with handler *state* fields (which are
+flagged as parameters internally) and implicit fn-value parameters
+exempted. Sequenced **before** the remaining ⑤ work deliberately: it
+deletes a case inference and field-qualifiers would otherwise have to
+handle — a whole-parameter assignment is "mutates everything" — and the
+invariants say a checker/emitter disagreement belongs to the checker. The
+sweep found nothing relying on it (std, every example, the corpora; the
+`now = …` sites in `std/time.sv` are handler state). One test changed: a
+guard test asserting that an assignment in an exiting branch does not reset
+a narrowing now assigns a local, since its subject is the reset, not who
+may be assigned. 1466 tests green.
+
+
 **Contents versus replacement — rung ⑤ v2 (built 2026-09-25; user
 decisions same day).** The distinction the user named — replacement *is*
 consumption of the field, one level down — now decides what survives
@@ -15947,7 +15973,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1463)
+## Test inventory (all green: 1466)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
