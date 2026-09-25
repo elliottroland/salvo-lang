@@ -871,42 +871,33 @@ fn struct_field_assignment_requires_mut() {
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
-// [fate-poison] Backend-parity fix: a non-identifier argument in a kept
-// `Mut` position mutates through the projection, so it poisons variables
-// derived from the provenance root (before this, `size(t)` compiled
-// clean and printed 2 on Kotlin vs 1 on Rust). Mutating through a
-// projection of a *derived* variable errors like any other mutation of
-// it; `copy` at the binding is the remedy.
+// [deduce-field] Rung ⑤ v2 (2026-09-25): a contents mutation through a
+// projection leaves a *handle to the same field* standing — `t` names the
+// very list `add` grew, and both backends see it (Rust re-materializes the
+// place, Kotlin holds the object), which is what the historical `diverged`
+// case needed. What still refuses: mutating through a *derived* variable,
+// which is an error like any mutation of one.
 #[test]
-fn fate_mut_projection_arguments_poison_derived() {
+fn fate_mut_projection_arguments_keep_a_handle_but_refuse_derived_mutation() {
     let dir = src_dir("fate_mut_proj");
     fs::write(
         dir.join("main.sv"),
         "struct Holder {\n    tags: Mut List<Int>\n}\n\n\
-         fn diverged() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
+         fn kept() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
          let t = h.tags\n    add(h.tags, 2)\n    return size(t)\n}\n\n\
          fn mutate_through_derived(other: Holder) -> None => other {\n    \
-         let h = other\n    add(h.tags, 2)\n}\n\n\
-         fn remedy() -> Int {\n    let h = Holder {tags: mut_list_of(1)}\n    \
-         let t = copy(h.tags)\n    add(h.tags, 2)\n    return size(t)\n}\n",
+         let h = other\n    add(h.tags, 2)\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success());
     assert!(
-        stderr.contains(
-            "`t` cannot be used here: it was bound from `h` and shares its fate, \
-             and `h` was mutated after the binding"
-        ),
-        "stderr: {stderr}"
-    );
-    assert!(
         stderr.contains("cannot mutate `h`: it was bound from `other`"),
         "stderr: {stderr}"
     );
-    // `remedy` is clean: exactly the two violations above.
-    assert!(stderr.contains("2 errors"), "stderr: {stderr}");
+    // `kept` is clean: exactly the one violation above.
+    assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
 
 // [deduce-consume] L2: the remaining move events consume a bare root

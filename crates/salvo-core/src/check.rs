@@ -1451,6 +1451,21 @@ struct FateLink {
     /// a `for` element of a view), which *is* the root's data
     /// [proj-readonly].
     held: bool,
+    /// [deduce-field] Whether the derivation reaches **through a
+    /// destroyability boundary** — an element of a container, a union
+    /// arm's payload — rather than staying on inline storage (a field
+    /// chain, a whole-variable alias). Rung ⑤ v2: a *contents* mutation of
+    /// a field (`=> h.tags: Mut`) spares a derivation that does **not**
+    /// cross (a handle to the container itself, whose identity survives)
+    /// and still kills one that does (an element, whose storage may be
+    /// gone).
+    ///
+    /// **Conservative by default (`true`)**, and deliberately not inferred
+    /// from the path steps: `first(h.tags)` records path `[.tags]` with the
+    /// element-crossing nowhere in it, so only derivations the analysis can
+    /// *see* are inline — a pure field chain or alias of a place — get
+    /// `false`.
+    crosses: bool,
     /// [elem-distinct] The **identity of the minting index** of an element
     /// handle: the ultimate fate-root id of the index variable in
     /// `get(list, i)` (resolved to `core.list`'s `get`), captured at the
@@ -6083,7 +6098,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(declared) = Self::declared_mut_paths(f, &p.name.name) else {
                 continue;
             };
-            if declared.iter().any(|d| d.is_empty()) {
+            if declared.iter().any(|(d, _)| d.is_empty()) {
                 continue; // `=> h: Mut` — anywhere, nothing to check.
             }
             let shown = |path: &[Step]| -> String {
@@ -6100,7 +6115,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let covered = match &path {
                     Some(actual) => declared
                         .iter()
-                        .any(|d| actual.len() >= d.len() && actual[..d.len()] == d[..]),
+                        .any(|(d, _)| actual.len() >= d.len() && actual[..d.len()] == d[..]),
                     None => false,
                 };
                 if covered {
@@ -6113,8 +6128,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Some(actual) => format!("`{}`", shown(actual)),
                     None => format!("`{}` at a path it cannot spell", p.name.name),
                 };
-                let promised: Vec<String> =
-                    declared.iter().map(|d| format!("`{}`", shown(d))).collect();
+                let promised: Vec<String> = declared
+                    .iter()
+                    .map(|(d, _)| format!("`{}`", shown(d)))
+                    .collect();
                 reports.push((
                     p.name.span,
                     format!(
@@ -7725,6 +7742,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for mut l in self.links_for_value(arg, bind_span) {
                         l.borrowed = true;
                         l.held = false;
+                        // [deduce-field] A lend handed back by a *call* may
+                        // reach into contents and leaves no trace of it in
+                        // the path (`first(h.tags)` records `[.tags]`), so
+                        // it is conservative — this is the fact that makes
+                        // the bit necessary rather than inferable.
+                        l.crosses = true;
                         if !links.iter().any(|e| e.root_id == l.root_id) {
                             links.push(l);
                         }
@@ -7762,6 +7785,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             borrowed: l.borrowed,
                             held: l.held,
                             elem_idx: l.elem_idx,
+                            crosses: l.crosses,
                         })
                         .collect()
                 })
@@ -7796,6 +7820,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     borrowed: src_borrowed,
                     held: false,
                     elem_idx: None,
+                    // [deduce-field] Inline storage exactly when the whole
+                    // derivation is a field chain (or a plain alias) of a
+                    // place: anything the analysis cannot spell that way —
+                    // an element read, a call, an unwrap — stays
+                    // conservative. A source that itself crosses
+                    // propagates.
+                    crosses: extra
+                        .as_deref()
+                        .is_none_or(|p| !p.iter().all(|s| matches!(s, Step::Field(_))))
+                        || var.links.iter().any(|l| l.crosses),
                 },
                 &mut links,
             );
@@ -7812,9 +7846,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     _ => None,
                 };
+                let step_inline = extra
+                    .as_deref()
+                    .is_some_and(|p| p.iter().all(|s| matches!(s, Step::Field(_))));
                 push(
                     FateLink {
                         path: composed,
+                        // [deduce-field] Crossing is inherited: a field of
+                        // something already reached through contents is
+                        // still through contents.
+                        crosses: l.crosses || !step_inline,
                         ..l
                     },
                     &mut links,
@@ -8237,7 +8278,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
         event_path: Option<&[Step]>,
     ) {
-        self.poison_derived_except(root_id, root_name, event, span, event_path, root_id, None);
+        self.poison_derived_full(
+            root_id, root_name, event, span, event_path, root_id, None, false,
+        );
     }
 
     /// [proj-mut] `poison_derived` with one exempt variable: a mutation
@@ -8251,8 +8294,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `NotEq` claim names disjoint storage, so it is spared. Anything
     /// short of the full proof — either identity missing, paths differing,
     /// no live claim — poisons as before [fate-poison].
+    /// [proj-mut] [deduce-field] The full form: one exempt variable (the
+    /// acting mutable element handle) and the event's kind.
     #[allow(clippy::too_many_arguments)]
-    fn poison_derived_except(
+    fn poison_derived_full(
         &mut self,
         root_id: u32,
         root_name: &str,
@@ -8261,11 +8306,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         event_path: Option<&[Step]>,
         exempt: u32,
         acting_elem: Option<u32>,
+        contents_only: bool,
     ) {
         let distinct = match acting_elem {
             Some(_) => self.live_distinct_pairs(),
             None => HashSet::new(),
         };
+        // [deduce-field] Bindings the contents-rule spares: in Rust they
+        // cannot be live borrows (the mutation names the same place, so
+        // `&h.tags` across `h.tags.push(…)` is E0502), so each is recorded
+        // for the virtual-place rendering — which is also what keeps the
+        // two backends in step, since re-reading an unreplaced field yields
+        // the object Kotlin's binding holds [backend-parity].
+        let mut spared: Vec<(Span, String)> = Vec::new();
         for frame in &mut self.locals {
             for var in frame.values_mut() {
                 if var.id == root_id || var.id == exempt {
@@ -8274,6 +8327,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let hit = var.links.iter().any(|l| {
                     if l.root_id != root_id || !l.overlaps_event(event_path) {
                         return false;
+                    }
+                    // [deduce-field] Rung ⑤ v2's spare: a **contents**
+                    // mutation leaves the mutated thing's own storage in
+                    // place, so a derivation that *is* that thing — an
+                    // inline handle at exactly the event's path — survives,
+                    // and both backends observe the same object. A
+                    // derivation reaching *through* its contents does not
+                    // (`crosses`), nor does anything deeper, nor a
+                    // replacement.
+                    if contents_only && !l.crosses {
+                        if let (Some(link), Some(ev)) = (l.path.as_deref(), event_path) {
+                            if !link.is_empty() && link == ev {
+                                let mut place = l.root_name.clone();
+                                for step in link {
+                                    place.push_str(&step.to_string());
+                                }
+                                spared.push((l.bind_span, place));
+                                return false;
+                            }
+                        }
                     }
                     // [elem-distinct] The spare: same container place,
                     // both element identities present, proven apart.
@@ -8297,6 +8370,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     });
                 }
             }
+        }
+        for (bind_span, place) in spared {
+            self.out.virtual_place_binds.insert(self.key(bind_span), place);
         }
     }
 
@@ -13586,6 +13662,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// derived value falls), `[.tags]` only what overlaps `p.tags`, `None`
     /// the conservative unknown.
     fn fate_mutation_at(&mut self, name: &str, span: Span, event_path: Option<&[Step]>) {
+        self.fate_mutation_kind(name, span, event_path, false);
+    }
+
+    /// [deduce-field] `fate_mutation_at`, told whether the event is a
+    /// **contents** mutation (identity preserved) rather than a
+    /// replacement: rung ⑤ v2 spares a *handle to the mutated thing
+    /// itself* from a contents mutation — its storage is still there and
+    /// both backends see the same object — while a derivation reaching
+    /// through its contents, and any replacement, poison as ever.
+    fn fate_mutation_kind(
+        &mut self,
+        name: &str,
+        span: Span,
+        event_path: Option<&[Step]>,
+        contents_only: bool,
+    ) {
         // [iter-fn] The origin of an open `for` may not be mutated:
         // its machine reads it across suspensions.
         if let Some((_, subject_span)) = self
@@ -13627,7 +13719,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             // advanced. A wholesale projection or a plain alias cannot
             // [proj-readonly].
             if links.iter().all(|l| l.held) {
-                self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
+                self.poison_derived_full(
+                    id,
+                    name,
+                    FateEvent::Mutated,
+                    span,
+                    event_path,
+                    id,
+                    None,
+                    contents_only,
+                );
                 return;
             }
             // [proj-mut] A projection carrying `Mut` is a **mutable element
@@ -13648,7 +13749,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.record_param_mutation(&l.root_name);
                     // [elem-distinct] The acting link's index identity rides
                     // along: siblings proven apart survive the event.
-                    self.poison_derived_except(
+                    self.poison_derived_full(
                         l.root_id,
                         &l.root_name,
                         FateEvent::Mutated,
@@ -13656,10 +13757,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         l.path.as_deref(),
                         id,
                         l.elem_idx,
+                        false,
                     );
                     self.out.handle_muts.insert((self.file_idx, l.bind_span));
                 }
-                self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
+                self.poison_derived_full(
+                    id,
+                    name,
+                    FateEvent::Mutated,
+                    span,
+                    event_path,
+                    id,
+                    None,
+                    contents_only,
+                );
                 return;
             }
             self.error_derived(span, "mutate", name, &links);
@@ -13672,7 +13783,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.mark_capture_mutated(frame, id);
             }
         }
-        self.poison_derived(id, name, FateEvent::Mutated, span, event_path);
+        self.poison_derived_full(
+            id,
+            name,
+            FateEvent::Mutated,
+            span,
+            event_path,
+            id,
+            None,
+            contents_only,
+        );
     }
 
     // ================= place narrowing [flow-place] =================
@@ -13742,6 +13862,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// reach. Every site that mutates through a non-identifier expression
     /// goes through here, so no invalidation site can be forgotten.
     fn fate_mutation_through(&mut self, expr: &Expr, span: Span) {
+        self.fate_mutation_through_kind(expr, span, true);
+    }
+
+    /// [deduce-field] `fate_mutation_through`, told the event's kind: a
+    /// **call** taking the place as `Mut` changes its contents (identity
+    /// preserved), while an **assignment** to it replaces what is there.
+    fn fate_mutation_through_kind(&mut self, expr: &Expr, span: Span, contents_only: bool) {
         // [rs-loc] A mutation through a lending call's result is the
         // demand that makes the Rust backend emit the callee's mut
         // variant: record the call.
@@ -13758,7 +13885,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let place = Place::of_expr(expr);
         let event_path: Option<&[Step]> = place.as_ref().map(|p| p.path.as_slice());
         for name in &names {
-            self.fate_mutation_at(name, span, event_path);
+            self.fate_mutation_kind(name, span, event_path, contents_only);
         }
         match &place {
             Some(place) => self.invalidate_place_narrows(place),
@@ -13826,9 +13953,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declares no field entry for it — the event stays `[]`, as it always
     /// has. A whole-parameter mutation entry (`=> h: Mut`) *widens* back
     /// to `[]`, since it says "mutated anywhere".
-    fn declared_mut_paths(decl: &'p FnDecl, param: &str) -> Option<Vec<Vec<Step>>> {
+    fn declared_mut_paths(decl: &'p FnDecl, param: &str) -> Option<Vec<(Vec<Step>, bool)>> {
         let list = decl.deductions.as_ref()?;
-        let mut paths: Vec<Vec<Step>> = Vec::new();
+        // Each path with its kind: `true` for a **contents** mutation
+        // (`h.tags: Mut` — identity preserved), `false` for a
+        // **replacement** (`!h.tags`).
+        let mut paths: Vec<(Vec<Step>, bool)> = Vec::new();
         for d in list {
             let ast::DeductionTarget::Param { name, path } = &d.target else {
                 continue;
@@ -13836,24 +13966,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             if name.name != param {
                 continue;
             }
-            let mutating = match &d.kind {
-                // An exhaustive list mentioning `Mut` is a mutation entry;
-                // so is a field-level `!` (a replacement).
-                ast::DeductionKind::Exhaustive { quals, reapplied } => quals
-                    .iter()
-                    .chain(reapplied)
-                    .any(|q| q.name.name == "Mut"),
-                ast::DeductionKind::Moved => !path.is_empty(),
-                _ => false,
+            let contents_only = match &d.kind {
+                // An exhaustive list mentioning `Mut` is a *contents*
+                // mutation entry; a field-level `!` is a replacement.
+                ast::DeductionKind::Exhaustive { quals, reapplied } => {
+                    if quals
+                        .iter()
+                        .chain(reapplied)
+                        .any(|q| q.name.name == "Mut")
+                    {
+                        true
+                    } else {
+                        continue;
+                    }
+                }
+                ast::DeductionKind::Moved if !path.is_empty() => false,
+                _ => continue,
             };
-            if !mutating {
-                continue;
-            }
             if path.is_empty() {
                 // `=> h: Mut` — anywhere.
-                return Some(vec![Vec::new()]);
+                return Some(vec![(Vec::new(), false)]);
             }
-            paths.push(path.iter().map(|f| Step::Field(f.name.clone())).collect());
+            paths.push((
+                path.iter().map(|f| Step::Field(f.name.clone())).collect(),
+                contents_only,
+            ));
         }
         (!paths.is_empty()).then_some(paths)
     }
@@ -13877,10 +14014,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         name: &str,
         span: Span,
         preserve: &[String],
-        paths: &[Vec<Step>],
+        paths: &[(Vec<Step>, bool)],
     ) {
-        for path in paths {
-            self.fate_mutation_at(name, span, Some(path.as_slice()));
+        for (path, contents_only) in paths {
+            self.fate_mutation_kind(name, span, Some(path.as_slice()), *contents_only);
             self.invalidate_place_narrows(&Place {
                 root: name.to_string(),
                 path: path.clone(),
@@ -18144,7 +18281,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // variable is an error [fate-derived-readonly].
                         // Narrowings of the overwritten storage fall
                         // [flow-place-invalidate].
-                        self.fate_mutation_through(other, *span);
+                        // [deduce-field] An assignment **replaces** what is
+                        // there, so it is not a contents-only event: a
+                        // handle to the old value does not survive it.
+                        self.fate_mutation_through_kind(other, *span, false);
                         // [fate-partial-move] Assigning a place puts data
                         // back: the place and everything under it are
                         // whole again, so their moved-out records go.
@@ -21053,6 +21193,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     root_name: cap.name.clone(),
                     bind_span: span,
                     elem_idx: None,
+                    // A capture is of the variable itself; the closure is a
+                    // view, and mutation through it is refused anyway.
+                    crosses: false,
                     // [fate-lambda] A capture is read through whatever
                     // the body does with it; the capture analysis
                     // records the variable, not a projection, so the
@@ -24828,7 +24971,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // it mutates; then the event is those paths, not the
                     // whole variable.
                     match decl_field_paths {
-                        Some(paths) if paths.iter().all(|p| !p.is_empty()) => self
+                        Some(paths) if paths.iter().all(|(p, _)| !p.is_empty()) => self
                             .fate_mutation_fields_preserving(&name, span, &preserved, &paths),
                         _ => self.fate_mutation_root_preserving(&name, span, &preserved),
                     }

@@ -3548,6 +3548,38 @@ fn main() [use] {
 }
 "#;
 
+/// [deduce-field] Rung ⑤ v2's program, byte-identical stdout to the Rust
+/// backend's `rustc_compiles_and_runs_a_contents_mutation_handle` — the
+/// agreement that licenses sparing the handle.
+const CONTENTS_MUTATION_DEMO: &str = r#"
+struct Ring { power: Int }
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn add_ring(e: Mut Entity) -> None => e.rings: Mut {
+    add(e.rings, Ring { power: 7 })
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let rings = e.rings
+    add_ring(e)
+    // The handle names the very list that grew: 2 on both backends.
+    println("${size(rings)} ${size(e.rings)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_contents_mutation_handle() -> KotlinCase {
+    let program = build_program(&[("main.sv", CONTENTS_MUTATION_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "contents_mutation", "2 2\n")
+}
+
 fn kotlinc_compiles_and_runs_a_field_granular_mutation() -> KotlinCase {
     let program = build_program(&[("main.sv", FIELD_GRANULAR_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3622,6 +3654,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_search_loop_lender,
     kotlinc_compiles_and_runs_a_covered_call,
     kotlinc_compiles_and_runs_a_field_granular_mutation,
+    kotlinc_compiles_and_runs_a_contents_mutation_handle,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

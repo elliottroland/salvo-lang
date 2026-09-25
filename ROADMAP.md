@@ -468,12 +468,13 @@ COMPLETED.md's log). Status:
 - **⑤ v1 BUILT** (2026-09-25, COMPLETED.md's log): field-granular
   mutation entries [deduce-field] — `=> h.tags: Mut` narrows the event,
   `=> !h.tags` states a replacement, written entries validated against the
-  body, surviving derivations rendered as virtual places. **v2 NEXT**: the
-  crosses-destroyability-boundary bit on links, so `h.tags: Mut` spares a
-  container handle while killing element derivations (`first(h.tags)`
-  records its link as path `[.tags]`, so the bit must be explicit and ride
-  the derived-return links). Also owed: **inference** of the field sets
-  (v1 is written-only), and the follow-on **qualifiers on struct fields**.
+  body, surviving derivations rendered as virtual places. **v2 BUILT** the
+  same day: the `crosses` bit on links, so a *contents* mutation spares a
+  container handle while a *replacement* — and any derivation reaching
+  through the contents — still poisons. Also owed: **inference** of the
+  field sets (v1/v2 are written-only; an unannotated fn keeps the
+  conservative whole-value event), and the follow-on **qualifiers on struct
+  fields**.
   The same write-vs-destroy distinction decides **in-place writes during
   iteration**, today refused by the driven-origins rule.
 - Recorded leftovers in GROUP_BORROWING.md's second GB-5 addendum: the

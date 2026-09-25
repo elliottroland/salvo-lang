@@ -5687,11 +5687,21 @@ the same day. **Not part of `core`**: the surface is imported, and one
     re-read sees the object Kotlin's binding holds. (The first attempt at
     this rung relaxed poison for *any* field path and broke that parity;
     GROUP_BORROWING.md's ⑤ section keeps the probe.)
-  * **v2, not built**: with a crosses-destroyability-boundary bit on links,
-    `h.tags: Mut` would spare a *container-handle* derivation while still
-    killing derivations that reach into the contents. The bit must be
-    explicit — `first(h.tags)` records its link as path `[.tags]`, with the
-    element-crossing nowhere in it.
+  * **v2 (built 2026-09-25): contents versus replacement.** A **contents**
+    mutation (`=> h.tags: Mut`, and any call mutating through the place)
+    leaves the mutated thing's own storage in place, so a derivation that
+    *is* that thing — an inline handle at exactly the event's path —
+    survives, and both backends observe the same object. A **replacement**
+    (`=> !h.tags`, or an assignment to the place) poisons it, as does any
+    derivation reaching *through* the contents. The distinction rides a
+    `crosses` bit on the link, **conservative by default and deliberately
+    not inferred from the path**: `first(h.tags)` records path `[.tags]`
+    exactly as `h.tags` does, so only derivations the analysis can see are
+    inline — a field chain or a plain alias of a place — are marked
+    non-crossing; a call's lend never is. Spared handles render as virtual
+    places, which is what keeps Rust in step with Kotlin (and what the
+    historical `diverged` case needed: `let t = h.tags; add(h.tags, 2)`
+    now compiles and prints the same on both).
 * [canbe-entry] **`canbe` — the alias-group relation** (user decisions
   2026-09-24, GB-1(s); built as rung ④b): a deduction-clause entry saying
   two parameters **may name the same object** — `=> a canbe d`. Symmetric

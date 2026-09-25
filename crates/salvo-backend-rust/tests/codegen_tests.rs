@@ -12977,6 +12977,42 @@ fn rustc_compiles_and_runs_a_field_granular_mutation() {
     run_rust_files(&files, "field_granular", "1 15\n");
 }
 
+/// [deduce-field] Rung ⑤ v2 — a **contents** mutation of a field spares a
+/// handle to that field: the container's storage is still there, so both
+/// backends observe the same object growing. Rust renders the handle as a
+/// virtual place, which is what makes the agreement possible (a bound `&`
+/// would be E0502 against the very mutation).
+const CONTENTS_MUTATION_DEMO: &str = r#"
+struct Ring { power: Int }
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn add_ring(e: Mut Entity) -> None => e.rings: Mut {
+    add(e.rings, Ring { power: 7 })
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let rings = e.rings
+    add_ring(e)
+    // The handle names the very list that grew: 2 on both backends.
+    println("${size(rings)} ${size(e.rings)}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_contents_mutation_handle() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", CONTENTS_MUTATION_DEMO)]);
+    run_rust_files(&files, "contents_mutation", "2 2\n");
+}
+
 /// [canbe-entry] [rs-loc] ④b — a callee declaring `=> a canbe d` takes
 /// two element handles that **may be the same element**: the covered
 /// positions render as one shared anchor plus a locator each (two `&mut`

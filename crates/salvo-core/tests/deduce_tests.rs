@@ -988,14 +988,34 @@ fn an_assignment_to_a_disjoint_field_does_not_poison() {
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
 }
 
-/// [fate-field-disjoint] The *same* field still poisons — the precision is
-/// about disjointness, not about weakening the rule.
+/// [fate-field-disjoint] [deduce-field] A **contents** mutation of the same
+/// field leaves a *handle to that field* standing (rung ⑤ v2, 2026-09-25):
+/// the list object is still the one `t` names, and both backends observe the
+/// addition through it — Rust because the binding re-materializes the place,
+/// Kotlin because it holds that object. What the rule refuses is a
+/// derivation reaching *into* the contents, and a **replacement** of the
+/// field; those are the cases below.
 #[test]
-fn the_same_field_still_poisons() {
+fn a_contents_mutation_spares_a_handle_to_the_same_field() {
     let errs = disjoint_errors(
         "    let p = Person { name: \"a\", tags: mut_list_of() }\n\
          \x20   let t = p.tags\n\
          \x20   add_tag(p.tags, \"y\")\n\
+         \x20   let k = count(t)",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [deduce-field] …and **replacing** the field does poison the handle: the
+/// storage identity is gone, which is exactly the divergence the rule keeps
+/// unobservable (a re-read would see the new value where Kotlin's binding
+/// holds the old object).
+#[test]
+fn replacing_the_same_field_still_poisons() {
+    let errs = disjoint_errors(
+        "    let p = Mut Person { name: \"a\", tags: mut_list_of() }\n\
+         \x20   let t = p.tags\n\
+         \x20   p.tags = mut_list_of()\n\
          \x20   let k = count(t)",
     );
     assert!(
@@ -1580,7 +1600,8 @@ fn field_errors(src: &str) -> Vec<String> {
         format!(
             "{STD_PRELUDE}export intrinsic type Str\n\
              export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
-             export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n"
+             export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
+             export intrinsic fn first<T>(list: List<T>) [] -> (proj(list) T)? => list\n"
         ),
         true,
     );
@@ -1628,19 +1649,31 @@ fn a_field_granular_mutation_spares_a_disjoint_field() {
     assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
 }
 
-/// [deduce-field] …and the *same* field is still poisoned: the narrowing is
-/// precision, not permission.
+/// [deduce-field] Rung ⑤ v2: a **contents** mutation of the field spares a
+/// handle to the *container itself* — its storage is still there — while a
+/// derivation reaching **into** the contents falls, because an element may
+/// be gone. The `crosses` bit is what tells the two apart, and it cannot be
+/// read off the path: `first(e.rings)` records `[.rings]` exactly as
+/// `e.rings` does.
 #[test]
-fn a_field_granular_mutation_still_poisons_that_field() {
-    let errs = field_errors(
+fn a_contents_mutation_spares_the_container_but_not_its_elements() {
+    let handle = field_errors(
         "fn f(e: Mut Entity) [] -> Int => e.rings: Mut {\n    \
          let rings = e.rings\n    \
          shrink(e)\n    \
          return size(rings)\n}\n",
     );
+    assert!(handle.is_empty(), "expected a clean check, got: {handle:?}");
+
+    let element = field_errors(
+        "fn f(e: Mut Entity) [] -> Int => e.rings: Mut {\n    \
+         let ring = first(e.rings)!\n    \
+         shrink(e)\n    \
+         return ring.power\n}\n",
+    );
     assert!(
-        errs.iter().any(|e| e.contains("`rings` cannot be used here")),
-        "expected the poison error, got: {errs:?}"
+        element.iter().any(|e| e.contains("`ring` cannot be used here")),
+        "expected the element poison, got: {element:?}"
     );
 }
 

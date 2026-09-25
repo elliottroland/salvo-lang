@@ -195,6 +195,34 @@ decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
 
 
+**Contents versus replacement — rung ⑤ v2 (built 2026-09-25; user
+decisions same day).** The distinction the user named — replacement *is*
+consumption of the field, one level down — now decides what survives
+[deduce-field]. A **contents** mutation (`=> h.tags: Mut`, or any call
+mutating through the place) leaves the mutated thing's storage in place, so
+an inline handle at exactly the event's path survives; a **replacement**
+(`=> !h.tags`, or an assignment) poisons it, and so does any derivation
+reaching *through* the contents. That last part needed the bit GB-3-A
+always specified: `FateLink.crosses`, **conservative by default and
+deliberately not inferred from path steps** — `first(h.tags)` records path
+`[.tags]` exactly as `h.tags` does, which is the fact that killed the first
+attempt's step-inspection shortcut. Only derivations the analysis can see
+are inline (a field chain or plain alias of a place) are marked
+non-crossing; a call's lend never is, and crossing is inherited through
+transitive links. Spared handles render as **virtual places**, which is
+what keeps the backends in step — and what the historical `diverged` case
+needed: `let t = h.tags; add(h.tags, 2); size(t)` used to print 2 on Kotlin
+and 1 on Rust, was poisoned for exactly that reason, and now compiles and
+prints `2 2` on both. Three test expectations changed with the rule, each
+rewritten to assert the new boundary rather than deleted: the
+same-field case now spares the handle and a new sibling checks that
+*replacing* it still poisons; the v1 field test splits into
+container-spared / element-poisoned; the analyze CLI test keeps its
+derived-mutation refusal and drops the divergence half. Also filed while
+probing: the whole-parameter-assignment defect (ROADMAP). 1463 tests
+green.
+
+
 **Field-granular mutation entries — rung ⑤ v1 (built 2026-09-25; user
 decisions same day).** The rung's second attempt, on the user's design,
 and it needed **no new invalidation rule**: the event a *call* produces was
@@ -15919,7 +15947,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1461)
+## Test inventory (all green: 1463)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
