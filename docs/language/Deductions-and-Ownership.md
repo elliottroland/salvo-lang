@@ -158,6 +158,18 @@ Such a struct is an ordinary owned object: its `Mut` is real (a pass is advanced
 
 ## A parameter cannot be assigned
 
+```
+fn refused(n: Int) -> Int {
+    n = n + 1              // error: a parameter is a constant binding
+    return n
+}
+
+fn stepped(n: Int) -> Int {
+    let next = n + 1       // bind a local instead
+    return next
+}
+```
+
 A parameter is a **constant binding**: `n = n + 1` inside a function is an error, whatever `n`'s type — bind a local (`let next = n + 1`) instead. To change what the caller holds, assign a *field* of the parameter (`h.tags = …`), which is what the clause below describes.
 
 ## Which field a call mutates

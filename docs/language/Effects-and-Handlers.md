@@ -217,6 +217,15 @@ A monitor serializes with a lock where an actor serializes with a mailbox, and o
 
 ## Shareable by default: `use`, `use local`, and `local E`
 
+```
+use Counting()          // shareable: the instance may be captured by a spawn
+use local Counting()    // this frame only — nothing may capture it
+
+fn tally(n: Int) [local Tally] -> None {
+    …                   // declares that its handler need not be shareable
+}
+```
+
 `use H(args)` binds **shareable by default** (user decision 2026-09-20). A stateless handler binds *bare* — shareable without a lock, so `StdOutConsole` and friends pay nothing — and a stateful one binds as a **monitor**: lock-shaped from birth, effectively `let h = spawn H(args); use h`. A `use` of an addr or of a spawn expression is already a handle and needs no words. The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to guarantee something that may cross a seam.
 
 That is what `[E]` now means: **a shareable `E`** — the function may pass it across seams. The opt-outs are spelled:

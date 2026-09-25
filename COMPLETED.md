@@ -237,6 +237,31 @@ LANGUAGE_SPEC.md as the complete rule set to grep), and its documentation map
 gained the `wiki/` row. 1474 tests green.
 
 
+**Examples everywhere, and a page for handles and aliasing (2026-09-25).**
+The group-borrowing ladder's features had reached the docs as a pile of dense
+paragraphs appended to the projections section — accurate, example-free, and
+reading like a changelog. They are now
+**`docs/language/Mutable-Handles.md`**: 15 worked examples across mutable
+elements, lending a handle from your own function (including the
+search-and-lend shape Rust cannot express), one-handle-at-a-time,
+proving handles apart with `NotEq`, the `update` family, declaring aliasing
+with `canbe`, field-granular mutation, and a closing section on **what the
+backends do** — the position-based rendering, why it buys the flexibility
+(`&mut squad[i]` would forbid the `size(squad)` in the middle), and its
+honest cost. Every example was run on both backends before being written
+down; two of them corrected the prose in the process (an `attack`-style call
+strips `Idx` where the `update` family preserves it, which is now stated).
+The clause-level half — a parameter is a constant binding, which field a
+call mutates, inference, qualifiers about fields — stayed with the
+deductions, as sections with examples rather than blobs. Audited every page
+for example coverage: each section now carries one except five that are
+genuinely prose (per-backend type mappings, two rule explanations, a bridge
+paragraph), and the audit caught an **unbalanced code fence** in Passes.md
+that had survived the split. Also added: an actor example to Concurrency
+(the page explained pools, tasks and waiting without ever showing a
+`spawn`), a literals example to the docs' very first section, and a
+cross-link from Iteration to the other `params` bundles.
+
 **The borrowed-Copy-scalar comparison defect, closed (2026-09-25).** Repro,
 kept intact:
 

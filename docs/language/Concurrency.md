@@ -2,6 +2,48 @@
 
 Concurrency in Salvo is built out of two things that run on **pools**. A pool is a set of worker threads (`pool(4)`), or exactly one (`thread()`), and it is an ordinary value: one pool can host many actors.
 
+An actor first, since everything else on this page is about *where* its work
+runs. An `actor effect` declares the protocol — `send fn` members, which
+enqueue and answer nothing — a handler of it is ordinary Salvo, and `spawn`
+gives it a mailbox:
+
+```
+actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 8 }
+
+    sum: Int = 0
+
+    send fn bump(n: Int) {
+        sum = sum + n          // no lock: activations run one at a time
+    }
+
+    send fn total(out: Reply<Int>) {
+        out.send(sum)          // `Reply` is linear — answered exactly once
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let workers = pool(2)
+    let counter = spawn Counting() on workers
+
+    counter.bump(2)            // enqueues; returns immediately
+    counter.bump(3)
+
+    let sum = waitfor answer: Reply<Int> { counter.total(answer) }
+    println("${sum}")          // 5
+}
+```
+
+The state is the actor's alone and its members run one at a time, so the
+serialization *is* the mutual exclusion. `waitfor` is the bridge for a frame
+that does mean to wait — no capability, no declaration.
+
 The two kinds of work are:
 
 * an **activation** — one member invocation of an actor, which is a handler bound with `spawn` instead of `use`. An actor's activations run one at a time, in the order their invocations arrived, on some worker of the actor's pool. That serialization *is* its mutual exclusion.

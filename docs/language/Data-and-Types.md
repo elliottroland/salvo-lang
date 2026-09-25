@@ -20,6 +20,18 @@ All numbers include the usual arithmetic operations, on **numeric operands only*
 
 Mixed widths widen implicitly **within** a class: `Int + Long` computes at `Long`, `Float < Double` compares at `Double` — the compiler records the promotion and each backend renders it its own way. Mixing the integer and float classes never happens implicitly: `1 + 2.5` is a type error naming the explicit conversions — `to_int`, `to_long`, `to_float` and `to_double`, declared in `core.basic` for every source width, truncating toward zero and saturating at the target's bounds identically on both backends (`to_int(Long)` keeps the low 32 bits).
 
+```
+let count = 42          // Int, the default for a whole number
+let total = 42L         // Long
+let ratio = 1.5         // Double, the default for a fraction
+let small = 1.5f        // Float
+let ok = true           // Bool
+let initial = 'S'       // Char
+
+let widened = count + total          // computes at Long: 84
+let half = 7 / 2                     // integer division: 3
+```
+
 Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). An **unsuffixed** literal also *adopts* the numeric type its position expects — `let x: Long = 1`, `let d: Double = 3` and passing `1` to a `Long` parameter all work, and `x + 1` needs no `1L` because the operator widening covers it. Adoption is for literals only: an `Int` *variable* never becomes a `Long` implicitly — write `to_long(n)`.
 
 ## Strings

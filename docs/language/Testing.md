@@ -21,6 +21,12 @@ test heap :: pops come out in order ... FAILED
 
 ## Where tests live
 
+```
+src/
+  cart.sv            // the module
+  cart.test.sv       // its tests — part of the module, so they see its privates
+```
+
 **In a companion file, always.** The tests of module `heap` live in `heap.test.sv` beside `heap.sv`, and a `test` block written in a production source file is an error naming the companion. `.test` is the one dot a file name may carry; the file is module `heap.test`, the **test annex** of module `heap`.
 
 The annex is the module's whitebox: it sees every declaration of `heap`, private ones included, exactly as another file of the module would. Nothing sees the annex. That is not a rule to remember but a consequence of two facts — no production file imports it, and `salvo compile` and `salvo run` do not load `.test.sv` files at all. There is nothing to strip from a production build, and no way for shipped code to come to depend on a test.

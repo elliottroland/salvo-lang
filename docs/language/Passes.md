@@ -53,8 +53,11 @@ fn next<A, B>(z: Mut Zip<A, B>) -> Emitted (A, B) | Finished => z: Mut { ... }
 ```
 
 Leave the clause off `Zip` and the `for` reports it:
-``` `Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
-`: Yield<self, (A, B)>` on it to make it a pass) ```.
+
+```
+`Zip<(A, B)>` is not iterable … (`Zip` has a matching `next` — declare
+`: Yield<self, (A, B)>` on it to make it a pass)
+```
 
 A pass that owns something declares itself `linear struct` and names its
 death in its own file ([Linear types](Linear-Types.md)) — and the `for` loop is

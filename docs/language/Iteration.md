@@ -79,6 +79,13 @@ not — that is data, and the backends walk it in place — so the copy is only
 needed where you walk the same container twice through `iter`:
 `map(iter(copy(xs)), f)`.
 
+`Yield` is the pattern, not the only instance: `core.compare` declares
+`Ordered`, `Eq` and `Hashed` the same way
+([Comparison, equality and hashing](Comparison-and-Hashing.md)), and
+`core.list` declares `Locate` for algorithms generic over what a *position*
+is ([Mutable handles](Mutable-Handles.md)). A type joins any of them by
+declaring one function.
+
 ## Obligations: `params` groups on a type
 
 A `params` group can also be stated as an **obligation** on a struct, with a
