@@ -1459,6 +1459,31 @@ itself, 2026-09-10 — see "`defer` is deleted".)
 
 ## Open defects
 
+### Assigning a whole `Mut` parameter passes the checker and fails both backends
+
+```
+struct Holder canbe Mut { tags: Mut List<Int> }
+
+fn reset(h: Mut Holder) -> None => h: Mut {
+    h = Mut Holder { tags: mut_list_of(7, 7) }     // accepted by the checker
+}
+```
+
+`analyze` reports nothing; **both** emitters then produce code the target
+compiler refuses (rustc E0308, kotlinc likewise). Found 2026-09-25 while
+probing whether whole-parameter assignment is a second field-replacement
+channel for [deduce-field] — it is not, because it does not work at all.
+The question the fix must answer first is what the construct *means*: a
+`Mut` parameter is a borrow of the caller's value, so either the assignment
+replaces the caller's object (Rust `*h = …`, Kotlin has no equivalent for a
+non-field binding — a parity problem), or it rebinds locally and is a
+no-op the caller cannot observe (then it should be refused as useless, or
+diagnosed). Recommended: **refuse it in the checker** with a diagnostic
+naming field assignment (`h.tags = …`) as the way to change what the caller
+holds. Loud rather than wrong today, so low severity — but it is a
+checker/emitter disagreement, which the invariants say should be the
+checker's error.
+
 ### Rust: comparing a borrowed Copy scalar with `==` does not deref
 
 `proj Int` (a total `get`'s result, a `first(NonEmpty)` element) compared
