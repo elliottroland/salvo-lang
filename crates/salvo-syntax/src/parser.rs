@@ -2214,9 +2214,19 @@ impl<'s> Parser<'s> {
         if self.at(&TokenKind::Bang) {
             self.bump();
             let name = self.ident()?;
+            // [deduce-field] `!h.tags`: the **field** is replaced — its
+            // storage identity is destroyed, which at field level is what
+            // consumption means (the caller keeps the field, not the
+            // object that was in it).
+            let mut path: Vec<Ident> = Vec::new();
+            while self.at(&TokenKind::Dot) {
+                self.bump();
+                path.push(self.ident()?);
+            }
+            let end = path.last().map(|i| i.span).unwrap_or(name.span);
             return Some(Deduction {
-                span: start.to(name.span),
-                target: DeductionTarget::Param { name, path: Vec::new() },
+                span: start.to(end),
+                target: DeductionTarget::Param { name, path },
                 kind: DeductionKind::Moved,
             });
         }
@@ -2447,9 +2457,20 @@ impl<'s> Parser<'s> {
             );
         }
         if let DeductionTarget::Param { path, .. } = &target {
-            if !path.is_empty() && !matches!(kind, DeductionKind::Proj(_)) {
+            // [deduce-field] A parameter's **field path** may state a
+            // projection (`v.items: proj(p)`) or — since 2026-09-25 — a
+            // *field-granular mutation*: `=> h.tags: Mut` says the call
+            // mutates only that field, narrowing the whole-value event the
+            // parameter's `Mut` would otherwise produce, and `=> !h.tags`
+            // says the field is **replaced** (its storage identity
+            // destroyed — consumption, one level down). Nothing else.
+            let field_ok = matches!(
+                kind,
+                DeductionKind::Proj(_) | DeductionKind::Exhaustive { .. } | DeductionKind::Moved
+            );
+            if !path.is_empty() && !field_ok {
                 self.error(
-                    "a parameter's field path can only state a projection: `v.field: proj(p)`",
+                    "a parameter's field path can state a projection                      (`v.field: proj(p)`), a field-granular mutation                      (`v.field: Mut`) or a replacement (`!v.field`)",
                     start.to(end),
                 );
             }

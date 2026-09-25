@@ -1551,3 +1551,129 @@ fn an_established_claim_must_name_the_identity_it_holds() {
         "expected the missing-identity refusal: {errs:?}"
     );
 }
+
+// ===== [deduce-field] field-granular mutation entries (rung ⑤ v1) =====
+
+/// The harness's own prelude for these: a struct with two fields, one of
+/// them a container, plus the fns the cases call.
+const FIELD_PRELUDE: &str = "\
+struct Ring { power: Int }\n\
+struct Entity canbe Mut {\n\
+    hp: Int,\n\
+    rings: Mut List<Ring>\n\
+}\n\
+fn damage(e: Mut Entity, n: Int) [] -> None => e.hp: Mut, n {\n\
+    e.hp = e.hp - n\n\
+}\n\
+fn shrink(e: Mut Entity) [] -> None => e.rings: Mut {\n\
+    add(e.rings, Ring { power: 1 })\n\
+}\n\
+fn wipe(e: Mut Entity) [] -> None => !e.rings {\n\
+    e.rings = mut_list_of()\n\
+}\n";
+
+fn field_errors(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        format!(
+            "{STD_PRELUDE}export intrinsic type Str\n\
+             export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n\
+             export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n"
+        ),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        format!("{FIELD_PRELUDE}{src}"),
+        false,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked
+        .errors
+        .iter()
+        .filter(|e| e.is_error())
+        .map(|e| e.message.clone())
+        .collect()
+}
+
+/// [deduce-field] `=> e.hp: Mut` narrows the event a call produces, so a
+/// derivation of a **disjoint** field survives it — by the ordinary
+/// overlap rule [fate-field-disjoint], with no new invalidation rule
+/// (user decision 2026-09-25).
+#[test]
+fn a_field_granular_mutation_spares_a_disjoint_field() {
+    let errs = field_errors(
+        "fn f(e: Mut Entity) [] -> Int => e.hp: Mut {\n    \
+         let rings = e.rings\n    \
+         damage(e, 5)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(errs.is_empty(), "expected a clean check, got: {errs:?}");
+}
+
+/// [deduce-field] …and the *same* field is still poisoned: the narrowing is
+/// precision, not permission.
+#[test]
+fn a_field_granular_mutation_still_poisons_that_field() {
+    let errs = field_errors(
+        "fn f(e: Mut Entity) [] -> Int => e.rings: Mut {\n    \
+         let rings = e.rings\n    \
+         shrink(e)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "expected the poison error, got: {errs:?}"
+    );
+}
+
+/// [deduce-field] `=> !e.rings` states a **replacement** — the field's
+/// storage identity is destroyed — so the derivation falls. This is what
+/// keeps the backends in step: a spared binding would re-read the new value
+/// on Rust while Kotlin held the old object.
+#[test]
+fn a_declared_field_replacement_poisons_the_derivation() {
+    let errs = field_errors(
+        "fn f(e: Mut Entity) [] -> Int => !e.rings {\n    \
+         let rings = e.rings\n    \
+         wipe(e)\n    \
+         return size(rings)\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("`rings` cannot be used here")),
+        "expected the poison error, got: {errs:?}"
+    );
+}
+
+/// [deduce-field] A written field entry is a **promise about where**, and
+/// every caller's precision rests on it: a body that mutates outside the
+/// declared set is an error naming the remedy.
+#[test]
+fn a_field_entry_the_body_exceeds_is_refused() {
+    let errs = field_errors(
+        "fn liar(e: Mut Entity, n: Int) [] -> None => e.hp: Mut, n {\n    \
+         e.hp = e.hp - n\n    \
+         e.rings = mut_list_of()\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("promises it mutates only")),
+        "expected the promise error, got: {errs:?}"
+    );
+}

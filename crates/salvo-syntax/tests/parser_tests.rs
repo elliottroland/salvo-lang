@@ -2567,3 +2567,24 @@ fn a_canbe_entry_refuses_a_result_path() {
         "{diagnostics:?}"
     );
 }
+
+/// [deduce-field] The field-granular entries parse: a field-level `Mut`
+/// (the call mutates only there) and a field-level `!` (the field is
+/// replaced). A field path stating anything else is refused.
+#[test]
+fn field_granular_mutation_entries_parse() {
+    let src = "\
+        fn a(h: Mut Int, n: Int) -> None => h.tags: Mut, n {}\n\
+        fn b(h: Mut Int) -> None => !h.tags {}\n\
+        fn c(h: Mut Int) -> None => h.tags: Mut, h.more: Mut {}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(module.items.len(), 3);
+
+    let (_, bad) = salvo_syntax::parse_module("fn d(h: Mut Int) -> None => h.tags: preserve Idx {}\n");
+    assert!(
+        bad.iter().any(|d| d.is_error() && d.message.contains("field path can state")),
+        "{bad:?}"
+    );
+}

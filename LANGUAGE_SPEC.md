@@ -5654,6 +5654,44 @@ the same day. **Not part of `core`**: the surface is imported, and one
     wholesale projection, `held` a borrow an owned object carries
     [proj-infer]. A variable whose every link is held may be mutated (its
     own fields are its own); one with a wholesale or alias link may not.
+* [deduce-field] **Field-granular mutation entries** (user decisions
+  2026-09-25; rung ⑤ v1 of the group-borrowing ladder): a clause entry may
+  name a parameter's **field** and so say *where* a call mutates.
+  `=> h: Mut` keeps its meaning — mutated *anywhere*, poisoning every
+  derivation of `h` — while `=> h.tags: Mut` narrows the event to
+  `[.tags]`, and `=> !h.tags` states a **replacement**: the field's storage
+  identity is destroyed (consumption, one level down — at field level `!`
+  means *replaced*, not gone, since the caller keeps the field and loses
+  only identity continuity; on a linear field it is the entry that obliges
+  the callee to discharge what was there).
+  * **No new invalidation rule.** The event a *call* produces was always
+    the whole value, because it is driven by the **parameter's declared
+    type** carrying `Mut`; a field entry replaces it with its own paths,
+    and [fate-field-disjoint]'s overlap test does the rest. So
+    `damage(e: Mut Entity, n) => e.hp: Mut` leaves a derivation of
+    `e.rings` standing, and a derivation of `e.hp` still falls: the
+    narrowing is precision, not permission.
+  * **A field entry stands alone**: `=> h.tags: Mut` needs no `=> h: Mut`
+    beside it (that would undo the narrowing). A parameter with claims to
+    account for adds an ordinary non-`Mut` entry, which states survival
+    without widening the event.
+  * **Written entries are checked against the body**: every mutation the
+    body performs on the parameter must be covered by a declared path, or
+    the promise the callers rely on is a lie — an error naming the widening
+    remedy. v1 is written-only; inference of the field sets is the next
+    step, and an unannotated fn keeps the conservative whole-value event.
+  * Rust: a binding that **survives** a narrowed mutation cannot be a live
+    borrow (the callee still takes the whole value `&mut`), so it renders
+    as a *virtual place* — the path re-materialized per use [rs-loc].
+    Sound precisely because survival means the field was untouched, so the
+    re-read sees the object Kotlin's binding holds. (The first attempt at
+    this rung relaxed poison for *any* field path and broke that parity;
+    GROUP_BORROWING.md's ⑤ section keeps the probe.)
+  * **v2, not built**: with a crosses-destroyability-boundary bit on links,
+    `h.tags: Mut` would spare a *container-handle* derivation while still
+    killing derivations that reach into the contents. The bit must be
+    explicit — `first(h.tags)` records its link as path `[.tags]`, with the
+    element-crossing nowhere in it.
 * [canbe-entry] **`canbe` — the alias-group relation** (user decisions
   2026-09-24, GB-1(s); built as rung ④b): a deduction-clause entry saying
   two parameters **may name the same object** — `=> a canbe d`. Symmetric

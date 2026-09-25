@@ -1164,6 +1164,12 @@ struct Emitter<'p> {
     /// coexist. Keyed by fn key, valued by the covered parameter indices
     /// in declaration order.
     covered_fns: HashMap<salvo_core::FnKey, Vec<usize>>,
+    /// [deduce-field] Bindings the checker marked as **virtual places**
+    /// (they survive a narrowed mutation of their root): the rendered
+    /// place, re-materialized at every use instead of bound as a borrow —
+    /// a bound `&` would be E0502 against the very call the narrowing
+    /// legalized.
+    virtual_places: HashMap<String, String>,
     /// [canbe-entry] The covered parameters of the fn being emitted, by
     /// name: inside such a body a covered parameter is a virtual place
     /// (`__anchor[__cN]`).
@@ -1869,6 +1875,7 @@ impl<'p> Emitter<'p> {
             loc_adapter: false,
             covered_fns: covered_fns(program, checked),
             covered_here: HashMap::new(),
+            virtual_places: HashMap::new(),
             mut_lend_fns: lend_mut.demanded,
             mut_call_sites: lend_mut.seeds,
             mut_forward_sites: lend_mut.forwards,
@@ -7704,6 +7711,31 @@ impl<'p> Emitter<'p> {
                 return format!("{pad}self.{field} = {value_code};\n");
             }
         }
+        // [deduce-field] A **virtual place** binding emits no `let`: every
+        // use re-materializes the path, which is what lets the value live
+        // across the narrowed mutation of its root (a bound `&` would be
+        // E0502 against exactly that call). Sound because the survival
+        // means the field was untouched, so the re-read sees what Kotlin's
+        // binding holds [backend-parity].
+        if let Pattern::Ident(name) = pattern {
+            if let Some(place) = self
+                .checked
+                .virtual_place_binds
+                .get(&(self.file_idx, stmt_span))
+                .cloned()
+            {
+                let rendered: String = place
+                    .split('.')
+                    .map(rs_ident)
+                    .collect::<Vec<_>>()
+                    .join(".");
+                self.bindings.insert(name.name.clone(), BindKind::ElemMut);
+                self.elem_places
+                    .insert(name.name.clone(), (rendered.clone(), String::new()));
+                self.virtual_places.insert(name.name.clone(), rendered);
+                return String::new();
+            }
+        }
         // [rs-elem-mut] [proj-mut] A **mutable element handle**'s mint (P-9:
         // the checker recorded this bind event as mutated downstream). The
         // binding is virtual: capture the index once, check presence at the
@@ -10553,7 +10585,15 @@ impl<'p> Emitter<'p> {
             Some(BindKind::ElemMut) => self
                 .elem_places
                 .get(name)
-                .map(|(root, idx)| format!("{root}[{idx}]"))
+                // [deduce-field] An empty index is a **static** path: a
+                // virtual place binding, not an element handle.
+                .map(|(root, idx)| {
+                    if idx.is_empty() {
+                        root.clone()
+                    } else {
+                        format!("{root}[{idx}]")
+                    }
+                })
                 .unwrap_or_else(|| rs_ident(name)),
             // [iter-fn] A slot's default place is the *shared* borrow
             // through its `Option`: correct for every read, and a path that

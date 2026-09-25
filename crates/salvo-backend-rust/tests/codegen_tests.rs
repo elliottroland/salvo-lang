@@ -12923,6 +12923,60 @@ fn rustc_compiles_and_runs_a_search_loop_lender() {
     run_rust_files(&files, "search_loop", "50 13\n");
 }
 
+/// [deduce-field] Rung ⑤ v1 — a **field-granular** mutation entry
+/// (`=> e.hp: Mut`) narrows the event a call produces, so a derivation of
+/// a *disjoint* field survives it by the ordinary overlap rule. The
+/// surviving binding cannot be a live borrow (the callee still takes the
+/// whole struct `&mut`), so it renders as a **virtual place**:
+/// re-materialized per use, which agrees with Kotlin because the field was
+/// untouched.
+const FIELD_GRANULAR_DEMO: &str = r#"
+struct Ring { power: Int }
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn damage(e: Mut Entity, n: Int) -> None => e.hp: Mut, n {
+    e.hp = e.hp - n
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let rings = e.rings
+    damage(e, 5)
+    println("${size(rings)} ${e.hp}")
+}
+"#;
+
+#[test]
+fn a_surviving_field_derivation_renders_as_a_virtual_place() {
+    let files = generate(&[("main.sv", FIELD_GRANULAR_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // No binding at all: the place is re-read where it is used.
+    assert!(
+        !main.content.contains("let mut rings"),
+        "{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("e.rings.len()"),
+        "{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_field_granular_mutation() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FIELD_GRANULAR_DEMO)]);
+    run_rust_files(&files, "field_granular", "1 15\n");
+}
+
 /// [canbe-entry] [rs-loc] ④b — a callee declaring `=> a canbe d` takes
 /// two element handles that **may be the same element**: the covered
 /// positions render as one shared anchor plus a locator each (two `&mut`

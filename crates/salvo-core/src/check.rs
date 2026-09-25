@@ -778,6 +778,16 @@ pub struct Checked {
     /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
     /// the call.
     pub distinct_pairs: HashMap<Key, (usize, usize)>,
+    /// [deduce-field] Bindings that **survive a narrowed mutation** of
+    /// their root (`let rings = e.rings` living across a call declaring
+    /// `=> e.hp: Mut`), keyed by bind event: the rendered place. A borrow
+    /// cannot express these — the callee still takes the whole struct
+    /// `&mut`, so a live `&e.rings` is E0502 — so the Rust backend renders
+    /// them as *virtual places*, re-materializing the path per use. Sound
+    /// precisely because the survival means the field was **untouched**, so
+    /// re-reading it yields the object Kotlin's binding holds
+    /// [backend-parity].
+    pub virtual_place_binds: HashMap<Key, String>,
     /// [canbe-entry] Calls whose callee declared the argument pair **may
     /// alias** (`=> a canbe d`), keyed by call span: the covered parameter
     /// index pairs. The Rust backend renders such positions against a
@@ -1636,6 +1646,12 @@ struct Checker<'p, 'r> {
     /// sided with [backend-parity], which is also what keeps a value
     /// *derived* from the origin valid for the whole drive.
     driven_origins: Vec<(String, Span)>,
+    /// [deduce-field] Mutation paths of the current fn's **parameters**, as
+    /// recorded while its body is checked: the raw material for validating
+    /// a written field entry (`=> h.tags: Mut` must cover every mutation
+    /// the body performs on `h`) and, next, for inferring one. `None` is an
+    /// unknown path — conservative, so it covers nothing.
+    own_mut_paths: Vec<(String, Option<Vec<Step>>)>,
     /// Fresh-id counter for local bindings [fate-link].
     next_var_id: u32,
     /// Move-mode candidates [fate-move-mode]: bind events (keyed by bind
@@ -1950,6 +1966,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             can_spawn: false,
             loop_stack: Vec::new(),
             driven_origins: Vec::new(),
+            own_mut_paths: Vec::new(),
             next_var_id: 0,
             move_candidates,
             param_claims,
@@ -6014,7 +6031,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // i: Idx(es) Int)` could not use the total `get` on its own
         // parameters.)
         self.root_declared_claims();
+        let saved_mut_paths = std::mem::take(&mut self.own_mut_paths);
         self.check_block_value(body);
+        // [deduce-field] A written field entry is a promise about *where*
+        // this body mutates, and the caller's precision rests on it: every
+        // mutation the body performed must be covered by a declared path,
+        // or the narrowing would be a lie (2026-09-25).
+        self.check_declared_mut_fields(f);
+        self.own_mut_paths = saved_mut_paths;
         // [linear-obligation] A moved-in linear parameter must be
         // discharged by the body.
         self.check_linear_frame_drop();
@@ -6042,6 +6066,73 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.can_spawn = saved_can_spawn;
         self.own_implicits = saved_implicits;
         self.generics = saved_generics;
+    }
+
+    /// [deduce-field] Checks a written field-granular mutation entry
+    /// against the body: each parameter with such entries may only be
+    /// mutated at-or-below one of them. A mutation of the whole parameter
+    /// (a call taking it as `Mut` without narrowing), a mutation of
+    /// another field, or an unknown path is an error naming the remedy —
+    /// without this the narrowing at call sites would be unfounded.
+    fn check_declared_mut_fields(&mut self, f: &'p FnDecl) {
+        if f.deductions.is_none() {
+            return;
+        }
+        let mut reports: Vec<(Span, String)> = Vec::new();
+        for p in f.params.iter().filter(|p| !p.implicit) {
+            let Some(declared) = Self::declared_mut_paths(f, &p.name.name) else {
+                continue;
+            };
+            if declared.iter().any(|d| d.is_empty()) {
+                continue; // `=> h: Mut` — anywhere, nothing to check.
+            }
+            let shown = |path: &[Step]| -> String {
+                let mut out = p.name.name.clone();
+                for s in path {
+                    out.push_str(&s.to_string());
+                }
+                out
+            };
+            for (name, path) in self.own_mut_paths.clone() {
+                if name != p.name.name {
+                    continue;
+                }
+                let covered = match &path {
+                    Some(actual) => declared
+                        .iter()
+                        .any(|d| actual.len() >= d.len() && actual[..d.len()] == d[..]),
+                    None => false,
+                };
+                if covered {
+                    continue;
+                }
+                let did = match &path {
+                    Some(actual) if actual.is_empty() => {
+                        format!("`{}` as a whole", p.name.name)
+                    }
+                    Some(actual) => format!("`{}`", shown(actual)),
+                    None => format!("`{}` at a path it cannot spell", p.name.name),
+                };
+                let promised: Vec<String> =
+                    declared.iter().map(|d| format!("`{}`", shown(d))).collect();
+                reports.push((
+                    p.name.span,
+                    format!(
+                        "this function's clause promises it mutates only {} of \
+                         `{}`, but the body mutates {}: widen the entry, or \
+                         write `{}: Mut` for the whole value",
+                        promised.join(", "),
+                        p.name.name,
+                        did,
+                        p.name.name
+                    ),
+                ));
+                break;
+            }
+        }
+        for (span, msg) in reports {
+            self.error(span, msg);
+        }
     }
 
     /// [qual-depend] Roots the dependent claims declared on the current
@@ -13521,6 +13612,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         // keep "everything else". Recorded for written lists too — that
         // is what the written-list validation checks.
         self.record_param_mutation(name);
+        // [deduce-field] …and *where*, for the written-entry validation.
+        if self.lookup(name).is_some_and(|v| v.is_param) {
+            self.own_mut_paths
+                .push((name.to_string(), event_path.map(|p| p.to_vec())));
+        }
         let Some(var) = self.lookup(name) else { return };
         let (id, links) = (var.id, var.links.clone());
         if !links.is_empty() {
@@ -13723,12 +13819,107 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.strip_dependent_claims(name, &[]);
     }
 
+    /// [deduce-field] The **field paths** a callee declares it mutates for
+    /// one parameter (2026-09-25, user decision): `=> h.tags: Mut` and
+    /// `=> !h.tags` each narrow the whole-value event the parameter's
+    /// `Mut` would otherwise produce to `[.tags]`. `None` when the callee
+    /// declares no field entry for it — the event stays `[]`, as it always
+    /// has. A whole-parameter mutation entry (`=> h: Mut`) *widens* back
+    /// to `[]`, since it says "mutated anywhere".
+    fn declared_mut_paths(decl: &'p FnDecl, param: &str) -> Option<Vec<Vec<Step>>> {
+        let list = decl.deductions.as_ref()?;
+        let mut paths: Vec<Vec<Step>> = Vec::new();
+        for d in list {
+            let ast::DeductionTarget::Param { name, path } = &d.target else {
+                continue;
+            };
+            if name.name != param {
+                continue;
+            }
+            let mutating = match &d.kind {
+                // An exhaustive list mentioning `Mut` is a mutation entry;
+                // so is a field-level `!` (a replacement).
+                ast::DeductionKind::Exhaustive { quals, reapplied } => quals
+                    .iter()
+                    .chain(reapplied)
+                    .any(|q| q.name.name == "Mut"),
+                ast::DeductionKind::Moved => !path.is_empty(),
+                _ => false,
+            };
+            if !mutating {
+                continue;
+            }
+            if path.is_empty() {
+                // `=> h: Mut` — anywhere.
+                return Some(vec![Vec::new()]);
+            }
+            paths.push(path.iter().map(|f| Step::Field(f.name.clone())).collect());
+        }
+        (!paths.is_empty()).then_some(paths)
+    }
+
     /// [qual-preserve] As `fate_mutation_root`, for a mutation whose call
     /// **preserves** some dependent claims: those survive the strip.
     fn fate_mutation_root_preserving(&mut self, name: &str, span: Span, preserve: &[String]) {
         self.fate_mutation(name, span);
         self.invalidate_place_narrows(&Place::root(name));
         self.strip_dependent_claims(name, preserve);
+    }
+
+    /// [deduce-field] As `fate_mutation_root_preserving`, for a call whose
+    /// callee declared **which fields** it mutates: the event lands on
+    /// those paths instead of the whole variable, so a derivation of a
+    /// disjoint field survives by the ordinary overlap rule
+    /// [fate-field-disjoint] — no new invalidation rule. Narrowings and
+    /// dependent claims fall per path for the same reason.
+    fn fate_mutation_fields_preserving(
+        &mut self,
+        name: &str,
+        span: Span,
+        preserve: &[String],
+        paths: &[Vec<Step>],
+    ) {
+        for path in paths {
+            self.fate_mutation_at(name, span, Some(path.as_slice()));
+            self.invalidate_place_narrows(&Place {
+                root: name.to_string(),
+                path: path.clone(),
+            });
+        }
+        // Claims about the value are stripped as ever: a claim's own
+        // precision is the follow-on (qualifiers on struct fields).
+        self.strip_dependent_claims(name, preserve);
+        // [deduce-field] Whatever survived this narrowed event cannot be a
+        // live borrow in Rust (the callee still takes the whole value
+        // `&mut`), so it is recorded for the virtual-place rendering.
+        let Some(root_id) = self.lookup(name).map(|v| v.id) else {
+            return;
+        };
+        let mut survivors: Vec<(Span, String)> = Vec::new();
+        for frame in &self.locals {
+            for var in frame.values() {
+                if matches!(var.narrowed, Ty::Never) || var.poison.is_some() {
+                    continue;
+                }
+                for l in &var.links {
+                    if l.root_id != root_id {
+                        continue;
+                    }
+                    let Some(path) = l.path.as_deref() else { continue };
+                    if path.is_empty() || !path.iter().all(|s| matches!(s, Step::Field(_))) {
+                        continue;
+                    }
+                    let mut place = l.root_name.clone();
+                    for step in path {
+                        place.push_str(&step.to_string());
+                    }
+                    survivors.push((l.bind_span, place));
+                }
+            }
+        }
+        for (span, place) in survivors {
+            self.out.virtual_place_binds.insert(self.key(span), place);
+        }
     }
 
     /// [qual-depend] The type and fate roots of a written **place path**
@@ -24601,6 +24792,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .lookup(&name)
                         .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                         .unwrap_or_default();
+                    // [deduce-field] Which fields this callee says it
+                    // mutates (`=> h.tags: Mut`, `=> !h.tags`).
+                    let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name);
                     let preserved = self.preserved_claims(
                         best.key,
                         decl,
@@ -24630,7 +24824,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                     }
-                    self.fate_mutation_root_preserving(&name, span, &preserved);
+                    // [deduce-field] The callee may have said *which* fields
+                    // it mutates; then the event is those paths, not the
+                    // whole variable.
+                    match decl_field_paths {
+                        Some(paths) if paths.iter().all(|p| !p.is_empty()) => self
+                            .fate_mutation_fields_preserving(&name, span, &preserved, &paths),
+                        _ => self.fate_mutation_root_preserving(&name, span, &preserved),
+                    }
                 }
                 // [deduce-syntax] Computed against what the argument
                 // actually carries: an exhaustive list drops qualifiers

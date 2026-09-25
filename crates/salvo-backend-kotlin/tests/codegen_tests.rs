@@ -3525,6 +3525,37 @@ fn main() [use] {
 }
 "#;
 
+/// [deduce-field] The field-granular program, byte-identical stdout to the
+/// Rust backend's `rustc_compiles_and_runs_a_field_granular_mutation` —
+/// the parity that makes the virtual-place rendering legitimate.
+const FIELD_GRANULAR_DEMO: &str = r#"
+struct Ring { power: Int }
+struct Entity canbe Mut {
+    hp: Int,
+    rings: Mut List<Ring>
+}
+
+fn damage(e: Mut Entity, n: Int) -> None => e.hp: Mut, n {
+    e.hp = e.hp - n
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    let e = Mut Entity { hp: 20, rings: mut_list_of(Ring { power: 3 }) }
+    let rings = e.rings
+    damage(e, 5)
+    println("${size(rings)} ${e.hp}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_field_granular_mutation() -> KotlinCase {
+    let program = build_program(&[("main.sv", FIELD_GRANULAR_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "field_granular", "1 15\n")
+}
+
 fn kotlinc_compiles_and_runs_a_covered_call() -> KotlinCase {
     let program = build_program(&[("main.sv", CANBE_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3590,6 +3621,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_lending_effect_member,
     kotlinc_compiles_and_runs_a_search_loop_lender,
     kotlinc_compiles_and_runs_a_covered_call,
+    kotlinc_compiles_and_runs_a_field_granular_mutation,
     kotlinc_compiles_and_runs_a_keyed_hash_pair,
     kotlinc_compiles_and_runs_a_keyed_container_ordering,
     kotlinc_compiles_and_runs_a_carried_ordering,

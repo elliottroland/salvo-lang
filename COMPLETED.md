@@ -195,6 +195,37 @@ decide in-place writes during iteration. The rung produced no feature; the
 reason it produced none is the useful part. 1454 tests green.
 
 
+**Field-granular mutation entries — rung ⑤ v1 (built 2026-09-25; user
+decisions same day).** The rung's second attempt, on the user's design,
+and it needed **no new invalidation rule**: the event a *call* produces was
+always the whole value because it comes from the **parameter's declared
+type** carrying `Mut`, so a field entry simply replaces it with its own
+paths and [fate-field-disjoint]'s overlap test does the rest
+[deduce-field]. `=> e.hp: Mut` narrows, `=> h: Mut` still means anywhere,
+`=> !h.tags` states a replacement (consumption one level down — at field
+level `!` means *replaced*, not gone), and a field entry **stands alone**
+(the user's requirement: needing `=> h: Mut` beside it would undo the
+narrowing). Parser: field paths may now state an exhaustive list or a
+field-level `!`, beside the projection entry they already carried.
+Soundness rests on **validating the promise against the body** — every
+mutation the body performs must be covered by a declared path, else an
+error naming the widening remedy — which is the same computation inference
+will use (v1 is written-only; unannotated fns keep the conservative
+whole-value event). Rust: a binding that *survives* a narrowed mutation
+cannot be a live borrow, since the callee still takes the whole value
+`&mut`, so it renders as a **virtual place** — the reverted attempt's
+rendering, now with a sound precondition: survival means the field was
+untouched, so the re-read sees the object Kotlin's binding holds. The
+parity probe that killed the first attempt stays refused, as does the
+`drain` case (v1 treats contents-mutation and replacement alike; telling
+them apart is v2's crosses-boundary bit). Tests: four checker tests
+(disjoint field spared, same field still poisoned, declared replacement
+poisons, body-exceeds-promise refused), a parser test over the new forms
+and the refusal, a Rust golden asserting the virtual-place rendering, and
+a rustc/kotlinc parity pair (`1 15`). No snapshot churn — the feature is
+opt-in. 1461 tests green.
+
+
 **`canbe` and covered anchors — group-borrowing rung ④b (built
 2026-09-24, evening).** The decided grammar (GB-1(s), all of it) now
 parses, checks and lowers: `=> a canbe d`, the anchored `canbe in` with
@@ -15888,7 +15919,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1454)
+## Test inventory (all green: 1461)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
