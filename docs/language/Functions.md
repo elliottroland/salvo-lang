@@ -141,91 +141,16 @@ Beyond the declaration itself, two things hang off the arrow: effects and deduct
 
 ## Implicit parameters
 
-A parameter written with a `?` is one the caller does not have to pass:
+A parameter written with `?` is one the caller does not have to pass — the
+compiler fills it from what is visible at the call:
 
 ```
 fn sort<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list { ... }
+
+sort(names)                    // `cmp` resolved from scope
+sort(names, cmp = descending)  // or supplied by name
 ```
 
-At the call site the compiler fills `cmp` by looking for a function *named*
-`cmp` whose type fits `(T, T) -> Int` with `T` as this call binds it. So
-declaring the default for a type is just declaring a function:
-
-```
-fn cmp(a: Str, b: Str) -> Int { ... }
-
-sort(names)                    // cmp resolved
-sort(names, cmp = descending)  // or supply your own, by name
-```
-
-Nothing ties `cmp` to `Str`. There is no declaration saying "`Str` has an
-ordering" — the overload whose parameters accept `Str` *is* the ordering, and
-a different one is a lambda or a function reference away. Overriding is by
-the parameter's own name, and the value can be either:
-
-```
-sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
-```
-
-A bundle of related functions is declared once with `params` and spread with
-`?`:
-
-```
-params Field<T> {
-    fn add(a: T, b: T) -> T
-    fn zero() -> T
-}
-
-fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
-    let acc = zero()
-    for x in xs {
-        acc = add(acc, x)
-    }
-    return acc
-}
-
-total(list_of(1, 2, 3))                          // 6
-total(list_of(2, 3, 4), add = times, zero = one) // 24 — override one or both
-```
-
-The spread has **no name of its own**, deliberately: its members become
-implicit parameters in their own right, so they are called unqualified inside
-the body and overridden by their own names outside it. A `params` group is
-never a value — it exists only to keep a signature short.
-
-Details worth knowing:
-
-- **An implicit parameter's type must be a function type.** What fills it is
-  resolved as a function of that name.
-- **They come last.** A normal parameter written after one could not be
-  passed positionally.
-- **Generic code passes its own implicits on.** Inside `total`, `T` is
-  opaque, so a call to another function needing `?Field<T>` is filled from
-  *this* function's implicits — matched by name and type, whatever grouping
-  either side used. A generic function that declares none cannot call one
-  that needs one: there is nothing to resolve and nothing to forward, and the
-  error says which to add. This is the same colouring effects have, for the
-  same reason.
-- **Resolution is local.** Which default a call gets depends on what is
-  visible where the call is written, exactly as with `use` and handlers. Two
-  matching declarations make the call ambiguous, which is an error naming the
-  override as the remedy.
-- **An implicitly resolved function is effect-free.** A fn type without an
-  effect list means "performs nothing", and an effectful function does not
-  fit there — so resolution can never quietly add an effect to a caller.
-- **Effect members have them too.** A member is an ordinary signature, so
-  `fn show(v: T, ?fmt: (T) -> Str) -> Str` works: the call site resolves
-  `fmt`, and every handler implementing `show` receives it. Handler
-  *constructors* do not — their instance is built by `use`, which resolves
-  nothing — and neither do lambdas, whose types have no room to declare one.
-- **A mismatch that types cannot show is explained.** What a call does to
-  each argument is part of whether a function fits, but not part of how a
-  type prints, so a function that *consumes* an argument where the position
-  keeps it is reported in words: which argument, which direction, and the two
-  ways to fix it.
-- **What the implicit resolves to can determine the call's type arguments.**
-  Resolution runs *between* the arguments, not after them, so a variable that
-  appears only in the implicit's type is still inferred. A `?Yield<It, T>`
-  spread goes one step further: `T` is read off `It`'s own declaration (see
-  [Passes](Passes.md)), so the element type of a
-  combinator is never written.
+They are how a type's capabilities travel without a trait system, and they
+reach into type declarations and qualifiers too:
+[Implicit parameters](Implicit-Parameters.md) is the whole story.

@@ -33,7 +33,8 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 |---|---|
 | [Data and Types](Data-and-Types.md) | primitives, strings, tuples, unions, structs, and nullability without `null` |
 | [Collections](Collections.md) | `List`, `Set`, `Map` and their sorted kin, arrays, `Any` and `Never` |
-| [Qualifiers](Qualifiers.md) | type-level claims — `Mut`, predicates, constructive, state versus provenance, dependent claims, refinements |
+| [Qualifiers](Qualifiers.md) | type-level claims — `Mut`, predicates, constructive, state versus provenance, refinements |
+| [Dependent Qualifiers](Dependent-Qualifiers.md) | claims about one value's relation to another (`Idx`, `KeyOf`, `NotEq`), and the total operations that consume them |
 | [Generics and Aliases](Generics-and-Aliases.md) | generic types and type aliases |
 | [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, and lifting a qualifier with `is ^Q` |
 
@@ -41,7 +42,8 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 
 | Page | What it covers |
 |---|---|
-| [Functions](Functions.md) | declaration syntax, overload resolution, implicit parameters |
+| [Functions](Functions.md) | declaration syntax, overload resolution |
+| [Implicit Parameters](Implicit-Parameters.md) | capabilities the compiler supplies: `?` parameters, `params` bundles, obligations on a struct, and orderings carried in a type (`Heap<T>(?cmp)`) |
 | [Lambdas and Variadics](Lambdas-and-Variadics.md) | function values and variadic arguments |
 | [Iteration](Iteration.md) | `Yield`, and `params` groups as a capability bundle |
 | [Passes](Passes.md) | how `for` really works: a pass, its `next`, and `iter fn` |

@@ -237,6 +237,31 @@ LANGUAGE_SPEC.md as the complete rule set to grep), and its documentation map
 gained the `wiki/` row. 1474 tests green.
 
 
+**Two pages for the capability machinery (2026-09-25, user request).**
+Implicit parameters were a section inside Functions, `params`-groups-on-a-type
+a section inside Iteration, and orderings-carried-in-a-type a block inside
+Comparison-and-Hashing — three faces of one mechanism, in three places, none
+of them naming the others. They are now
+**`docs/language/Implicit-Parameters.md`**, in the order the concept builds:
+a function's own `?` parameters, `params` bundles, the obligation a **struct**
+can carry (`: Yield<self, proj T>`), a qualifier's **fn slot**, and then
+`std`'s heap as the worked example that uses all four — the claim
+(`Heap<T>(?Ordered<T>) of List<T>`), construction publishing what resolution
+chose (`-> +Heap<T>(?cmp) Mut List<T>`), and an operation *capturing* the
+ordering from its argument. **`docs/language/Dependent-Qualifiers.md`** is the
+second: declaring a value slot, the identity the claim binds to, the total
+operations that consume it (`get`, `swap`, `substr`), `preserve` for keeping a
+claim across a mutation, the three slot kinds, and a table of what std
+declares. Both pages' examples were run before being written down, which
+corrected three things the old prose got wrong: a garbled signature
+(`?cmp: (T, T) -> +Heap<T>(?cmp) Int`, a return annotation nested inside a fn
+type), an invented struct-obligation syntax, and heap functions named
+`heap_push`/`heap_peek` where std calls them `push`/`peek`. The move also
+fixed a **pre-existing mis-ordering**: three paragraphs about state and
+provenance had been stranded at the end of the dependent-qualifiers section
+since before the split, and are now back where they belong. The three source
+pages keep a short statement of the idea and point at the new ones.
+
 **Examples everywhere, and a page for handles and aliasing (2026-09-25).**
 The group-borrowing ladder's features had reached the docs as a pile of dense
 paragraphs appended to the projections section — accurate, example-free, and

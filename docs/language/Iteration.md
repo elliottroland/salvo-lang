@@ -88,63 +88,7 @@ declaring one function.
 
 ## Obligations: `params` groups on a type
 
-A `params` group can also be stated as an **obligation** on a struct, with a
-`:` clause between the generics and `canbe`:
-
-```
-params Step<It, T> {
-    fn advance(it: Mut It) -> Emitted T | Finished => it: Mut
-}
-
-struct Countdown : Step<self, Int> canbe Mut {
-    at: Int
-}
-
-fn advance(c: Mut Countdown) -> Emitted Int | Finished => c: Mut {
-    if c.at <= 0 { return finished() }
-    let v = copy(c.at)
-    c.at = c.at - 1
-    return emitted(v)
-}
-```
-
-Where `?Step<It, Int>` in a signature asks the *call site* to supply the
-group's members, `: Step<self, Int>` on a declaration promises that the
-members exist for this type — and the promise is checked **at the struct**:
-declaring it without a visible `advance` matching
-`fn advance(it: Mut Countdown) -> Emitted Int | Finished` is an error naming
-that signature, where a misspelled member would otherwise surface as some
-puzzling failure at a distant use site.
-
-`self` is the shorthand for "the type being declared", written where a type
-argument goes. The checker substitutes `Countdown` for it and looks for a
-matching overload — by parameter types and return type, positionally, up to a
-consistent renaming of type variables, so a generic struct satisfies a group
-through its own type parameters. The member's parameter *names* belong to the
-group; an implementation picks its own.
-
-Note what `self` being an *argument* buys: the group itself is ordinary, so
-**one declaration serves both uses**. The same `Step` spreads as
-`?Step<It, Int>`, which is how a generic function reaches the member of a type
-it does not know — a magic `Self` inside the group would have ruled that out,
-since nothing would bind it in a signature. Outside an obligation `self` is
-simply an unknown type.
-
-Two things keep this a where-clause rather than a trait:
-
-- **No value may have a group as its type.** `let p: Step<Countdown, Int>` is an error
-  wherever a type can be written — parameter, return, field, `let`
-  annotation, type argument, union arm. There is no erasure and no interface
-  value; a group constrains a *named* type, and everything resolves
-  statically.
-- **A group is satisfied by functions, not by membership.** The obligation
-  adds no scope and no dispatch: `advance` is an ordinary function, found and
-  overloaded like any other. The clause only moves the check to the
-  declaration.
-
-One group is **designated**: the compiler knows `Yield<self, T>` by name and
-reads the clause itself — it is what makes a type a pass, so `for` resolves
-its `next` from the declaration ([Passes](Passes.md)).
-It is an ordinary `params` group otherwise — declared in std, spreadable
-with `?`. (Linearity used to be the second designated group; it is a
-declaration modifier now, `linear struct` — see [Linear types](Linear-Types.md).)
+A `params` group can also be an obligation on a **struct**, so the
+requirement travels with the type rather than with each function that takes
+it (`export struct ArrayYield<T> : Yield<self, proj T>`). See
+[Implicit parameters](Implicit-Parameters.md).
