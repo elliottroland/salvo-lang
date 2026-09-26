@@ -107,12 +107,49 @@ determining a type parameter — was fixed 2026-09-26 [struct-literal-arg]
   ```
 
   Adding `holds proj(c)` fixes it, so the shape is writable — what is missing is
-  the diagnostic. **A small language call**: *infer* the lend for a fn type whose
-  return instantiates to a borrow-holding type (the [proj-infer] fallback already
-  says "conservatively every kept parameter" for bodiless declarations, so the
-  checker could synthesize it), or *refuse* the declaration naming
-  `holds proj(c)`. Inference is the better default; the refusal is the cheap one.
-  Kotlin runs both forms.
+  the diagnostic. Kotlin runs both forms.
+
+  **Probed 2026-09-26, and the result narrows the question.** `holds proj(c)` is
+  **strictly more permissive**: across slot × candidate × whether the pass
+  escapes the function, every program that compiles without it compiles with it,
+  and it additionally admits the lending candidate. std has both candidates —
+  `core.list`'s `iter` lends (`ListYield.items: proj List<T>`), `core.set`'s
+  snapshots (`SetYield.items: List<T>`) — and the permissive slot accepts both.
+
+  | slot | candidate | pass escapes | Rust |
+  |---|---|---|---|
+  | `(c: C) -> Mut It` | `Set` | no / yes | `15` / `15` |
+  | `(c: C) -> Mut It` | `List` | no / yes | **lifetime error** both |
+  | `… holds proj(c)` | `Set` | no / yes | `15` / `15` |
+  | `… holds proj(c)` | `List` | no / yes | `6` / `6` |
+
+  And the clause on a fn-typed slot is today **purely an emission hint** — it
+  changes one lifetime in the emitted signature and nothing in the checker, which
+  is why its absence reaches rustc. Probed both things a no-lend contract would
+  buy: consuming the container while the pass is live (`=> !c` — accepted under
+  *both* slots) and returning the pass (accepted and compiled under both). In a
+  generic body there is nothing an opaque `C` can be done to anyway.
+
+  **DECISION, and it is one question**: should "this fn does not lend" be a
+  statable contract on a fn-typed slot?
+  * **Yes** → make the clause part of the match at [implicit-resolve]: a
+    restrictive slot rejects `core.list`'s `iter` with a Salvo diagnostic naming
+    the candidate and `holds proj(c)`. Both readings keep meaning; the matching
+    must be **directional** (a permissive slot still accepts a non-lending
+    candidate), and the cost is that the language's most ordinary
+    generic-iteration signature carries a clause to permit the obvious.
+  * **No** → **infer** the lend (recommended, user's reading 2026-09-26): the
+    permissive form is simply the right signature and the compiler writes it. The
+    [proj-infer] fallback already says "conservatively every kept parameter" for
+    a bodiless declaration, and a fn-typed parameter *is* a bodiless declaration.
+    Accept with it that `holds proj(c)` on a fn-typed slot then observably means
+    nothing, so it should warn or be refused there — Salvo already warns on a
+    no-op annotation [fn-overload-at].
+  * **Unprobed edge, to settle before building the inference**: a slot whose fn
+    type takes *more than one* parameter (`(a: A, b: B) -> Mut It`). Tying every
+    parameter's lifetime is the conservative choice and is **not** evidenced free
+    the way the one-parameter case is; scoping the tie to the parameters the
+    slot's fn type actually names is the safer shape.
 
 ### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
 
