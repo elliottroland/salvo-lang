@@ -859,6 +859,16 @@ where Rust had to build the fusion to get the same programs running
   `salvoDecode(b, codec)` from the type argument. Decoding throws `WireError`
   inside and answers `null` outside. Tuples past `Triple` have no codec yet
   (reported, not guessed).
+* [kt-wire] [addr-routable] The scheduler's wire section mirrors Rust's:
+  `SalvoActorState(node, bits, remote, decode)`, `SalvoTargetRemote`,
+  `SalvoEntry.ReplyRaw`, `SalvoRemoteRef`, per-node `wires`, a thread-local
+  outbox flushed after the lock is released. Decoders are lambdas answering
+  `Pair<Boolean, Any?>` — the flag because a decoded `null` (`None`) is a
+  value. `AddrCodec`/`ReplyCodec` in `wire.kt` call `SalvoSched`. Generated
+  code: `spawn(pool, bound, body, __DECODE)` (a companion-object lambda),
+  `sendWire(addr, msg, __PROTO_E, __Codec___Msg_E)`, `replyWire(tok, v,
+  codec)`, `waiterDecoder(wid, dec)`, `mintTask(pool, dec) { … }` (the decoder
+  precedes the trailing lambda), and `decodeReply` on the actor class.
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

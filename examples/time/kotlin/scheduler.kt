@@ -37,18 +37,53 @@ interface SalvoActor {
 
     /** A reply delivery: the slot names the parked continuation. */
     fun resume(ctx: SalvoCtx, slot: Long, value: Any?)
+
+    /**
+     * [addr-routable] [wire-format] Decodes a reply that arrived over the
+     * wire for the continuation parked at [slot]: only the actor knows the
+     * answer's type. `null` when nothing is parked there or the bytes are
+     * malformed. The `Boolean` half says whether a value was decoded at all,
+     * since `null` is itself a value (`None`).
+     */
+    fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> = Pair(false, null)
 }
+
+/**
+ * [addr-routable] The routable identity of an actor: the node hosting it, its
+ * index there, and the unguessable bits minted at its spawn [addr-capability].
+ */
+data class SalvoRemoteRef(val node: Long, val actor: Long, val bits: Long)
 
 /** Passed to every activation: the actor's own identity. */
 class SalvoCtx(val addr: Int)
 
 private sealed class SalvoEntry {
-    class User(val msg: Any?) : SalvoEntry()
+    /** A user message, and — for one that came over the wire — its sender's node. */
+    class User(val msg: Any?, val from: Long?) : SalvoEntry()
 
     class Reply(val slot: Long, val value: Any?) : SalvoEntry()
+
+    /** [addr-routable] A reply that arrived over the wire, still as bytes. */
+    class ReplyRaw(val slot: Long, val bytes: ByteArray) : SalvoEntry()
 }
 
-private class SalvoActorState(val bound: Int, val pool: Int, var body: SalvoActor?) {
+private class SalvoActorState(
+    val bound: Int,
+    val pool: Int,
+    var body: SalvoActor?,
+    /** [addr-routable] The node this actor lives on. */
+    val node: Long,
+    /** [addr-capability] Unguessable bits minted at spawn. */
+    val bits: Long,
+    /** [addr-routable] `non-null` for a proxy of an actor on another node. */
+    val remote: SalvoRemoteRef?,
+    /** [wire-format] How a message frame for one of its protocols is decoded. */
+    val decode: ((String, ByteArray) -> Pair<Boolean, Any?>)?,
+) {
+    /** [remote-backpressure] For a proxy: messages the remote mailbox has room for. */
+    var credits = 0
+    /** [remote-backpressure] For a hosted actor: credits held by remote senders. */
+    var granted = 0
     val queue = ArrayDeque<SalvoEntry>()
     var userLen = 0
     var gate: Long? = null
@@ -81,6 +116,8 @@ private class SalvoActorState(val bound: Int, val pool: Int, var body: SalvoActo
 private class SalvoWaiterState(val pool: Int) {
     var value: Any? = null
     var filled = false
+    /** [wire-format] How a reply arriving over the wire for this waiter is decoded. */
+    var decode: ((ByteArray) -> Pair<Boolean, Any?>)? = null
 
     /**
      * [waitfor-pump] While this waiter is parked: whether a frame is sitting
@@ -109,7 +146,10 @@ private class SalvoHere(val pool: Int, val actor: Int?, val frame: Boolean = fal
  * detached tasks, and the sink an uncaught fault on it is reported to
  * [pool-fault-sink] (`null` is the named runtime report).
  */
-private class SalvoPoolState {
+private class SalvoPoolState(
+    /** [addr-routable] The node this pool's work belongs to. */
+    val node: Long,
+) {
     /** Tasks whose answer has arrived, in the order it arrived. */
     val tasks = ArrayDeque<Pair<(Any?) -> Unit, Any?>>()
     var sinkAddr: Int? = null
@@ -138,8 +178,23 @@ object SalvoSched {
     private val cv = lock.newCondition()
     private val actors = mutableListOf<SalvoActorState>()
     private val waiters = mutableListOf<SalvoWaiterState>()
+    /** [addr-routable] This process's node identity, and every node it hosts. */
+    private val nodeId: Long = randomLong()
+    private val hostedNodes = mutableListOf(nodeId)
+    /** [addr-routable] Imported identities → the local proxy entry for each. */
+    private val proxies = HashMap<SalvoRemoteRef, Int>()
+    /** [addr-routable] Where a node's frames go: its encoded endpoint. */
+    private val routes = HashMap<Long, ByteArray>()
+    /** [addr-routable] The outbound hooks, one per hosted node. */
+    private val wires = HashMap<Long, (ByteArray, ByteArray) -> Unit>()
+    /** [addr-routable] Tasks whose token crossed the wire, by key. */
+    private val exportedTasks = HashMap<Long, Triple<Int, (Any?) -> Unit, (ByteArray) -> Pair<Boolean, Any?>>>()
+    /** [addr-routable] Frames (from, to, bytes) for nodes with no route or wire yet. */
+    private val parkedFramesOut = mutableListOf<Triple<Long, Long, ByteArray>>()
+    /** Frames staged under the lock, sent once it is released. */
+    private val outbox = ThreadLocal.withInitial { mutableListOf<Triple<ByteArray, ByteArray, (ByteArray, ByteArray) -> Unit>>() }
     // [main-pool] Pool 0 exists from the start and belongs to main.
-    private val pools = mutableListOf(SalvoPoolState())
+    private val pools = mutableListOf(SalvoPoolState(nodeId))
     private var nextSlot = 0L
     private var active = 0
 
@@ -225,7 +280,7 @@ object SalvoSched {
     ): Int {
         val id =
             lock.withLock {
-                val state = SalvoPoolState()
+                val state = SalvoPoolState(pools[currentPool()].node)
                 state.sinkAddr = sinkAddr
                 state.sinkBuild = sinkBuild
                 pools.add(state)
@@ -247,12 +302,13 @@ object SalvoSched {
      */
     fun mintTask(
         pool: Int,
+        decode: (ByteArray) -> Pair<Boolean, Any?> = { _ -> Pair(false, null) },
         body: (Any?) -> Unit,
     ): SalvoReply =
         lock.withLock {
             nextSlot += 1
             pools[pool].owed += 1
-            SalvoReply(SalvoTargetTask(pool, body), nextSlot)
+            SalvoReply(SalvoTargetTask(pool, body, decode), nextSlot)
         }
 
     /**
@@ -271,9 +327,14 @@ object SalvoSched {
     fun thread(): Int = pool(1)
 
     /** Spawns an actor on a pool. The queue bound is explicit and required. */
-    fun spawn(pool: Int, bound: Int, body: SalvoActor): Int =
+    fun spawn(
+        pool: Int,
+        bound: Int,
+        body: SalvoActor,
+        decode: ((String, ByteArray) -> Pair<Boolean, Any?>)? = null,
+    ): Int =
         lock.withLock {
-            actors.add(SalvoActorState(bound, pool, body))
+            actors.add(SalvoActorState(bound, pool, body, pools[pool].node, randomLong(), null, decode))
             actors.size - 1
         }
 
@@ -298,7 +359,12 @@ object SalvoSched {
             if (actors[addr].dead) {
                 return
             }
-            actors[addr].queue.addLast(SalvoEntry.User(msg))
+            // [addr-routable] A proxy has no queue: the typed path
+            // (`sendWire`) encodes. Reaching here is an emitter mistake.
+            check(actors[addr].remote == null) {
+                "internal: an untyped send to a remote proxy (the protocol has no wire form)"
+            }
+            actors[addr].queue.addLast(SalvoEntry.User(msg, null))
             actors[addr].userLen += 1
             cv.signalAll()
         }
@@ -583,10 +649,18 @@ object SalvoSched {
                 actors[target.addr].queue.addLast(SalvoEntry.Reply(reply.slot, value))
             }
             // [task-mint] The answer schedules the task. Nothing to check: a
-            // task has no mailbox to fill and no death to be a no-op for.
+            // task has no mailbox to fill and no death to be a no-op for. A
+            // body already taken means the token crossed the wire.
             is SalvoTargetTask -> {
-                pools[target.pool].tasks.addLast(Pair(target.body, value))
+                val body = target.body
+                if (body != null) {
+                    target.body = null
+                    pools[target.pool].tasks.addLast(Pair(body, value))
+                }
             }
+            // [addr-routable] An untyped reply to a remote token: unreachable,
+            // since a value with no wire form is never owed to one.
+            is SalvoTargetRemote -> error("internal: an untyped reply to a remote token")
         }
     }
 
@@ -596,7 +670,9 @@ object SalvoSched {
             return null
         }
         val gate = p.gate ?: return if (p.queue.isEmpty()) null else 0
-        val at = p.queue.indexOfFirst { it is SalvoEntry.Reply && it.slot == gate }
+        val at = p.queue.indexOfFirst {
+            (it is SalvoEntry.Reply && it.slot == gate) || (it is SalvoEntry.ReplyRaw && it.slot == gate)
+        }
         return if (at < 0) null else at
     }
 
@@ -667,6 +743,8 @@ object SalvoSched {
                 val pool = waiters[target.wid].pool
                 pools[pool].owed = clamp(pools[pool].owed - 1)
             }
+            // [addr-routable] Owed on the origin node; nothing here.
+            is SalvoTargetRemote -> {}
         }
     }
 
@@ -779,8 +857,15 @@ object SalvoSched {
         val entry = p.queue.removeAt(at)
         if (entry is SalvoEntry.User) {
             p.userLen -= 1
+            // [remote-backpressure] A remote sender's message left the queue:
+            // grant that node one credit back for this actor.
+            val from = entry.from
+            if (from != null) grantCredit(addr, from, 1)
         }
         if (entry is SalvoEntry.Reply && p.gate == entry.slot) {
+            p.gate = null
+        }
+        if (entry is SalvoEntry.ReplyRaw && p.gate == entry.slot) {
             p.gate = null
         }
         val body = p.body
@@ -789,6 +874,9 @@ object SalvoSched {
         active += 1
         cv.signalAll() // a user entry left the queue
         lock.unlock()
+        // [remote-backpressure] A credit granted for the dequeued entry was
+        // staged under the lock; it goes out now that the lock is released.
+        flushOut()
 
         // The activation runs *here*: an ambient mint inside it inherits this
         // pool, and a nested wait must not serve this actor [waitfor-pump].
@@ -800,6 +888,12 @@ object SalvoSched {
             when (entry) {
                 is SalvoEntry.User -> body!!.handle(ctx, entry.msg)
                 is SalvoEntry.Reply -> body!!.resume(ctx, entry.slot, entry.value)
+                // [addr-routable] Decoded here, with the body in hand and the
+                // lock released; a malformed answer is dropped.
+                is SalvoEntry.ReplyRaw -> {
+                    val (ok, value) = body!!.decodeReply(entry.slot, entry.bytes)
+                    if (ok) body.resume(ctx, entry.slot, value)
+                }
             }
         } catch (t: Throwable) {
             fault = t.message ?: t.javaClass.simpleName
@@ -883,11 +977,363 @@ object SalvoSched {
             // Enqueued past the bound deliberately: a fault report must not
             // block the faulting thread, and dropping it would lose the one
             // thing the sink exists for.
-            actors[addr].queue.addLast(SalvoEntry.User(build(reason)))
+            actors[addr].queue.addLast(SalvoEntry.User(build(reason), null))
             actors[addr].userLen += 1
             return
         }
         System.err.println("salvo: an uncaught fault on pool $pool: $reason")
+    }
+
+    // ==================================================================
+    // [addr-routable] [addr-capability] [remote-backpressure] Across machines
+    // — the Rust runtime's wire section, mirrored; the frame formats are
+    // documented there and are byte-identical here.
+    // ==================================================================
+
+    /** [addr-routable] This process's node identity. */
+    fun nodeId(): Long = lock.withLock { nodeId }
+
+    /** [addr-routable] The node the current pool belongs to. */
+    fun hereNode(): Long = lock.withLock { pools[currentPool()].node }
+
+    /** [addr-routable] Hosts a fresh virtual node in this process. */
+    fun newNode(): Long =
+        lock.withLock {
+            val id = randomLong()
+            hostedNodes.add(id)
+            id
+        }
+
+    /** [addr-routable] A pool of [n] workers belonging to [node]. */
+    fun poolAt(node: Long, n: Int): Int {
+        val id =
+            lock.withLock {
+                pools.add(SalvoPoolState(node))
+                pools.size - 1
+            }
+        repeat(n) {
+            Thread { worker(id) }.apply {
+                isDaemon = true
+                start()
+            }
+        }
+        return id
+    }
+
+    /** [addr-routable] The routable identity of a local index. */
+    fun addrIdentity(addr: Int): SalvoRemoteRef =
+        lock.withLock {
+            val a = actors[addr]
+            a.remote ?: SalvoRemoteRef(a.node, addr.toLong(), a.bits)
+        }
+
+    /**
+     * [addr-routable] [addr-capability] A decoded identity as a local index:
+     * the actor itself when its node is hosted here and the bits match (a
+     * forged identity answers a dead entry), a proxy otherwise — created once,
+     * with an OPEN frame asking the host for credits.
+     */
+    fun importAddr(r: SalvoRemoteRef): Int {
+        val idx =
+            lock.withLock {
+                val node = pools[currentPool()].node
+                // An identity of *this* node is the actor itself; any other
+                // node — hosted here or not — is reached through a proxy.
+                if (r.node == node) {
+                    val i = r.actor.toInt()
+                    if (i in actors.indices && actors[i].remote == null && actors[i].bits == r.bits) {
+                        return i
+                    }
+                    return deadEntry()
+                }
+                proxies[r]?.let { return it }
+                actors.add(SalvoActorState(0, 0, null, r.node, r.bits, r, null))
+                val idx = actors.size - 1
+                proxies[r] = idx
+                val out = java.io.ByteArrayOutputStream()
+                val d = java.io.DataOutputStream(out)
+                d.writeByte(3); d.writeLong(r.node); d.writeLong(r.actor); d.writeLong(r.bits); d.writeLong(node)
+                routeFrame(node, r.node, out.toByteArray())
+                cv.signalAll()
+                idx
+            }
+        flushOut()
+        return idx
+    }
+
+    private fun deadEntry(): Int {
+        val a = SalvoActorState(0, 0, null, nodeId, 0, null, null)
+        a.dead = true
+        a.exitReason = "unknown identity"
+        actors.add(a)
+        return actors.size - 1
+    }
+
+    /** [addr-routable] Whether an index is a proxy of an actor elsewhere. */
+    fun isRemote(addr: Int): Boolean = lock.withLock { actors[addr].remote != null }
+
+    /** [addr-routable] Registers where a node's frames go. */
+    fun addRoute(node: Long, endpoint: ByteArray) {
+        lock.withLock {
+            routes[node] = endpoint
+            val parked = ArrayList(parkedFramesOut)
+            parkedFramesOut.clear()
+            for ((from, n, f) in parked) routeFrame(from, n, f)
+            cv.signalAll()
+        }
+        flushOut()
+    }
+
+    /** [addr-routable] Binds the outbound hook of the current node. */
+    fun setWire(hook: (ByteArray, ByteArray) -> Unit) {
+        lock.withLock {
+            wires[pools[currentPool()].node] = hook
+            val parked = ArrayList(parkedFramesOut)
+            parkedFramesOut.clear()
+            for ((from, n, f) in parked) routeFrame(from, n, f)
+            cv.signalAll()
+        }
+        flushOut()
+    }
+
+    /** Stages a frame from [from] for [to] under the lock; [flushOut] sends it once released. */
+    private fun routeFrame(from: Long, to: Long, frame: ByteArray) {
+        val ep = routes[to]
+        val hook = wires[from]
+        if (ep != null && hook != null) {
+            outbox.get().add(Triple(ep, frame, hook))
+        } else {
+            parkedFramesOut.add(Triple(from, to, frame))
+        }
+    }
+
+    private fun flushOut() {
+        val staged = outbox.get()
+        if (staged.isEmpty()) return
+        val copy = ArrayList(staged)
+        staged.clear()
+        for ((ep, frame, hook) in copy) hook(ep, frame)
+    }
+
+    /** [remote-backpressure] Grants [n] credits to node [from] for hosted actor [addr]. */
+    private fun grantCredit(addr: Int, from: Long, n: Int) {
+        val a = actors[addr]
+        a.granted += n
+        val out = java.io.ByteArrayOutputStream()
+        val d = java.io.DataOutputStream(out)
+        d.writeByte(2); d.writeLong(from); d.writeLong(a.node); d.writeLong(addr.toLong()); d.writeLong(a.bits); d.writeInt(n)
+        routeFrame(a.node, from, out.toByteArray())
+    }
+
+    /**
+     * [addr-routable] [wire-format] The typed send: a local mailbox as any
+     * send, or — for a proxy — encoded with its protocol hash and routed,
+     * after waiting for a credit [remote-backpressure].
+     */
+    fun <M> sendWire(addr: Int, msg: M, proto: String, codec: WireCodec<M>) {
+        val r = lock.withLock { actors[addr].remote }
+        if (r == null) {
+            send(addr, msg)
+            return
+        }
+        val from =
+            lock.withLock {
+                while (!actors[addr].dead && actors[addr].credits == 0) cv.await()
+                if (actors[addr].dead) return
+                actors[addr].credits -= 1
+                pools[currentPool()].node
+            }
+        // Encoded with the lock released (mirroring Rust, where the lock is
+        // not reentrant and an `Addr` in the payload asks the scheduler).
+        val out = WireOut()
+        out.u8(0); out.i64(r.node); out.i64(r.actor); out.i64(r.bits); out.i64(from)
+        out.raw(proto.toByteArray(Charsets.US_ASCII))
+        codec.enc(msg, out)
+        val frame = out.toBytes().toByteArray()
+        lock.withLock { routeFrame(from, r.node, frame) }
+        flushOut()
+    }
+
+    /** [remote-backpressure] A proxy's credit balance, or `null` for a local actor. */
+    fun credits(addr: Int): Int? = lock.withLock { if (actors[addr].remote != null) actors[addr].credits else null }
+
+    /**
+     * [addr-routable] [wire-format] The typed reply: a token that came over
+     * the wire is answered with a REPLY frame; a local one delivers as before.
+     */
+    fun <T> replyWire(reply: SalvoReply, value: T, codec: WireCodec<T>) {
+        val target = reply.target
+        if (target is SalvoTargetRemote) {
+            val out = WireOut()
+            out.u8(1); out.i64(target.node); out.u8(target.kind); out.i64(target.id); out.i64(reply.slot); out.i64(target.bits)
+            codec.enc(value, out)
+            val frame = out.toBytes().toByteArray()
+            lock.withLock { routeFrame(pools[currentPool()].node, target.node, frame) }
+            flushOut()
+        } else {
+            sendReply(reply, value)
+        }
+    }
+
+    /** [addr-routable] The wire form of a reply token. Exporting a task moves its body aside. */
+    fun replyExport(reply: SalvoReply): LongArray =
+        lock.withLock {
+            when (val t = reply.target) {
+                is SalvoTargetProc -> {
+                    val a = actors[t.addr]
+                    longArrayOf(a.node, 0, t.addr.toLong(), reply.slot, a.bits)
+                }
+                is SalvoTargetWaiter -> longArrayOf(pools[waiters[t.wid].pool].node, 1, t.wid.toLong(), reply.slot, 0)
+                is SalvoTargetTask -> {
+                    val body = t.body
+                    if (body != null) {
+                        t.body = null
+                        exportedTasks[reply.slot] = Triple(t.pool, body, t.decode)
+                    }
+                    longArrayOf(pools[t.pool].node, 2, reply.slot, reply.slot, 0)
+                }
+                is SalvoTargetRemote -> longArrayOf(t.node, t.kind.toLong(), t.id, reply.slot, t.bits)
+            }
+        }
+
+    /** [addr-routable] A reply token decoded from the wire. */
+    fun replyImport(node: Long, kind: Int, id: Long, slot: Long, bits: Long): SalvoReply =
+        lock.withLock {
+            val target: SalvoTarget =
+                if (node == pools[currentPool()].node) {
+                    when (kind) {
+                        0 -> SalvoTargetProc(id.toInt())
+                        1 -> SalvoTargetWaiter(id.toInt())
+                        else -> SalvoTargetRemote(node, kind, id, bits)
+                    }
+                } else {
+                    SalvoTargetRemote(node, kind, id, bits)
+                }
+            SalvoReply(target, slot).also { it.tracked = false }
+        }
+
+    /** [addr-routable] Registers how a waiter's reply is decoded off the wire. */
+    fun waiterDecoder(wid: Int, decode: (ByteArray) -> Pair<Boolean, Any?>) {
+        lock.withLock { waiters[wid].decode = decode }
+    }
+
+    /**
+     * [addr-routable] [wire-format] Delivers one frame that arrived on the
+     * wire. Anything malformed, misaddressed or with mismatched bits is
+     * dropped, never delivered wrong [backend-never-wrong]. Answers whether it
+     * was delivered.
+     */
+    fun deliverFrame(frame: ByteArray): Boolean {
+        val d = java.io.DataInputStream(java.io.ByteArrayInputStream(frame))
+        val delivered: Boolean =
+            try {
+                val kind = d.readUnsignedByte()
+                val toNode = d.readLong()
+                // Two phases around every decode: header checked and decoder
+                // found under the lock, payload decoded with it released, the
+                // value delivered under the lock again.
+                when (kind) {
+                    0 -> {
+                        val actor = d.readLong(); val bits = d.readLong(); val from = d.readLong()
+                        val protoBytes = ByteArray(16); d.readFully(protoBytes)
+                        val proto = String(protoBytes, Charsets.US_ASCII)
+                        val payload = d.readBytes()
+                        val idx = actor.toInt()
+                        val decode =
+                            lock.withLock {
+                                if (!hostedNodes.contains(toNode)) return false
+                                if (idx !in actors.indices || actors[idx].remote != null || actors[idx].bits != bits) return false
+                                if (actors[idx].dead) return true
+                                actors[idx].decode ?: return false
+                            }
+                        val (ok, msg) = decode(proto, payload)
+                        if (!ok) return false
+                        lock.withLock {
+                            if (actors[idx].dead) return true
+                            actors[idx].granted = clamp(actors[idx].granted - 1)
+                            actors[idx].queue.addLast(SalvoEntry.User(msg, from))
+                            actors[idx].userLen += 1
+                            cv.signalAll()
+                        }
+                        true
+                    }
+                    1 -> {
+                        val tkind = d.readUnsignedByte(); val id = d.readLong(); val slot = d.readLong(); val bits = d.readLong()
+                        val payload = d.readBytes()
+                        when (tkind) {
+                            0 -> lock.withLock {
+                                if (!hostedNodes.contains(toNode)) return false
+                                val idx = id.toInt()
+                                if (idx !in actors.indices || actors[idx].bits != bits || actors[idx].dead) return false
+                                actors[idx].queue.addLast(SalvoEntry.ReplyRaw(slot, payload))
+                                cv.signalAll()
+                                true
+                            }
+                            1 -> {
+                                val wid = id.toInt()
+                                val decode =
+                                    lock.withLock {
+                                        if (!hostedNodes.contains(toNode)) return false
+                                        val w = waiters.getOrNull(wid) ?: return false
+                                        w.decode ?: return false
+                                    }
+                                val (ok, value) = decode(payload)
+                                if (!ok) return false
+                                lock.withLock {
+                                    waiters[wid].value = value
+                                    waiters[wid].filled = true
+                                    cv.signalAll()
+                                }
+                                true
+                            }
+                            2 -> {
+                                val taken =
+                                    lock.withLock {
+                                        if (!hostedNodes.contains(toNode)) return false
+                                        exportedTasks.remove(id)
+                                    } ?: return false
+                                val (pool, body, decode) = taken
+                                val (ok, value) = decode(payload)
+                                if (!ok) return false
+                                lock.withLock {
+                                    pools[pool].tasks.addLast(Pair(body, value))
+                                    cv.signalAll()
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    2 -> {
+                        val host = d.readLong(); val actor = d.readLong(); val bits = d.readLong(); val n = d.readInt()
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            val idx = proxies[SalvoRemoteRef(host, actor, bits)] ?: return false
+                            actors[idx].credits += n
+                            cv.signalAll()
+                            true
+                        }
+                    }
+                    3 -> {
+                        val actor = d.readLong(); val bits = d.readLong(); val from = d.readLong()
+                        val idx = actor.toInt()
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            if (idx !in actors.indices || actors[idx].bits != bits || actors[idx].remote != null) return false
+                            val a = actors[idx]
+                            val room = maxOf(1, a.bound - a.userLen - a.granted)
+                            grantCredit(idx, from, room)
+                            cv.signalAll()
+                            true
+                        }
+                    }
+                    else -> false
+                }
+            } catch (e: java.io.IOException) {
+                false
+            }
+        flushOut()
+        return delivered
     }
 
     private fun worker(pool: Int) {
@@ -928,8 +1374,19 @@ internal class SalvoTargetProc(val addr: Int) : SalvoTarget()
 
 internal class SalvoTargetWaiter(val wid: Int) : SalvoTarget()
 
-/** [task-mint] A detached one-shot: the pool it runs on, and the closure. */
-internal class SalvoTargetTask(val pool: Int, val body: (Any?) -> Unit) : SalvoTarget()
+/**
+ * [task-mint] A detached one-shot: the pool it runs on, the closure (taken out
+ * when it runs, or when the token crosses the wire), and how its answer is
+ * decoded should it come back over the wire.
+ */
+internal class SalvoTargetTask(
+    val pool: Int,
+    var body: ((Any?) -> Unit)?,
+    val decode: (ByteArray) -> Pair<Boolean, Any?>,
+) : SalvoTarget()
+
+/** [addr-routable] A token minted on another node and decoded here. */
+internal class SalvoTargetRemote(val node: Long, val kind: Int, val id: Long, val bits: Long) : SalvoTarget()
 
 /**
  * A one-shot reply capability. `send` delivers exactly once — the
@@ -947,3 +1404,11 @@ class SalvoReply internal constructor(internal val target: SalvoTarget, internal
 
     fun send(value: Any?) = SalvoSched.sendReply(this, value)
 }
+
+/**
+ * [addr-capability] A fresh 64-bit value for an identity that must be
+ * unguessable to an outsider: `SecureRandom`, seeded by the platform.
+ */
+private val salvoRandom = java.security.SecureRandom()
+
+internal fun randomLong(): Long = salvoRandom.nextLong()

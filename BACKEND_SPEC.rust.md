@@ -1670,6 +1670,26 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   plus `pub const __PROTO_E: &str`. `encode(v)` lowers to
   `salvo_encode(&v)`, `decode<T>(b)` to `salvo_decode::<T>(&b)` with `T` from
   the call's checked type argument.
+* [rs-wire] [addr-routable] The scheduler's wire section: `ActorState` gains
+  `node`, `bits`, `remote: Option<RemoteRef>`, `credits`, `granted`, `decode:
+  Option<MsgDecoder>`; `Sched` gains `node_id`, `hosted_nodes`, `proxies`,
+  `routes` (node → encoded endpoint), `wires` (node → outbound hook),
+  `exported_tasks`; `Target::Remote { node, kind, id, bits }` joins the reply
+  targets, `Target::Task` holds its body behind `Arc<Mutex<Option<_>>>` (so a
+  crossing token can move it into the exported table from a `&self` encoder)
+  plus its answer's `ReplyDecoder`, and `Entry::ReplyRaw(slot, bytes)` carries
+  a wire reply until the activation decodes it. `impl __Wire for usize` and
+  `for SalvoReply` live in `wire.rs` and call the scheduler, so mounting one
+  mounts the other. Generated code: `salvo_spawn(pool, bound, body,
+  __DECODE_H)`, `salvo_send_wire(addr, msg, __PROTO_E)` for every send on a
+  protocol with a wire form (`salvo_send` otherwise), `salvo_reply_wire::<T>
+  (tok, v)` for a `send(reply, v)` whose payload has one, `salvo_waiter_decoder
+  (wid, dec)` after every `salvo_waiter()`, `salvo_mint_task(pool, body, dec)`;
+  the actor body implements `decode_reply` and a free `__DECODE_H` constant
+  (free, since a generic dependent body could not name an associated const).
+  Frames staged under the lock go out through a thread-local outbox flushed
+  after every release (`flush_out`), including in `run_job` for the credit a
+  dequeue grants.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

@@ -5,6 +5,10 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "scheduler.rs"]
+pub mod scheduler;
+#[path = "hosttime.rs"]
+pub mod hosttime;
 #[path = "wire.rs"]
 pub mod wire;
 #[path = "core/bytes.rs"]

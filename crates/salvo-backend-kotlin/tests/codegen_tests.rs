@@ -4484,6 +4484,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_mem_transport,
     kotlinc_compiles_and_runs_the_tcp_transport_on_localhost,
     kotlinc_compiles_and_runs_the_wire_format,
+    kotlinc_compiles_and_runs_two_nodes_over_mem_transport,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -4629,7 +4630,11 @@ fn kotlinc_compiles_and_runs_every_case() {
     std::thread::scope(|scope| {
         for (dir, kt_paths) in &chunk_dirs {
             scope.spawn(|| {
+                // [kt-wire] Every struct now carries a codec, so a batch of
+                // ~30 programs outgrew kotlinc's default heap (an OOM inside
+                // the JVM IR backend, 2026-09-26): give it room.
                 let out = Command::new("kotlinc")
+                    .env("JAVA_OPTS", "-Xmx3g")
                     .args(kt_paths.iter().map(|p| p.as_os_str()))
                     .arg("-d")
                     .arg(dir.join("out"))
@@ -9227,6 +9232,90 @@ fn kotlinc_compiles_and_runs_the_wire_format() -> KotlinCase {
     kotlin_case(files, "wire-format", WIRE_DEMO_OUTPUT)
 }
 
+// ===== the network sequence, step ③: routable addrs across two nodes =====
+
+/// The Rust backend's `NODES_DEMO`, verbatim [addr-routable].
+const NODES_DEMO: &str = r#"import net
+import time
+
+actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 2 }
+    sum: Int = 0
+    send fn bump(n: Int) => !n { sum = sum + n }
+    send fn total(out: Reply<Int>) => !out { out.send(sum) }
+}
+
+// Brings the node this runs on up over the shared in-process network: its
+// transport, its outbound and inbound actors, and its route. Placement decides
+// the node: called from `main` it sets up `main`'s node; run inside an actor
+// spawned on another node's pool, it sets up that node.
+fn bring_up(at: NodeEndpoint, net: Addr<MemNet>) [Transport, spawn] -> None => at, net {
+    let p = pool(1)                         // inherits this node
+    route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+    listen(copy(at), spawn Receiving() on p)
+    add_route(this_node(), copy(at))
+}
+
+actor effect Boot {
+    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done
+}
+
+handler Booting() [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done {
+        bring_up(at, net)
+        done.send(true)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let net = spawn MemNetwork() on pool(1)
+
+    // Node A is this one; node B is hosted beside it, and booted from a pool
+    // of its own so `this_node()` there answers B.
+    use MemTransport(copy(a), copy(net))
+    bring_up(copy(a), copy(net))
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting() with MemTransport(copy(b), copy(net)) on pb
+    let _up = waitfor done: Reply<Bool> { booter.boot(copy(b), copy(net), done) }
+
+    // A counter living on node B, reached from node A through the wire: the
+    // addr crosses as bytes and comes back as a proxy.
+    let there = spawn Counting() on pb
+    let far = decode<Addr<Counter>>(encode(copy(there)))
+    if far is None {
+        println("addr did not decode")
+        return
+    }
+    println("is proxy: ${!(credits(far) is None)}")
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
+    println("credits after a beat: ${credits(far) ?: -1}")
+    for i in range(0, 5) {
+        far.bump(i)                         // 0+1+2+3+4 = 10, through a capacity-2 mailbox
+    }
+    let sum = waitfor out: Reply<Int> { far.total(out) }
+    println("total over the wire: ${sum}")
+    let direct = waitfor out: Reply<Int> { there.total(out) }
+    println("direct: ${direct}")
+}
+"#;
+
+const NODES_DEMO_OUTPUT: &str = "is proxy: true\ncredits after a beat: 2\ntotal over the wire: 10\ndirect: 10\n";
+
+fn kotlinc_compiles_and_runs_two_nodes_over_mem_transport() -> KotlinCase {
+    let files = generate_files(&[("main.sv", NODES_DEMO)]);
+    kotlin_case(files, "net-two-nodes", NODES_DEMO_OUTPUT)
+}
+
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====
 
 /// Two overloads the *checker* tells apart by Salvo types — a pass and the
@@ -13112,15 +13201,17 @@ fn a_task_mint_lowers_to_a_scheduled_lambda() {
         .expect("main.kt");
     let text = &main.content;
     assert!(
-        text.contains("salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool())"),
+        text.contains("salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), "),
         "an omitted `on` clause must inherit the current pool:\n{text}"
     );
     assert!(
-        text.contains("{ __v -> finish("),
-        "the continuation must be a lambda:\n{text}"
+        text.contains(") { __v -> finish("),
+        "the continuation must be a trailing lambda (after the answer decoder):\n{text}"
     );
+    // [addr-routable] The actor's `decodeReply` *reads* the parked table for a
+    // wire reply; what a task mint must not do is *write* one.
     assert!(
-        !text.contains("__parked["),
+        !text.contains("__parked[__s] ="),
         "a task mint parks nothing: the lambda is the continuation:\n{text}"
     );
 }

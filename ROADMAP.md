@@ -44,7 +44,7 @@ bridge), time, free concurrency, shareable-by-default handlers, refinement types
 group borrowing, the testing framework, the comparison/hashing capabilities, and
 the wire under actors across machines (`net`, step ① of the network sequence).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1577 tests green.
+targets and the output they print. 1578 tests green.
 
 ## The sequence
 
@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–② ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–③ ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -118,10 +118,12 @@ The layering, bottom up, and the order it is built in (each step runs on
    **Recorded cuts**: keyed containers have no wire form (identity
    capabilities would have to travel into the decoder); a generic `T` is
    refused at `encode`; Kotlin tuples past `Triple` have no codec.
-3. **Routable `Addr<E>`/`Reply<T>`** — `(node, id, bits)`, locality a runtime
-   fact, unguessable bits so the two-face guarantee survives the wire;
-   credit-based back-pressure so `capacity` stays true remotely; at-most-once,
-   in order per pair.
+3. ✅ **Routable `Addr<E>`/`Reply<T>` — built 2026-09-26** (COMPLETED.md's
+   log, "step ③"). [addr-routable] [addr-capability] [remote-backpressure]:
+   proxies, credits, frames, remote replies, virtual nodes for the in-process
+   double; std `net`'s routing surface. **Left**: several remote senders may
+   over-subscribe a mailbox by one each (the initial grant is "at least one");
+   a malformed remote answer is dropped silently.
 4. **`NodeGroup`** — one actor effect (`members`, `subscribe`, `leave`;
    `NodeChanges.joined/left`), **handlers are the mechanisms**:
    `MemNodeGroup` and `StaticNodeGroup` first (poll and diff), then

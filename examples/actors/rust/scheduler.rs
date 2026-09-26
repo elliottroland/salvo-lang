@@ -27,9 +27,9 @@
 
 use std::any::Any;
 use std::cell::Cell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 /// A message payload: any sendable value. The checker owns sendability
 /// statically; the runtime is untyped.
@@ -43,6 +43,13 @@ pub trait SalvoActor: Send {
     fn handle(&mut self, ctx: &SalvoCtx, msg: SalvoMsg);
     /// A reply delivery: the slot names the parked continuation.
     fn resume(&mut self, ctx: &SalvoCtx, slot: u64, value: SalvoMsg);
+    /// [addr-routable] [wire-format] Decodes a reply that arrived over the
+    /// wire for the continuation parked at `slot`: only the actor knows the
+    /// answer's type (it is the parked member's trailing parameter). `None`
+    /// when no continuation is parked there or the bytes are malformed.
+    fn decode_reply(&self, _slot: u64, _payload: &[u8]) -> Option<SalvoMsg> {
+        None
+    }
 }
 
 /// Passed to every activation: the actor's own identity.
@@ -69,8 +76,21 @@ enum Target {
     /// [task-mint] A **detached one-shot**: no mailbox, no identity, no
     /// capacity to reserve — the continuation *is* the closure, and the pool
     /// is where it will run. Chosen at the mint [task-pool-inherit], because
-    /// whoever creates work pays for it.
-    Task(usize, TaskBody),
+    /// whoever creates work pays for it. The body sits behind a shared cell
+    /// so that a token *crossing the wire* can move it into the exported
+    /// table from a `&self` encoder [addr-routable].
+    Task(usize, Arc<Mutex<Option<TaskBody>>>, ReplyDecoder),
+    /// [addr-routable] A token minted on **another node** and decoded here:
+    /// `send` on it encodes the value and routes a REPLY frame back. `kind`
+    /// is the origin's target kind (0 proc, 1 waiter, 2 task), `id` the
+    /// origin's index (or exported-task key), `bits` the origin actor's
+    /// capability bits (0 for a waiter or task).
+    Remote {
+        node: u64,
+        kind: u8,
+        id: u64,
+        bits: u64,
+    },
 }
 
 /// [task-mint] A task body: a one-shot closure taking the answer. `FnOnce`
@@ -79,11 +99,62 @@ enum Target {
 pub type TaskBody = Box<dyn FnOnce(SalvoMsg) + Send>;
 
 enum Entry {
-    User(SalvoMsg),
+    /// A user message, and — for one that arrived over the wire — the node
+    /// it came from, which is granted a credit back when the entry is
+    /// dequeued [remote-backpressure].
+    User(SalvoMsg, Option<u64>),
     Reply(u64, SalvoMsg),
+    /// [addr-routable] A reply that arrived over the wire, still as bytes:
+    /// decoded by the actor's own `decode_reply` when the activation runs
+    /// (the body is out of the table then, and the lock released — a payload
+    /// holding an `Addr` imports it by asking the scheduler).
+    ReplyRaw(u64, Vec<u8>),
 }
 
+/// [addr-routable] The routable identity of an actor: the node hosting it,
+/// its index there, and the unguessable capability bits minted at its spawn
+/// [addr-capability] — what an `Addr<E>` becomes on the wire, and what a
+/// receiving node checks before delivering to the index.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct RemoteRef {
+    pub node: u64,
+    pub actor: u64,
+    pub bits: u64,
+}
+
+/// [wire-format] Decodes one message of one protocol, given the protocol's
+/// hash and the payload: generated per actor handler, matching on the
+/// `__PROTO_E` constants of the faces it serves. `None` for a protocol this
+/// actor does not serve or a malformed payload.
+pub type MsgDecoder = fn(&str, &[u8]) -> Option<SalvoMsg>;
+
+/// [wire-format] Decodes one reply payload of a known type: what a waiter or
+/// an exported task is registered with, since only the minting site knows
+/// the answer's type.
+pub type ReplyDecoder = fn(&[u8]) -> Option<SalvoMsg>;
+
 struct ActorState {
+    /// [addr-routable] The node this actor lives on — one of this process's
+    /// hosted node ids for a real actor, the remote node for a **proxy**
+    /// (an imported identity: `body` is `None`, `remote` is `Some`, and a
+    /// send to it is a frame).
+    node: u64,
+    /// [addr-capability] Unguessable bits minted at spawn: the half of the
+    /// identity that makes a wire addr a capability rather than a number.
+    bits: u64,
+    /// [addr-routable] `Some` for a proxy of an actor on another node.
+    remote: Option<RemoteRef>,
+    /// [remote-backpressure] For a proxy: how many more messages the remote
+    /// mailbox has granted room for. A send blocks at zero; the receiver
+    /// grants one back per dequeue.
+    credits: usize,
+    /// [remote-backpressure] For a hosted actor: credits currently held by
+    /// remote senders, so `user_len + granted` stays within `bound`.
+    granted: usize,
+    /// [wire-format] For a hosted actor: how to decode an arriving message
+    /// frame of one of its protocols. `None` for a handler none of whose
+    /// faces has a wire form (nothing can be sent to it from outside).
+    decode: Option<MsgDecoder>,
     queue: VecDeque<Entry>,
     /// User entries currently queued; replies are reserved and not counted.
     user_len: usize,
@@ -125,6 +196,9 @@ pub type FiredOf = fn(i64) -> SalvoMsg;
 
 struct WaiterState {
     value: Option<SalvoMsg>,
+    /// [wire-format] How to decode a reply that arrives for this waiter over
+    /// the wire, registered by the `waitfor` site, which knows the type.
+    decode: Option<ReplyDecoder>,
     /// [actor-on-idle] The pool of the frame that is waiting, which is what a
     /// token targeting this waiter is owed *by* for the purposes of an `Idle`
     /// payload.
@@ -142,6 +216,11 @@ struct WaiterState {
 /// detached tasks, and the sink an uncaught fault on it is reported to
 /// [pool-fault-sink].
 struct PoolState {
+    /// [addr-routable] The node this pool's work belongs to: what a spawn on
+    /// it stamps into the actor's identity. The main pool and every
+    /// `pool(n)` are on the process's own node; `pool_at(node, n)` makes one
+    /// for a hosted virtual node (the in-process double of several nodes).
+    node: u64,
     /// Tasks whose answer has arrived, in the order it arrived.
     tasks: VecDeque<(TaskBody, SalvoMsg)>,
     /// [pool-fault-sink] Where a fault on this pool goes: an actor's addr and
@@ -195,6 +274,29 @@ struct Sched {
     /// make idle stale" caveat of [actor-on-idle], made a fact the runtime
     /// is told rather than one it must guess.
     externals: usize,
+    /// [addr-routable] This process's node identity, and every further node
+    /// it hosts (`salvo_new_node`, for the in-process double).
+    node_id: u64,
+    hosted_nodes: Vec<u64>,
+    /// [addr-routable] Imported identities → the local proxy entry for each.
+    proxies: HashMap<RemoteRef, usize>,
+    /// [addr-routable] Where a node's frames go: the encoded `NodeEndpoint`
+    /// registered by `salvo_add_route` (a `NodeGroup` learns it in the
+    /// handshake). The runtime never decodes it — the outbound hook does.
+    routes: HashMap<u64, Vec<u8>>,
+    /// [addr-routable] The outbound hooks, one per hosted node: hands
+    /// (encoded endpoint, frame) to whatever std bound as that node's wire —
+    /// an `Outbound` actor over its `Transport`. Per node, so several hosted
+    /// nodes in one process each send through their own transport.
+    wires: HashMap<u64, Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>>,
+    /// [addr-routable] Tasks whose token crossed the wire: the body waits
+    /// here under the key the REPLY frame will name, with the decoder for
+    /// its answer.
+    exported_tasks: HashMap<u64, (usize, TaskBody, ReplyDecoder)>,
+    /// [addr-routable] Frames (from, to, bytes) for nodes with no route or
+    /// wire yet, delivered when one arrives — a `NodeGroup` may learn a node
+    /// after an addr of it.
+    parked_frames_out: Vec<(u64, u64, Vec<u8>)>,
     /// [time-timer] Whether the deadline thread is running. Started by the
     /// first `salvo_after`, so a program that never sets a timer has no timer
     /// thread — and one that does has exactly one, never a thread per timer.
@@ -204,6 +306,7 @@ struct Sched {
 fn state() -> &'static (Mutex<Sched>, Condvar) {
     static STATE: OnceLock<(Mutex<Sched>, Condvar)> = OnceLock::new();
     STATE.get_or_init(|| {
+        let node_id = random_u64();
         (
             Mutex::new(Sched {
                 actors: Vec::new(),
@@ -211,6 +314,7 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 // [main-pool] Pool 0 exists from the start and belongs to
                 // `main`; the first `salvo_pool` therefore answers 1.
                 pools: vec![PoolState {
+                    node: node_id,
                     tasks: VecDeque::new(),
                     sink: None,
                     owed: 0,
@@ -222,6 +326,13 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 idle_hooks: Vec::new(),
                 timers: Vec::new(),
                 externals: 0,
+                node_id,
+                hosted_nodes: vec![node_id],
+                proxies: HashMap::new(),
+                routes: HashMap::new(),
+                wires: HashMap::new(),
+                exported_tasks: HashMap::new(),
+                parked_frames_out: Vec::new(),
                 timer_thread: false,
             }),
             Condvar::new(),
@@ -289,7 +400,9 @@ fn deliverable(p: &ActorState) -> Option<usize> {
                 Some(0)
             }
         }
-        Some(slot) => p.queue.iter().position(|e| matches!(e, Entry::Reply(s, _) if *s == slot)),
+        Some(slot) => p.queue.iter().position(
+            |e| matches!(e, Entry::Reply(s, _) | Entry::ReplyRaw(s, _) if *s == slot),
+        ),
     }
 }
 
@@ -357,11 +470,14 @@ fn stuck(s: &Sched) -> bool {
 fn release(s: &mut Sched, target: &Target) {
     let owed = match *target {
         Target::Proc(addr) => &mut s.actors[addr].owed,
-        Target::Task(pool, _) => &mut s.pools[pool].owed,
+        Target::Task(pool, _, _) => &mut s.pools[pool].owed,
         Target::Waiter(wid) => {
             let pool = s.waiters[wid].pool;
             &mut s.pools[pool].owed
         }
+        // [addr-routable] The obligation is owed on the origin node, which
+        // counted it at the mint; nothing here to release.
+        Target::Remote { .. } => return,
     };
     *owed = owed.saturating_sub(1);
 }
@@ -487,7 +603,9 @@ pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
     let (lock, _cv) = state();
     let pool = {
         let mut s = lock.lock().unwrap();
+        let node = s.pools[salvo_current_pool()].node;
         s.pools.push(PoolState {
+            node,
             tasks: VecDeque::new(),
             sink,
             owed: 0,
@@ -503,24 +621,38 @@ pub fn salvo_pool_with_sink(n: usize, sink: Option<(usize, ExitOf)>) -> usize {
 /// [task-mint] Mints a token whose fulfilment **schedules** `body` on `pool`.
 /// No capacity is reserved and no queue can be full: a task has no mailbox,
 /// which is why a task mint contributes no deadlock edge.
-pub fn salvo_mint_task(pool: usize, body: TaskBody) -> SalvoReply {
+pub fn salvo_mint_task(pool: usize, body: TaskBody, decode: ReplyDecoder) -> SalvoReply {
     let (lock, _cv) = state();
     let mut s = lock.lock().unwrap();
     s.next_slot += 1;
     let slot = s.next_slot;
     s.pools[pool].owed += 1;
     SalvoReply {
-        target: Target::Task(pool, body),
+        target: Target::Task(pool, Arc::new(Mutex::new(Some(body))), decode),
         slot,
         tracked: true,
     }
 }
 
 /// Spawns an actor on a pool. The queue bound is explicit and required.
-pub fn salvo_spawn(pool: usize, bound: usize, body: Box<dyn SalvoActor>) -> usize {
+/// `decode` is how a message frame for one of its protocols is read
+/// [wire-format]; `None` when no face has a wire form.
+pub fn salvo_spawn(
+    pool: usize,
+    bound: usize,
+    body: Box<dyn SalvoActor>,
+    decode: Option<MsgDecoder>,
+) -> usize {
     let (lock, _cv) = state();
     let mut s = lock.lock().unwrap();
+    let node = s.pools[pool].node;
     s.actors.push(ActorState {
+        node,
+        bits: random_u64(),
+        remote: None,
+        credits: 0,
+        granted: 0,
+        decode,
         queue: VecDeque::new(),
         user_len: 0,
         bound,
@@ -555,7 +687,14 @@ pub fn salvo_send(addr: usize, msg: SalvoMsg) {
     if s.actors[addr].dead {
         return;
     }
-    s.actors[addr].queue.push_back(Entry::User(msg));
+    // [addr-routable] A proxy has no queue to push onto: the typed path
+    // (`salvo_send_wire`) is what encodes; reaching here means the emitter
+    // sent to a protocol with no wire form, which `attach` refuses.
+    assert!(
+        s.actors[addr].remote.is_none(),
+        "internal: an untyped send to a remote proxy (the protocol has no wire form)"
+    );
+    s.actors[addr].queue.push_back(Entry::User(msg, None));
     s.actors[addr].user_len += 1;
     cv.notify_all();
 }
@@ -743,6 +882,7 @@ pub fn salvo_waiter() -> (SalvoReply, usize) {
     let mut s = lock.lock().unwrap();
     s.waiters.push(WaiterState {
         value: None,
+        decode: None,
         pool,
         parked: None,
     });
@@ -852,9 +992,20 @@ fn deliver_reply(s: &mut Sched, reply: SalvoReply, value: SalvoMsg) {
             s.actors[addr].queue.push_back(Entry::Reply(reply.slot, value));
         }
         // [task-mint] The answer schedules the task. Nothing to check: a task
-        // has no mailbox to fill and no death to be a no-op for.
-        Target::Task(pool, body) => {
-            s.pools[pool].tasks.push_back((body, value));
+        // has no mailbox to fill and no death to be a no-op for. An empty
+        // cell means the token crossed the wire and the body is in the
+        // exported table; the frame that comes back will find it there.
+        Target::Task(pool, body, _) => {
+            if let Some(body) = body.lock().unwrap().take() {
+                s.pools[pool].tasks.push_back((body, value));
+            }
+        }
+        // [addr-routable] An untyped delivery to a remote token: the typed
+        // path (`salvo_reply_wire`) is what encodes. Reaching here means the
+        // value's type has no wire form, and a token of such a type never
+        // crosses — so this is unreachable by construction.
+        Target::Remote { .. } => {
+            panic!("internal: an untyped reply to a remote token")
         }
     }
 }
@@ -884,10 +1035,15 @@ fn run_job<'g>(
     at: usize,
 ) -> MutexGuard<'g, Sched> {
     let entry = s.actors[addr].queue.remove(at).unwrap();
-    if matches!(entry, Entry::User(_)) {
+    if let Entry::User(_, from) = &entry {
         s.actors[addr].user_len -= 1;
+        // [remote-backpressure] A remote sender's message left the queue:
+        // grant that node one credit back for this actor.
+        if let Some(from) = *from {
+            grant_credit(&mut s, addr, from, 1);
+        }
     }
-    if let Entry::Reply(slot, _) = entry {
+    if let Entry::Reply(slot, _) | Entry::ReplyRaw(slot, _) = entry {
         if s.actors[addr].gate == Some(slot) {
             s.actors[addr].gate = None;
         }
@@ -898,6 +1054,9 @@ fn run_job<'g>(
     s.active += 1;
     cv.notify_all(); // a user entry left the queue: unblock senders
     drop(s);
+    // [remote-backpressure] A credit granted for the dequeued entry was
+    // staged under the lock; it goes out now that the lock is released.
+    flush_out();
 
     // The activation runs *here*: an ambient mint inside it inherits this
     // pool, and a nested wait must not serve this actor [waitfor-pump].
@@ -911,8 +1070,16 @@ fn run_job<'g>(
     let ctx = SalvoCtx { addr };
     let outcome = catch_unwind(AssertUnwindSafe(|| {
         match entry {
-            Entry::User(msg) => body.handle(&ctx, msg),
+            Entry::User(msg, _) => body.handle(&ctx, msg),
             Entry::Reply(slot, value) => body.resume(&ctx, slot, value),
+            // [addr-routable] Decoded here, with the lock released and the
+            // body in hand; a malformed answer is dropped, never resumed with
+            // the wrong value [backend-never-wrong].
+            Entry::ReplyRaw(slot, bytes) => {
+                if let Some(value) = body.decode_reply(slot, &bytes) {
+                    body.resume(&ctx, slot, value);
+                }
+            }
         }
         body
     }));
@@ -1042,10 +1209,589 @@ fn report_fault(s: &mut Sched, pool: usize, reason: String) {
             // Enqueued past the bound deliberately: a fault report must not
             // block the faulting thread, and dropping it would lose the one
             // thing the sink exists for.
-            s.actors[addr].queue.push_back(Entry::User(msg));
+            s.actors[addr].queue.push_back(Entry::User(msg, None));
             s.actors[addr].user_len += 1;
             return;
         }
     }
     eprintln!("salvo: an uncaught fault on pool {pool}: {reason}");
 }
+
+// ======================================================================
+// [addr-routable] [addr-capability] [remote-backpressure] Across machines:
+// identity, routing, and the frames — step ③ of the network sequence.
+//
+// An `Addr<E>` is still a `usize` in generated code: an index into `actors`.
+// What changed is what an index *is*: every entry carries the node it lives
+// on and unguessable bits, so its wire form is `(node, index, bits)`, and an
+// index may be a **proxy** — an imported identity of an actor elsewhere,
+// whose entry has no body and whose sends become frames. Locality is a
+// runtime fact, read at the send: the same `salvo_send_wire` call queues
+// locally or encodes and routes, and a function holding the addr never
+// learns which.
+//
+// The process is one node, with one random identity; it may *host* further
+// virtual nodes (`salvo_new_node`), each with pools of its own, so a program
+// can run several nodes in one process over `MemTransport` and exercise every
+// remote path — proxies, credits, frames — without a socket. An actor on a
+// hosted node is reached from another hosted node exactly as from another
+// process: encode, frame, decode, deliver.
+//
+// Frames (every integer big-endian):
+//   0 MSG   to.node u64, to.actor u64, to.bits u64, from.node u64,
+//           proto 16 ascii bytes, payload
+//   1 REPLY to.node u64, kind u8, id u64, slot u64, bits u64, payload
+//   2 GRANT to.node u64, from.node u64, actor u64, bits u64, n u32
+//           (from the host of `actor` to a sender holding a proxy of it)
+//   3 OPEN  to.node u64, actor u64, bits u64, from.node u64
+// Delivery is at most once and in order per (sender, receiver) pair — the
+// transport's guarantee, and nothing more [net-transport].
+// ======================================================================
+
+/// A fresh 64-bit value from the OS entropy the standard library exposes
+/// through hashing: `RandomState` seeds itself from the OS per process, and a
+/// counter under it gives a distinct value per call. Good enough for an
+/// identity that must be unguessable to an outsider, which is what an addr's
+/// bits are for [addr-capability]; not a cryptographic RNG.
+fn random_u64() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static SEED: OnceLock<std::collections::hash_map::RandomState> = OnceLock::new();
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let rs = SEED.get_or_init(std::collections::hash_map::RandomState::new);
+    let mut h = rs.build_hasher();
+    h.write_u64(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    );
+    h.finish()
+}
+
+/// [addr-routable] This process's node identity.
+pub fn salvo_node_id() -> u64 {
+    let (lock, _) = state();
+    lock.lock().unwrap().node_id
+}
+
+/// [addr-routable] The node the current pool belongs to.
+pub fn salvo_here_node() -> u64 {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.pools[salvo_current_pool()].node
+}
+
+/// [addr-routable] Hosts a fresh virtual node in this process and answers
+/// its identity: the in-process double of another machine. Pools made with
+/// `salvo_pool_at` belong to it; actors spawned on them carry it.
+pub fn salvo_new_node() -> u64 {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let id = random_u64();
+    s.hosted_nodes.push(id);
+    id
+}
+
+/// [addr-routable] A pool of `n` workers belonging to `node` (one this
+/// process hosts).
+pub fn salvo_pool_at(node: u64, n: usize) -> usize {
+    let (lock, _cv) = state();
+    let pool = {
+        let mut s = lock.lock().unwrap();
+        s.pools.push(PoolState {
+            node,
+            tasks: VecDeque::new(),
+            sink: None,
+            owed: 0,
+        });
+        s.pools.len() - 1
+    };
+    for _ in 0..n {
+        std::thread::spawn(move || worker(pool));
+    }
+    pool
+}
+
+/// [addr-routable] The routable identity of a local index — what an addr
+/// encodes as.
+pub fn salvo_addr_identity(addr: usize) -> RemoteRef {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let a = &s.actors[addr];
+    a.remote.unwrap_or(RemoteRef {
+        node: a.node,
+        actor: addr as u64,
+        bits: a.bits,
+    })
+}
+
+/// [addr-routable] [addr-capability] Turns a decoded identity into a local
+/// index: the actor itself when the node is hosted here and the bits match
+/// (a forged or stale identity answers a dead entry, so sends to it are the
+/// silent no-op every send to the dead is), a proxy otherwise — created once
+/// per identity, with an OPEN frame asking the host for credits.
+pub fn salvo_import_addr(r: RemoteRef) -> usize {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    // An identity of *this* node is the actor itself; one of any other node
+    // — hosted in this process or not — is reached through a proxy, so a
+    // hosted virtual node is a remote node in every respect but the socket.
+    if r.node == node {
+        let idx = r.actor as usize;
+        if idx < s.actors.len() && s.actors[idx].remote.is_none() && s.actors[idx].bits == r.bits {
+            return idx;
+        }
+        return dead_entry(&mut s);
+    }
+    if let Some(&idx) = s.proxies.get(&r) {
+        return idx;
+    }
+    s.actors.push(ActorState {
+        node: r.node,
+        bits: r.bits,
+        remote: Some(r),
+        credits: 0,
+        granted: 0,
+        decode: None,
+        queue: VecDeque::new(),
+        user_len: 0,
+        bound: 0,
+        gate: None,
+        running: false,
+        dead: false,
+        exit_reason: None,
+        pool: 0,
+        watchers: Vec::new(),
+        owed: 0,
+        body: None,
+    });
+    let idx = s.actors.len() - 1;
+    s.proxies.insert(r, idx);
+    let mut frame = vec![3u8];
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    route_frame(&mut s, node, r.node, frame);
+    cv.notify_all();
+    drop(s);
+    flush_out();
+    idx
+}
+
+/// An entry that is dead from birth: what a forged identity imports as.
+fn dead_entry(s: &mut Sched) -> usize {
+    s.actors.push(ActorState {
+        node: s.node_id,
+        bits: 0,
+        remote: None,
+        credits: 0,
+        granted: 0,
+        decode: None,
+        queue: VecDeque::new(),
+        user_len: 0,
+        bound: 0,
+        gate: None,
+        running: false,
+        dead: true,
+        exit_reason: Some("unknown identity".to_string()),
+        pool: 0,
+        watchers: Vec::new(),
+        owed: 0,
+        body: None,
+    });
+    s.actors.len() - 1
+}
+
+/// [addr-routable] Whether an index is a proxy of an actor elsewhere.
+pub fn salvo_is_remote(addr: usize) -> bool {
+    let (lock, _) = state();
+    lock.lock().unwrap().actors[addr].remote.is_some()
+}
+
+/// [addr-routable] Registers where a node's frames go: the encoded endpoint
+/// the outbound hook will decode. Frames parked for want of a route go now.
+pub fn salvo_add_route(node: u64, endpoint: Vec<u8>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.routes.insert(node, endpoint);
+    let parked = std::mem::take(&mut s.parked_frames_out);
+    for (from, n, frame) in parked {
+        route_frame(&mut s, from, n, frame);
+    }
+    cv.notify_all();
+    drop(s);
+    flush_out();
+}
+
+/// [addr-routable] Binds the outbound hook of the **current node**: what
+/// turns (encoded endpoint, frame) into a delivery — std's `Outbound` actor
+/// over that node's `Transport`.
+pub fn salvo_set_wire(hook: Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    s.wires.insert(node, hook);
+    let parked = std::mem::take(&mut s.parked_frames_out);
+    for (from, n, frame) in parked {
+        route_frame(&mut s, from, n, frame);
+    }
+    cv.notify_all();
+    drop(s);
+    flush_out();
+}
+
+/// Stages a frame from node `from` for node `to`. The hook only *enqueues*
+/// on an `Outbound` actor (a `salvo_send`, which takes this same lock), so it
+/// must run with the lock **released**: frames are staged here and sent by
+/// `flush_out` once the caller has dropped its guard.
+fn route_frame(s: &mut Sched, from: u64, to: u64, frame: Vec<u8>) {
+    match (s.routes.get(&to).cloned(), s.wires.get(&from).cloned()) {
+        (Some(ep), Some(hook)) => OUTBOX.with(|o| o.borrow_mut().push((ep, frame, hook))),
+        _ => s.parked_frames_out.push((from, to, frame)),
+    }
+}
+
+thread_local! {
+    /// Frames staged under the scheduler lock, sent once it is released.
+    static OUTBOX: std::cell::RefCell<Vec<(Vec<u8>, Vec<u8>, Arc<dyn Fn(&[u8], Vec<u8>) + Send + Sync>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Sends every staged frame. Called with the scheduler lock released.
+fn flush_out() {
+    let staged: Vec<_> = OUTBOX.with(|o| std::mem::take(&mut *o.borrow_mut()));
+    for (ep, frame, hook) in staged {
+        hook(&ep, frame);
+    }
+}
+
+/// [remote-backpressure] Grants `n` credits to node `from` for hosted actor
+/// `addr`: a GRANT frame back, and the outstanding count adjusted.
+fn grant_credit(s: &mut Sched, addr: usize, from: u64, n: u32) {
+    s.actors[addr].granted += n as usize;
+    let host = s.actors[addr].node;
+    let bits = s.actors[addr].bits;
+    let mut frame = vec![2u8];
+    frame.extend_from_slice(&from.to_be_bytes());
+    frame.extend_from_slice(&host.to_be_bytes());
+    frame.extend_from_slice(&(addr as u64).to_be_bytes());
+    frame.extend_from_slice(&bits.to_be_bytes());
+    frame.extend_from_slice(&n.to_be_bytes());
+    route_frame(s, host, from, frame);
+}
+
+/// [addr-routable] [wire-format] The typed send: a message whose protocol
+/// has a wire form goes to a local mailbox as any send does, or — when the
+/// index is a proxy — is encoded with its protocol hash and routed, waiting
+/// for a credit first [remote-backpressure]. Generated code calls this for
+/// every send on a protocol with a wire form; `salvo_send` stays for the
+/// rest.
+pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M, proto: &str) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let Some(r) = s.actors[addr].remote else {
+        drop(s);
+        salvo_send(addr, Box::new(msg));
+        return;
+    };
+    while !s.actors[addr].dead && s.actors[addr].credits == 0 {
+        s = cv.wait(s).unwrap();
+    }
+    if s.actors[addr].dead {
+        return;
+    }
+    s.actors[addr].credits -= 1;
+    let from = s.pools[salvo_current_pool()].node;
+    // Encode with the lock **released**: a payload holding an `Addr` or a
+    // `Reply` encodes its routable identity by asking the scheduler, which
+    // takes this lock (non-reentrant here) — found the first time a `total(out)`
+    // crossed the wire.
+    drop(s);
+    let mut frame = vec![0u8];
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame.extend_from_slice(&from.to_be_bytes());
+    frame.extend_from_slice(proto.as_bytes());
+    msg.__enc(&mut frame);
+    let mut s = lock.lock().unwrap();
+    route_frame(&mut s, from, r.node, frame);
+    drop(s);
+    flush_out();
+}
+
+/// [remote-backpressure] The credit balance of a proxy — what `pending(addr)`
+/// reads for a remote member (step ⑤) — or `None` for a local actor.
+pub fn salvo_credits(addr: usize) -> Option<usize> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.actors[addr].remote.map(|_| s.actors[addr].credits)
+}
+
+/// [addr-routable] [wire-format] The typed reply: a token that came over the
+/// wire is answered by encoding the value and routing a REPLY frame to its
+/// origin; a local token delivers as before. Generated code calls this for a
+/// `send(reply, v)` whose `v` has a wire form.
+pub fn salvo_reply_wire<T: crate::wire::__Wire + Any + Send>(reply: SalvoReply, value: T) {
+    let (lock, cv) = state();
+    match reply.target {
+        Target::Remote { node, kind, id, bits } => {
+            // Encoded with the lock released, as in `salvo_send_wire`.
+            let mut frame = vec![1u8];
+            frame.extend_from_slice(&node.to_be_bytes());
+            frame.push(kind);
+            frame.extend_from_slice(&id.to_be_bytes());
+            frame.extend_from_slice(&reply.slot.to_be_bytes());
+            frame.extend_from_slice(&bits.to_be_bytes());
+            value.__enc(&mut frame);
+            let mut s = lock.lock().unwrap();
+            let from = s.pools[salvo_current_pool()].node;
+            route_frame(&mut s, from, node, frame);
+            drop(s);
+            flush_out();
+        }
+        _ => {
+            let mut s = lock.lock().unwrap();
+            deliver_reply(&mut s, reply, Box::new(value));
+            cv.notify_all();
+        }
+    }
+}
+
+/// [addr-routable] The wire form of a reply token: `(node, kind, id, slot,
+/// bits)`. Encoding a token whose target is a **task** moves the task body
+/// into the exported table under a fresh key, since the body cannot travel;
+/// the REPLY frame that comes back names the key.
+pub fn salvo_reply_export(reply: &SalvoReply) -> (u64, u8, u64, u64, u64) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    match &reply.target {
+        Target::Proc(idx) => {
+            let a = &s.actors[*idx];
+            (a.node, 0, *idx as u64, reply.slot, a.bits)
+        }
+        Target::Waiter(wid) => {
+            let node = s.pools[s.waiters[*wid].pool].node;
+            (node, 1, *wid as u64, reply.slot, 0)
+        }
+        Target::Task(pool, body, decode) => {
+            let key = reply.slot;
+            let node = s.pools[*pool].node;
+            if let Some(b) = body.lock().unwrap().take() {
+                let pool = *pool;
+                s.exported_tasks.insert(key, (pool, b, *decode));
+            }
+            (node, 2, key, reply.slot, 0)
+        }
+        Target::Remote { node, kind, id, bits } => (*node, *kind, *id, reply.slot, *bits),
+    }
+}
+
+/// [addr-routable] A reply token decoded from the wire: a `Remote` target
+/// unless it names a node hosted here, in which case it is the original.
+pub fn salvo_reply_import(node: u64, kind: u8, id: u64, slot: u64, bits: u64) -> SalvoReply {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let here = s.pools[salvo_current_pool()].node;
+    let target = if node == here {
+        match kind {
+            0 => Target::Proc(id as usize),
+            1 => Target::Waiter(id as usize),
+            _ => Target::Remote { node, kind, id, bits },
+        }
+    } else {
+        Target::Remote { node, kind, id, bits }
+    };
+    SalvoReply {
+        target,
+        slot,
+        tracked: false,
+    }
+}
+
+/// [addr-routable] Registers how a waiter's reply is decoded should it come
+/// over the wire: the `waitfor` site knows the type, the runtime does not.
+pub fn salvo_waiter_decoder(wid: usize, decode: ReplyDecoder) {
+    let (lock, _) = state();
+    lock.lock().unwrap().waiters[wid].decode = Some(decode);
+}
+
+fn read_u64(b: &[u8], at: usize) -> Option<u64> {
+    let s = b.get(at..at + 8)?;
+    let mut a = [0u8; 8];
+    a.copy_from_slice(s);
+    Some(u64::from_be_bytes(a))
+}
+
+/// [addr-routable] [wire-format] Delivers one frame that arrived on the
+/// wire: MSG into the target's mailbox (decoded by the actor's own decoder,
+/// bits checked), REPLY to the target token's owner (decoded by the owner's
+/// registered decoder), GRANT onto a proxy's credits, OPEN answered with an
+/// initial grant. A frame for a node not hosted here, a target that does not
+/// exist, a bits mismatch or a malformed payload is **dropped**, never
+/// delivered wrong [backend-never-wrong]. Answers whether it was delivered.
+pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
+    let (lock, cv) = state();
+    let Some(&kind) = frame.first() else { return false };
+    let Some(to_node) = read_u64(frame, 1) else { return false };
+    // Two phases around every decode: the header is checked and the decoder
+    // found under the lock, the payload decoded with it **released** (an
+    // `Addr` or `Reply` in it asks the scheduler for its identity), and the
+    // decoded value delivered under the lock again.
+    let delivered = match kind {
+        0 => {
+            let (Some(actor), Some(bits), Some(from)) =
+                (read_u64(frame, 9), read_u64(frame, 17), read_u64(frame, 25))
+            else {
+                return false;
+            };
+            let Some(proto) = frame.get(33..49).and_then(|p| std::str::from_utf8(p).ok()) else {
+                return false;
+            };
+            let payload = &frame[49..];
+            let idx = actor as usize;
+            let decode = {
+                let s = lock.lock().unwrap();
+                if !s.hosted_nodes.contains(&to_node) {
+                    return false;
+                }
+                if idx >= s.actors.len() || s.actors[idx].remote.is_some() || s.actors[idx].bits != bits {
+                    return false;
+                }
+                if s.actors[idx].dead {
+                    return true;
+                }
+                let Some(decode) = s.actors[idx].decode else { return false };
+                decode
+            };
+            let Some(msg) = decode(proto, payload) else { return false };
+            let mut s = lock.lock().unwrap();
+            if s.actors[idx].dead {
+                return true;
+            }
+            // The sender spent a credit for this: the room is ours to fill.
+            s.actors[idx].granted = s.actors[idx].granted.saturating_sub(1);
+            s.actors[idx].queue.push_back(Entry::User(msg, Some(from)));
+            s.actors[idx].user_len += 1;
+            cv.notify_all();
+            true
+        }
+        1 => {
+            let (Some(&tkind), Some(id), Some(slot), Some(bits)) = (
+                frame.get(9),
+                read_u64(frame, 10),
+                read_u64(frame, 18),
+                read_u64(frame, 26),
+            ) else {
+                return false;
+            };
+            let payload = &frame[34..];
+            match tkind {
+                0 => {
+                    let mut s = lock.lock().unwrap();
+                    if !s.hosted_nodes.contains(&to_node) {
+                        return false;
+                    }
+                    let idx = id as usize;
+                    if idx >= s.actors.len() || s.actors[idx].bits != bits || s.actors[idx].dead {
+                        return false;
+                    }
+                    // Decoded by the activation that runs it: only the actor
+                    // knows the answer's type, and only with the lock released.
+                    s.actors[idx].queue.push_back(Entry::ReplyRaw(slot, payload.to_vec()));
+                    cv.notify_all();
+                    true
+                }
+                1 => {
+                    let wid = id as usize;
+                    let decode = {
+                        let s = lock.lock().unwrap();
+                        if !s.hosted_nodes.contains(&to_node) {
+                            return false;
+                        }
+                        let Some(w) = s.waiters.get(wid) else { return false };
+                        let Some(decode) = w.decode else { return false };
+                        decode
+                    };
+                    let Some(value) = decode(payload) else { return false };
+                    let mut s = lock.lock().unwrap();
+                    s.waiters[wid].value = Some(value);
+                    cv.notify_all();
+                    true
+                }
+                2 => {
+                    let taken = {
+                        let mut s = lock.lock().unwrap();
+                        if !s.hosted_nodes.contains(&to_node) {
+                            return false;
+                        }
+                        s.exported_tasks.remove(&id)
+                    };
+                    let Some((pool, body, decode)) = taken else { return false };
+                    let Some(value) = decode(payload) else { return false };
+                    let mut s = lock.lock().unwrap();
+                    s.pools[pool].tasks.push_back((body, value));
+                    cv.notify_all();
+                    true
+                }
+                _ => false,
+            }
+        }
+        2 => {
+            let (Some(host), Some(actor), Some(bits), Some(n)) = (
+                read_u64(frame, 9),
+                read_u64(frame, 17),
+                read_u64(frame, 25),
+                frame.get(33..37),
+            ) else {
+                return false;
+            };
+            let n = u32::from_be_bytes([n[0], n[1], n[2], n[3]]) as usize;
+            let r = RemoteRef { node: host, actor, bits };
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            match s.proxies.get(&r).copied() {
+                Some(idx) => {
+                    s.actors[idx].credits += n;
+                    cv.notify_all();
+                    true
+                }
+                None => false,
+            }
+        }
+        3 => {
+            let (Some(actor), Some(bits), Some(from)) =
+                (read_u64(frame, 9), read_u64(frame, 17), read_u64(frame, 25))
+            else {
+                return false;
+            };
+            let idx = actor as usize;
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            if idx >= s.actors.len() || s.actors[idx].bits != bits || s.actors[idx].remote.is_some() {
+                return false;
+            }
+            // [remote-backpressure] The initial grant: the room left in the
+            // mailbox after what is queued and what other senders already
+            // hold — at least one, so a starved sender is not stuck forever
+            // (the queue may then run at most one over per sender, which the
+            // local send's own block absorbs).
+            let a = &s.actors[idx];
+            let room = a.bound.saturating_sub(a.user_len + a.granted).max(1);
+            grant_credit(&mut s, idx, from, room as u32);
+            cv.notify_all();
+            true
+        }
+        _ => false,
+    };
+    flush_out();
+    delivered
+}
+

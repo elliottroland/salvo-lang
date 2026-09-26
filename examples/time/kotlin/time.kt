@@ -252,13 +252,28 @@ interface Timer {
 
 class __Stub_Timer(private val addr: Int) : Timer {
     override fun after(wait: Duration, done: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Timer.After(wait, done))
+        salvo.SalvoSched.sendWire(addr, __Msg_Timer.After(wait, done), __PROTO_Timer, __Codec___Msg_Timer)
     }
 }
 
 sealed class __Msg_Timer {
     class After(val wait: Duration, val done: salvo.SalvoReply) : __Msg_Timer()
 }
+
+object __Codec___Msg_Timer : salvo.WireCodec<__Msg_Timer> {
+    override fun enc(v: __Msg_Timer, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Timer.After -> { out.u8(0); __Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.done, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Timer = when (inp.u8()) {
+            0 -> __Msg_Timer.After(__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Timer`. */
+const val __PROTO_Timer: String = "d0432e460a159011"
 
 class DefaultTimer : Timer {
     internal val __mailboxCapacity: Int = 64
@@ -294,6 +309,23 @@ class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor
             is __Cont_DefaultTimer.After -> handler.after(c.wait, value as salvo.SalvoReply)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_DefaultTimer.After -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 interface TimerCtl {
@@ -302,7 +334,7 @@ interface TimerCtl {
 
 class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
     override fun advance(by: Duration) {
-        salvo.SalvoSched.send(addr, __Msg_TimerCtl.Advance(by))
+        salvo.SalvoSched.sendWire(addr, __Msg_TimerCtl.Advance(by), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
     }
 }
 
@@ -335,7 +367,7 @@ class ManualTime : Timer, TimerCtl {
 
     override fun after(wait: Duration, done: salvo.SalvoReply) {
         if (wait.nanos <= 0) {
-            done.send(Fired(at = Tick(nanos = now)))
+            salvo.SalvoSched.replyWire(done, Fired(at = Tick(nanos = now)), __Codec_Fired)
         } else {
             deadlines.add(now + wait.nanos)
             pending.add(done)
@@ -355,7 +387,7 @@ class ManualTime : Timer, TimerCtl {
             var __is2 = (pending).let { __l -> (at).let { __i -> if (__i >= 0 && __i < __l.size) __l.removeAt(__i) else null } }
             if (__is2 != null) {
                 val token = __is2 as salvo.SalvoReply
-                token.send(Fired(at = Tick(nanos = deadline)))
+                salvo.SalvoSched.replyWire(token, Fired(at = Tick(nanos = deadline)), __Codec_Fired)
             }
         }
         now = target
@@ -396,6 +428,25 @@ class __Actor_ManualTime(private val handler: ManualTime) : salvo.SalvoActor {
         when (c) {
             is __Cont_ManualTime.After -> handler.after(c.wait, value as salvo.SalvoReply)
             is __Cont_ManualTime.Advance -> handler.advance(value as Duration)
+        }
+    }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_ManualTime.After -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_ManualTime.Advance -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Duration) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Timer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Timer)?.let { Pair(true, it) } ?: Pair(false, null)
+                __PROTO_TimerCtl -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_TimerCtl)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
         }
     }
 }

@@ -16,10 +16,10 @@ interface Counter {
 
 class __Stub_Counter(private val addr: Int) : Counter {
     override fun bump(n: Int) {
-        salvo.SalvoSched.send(addr, __Msg_Counter.Bump(n))
+        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Bump(n), __PROTO_Counter, __Codec___Msg_Counter)
     }
     override fun total(out: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Counter.Total(out))
+        salvo.SalvoSched.sendWire(addr, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
     }
 }
 
@@ -27,6 +27,23 @@ sealed class __Msg_Counter {
     class Bump(val n: Int) : __Msg_Counter()
     class Total(val out: salvo.SalvoReply) : __Msg_Counter()
 }
+
+object __Codec___Msg_Counter : salvo.WireCodec<__Msg_Counter> {
+    override fun enc(v: __Msg_Counter, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Counter.Bump -> { out.u8(0); salvo.IntCodec.enc(v.n, out) }
+            is __Msg_Counter.Total -> { out.u8(1); salvo.ReplyCodec.enc(v.out, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Counter = when (inp.u8()) {
+            0 -> __Msg_Counter.Bump(salvo.IntCodec.dec(inp))
+            1 -> __Msg_Counter.Total(salvo.ReplyCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Counter`. */
+const val __PROTO_Counter: String = "f39d50f9ee8f9923"
 
 class Counting : Counter {
     private var sum: Int = 0
@@ -39,7 +56,7 @@ class Counting : Counter {
     }
 
     override fun total(out: salvo.SalvoReply) {
-        out.send(sum)
+        salvo.SalvoSched.replyWire(out, sum, salvo.IntCodec)
     }
 }
 
@@ -70,6 +87,24 @@ class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
             is __Cont_Counting.Total -> handler.total(value as salvo.SalvoReply)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Counting.Bump -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })(payload)
+            is __Cont_Counting.Total -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Counter -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Counter)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 interface Ledger {
@@ -79,10 +114,10 @@ interface Ledger {
 
 class __Stub_Ledger(private val addr: Int) : Ledger {
     override fun report(label: String, out: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Ledger.Report(label, out))
+        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Report(label, out), __PROTO_Ledger, __Codec___Msg_Ledger)
     }
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        salvo.SalvoSched.send(addr, __Msg_Ledger.Reported(label, out, total))
+        salvo.SalvoSched.sendWire(addr, __Msg_Ledger.Reported(label, out, total), __PROTO_Ledger, __Codec___Msg_Ledger)
     }
 }
 
@@ -90,6 +125,23 @@ sealed class __Msg_Ledger {
     class Report(val label: String, val out: salvo.SalvoReply) : __Msg_Ledger()
     class Reported(val label: String, val out: salvo.SalvoReply, val total: Int) : __Msg_Ledger()
 }
+
+object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {
+    override fun enc(v: __Msg_Ledger, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Ledger.Report -> { out.u8(0); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Ledger.Reported -> { out.u8(1); salvo.StrCodec.enc(v.label, out); salvo.ReplyCodec.enc(v.out, out); salvo.IntCodec.enc(v.total, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Ledger = when (inp.u8()) {
+            0 -> __Msg_Ledger.Report(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Ledger.Reported(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp), salvo.IntCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Ledger`. */
+const val __PROTO_Ledger: String = "4a99401c8b66babf"
 
 class Bookkeeping<__Fx>(private val __fx: __Fx) : Ledger where __Fx : __Has_Counter {
     internal val __mailboxCapacity: Int = 4
@@ -101,7 +153,7 @@ class Bookkeeping<__Fx>(private val __fx: __Fx) : Ledger where __Fx : __Has_Coun
     }
 
     override fun reported(label: String, out: salvo.SalvoReply, total: Int) {
-        out.send("$label=$total")
+        salvo.SalvoSched.replyWire(out, "$label=$total", salvo.StrCodec)
     }
 }
 
@@ -132,6 +184,24 @@ class __Actor_Bookkeeping<__Fx>(private val handler: Bookkeeping<__Fx>) : salvo.
             is __Cont_Bookkeeping.Reported -> handler.reported(c.label, c.out, value as Int)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Bookkeeping.Report -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_Bookkeeping.Reported -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Ledger -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Ledger)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 interface Desk {
@@ -142,13 +212,13 @@ interface Desk {
 
 class __Stub_Desk(private val addr: Int) : Desk {
     override fun ticket(out: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Desk.Ticket(out))
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Ticket(out), __PROTO_Desk, __Codec___Msg_Desk)
     }
     override fun serve(name: String) {
-        salvo.SalvoSched.send(addr, __Msg_Desk.Serve(name))
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.Serve(name), __PROTO_Desk, __Codec___Msg_Desk)
     }
     override fun close_up(reason: String) {
-        salvo.SalvoSched.send(addr, __Msg_Desk.CloseUp(reason))
+        salvo.SalvoSched.sendWire(addr, __Msg_Desk.CloseUp(reason), __PROTO_Desk, __Codec___Msg_Desk)
     }
 }
 
@@ -157,6 +227,25 @@ sealed class __Msg_Desk {
     class Serve(val name: String) : __Msg_Desk()
     class CloseUp(val reason: String) : __Msg_Desk()
 }
+
+object __Codec___Msg_Desk : salvo.WireCodec<__Msg_Desk> {
+    override fun enc(v: __Msg_Desk, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Desk.Ticket -> { out.u8(0); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Desk.Serve -> { out.u8(1); salvo.StrCodec.enc(v.name, out) }
+            is __Msg_Desk.CloseUp -> { out.u8(2); salvo.StrCodec.enc(v.reason, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Desk = when (inp.u8()) {
+            0 -> __Msg_Desk.Ticket(salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Desk.Serve(salvo.StrCodec.dec(inp))
+            2 -> __Msg_Desk.CloseUp(salvo.StrCodec.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Desk`. */
+const val __PROTO_Desk: String = "cb180ef2d1bfd753"
 
 class Desking(private val room: Int) : Desk {
     private var waiting: MutableList<salvo.SalvoReply> = mutableListOf<salvo.SalvoReply>()
@@ -172,7 +261,7 @@ class Desking(private val room: Int) : Desk {
         val next = (waiting).let { __l -> if (__l.isEmpty()) null else __l.removeAt(0) }
         when {
             next != null -> {
-                next.send("served $name")
+                salvo.SalvoSched.replyWire(next, "served $name", salvo.StrCodec)
             }
             else -> {
                 (name).let {}
@@ -181,7 +270,7 @@ class Desking(private val room: Int) : Desk {
     }
 
     override fun close_up(reason: String) {
-        (waiting).toList().forEach({ r -> r.send("closed: $reason") })
+        (waiting).toList().forEach({ r -> salvo.SalvoSched.replyWire(r, "closed: $reason", salvo.StrCodec) })
         waiting = mutableListOf<salvo.SalvoReply>()
     }
 }
@@ -216,6 +305,25 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
             is __Cont_Desking.CloseUp -> handler.close_up(value as String)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Desking.Ticket -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_Desking.Serve -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })(payload)
+            is __Cont_Desking.CloseUp -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Desk -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Desk)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 interface Fragile {
@@ -224,7 +332,7 @@ interface Fragile {
 
 class __Stub_Fragile(private val addr: Int) : Fragile {
     override fun crash() {
-        salvo.SalvoSched.send(addr, __Msg_Fragile.Crash())
+        salvo.SalvoSched.sendWire(addr, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
     }
 }
 
@@ -273,78 +381,95 @@ class __Actor_Breaking(private val handler: Breaking) : salvo.SalvoActor {
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
         error("this protocol has no continuation targets")
     }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Fragile -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Fragile)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 fun formatted(label: String, out: salvo.SalvoReply, total: Int) {
-    out.send("$label totalled $total")
+    salvo.SalvoSched.replyWire(out, "$label totalled $total", salvo.StrCodec)
 }
 
 fun report_line(counter: Int, label: String, out: salvo.SalvoReply) {
-    salvo.SalvoSched.send(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool()) { __v -> formatted(__c0, __c1, __v as Int) } }))
+    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(run { val __c0 = label; val __c1 = out; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) }) { __v -> formatted(__c0, __c1, __v as Int) } }), __PROTO_Counter, __Codec___Msg_Counter)
 }
 
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
-    val counter = run { val __h = Counting(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h)) }
-    salvo.SalvoSched.send(counter, __Msg_Counter.Bump(2))
-    salvo.SalvoSched.send(counter, __Msg_Counter.Bump(3))
+    val counter = run { val __h = Counting(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE) }
+    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(2), __PROTO_Counter, __Codec___Msg_Counter)
+    salvo.SalvoSched.sendWire(counter, __Msg_Counter.Bump(3), __PROTO_Counter, __Codec___Msg_Counter)
     val sum = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(counter, __Msg_Counter.Total(out))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
+        salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx, "1. counter total is $sum")
-    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h)) }
+    val ledger = run { val __h = Bookkeeping(__Fx_2(__Stub_Counter(counter))); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE) }
     val line = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(ledger, __Msg_Ledger.Report("counter", out))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
+        salvo.SalvoSched.sendWire(ledger, __Msg_Ledger.Report("counter", out), __PROTO_Ledger, __Codec___Msg_Ledger)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "3. ledger says $line")
-    val desk = run { val __h = Desking(8); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h)) }
+    val desk = run { val __h = Desking(8); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE) }
     val first = run {
         val (a, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(desk, __Msg_Desk.Ticket(a))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
+        salvo.SalvoSched.sendWire(desk, __Msg_Desk.Ticket(a), __PROTO_Desk, __Codec___Msg_Desk)
         val second = run {
             val (b, __wid) = salvo.SalvoSched.waiter()
-            salvo.SalvoSched.send(desk, __Msg_Desk.Ticket(b))
-            salvo.SalvoSched.send(desk, __Msg_Desk.Serve("ada"))
-            salvo.SalvoSched.send(desk, __Msg_Desk.CloseUp("end of day"))
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
+            salvo.SalvoSched.sendWire(desk, __Msg_Desk.Ticket(b), __PROTO_Desk, __Codec___Msg_Desk)
+            salvo.SalvoSched.sendWire(desk, __Msg_Desk.Serve("ada"), __PROTO_Desk, __Codec___Msg_Desk)
+            salvo.SalvoSched.sendWire(desk, __Msg_Desk.CloseUp("end of day"), __PROTO_Desk, __Codec___Msg_Desk)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
         println(__fx, "4. second waiter got: $second")
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx, "4. first waiter got: $first")
-    val fragile = run { val __h = Breaking(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h)) }
+    val fragile = run { val __h = Breaking(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE) }
     val exit = run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Exit) })
         salvo.SalvoSched.watch(fragile, gone, { __reason -> Exit(__reason) })
-        salvo.SalvoSched.send(fragile, __Msg_Fragile.Crash())
+        salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
         salvo.SalvoSched.awaitReply(__wid) as Exit
     }
     println(__fx, "5. it died with a reason: ${exit.reason.length > 0}")
-    salvo.SalvoSched.send(fragile, __Msg_Fragile.Crash())
+    salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
     val __fx2 = __Fx_3(__fx.__fx_Console, Counting())
     __fx2.__fx_Counter.bump(4)
     __fx2.__fx_Counter.bump(5)
     val inline = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
         __fx2.__fx_Counter.total(out)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx2, "6. inline total is $inline")
-    val mine = run { val __h = Counting(); salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h)) }
-    salvo.SalvoSched.send(mine, __Msg_Counter.Bump(6))
+    val mine = run { val __h = Counting(); salvo.SalvoSched.spawn(salvo.SalvoSched.currentPool(), __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE) }
+    salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
     val local = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(mine, __Msg_Counter.Total(out))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.IntCodec) })
+        salvo.SalvoSched.sendWire(mine, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
     println(__fx2, "7. the main pool's own actor totalled $local")
     val line8 = run {
         val (out, __wid) = salvo.SalvoSched.waiter()
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         report_line(mine, "the counter", out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }

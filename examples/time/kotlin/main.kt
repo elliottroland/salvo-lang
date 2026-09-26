@@ -35,10 +35,10 @@ interface Session {
 
 class __Stub_Session(private val addr: Int) : Session {
     override fun open(started: Tick, budget: Duration, out: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Session.Open(started, budget, out))
+        salvo.SalvoSched.sendWire(addr, __Msg_Session.Open(started, budget, out), __PROTO_Session, __Codec___Msg_Session)
     }
     override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.send(addr, __Msg_Session.Expire(started, budget, out, f))
+        salvo.SalvoSched.sendWire(addr, __Msg_Session.Expire(started, budget, out, f), __PROTO_Session, __Codec___Msg_Session)
     }
 }
 
@@ -46,6 +46,23 @@ sealed class __Msg_Session {
     class Open(val started: Tick, val budget: Duration, val out: salvo.SalvoReply) : __Msg_Session()
     class Expire(val started: Tick, val budget: Duration, val out: salvo.SalvoReply, val f: Fired) : __Msg_Session()
 }
+
+object __Codec___Msg_Session : salvo.WireCodec<__Msg_Session> {
+    override fun enc(v: __Msg_Session, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Session.Open -> { out.u8(0); __Codec_Tick.enc(v.started, out); __Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Session.Expire -> { out.u8(1); __Codec_Tick.enc(v.started, out); __Codec_Duration.enc(v.budget, out); salvo.ReplyCodec.enc(v.out, out); __Codec_Fired.enc(v.f, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Session = when (inp.u8()) {
+            0 -> __Msg_Session.Open(__Codec_Tick.dec(inp), __Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Session.Expire(__Codec_Tick.dec(inp), __Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp), __Codec_Fired.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Session`. */
+const val __PROTO_Session: String = "7ed70285b7e6568c"
 
 class Sessions<__Fx>(private val __fx: __Fx) : Session where __Fx : __Has_Timer {
     internal val __mailboxCapacity: Int = 8
@@ -57,7 +74,7 @@ class Sessions<__Fx>(private val __fx: __Fx) : Session where __Fx : __Has_Timer 
     }
 
     override fun expire(started: Tick, budget: Duration, out: salvo.SalvoReply, f: Fired) {
-        out.send(verdict(started, f.at, budget))
+        salvo.SalvoSched.replyWire(out, verdict(started, f.at, budget), salvo.StrCodec)
     }
 }
 
@@ -88,6 +105,24 @@ class __Actor_Sessions<__Fx>(private val handler: Sessions<__Fx>) : salvo.SalvoA
             is __Cont_Sessions.Expire -> handler.expire(c.started, c.budget, c.out, value as Fired)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Sessions.Open -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_Sessions.Expire -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Fired) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Session -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Session)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 class TestTicker(private val timer: Int) : Ticker {
@@ -95,7 +130,8 @@ class TestTicker(private val timer: Int) : Ticker {
     override fun tick(): Tick {
         val fired = run {
             val (answer, __wid) = salvo.SalvoSched.waiter()
-            salvo.SalvoSched.send(timer, __Msg_Timer.After(nanos(0L), answer))
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Fired) })
+            salvo.SalvoSched.sendWire(timer, __Msg_Timer.After(nanos(0L), answer), __PROTO_Timer, __Codec___Msg_Timer)
             salvo.SalvoSched.awaitReply(__wid) as Fired
         }
         return fired.at
@@ -109,10 +145,10 @@ interface Sleeper {
 
 class __Stub_Sleeper(private val addr: Int) : Sleeper {
     override fun nap(wait: Duration, out: salvo.SalvoReply) {
-        salvo.SalvoSched.send(addr, __Msg_Sleeper.Nap(wait, out))
+        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Nap(wait, out), __PROTO_Sleeper, __Codec___Msg_Sleeper)
     }
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        salvo.SalvoSched.send(addr, __Msg_Sleeper.Woke(started, out, f))
+        salvo.SalvoSched.sendWire(addr, __Msg_Sleeper.Woke(started, out, f), __PROTO_Sleeper, __Codec___Msg_Sleeper)
     }
 }
 
@@ -120,6 +156,23 @@ sealed class __Msg_Sleeper {
     class Nap(val wait: Duration, val out: salvo.SalvoReply) : __Msg_Sleeper()
     class Woke(val started: Tick, val out: salvo.SalvoReply, val f: Fired) : __Msg_Sleeper()
 }
+
+object __Codec___Msg_Sleeper : salvo.WireCodec<__Msg_Sleeper> {
+    override fun enc(v: __Msg_Sleeper, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Sleeper.Nap -> { out.u8(0); __Codec_Duration.enc(v.wait, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Sleeper.Woke -> { out.u8(1); __Codec_Tick.enc(v.started, out); salvo.ReplyCodec.enc(v.out, out); __Codec_Fired.enc(v.f, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Sleeper = when (inp.u8()) {
+            0 -> __Msg_Sleeper.Nap(__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+            1 -> __Msg_Sleeper.Woke(__Codec_Tick.dec(inp), salvo.ReplyCodec.dec(inp), __Codec_Fired.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Sleeper`. */
+const val __PROTO_Sleeper: String = "2385b53950dcbd9c"
 
 class Napping<__Fx>(private val __fx: __Fx) : Sleeper where __Fx : __Has_Timer, __Fx : __Has_Ticker {
     internal val __mailboxCapacity: Int = 8
@@ -131,7 +184,7 @@ class Napping<__Fx>(private val __fx: __Fx) : Sleeper where __Fx : __Has_Timer, 
     }
 
     override fun woke(started: Tick, out: salvo.SalvoReply, f: Fired) {
-        out.send("napped ${to_str__5(elapsed(__fx, started))}")
+        salvo.SalvoSched.replyWire(out, "napped ${to_str__5(elapsed(__fx, started))}", salvo.StrCodec)
     }
 }
 
@@ -162,6 +215,24 @@ class __Actor_Napping<__Fx>(private val handler: Napping<__Fx>) : salvo.SalvoAct
             is __Cont_Napping.Woke -> handler.woke(c.started, c.out, value as Fired)
         }
     }
+
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Napping.Nap -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_Napping.Woke -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Fired) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Sleeper -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sleeper)?.let { Pair(true, it) } ?: Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
 }
 
 fun main() {
@@ -180,30 +251,34 @@ fun main() {
     println(__fx4, verdict(Tick(nanos = 0L), Tick(nanos = 1000000000L), budget))
     println(__fx4, verdict(Tick(nanos = 0L), Tick(nanos = 2000000000L), budget))
     val p = salvo.SalvoSched.pool(1)
-    val (timer, ctl) = run { val __h = ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_ManualTime(__h)); Pair(__a, __a) }
-    val sessions = run { val __h = Sessions(__Fx_4(__Stub_Timer(timer))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h)) }
+    val (timer, ctl) = run { val __h = ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_ManualTime(__h), __Actor_ManualTime.__DECODE); Pair(__a, __a) }
+    val sessions = run { val __h = Sessions(__Fx_4(__Stub_Timer(timer))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sessions(__h), __Actor_Sessions.__DECODE) }
     val outcome = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(sessions, __Msg_Session.Open(Tick(nanos = 0L), budget, answer))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
+        salvo.SalvoSched.sendWire(sessions, __Msg_Session.Open(Tick(nanos = 0L), budget, answer), __PROTO_Session, __Codec___Msg_Session)
         run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Idle) })
             salvo.SalvoSched.onIdle(p, settled, { __gates, __tokens -> Idle(__gates, __tokens) })
             salvo.SalvoSched.awaitReply(__wid) as Idle
         }
-        salvo.SalvoSched.send(ctl, __Msg_TimerCtl.Advance(millis(2500L)))
+        salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(millis(2500L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx4, "session: $outcome")
-    val sleeper = run { val __h = Napping(__Fx_5(TestTicker(timer), __Stub_Timer(timer))); salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h)) }
+    val sleeper = run { val __h = Napping(__Fx_5(TestTicker(timer), __Stub_Timer(timer))); salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE) }
     val napped = run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.send(sleeper, __Msg_Sleeper.Nap(seconds(2L), answer))
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
+        salvo.SalvoSched.sendWire(sleeper, __Msg_Sleeper.Nap(seconds(2L), answer), __PROTO_Sleeper, __Codec___Msg_Sleeper)
         run {
             val (settled, __wid) = salvo.SalvoSched.waiter()
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), __Codec_Idle) })
             salvo.SalvoSched.onIdle(p, settled, { __gates, __tokens -> Idle(__gates, __tokens) })
             salvo.SalvoSched.awaitReply(__wid) as Idle
         }
-        salvo.SalvoSched.send(ctl, __Msg_TimerCtl.Advance(seconds(2L)))
+        salvo.SalvoSched.sendWire(ctl, __Msg_TimerCtl.Advance(seconds(2L)), __PROTO_TimerCtl, __Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
     println(__fx4, napped)

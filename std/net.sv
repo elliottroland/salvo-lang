@@ -3,7 +3,10 @@
 // [net-transport] (the effect and `Inbound`), [net-host] (`HostTcpTransport`),
 // [net-mem] (`MemNet`/`MemNetwork`/`MemTransport`), [wire-format] and
 // [noremote] (`encode`/`decode`; the encoding itself is fixed in salvo-core's
-// `wire.rs` and implemented in each backend's `wire` runtime).
+// `wire.rs` and implemented in each backend's `wire` runtime), [addr-routable]
+// [addr-capability] [remote-backpressure] (the routing surface: `this_node`,
+// `new_node`, `pool_at`, `add_route`, `route_frames`, `deliver_frame`,
+// `credits`, `Outbound`/`Sending`, `Receiving`).
 //
 // The design's one-line shape is that **the network enters at the actor
 // group, never at the spawn**: every actor is spawned by the node that hosts
@@ -119,6 +122,70 @@ export intrinsic fn encode<T>(value: T) [] -> Bytes => !value
 // `decode<Point>(data)`, since nothing but the type argument says what to
 // read.
 export intrinsic fn decode<T>(data: Bytes) [] -> T? => data
+
+// -------------------------------------------------------------- routing ----
+
+// [addr-routable] The identity of the node this code runs on. A node is a
+// process, or one of the virtual nodes a process hosts for the in-process
+// double; every actor carries the node it was spawned on, and an `Addr` that
+// crosses the wire is `(node, actor, bits)`.
+export intrinsic fn this_node() [] -> Long
+
+// [addr-routable] Hosts a fresh **virtual node** in this process: the
+// in-process double of another machine. Pools made with [pool_at] belong to
+// it, actors spawned on them carry it, and an addr of one that crosses to
+// another node — virtual or not — is reached through a proxy, so every remote
+// path runs without a socket.
+export intrinsic fn new_node() [spawn] -> Long
+
+// [addr-routable] A pool of [size] workers belonging to [node].
+export intrinsic fn pool_at(node: Long, size: Int) [spawn] -> Pool => node, size
+
+// [addr-routable] Where frames for [node] go. Learnt in the handshake by a
+// `NodeGroup` (step ④); until a node has a route its frames wait.
+export intrinsic fn add_route(node: Long, at: NodeEndpoint) [] -> None => node, at
+
+// [addr-routable] Binds the current node's outbound side: every frame the
+// runtime sends is delivered to [out], which puts it on the wire.
+export intrinsic fn route_frames(out: Addr<Outbound>) [] -> None => !out
+
+// [addr-routable] Hands one frame that arrived on the wire to the runtime:
+// a message into an actor's mailbox, a reply to its waiter, a credit to a
+// proxy. Answers whether it was delivered; a frame for an unknown target, with
+// mismatched bits or a malformed payload is dropped, never delivered wrong.
+export intrinsic fn deliver_frame(data: Bytes) [] -> Bool => data
+
+// [remote-backpressure] For an addr that crossed the wire, how many more
+// messages its mailbox has granted room for; `None` for a local actor. What a
+// pick reads as a remote member's load (step ⑤).
+export intrinsic fn credits<E>(a: Addr<E>) [] -> Int? => a
+
+// [addr-routable] The outbound protocol: the runtime sends every frame it
+// wants on the wire here, and the one handler of it hands them to the
+// `Transport` in scope.
+export actor effect Outbound {
+    send fn frame(to: NodeEndpoint, data: Bytes) => !to, !data
+}
+
+export handler Sending() [Transport] of Outbound {
+    mailbox { capacity: 256 }
+
+    send fn frame(to: NodeEndpoint, data: Bytes) => !to, !data {
+        // A frame the wire refuses is lost: at-most-once, as promised.
+        let _sent = deliver(to, data)
+    }
+}
+
+// [addr-routable] The inbound side: the `Inbound` handler that hands every
+// frame to the runtime. `listen(at, spawn Receiving())` is a node's whole
+// receive path.
+export handler Receiving() of Inbound {
+    mailbox { capacity: 256 }
+
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        let _delivered = deliver_frame(data)
+    }
+}
 
 // ---------------------------------------------------------------- host ----
 

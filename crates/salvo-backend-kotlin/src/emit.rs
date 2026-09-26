@@ -262,6 +262,9 @@ pub fn emit_program_reporting(
     // [time-timer] The scheduler's deadline thread reads the monotonic clock,
     // so the time runtime travels with it: a `Fired` must sit on the same
     // timeline `tick()` reports, which is what one shared reading buys.
+    // [kt-wire] The wire runtime's `Addr`/`Reply` codecs name the scheduler,
+    // so mounting one mounts the other.
+    let needs_scheduler = needs_scheduler || needs_wire;
     let needs_time = needs_time || needs_scheduler;
     if needs_throw {
         files.push(EmittedFile {
@@ -1851,6 +1854,15 @@ impl<'p> Emitter<'p> {
                 "Str" => "salvo.StrCodec".to_string(),
                 "Bytes" => "salvo.BytesCodec".to_string(),
                 "None" => "salvo.UnitCodec".to_string(),
+                // [addr-routable] Scheduler handles: routable identities.
+                "Addr" => {
+                    self.needs_scheduler = true;
+                    "salvo.AddrCodec".to_string()
+                }
+                "Reply" => {
+                    self.needs_scheduler = true;
+                    "salvo.ReplyCodec".to_string()
+                }
                 "List" if args.len() == 1 => {
                     let inner = self.kotlin_codec_expr(&args[0]);
                     format!("salvo.ListCodec({inner})")
@@ -1973,11 +1985,10 @@ impl<'p> Emitter<'p> {
                 .filter(|p| !p.implicit)
                 .map(|p| p.name.name.clone())
                 .collect();
+            let built = format!("{msg}.{}({})", msg_variant_name(&member), args.join(", "));
+            let call = self.send_call(&e.name.name, "addr", &built);
             out.push_str(&format!(
-                "    override fun {member}({params}) {{\n        \
-                 salvo.SalvoSched.send(addr, {msg}.{}({}))\n    }}\n",
-                msg_variant_name(&member),
-                args.join(", ")
+                "    override fun {member}({params}) {{\n        {call}\n    }}\n"
             ));
         }
         out.push_str("}\n");
@@ -2776,10 +2787,101 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 out.push_str("        }\n    }\n");
+                // [addr-routable] [wire-format] A reply arriving over the wire
+                // is decoded by the parked subclass's answer type. The `else`
+                // covers subclasses of members that are never continuation
+                // targets in this table.
+                out.push_str(
+                    "\n    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {\n        \
+                     val c = handler.__parked[slot] ?: return Pair(false, null)\n        \
+                     return when (c) {\n",
+                );
+                for (effect, list) in &sends {
+                    for (i, f) in list {
+                        let fixed: Vec<&Param> =
+                            f.params.iter().filter(|p| !p.implicit).collect();
+                        if fixed.is_empty() {
+                            continue;
+                        }
+                        let member = salvo_core::effect_member_name(effect, *i);
+                        let variant = msg_variant_name(&member);
+                        let decoder = self.reply_decoder_for_ast(&fixed[fixed.len() - 1].ty);
+                        out.push_str(&format!(
+                            "            is {cont}.{variant} -> ({decoder})(payload)\n"
+                        ));
+                    }
+                }
+                out.push_str("            else -> Pair(false, null)\n        }\n    }\n");
+            }
+        }
+        // [addr-routable] [wire-format] How a message frame for one of this
+        // actor's faces is decoded, by protocol hash: what `spawn` is handed.
+        {
+            let mut arms = String::new();
+            for (effect, _) in &sends {
+                if self.checked.protocol_hashes.contains_key(&effect.name.name)
+                    && self.effect_has_wire_form(effect)
+                {
+                    let msg = msg_class_name(&effect.name.name);
+                    arms.push_str(&format!(
+                        "                __PROTO_{} -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec_{msg})?.let {{ Pair(true, it) }} ?: Pair(false, null)\n",
+                        kt_ident(&effect.name.name)
+                    ));
+                }
+            }
+            if arms.is_empty() {
+                out.push_str(
+                    "\n    companion object {\n        \
+                     val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = null\n    }\n",
+                );
+            } else {
+                self.needs_wire = true;
+                out.push_str(&format!(
+                    "\n    companion object {{\n        \
+                     val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = {{ proto, payload ->\n            \
+                     when (proto) {{\n{arms}                else -> Pair(false, null)\n            }}\n        }}\n    }}\n"
+                ));
             }
         }
         out.push_str("}\n");
         out
+    }
+
+    /// [wire-format] Whether every payload of an actor effect has a wire form.
+    fn effect_has_wire_form(&self, e: &EffectDecl) -> bool {
+        let empty = HashMap::new();
+        e.fns.iter().filter(|f| f.is_send).all(|f| {
+            f.params.iter().filter(|p| !p.implicit).all(|p| {
+                salvo_core::approx_ty(&p.ty, &empty)
+                    .is_some_and(|t| salvo_core::wire_blocker(self.symbols, &t).is_none())
+            })
+        })
+    }
+
+    /// [addr-routable] [wire-format] The reply decoder for an answer of a
+    /// written type: a lambda from bytes to `(decoded?, value)` — the pair
+    /// because `null` is itself a value here — when the type has a wire
+    /// form, one answering `(false, null)` otherwise.
+    fn reply_decoder_for_ast(&mut self, ty: &Type) -> String {
+        let empty = HashMap::new();
+        match salvo_core::approx_ty(ty, &empty) {
+            Some(t) => self.reply_decoder_for(&t),
+            None => "{ _: ByteArray -> Pair(false, null) }".to_string(),
+        }
+    }
+
+    fn reply_decoder_for(&mut self, ty: &Ty) -> String {
+        let ty = ty.strip_quals().clone();
+        if !ty_is_concrete(&ty) || salvo_core::wire_blocker(self.symbols, &ty).is_some() {
+            return "{ _: ByteArray -> Pair(false, null) }".to_string();
+        }
+        self.needs_wire = true;
+        let codec = self.kotlin_codec_expr(&ty);
+        // A decoded `null` (the unit `None`) is a value: distinguish it from a
+        // failed decode by decoding into an `Optional`-shaped pair by hand.
+        format!(
+            "{{ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), {codec}) }}"
+        )
     }
 
     /// [kt-actor] [actor-effect-kind] Does `h` implement an **`actor
@@ -4589,7 +4691,8 @@ impl<'p> Emitter<'p> {
         // [actor-mailbox] The bound is the handler's own, so the instance is
         // built into a local and read before it is wrapped.
         let spawn_call = format!(
-            "salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {}(__h))",
+            "salvo.SalvoSched.spawn({pool_code}, __h.__mailboxCapacity, {}(__h), {}.__DECODE)",
+            actor_class_name(&handler_name),
             actor_class_name(&handler_name)
         );
         // [effect-handler-multi] One addr per implemented effect. There is one
@@ -4727,14 +4830,14 @@ impl<'p> Emitter<'p> {
         let close = "    ".repeat(indent);
         // [waitfor-infer] Off the written `Reply<T>` when there is one, else the
         // type the checker recorded for the expression — which *is* the payload.
-        let payload = match ty {
+        let (payload, decoder) = match ty {
             Some(Type::Named { base, .. })
                 if base.name.name == "Reply" && base.args.len() == 1 =>
             {
-                self.emit_type(&base.args[0])
+                (self.emit_type(&base.args[0]), self.reply_decoder_for_ast(&base.args[0]))
             }
             None => match self.ty_of(_span).cloned() {
-                Some(t) => self.emit_ty(&t),
+                Some(t) => (self.emit_ty(&t), self.reply_decoder_for(&t)),
                 None => {
                     self.error("`waitfor` binds a `Reply<T>`");
                     return "TODO()".to_string();
@@ -4746,8 +4849,11 @@ impl<'p> Emitter<'p> {
             }
         };
         let mut out = String::from("run {\n");
+        // [addr-routable] The waiter registers how its answer is decoded
+        // should the token cross the wire.
         out.push_str(&format!(
-            "{pad}val ({}, __wid) = salvo.SalvoSched.waiter()\n",
+            "{pad}val ({}, __wid) = salvo.SalvoSched.waiter()\n\
+             {pad}salvo.SalvoSched.waiterDecoder(__wid, {decoder})\n",
             binding.name
         ));
         let saved = std::mem::replace(&mut self.expr_indent, indent + 1);
@@ -4785,10 +4891,30 @@ impl<'p> Emitter<'p> {
         let variant = msg_variant_name(&member);
         let payload: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
         let target = self.emit_expr(base);
-        format!(
-            "salvo.SalvoSched.send({target}, {msg}.{variant}({}))",
-            payload.join(", ")
-        )
+        let built = format!("{msg}.{variant}({})", payload.join(", "));
+        self.send_call(&effect_name, &target, &built)
+    }
+
+    /// [addr-routable] [wire-format] The send call for a protocol: the typed
+    /// path (`sendWire`, which encodes and routes when the addr is a proxy)
+    /// when the protocol has a wire form, the plain enqueue otherwise.
+    fn send_call(&mut self, effect_name: &str, target: &str, built: &str) -> String {
+        let has_wire = self
+            .symbols
+            .effects
+            .get(effect_name)
+            .copied()
+            .is_some_and(|e| self.effect_has_wire_form(e));
+        if has_wire {
+            self.needs_wire = true;
+            let msg = msg_class_name(effect_name);
+            format!(
+                "salvo.SalvoSched.sendWire({target}, {built}, __PROTO_{}, __Codec_{msg})",
+                kt_ident(effect_name)
+            )
+        } else {
+            format!("salvo.SalvoSched.send({target}, {built})")
+        }
     }
 
     /// [mixed-handler] [kt-mixed] A façade send: enqueue on the servant's
@@ -6976,8 +7102,11 @@ impl<'p> Emitter<'p> {
             Some(p) => self.emit_expr(p),
             None => "salvo.SalvoSched.currentPool()".to_string(),
         };
+        // [addr-routable] How the answer is decoded should this token cross
+        // the wire: only the mint knows the answer's type.
+        let decoder = self.reply_decoder_for_ast(&last.ty);
         format!(
-            "run {{ {lets}salvo.SalvoSched.mintTask({pool_code}) {{ __v -> {name}({}) }} }}",
+            "run {{ {lets}salvo.SalvoSched.mintTask({pool_code}, {decoder}) {{ __v -> {name}({}) }} }}",
             args.join(", ")
         )
     }
@@ -8211,10 +8340,88 @@ impl<'p> Emitter<'p> {
                 format!("salvo.salvoDecode({code}, {codec})")
             };
         }
+        // [addr-routable] [kt-wire] The routing intrinsics of std `net`.
+        if f.intrinsic {
+            match f.name.name.as_str() {
+                "this_node" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.hereNode()".to_string();
+                }
+                "new_node" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.newNode()".to_string();
+                }
+                "pool_at" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_expr(args[0]);
+                    let n = self.emit_expr(args[1]);
+                    return format!("salvo.SalvoSched.poolAt({node}, {n})");
+                }
+                "add_route" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let node = self.emit_expr(args[0]);
+                    let at = self.emit_expr(args[1]);
+                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
+                    let codec = self.kotlin_codec_expr(&ep);
+                    return format!(
+                        "salvo.SalvoSched.addRoute({node}, salvo.salvoEncode({at}, {codec}).toByteArray())"
+                    );
+                }
+                "deliver_frame" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let data = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.deliverFrame(({data}).toByteArray())");
+                }
+                "credits" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.credits({a})");
+                }
+                "route_frames" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let out = self.emit_expr(args[0]);
+                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
+                    let codec = self.kotlin_codec_expr(&ep);
+                    let msg = msg_class_name("Outbound");
+                    return format!(
+                        "run {{ val __out = {out}; salvo.SalvoSched.setWire {{ __ep, __frame -> \
+                         val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec}); \
+                         if (__to != null) salvo.SalvoSched.sendWire(__out, {msg}.Frame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec_{msg}) }} }}"
+                    );
+                }
+                _ => {}
+            }
+        }
         if f.name.name != "copy" || args.len() != 1 {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             let arg_code = self.intrinsic_arg_code(f, args);
             let type_args = self.intrinsic_type_args(f, span);
+            // [addr-routable] [kt-wire] `send(reply, v)` with a payload that
+            // has a wire form takes the typed path, which encodes and routes a
+            // REPLY frame when the token came over the wire. The payload type
+            // is the *token's*, so a narrowed optional argument is coerced
+            // back to the declared `T?` by `intrinsic_arg_code`.
+            if f.name.name == "send" && recv == Some("Reply") && args.len() == 2 {
+                let payload = match self.ty_of(args[0].span()).map(|t| t.strip_quals().clone()) {
+                    Some(Ty::Named { name, args: targs }) if name == "Reply" && targs.len() == 1 => {
+                        Some(targs[0].strip_quals().clone())
+                    }
+                    _ => None,
+                };
+                if let Some(vt) = payload {
+                    if ty_is_concrete(&vt) && salvo_core::wire_blocker(self.symbols, &vt).is_none() {
+                        self.needs_scheduler = true;
+                        self.needs_wire = true;
+                        let codec = self.kotlin_codec_expr(&vt);
+                        return format!(
+                            "salvo.SalvoSched.replyWire({}, {}, {codec})",
+                            arg_code[0], arg_code[1]
+                        );
+                    }
+                }
+            }
             // [kt-actor] The scheduler's own intrinsics: answering a reply
             // token, building a pool (plain or dedicated), registering a
             // death watch, and registering a quiescence hook

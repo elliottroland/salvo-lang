@@ -11653,9 +11653,13 @@ fn draining_state_lowers_to_a_take() {
         "the drain of a state field is not a take:\n{}",
         main.content
     );
+    // [addr-routable] A `send(reply, v)` with a payload that has a wire form
+    // takes the typed path, which receives the token by value all the same.
     assert!(
         main.content.contains("(first.unwrap()).send(")
-            || main.content.contains("(next.unwrap()).send("),
+            || main.content.contains("(next.unwrap()).send(")
+            || main.content.contains("salvo_reply_wire::<String>(next.unwrap(), ")
+            || main.content.contains("salvo_reply_wire::<String>(first.unwrap(), "),
         "a taken obligation must be moved, not cloned:\n{}",
         main.content
     );
@@ -13198,6 +13202,102 @@ fn rustc_compiles_and_runs_the_wire_format() {
     }
     let files = generate(&[("main.sv", WIRE_DEMO)]);
     run_rust_files(&files, "wire-format", WIRE_DEMO_OUTPUT);
+}
+
+// ===== the network sequence, step ③: routable addrs across two nodes =====
+
+/// [addr-routable] [addr-capability] [remote-backpressure] Two nodes in one
+/// process over `MemTransport`: `main`'s node and a virtual one booted on a
+/// pool of its own. A counter on node B; its addr `encode`d and `decode`d on
+/// node A comes back as a **proxy** (`credits` answers a number); five sends
+/// through a capacity-2 mailbox exercise the OPEN/GRANT credit flow and the
+/// MSG frames; `total(out)` carries a reply token across, and the answer
+/// comes back as a REPLY frame into `main`'s waiter. The direct addr still
+/// works locally. Byte-identical on both backends.
+const NODES_DEMO: &str = r#"import net
+import time
+
+actor effect Counter {
+    send fn bump(n: Int) => !n
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 2 }
+    sum: Int = 0
+    send fn bump(n: Int) => !n { sum = sum + n }
+    send fn total(out: Reply<Int>) => !out { out.send(sum) }
+}
+
+// Brings the node this runs on up over the shared in-process network: its
+// transport, its outbound and inbound actors, and its route. Placement decides
+// the node: called from `main` it sets up `main`'s node; run inside an actor
+// spawned on another node's pool, it sets up that node.
+fn bring_up(at: NodeEndpoint, net: Addr<MemNet>) [Transport, spawn] -> None => at, net {
+    let p = pool(1)                         // inherits this node
+    route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+    listen(copy(at), spawn Receiving() on p)
+    add_route(this_node(), copy(at))
+}
+
+actor effect Boot {
+    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done
+}
+
+handler Booting() [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(at: NodeEndpoint, net: Addr<MemNet>, done: Reply<Bool>) => !at, !net, !done {
+        bring_up(at, net)
+        done.send(true)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let net = spawn MemNetwork() on pool(1)
+
+    // Node A is this one; node B is hosted beside it, and booted from a pool
+    // of its own so `this_node()` there answers B.
+    use MemTransport(copy(a), copy(net))
+    bring_up(copy(a), copy(net))
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting() with MemTransport(copy(b), copy(net)) on pb
+    let _up = waitfor done: Reply<Bool> { booter.boot(copy(b), copy(net), done) }
+
+    // A counter living on node B, reached from node A through the wire: the
+    // addr crosses as bytes and comes back as a proxy.
+    let there = spawn Counting() on pb
+    let far = decode<Addr<Counter>>(encode(copy(there)))
+    if far is None {
+        println("addr did not decode")
+        return
+    }
+    println("is proxy: ${!(credits(far) is None)}")
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
+    println("credits after a beat: ${credits(far) ?: -1}")
+    for i in range(0, 5) {
+        far.bump(i)                         // 0+1+2+3+4 = 10, through a capacity-2 mailbox
+    }
+    let sum = waitfor out: Reply<Int> { far.total(out) }
+    println("total over the wire: ${sum}")
+    let direct = waitfor out: Reply<Int> { there.total(out) }
+    println("direct: ${direct}")
+}
+"#;
+
+const NODES_DEMO_OUTPUT: &str = "is proxy: true\ncredits after a beat: 2\ntotal over the wire: 10\ndirect: 10\n";
+
+#[test]
+fn rustc_compiles_and_runs_two_nodes_over_mem_transport() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NODES_DEMO)]);
+    run_rust_files(&files, "net-two-nodes", NODES_DEMO_OUTPUT);
 }
 
 /// [time-manual] Virtual time, in pure Salvo, through a two-face handler.

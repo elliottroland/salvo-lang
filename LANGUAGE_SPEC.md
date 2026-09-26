@@ -5323,6 +5323,59 @@ between endpoints and delivers what arrives into the scheduler.
   arm it lacks, so compatibility is settled before a byte is read.
   * Generated only for a protocol whose every payload has a wire form; one
     with a `noremote` payload is a legal *local* protocol with no hash.
+* [addr-routable] **An `Addr<E>` is a routable identity** (step ③, user
+  decisions 2026-09-26): in generated code still a scheduler index, but every
+  entry carries the **node** it lives on and its **bits**, so its wire form is
+  `(node, actor, bits)` — 24 bytes — and a `Reply<T>` crosses as `(node,
+  kind, id, slot, bits)`. **Locality is a runtime fact, read at the send**: an
+  addr decoded from the wire whose node is not the current node becomes a
+  **proxy** — an entry with no body — and a send to it is a MSG frame; a
+  reply token that crossed answers with a REPLY frame; a function holding the
+  addr never learns which. The same `send`/`waitfor`/`replyto` code runs
+  unchanged. `Addr<E>` has a wire form exactly when `E` has one (a proxy is
+  only good for sends that can be framed), `Reply<T>` when `T` has one.
+  * **A process is one node with one random identity, and may host further
+    virtual nodes** — `new_node()` and `pool_at(node, n)` in std `net` — so a
+    program runs several nodes in one process over `MemTransport` and every
+    remote path (proxies, credits, frames, remote replies) runs without a
+    socket. An addr of a hosted node other than the current one is a proxy in
+    every respect but the socket; `this_node()` answers the current pool's.
+  * **The runtime's outbound is an actor**: `route_frames(out: Addr<Outbound>)`
+    binds the current node's wire (`Sending [Transport] of Outbound` in std
+    hands frames to the transport in scope), `add_route(node, at)` says where
+    a node's frames go, and `Receiving of Inbound` hands arriving frames to
+    `deliver_frame`. A frame for an unknown target, with mismatched bits or a
+    malformed payload is **dropped, never delivered wrong**.
+  * **Replies arriving over the wire are decoded by whoever knows the
+    answer's type**: an actor's generated `decode_reply` (off its parked
+    continuation, when the activation runs), a waiter's decoder registered by
+    the `waitfor` site, a task's by its mint — the runtime holds bytes and
+    cannot name a Salvo type. Every `spawn` hands the runtime the actor's
+    message decoder (`__DECODE_H`, by protocol hash) for the same reason.
+  * **Encoding and decoding happen with the scheduler lock released** — an
+    `Addr` or `Reply` inside a payload asks the scheduler for its identity.
+    Found the first time a `total(out)` crossed: a deadlock inside
+    `salvo_send_wire`, then another inside frame delivery; both runtimes now
+    do every codec call in a lock-free phase.
+* [addr-capability] **The bits are what make a wire addr a capability.**
+  Minted unguessably at every spawn (OS-seeded hashing on Rust,
+  `SecureRandom` on Kotlin), carried in every crossing identity, and checked
+  on delivery — a frame whose bits do not match the actor at that index is
+  dropped, and an identity that imports with wrong bits answers a dead entry,
+  so sends to it are the silent no-op every send to the dead is. This is what
+  keeps "who holds which face decides what they may do" true across a
+  machine: the second face's addr has bits the first's does not.
+* [remote-backpressure] **A remote mailbox's `capacity` stays true through
+  credits.** A proxy is born with none and sends an OPEN; the host answers a
+  GRANT of the room left (`bound − queued − already granted`, at least one);
+  each send spends a credit and **blocks at zero**, exactly as a local send
+  blocks on a full mailbox; each dequeue of a remote sender's message grants
+  one back. So `bound` bounds the queue with remote senders too (at most one
+  over per starved sender, which the local send's own block absorbs).
+  `credits(addr)` reads a proxy's balance — what a pick will read as a
+  remote member's load (step ⑤) — and answers `None` for a local actor.
+  Delivery is **at most once, in order per (sender, receiver) pair**: the
+  transport's guarantee, and nothing more.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)

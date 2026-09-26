@@ -30,7 +30,7 @@ interface Faults {
 
 class __Stub_Faults(private val addr: Int) : Faults {
     override fun faulted(fault: Fault) {
-        salvo.SalvoSched.send(addr, __Msg_Faults.Faulted(fault))
+        salvo.SalvoSched.sendWire(addr, __Msg_Faults.Faulted(fault), __PROTO_Faults, __Codec___Msg_Faults)
     }
 }
 

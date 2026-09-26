@@ -419,13 +419,34 @@ impl __Stub_Timer {
 
 impl Timer for __Stub_Timer {
     fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
-        crate::scheduler::salvo_send(self.addr, Box::new(__Msg_Timer::After(wait, done)));
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Timer::After(wait, done), crate::time::__PROTO_Timer);
     }
 }
 
 pub enum __Msg_Timer {
     After(Duration, crate::scheduler::SalvoReply),
 }
+
+impl crate::wire::__Wire for __Msg_Timer {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Timer::After(__p0, __p1) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+                crate::wire::__Wire::__enc(__p1, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Timer::After(crate::wire::__Wire::__dec(r)?, crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Timer`.
+pub const __PROTO_Timer: &str = "d0432e460a159011";
 
 pub struct DefaultTimer {
     pub __mailbox_capacity: i32,
@@ -488,6 +509,21 @@ impl crate::scheduler::SalvoActor for __Actor_DefaultTimer {
             __Cont_DefaultTimer::After(wait) => self.__dispatch(crate::time::__Msg_Timer::After(wait, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
+
+    fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+        match self.handler.__parked.get(&slot)? {
+            __Cont_DefaultTimer::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+        }
+    }
+}
+
+pub const __DECODE_DefaultTimer: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_DefaultTimer);
+fn __decode_msg_DefaultTimer(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+        if proto == crate::time::__PROTO_Timer {
+            return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
+                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+        }
+    None
 }
 
 pub trait TimerCtl {
@@ -510,7 +546,7 @@ impl __Stub_TimerCtl {
 
 impl TimerCtl for __Stub_TimerCtl {
     fn advance(&mut self, by: Duration) {
-        crate::scheduler::salvo_send(self.addr, Box::new(__Msg_TimerCtl::Advance(by)));
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_TimerCtl::Advance(by), crate::time::__PROTO_TimerCtl);
     }
 }
 
@@ -564,7 +600,7 @@ impl Timer for ManualTime {
 
     fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply) {
         if wait.nanos <= ((0) as i64) {
-            (done).send(Box::new(Fired { at: Tick { nanos: self.now } }));
+            crate::scheduler::salvo_reply_wire::<Fired>(done, Fired { at: Tick { nanos: self.now } });
         } else {
             self.deadlines.push(self.now + wait.nanos);
             self.pending.push(done);
@@ -588,7 +624,7 @@ impl TimerCtl for ManualTime {
             let mut __is2 = self.pending.salvo_remove_at(at);
             if __is2.is_some() {
                 let mut token = __is2.unwrap();
-                (token).send(Box::new(Fired { at: Tick { nanos: deadline } }));
+                crate::scheduler::salvo_reply_wire::<Fired>(token, Fired { at: Tick { nanos: deadline } });
             }
         }
         self.now = target;
@@ -648,6 +684,26 @@ impl crate::scheduler::SalvoActor for __Actor_ManualTime {
             __Cont_ManualTime::Advance => self.__dispatch_TimerCtl(crate::time::__Msg_TimerCtl::Advance(*value.downcast::<Duration>().expect("the awaited answer"))),
         }
     }
+
+    fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+        match self.handler.__parked.get(&slot)? {
+            __Cont_ManualTime::After{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_ManualTime::Advance{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<Duration>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+        }
+    }
+}
+
+pub const __DECODE_ManualTime: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_ManualTime);
+fn __decode_msg_ManualTime(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+        if proto == crate::time::__PROTO_Timer {
+            return crate::wire::salvo_decode::<crate::time::__Msg_Timer>(payload)
+                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+        }
+        if proto == crate::time::__PROTO_TimerCtl {
+            return crate::wire::salvo_decode::<crate::time::__Msg_TimerCtl>(payload)
+                .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);
+        }
+    None
 }
 
 pub fn earliest_due(deadlines: &Vec<i64>, target: i64) -> Option<i32> {

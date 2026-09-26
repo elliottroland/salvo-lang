@@ -21,7 +21,7 @@ use std::process::Command;
 /// A new one belongs here the moment it exists — the list is what makes
 /// this test complete rather than a sample.
 const RUNTIME_MODULES: &[&str] =
-    &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs", "hosttime.rs"];
+    &["strings.rs", "seq.rs", "collections.rs", "scheduler.rs", "hosttime.rs", "wire.rs"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -46,9 +46,18 @@ fn compile_runtime_module(file: &str) {
     // as the emitter mounts it (the two always travel together, since a
     // `Fired` has to sit on the timeline `tick()` reports). Every other module
     // is standalone, and `hosttime.rs` is checked on its own in this same list.
-    let source = if file == "scheduler.rs" {
+    // [addr-routable] [rs-wire] …and since step ③ the scheduler and the wire
+    // name each other (a remote send encodes; an addr's codec asks the
+    // scheduler for its identity), so they are checked as one crate here,
+    // mounted as the emitter mounts them.
+    let source = if file == "scheduler.rs" || file == "wire.rs" {
         let hosttime = runtime_source("hosttime.rs");
-        format!("pub mod hosttime {{\n{hosttime}\n}}\n{source}")
+        let wire = runtime_source("wire.rs");
+        let scheduler = runtime_source("scheduler.rs");
+        format!(
+            "pub mod hosttime {{\n{hosttime}\n}}\npub mod wire {{\n{wire}\n}}\n\
+             pub mod scheduler {{\n{scheduler}\n}}\n"
+        )
     } else {
         source
     };
@@ -324,8 +333,13 @@ fn run_scheduler_program(
     let hosttime = runtime_source("hosttime.rs");
     // `dead_code` is allowed because a driver exercises one slice of the
     // runtime's surface; the module itself is warning-checked above.
+    // [rs-wire] …and the wire, which the scheduler's typed sends name and
+    // whose `Addr` codec names the scheduler back — so the scheduler is a
+    // module here too, re-exported for the drivers' unqualified names.
+    let wire = runtime_source("wire.rs");
     let source = format!(
-        "#![allow(dead_code)]\npub mod hosttime {{\n{hosttime}\n}}\n{module}\n{driver}"
+        "#![allow(dead_code)]\npub mod hosttime {{\n{hosttime}\n}}\npub mod wire {{\n{wire}\n}}\n\
+         pub mod scheduler {{\n{module}\n}}\nuse scheduler::*;\n{driver}"
     );
     let parts: Vec<&[u8]> = vec![
         b"rust-scheduler-behaviour",
@@ -414,7 +428,7 @@ impl SalvoActor for Adder {
 
 fn main() {
     let pool = salvo_pool(2);
-    let adder = salvo_spawn(pool, 4, Box::new(Adder { sum: 0 }));
+    let adder = salvo_spawn(pool, 4, Box::new(Adder { sum: 0 }), None);
     // Six user messages through a queue bounded at four: the sender blocks
     // twice and nothing is lost.
     for n in 1..=6i64 {
@@ -488,7 +502,7 @@ impl SalvoActor for Echo {
 
 fn main() {
     let pool = salvo_pool(3);
-    let echo = salvo_spawn(pool, 4, Box::new(Echo));
+    let echo = salvo_spawn(pool, 4, Box::new(Echo), None);
     let caller = salvo_spawn(
         pool,
         4,
@@ -496,6 +510,7 @@ fn main() {
             echo,
             log: Vec::new(),
         }),
+        None,
     );
     salvo_send(caller, Box::new("go".to_string()));
     salvo_send(caller, Box::new("late".to_string()));
@@ -536,7 +551,7 @@ impl SalvoActor for Fragile {
 
 fn main() {
     let pool = salvo_pool(2);
-    let fragile = salvo_spawn(pool, 4, Box::new(Fragile));
+    let fragile = salvo_spawn(pool, 4, Box::new(Fragile), None);
     let (token, wid) = salvo_waiter();
     salvo_watch(fragile, token, |reason| Box::new(format!("exit({reason})")));
     salvo_send(fragile, Box::new("boom".to_string()));
@@ -601,10 +616,10 @@ impl SalvoActor for Echo {
 
 fn main() {
     let dedicated = salvo_thread();
-    let echo = salvo_spawn(dedicated, 2, Box::new(Echo));
+    let echo = salvo_spawn(dedicated, 2, Box::new(Echo), None);
     // No thread serves the main pool: `main` is its single worker, so
     // nothing queued here can have run before the first wait.
-    let adder = salvo_spawn(SALVO_MAIN_POOL, 4, Box::new(Adder { sum: 0 }));
+    let adder = salvo_spawn(SALVO_MAIN_POOL, 4, Box::new(Adder { sum: 0 }), None);
     for n in 1..=3i64 {
         salvo_send(adder, Box::new(n));
     }
@@ -642,7 +657,7 @@ impl SalvoActor for Sink {
 }
 
 fn main() {
-    let sink = salvo_spawn(SALVO_MAIN_POOL, 2, Box::new(Sink));
+    let sink = salvo_spawn(SALVO_MAIN_POOL, 2, Box::new(Sink), None);
     println!("filling");
     for n in 1..=3i64 {
         salvo_send(sink, Box::new(n));
@@ -679,7 +694,7 @@ impl SalvoActor for Echo {
 
 fn main() {
     let pool = salvo_pool(2);
-    let echo = salvo_spawn(pool, 4, Box::new(Echo));
+    let echo = salvo_spawn(pool, 4, Box::new(Echo), None);
 
     // The task doubles the answer and hands it to `main`. It has no mailbox,
     // no identity and no capacity reserved: the closure *is* the continuation.
@@ -690,6 +705,7 @@ fn main() {
             let n = *value.downcast::<i64>().expect("the answer");
             waiter.send(Box::new(n * 2));
         }),
+        |_| None,
     );
     salvo_send(echo, Box::new(task));
     println!("doubled: {}", salvo_wait(wid).downcast_ref::<i64>().unwrap());
@@ -702,8 +718,9 @@ fn main() {
             let n = *value.downcast::<i64>().expect("the answer");
             main_waiter.send(Box::new(format!("ran on pool {}, n={n}", salvo_current_pool())));
         }),
+        |_| None,
     );
-    let echoed = salvo_spawn(pool, 4, Box::new(Echo));
+    let echoed = salvo_spawn(pool, 4, Box::new(Echo), None);
     salvo_send(echoed, Box::new(on_main));
     println!("{}", salvo_wait(main_wid).downcast_ref::<String>().unwrap());
 }
@@ -748,23 +765,23 @@ impl SalvoActor for Sink {
 
 fn main() {
     let sink_pool = salvo_pool(1);
-    let sink = salvo_spawn(sink_pool, 4, Box::new(Sink { done: None }));
+    let sink = salvo_spawn(sink_pool, 4, Box::new(Sink { done: None }), None);
     let (token, wid) = salvo_waiter();
     salvo_send(sink, Box::new(token));
 
     // The faulting task runs on a pool whose faults go to the sink.
     let work = salvo_pool_with_sink(1, Some((sink, |reason| Box::new(format!("fault({reason})")))));
-    let task = salvo_mint_task(work, Box::new(|_value| panic!("boom")));
+    let task = salvo_mint_task(work, Box::new(|_value| panic!("boom")), |_| None);
     task.send(Box::new(0i64));
     println!("{}", salvo_wait(wid).downcast_ref::<String>().unwrap());
 
     // A pool with no sink names the fault on stderr instead, and the program
     // carries on: a task's death is not the program's.
     let quiet = salvo_pool(1);
-    let unheard = salvo_mint_task(quiet, Box::new(|_value| panic!("unheard")));
+    let unheard = salvo_mint_task(quiet, Box::new(|_value| panic!("unheard")), |_| None);
     unheard.send(Box::new(0i64));
     let (last, last_wid) = salvo_waiter();
-    let done = salvo_mint_task(quiet, Box::new(move |_value| last.send(Box::new(1i64))));
+    let done = salvo_mint_task(quiet, Box::new(move |_value| last.send(Box::new(1i64))), |_| None);
     done.send(Box::new(0i64));
     let _ = salvo_wait(last_wid);
     println!("done");
@@ -795,7 +812,7 @@ impl SalvoActor for Idle {
 
 fn main() {
     let pool = salvo_pool(1);
-    let _idle = salvo_spawn(pool, 2, Box::new(Idle));
+    let _idle = salvo_spawn(pool, 2, Box::new(Idle), None);
     println!("waiting");
     // Nobody holds this token, so nothing can ever fulfil it.
     let (_token, wid) = salvo_waiter();
@@ -839,7 +856,7 @@ impl SalvoActor for Parking {
 
 fn main() {
     let pool = salvo_pool(1);
-    let parking = salvo_spawn(pool, 2, Box::new(Parking));
+    let parking = salvo_spawn(pool, 2, Box::new(Parking), None);
     println!("waiting");
     salvo_send(parking, Box::new(0i64));
     let (_token, wid) = salvo_waiter();
@@ -887,7 +904,7 @@ impl SalvoActor for Parking {
 
 fn main() {
     let pool = salvo_pool(1);
-    let parking = salvo_spawn(pool, 2, Box::new(Parking));
+    let parking = salvo_spawn(pool, 2, Box::new(Parking), None);
     let (back, back_wid) = salvo_waiter();
     salvo_send(parking, Box::new(back));
     // Ordinary program code, outside any wait, while the actor is parked: the
@@ -958,8 +975,8 @@ fn report(gates: i32, tokens: i32) -> SalvoMsg {
 
 fn main() {
     let pool = salvo_pool(1);
-    let holder = salvo_spawn(pool, 4, Box::new(Holder { held: Vec::new() }));
-    let asker = salvo_spawn(pool, 4, Box::new(Asker { holder }));
+    let holder = salvo_spawn(pool, 4, Box::new(Holder { held: Vec::new() }), None);
+    let asker = salvo_spawn(pool, 4, Box::new(Asker { holder }), None);
     // Nothing has been sent, so the answer is "done".
     let (first, w1) = salvo_waiter();
     salvo_on_idle(pool, first, report);
@@ -1011,7 +1028,7 @@ fn report(gates: i32, tokens: i32) -> SalvoMsg {
 
 fn main() {
     let pool = salvo_pool(1);
-    let watcher = salvo_spawn(pool, 4, Box::new(Watcher { out: None }));
+    let watcher = salvo_spawn(pool, 4, Box::new(Watcher { out: None }), None);
     let (token, wid) = salvo_waiter();
     salvo_send(watcher, Box::new(token));
     println!(

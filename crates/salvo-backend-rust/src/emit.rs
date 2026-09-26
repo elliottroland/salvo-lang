@@ -263,6 +263,9 @@ pub fn emit_program_reporting(
     // [time-timer] The scheduler's deadline thread reads the monotonic clock,
     // so the time module travels with it: a `Fired` must sit on the same
     // timeline `tick()` reports, which is what one shared reading buys.
+    // [rs-wire] The wire runtime's `Addr`/`Reply` codecs name the scheduler,
+    // so mounting one mounts the other.
+    let needs_scheduler = needs_scheduler || needs_wire;
     let needs_time = needs_time || needs_scheduler;
     if needs_str {
         files.push(EmittedFile {
@@ -3048,9 +3051,9 @@ impl<'p> Emitter<'p> {
             } else {
                 format!("{msg}::{}({})", msg_variant_name(&member), args.join(", "))
             };
+            let call = self.send_call(&e.name.name, "self.addr", &built);
             out.push_str(&format!(
-                "    fn {}(&mut self{params}) {{\n        \
-                 crate::scheduler::salvo_send(self.addr, Box::new({built}));\n    }}\n",
+                "    fn {}(&mut self{params}) {{\n        {call};\n    }}\n",
                 rs_ident(&member)
             ));
         }
@@ -3290,6 +3293,19 @@ impl<'p> Emitter<'p> {
             out.push_str(&wire);
         }
         out
+    }
+
+    /// [wire-format] Whether every payload of an actor effect has a wire
+    /// form — the gate for its message codec, hash constant, and the typed
+    /// send path.
+    fn effect_has_wire_form(&self, e: &EffectDecl) -> bool {
+        let empty = HashMap::new();
+        e.fns.iter().filter(|f| f.is_send).all(|f| {
+            f.params.iter().filter(|p| !p.implicit).all(|p| {
+                salvo_core::approx_ty(&p.ty, &empty)
+                    .is_some_and(|t| salvo_core::wire_blocker(self.symbols, &t).is_none())
+            })
+        })
     }
 
     /// [wire-format] [rs-wire] `impl __Wire for __Msg_E` plus the
@@ -4336,9 +4352,67 @@ impl<'p> Emitter<'p> {
                     }
                 }
                 out.push_str("        }\n    }\n");
+                // [addr-routable] [wire-format] A reply arriving over the wire
+                // is decoded by the parked variant's answer type — the same
+                // table `resume` reads, one step earlier.
+                out.push_str(
+                    "\n    fn decode_reply(&self, slot: u64, payload: &[u8]) -> \
+                     Option<crate::scheduler::SalvoMsg> {\n        \
+                     match self.handler.__parked.get(&slot)? {\n",
+                );
+                for (effect, list) in sends.iter() {
+                    for (i, f) in list {
+                        let fixed: Vec<&Param> =
+                            f.params.iter().filter(|p| !p.implicit).collect();
+                        if fixed.is_empty() {
+                            continue;
+                        }
+                        let member = salvo_core::effect_member_name(effect, *i);
+                        let variant = msg_variant_name(&member);
+                        let last = fixed[fixed.len() - 1];
+                        let decoder = self.reply_decoder_for_ast(&last.ty);
+                        out.push_str(&format!(
+                            "            {cont_path}::{variant}{{ .. }} => {decoder}(payload),\n"
+                        ));
+                    }
+                }
+                out.push_str("        }\n    }\n");
             }
         }
         out.push_str("}\n");
+        // [addr-routable] [wire-format] How a message frame for one of this
+        // actor's faces is decoded, by protocol hash: the decoder `salvo_spawn`
+        // is handed. `None` when no face has a wire form.
+        {
+            let mut arms = String::new();
+            for (effect, _) in sends.iter() {
+                if self.checked.protocol_hashes.contains_key(&effect.name.name)
+                    && self.effect_has_wire_form(effect)
+                {
+                    let msg_path = self.effect_path(&effect.name.name, &msg_enum_name(&effect.name.name));
+                    let proto = self.effect_path(&effect.name.name, &protocol_const_name(&effect.name.name));
+                    arms.push_str(&format!(
+                        "        if proto == {proto} {{\n            \
+                         return crate::wire::salvo_decode::<{msg_path}>(payload)\n                \
+                         .map(|__m| Box::new(__m) as crate::scheduler::SalvoMsg);\n        }}\n"
+                    ));
+                }
+            }
+            let decode_const = actor_decode_const_name(&h.name.name);
+            if arms.is_empty() {
+                out.push_str(&format!(
+                    "\npub const {decode_const}: Option<crate::scheduler::MsgDecoder> = None;\n"
+                ));
+            } else {
+                self.needs_wire = true;
+                let decode_fn = format!("__decode_msg_{}", rs_ident(&h.name.name));
+                out.push_str(&format!(
+                    "\npub const {decode_const}: Option<crate::scheduler::MsgDecoder> = Some({decode_fn});\n\
+                     fn {decode_fn}(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {{\n{arms}    \
+                     None\n}}\n"
+                ));
+            }
+        }
         out
     }
 
@@ -7911,6 +7985,13 @@ fn msg_variant_name(member: &str) -> String {
     out
 }
 
+/// [addr-routable] The decoder constant beside an actor body:
+/// `__DECODE_Counting`, `Option<MsgDecoder>` — a free item, since a generic
+/// dependent body could not name an associated const without its parameters.
+fn actor_decode_const_name(handler: &str) -> String {
+    format!("__DECODE_{}", rs_ident(handler))
+}
+
 /// [rs-actor] The generated body a spawn boxes: `__Actor_Counting`, wrapping
 /// the handler instance and dispatching messages onto its members.
 fn actor_struct_name(handler: &str) -> String {
@@ -8957,7 +9038,7 @@ impl<'p> Emitter<'p> {
                     "({{ {lets}let __h = {ctor}::new({}); \
                      let __cap = __h.__mailbox_capacity; \
                      let __a = crate::scheduler::salvo_spawn({pool_code}, __cap as usize, \
-                     Box::new({}::new(__h))); \
+                     Box::new({}::new(__h)), None); \
                      {mon}{mon_args}::new(Box::new({} {{ {} }})) }})",
                     handler_args.join(", "),
                     actor_struct_name(&handler_name),
@@ -9045,8 +9126,15 @@ impl<'p> Emitter<'p> {
             Some(pool) => self.emit_owned(pool),
             None => "crate::scheduler::salvo_current_pool()".to_string(),
         };
-        let spawn_call =
-            format!("crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}))");
+        // [addr-routable] [wire-format] The actor's message decoder, for
+        // frames arriving over the wire — the generated `__DECODE` constant
+        // of the actor body (a generic dependent body names it through the
+        // type inference of `new`'s argument, so the path is spelled by the
+        // struct name alone and rustc fills the parameters).
+        let spawn_call = format!(
+            "crate::scheduler::salvo_spawn({pool_code}, __cap as usize, Box::new({body}), {})",
+            actor_decode_const_name(&handler_name)
+        );
         // [effect-handler-multi] One addr per implemented effect. There is one
         // actor, one mailbox and one scheduler index; the tuple hands the same
         // index out under each protocol's type, which is where "least authority
@@ -9209,14 +9297,14 @@ impl<'p> Emitter<'p> {
         // there is one, else the type the checker recorded for the whole
         // expression — which *is* the payload, since that is what a `waitfor`
         // yields [actor-waitfor].
-        let payload = match ty {
+        let (payload, decoder) = match ty {
             Some(Type::Named { base, .. })
                 if base.name.name == "Reply" && base.args.len() == 1 =>
             {
-                self.emit_type(&base.args[0])
+                (self.emit_type(&base.args[0]), self.reply_decoder_for_ast(&base.args[0]))
             }
             None => match self.ty_of(_span).cloned() {
-                Some(t) => self.rust_ty(&t),
+                Some(t) => (self.rust_ty(&t), self.reply_decoder_for(&t)),
                 None => {
                     self.error("`waitfor` binds a `Reply<T>`");
                     return "todo!()".to_string();
@@ -9230,8 +9318,11 @@ impl<'p> Emitter<'p> {
         let name = rs_ident(&binding.name);
         self.bindings.insert(binding.name.clone(), BindKind::Owned);
         let mut out = String::from("{\n");
+        // [addr-routable] The waiter registers how its answer is decoded
+        // should the token cross the wire; only this site knows the type.
         out.push_str(&format!(
-            "{pad}let (mut {name}, __wid) = crate::scheduler::salvo_waiter();\n"
+            "{pad}let (mut {name}, __wid) = crate::scheduler::salvo_waiter();\n\
+             {pad}crate::scheduler::salvo_waiter_decoder(__wid, {decoder});\n"
         ));
         let saved = std::mem::replace(&mut self.expr_indent, indent + 1);
         for stmt in &body.stmts {
@@ -9277,7 +9368,28 @@ impl<'p> Emitter<'p> {
             format!("{msg}::{variant}({})", payload.join(", "))
         };
         let target = self.emit_expr(base);
-        format!("crate::scheduler::salvo_send({target}, Box::new({built}))")
+        self.send_call(&effect_name, &target, &built)
+    }
+
+    /// [addr-routable] [wire-format] The send call for a protocol: the typed
+    /// path (`salvo_send_wire`, which encodes and routes when the addr is a
+    /// proxy) when the protocol has a wire form, the plain enqueue otherwise —
+    /// a protocol without one can never be reached through a proxy, since
+    /// `attach<E>` refuses it.
+    fn send_call(&mut self, effect_name: &str, target: &str, built: &str) -> String {
+        let has_wire = self
+            .symbols
+            .effects
+            .get(effect_name)
+            .copied()
+            .is_some_and(|e| self.effect_has_wire_form(e));
+        if has_wire {
+            self.needs_wire = true;
+            let proto = self.effect_path(effect_name, &protocol_const_name(effect_name));
+            format!("crate::scheduler::salvo_send_wire({target}, {built}, {proto})")
+        } else {
+            format!("crate::scheduler::salvo_send({target}, Box::new({built}))")
+        }
     }
 
     /// [mixed-handler] [rs-mixed] A façade send: enqueue on the servant's
@@ -12786,10 +12898,37 @@ impl<'p> Emitter<'p> {
             Some(p) => self.emit_owned(p),
             None => "crate::scheduler::salvo_current_pool()".to_string(),
         };
+        // [addr-routable] How the answer is decoded should this token cross
+        // the wire: only the mint knows the answer's type.
+        let decoder = self.reply_decoder_for_ast(&last.ty);
         format!(
             "({{ {lets}crate::scheduler::salvo_mint_task({pool_code}, \
-             Box::new(move |__v| {name}({}))) }})",
+             Box::new(move |__v| {name}({})), {decoder}) }})",
             args.join(", ")
+        )
+    }
+
+    /// [addr-routable] [wire-format] The `ReplyDecoder` for an answer of a
+    /// written type: `salvo_decode::<T>` boxed as a message when `T` has a
+    /// wire form, a decoder answering `None` otherwise (such a token never
+    /// crosses, so the branch is unreachable — but the runtime needs a value).
+    fn reply_decoder_for_ast(&mut self, ty: &Type) -> String {
+        let empty = HashMap::new();
+        match salvo_core::approx_ty(ty, &empty) {
+            Some(t) => self.reply_decoder_for(&t),
+            None => "(|_| None)".to_string(),
+        }
+    }
+
+    fn reply_decoder_for(&mut self, ty: &Ty) -> String {
+        let ty = ty.strip_quals().clone();
+        if !ty_is_concrete(&ty) || salvo_core::wire_blocker(self.symbols, &ty).is_some() {
+            return "(|_| None)".to_string();
+        }
+        self.needs_wire = true;
+        let rs = self.rust_ty(&ty);
+        format!(
+            "(|__b: &[u8]| crate::wire::salvo_decode::<{rs}>(__b).map(|__v| Box::new(__v) as crate::scheduler::SalvoMsg))"
         )
     }
 
@@ -15884,6 +16023,69 @@ impl<'p> Emitter<'p> {
             let code = self.emit_read(args[0]);
             return format!("crate::wire::salvo_decode::<{rs}>(&{code})");
         }
+        // [addr-routable] [rs-wire] The routing intrinsics of std `net`, each
+        // a thin call into the scheduler's wire section. `route_frames` hands
+        // the runtime a hook that builds the `Outbound` message — the runtime
+        // cannot construct a Salvo struct, so the registration site supplies
+        // the constructor, as `watch` does for `Exit` [actor-watch].
+        if f.intrinsic {
+            match f.name.name.as_str() {
+                "this_node" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "(crate::scheduler::salvo_here_node() as i64)".to_string();
+                }
+                "new_node" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "(crate::scheduler::salvo_new_node() as i64)".to_string();
+                }
+                "pool_at" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_read(args[0]);
+                    let n = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_pool_at(({node}) as u64, ({n}) as usize)"
+                    );
+                }
+                "add_route" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let node = self.emit_read(args[0]);
+                    let at = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_add_route(({node}) as u64, crate::wire::salvo_encode(&{at}))"
+                    );
+                }
+                "deliver_frame" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let data = self.emit_read(args[0]);
+                    return format!("crate::scheduler::salvo_deliver_frame(&{data})");
+                }
+                "credits" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_read(args[0]);
+                    // `emit_read` of a narrowed optional answers a `&usize`;
+                    // an addr is `Copy`, so a deref-by-clone normalises both.
+                    return format!("crate::scheduler::salvo_credits(({a}).clone()).map(|c| c as i32)");
+                }
+                "route_frames" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let out = self.emit_read(args[0]);
+                    let msg = self.effect_path("Outbound", &msg_enum_name("Outbound"));
+                    let proto = self.effect_path("Outbound", &protocol_const_name("Outbound"));
+                    let ep = self.rust_ty(&Ty::Named {
+                        name: "NodeEndpoint".to_string(),
+                        args: Vec::new(),
+                    });
+                    return format!(
+                        "{{ let __out = {out}; crate::scheduler::salvo_set_wire(std::sync::Arc::new(move |__ep: &[u8], __frame: Vec<u8>| {{ \
+                         if let Some(__to) = crate::wire::salvo_decode::<{ep}>(__ep) {{ \
+                         crate::scheduler::salvo_send_wire(__out, {msg}::Frame(__to, __frame), {proto}); }} }})) }}"
+                    );
+                }
+                _ => {}
+            }
+        }
         if f.name.name != "copy" || args.len() != 1 {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
             // [rs-actor] `send(reply, None)`: a bare `None` boxes as an
@@ -15905,7 +16107,42 @@ impl<'p> Emitter<'p> {
                         let rs = self.rust_ty(&ty);
                         let tok = self.emit_expr(args[0]);
                         self.needs_scheduler = true;
+                        if salvo_core::wire_blocker(self.symbols, &ty).is_none() {
+                            self.needs_wire = true;
+                            return format!(
+                                "crate::scheduler::salvo_reply_wire::<{rs}>({tok}, None)"
+                            );
+                        }
                         return format!("({tok}).send(Box::<{rs}>::new(None))");
+                    }
+                }
+            }
+            // [addr-routable] [wire-format] `send(reply, v)` with a `v` whose
+            // type has a wire form takes the typed path, which encodes and
+            // routes a REPLY frame when the token came over the wire; a value
+            // with no wire form cannot be owed to a remote token, so the plain
+            // delivery is right for it.
+            if f.name.name == "send" && recv == Some("Reply") && args.len() == 2 {
+                // The token's payload type, not the argument's: a narrowed
+                // optional (`sink` after `if sink is None { return }`) reads as
+                // its arm, and the coercion back to the declared `T?` is what
+                // `intrinsic_arg_code` applies — so the argument is rendered
+                // through it, and the *token* says what `T` is.
+                let payload = match self.ty_of(args[0].span()).map(|t| t.strip_quals().clone()) {
+                    Some(Ty::Named { name, args: targs }) if name == "Reply" && targs.len() == 1 => {
+                        Some(targs[0].strip_quals().clone())
+                    }
+                    _ => None,
+                };
+                if let Some(vt) = payload {
+                    if ty_is_concrete(&vt) && salvo_core::wire_blocker(self.symbols, &vt).is_none() {
+                        self.needs_scheduler = true;
+                        self.needs_wire = true;
+                        let rs = self.rust_ty(&vt);
+                        let rendered = self.intrinsic_arg_code(f, args);
+                        let tok = rendered[0].clone();
+                        let val = rendered[1].clone();
+                        return format!("crate::scheduler::salvo_reply_wire::<{rs}>({tok}, {val})");
                     }
                 }
             }

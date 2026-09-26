@@ -16,7 +16,7 @@ use std::process::Command;
 /// it is here now, which is what makes this test complete rather than a
 /// sample.)
 const RUNTIME_MODULES: &[&str] =
-    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hosttime.kt"];
+    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hosttime.kt", "wire.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -57,12 +57,20 @@ fn compile_runtime_module(file: &str) {
     // so `hosttime.kt` is compiled beside it exactly as the emitter emits the
     // two together. Every other module stands alone, and `hosttime.kt` is
     // checked on its own through this same list.
+    // [kt-wire] …and since step ③ the scheduler and the wire name each other
+    // (the typed send encodes; the `Addr` codec asks the scheduler), and the
+    // wire names `SalvoBytes`: the three travel with the scheduler.
     let mut sources = vec![src.clone()];
-    if file == "scheduler.kt" {
-        let hosttime = dir.join("hosttime.kt");
-        std::fs::write(&hosttime, runtime_source("hosttime.kt"))
-            .expect("failed to write the time runtime");
-        sources.push(hosttime);
+    if file == "scheduler.kt" || file == "wire.kt" {
+        for companion in ["hosttime.kt", "bytes.kt", "scheduler.kt", "wire.kt"] {
+            if companion == file {
+                continue;
+            }
+            let path = dir.join(companion);
+            std::fs::write(&path, runtime_source(companion))
+                .expect("failed to write the runtime companion");
+            sources.push(path);
+        }
     }
     let out = Command::new("kotlinc")
         .args(&sources)
@@ -695,6 +703,8 @@ fun main() {
         kotlinc.version.as_bytes().to_vec(),
         module.as_bytes().to_vec(),
         hosttime.as_bytes().to_vec(),
+        runtime_source("bytes.kt").into_bytes(),
+        runtime_source("wire.kt").into_bytes(),
     ];
     for case in cases {
         parts.push(case.tag.as_bytes().to_vec());
@@ -715,6 +725,12 @@ fun main() {
     let hosttime_path = dir.join("hosttime.kt");
     std::fs::write(&hosttime_path, &hosttime).expect("failed to write the time runtime");
     let mut sources = vec![module_path, hosttime_path];
+    // [kt-wire] The wire (and the bytes it names) travel with the scheduler.
+    for companion in ["bytes.kt", "wire.kt"] {
+        let path = dir.join(companion);
+        std::fs::write(&path, runtime_source(companion)).expect("failed to write a runtime companion");
+        sources.push(path);
+    }
     for case in cases {
         // Its own package and directory, since every driver declares
         // `main`. `internal` members stay visible: one `kotlinc` invocation

@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1577 tests, complete: the toolchain tests are
+cargo test                  # 1578 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,66 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ③ — routable addresses (2026-09-26 — built).**
+An `Addr<E>` crosses the wire and comes back as a proxy; a message to it is a
+frame; a reply comes back as one; credits keep the far mailbox's `capacity`
+true; unguessable bits keep the addr a capability. **1578 tests** (+1: a
+two-node compile-and-run case per backend, identical output). Rules:
+[addr-routable], [addr-capability], [remote-backpressure], the `[rs-wire]` /
+`[kt-wire]` scheduler sections.
+
+*What landed.* Both runtimes: node identity per process plus hosted virtual
+nodes, `bits` per actor, proxy entries, per-node outbound hooks, routes,
+`salvo_send_wire`/`sendWire`, `salvo_reply_wire`/`replyWire`, OPEN/GRANT/
+MSG/REPLY frames, `salvo_deliver_frame`/`deliverFrame`, `Entry::ReplyRaw`,
+exported tasks; `impl __Wire for usize`/`SalvoReply` and `AddrCodec`/
+`ReplyCodec`. Both emitters: typed sends where the protocol has a wire form,
+typed replies where the payload has one, waiter and task decoders, the actor's
+`decode_reply`, a per-handler message decoder handed to `spawn`. std `net`:
+`this_node`, `new_node`, `pool_at`, `add_route`, `route_frames`,
+`deliver_frame`, `credits`, `actor effect Outbound` + `Sending [Transport]`,
+`Receiving of Inbound`. The wire predicate now admits `Addr<E>` when `E` has a
+wire form and `Reply<T>` when `T` has.
+
+*What building it settled or found:*
+
+* **No remote spawn was the right call twice over.** With every actor
+  spawned by its own node, "remote" is a property of an *addr that crossed*,
+  so the whole feature is a runtime fact plus codecs — no new type, no new
+  binding form, and the existing `send`/`waitfor`/`replyto` emit unchanged
+  except for choosing the typed runtime entry.
+* **Virtual nodes in one process are what make step ③ testable.** A proxy
+  exists only for an addr whose node is not the *current pool's* node — so
+  two hosted nodes in one scheduler reach each other exactly as two processes
+  do, through frames over `MemTransport`. The test's `Booting` actor exists
+  because `route_frames`/`this_node` read the *current* node: node B's wire
+  must be bound from a pool of node B.
+* **Codecs must run with the scheduler lock released.** An `Addr` in a
+  payload encodes by asking the scheduler for its identity; a `Reply` decodes
+  by importing one. Two deadlocks found in sequence (encode inside
+  `salvo_send_wire`; decode inside frame delivery), both fixed by a
+  lock-free phase — and REPLY frames for an actor are queued as raw bytes and
+  decoded when its activation runs, which also closes the gap where a reply
+  arriving mid-activation had nowhere to be decoded.
+* **Frames staged under the lock need a flush after every release**,
+  including in `run_job` (the credit a dequeue grants) — the second hang.
+* **The typed reply must be typed by the token, not the argument**: a
+  narrowed optional (`sink` after `if sink is None { return }`) reads as its
+  arm, and the box then held a `usize` where the waiter downcast an
+  `Option<usize>`. The payload type is `Reply<T>`'s `T`, and the argument is
+  rendered through `intrinsic_arg_code`, which applies the coercion.
+* **Kotlin's trailing-lambda syntax fixed a parameter order**: `mintTask
+  (pool, decode) { body }`, decoder before the lambda, or every existing
+  driver breaks.
+* **kotlinc ran out of heap** batching ~30 programs that all carry codecs;
+  the test runner passes `-Xmx3g`.
+* **Recorded cuts**: a GRANT frame identifies a proxy by `(host node, actor,
+  bits)`; several remote senders may over-subscribe a mailbox by one each;
+  `Entry::ReplyRaw` is decoded at activation, so a malformed remote answer is
+  dropped silently rather than reported (the idle report will name the
+  stranded waiter). The runtime tests' `salvo_spawn` and `salvo_mint_task`
+  drivers gained the decoder arguments.
 
 **The network sequence, step ② — codecs and the protocol hash (2026-09-26 —
 built).** Salvo owns its serialization; **1577 tests** (+12).

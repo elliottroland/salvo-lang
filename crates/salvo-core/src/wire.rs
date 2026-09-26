@@ -53,9 +53,6 @@ pub enum WireBlock {
     /// capabilities (`hash`/`eq`, or `cmp`) are resolved by the checker per
     /// type and would have to be threaded into the decoder. Recorded cut.
     Keyed(String),
-    /// `Addr<E>` / `Reply<T>`: a wire form arrives with the routable identity
-    /// of step ③.
-    Later(String),
     /// A generic parameter: the form is the instantiation's, and `encode`
     /// inside a generic body has nothing to dispatch on yet.
     Generic(String),
@@ -80,10 +77,6 @@ impl WireBlock {
             WireBlock::Keyed(name) => format!(
                 "`{name}` is a keyed container, whose identity capabilities are not yet \
                  carried on the wire — send a `List` of its entries"
-            ),
-            WireBlock::Later(name) => format!(
-                "`{name}` has no wire form yet: routable addresses arrive with the next \
-                 step of the network sequence"
             ),
             WireBlock::Generic(name) => format!(
                 "`{name}` is a generic parameter, and a wire form is the instantiation's \
@@ -125,7 +118,36 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 "Set" | "Map" | "SortedSet" | "SortedMap" => {
                     return Some(WireBlock::Keyed(name.clone()))
                 }
-                "Addr" | "Reply" => return Some(WireBlock::Later(name.clone())),
+                // [addr-routable] An addr crosses as its routable identity —
+                // when the protocol behind it has a wire form, since a proxy
+                // is only good for sends that can be framed; a reply token
+                // crosses when its answer can.
+                "Addr" if args.len() == 1 => {
+                    let Ty::Named { name: effect, .. } = args[0].strip_quals() else {
+                        return None;
+                    };
+                    let Some(e) = symbols.effects.get(effect.as_str()) else {
+                        return None;
+                    };
+                    let empty = HashMap::new();
+                    for f in e.fns.iter().filter(|f| f.is_send) {
+                        for p in f.params.iter().filter(|p| !p.implicit) {
+                            if let Some(t) = approx_ty(&p.ty, &empty) {
+                                if let Some(b) = wire_blocker_at(symbols, &t, depth + 1) {
+                                    return Some(match b {
+                                        WireBlock::NoRemote(inner) => WireBlock::NoRemote(format!(
+                                            "Addr<{effect}> ({effect}.{} takes {inner})",
+                                            f.name.name
+                                        )),
+                                        other => other,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    return None;
+                }
+                "Reply" => return args.iter().find_map(|a| wire_blocker_at(symbols, a, depth + 1)),
                 _ => {}
             }
             if let Some(decl) = symbols.intrinsic_types.get(name.as_str()) {

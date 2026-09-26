@@ -139,3 +139,11 @@ struct Frame { title: Str, canvas: Canvas }       // therefore none either — t
 `encode(value)` answers the bytes and `decode<Point>(data)` reads them back (`None` when the bytes are not a well-formed `Point`), and both are refused at the call for a type with no wire form, naming the field or declaration that stops it. std's process-local handles — `Pool`, the file streams — are `noremote` by declaration; a function value and a `proj` view are, by construction. Keyed containers (`Set`, `Map`) are the one recorded gap: their identity capabilities do not travel yet, so send a `List` of the entries.
 
 Every actor protocol whose payloads all have a wire form also gets a **canonical hash** — over its members' shape, with structs expanded to their fields, so a renamed struct is the same protocol and a reordered field is not. Two nodes may talk on a protocol exactly when their hashes agree, and that is settled at the handshake, never at decode: an exhaustive `when` has no arm for a message it has never heard of, so the language cannot decode leniently and refuses early instead.
+
+### Addresses across machines
+
+An `Addr<E>` that crosses the wire arrives as a **proxy**: the same type, the same `send`, and a mailbox on another node behind it. Nothing in the code that holds it changes — locality is a fact the runtime reads at the send. A `Reply<T>` crosses the same way, and the answer comes back over the wire into whatever was waiting: `main`'s `waitfor`, an actor's parked continuation, a task.
+
+What keeps it honest across a machine is what keeps it honest across a thread. The mailbox's `capacity` is enforced by **credits**: a proxy sends only when the far mailbox has granted room, blocks at zero exactly as a local send blocks on a full queue, and is granted a credit back as each message is dequeued. And an address carries **unguessable bits** minted at the spawn, checked on delivery, so an addr is a capability on the wire as it is in memory — the administrative face of a two-face handler cannot be reached by whoever holds only the public one.
+
+A process is one node; it may also **host virtual nodes** (`new_node()`, `pool_at(node, n)`), which is how a test runs two nodes in one process over `MemTransport` and exercises every remote path — proxies, credits, frames, remote replies — with no socket, on both backends, printing the same thing.

@@ -53,7 +53,7 @@ impl __Stub_Faults {
 
 impl Faults for __Stub_Faults {
     fn faulted(&mut self, fault: Fault) {
-        crate::scheduler::salvo_send(self.addr, Box::new(__Msg_Faults::Faulted(fault)));
+        crate::scheduler::salvo_send_wire(self.addr, __Msg_Faults::Faulted(fault), crate::core_actor::__PROTO_Faults);
     }
 }
 
