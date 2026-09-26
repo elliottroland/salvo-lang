@@ -116,6 +116,22 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "a capability effect in an effect list",
     ),
+    // `use local H(…)`: the scope-local binding opt-out [use-local]. Contextual,
+    // so it is recognised only directly after `use` — a variable named `local`
+    // stays plain.
+    (
+        "(?<=\\\\buse\\\\s)local\\\\b",
+        "keyword.other.salvo",
+        "the scope-local binding opt-out",
+    ),
+    // `[local E]`: an effect-list entry that accepts a scope-local binding
+    // [effect-local]. A bracket or comma before, an *effect name* after — which
+    // is capitalized [name-casing], and is what tells it from a variable.
+    (
+        "(?<=[\\\\[,])\\\\s*(local)\\\\b(?=\\\\s+[A-Z])",
+        "keyword.other.salvo",
+        "a local effect entry in an effect list",
+    ),
     // `on POOL`, the placement clause of a spawn or a mint. A name follows;
     // a *use* of a variable called `on` is followed by an operator, a comma,
     // a brace or a bracket instead.

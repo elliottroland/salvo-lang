@@ -161,6 +161,16 @@
           "match": "(?<=[\\[,])\\s*(spawn)\\b(?=\\s*[,\\]])"
         },
         {
+          "comment": "the scope-local binding opt-out — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "(?<=\\buse\\s)local\\b"
+        },
+        {
+          "comment": "a local effect entry in an effect list — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "(?<=[\\[,])\\s*(local)\\b(?=\\s+[A-Z])"
+        },
+        {
           "comment": "the placement clause — a keyword by position, not a reserved word",
           "name": "keyword.other.salvo",
           "match": "\\bon(?=\\s+[A-Za-z_])"
