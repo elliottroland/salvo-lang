@@ -262,6 +262,11 @@ pub struct StructDecl {
     /// Auto-qualifiers, e.g. `canbe Mut`.
     pub auto_qualifiers: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
+    /// [fn-attached] Functions written **inside** the body: declared on the
+    /// type, so they travel with it wherever it is imported and take their
+    /// visibility from it. Hoisted to module level by desugaring, which is
+    /// where they get their attachment.
+    pub fns: Vec<FnDecl>,
     /// [linear-group] `linear struct X` — the exactly-once obligation,
     /// declared as a modifier (user decision 2026-09-12; replaces the
     /// `: Linear<self>` group entry). A generic struct with a
@@ -522,21 +527,21 @@ pub struct FnDecl {
     /// reserved word.
     pub is_send: bool,
     pub name: Ident,
-    /// [cmp-canonical] `fn cmp@Person(a: Person, b: Person) -> Int`: the
-    /// **canonical** implementation of a capability for a type, `@`-scoped to
-    /// it (user decision 2026-09-21). An ordinary top-level overload with two
-    /// extra properties — it *travels with the type* (importing `Person`
-    /// imports it, so the canonical is in scope wherever the type is usable)
-    /// and it is the **default selection** for an implicit parameter of the
-    /// same name and shape [implicit-resolve]. Declared in the type's own
-    /// file, with an `export` matching the type's.
+    /// [fn-attached] The type this fn is **declared on**, set when a fn written
+    /// *inside* a struct body was hoisted to module level (user decision
+    /// 2026-09-26). An ordinary top-level overload with two extra properties —
+    /// it *travels with the type* (importing `Person` imports it, so it is in
+    /// scope wherever the type is usable) and it is the **default selection**
+    /// for an implicit parameter of the same name and shape
+    /// [implicit-resolve]. Its visibility is the struct's.
     ///
-    /// The same `@` the language already uses to select a scope
-    /// ([fn-overload-at]'s `size@core.list`, [effect-at]'s `close@Fs`),
-    /// extended from modules and effects to types — on both sides, since
-    /// `cmp = cmp@Person` is how a call names one explicitly.
+    /// The *other* attachment route — being the file's fulfilment of one of the
+    /// struct's obligations — leaves nothing on the AST: it is a fact about the
+    /// pair, worked out in resolution (`Resolution::attached`), since the
+    /// obligation's group has to be resolved first. Read the two together
+    /// through the checker's `attached_to`.
     pub scoped_to: Option<Ident>,
-    /// [cmp-auto] `auto fn cmp@Person(a: Person, b: Person) -> Int`: the
+    /// [cmp-auto] `auto fn cmp(a: Person, b: Person) -> Int` inside `Person`: the
     /// **structural** implementation of a capability member for the type it is
     /// `@`-scoped to, written by the compiler (user decisions 2026-09-21,
     /// 2026-09-22). It has no body — each backend lowers it to the host's own
@@ -896,7 +901,7 @@ pub struct TypeRef {
     pub from: Vec<Ident>,
     /// [cmp-carry] `cmp@Person` in a type-argument position: the selector
     /// naming which `cmp` this identity is — a type (`@Person`, an
-    /// `@`-scoped canonical [cmp-canonical]) or a module (`@core.list`,
+    /// `@`-scoped canonical [fn-attached]) or a module (`@core.list`,
     /// dotted, [fn-overload-at]). Only a function **identity** carries one;
     /// a type never does, so a selector here is what tells the two apart
     /// without knowing the slot.

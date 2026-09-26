@@ -70,6 +70,7 @@ Module {
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [],
+                fns: [],
                 linear: false,
                 span: 1341..1359,
             },

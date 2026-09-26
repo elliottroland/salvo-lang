@@ -32,12 +32,14 @@ const STD_PRELUDE: &str = concat!(
 );
 
 /// The user code every test shares: a struct with a canonical ordering
-/// [cmp-canonical], a second ordering of its own, and the heap qualifier with
+/// [fn-attached], a second ordering of its own, and the heap qualifier with
 /// its fn slot.
 const HEAP: &str = r#"
-export struct Person { name: Str, age: Int }
+// [fn-attached] The obligation declares the capability, and this file's `cmp`
+// fulfils it — so `cmp` is declared on `Person` and travels with it.
+export struct Person : Ordered<self> { name: Str, age: Int }
 
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+export fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.age, b.age)
 }
 
@@ -701,7 +703,7 @@ fn run(h: Heap<Person>(nowhere) Mut List<Person>) [] -> Int => h {
     );
 }
 
-/// `cmp@Person` names the canonical [cmp-canonical]; `cmp@Nothing` names
+/// `cmp@Person` names the canonical [fn-attached]; `cmp@Nothing` names
 /// nowhere, and the error says where one would live.
 #[test]
 fn a_selector_must_name_a_declaration() {

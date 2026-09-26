@@ -224,17 +224,17 @@ fn ordering_surface() {
     ));
     let msgs = messages(&body("    let a = \"x\" < \"y\""));
     assert!(
-        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains("auto fn cmp@"),
+        msgs[0].contains("`<` on `Str` is `cmp(Str, Str)`") && msgs[0].contains(": auto"),
         "{msgs:?}"
     );
     let msgs = messages(&body("    let a = true < false"));
     assert!(msgs[0].contains("`cmp(Bool, Bool)`"), "{msgs:?}");
     // A struct needs its `cmp` like anything else, and the message names both
-    // ways to get one [cmp-canonical] [cmp-auto].
+    // ways to get one [fn-attached] [cmp-auto].
     let src = "struct P {\n    x: Int\n}\n\nfn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n";
     let msgs = messages(src);
     assert!(
-        msgs[0].contains("`fn cmp@P(…)`") && msgs[0].contains("auto fn cmp@P"),
+        msgs[0].contains("declare a `cmp` inside `P`'s body") && msgs[0].contains(": auto"),
         "{msgs:?}"
     );
 }

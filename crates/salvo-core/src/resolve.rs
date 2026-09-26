@@ -190,6 +190,13 @@ pub struct Resolution<'p> {
     /// private, instead of being told it does not exist and offered an import
     /// that could not work.
     pub private_in: HashMap<&'p str, Vec<&'p ModulePath>>,
+    /// [fn-attached] Which type each function is **declared on**, for the
+    /// functions that are: those written inside a struct body (the AST carries
+    /// it, set when they were hoisted) and those that are their file's
+    /// fulfilment of one of a struct's obligations. Computed here because the
+    /// import rule needs it — a function declared on a type travels with the
+    /// type — and imports are resolved before anything is checked.
+    pub attached: HashMap<FnKey, String>,
     /// Resolution errors (unresolved/ambiguous imports) [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -666,69 +673,85 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         }
     }
 
-    // [cmp-canonical] An `@`-scoped fn is the **canonical** implementation of
-    // a capability for a type, and two rules keep that claim honest — both
-    // checked here, where the declaring module's own items are at hand:
+    // [fn-attached] The export rule for a function declared on a type. A
+    // function written **inside** the body needs no rule — it carries the
+    // struct's own visibility by construction, and writing `export` on one is a
+    // parse error. A **detached** fulfilment is a separate declaration, so it
+    // has to say so: an exported type whose capability is private would hide
+    // that capability from every module that can use the type, and
+    // [mod-export]'s "the public surface is exactly what the module writes
+    // down" is what stops the compiler from silently widening it (user decision
+    // 2026-09-26).
     //
-    // * it lives in the type's **own file**, which is what makes "importing
-    //   the type imports its canonicals" a rule a reader can apply without
-    //   searching the program (and what stops a third module from minting a
-    //   canonical for someone else's type);
-    // * its `export` **matches the type's** (user decision 2026-09-21) — no
-    //   inheritance, so [mod-export]'s "the public surface is exactly what the
-    //   module writes down" stays literally true where auto-import would
-    //   otherwise blur it.
+    // Computed after the attachment table below, which is why the loop reads it.
+    // [fn-attached] Attachment by **obligation fulfilment**: a struct that
+    // declares `: Hashed<self>` names the capability it provides, and the
+    // function in its own file that fulfils one of the group's members is
+    // thereby declared on the type — so it travels with it, exactly as a
+    // function written inside the body does. The two routes are one rule:
+    // everything declared on a struct is imported with it.
+    //
+    // Matching is by member name and by a parameter naming the struct, not by
+    // full signature: the *checker* judges whether the obligation is really
+    // fulfilled (`check_obligations`, with the group's substituted member type)
+    // and reports it where the obligation is written. Resolution only needs to
+    // know which function the claim is about.
+    let groups_by_name: HashMap<&str, &ParamsDecl> = by_module
+        .values()
+        .flat_map(|items| items.param_groups.iter())
+        .map(|(_, g)| (g.name.name.as_str(), *g))
+        .collect();
+    let mut attached: HashMap<FnKey, String> = HashMap::new();
+    for items in by_module.values() {
+        for (file_idx, st) in &items.structs {
+            for ob in &st.obligations {
+                let Some(group) = groups_by_name.get(ob.group.name.name.as_str()) else {
+                    continue;
+                };
+                for member in &group.fns {
+                    for (key, f) in &items.fns {
+                        if key.file != *file_idx
+                            || f.name.name != member.name.name
+                            || f.scoped_to.is_some()
+                        {
+                            continue;
+                        }
+                        if f.params.iter().any(|p| mentions_type(&p.ty, &st.name.name)) {
+                            attached.insert(*key, st.name.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // [fn-attached] The detached-fulfilment export rule (see the note above).
     {
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
             let items = &by_module[*module];
             for (key, f) in &items.fns {
-                let Some(target) = &f.scoped_to else { continue };
-                // A type of this module: a struct, or an `intrinsic type`
-                // (std's own canonicals are scoped to those).
-                let here: Option<bool> = items
-                    .structs
-                    .iter()
-                    .find(|(_, s)| s.name.name == target.name)
-                    .map(|(_, s)| s.exported)
-                    .or_else(|| {
-                        items
-                            .opaque_types
-                            .iter()
-                            .find(|(_, t)| t.name.name == target.name)
-                            .map(|(_, t)| t.exported)
-                    });
-                let Some(type_exported) = here else {
-                    errors.push(FileDiagnostic::error(
-                        key.file,
-                        target.span,
-                        format!(
-                            "`{}` is not a type declared in this file, so `{}@{}` cannot be its \
-                             canonical implementation: an `@`-scoped fn travels with its \
-                             type, which only works where the two are declared together \
-                             [cmp-canonical]",
-                            target.name, f.name.name, target.name
-                        ),
-                    ));
+                let Some(target) = attached.get(key) else {
                     continue;
                 };
-                if type_exported != f.exported {
-                    let (has, lacks) = if type_exported {
-                        ("the type is `export`ed", "this fn is not")
-                    } else {
-                        ("this fn is `export`ed", "the type is not")
-                    };
+                let exported_type = items
+                    .structs
+                    .iter()
+                    .any(|(_, st)| st.name.name == *target && st.exported);
+                if exported_type && !f.exported {
                     errors.push(FileDiagnostic::error(
                         key.file,
                         f.name.span,
                         format!(
-                            "`{}@{}` and `{}` must agree on `export`: {has}, but {lacks}. An \
-                             `@`-scoped fn is imported with its type, so a mismatch would \
-                             either hide the canonical from every module that can use the \
-                             type, or export a name the type cannot reach [cmp-canonical] \
-                             [mod-export]",
-                            f.name.name, target.name, target.name
+                            "`{}` fulfils an obligation of `{target}`, which is \
+                             `export`ed, so it is declared on an exported type and has \
+                             to say so: write `export fn {}(…)`. A function declared on \
+                             a type is imported with the type, and a private one would \
+                             be unreachable wherever the type is usable — or write it \
+                             inside `{target}`'s body, where the visibility is the \
+                             type's [fn-attached] [mod-export]",
+                            f.name.name, f.name.name
                         ),
                     ));
                 }
@@ -753,6 +776,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             file_idx,
             provenance: &mut provenance,
             errors: &mut errors,
+            attached: &attached,
         };
         // core.* is implicitly visible everywhere — except in a core module's
         // *own* files, which add themselves at `Level::Own` just below. Adding
@@ -838,6 +862,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
         scopes,
         declared_in,
         private_in,
+        attached,
         errors,
     }
 }
@@ -847,6 +872,8 @@ struct AddCtx<'e, 'p> {
     file_idx: usize,
     provenance: &'e mut HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>,
     errors: &'e mut Vec<FileDiagnostic>,
+    /// [fn-attached] Which type each attached fn is declared on.
+    attached: &'e HashMap<FnKey, String>,
 }
 
 impl<'e, 'p> AddCtx<'e, 'p> {
@@ -1099,7 +1126,7 @@ fn add_items<'p>(
     // between a rule and a mystery.
     let visible = |exported: bool| level == Level::Own || exported;
     for (key, f) in &items.fns {
-        // [cmp-canonical] An `@`-scoped fn **travels with its type**: an import
+        // [fn-attached] An `@`-scoped fn **travels with its type**: an import
         // that names `Person` brings every `fn …@Person` of that file along, so
         // the canonical is in scope wherever the type is usable. Without it
         // [implicit-resolve]'s per-call-site locality would be a hazard — a
@@ -1107,10 +1134,15 @@ fn add_items<'p>(
         // `?cmp` to some *other* visible `cmp(Person, Person)`, or to nothing.
         // The fn keeps its own name: an `as` alias renames the type it was
         // written on, and there is no sensible partial rename of a capability.
-        let via_type = f
+        // [fn-attached] Either route attaches: written inside the body (the
+        // AST says so) or the file's fulfilment of an obligation (resolution
+        // worked it out).
+        let target: Option<&str> = f
             .scoped_to
             .as_ref()
-            .is_some_and(|t| !want(&f.name.name) && want(&t.name));
+            .map(|t| t.name.as_str())
+            .or_else(|| ctx.attached.get(key).map(|t| t.as_str()));
+        let via_type = target.is_some_and(|t| !want(&f.name.name) && want(t));
         if want(&f.name.name) || via_type {
             if !visible(f.exported) {
                 continue;
@@ -1534,6 +1566,28 @@ fn resolve_import<'p>(
                     names.join(", ")
                 ),
             ));
+        }
+    }
+}
+
+/// [fn-attached] Whether a written type mentions `name` at its top level or
+/// inside a qualifier group, union arm or type argument — enough to tell that a
+/// parameter is *about* the struct whose obligation is being fulfilled. The
+/// signature itself is judged by the checker.
+fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
+    use salvo_syntax::ast::Type as T;
+    match ty {
+        T::Named { base, .. } => {
+            base.name.name == name || base.args.iter().any(|a| mentions_type(a, name))
+        }
+        T::QualifiedGroup { base, .. } => mentions_type(base, name),
+        T::Union { arms, .. } => arms.iter().any(|a| mentions_type(a, name)),
+        T::Nullable { inner, .. } => mentions_type(inner, name),
+        T::Tuple { elems, .. } => elems.iter().any(|e| mentions_type(e, name)),
+        T::Array { elem, .. } => mentions_type(elem, name),
+        T::Fn { params, ret, .. } => {
+            params.iter().any(|p| mentions_type(p, name))
+                || mentions_type(ret, name)
         }
     }
 }

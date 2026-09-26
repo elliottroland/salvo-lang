@@ -344,20 +344,44 @@ fn ranked(a: Opaque, b: Opaque) [] -> Int => a, b {
     );
 }
 
-// ===== [cmp-canonical] the canonical implementation, `@`-scoped to its type =====
+// ===== [fn-attached] a function declared *on* a type =====
 
-/// `fn cmp@Person(…)` is an ordinary overload — bare calls and dot-notation
-/// reach it [fn-dot] — declared in the type's own file.
+/// A fn written **inside** the struct body is an ordinary overload — bare calls
+/// and dot-notation reach it [fn-dot] — and it is declared on the type.
 #[test]
-fn a_canonical_is_an_ordinary_overload() {
+fn a_fn_inside_the_body_is_an_ordinary_overload() {
     let errs = errors(
         r#"
 struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
-fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+fn older(a: Person, b: Person) [] -> Bool => a, b {
+    return a.cmp(b) > 0
+}
+"#,
+    );
+    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+}
+
+/// [fn-attached] The other route: the file's fulfilment of an obligation the
+/// struct declares. Nothing moves — the fn stays top-level — and it is attached
+/// all the same.
+#[test]
+fn an_obligation_fulfilment_is_attached() {
+    let errs = errors(
+        r#"
+struct Person : Ordered<self> {
+    name: Str,
+    age: Int
+}
+
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.age, b.age)
 }
 
@@ -369,21 +393,21 @@ fn older(a: Person, b: Person) [] -> Bool => a, b {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// The selector spelling **is** the declaration spelling: `cmp@Person` names it
-/// at a call, and — following the *module* precedent [fn-overload-at] rather
-/// than [effect-at]'s call-only form — as a value, which is what
-/// `cmp = cmp@Person` needs [implicit-override].
+/// [fn-attached] [fn-attached] The selector still *reads* the attachment:
+/// `cmp@Person` names the fn declared on `Person`, at a call and as a value,
+/// which is what `cmp = cmp@Person` needs [implicit-override]. Only the
+/// declaration spelling changed.
 #[test]
-fn a_canonical_is_named_by_the_selector_it_is_declared_with() {
+fn an_attached_fn_is_named_by_the_type_selector() {
     let errs = errors(
         r#"
 struct Person {
     name: Str,
     age: Int
-}
 
-fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
 fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
@@ -402,21 +426,56 @@ fn pick(a: Person, b: Person) [] -> Person => !a, !b {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-canonical] It **travels with the type**: a module that imports `Person`
+/// [fn-attached] It **travels with the type**: a module that imports `Person`
 /// and nothing else can still compare two, which is what closes
-/// [implicit-resolve]'s per-call-site visibility hole.
+/// [implicit-resolve]'s per-call-site visibility hole. Both routes travel.
 #[test]
-fn a_canonical_is_imported_with_its_type() {
-    let errs = errors_in(&[
+fn an_attached_fn_is_imported_with_its_type() {
+    let inner = errors_in(&[
         (
             "people.sv",
             r#"
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
+}
+"#,
+        ),
+        (
+            "main.sv",
+            r#"
+import people.Person
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
 }
 
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+fn go(a: Person, b: Person) [] -> Person => !a, !b {
+    let direct = cmp(a, b)
+    return min_of(a, b)
+}
+"#,
+        ),
+    ]);
+    assert!(inner.is_empty(), "unexpected errors: {inner:?}");
+
+    let fulfilment = errors_in(&[
+        (
+            "people.sv",
+            r#"
+export struct Person : Ordered<self> {
+    name: Str,
+    age: Int
+}
+
+export fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.age, b.age)
 }
 "#,
@@ -440,96 +499,61 @@ fn go(a: Person, b: Person) [] -> Person => !a, !b {
 "#,
         ),
     ]);
-    assert!(errs.is_empty(), "unexpected errors: {errs:?}");
+    assert!(fulfilment.is_empty(), "unexpected errors: {fulfilment:?}");
 }
 
-/// The rule that makes "imported with the type" applicable without searching
-/// the program: a canonical lives in the type's **own file**.
+/// [fn-attached] [mod-export] A **detached** fulfilment of an exported type's
+/// obligation has to `export` too: it is declared on a type every importer can
+/// use, and a private one would be unreachable there.
 #[test]
-fn a_canonical_must_live_in_its_types_file() {
-    let errs = errors_in(&[
-        (
-            "people.sv",
-            r#"
-export struct Person {
-    name: Str
-}
-"#,
-        ),
-        (
-            "other.sv",
-            r#"
-import people.Person
-
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.name, b.name)
-}
-"#,
-        ),
-    ]);
-    assert!(
-        errs.iter().any(|e| e.contains("not a type declared in this file")),
-        "expected the same-file rule to be named, got: {errs:?}"
-    );
-}
-
-/// [mod-export] `export` is explicit on a canonical and must **match the
-/// type's** (user decision 2026-09-21): no inheritance, either way.
-#[test]
-fn a_canonicals_export_must_match_its_types() {
-    let exported_fn_private_type = errors(
+fn a_detached_fulfilment_must_export_with_its_type() {
+    let private_fn = errors(
         r#"
-struct Point {
+export struct Point : Ordered<self> {
     x: Int
 }
 
-export fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+fn cmp(a: Point, b: Point) [] -> Int => a, b {
     return cmp(a.x, b.x)
 }
 "#,
     );
     assert!(
-        exported_fn_private_type
-            .iter()
-            .any(|e| e.contains("must agree on `export`")),
-        "expected the export-match error, got: {exported_fn_private_type:?}"
-    );
-
-    let exported_type_private_fn = errors(
-        r#"
-export struct Point {
-    x: Int
-}
-
-fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
-    return cmp(a.x, b.x)
-}
-"#,
-    );
-    assert!(
-        exported_type_private_fn
-            .iter()
-            .any(|e| e.contains("must agree on `export`")),
-        "expected the export-match error, got: {exported_type_private_fn:?}"
+        private_fn.iter().any(|e| e.contains("has to say so")),
+        "expected the export rule, got: {private_fn:?}"
     );
 
     let matching = errors(
         r#"
-export struct Point {
+export struct Point : Ordered<self> {
     x: Int
 }
 
-export fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
+export fn cmp(a: Point, b: Point) [] -> Int => a, b {
     return cmp(a.x, b.x)
 }
 "#,
     );
     assert!(matching.is_empty(), "unexpected errors: {matching:?}");
+
+    // A *private* type needs nothing: there is no importer to hide it from.
+    let private_type = errors(
+        r#"
+struct Point : Ordered<self> {
+    x: Int
 }
 
-/// [cmp-canonical] Decision 9: ambiguity around a canonical is **an error,
-/// explicit and implicit alike** — no scope rung silently wins. This is the one
-/// carve-out of [fn-overload-scope]'s Own-beats-Import silence.
+fn cmp(a: Point, b: Point) [] -> Int => a, b {
+    return cmp(a.x, b.x)
+}
+"#,
+    );
+    assert!(private_type.is_empty(), "unexpected errors: {private_type:?}");
+}
+
+/// [fn-overload-ambiguous] An attached fn is an ordinary overload, so two that
+/// fit are an ordinary ambiguity: refused, naming the places. Until 2026-09-26
+/// this needed a carve-out, because scope otherwise decided in silence.
 #[test]
 fn ambiguity_around_a_canonical_is_an_error_on_every_rung() {
     let files = &[
@@ -539,11 +563,12 @@ fn ambiguity_around_a_canonical_is_an_error_on_every_rung() {
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
-}
 "#,
         ),
         (
@@ -572,19 +597,14 @@ fn go(a: Person, b: Person) [] -> Person => !a, !b {
         ),
     ];
     let errs = errors_in(files);
-    // The *call* says both selector spellings…
+    // The *call* is refused and names the places [fn-overload-ambiguous]: the
+    // rule is general now, so an attached fn needs no carve-out of its own.
     assert!(
         errs.iter()
             .any(|e| e.contains("ambiguous call to `cmp(Person, Person)`")
-                && e.contains("cmp@Person")
+                && e.contains("cmp@people")
                 && e.contains("cmp@main")),
-        "expected the call ambiguity to name both spellings, got: {errs:?}"
-    );
-    // …and so does implicit resolution, which used to resolve by rung.
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("is ambiguous for `min_of`") && e.contains("cmp@Person")),
-        "expected the implicit ambiguity to name the canonical, got: {errs:?}"
+        "expected the call ambiguity to name both places, got: {errs:?}"
     );
 }
 
@@ -599,11 +619,12 @@ fn the_selector_resolves_an_ambiguity_around_a_canonical() {
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
-}
 "#,
         ),
         (
@@ -633,7 +654,7 @@ fn go(a: Person, b: Person) [] -> Person => !a, !b {
     assert!(errs.is_empty(), "unexpected errors: {errs:?}");
 }
 
-/// [cmp-canonical] The canonical is the **default selection** even where a
+/// [fn-attached] The canonical is the **default selection** even where a
 /// nearer rung has a fitting candidate of a *different* shape: only candidates
 /// that fit compete, so an unrelated `cmp` in this module is not an ambiguity.
 #[test]
@@ -645,11 +666,12 @@ fn an_unrelated_overload_is_not_an_ambiguity() {
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
-}
 "#,
         ),
         (
@@ -676,20 +698,24 @@ fn go(a: Person, b: Person) [] -> Int => a, b {
 
 /// A lowercase name after `@` on a *declaration* is a mistake with its own
 /// message: a fn is already scoped to its module, so the only `@` that means
-/// anything there is a type's.
+/// [fn-attached] A `@` on a *declaration* is refused outright now: attachment
+/// is declaring the function on the type, not selecting from it. The diagnostic
+/// names both routes.
 #[test]
-fn a_declaration_selector_must_name_a_type() {
-    let (_, diags) = salvo_syntax::parse_module(
-        "fn cmp@people(a: Int, b: Int) -> Int {\n    return 0\n}\n",
+fn a_declaration_takes_no_selector() {
+    let (_m, diags) = salvo_syntax::parse_module(
+        "struct Person {\n    name: Str\n}\n\nfn cmp@Person(a: Person, b: Person) -> Int => a, b {\n    return 0\n}\n",
     );
-    let errs: Vec<String> = diags
+    let msgs: Vec<String> = diags
         .iter()
         .filter(|d| d.is_error())
         .map(|d| d.message.clone())
         .collect();
     assert!(
-        errs.iter().any(|e| e.contains("scopes a function to a *type*")),
-        "expected the casing rule to be named, got: {errs:?}"
+        msgs.iter().any(|m| m.contains("does not take a `@` selector")
+            && m.contains("inside `Person`'s body")
+            && m.contains("obligations")),
+        "got: {msgs:?}"
     );
 }
 
@@ -697,7 +723,7 @@ fn a_declaration_selector_must_name_a_type() {
 
 /// `: auto Ordered<self>` writes the members: `cmp` resolves at the type,
 /// fills a `?Ordered<T>` position, and is reached by the canonical selector
-/// like a hand-written one [cmp-canonical].
+/// like a hand-written one [fn-attached].
 #[test]
 fn a_default_obligation_generates_the_members() {
     let errs = errors(
@@ -777,10 +803,11 @@ fn same(a: Point, b: Point) [] -> Bool => a, b {
         r#"
 struct Point : Ordered<self>, Eq<self> {
     x: Int
-}
 
-auto fn cmp@Point(a: Point, b: Point) [] -> Int => a, b
-auto fn eq@Point(a: Point, b: Point) [] -> Bool => a, b
+    auto fn eq(a: Point, b: Point) [] -> Bool => a, b
+
+    auto fn cmp(a: Point, b: Point) [] -> Int => a, b
+}
 
 fn same(a: Point, b: Point) [] -> Bool => a, b {
     return eq(a, b) && cmp(a, b) == 0
@@ -844,7 +871,7 @@ struct Sample : auto Hashed<self> {
     assert!(
         float_field
             .iter()
-            .any(|e| e.contains("auto fn hash@Sample") && e.contains("not hashed")),
+            .any(|e| e.contains("auto fn hash") && e.contains("not hashed")),
         "expected the float field to be refused, got: {float_field:?}"
     );
 
@@ -858,7 +885,7 @@ struct Counter : auto Ordered<self> canbe Mut {
     assert!(
         mutable
             .iter()
-            .any(|e| e.contains("auto fn cmp@Counter") && e.contains("canbe Mut")),
+            .any(|e| e.contains("auto fn cmp") && e.contains("canbe Mut")),
         "expected the mutable struct to be refused, got: {mutable:?}"
     );
 }
@@ -918,9 +945,9 @@ fn a_spread_resolves_every_member() {
         r#"
 struct Key {
     x: Int
-}
 
-auto fn hash@Key(value: Key) [] -> Long => value
+    auto fn hash(value: Key) [] -> Long => value
+}
 
 fn bucket<T>(v: T, ?Hashed<T>) [] -> Long => v {
     return hash(v)
@@ -941,9 +968,9 @@ fn probe(k: Key) [] -> Long => k {
         r#"
 struct Key {
     x: Int
-}
 
-auto fn hash@Key(value: Key) [] -> Long => value
+    auto fn hash(value: Key) [] -> Long => value
+}
 
 fn bucket<T>(v: T, ?hash: (T) -> Long) [] -> Long => v {
     return hash(v)
@@ -969,13 +996,14 @@ fn auto_fns_mix_with_hand_written_ones() {
 struct Person : Ordered<self>, Hashed<self> {
     name: Str,
     age: Int
-}
 
-auto fn cmp@Person(a: Person, b: Person) [] -> Int => a, b
-auto fn hash@Person(value: Person) [] -> Long => value
+    fn eq(a: Person, b: Person) [] -> Bool => a, b {
+        return cmp(a, b) == 0
+    }
 
-fn eq@Person(a: Person, b: Person) [] -> Bool => a, b {
-    return cmp(a, b) == 0
+    auto fn hash(value: Person) [] -> Long => value
+
+    auto fn cmp(a: Person, b: Person) [] -> Int => a, b
 }
 
 fn probe(a: Person, b: Person) [] -> Bool => a, b {
@@ -999,10 +1027,11 @@ struct A : auto Hashed<self> {
 
 struct B {
     x: Int
-}
 
-auto fn hash@B(value: B) [] -> Long => value
-auto fn eq@B(a: B, b: B) [] -> Bool => a, b
+    auto fn eq(a: B, b: B) [] -> Bool => a, b
+
+    auto fn hash(value: B) [] -> Long => value
+}
 
 fn probe(p: A, q: A, r: B, s: B) [] -> Bool => p, q, r, s {
     return eq(p, q) && eq(r, s) && hash(p) == hash(r)
@@ -1015,9 +1044,10 @@ fn probe(p: A, q: A, r: B, s: B) [] -> Bool => p, q, r, s {
         r#"
 struct A : auto Hashed<self> {
     x: Int
+
+    auto fn hash(value: A) [] -> Long => value
 }
 
-auto fn hash@A(value: A) [] -> Long => value
 "#,
     );
     assert!(
@@ -1031,12 +1061,12 @@ auto fn hash@A(value: A) [] -> Long => value
 /// shape. Each refusal names the remedy rather than leaving a body unwritten.
 #[test]
 fn an_auto_fn_is_checked_at_its_declaration() {
-    // Not `@`-scoped: there is no type whose fields to read.
+    // Not declared on a type: there are no fields to read.
     let errs = errors("auto fn cmp(a: Int, b: Int) [] -> Int => a, b
 ");
     assert!(
-        errs.iter().any(|e| e.contains("names one")),
-        "expected the `@` requirement: {errs:?}"
+        errs.iter().any(|e| e.contains("declared *on* one")),
+        "expected the attachment requirement: {errs:?}"
     );
 
     // A member the compiler has no generator for.
@@ -1044,9 +1074,10 @@ fn an_auto_fn_is_checked_at_its_declaration() {
         r#"
 struct Point {
     x: Int
+
+    auto fn describe(p: Point) [] -> Str => p
 }
 
-auto fn describe@Point(p: Point) [] -> Str => p
 "#,
     );
     assert!(
@@ -1060,11 +1091,12 @@ auto fn describe@Point(p: Point) [] -> Str => p
         r#"
 struct Point {
     x: Int
+
+    auto fn cmp(a: Point, b: Point) [] -> Int => a, b {
+        return 0
+    }
 }
 
-auto fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
-    return 0
-}
 "#,
     );
     assert!(
@@ -1077,9 +1109,10 @@ auto fn cmp@Point(a: Point, b: Point) [] -> Int => a, b {
         r#"
 struct Point {
     x: Int
+
+    auto fn hash(a: Point, b: Point) [] -> Long => a, b
 }
 
-auto fn hash@Point(a: Point, b: Point) [] -> Long => a, b
 "#,
     );
     assert!(
@@ -1091,9 +1124,10 @@ auto fn hash@Point(a: Point, b: Point) [] -> Long => a, b
         r#"
 struct Point {
     x: Int
+
+    auto fn cmp(a: Point, b: Point) [] -> Bool => a, b
 }
 
-auto fn cmp@Point(a: Point, b: Point) [] -> Bool => a, b
 "#,
     );
     assert!(
@@ -1101,12 +1135,13 @@ auto fn cmp@Point(a: Point, b: Point) [] -> Bool => a, b
         "expected the signature to be named: {errs:?}"
     );
 
-    // A type with no fields to read.
-    let errs = errors("auto fn cmp@Str(a: Str, b: Str) [] -> Int => a, b
+    // An `auto` obligation on a type with no fields to read: the generator has
+    // nothing to write the body from, and only a struct has fields.
+    let errs = errors("auto fn cmp(a: Str, b: Str) [] -> Int => a, b
 ");
     assert!(
-        errs.iter().any(|e| e.contains("no visible struct")),
-        "expected the struct requirement: {errs:?}"
+        errs.iter().any(|e| e.contains("declared *on* one")),
+        "expected the attachment requirement: {errs:?}"
     );
 }
 
@@ -1118,11 +1153,12 @@ fn a_hand_written_member_beside_a_generated_one_is_a_duplicate() {
         r#"
 struct Point : auto Eq<self> {
     x: Int
+
+    fn eq(a: Point, b: Point) [] -> Bool => a, b {
+        return eq(a.x, b.x)
+    }
 }
 
-fn eq@Point(a: Point, b: Point) [] -> Bool => a, b {
-    return eq(a.x, b.x)
-}
 "#,
     );
     assert!(
@@ -1261,7 +1297,7 @@ fn same(a: Note, b: Note) [] -> Bool => a, b {
     assert!(
         missing
             .iter()
-            .any(|e| e.contains("`==` on `Note`") && e.contains("auto fn eq@Note")),
+            .any(|e| e.contains("`==` on `Note`") && e.contains(": auto")),
         "expected the opt-in to be named, got: {missing:?}"
     );
 
@@ -1283,8 +1319,8 @@ fn same<T>(a: T, b: T) [] -> Bool => a, b {
 #[test]
 fn the_canbe_optins_are_deleted() {
     for (written, replacement) in [
-        ("canbe hashed", "auto fn hash@"),
-        ("canbe ordered", "auto fn cmp@"),
+        ("canbe hashed", ": auto Hashed<self>"),
+        ("canbe ordered", ": auto Ordered<self>"),
     ] {
         let errs = errors(&format!("struct Point {written} {{\n    x: Int\n}}\n"));
         assert!(

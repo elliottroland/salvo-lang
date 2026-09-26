@@ -476,7 +476,8 @@ fn a_struct_without_an_eq_cannot_be_compared() {
     );
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
-        msgs[0].contains("`fn eq@Point(…)`") && msgs[0].contains("auto fn eq@Point"),
+        msgs[0].contains("declare a `eq` inside `Point`'s body")
+            && msgs[0].contains(": auto"),
         "unexpected message: {}",
         msgs[0]
     );
@@ -510,16 +511,18 @@ fn a_fn_field_bars_the_structural_eq_but_not_a_hand_written_one() {
     );
     assert_eq!(structural.len(), 1, "expected one error: {structural:?}");
     assert!(
-        structural[0].contains("auto fn eq@Holder")
+        structural[0].contains("auto fn eq")
             && structural[0].contains("function value has no equality"),
         "unexpected message: {}",
         structural[0]
     );
 
+    // [fn-attached] Declared *inside* the body: the hand-written `eq` is on the
+    // type, and ignores the field the structural one could not compare.
     let by_hand = lit_messages(
-        "struct Holder {\n    f: (Int) -> Int,\n    tag: Int\n}\n\n\
-         fn eq@Holder(a: Holder, b: Holder) [] -> Bool => a, b {\n    \
-         return eq(a.tag, b.tag)\n}\n\n\
+        "struct Holder {\n    f: (Int) -> Int,\n    tag: Int\n\n\
+         fn eq(a: Holder, b: Holder) [] -> Bool => a, b {\n        \
+         return eq(a.tag, b.tag)\n    }\n}\n\n\
          fn probe(a: Holder, b: Holder) -> Bool => a, b {\n    return a == b\n}\n",
     );
     assert!(by_hand.is_empty(), "expected no errors, got: {by_hand:?}");
@@ -535,20 +538,23 @@ fn ordering_needs_a_cmp() {
     );
     assert!(generated.is_empty(), "expected no errors, got: {generated:?}");
 
+    // [fn-attached] Hand-written, declared inside the body.
     let by_hand = lit_messages(
-        "struct P {\n    x: Int\n}\n\n\
-         fn cmp@P(a: P, b: P) [] -> Int => a, b {\n    return cmp(a.x, b.x)\n}\n\n\
+        "struct P {\n    x: Int\n\n\
+         fn cmp(a: P, b: P) [] -> Int => a, b {\n        return cmp(a.x, b.x)\n    }\n}\n\n\
          fn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n",
     );
     assert!(by_hand.is_empty(), "expected no errors, got: {by_hand:?}");
 
+    // And with neither, the diagnostic names both ways to declare one.
     let msgs = lit_messages(
         "struct P {\n    x: Int\n}\n\n\
          fn probe(a: P, b: P) -> Bool => a, b {\n    return a < b\n}\n",
     );
     assert_eq!(msgs.len(), 1, "expected one error: {msgs:?}");
     assert!(
-        msgs[0].contains("`fn cmp@P(…)`") && msgs[0].contains("auto fn cmp@P"),
+        msgs[0].contains("declare a `cmp` inside `P`'s body")
+            && msgs[0].contains(": auto"),
         "unexpected message: {}",
         msgs[0]
     );
@@ -641,7 +647,7 @@ fn canbe_rejects_an_unknown_optin() {
     assert!(
         deleted
             .iter()
-            .any(|m| m.contains("no longer exists") && m.contains("auto fn hash@")),
+            .any(|m| m.contains("no longer exists") && m.contains(": auto Hashed<self>")),
         "the message should name the replacement, got: {deleted:?}"
     );
 }

@@ -2817,7 +2817,7 @@ fn main() [use] {
     )
 }
 
-/// [cmp-canonical] The **canonical** implementation of a capability for a type,
+/// [fn-attached] The **canonical** implementation of a capability for a type,
 /// `@`-scoped to it: declared in the type's file, imported with the type, the
 /// default selection for an implicit of the same shape, and named by the same
 /// selector at a call or as a value.
@@ -2831,21 +2831,22 @@ fn kotlinc_compiles_and_runs_a_canonical_implementation() -> KotlinCase {
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
 // The canonical ordering for `Person`: an ordinary overload that travels with
 // the type, exported to match it.
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
-}
 "#;
     let main = r#"
-// Only the *type* is imported; its canonical rides along [cmp-canonical].
+// Only the *type* is imported; its canonical rides along [fn-attached].
 import people.Person
 
 // An ordinary overload of the same shape, in *this* module — the `Own` rung,
 // which today's ladder would let win silently. It cannot: an ambiguity around a
-// canonical is always an error [cmp-canonical], so every call below selects.
+// canonical is always an error [fn-attached], so every call below selects.
 fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
@@ -2902,9 +2903,9 @@ struct Point : auto Ordered<self>, auto Hashed<self> {
 // sugar for — and it is what a backend's derive hangs on.
 struct Tag {
     label: Str
-}
 
-auto fn eq@Tag(a: Tag, b: Tag) [] -> Bool => a, b
+    auto fn eq(a: Tag, b: Tag) [] -> Bool => a, b
+}
 
 // A generic struct's generated members are generic too.
 struct Box<T> : auto Eq<self> {
@@ -2965,18 +2966,18 @@ struct Point : auto Ordered<self>, auto Eq<self> {
 }
 
 // A hand-written canonical, which the operators reach exactly as they reach a
-// generated one [cmp-canonical].
+// generated one [fn-attached].
 struct Age {
     years: Int,
     label: Str
-}
 
-fn cmp@Age(a: Age, b: Age) [] -> Int => a, b {
-    return cmp(a.years, b.years)
-}
+    fn eq(a: Age, b: Age) [] -> Bool => a, b {
+        return eq(a.years, b.years)
+    }
 
-fn eq@Age(a: Age, b: Age) [] -> Bool => a, b {
-    return eq(a.years, b.years)
+    fn cmp(a: Age, b: Age) [] -> Int => a, b {
+        return cmp(a.years, b.years)
+    }
 }
 
 // [implicit-forward] Generic code publishes the capability in its signature,
@@ -3037,10 +3038,11 @@ fn kotlinc_compiles_and_runs_a_carried_ordering() -> KotlinCase {
 // qualifier's own **fn slot**.
 qualifier Ranked<T>(?cmp: (T, T) -> Int) of List<T>
 
-struct Person { name: Str, age: Int }
+// [fn-attached] The obligation names the capability; this file's `cmp` fulfils
+// it, so `cmp` is declared on `Person` and travels with it.
+struct Person : Ordered<self> { name: Str, age: Int }
 
-// [cmp-canonical] The canonical ordering for a `Person`: by age.
-fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.age, b.age)
 }
 
@@ -3123,10 +3125,7 @@ fn main() [use] {
 /// lowerings of one rule, and the equality of the output is the assertion.
 fn kotlinc_compiles_and_runs_a_keyed_container_ordering() -> KotlinCase {
     let src = r#"
-struct Person { name: Str, age: Int }
-
-auto fn cmp@Person(a: Person, b: Person) -> Int
-auto fn eq@Person(a: Person, b: Person) -> Bool
+struct Person : auto Ordered<self>, auto Eq<self> { name: Str, age: Int }
 
 fn by_age(a: Person, b: Person) -> Int => a, b {
     return cmp(a.age, b.age)
@@ -3183,10 +3182,7 @@ fn main() [use] {
 /// the emitted *type* is still `MutableSet<T>` and only the construction differs.
 fn kotlinc_compiles_and_runs_a_keyed_hash_pair() -> KotlinCase {
     let src = r#"
-struct Person { name: Str, age: Int }
-
-auto fn hash@Person(value: Person) -> Long
-auto fn eq@Person(a: Person, b: Person) -> Bool
+struct Person : auto Hashed<self> { name: Str, age: Int }
 
 // A pair that keys by age alone: two people of an age are one member.
 fn age_hash(p: Person) -> Long => p {

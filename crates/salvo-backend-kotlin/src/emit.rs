@@ -6129,7 +6129,7 @@ impl<'p> Emitter<'p> {
             Expr::Scoped { name, .. } => self.named_fn_value(&name.name, name.span),
             // [effect-at] Checker-refused as a value — *unless* the capitalized
             // name is a type, which makes this a canonical named as a value
-            // ([cmp-canonical] `cmp = cmp@Person`): the checker resolved a
+            // ([fn-attached] `cmp = cmp@Person`): the checker resolved a
             // function, so the selector is erased like any other.
             Expr::EffectScoped { name, .. } => {
                 if self

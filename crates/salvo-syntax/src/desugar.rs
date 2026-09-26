@@ -464,6 +464,7 @@ fn expand(
         });
     }
     let pass_struct = StructDecl {
+        fns: Vec::new(),
         docs: vec![format!(
             "The pass over `{}`, generated from its `iter fn next` [iter-fn].",
             base.name.name
@@ -652,7 +653,7 @@ fn expand(
         is_send: false,
         iter_state: vec![],
         name: f.name.clone(),
-        // [cmp-canonical] An `iter fn` is never `@`-scoped: the form declares
+        // [fn-attached] An `iter fn` is never `@`-scoped: the form declares
         // a pass, and the generated halves inherit its plain name.
         scoped_to: None,
         structural: false,
@@ -1556,7 +1557,7 @@ pub fn auto_member_names() -> Vec<&'static str> {
 
 /// [cmp-auto] Expands every `: auto Group<self>` into the `auto fn`
 /// declarations it is sugar for: one `@`-scoped fn per member
-/// [cmp-canonical], bodiless and marked `structural`, which each backend lowers
+/// [fn-attached], bodiless and marked `structural`, which each backend lowers
 /// to the host's own derived comparison, equality or hash.
 ///
 /// Done here, beside the `iter fn` expansion and for the same three reasons:
@@ -1573,6 +1574,20 @@ pub fn auto_member_names() -> Vec<&'static str> {
 /// reports it, naming the members it can write.
 pub fn expand_auto_obligations(module: &mut Module) {
     let mut generated: Vec<Item> = Vec::new();
+    // [fn-attached] A fn written inside a struct body is hoisted to module
+    // level, attached to the type and carrying its visibility. Hoisted rather
+    // than kept nested because it *is* an ordinary top-level function in every
+    // other respect — it overloads, it is called bare or with dot notation, and
+    // it takes part in ranking.
+    for item in &mut module.items {
+        let Item::Struct(s) = item else { continue };
+        let (exported, name) = (s.exported, s.name.clone());
+        for mut f in std::mem::take(&mut s.fns) {
+            f.exported = exported;
+            f.scoped_to = Some(name.clone());
+            generated.push(Item::Fn(f));
+        }
+    }
     for item in &module.items {
         let Item::Struct(s) = item else { continue };
         let mut members: Vec<&str> = Vec::new();
@@ -1683,7 +1698,7 @@ fn structural_member(s: &StructDecl, member: &str) -> FnDecl {
             s.name.name
         )],
         // [mod-export] A generated canonical carries the struct's own
-        // visibility, which is also what [cmp-canonical]'s export-match rule
+        // visibility, which is also what [fn-attached]'s export-match rule
         // demands of a hand-written one.
         exported: s.exported,
         intrinsic: false,

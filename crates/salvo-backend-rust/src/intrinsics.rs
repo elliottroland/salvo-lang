@@ -194,7 +194,7 @@ pub fn fn_call(
             format!("format!(\"{{}}\", {})", a(0))
         }
         ("eq", Some("Str")) => format!("(&{}[..] == &{}[..])", a(0), a(1)),
-        // [cmp-canonical] A buffer compares **structurally**: `Vec<u8> ==
+        // [fn-attached] A buffer compares **structurally**: `Vec<u8> ==
         // Vec<u8>` is element-wise, which is what the Kotlin runtime's
         // `SalvoBytes.equals` also does [kt-bytes].
         ("eq", Some("Bytes")) => format!("({} == {})", a(0), a(1)),

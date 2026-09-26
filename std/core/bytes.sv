@@ -42,9 +42,10 @@ export intrinsic fn str_of_bytes(data: Bytes) [] -> Str? => data
 
 // [cmp-canonical] [op-equality] The canonical equality for a buffer:
 // **structural**, byte for byte, which is what `==` on two `Bytes` means.
-// Declared here, `@`-scoped to the type, so it travels with `Bytes` wherever
-// the type does.
-export intrinsic fn eq@Bytes(a: Bytes, b: Bytes) [] -> Bool => a, b
+// A plain overload, like every other canonical of an intrinsic type: `core.*`
+// is implicitly visible everywhere, which is the travelling that attachment
+// exists to provide [fn-attached].
+export intrinsic fn eq(a: Bytes, b: Bytes) [] -> Bool => a, b
 
 // The number of bytes in [data].
 export intrinsic fn size(data: Bytes) [] -> Int => data

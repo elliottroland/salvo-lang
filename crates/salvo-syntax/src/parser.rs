@@ -1173,7 +1173,36 @@ impl<'s> Parser<'s> {
         }
         self.expect(&TokenKind::LBrace)?;
         let mut fields = Vec::new();
+        let mut fns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            // [fn-attached] A `fn` inside the body is **declared on** the
+            // struct: it travels with the type, and its visibility is the
+            // type's. `auto fn` is the generated form of the same thing.
+            // [fn-attached] An inner fn's visibility *is* the type's, so
+            // writing `export` on one says something the language does not let
+            // it say.
+            if self.at_word(EXPORT_MODIFIER)
+                && matches!(self.peek_at(1).kind, TokenKind::KwFn)
+            {
+                let sp = self.peek().span;
+                self.error(
+                    "a function declared inside a struct takes the struct's own \
+                     visibility: drop the `export` (export the struct instead) \
+                     [fn-attached]",
+                    sp,
+                );
+                self.bump();
+            }
+            let auto_fn = self.at_word("auto") && matches!(self.peek_at(1).kind, TokenKind::KwFn);
+            if auto_fn || self.at(&TokenKind::KwFn) {
+                if auto_fn {
+                    self.bump();
+                }
+                let mut f = self.parse_fn(false)?;
+                f.structural = auto_fn;
+                fns.push(f);
+                continue;
+            }
             fields.push(self.parse_field_decl()?);
             self.eat(&TokenKind::Comma);
         }
@@ -1183,6 +1212,7 @@ impl<'s> Parser<'s> {
             exported: false,
             docs,
             name,
+            fns,
             generics,
             generic_canbe,
             obligations,
@@ -1770,30 +1800,26 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwFn)?.span;
         let name = self.ident_value("fn")?;
-        // [cmp-canonical] `fn cmp@Person(…)`: the **canonical** implementation
-        // of a capability for a type, `@`-scoped to it. The same selector the
-        // language already reads on a *reference* ([fn-overload-at]'s
-        // `size@core.list`, [effect-at]'s `close@Fs`), now also written at the
-        // declaration — so the declaration spelling and the disambiguation
-        // spelling are one token (user decision 2026-09-21).
-        //
-        // Capitalized only: a type is uppercase [name-casing], and a lowercase
-        // name after `@` is a module path everywhere else, which here would be
-        // someone reaching for a module-scoping form that does not exist (a fn
-        // is already scoped to its module).
-        let mut scoped_to = None;
+        // [fn-attached] A function is **declared on** a type by being written
+        // inside its body, or by being the file's fulfilment of one of the
+        // type's obligations — never by a selector on the declaration (user
+        // decision 2026-09-26, replacing `fn cmp@Person(…)`). Both spellings
+        // are "declare something on the struct", which is the same shape
+        // actors and qualifiers already use.
+        let scoped_to = None;
         if self.at(&TokenKind::At) && self.same_line() {
             let at = self.bump().span;
-            let target = self.ident()?;
-            if !target.name.starts_with(|c: char| c.is_uppercase()) {
-                self.error(
-                    "`@` on a declaration scopes a function to a *type* \
-                     (`fn cmp@Person(…)`), and a type name is capitalized \
-                     [name-casing]; a function is already scoped to its module",
-                    at,
-                );
-            }
-            scoped_to = Some(target);
+            let target = self.ident();
+            let target = target.map(|t| t.name).unwrap_or_else(|| "Type".to_string());
+            self.error(
+                format!(
+                    "a declaration does not take a `@` selector: write the function \
+                     inside `{target}`'s body to declare it on the type, or let it \
+                     fulfil one of `{target}`'s obligations (`: Hashed<self>`) in \
+                     this file [fn-attached]"
+                ),
+                at,
+            );
         }
         let (generics, generic_canbe) = self.parse_generics_canbe();
         let (mut params, implicit_groups) = self.parse_params()?;

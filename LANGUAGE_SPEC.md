@@ -840,7 +840,7 @@ Conventions:
     ([rs-stored-implicit]). A fn that merely *forwards* the capability to one
     that builds a container is in the same position, so the owned convention is
     closed under forwarding. What makes that stable for the canonical
-    case is [cmp-canonical] — a canonical travels with its type, so the `cmp` an
+    case is [fn-attached] — a fn declared on a type travels with it, so the `cmp` an
     unwritten slot resolves to is the same one everywhere the type is usable.
   * **A non-canonical identity is kept at run time**, which is what the
     containers' runtimes were rewritten for (landed 2026-09-22, the ordering
@@ -895,7 +895,7 @@ Conventions:
 * [col-equality] **Equality is a capability**: `a == b` is `eq(a, b)`, so a
   struct supports `==` and `!=` exactly when an `eq` for it is in scope —
   generated with `: auto Eq<self>` [cmp-auto], or hand-written and
-  `@`-scoped [cmp-canonical]. That **overturns** the 2026-09-12 decision that
+  declared on the type [fn-attached]. That **overturns** the 2026-09-12 decision that
   every struct compares structurally (user decision 2026-09-21): the operator
   now resolves like any call [op-equality], and a type with no `eq` says so.
   What survives from the old rule:
@@ -2184,7 +2184,7 @@ Conventions:
   * On a renamed name it is an error: a rename already names one
     declaration.
   * A capitalized name that is a **type** is the third sibling of this family:
-    a canonical selector [cmp-canonical]. Effects and types share the
+    a type selector, naming a fn declared on it [fn-attached]. Effects and types share the
     capitalized namespace [name-casing] and one name cannot be both in scope,
     so the reading is decided by what the name declares — not by new grammar.
 * [fn-rename] **`rename fn add2 = add(a: Int | Str, b: Int | Str)`** gives
@@ -3469,63 +3469,74 @@ Conventions:
     opt-in equality, the `default` generator, `@`-scoped canonicals and
     ordering-carrying types) is the rest of the round — see ROADMAP.md
     "Ordering, equality and hashing".
-* [cmp-canonical] A capability's **canonical** implementation for a type is a
-  top-level fn **`@`-scoped to it** — `fn cmp@Person(a: Person, b: Person) ->
-  Int`, declared in the type's own file (user decision 2026-09-21). It is an
-  ordinary overload: bare calls and dot-notation reach it [fn-dot], it takes
-  part in ranking like any other, and it is *not* tied to the obligation clause
-  (`fn cmp@Person` alone makes `Person` orderable; `: Ordered<self>` remains a
-  check at the declaration). On top of that it has three properties:
-  * **It travels with the type.** Importing `Person` imports every fn
-    `@`-scoped to it, so the canonical is in scope wherever the type is usable.
-    That is what closes [implicit-resolve]'s per-call-site visibility hole: a
-    module importing `Person` but not its file's `cmp` could otherwise resolve
-    `?cmp` to some *other* visible `cmp(Person, Person)`, or to nothing. The fn
-    keeps its own name — an `as` alias renames the type, and a partial rename
-    of a capability would mean nothing. This knowingly overturns
-    [implicit-resolve]'s recorded note that "Salvo needs no qualified-name
-    syntax for defaults … nothing ties it to the type's declaration": the tie
-    and the syntax now exist, because canonical visibility must not depend on
-    which of a file's names a module happened to import.
+* [fn-attached] **A function is declared *on* a type by being declared with
+  it** (user decision 2026-09-26, replacing the `fn cmp@Person(…)` spelling).
+  Two routes, and they are the same idea — the two ways to write something down
+  on a struct:
+  1. **inside the struct's body**: `struct Person { name: Str, fn cmp(a: Person,
+     b: Person) -> Int { … } }`. The fn is hoisted to module level and is
+     ordinary in every other respect (it overloads, it is called bare or with
+     dot notation, it takes part in ranking);
+  2. **the file's fulfilment of one of the type's obligations**
+     [group-obligation]: `struct Person : Ordered<self>` plus a `cmp(Person,
+     Person)` in the same file. Nothing moves; the obligation is what declares
+     the capability, and the function that answers it is on the type.
+
+  The rule this produces is the one worth remembering: **everything declared on
+  a struct is imported with it**. The shape is the one actors and qualifiers
+  already use — a declaration's members live in its body — and it is why the
+  `@` on a declaration is gone: a selector said the same thing in a second way.
+  * **It travels with the type.** Importing `Person` imports every fn declared
+    on it, so an attached fn is in scope wherever the type is usable. That is
+    what closes [implicit-resolve]'s per-call-site visibility hole: a module
+    importing `Person` but not its file's `cmp` could otherwise resolve `?cmp`
+    to some *other* visible `cmp(Person, Person)`, or to nothing. The fn keeps
+    its own name — an `as` alias renames the type, and a partial rename of a
+    capability would mean nothing.
+  * **Attachment is same-file by construction**, which is what makes "imported
+    with the type" applicable without searching the program: a body is only the
+    declaring file's to write in, and an obligation is fulfilled by its own
+    file. No third module can mint a capability for someone else's type.
+  * **`export`**: an inner fn takes the struct's own visibility, and writing
+    `export` on one is a parse error (it is contained in the struct, and would
+    be claiming to say something the language does not let it say). A
+    **detached** fulfilment is its own declaration, so an exported type's
+    fulfilment must `export` too — otherwise the capability would be
+    unreachable wherever the type is usable [mod-export]. A *private* type
+    demands nothing: there is no importer to hide it from.
   * **It is the default selection for an implicit parameter** of the same name
-    and shape: it is not beaten by a nearer scope rung, and it is not beaten
-    silently by anything else either (below).
-  * **Ambiguity around it is always an error** — explicit calls and implicit
-    resolution alike (decision 9). When a canonical is among the *fitting*
-    candidates, a second fitting candidate on **any** rung is an error naming
-    both selector spellings (`cmp@Person`, `cmp@my.module`), where
-    [fn-overload-scope] would otherwise let `Own` beat `Import` in silence.
-    This is the single carve-out of that rule; the wider intent — no
-    scope-based silent winners anywhere — is its own ROADMAP item, and this is
-    its first installment.
-  * **`export` is explicit and must match the type's** (decision 10): an
-    exported type with a private canonical, or the reverse, is a compile-time
-    error naming the mismatch. No inheritance — that keeps [mod-export]'s "the
-    public surface is exactly what the module writes down" literally true where
-    auto-import might have blurred it.
-  * **The declaration spelling is the disambiguation spelling.** `cmp@Person`
-    at a call selects it, and — following the *module* precedent
-    [fn-overload-at] rather than [effect-at]'s call-only form — so does
-    `cmp = cmp@Person` in value position [implicit-override]. Naming a type
-    with no such fn is an error saying where one would live.
-  * **Same name, same parameter types is a duplicate**, `@`-scoped or not
-    [fn-overload-duplicate]: nothing at a *bare* call site could tell the two
+    and shape [implicit-resolve].
+  * **The selector still reads it**: `cmp@Person` at a call names the `cmp`
+    declared on `Person`, and so does `cmp = cmp@Person` in value position
+    [implicit-override] [fn-overload-at]. Only the *declaration* spelling
+    changed. Naming a type with no such fn is an error saying where one would
+    live.
+  * **Same name, same parameter types is a duplicate** whether attached or not
+    [fn-overload-duplicate]: nothing at a bare call site could tell the two
     apart, and the remedy is to keep one. (That is also what catches a
     hand-written implementation colliding with a generated one.)
   * The selector is **erased**: the checker records which declaration a
     selected name means, and both backends emit an ordinary call of it.
   * For the intrinsic types the canonicals stay plain std overloads: `Int` is
-    declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so the
-    same-file rule could not hold — and `core.*` is implicitly visible
-    everywhere, which is the property `@`-scoping exists to provide.
+    declared in `core.basic` and `cmp(Int, Int)` in `core.compare`, so neither
+    route is available — and `core.*` is implicitly visible everywhere, which
+    is the travelling that attachment exists to provide.
 * [cmp-auto] **`auto` asks the compiler for a structural implementation**, and
   it is a modifier on the **function** (user decisions 2026-09-21 for the
   mechanism, 2026-09-22 for the form):
 
   ```
-  auto fn cmp@Person(a: Person, b: Person) -> Int
-  auto fn hash@Person(value: Person) -> Long
+  struct Person {
+      name: Str,
+      age: Int
+
+      auto fn cmp(a: Person, b: Person) -> Int
+      auto fn hash(value: Person) -> Long
+  }
   ```
+
+  …and `: auto Ordered<self>, auto Hashed<self>` on the declaration is the
+  shorthand for exactly that [fn-attached].
 
   A bodiless declaration whose body the compiler writes from the type's fields —
   the third legal bodiless form, after `intrinsic` [intrinsic-fn] and an effect
@@ -3541,7 +3552,7 @@ Conventions:
     any other name is an error naming those three, and `auto Group<self>` is an
     error unless *every* member of the group has a generator — the word would
     otherwise promise an implementation nothing provides.
-  * **An `auto fn` is `@`-scoped** [cmp-canonical]: the generator reads the
+  * **An `auto fn` is declared on a type** [fn-attached]: the generator reads the
     fields of the type it is scoped to, so a bodiless `auto fn cmp(…)` has
     nothing to read and says so. The type must be a visible `struct` for the same
     reason.
@@ -3554,7 +3565,7 @@ Conventions:
     ordinary one. `: Ordered<self>` with no `cmp` anywhere is the ordinary
     unsatisfied-obligation error.
   * **Generated members are `@`-scoped canonicals** and carry the struct's own
-    `export` — which is also what [cmp-canonical] demands of a hand-written one.
+    `export` — the visibility an inner declaration always takes [fn-attached].
   * **A hand-written member of the same shape beside a generated one is the
     ordinary duplicate** [fn-overload-duplicate]: remove the `auto`, or delete
     the fn.
@@ -3596,7 +3607,7 @@ Conventions:
     position at the same type merge [implicit-group].
   * A use site fills the slot with an **identity**: a bare name
     (`Heap(min_by_age)`), an `@`-scoped canonical (`Heap(cmp@Person)`
-    [cmp-canonical]) or the signature's **binder** (`Heap(?cmp)`, below).
+    [fn-attached]) or the signature's **binder** (`Heap(?cmp)`, below).
   * **Static identity is the load-bearing restriction** (decision 12): a fn
     bound into a type must be **named, top-level and capture-free**. Module
     fns, `@`-scoped canonicals and intrinsics qualify (the last through
@@ -3643,7 +3654,7 @@ Conventions:
     here", and an *unwritten* slot is resolved by the slot's own name — which is
     why no default needs writing and why one slot means the right `cmp` at every
     instantiation. A `@`-scoped canonical is the spelling that
-    does not depend on the reader's imports [cmp-canonical], and it is what a
+    does not depend on the reader's imports [fn-attached], and it is what a
     resolved identity is published as when the declaration has one.
 * [cmp-binder] **The binder binds bare in the signature** (user decision
   2026-09-21, the ordering round's decision 11): all `?name` occurrences in one

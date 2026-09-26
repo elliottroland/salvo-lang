@@ -11885,7 +11885,7 @@ impl<'p> Emitter<'p> {
             }
             // [effect-at] Checker-refused as a value — *unless* the capitalized
             // name is a type, which makes this a canonical named as a value
-            // ([cmp-canonical] `cmp = cmp@Person`). The two are told apart by
+            // ([fn-attached] `cmp = cmp@Person`). The two are told apart by
             // what the checker recorded: a resolved `fn_refs` entry means it
             // resolved a **function**, so this renders like any named fn passed
             // by value, selector erased, exactly as `Expr::Scoped` does.

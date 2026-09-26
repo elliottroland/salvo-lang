@@ -85,7 +85,7 @@ struct Viable<'p> {
 /// What an `@` on a call or a fn value selects.
 ///
 /// [fn-overload-at] `size@core.list(xs)` names a **module**: only its overloads
-/// compete. [cmp-canonical] `cmp@Person(a, b)` names a **type**: only the fns
+/// compete. [fn-attached] `cmp@Person(a, b)` names a **type**: only the fns
 /// `@`-scoped to it compete — the same token doing the same job one rung down,
 /// which is why the canonical's declaration spelling *is* its disambiguation
 /// spelling (user decision 2026-09-21).
@@ -883,11 +883,6 @@ enum ImplicitMiss {
     NearMiss(String),
     /// Several match, so choosing would be a guess.
     Ambiguous(usize),
-    /// [cmp-canonical] A **canonical** (`@`-scoped) implementation fits, and so
-    /// does something else: never resolved by scope rank, always an error
-    /// naming both selector spellings (user decision 2026-09-21). The message
-    /// is built where the candidates are known.
-    AmbiguousCanonical(String),
 }
 
 /// [op-order] [op-equality] What a comparison operator resolved to, for the
@@ -895,7 +890,7 @@ enum ImplicitMiss {
 /// operator needs the function that implements it (user decisions 2026-09-21).
 #[derive(Clone, Debug, PartialEq)]
 pub enum CompareVia {
-    /// A declared `cmp`/`eq` — a canonical [cmp-canonical], a generated
+    /// A declared `cmp`/`eq` — a canonical [fn-attached], a generated
     /// structural member [cmp-auto], or any other visible overload that
     /// fits. Intrinsic declarations included, which is how `Str` ordering
     /// reaches the backends' code-point comparison.
@@ -2911,10 +2906,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     q.span,
                     format!(
                         "`canbe {}` no longer exists: being hashable or orderable is \
-                         *having the function*, so declare it — `auto fn {member}@\
-                         <the type>(…)` for the structural one, or write the body \
-                         yourself [cmp-auto] [cmp-canonical]. `: {group}<self>` \
-                         states the promise",
+                         *having the function*, so declare it — `: auto {group}<self>` \
+                         on the type for the structural one, or a `{member}` of your \
+                         own [cmp-auto] [fn-attached]",
                         q.name.name,
                         member = if q.name.name == "hashed" { "hash" } else { "cmp" }
                     ),
@@ -4455,17 +4449,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 imp.name, callee_name, imp.name
                             ),
                         ),
-                        // [cmp-canonical] The canonical case, which names the
-                        // selector spellings instead of the two generic
-                        // remedies: the override *is* a selector here.
-                        ImplicitMiss::AmbiguousCanonical(detail) => self.error(
-                            span,
-                            format!(
-                                "`{}` is ambiguous for `{}`: {detail} — \
-                                 `{} = {}@<the type or module>` [cmp-canonical]",
-                                imp.name, callee_name, imp.name, imp.name
-                            ),
-                        ),
                     }
                 }
             }
@@ -4479,7 +4462,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [fn-overload].
     ///
     /// `at` restricts the candidates to one selector — a type
-    /// (`cmp@Person`, an `@`-scoped canonical [cmp-canonical]) or a module
+    /// (`cmp@Person`, an `@`-scoped canonical [fn-attached]) or a module
     /// (`@core.list` [fn-overload-at]) — which is what makes an identity a
     /// type carries resolve to the fn it names and no other [cmp-carry].
     /// The identity that comes back is the *declaration's own*: its
@@ -4505,7 +4488,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .filter(|e| match at {
                 None => true,
                 Some(sel) => {
-                    e.decl.scoped_to.as_ref().is_some_and(|t| t.name == sel)
+                    self.attached_to(e.key, e.decl).as_deref() == Some(sel)
                         || e.module.to_string() == sel
                 }
             })
@@ -4513,7 +4496,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if entries.is_empty() {
             return Err(ImplicitMiss::Unknown);
         }
-        // [cmp-canonical] Which types this position is *about*, so a candidate
+        // [fn-attached] Which types this position is *about*, so a candidate
         // `@`-scoped to one of them is recognised as the canonical: the base
         // names mentioned by the wanted fn type's parameters and result.
         let mut want_types: HashSet<String> = HashSet::new();
@@ -4591,20 +4574,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             let candidate = self.fn_value_ty(entry.key, decl);
             let candidate = substitute_vars(&candidate, &binding, &generics);
             if fn_value_fits(&candidate, want) {
-                let canonical = decl
-                    .scoped_to
-                    .as_ref()
-                    .map(|t| t.name.clone())
+                let canonical = self
+                    .attached_to(entry.key, decl)
                     .filter(|t| want_types.contains(t));
                 // [cmp-carry] The identity of the declaration itself, which is
                 // what a result type publishes: `@`-scoped when it is, and the
                 // bare name otherwise — a bare name means "the `cmp` of that
                 // name visible where the type is used", which is
                 // [implicit-resolve]'s locality, narrowed for canonicals by
-                // [cmp-canonical]'s travelling rule.
+                // [fn-attached]'s travelling rule.
                 let identity = FnId::Named {
                     name: decl.name.name.clone(),
-                    at: decl.scoped_to.as_ref().map(|t| t.name.clone()),
+                    at: self.attached_to(entry.key, decl),
                 };
                 hits.push((
                     entry.key,
@@ -4620,33 +4601,31 @@ impl<'p, 'r> Checker<'p, 'r> {
                 note(0, reason, &mut near);
             }
         }
-        // [cmp-canonical] A canonical is the **default selection** for a
-        // position of its own name and shape (user decision 2026-09-21): it is
-        // not beaten by a nearer scope rung, and it is not silently beaten by
-        // anything else either — a second fitting candidate beside a canonical
-        // is an error naming both selector spellings (decision 9), which is the
-        // one place [fn-overload-scope]'s Own-beats-Import silence is carved
-        // out. Either the canonical answers, or the call says which it means.
-        if hits.iter().any(|(_, _, canon, _, _)| canon.is_some()) {
-            if hits.len() == 1 {
-                let hit = hits.remove(0);
-                return Ok((hit.0, hit.4));
-            }
-            let mut shown: Vec<String> = hits
-                .iter()
-                .map(|(_, _, canon, module, _)| match canon {
-                    Some(ty) => format!("`{name}@{ty}`"),
-                    None => format!("`{name}@{module}`"),
-                })
-                .collect();
-            shown.sort();
-            shown.dedup();
-            return Err(ImplicitMiss::AmbiguousCanonical(format!(
-                "{} all fit, and one of them is a canonical — which is never \
-                 decided by scope. Name the one you mean",
-                shown.join(", ")
-            )));
+        // One declaration is one candidate here too [fn-overload-scope]: a fn
+        // reachable both as an implicitly available name and as a member of this
+        // file's own module is one function, not an ambiguity. Deduped before
+        // the canonical rule below, which counts *alternatives*.
+        {
+            let mut seen: Vec<FnKey> = Vec::new();
+            hits.retain(|(key, ..)| {
+                if seen.contains(key) {
+                    false
+                } else {
+                    seen.push(*key);
+                    true
+                }
+            });
         }
+        // [fn-attached] A canonical is the **default selection** for a
+        // position of its own name and shape (user decision 2026-09-21). What
+        // used to stand here as well — "a second fitting candidate beside a
+        // canonical is an error" — was the carve-out of [fn-overload-scope]'s
+        // Own-beats-Import silence, and that silence is gone (user decision
+        // 2026-09-26): ambiguity is refused everywhere now, so the carve-out has
+        // nothing left to carve. The ladder below still applies *here*, because
+        // an implicit has no written call site to annotate — and because two
+        // same-named types (a program's own `ListYield` beside std's) have no
+        // distinguishing selector at all.
         // [fn-overload-scope] Like a call, the most specific *scope* that has
         // a fitting candidate wins before ambiguity is declared: a program
         // declaring its own pass under a name std also uses (`ListYield` plus
@@ -4762,17 +4741,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .copied()
                 .filter(|e| match sel {
                     Selector::Module(_) => e.module.to_string() == wanted,
-                    // [cmp-canonical] `cmp@Person` as a *value*, which is what
+                    // [fn-attached] `cmp@Person` as a *value*, which is what
                     // `cmp = cmp@Person` writes [implicit-override]: the
                     // candidates are the fns `@`-scoped to that type. Value
                     // position is where this selector differs from
                     // [effect-at]'s, which is a call form only — it follows the
                     // *module* precedent (`describe@main`) instead.
-                    Selector::Type(_) => e
-                        .decl
-                        .scoped_to
-                        .as_ref()
-                        .is_some_and(|t| t.name == wanted),
+                    Selector::Type(_) => {
+                        self.attached_to(e.key, e.decl).as_deref() == Some(wanted.as_str())
+                    }
                 })
                 .collect();
             if named.is_empty() {
@@ -4785,7 +4762,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Selector::Type(_) => format!(
                             "no `fn {name}@{wanted}` is declared: `@{wanted}` names the \
                              canonical `{name}` for that type, which is declared in the \
-                             type's own file [cmp-canonical]"
+                             type's own file [fn-attached]"
                         ),
                     },
                 );
@@ -5108,7 +5085,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_default()
     }
 
-    /// [cmp-canonical] Whether a capitalized name in scope is a **type** — a
+    /// [fn-attached] Whether a capitalized name in scope is a **type** — a
     /// struct, an `intrinsic type` or an alias — which is what tells a
     /// `name@Thing` selector apart from [effect-at]'s.
     fn names_a_type(&self, name: &str) -> bool {
@@ -5170,12 +5147,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .copied()
                 .filter(|&i| match sel {
                     Selector::Module(_) => viable[i].module == wanted,
-                    // [cmp-canonical] Only the canonicals of that type.
+                    // [fn-attached] Only the canonicals of that type.
                     Selector::Type(_) => viable[i]
-                        .decl
-                        .scoped_to
-                        .as_ref()
-                        .is_some_and(|t| t.name == wanted),
+                        .key
+                        .is_some_and(|k| {
+                            self.attached_to(k, viable[i].decl).as_deref()
+                                == Some(wanted.as_str())
+                        }),
                 })
                 .collect();
             if selected.is_empty() {
@@ -5213,7 +5191,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         format!(
                             "no `fn {name}@{wanted}` fits `{name}({})`: `@{wanted}` names \
                              the canonical `{name}` for that type, declared in the type's \
-                             own file [cmp-canonical]",
+                             own file [fn-attached]",
                             shown_args()
                         ),
                     ),
@@ -5222,43 +5200,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             pool = selected;
         }
-        // [cmp-canonical] A canonical among the fitting candidates is never
-        // decided by scope rank (user decision 2026-09-21, decision 9): either
-        // it is the only one that fits, or the call names which it means. This
-        // is the one carve-out of [fn-overload-scope]'s Own-beats-Import
-        // silence — the wider "no silent scope winners" intent is its own
-        // ROADMAP item, and this is its first installment. Skipped when the
-        // call already wrote a selector: that *is* saying which.
-        if at.is_none() && pool.len() > 1 {
-            let canonical: Vec<usize> = pool
-                .iter()
-                .copied()
-                .filter(|&i| viable[i].decl.scoped_to.is_some())
-                .collect();
-            if !canonical.is_empty() {
-                let mut shown: Vec<String> = pool
-                    .iter()
-                    .map(|&i| match &viable[i].decl.scoped_to {
-                        Some(t) => format!("`{name}@{}`", t.name),
-                        None => format!("`{name}@{}`", viable[i].module),
-                    })
-                    .collect();
-                shown.sort();
-                shown.dedup();
-                self.error(
-                    span,
-                    format!(
-                        "ambiguous call to `{name}({})`: {} all fit, and one of them is \
-                         the canonical `{name}` for its type — an ambiguity around a \
-                         canonical is never resolved by scope, so name the one you mean \
-                         [cmp-canonical]",
-                        shown_args(),
-                        shown.join(", ")
-                    ),
-                );
-                return None;
-            }
-        }
+        // [fn-attached] What stood here — "an ambiguity around a canonical is
+        // always an error, where [fn-overload-scope] would let `Own` beat
+        // `Import` in silence" — was the first installment of "no silent scope
+        // winners", and the whole rule landed 2026-09-26: every ambiguity is
+        // refused below, so the carve-out is redundant. Its diagnostic named the
+        // *type* a candidate was attached to, which two same-named types could
+        // not tell apart anyway; the general one names modules.
         // One *declaration* is one candidate, however many routes reach it: a
         // fn can arrive both as an implicitly available name and as a member of
         // the file's own module (std's `test` in an annex, `core.list` inside
@@ -5397,6 +5345,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         places.len() > 1
+    }
+
+    /// [fn-attached] The type a function is **declared on**, by either route:
+    /// written inside the struct's body (the AST carries it, set when the fn was
+    /// hoisted) or the file's fulfilment of one of the struct's obligations
+    /// (resolution worked that out, since the import rule needs it).
+    fn attached_to(&self, key: FnKey, decl: &FnDecl) -> Option<String> {
+        decl.scoped_to
+            .as_ref()
+            .map(|t| t.name.clone())
+            .or_else(|| self.resolution.attached.get(&key).cloned())
     }
 
     /// [qual-refn-at] Whether `module` writes a refinement of this callee that
@@ -9977,7 +9936,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   implementation. Equality at the other intrinsic types is the same
     ///   story.
     /// * **Everything else needs a function.** Ordering resolves `cmp` at the
-    ///   operand type, equality resolves `eq` — a canonical [cmp-canonical], a
+    ///   operand type, equality resolves `eq` — a canonical [fn-attached], a
     ///   generated structural member [cmp-auto], or any other fitting
     ///   overload. With none in scope the operator is an **error naming the
     ///   remedy**, which is what makes equality opt-in for a type of your own
@@ -10156,7 +10115,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         "`{member}` is ambiguous for `{lb}`: {n} declarations fit, so the \
                          choice would be a guess"
                     ),
-                    ImplicitMiss::AmbiguousCanonical(detail) => detail,
                 };
                 self.error(
                     span,
@@ -10182,12 +10140,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                  [implicit-forward]"
             ),
             Ty::Named { name, .. } if self.scope.structs.contains_key(name.as_str()) => format!(
-                " — declare `fn {member}@{name}(…)` in `{name}`'s file, or ask for the \
-                 structural one with `auto fn {member}@{name}(…)` [cmp-auto]"
+                " — declare a `{member}` inside `{name}`'s body, or ask for the \
+                 structural one with `: auto …<self>` on `{name}` [cmp-auto] \
+                 [fn-attached]"
             ),
             _ => format!(
                 " — declare a `{member}` for it, or ask for the structural one with \
-                 `auto fn {member}@…(…)` where the type is declared [cmp-auto]"
+                 `: auto …<self>` where the type is declared [cmp-auto]"
             ),
         }
     }
@@ -10324,7 +10283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// asked the way the declaration walk can ask it (before any call is
     /// resolved). It replaced `canbe hashed`/`canbe ordered`, which asked
     /// whether the *declaration* said so: a type is orderable now exactly when
-    /// an ordering for it exists, whether hand-written [cmp-canonical] or
+    /// an ordering for it exists, whether hand-written [fn-attached] or
     /// generated [cmp-auto].
     fn has_member_for(&self, member: &str, name: &str) -> bool {
         self.scope.fns.get(member).is_some_and(|entries| {
@@ -10476,13 +10435,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [cmp-auto] The compiler writes the body from a *type's fields*, so an
         // `auto fn` has to say which type: the `@` scope it would be the
-        // canonical of [cmp-canonical]. Without it there is nothing to read.
+        // canonical of [fn-attached]. Without it there is nothing to read.
         let Some(owner) = &f.scoped_to else {
             self.error(
                 f.name.span,
                 format!(
-                    "`auto fn {}` writes the implementation for a type, so it names \
-                     one: write `auto fn {}@<the type>(…)` [cmp-auto] [cmp-canonical]",
+                    "`auto fn {}` writes the implementation for a type, so it has to \
+                     be declared *on* one: write it inside that struct's body, or \
+                     write the obligation instead (`: auto Hashed<self>`), which \
+                     generates `{}` for you [cmp-auto] [fn-attached]",
                     f.name.name, f.name.name
                 ),
             );
@@ -10517,7 +10478,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 owner.span,
                 format!(
-                    "`auto fn {}@{}` names no visible struct{hint}",
+                    "`auto fn {}` is declared on `{}`, which is not a visible \
+                     struct{hint} [fn-attached]",
                     f.name.name, owner.name
                 ),
             );
@@ -10543,7 +10505,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // equality [kt-float-eq].
             _ => ("comparable", 2),
         };
-        let written = format!("auto fn {}@{}", f.name.name, owner.name);
+        let written = format!("auto fn {}` on `{}", f.name.name, owner.name);
         // Only a key can be corrupted by mutation; plain equality cannot.
         if kind != 2 && s.auto_qualifiers.iter().any(|q| q.name.name == "Mut") {
             self.error(
@@ -10599,7 +10561,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .map(|n| format!("{n}: {}", s.name.name))
                 .collect();
-            format!("fn {}@{}({}) -> {ret}", f.name.name, s.name.name, params.join(", "))
+            format!("fn {}({}) -> {ret}", f.name.name, params.join(", "))
         };
         let ordinary: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
         if ordinary.len() != arity || ordinary.len() != f.params.len() {
@@ -10630,8 +10592,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(
                 f.name.span,
                 format!(
-                    "`auto fn {}@{}` must be declared `{}`, since that is what the \
-                     compiler writes [cmp-auto]",
+                    "`auto fn {}` on `{}` must be declared `{}`, since that is what \
+                     the compiler writes [cmp-auto]",
                     f.name.name,
                     s.name.name,
                     shown(arity)
@@ -15806,7 +15768,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let where_ = if at_name.starts_with(|c: char| c.is_uppercase()) {
                     format!(
                         "declare `fn {name}@{at_name}(…)` in the file that declares \
-                         `{at_name}` [cmp-canonical]"
+                         `{at_name}` [fn-attached]"
                     )
                 } else {
                     format!("module `{at_name}` declares no `{name}` [fn-overload-at]")
@@ -15859,14 +15821,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [cmp-carry] Whether some visible overload of `name` answers to the
     /// selector `at` — a type (`cmp@Person`, an `@`-scoped canonical
-    /// [cmp-canonical]) or a module (`size@core.list` [fn-overload-at]).
+    /// [fn-attached]) or a module (`size@core.list` [fn-overload-at]).
     fn fn_exists_at(&self, name: &str, at: &str) -> bool {
         self.overloads_of(name).iter().any(|e| {
-            e.decl
-                .scoped_to
-                .as_ref()
-                .is_some_and(|t| t.name == at)
-                || e.module.to_string() == at
+            self.attached_to(e.key, e.decl).as_deref() == Some(at) || e.module.to_string() == at
         })
     }
 
@@ -19876,7 +19834,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(base) = base {
                     self.check_expr(base, None);
                 }
-                // [cmp-canonical] …unless the capitalized name is a **type**,
+                // [fn-attached] …unless the capitalized name is a **type**,
                 // in which case this is a canonical named as a *value* —
                 // `cmp = cmp@Person` [implicit-override], and the one place
                 // this selector follows the *module* precedent
@@ -23771,7 +23729,7 @@ fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
 /// argument like this fits *every* candidate, so overload ranking must not
 /// turn one un-inferred value into a second diagnostic
 /// [fn-overload-rank].
-/// [cmp-canonical] Every **named** base type a type mentions, however deeply:
+/// [fn-attached] Every **named** base type a type mentions, however deeply:
 /// what decides whether an `@`-scoped fn is the canonical *for this position*.
 /// A `(Person, Person) -> Int` position is about `Person`, and a
 /// `(List<Point>, List<Point>) -> Int` one is about `Point` as well as `List`,
@@ -24237,7 +24195,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             all_args.extend(args.iter());
             let Some(decl) = self.scope.effects.get(effect.name.as_str()).copied() else {
-                // [cmp-canonical] The capitalized selector's *third* sibling: a
+                // [fn-attached] The capitalized selector's *third* sibling: a
                 // **type**, naming the canonical implementation of a capability
                 // for it (`cmp@Person(a, b)`). Effects and types share the
                 // capitalized namespace [name-casing] and one name cannot be
@@ -24763,7 +24721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         args: &[&'p Expr],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
-        // [fn-overload-at] [cmp-canonical] What was written after `@`, when the
+        // [fn-overload-at] [fn-attached] What was written after `@`, when the
         // call selects: a module, whose overloads alone compete, or a type,
         // whose canonicals alone do.
         at: Option<Selector<'p>>,

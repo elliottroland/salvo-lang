@@ -40,48 +40,69 @@ let yes = eq(1.5, 1.5)          // true
 there is no total order to promise — the same reason a sorted collection of
 them is refused.
 
-A type of your own joins in by declaring the function — and the *canonical* one
-for a type is written `@`-scoped to it, in the type's own file:
+A type of your own joins in by declaring the function. A function **declared on
+a type** travels with it, and there are two ways to declare one on a struct —
+inside its body, or as your file's answer to an obligation it states:
 
 ```
-struct Person { name: Str, age: Int }
+struct Person {
+    name: Str,
+    age: Int
 
-fn cmp@Person(a: Person, b: Person) -> Int {
+    fn cmp(a: Person, b: Person) -> Int {
+        return cmp(a.age, b.age)
+    }
+}
+```
+
+```
+struct Person : Ordered<self> { name: Str, age: Int }
+
+fn cmp(a: Person, b: Person) -> Int {
     return cmp(a.age, b.age)
 }
 ```
 
-`cmp@Person` is an ordinary function: `cmp(p, q)` and `p.cmp(q)` both reach it.
-The `@` adds two things. It **travels with the type** — a module that imports
-`Person` gets its canonical too, so "orderable" arrives with the type instead of
-depending on which of its file's names you happened to import — and it is what
-an implicit `?cmp` resolves to by default. `export` on it is explicit and must
-match the type's: a public type with a private canonical is a compile error, not
-a silent hole.
+Both declare `cmp` *on* `Person`, and either way it is an ordinary function:
+`cmp(p, q)` and `p.cmp(q)` reach it, and it takes part in overload ranking like
+anything else. What attachment adds is that it **travels with the type** — a
+module that imports `Person` gets its `cmp` too, so "orderable" arrives with the
+type instead of depending on which of its file's names you happened to import —
+and that an implicit `?cmp` resolves to it by default.
 
-Because a canonical is *the* implementation for its type, an ambiguity around
-one is never settled by scope. If another `cmp` also fits, the call says which
-it means, with the same selector the declaration was written with:
+The obligation form is also a check: `: Ordered<self>` says at the declaration
+that a matching `cmp` exists, rather than failing at some distant use.
+
+**Visibility.** A function inside the body takes the struct's own — writing
+`export` on it is an error, because it is contained in the struct. A *detached*
+fulfilment is its own declaration, so if the type is exported it must say
+`export` too; otherwise the capability would be unreachable in the modules that
+can use the type.
+
+**Naming one.** `cmp@Person` names the `cmp` declared on `Person` — at a call,
+and as a value:
 
 ```
-let by_age = cmp@Person(ada, bob)      // the canonical
+let by_age = cmp@Person(ada, bob)      // the one declared on the type
 let by_name = cmp@main(ada, bob)       // this module's own
 let younger = min_of(ada, bob, cmp = cmp@Person)
 ```
 
-A type can also promise the capability at its declaration,
-`struct Person : Ordered<self>`, which checks there that a matching `cmp`
-exists rather than failing at some distant use.
+You need the selector exactly when two `cmp`s fit: ambiguity is always refused
+rather than resolved by scope (see [Functions](Functions.md)).
 
 For the everyday case — compare the fields, in order — you do not write the
-bodies at all. `auto` asks the compiler for them, on the function:
+bodies at all. `auto` asks the compiler for them:
 
 ```
-struct Point { x: Int, y: Int }
+struct Point {
+    x: Int,
+    y: Int
 
-auto fn cmp@Point(a: Point, b: Point) -> Int
-auto fn eq@Point(a: Point, b: Point) -> Bool
-auto fn hash@Point(value: Point) -> Long
+    auto fn cmp(a: Point, b: Point) -> Int
+    auto fn eq(a: Point, b: Point) -> Bool
+    auto fn hash(value: Point) -> Long
+}
 ```
 
 An `auto fn` has no body: the compiler writes one from the fields. Ordering is
@@ -100,13 +121,16 @@ The point of `auto` being a modifier on the function is that a type can mix.
 Suppose `Person` should be ordered by name, with equality meaning "same rank":
 
 ```
-struct Person : Ordered<self>, Hashed<self> { name: Str, age: Int }
+struct Person : Hashed<self> {
+    name: Str,
+    age: Int
 
-auto fn cmp@Person(a: Person, b: Person) -> Int
-auto fn hash@Person(value: Person) -> Long
+    auto fn cmp(a: Person, b: Person) -> Int
+    auto fn hash(value: Person) -> Long
 
-fn eq@Person(a: Person, b: Person) -> Bool {
-    return cmp(a, b) == 0
+    fn eq(a: Person, b: Person) -> Bool {
+        return cmp(a, b) == 0
+    }
 }
 ```
 

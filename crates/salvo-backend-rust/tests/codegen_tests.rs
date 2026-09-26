@@ -5239,7 +5239,7 @@ fn rustc_compiles_and_runs_the_comparison_groups() {
     run_rust_files(&files, "compare_groups", CMP_OUTPUT);
 }
 
-/// [cmp-canonical] The **canonical** implementation of a capability for a type,
+/// [fn-attached] The **canonical** implementation of a capability for a type,
 /// `@`-scoped to it: declared in the type's file, imported with the type, the
 /// default selection for an implicit of the same shape, and named by the same
 /// selector at a call or as a value. Two modules, because "travels with the
@@ -5251,23 +5251,23 @@ pub const CANONICAL_PEOPLE: &str = r#"
 export struct Person {
     name: Str,
     age: Int
+
+    fn cmp(a: Person, b: Person) [] -> Int => a, b {
+        return cmp(a.age, b.age)
+    }
 }
 
 // The canonical ordering for `Person`: an ordinary overload that travels with
 // the type, exported to match it.
-export fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
-    return cmp(a.age, b.age)
-}
-
 "#;
 
 pub const CANONICAL_MAIN: &str = r#"
-// Only the *type* is imported; its canonical rides along [cmp-canonical].
+// Only the *type* is imported; its canonical rides along [fn-attached].
 import people.Person
 
 // An ordinary overload of the same shape, in *this* module — the `Own` rung,
 // which today's ladder would let win silently. It cannot: an ambiguity around a
-// canonical is always an error [cmp-canonical], so every call below selects.
+// canonical is always an error [fn-attached], so every call below selects.
 fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
@@ -5328,9 +5328,9 @@ struct Point : auto Ordered<self>, auto Hashed<self> {
 // sugar for — and it is what a backend's derive hangs on.
 struct Tag {
     label: Str
-}
 
-auto fn eq@Tag(a: Tag, b: Tag) [] -> Bool => a, b
+    auto fn eq(a: Tag, b: Tag) [] -> Bool => a, b
+}
 
 // A generic struct's generated members are generic too.
 struct Box<T> : auto Eq<self> {
@@ -5420,18 +5420,18 @@ struct Point : auto Ordered<self>, auto Eq<self> {
 }
 
 // A hand-written canonical, which the operators reach exactly as they reach a
-// generated one [cmp-canonical].
+// generated one [fn-attached].
 struct Age {
     years: Int,
     label: Str
-}
 
-fn cmp@Age(a: Age, b: Age) [] -> Int => a, b {
-    return cmp(a.years, b.years)
-}
+    fn eq(a: Age, b: Age) [] -> Bool => a, b {
+        return eq(a.years, b.years)
+    }
 
-fn eq@Age(a: Age, b: Age) [] -> Bool => a, b {
-    return eq(a.years, b.years)
+    fn cmp(a: Age, b: Age) [] -> Int => a, b {
+        return cmp(a.years, b.years)
+    }
 }
 
 // [implicit-forward] Generic code publishes the capability in its signature,
@@ -5497,10 +5497,11 @@ pub const CARRY_DEMO: &str = r#"
 // qualifier's own **fn slot**.
 qualifier Ranked<T>(?cmp: (T, T) -> Int) of List<T>
 
-struct Person { name: Str, age: Int }
+// [fn-attached] The obligation names the capability; this file's `cmp` fulfils
+// it, so `cmp` is declared on `Person` and travels with it.
+struct Person : Ordered<self> { name: Str, age: Int }
 
-// [cmp-canonical] The canonical ordering for a `Person`: by age.
-fn cmp@Person(a: Person, b: Person) [] -> Int => a, b {
+fn cmp(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.age, b.age)
 }
 
@@ -5584,10 +5585,7 @@ pub const CARRY_OUTPUT: &str = "by age: Bob of 3\nby name: Ada of 3\n";
 /// becomes a `TreeSet` comparator rather than a marker — two lowerings of one
 /// rule, and the equality of the output is the assertion.
 pub const KEYED_DEMO: &str = r#"
-struct Person { name: Str, age: Int }
-
-auto fn cmp@Person(a: Person, b: Person) -> Int
-auto fn eq@Person(a: Person, b: Person) -> Bool
+struct Person : auto Ordered<self>, auto Eq<self> { name: Str, age: Int }
 
 fn by_age(a: Person, b: Person) -> Int => a, b {
     return cmp(a.age, b.age)
@@ -5675,10 +5673,7 @@ fn main() [use] {
 /// passed to a runtime container as two function references, here it is two
 /// zero-sized markers.
 pub const KEYED_HASH_DEMO: &str = r#"
-struct Person { name: Str, age: Int }
-
-auto fn hash@Person(value: Person) -> Long
-auto fn eq@Person(a: Person, b: Person) -> Bool
+struct Person : auto Hashed<self> { name: Str, age: Int }
 
 // A pair that keys by age alone: two people of an age are one member.
 fn age_hash(p: Person) -> Long => p {
