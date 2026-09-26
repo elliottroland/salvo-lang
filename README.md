@@ -31,9 +31,10 @@ output it prints — [ROADMAP.md](ROADMAP.md) for what is still to come, and
 cargo build        # build the compiler
 cargo test         # run the test suite
 
-# Compile and run in one step (requires the backend's toolchain on PATH):
+# Compile and run in one step (requires the backend's toolchain on PATH).
+# `--backend` defaults to rust, as it does for `salvo test`:
+cargo run -- run --src ./my_project
 cargo run -- run --backend kotlin --src ./my_project
-cargo run -- run --backend rust --main ./my_project/main.sv
 
 # `--main` names the file holding `main`, which is how you pick between
 # several entry points; on its own it also implies its own directory as the
@@ -49,6 +50,7 @@ cargo run -- analyze --src ./my_project              # or --format json
 # Run the tests a source tree declares (`test "name" { ... }` blocks in
 # `<module>.test.sv` files beside the modules they test):
 cargo run -- test --src ./my_project                 # or --list, or a filter
+# `--target DIR` and `--clean-target before|both` work here too.
 cargo run -- test --src std                          # the standard library's own
 
 # Generate the host implementation skeleton for every `platform effect`

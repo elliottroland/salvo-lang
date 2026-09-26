@@ -6833,17 +6833,23 @@ replaced the working document TESTING.md).
     catch (a process killed outright): the test in flight is named, whatever it
     left on stderr is printed under it, and the remainder re-runs in a fresh
     process.
-* [test-report] A test's **id** is* [test-report] A test's **id** is `<module under test> :: <name>`: the module
+* [test-report] A test's **id** is `<module under test> :: <name>`: the module
   a program would `import` (`heap`, not the annex's `heap.test`) and the name
   without its quotes (user decision 2026-09-23). The report is one line per
   test — `ok` green with its milliseconds, `FAILED` red with the failure
   indented under it — then a blank line and a count. Output from the code under
   test is passed through, never swallowed.
-* [test-filter] `salvo test --src DIR [--backend B] [FILTER] [--list]`.
+* [test-filter] `salvo test --src DIR [--backend B] [FILTER] [--list]
+  [--target DIR] [--clean-target before|both]`.
   `FILTER` is a plain substring of the id, so one word selects a module, a
   test, or a family; `--list` enumerates and runs nothing. The command's exit
   code is nonzero iff something failed. Colour is on when stdout is a
   terminal.
+  * `--backend` defaults to `rust`, as `salvo run`'s does [cli-run].
+  * `--target` defaults to `.salvo_tmp_test`, and `--clean-target` says what
+    survives, exactly as it does for `run` (user decision 2026-09-26). The
+    default differs, and deliberately: `before`, so the generated harness is
+    still there to read after a failure. `both` deletes it after the report.
 * [std-shadow] A source tree may **replace** modules of the embedded standard
   library: every module a loaded file declares that an embedded std file also
   declares drops the embedded copy, and the disk file takes over with its
@@ -7191,13 +7197,14 @@ replaced the working document TESTING.md).
     `{file, line, col, start, end, severity, message}` objects to
     stdout (line/col 1-based, start/end byte offsets); text mode
     renders to stderr with a summary line.
-* [cli-run] `salvo run --backend NAME (--src DIR | --main FILE)
+* [cli-run] `salvo run [--backend NAME] (--src DIR | --main FILE)
   [--target DIR] [--clean-target before|both]` compiles and then runs the
   program with the backend's own toolchain (user decisions 2026-09-05).
   One command from `.sv` source to program output.
-  * `--backend` is **required**: it decides which toolchain must be
-    installed, so there is no sensible default (unlike `compile`, which
-    defaults to `kotlin`).
+  * `--backend` **defaults to `rust`** (user decision 2026-09-26), which is
+    the default `salvo test` already had: its toolchain is the cheapest to
+    start, and the two commands agreeing is worth more than making the choice
+    explicit at every invocation. `compile` still defaults to `kotlin`.
   * **`--src` and `--main` are independent; at least one is required**, and
     each supplies a reasonable default for the other (user decision
     2026-09-05):

@@ -2,11 +2,11 @@
 //!
 //! ```text
 //! salvo compile --backend kotlin --src ./some_dir --target ./some_dir_kotlin
-//! salvo run --backend kotlin --main ./some_dir/main.sv
+//! salvo run [--backend rust] --main ./some_dir/main.sv
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
 //! salvo run --backend rust --src ./some_dir --target ./out --clean-target before
 //! salvo analyze --src ./some_dir [--format json]
-//! salvo test --src ./some_dir [--backend rust] [FILTER] [--list]
+//! salvo test --src ./some_dir [--backend rust] [FILTER] [--list] [--clean-target both]
 //! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp
 //! salvo lang tm-grammar [--out vscode/syntaxes/salvo.tmLanguage.json]
@@ -81,8 +81,9 @@ enum Command {
     /// backend's toolchain [cli-run]. The command's exit code is the
     /// program's.
     Run {
-        /// Target backend.
-        #[arg(long)]
+        /// Target backend (defaults to `rust`, whose toolchain is the cheapest
+        /// to start — the same default `salvo test` has).
+        #[arg(long, default_value = "rust")]
         backend: String,
         /// Directory containing `.sv` source files. Without `--main`, the
         /// unique `main` it declares is the entry point.
@@ -120,10 +121,14 @@ enum Command {
         #[arg(long)]
         list: bool,
         /// Output directory for the generated sources (default:
-        /// `.salvo_tmp_test`). Cleared before the run and left in place
-        /// afterwards, so a failing harness can be read.
+        /// `.salvo_tmp_test`).
         #[arg(long)]
         target: Option<PathBuf>,
+        /// Whether and when the target may be deleted. The default keeps the
+        /// generated harness *after* the run, so a failure can be read —
+        /// which is the one place it differs from `run`'s default.
+        #[arg(long, value_enum, default_value_t = CleanTarget::Before)]
+        clean_target: CleanTarget,
     },
     /// Parse, resolve, and type-check sources without generating code
     /// [cli-analyze].
@@ -211,7 +216,8 @@ fn main() -> ExitCode {
             filter,
             list,
             target,
-        } => test(&backend, &src, filter.as_deref(), list, target),
+            clean_target,
+        } => test(&backend, &src, filter.as_deref(), list, target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
@@ -732,6 +738,7 @@ fn test(
     filter: Option<&str>,
     list: bool,
     target: Option<PathBuf>,
+    clean: CleanTarget,
 ) -> ExitCode {
     let registry = registry();
     let Some(backend) = registry.get(backend_name) else {
@@ -878,6 +885,14 @@ fn test(
     let mut out = std::io::stdout().lock();
     let _ = salvo_test::print_summary(&total, &mut out, color);
     drop(out);
+    // [cli-run] `--clean-target both` deletes the generated harness after the
+    // report, exactly as `run` deletes a program's sources. The default is
+    // `before`, because a failing harness is worth reading.
+    if clean == CleanTarget::Both {
+        if let Err(msg) = clear_target(&target) {
+            eprintln!("warning: {msg}");
+        }
+    }
     if total.ok() {
         ExitCode::SUCCESS
     } else {

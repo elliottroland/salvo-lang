@@ -327,3 +327,42 @@ fn a_trapping_test_fails_and_the_run_continues() {
     assert!(!out.status.success());
     stamp.verified();
 }
+
+/// [test-filter] `salvo test --clean-target both` deletes the generated harness
+/// after the report, exactly as `run` deletes a program's sources (user decision
+/// 2026-09-26). The default stays `before`, so a failure can be read.
+#[test]
+fn test_honours_clean_target() {
+    let Some(__stamp) = e2e_stamp("test_clean_target", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("clean_target");
+    fs::write(dir.join("m.sv"), "export fn two() -> Int {\n    return 2\n}\n").unwrap();
+    fs::write(
+        dir.join("m.test.sv"),
+        "test \"two is two\" {\n    expect(two() == 2, \"two\")\n}\n",
+    )
+    .unwrap();
+    let target = dir.join(".out");
+
+    // The default leaves the harness in place.
+    let out = salvo_in(
+        &dir,
+        &["test", "--src", ".", "--target", ".out"],
+    );
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(target.exists(), "the default keeps the generated harness");
+
+    // `both` deletes it.
+    let out = salvo_in(
+        &dir,
+        &["test", "--src", ".", "--target", ".out", "--clean-target", "both"],
+    );
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(!target.exists(), "`both` should delete the target after the report");
+    __stamp.verified();
+}

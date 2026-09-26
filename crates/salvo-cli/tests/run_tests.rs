@@ -419,13 +419,12 @@ fn src_or_main_is_required() {
 /// `--backend` is required for `run`: there is no sensible default when the
 /// answer decides which toolchain has to be installed.
 #[test]
-fn backend_is_required_and_validated() {
+fn an_unknown_backend_is_validated() {
     let dir = work_dir("backend_required");
     fs::write(dir.join("main.sv"), HELLO).unwrap();
-    let out = salvo_in(&dir, &["run", "--src", "."]);
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("--backend"));
-
+    // `--backend` is optional now [cli-run] — see
+    // `run_defaults_to_the_rust_backend` — but a name that is not a backend is
+    // still an error listing the ones that are.
     let out = salvo_in(&dir, &["run", "--backend", "cobol", "--src", "."]);
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -595,5 +594,34 @@ fn a_warning_reaches_the_builder_without_failing_the_run() {
             "the warning should reach the builder ({backend}), stderr: {stderr}"
         );
     }
+    __stamp.verified();
+}
+
+/// [cli-run] `--backend` defaults to **rust** (user decision 2026-09-26), the
+/// default `salvo test` already had: the two commands agree, and the cheapest
+/// toolchain to start is the one you get without saying so.
+#[test]
+fn run_defaults_to_the_rust_backend() {
+    let Some(__stamp) = e2e_stamp("run_defaults_to_rust", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("default_backend");
+    fs::write(
+        dir.join("main.sv"),
+        "fn main() [use] {\n    use StdOutConsole()\n    println(\"defaulted\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo_in(&dir, &["run", "--src", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "stderr: {stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "defaulted\n",
+        "stderr: {stderr}"
+    );
     __stamp.verified();
 }
