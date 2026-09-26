@@ -23,8 +23,8 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
-#[path = "core/throw.rs"]
-pub mod core_throw;
+#[path = "throw.rs"]
+pub mod throw;
 
 use crate::core_console::*;
 use crate::core_iterator::*;
@@ -34,7 +34,7 @@ use crate::core_result::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
-use crate::core_throw::*;
+use crate::throw::*;
 use crate::unions::*;
 use std::ops::ControlFlow;
 

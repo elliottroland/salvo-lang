@@ -3541,6 +3541,8 @@ fn provenance_survives_mutation_where_state_does_not() {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
+import throw
+
 linear struct FileHandle {
     fd: Int
 }
@@ -3847,6 +3849,8 @@ fn rustc_compiles_and_runs_fn_type_effects() {
 // [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
+import throw
+
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
     if n < 0 {
         throw("negative")
@@ -4086,6 +4090,8 @@ fn rustc_compiles_and_runs_when_cond() {
 // `let mut` unconditionally, so the mutability half is latent here rather
 // than fatal; the declaration half is what would collide.
 const TRY_MUTATION_DEMO: &str = r#"
+import throw
+
 fn risky(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
         throw("negative")
@@ -4120,6 +4126,8 @@ fn rustc_compiles_and_runs_try_mutation() {
 /// The same source the Kotlin backend runs, so the asserted stdout is the
 /// parity claim.
 const PLATFORM_DEMO: &str = r#"
+import throw
+
 platform effect Telemetry {
     fn record(name: Str, value: Int) [] -> None => name, value
 }
@@ -5931,6 +5939,8 @@ fn a_pass_lowers_to_a_while_let_driving_loop() {
 /// *group* and the value needs two wraps — inner union first. That needed an
 /// intermediate annotated `let` until 2026-09-10.
 pub const FALLIBLE_PASS_DEMO: &str = r#"
+import throw
+
 struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
@@ -6654,6 +6664,8 @@ fn rustc_compiles_and_runs_a_qualifier_pick() {
 /// The mapping itself is the one an annotated `let` has always emitted
 /// [let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
+import throw
+
 fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
     if n == 0 {
         return err("zero")

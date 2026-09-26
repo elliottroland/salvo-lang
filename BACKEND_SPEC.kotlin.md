@@ -32,6 +32,14 @@ Conventions:
   generated `unions.kt` lives in the root package `salvo`.
   * [mod-used-only] Only reachable modules that produce code are emitted;
     `unions.kt` is generated when any *emitted* file uses a wrapper size.
+  * [kt-package-keyword] A path segment that is a **Kotlin keyword** is
+    *mangled* with a trailing `_`, not backquoted: `package salvo.`throw``
+    is accepted and then unreachable — `import salvo.`throw`.*` is
+    "unresolved reference" — so escaping would ship code that does not
+    compile [backend-never-wrong]. std's own `throw` module is the customer,
+    found the day it left `core` (2026-09-26). Identifiers keep the backquote
+    form; only path segments mangle, because a package is not an identifier
+    position.
 * [kt-imports] Files get generated Kotlin imports: a wildcard
   `import salvo.<module>.*` per foreign *emitted* module whose names the
   file uses (the own module and `import salvo.*` for union wrappers round
@@ -50,7 +58,11 @@ Conventions:
 * [backend-companion] Companion `.kt` files next to a module's sources
   are copied verbatim into the output when the module is reachable. Because
   the file is emitted untouched, it must not collide with a module Salvo
-  itself generates (an attempted overwrite is a codegen error): the Salvo
+  itself generates (an attempted overwrite is a codegen error — and since
+  2026-09-26 *every* pair of emitted files claiming one path is refused at the
+  end of emission, which is what catches a **runtime** file colliding with a
+  std module: `throw.kt` met module `throw` and won it in silence, the second
+  time that class of clobber bit): the Salvo
   module beside a companion therefore declares only names that produce no
   Kotlin of their own — `intrinsic` types, a `platform effect`, type
   aliases, qualifiers — so the companion is the sole source of that
@@ -435,7 +447,7 @@ Conventions:
   * The signal is `class ThrowSignal(val payload: Any?, val tag: String) :
     RuntimeException(null, null, false, false)` — no stack trace, no
     suppression bookkeeping: it is a control transfer, not an error. It is
-    generated once per program into `throw.kt` (package `salvo`), like the
+    generated once per program into `throwsignal.kt` (package `salvo`), like the
     union wrappers.
   * A file that throws therefore **imports `salvo.*`**, the same way a file
     using a union wrapper or a fusion accessor does. Nothing exercised this
@@ -950,7 +962,7 @@ where Rust had to build the fusion to get the same programs running
   end-to-end test, and a change to one reviews as code rather than as a diff
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
-  Six exist: `throw.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
+  Six exist: `throwsignal.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
   ([kt-bytes]), `scheduler.kt` ([kt-actor]), `keyed.kt` ([kt-keyed]) and
   `hosttime.kt`.
 * [kt-keyed] [cmp-carry] `keyed.kt` holds `SalvoHashMap`/`SalvoHashSet`, the

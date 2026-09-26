@@ -133,6 +133,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`throw` leaves `core` (2026-09-26).** ROADMAP step 1(e), and the last of the
+std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
+`thrown`; a program that never throws links none of it [throw].
+
+- **A test annex gets it without writing it**, extending [test-implicit-import]:
+  the *harness* puts `[Throw<Failure>]` on a test body [test-body], so a test
+  file importing `throw` would be importing something it never wrote. Without
+  this, 59 errors landed on `test "…"` lines in std's own annexes — the
+  diagnostic pointing at a string literal, which is the tell that the effect is
+  synthesized.
+- **Two defects fell out, and the module name was the trigger for both.**
+  * **Kotlin cannot take a keyword as a package segment.** `package
+    salvo.`throw`` is *accepted* and then unreachable: `import salvo.`throw`.*`
+    is "unresolved reference". Backquoting is right for identifiers and wrong
+    for path segments, so a keyword segment now **mangles** to `throw_`
+    [kt-package-keyword]. Nothing had exercised it before, because every module
+    was `core.*` or `time`/`heap`/`random`/`test`.
+  * **A runtime file silently clobbered the module.** The Kotlin runtime ships
+    a `throw.kt` (the control signal, package `salvo`) and module `throw`
+    emits to `throw.kt` — same path, second write wins, and the module's code
+    vanished without a word. This is the recorded defect biting a second time
+    (`hosttime.{rs,kt}` was the first workaround), so the *silence* is closed:
+    both backends now refuse at the end of emission when two emitted files
+    claim one path [backend-companion] [backend-never-wrong]. The runtime file
+    is `throwsignal.kt`, and the durable fix — namespacing the runtime under
+    `salvo_rt/` — stays recorded, because it touches every golden, every
+    example and the documented compiler invocations.
+- The sweep: `import throw` in `std/test.sv`, in `examples/throw-and-release`
+  and in 12 backend fixtures. The fixture sweep needed two passes — keying on
+  `Throw<`/`try {` missed a program using only `Thrown`/`thrown(`, which is a
+  reminder that a feature's *surface* is wider than its headline spelling.
+
 **`core.nonempty` dissolves into the collections (2026-09-26).** ROADMAP step
 1(d). Each `NonEmpty` now sits beside the container it claims — `core.set`,
 `core.map`, `core.sorted` (twice) — joining `core.list`'s, and the four

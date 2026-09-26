@@ -24,6 +24,8 @@
 // A struct rather than a bare `Str` so the failure can grow fields — a
 // property test's seed, a shrink count — without changing the channel it
 // travels on (user decision 2026-09-23).
+import throw
+
 export struct Failure {
     // One line, ideally: the report indents it under the test's own line.
     message: Str

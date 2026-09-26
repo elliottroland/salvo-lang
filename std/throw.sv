@@ -4,8 +4,10 @@
 // has no handler: the delimiter is the compiler-intrinsic `try` block
 // [try], and `use` of a handler for `Throw` is an error.
 //
-// Own module rather than part of `core.basic` so a program that never
-// throws emits no code for it [mod-used-only].
+// Its own module, **outside `core`** (2026-09-26): a program that never throws
+// never names `Throw`, `Thrown` or `throw`, so it neither imports this module
+// nor emits code for it. `import throw` is the one line a program that does
+// need it writes [mod-import-module].
 
 // [throw] Ends the enclosing `try` block with [message]. Returns `Never`
 // (the bottom type), which is what keeps the frames in between silent: a

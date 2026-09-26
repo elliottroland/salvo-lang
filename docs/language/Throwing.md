@@ -1,6 +1,12 @@
 # Throwing
 
-An effect handler normally *resumes*: the operation runs and control comes back to the caller ([Effects and handlers](Effects-and-Handlers.md)). `throw` is the other option — it does not come back. It is declared in the core library as an ordinary effect:
+An effect handler normally *resumes*: the operation runs and control comes back to the caller ([Effects and handlers](Effects-and-Handlers.md)). `throw` is the other option — it does not come back. It is declared in the standard library as an ordinary effect, in a module of its own that you import:
+
+```
+import throw
+```
+
+`import throw` brings `Throw`, `try`'s `Thrown` arm and `thrown`, so a program that never throws links none of it. A test annex is the exception: the harness — not the author — puts `[Throw<Failure>]` on a test body, so a test file behaves as if it had written the import.
 
 ```
 effect Throw<M> {
@@ -48,7 +54,7 @@ Details worth knowing:
 - **A throw lands in the innermost `try`.** There are no labelled throws; a nested delimiter takes its own body's throws and lets an outer one pass through.
 - **A `try` whose body cannot throw is an error.** Never can produce the `Thrown` arm, so the `try` is dead scaffolding; the diagnostic says to drop it.
 - **`main` cannot declare `[Throw<M>]`**: there is no caller to receive the throw, so the delimiter has to be inside.
-- **`Thrown M` is forgeable, deliberately.** The qualifier carries no authority — `core.throw`'s `thrown(message)` constructor produces a value in the thrown arm without transferring control. The authority to throw is `[Throw<M>]` availability alone.
+- **`Thrown M` is forgeable, deliberately.** The qualifier carries no authority — the `throw` module's `thrown(message)` constructor produces a value in the thrown arm without transferring control. The authority to throw is `[Throw<M>]` availability alone.
 - **Nothing linear may be live across a call that may throw**: the code after the call does not run on the throw path, so the obligation would be owed on a path with no code left to discharge it. Release before the call, or move the value onward so the obligation travels with it. (`defer` used to be the third option — a block spliced at every exit, including the throw path — and it was removed 2026-09-10: linearity is what *checks* the obligation, so the construct that discharged it out of sight was the partial solution to a problem already solved.)
 
 Both backends implement this without colouring any function the author did not annotate: Rust returns `ControlFlow<M, T>` from a function that declares `[Throw<M>]` (a throw is a plain `return`, propagation is `?`), and Kotlin throws a generated signal the innermost `try` catches.

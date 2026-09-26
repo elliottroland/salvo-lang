@@ -667,6 +667,8 @@ fn a_fieldless_struct_is_a_plain_class() {
 /// *group* and the value needs two wraps — inner union first. That needed an
 /// intermediate annotated `let` until 2026-09-10.
 const FALLIBLE_PASS_DEMO: &str = r#"
+import throw
+
 struct Reader : Yield<self, Ok Str | Err Str> canbe Mut {
     lines: List<Str>,
     at: Int
@@ -1207,6 +1209,8 @@ const PICK_OUTPUT: &str =
 /// The mapping itself is the one an annotated `let` has always emitted
 /// [let-infer]; what was missing was reaching it from a site with no slot.
 const REWRAP_DEMO: &str = r#"
+import throw
+
 fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
     if n == 0 {
         return err("zero")
@@ -7961,6 +7965,8 @@ fn provenance_survives_mutation_where_state_does_not() -> KotlinCase {
 /// (`Thrown (Str | Int)`), a may-throw call inside a loop, and a nested
 /// delimiter that must not swallow the outer throw.
 const THROW_DEMO: &str = r#"
+import throw
+
 linear struct FileHandle {
     fd: Int
 }
@@ -8086,7 +8092,7 @@ fn throw_lowers_to_a_signal_and_try_to_a_catch() {
     // The signal class is generated once for the program.
     let signal = files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("throw.kt"))
+        .find(|f| f.rel_path == std::path::Path::new("throwsignal.kt"))
         .expect("expected a generated throw.kt");
     assert!(
         signal
@@ -8256,6 +8262,8 @@ fn kotlinc_compiles_and_runs_fn_type_effects() -> KotlinCase {
 // [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
 // `when` the union inside a qualified one — the shape `try` outcomes produce.
 const WIDEN_DEMO: &str = r#"
+import throw
+
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
     if n < 0 {
         throw("negative")
@@ -8476,6 +8484,8 @@ fn kotlinc_compiles_and_runs_when_cond() -> KotlinCase {
 // rejected the output — a [backend-never-wrong] miss caught by nothing but
 // the toolchain.
 const TRY_MUTATION_DEMO: &str = r#"
+import throw
+
 fn risky(n: Int) [Throw<Str>] -> Int {
     if n < 0 {
         throw("negative")
@@ -8524,6 +8534,8 @@ fn kotlinc_compiles_and_runs_try_mutation() -> KotlinCase {
 /// A platform effect and a `main` that needs it. The host implements
 /// `Telemetry` in Kotlin and calls the generated entry point.
 const PLATFORM_DEMO: &str = r#"
+import throw
+
 platform effect Telemetry {
     fn record(name: Str, value: Int) [] -> None => name, value
 }

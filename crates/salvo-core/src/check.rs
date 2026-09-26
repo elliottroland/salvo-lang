@@ -268,7 +268,8 @@ pub enum Coercion {
 }
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
-/// (`std/core/throw.sv`), known by name to the compiler: it has no handler
+/// (`std/throw.sv`, module `throw`), known by name to the compiler: it has no
+/// handler
 /// — `try` delimits it — and it is not threaded as an effect parameter.
 pub const THROW_EFFECT: &str = "Throw";
 
@@ -280,7 +281,7 @@ pub const THROW_EFFECT: &str = "Throw";
 pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
 /// The value arm of a `try` outcome, from `core.result` [try].
 pub const OK_QUALIFIER: &str = "Ok";
-/// The message arm of a `try` outcome, from `core.throw` [try].
+/// The message arm of a `try` outcome, from module `throw` [try].
 pub const THROWN_QUALIFIER: &str = "Thrown";
 /// [actor-spawn-expr] The handle a `spawn` produces, from `core.actor`:
 /// known by name to the compiler because its type argument is an **effect**,

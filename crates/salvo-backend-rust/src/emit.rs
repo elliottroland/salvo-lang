@@ -36,6 +36,39 @@ const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused
 /// Emits Rust for every *reachable* module that produces code
 /// [mod-used-only], plus the generated `unions.rs` and the crate-root
 /// module header [rs-crate].
+
+/// [backend-companion] Two emitted files with one path is a **clobber**: the
+/// second write wins and the first module's code silently vanishes. It has
+/// happened twice — a runtime file and a std module of the same name — so the
+/// assembly refuses rather than overwriting [backend-never-wrong]. Renaming the
+/// runtime file is the fix each time (`hosttime`, `throwsignal`); the durable
+/// one is a namespace for the runtime, recorded in ROADMAP.
+fn no_duplicate_paths(files: &[EmittedFile]) -> Result<(), Vec<String>> {
+    let mut seen: std::collections::HashMap<&std::path::Path, usize> =
+        std::collections::HashMap::new();
+    for f in files {
+        *seen.entry(f.rel_path.as_path()).or_default() += 1;
+    }
+    let mut clashes: Vec<String> = seen
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(path, n)| {
+            format!(
+                "two emitted files claim `{}` ({n} of them): a module's path and a \
+                 runtime file collide, so one would silently overwrite the other — \
+                 rename the runtime file [backend-companion]",
+                path.display()
+            )
+        })
+        .collect();
+    if clashes.is_empty() {
+        Ok(())
+    } else {
+        clashes.sort();
+        Err(clashes)
+    }
+}
+
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_with_entry(program, None)
 }
@@ -426,6 +459,7 @@ pub fn emit_program_reporting(
     }
 
     if errors.is_empty() {
+        no_duplicate_paths(&files)?;
         Ok((files, warnings))
     } else {
         Err(errors)

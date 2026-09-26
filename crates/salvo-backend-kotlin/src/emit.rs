@@ -31,6 +31,39 @@ pub struct EmittedFile {
 /// errors, **dropping** any warnings: this is the shape the golden tests
 /// want. The driver calls [`emit_program_reporting`], which hands them back
 /// [qual-refn-ambiguous].
+
+/// [backend-companion] Two emitted files with one path is a **clobber**: the
+/// second write wins and the first module's code silently vanishes. It has
+/// happened twice — a runtime file and a std module of the same name — so the
+/// assembly refuses rather than overwriting [backend-never-wrong]. Renaming the
+/// runtime file is the fix each time (`hosttime`, `throwsignal`); the durable
+/// one is a namespace for the runtime, recorded in ROADMAP.
+fn no_duplicate_paths(files: &[EmittedFile]) -> Result<(), Vec<String>> {
+    let mut seen: std::collections::HashMap<&std::path::Path, usize> =
+        std::collections::HashMap::new();
+    for f in files {
+        *seen.entry(f.rel_path.as_path()).or_default() += 1;
+    }
+    let mut clashes: Vec<String> = seen
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(path, n)| {
+            format!(
+                "two emitted files claim `{}` ({n} of them): a module's path and a \
+                 runtime file collide, so one would silently overwrite the other — \
+                 rename the runtime file [backend-companion]",
+                path.display()
+            )
+        })
+        .collect();
+    if clashes.is_empty() {
+        Ok(())
+    } else {
+        clashes.sort();
+        Err(clashes)
+    }
+}
+
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_reporting(program).map(|(files, _warnings)| files)
 }
@@ -230,7 +263,7 @@ pub fn emit_program_reporting(
     let needs_time = needs_time || needs_scheduler;
     if needs_throw {
         files.push(EmittedFile {
-            rel_path: std::path::PathBuf::from("throw.kt"),
+            rel_path: std::path::PathBuf::from("throwsignal.kt"),
             content: generate_throw_file(),
         });
     }
@@ -327,6 +360,7 @@ pub fn emit_program_reporting(
     }
 
     if errors.is_empty() {
+        no_duplicate_paths(&files)?;
         Ok((files, warnings))
     } else {
         Err(errors)
@@ -389,11 +423,25 @@ fn sanitize_instance(rendered: &str) -> String {
     out.trim_end_matches('_').to_string()
 }
 
+/// [kt-package-keyword] A module-path segment that collides with a Kotlin
+/// keyword is **mangled**, not escaped: a backquoted segment is accepted in a
+/// `package` line and then unreachable from an `import` (`import salvo.`throw`.*`
+/// is "unresolved reference"), which is silently wrong output rather than a
+/// diagnostic [backend-never-wrong]. std's own `throw` module is the customer —
+/// found the day it left `core` (2026-09-26).
+fn kt_package_part(name: &str) -> String {
+    if KOTLIN_KEYWORDS.contains(&name) {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
+}
+
 fn kotlin_package(module: &ModulePath) -> String {
     let mut out = String::from("salvo");
     for part in &module.0 {
         out.push('.');
-        out.push_str(&kt_ident(part));
+        out.push_str(&kt_package_part(part));
     }
     out
 }
@@ -437,10 +485,10 @@ fn collect_widen_checks<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) 
 /// — the exception flies through untouched — so the arm is chosen at the
 /// `catch`, and the tag is what tells it which one. Erasure-proof by
 /// construction: it compares Salvo type names, not JVM classes.
-/// Source in `runtime/throw.kt`, included verbatim and compiled directly
+/// Source in `runtime/throwsignal.kt`, included verbatim and compiled directly
 /// by `runtime_tests.rs`.
 fn generate_throw_file() -> String {
-    include_str!("../runtime/throw.kt").to_string()
+    include_str!("../runtime/throwsignal.kt").to_string()
 }
 
 /// [kt-ordered] The structural comparison an ordered struct's
@@ -655,7 +703,7 @@ pub fn host_package(module: &ModulePath) -> String {
     let mut out = String::from("salvo.platform");
     for part in &module.0 {
         out.push('.');
-        out.push_str(&kt_ident(part));
+        out.push_str(&kt_package_part(part));
     }
     out
 }

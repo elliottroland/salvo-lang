@@ -3918,7 +3918,11 @@ Conventions:
 ### Non-resumption: `throw` and `try`
 
 * [throw] `throw(message)` leaves the enclosing delimiter instead of
-  resuming. It is declared in std (`core.throw`) as the sole member of
+  resuming. It is declared in std (module `throw`, imported rather than
+  implicit — `import throw`, so a program that never throws links none of it;
+  a **test annex** gets it without writing one, because the harness and not
+  the author puts `[Throw<Failure>]` on a test body [test-implicit-import],
+  2026-09-26) as the sole member of
   `effect Throw<M> { fn throw(message: M) -> Never }` and known to the => !message
   compiler by name; the message is *moved* into the outcome.
   * Its type is `Never`, the bottom type: nothing after it runs, so the
@@ -3957,7 +3961,7 @@ Conventions:
     types): one type stays bare, several form a union, and the generated
     code only wraps when a union is present.
   * `Thrown M` is **forgeable**, deliberately: the qualifier carries no
-    authority, so `core.throw`'s `thrown(message)` constructor produces a
+    authority, so `throw`'s `thrown(message)` constructor produces a
     value in the thrown arm without transferring control. The authority is
     `[Throw<M>]` availability alone.
   * A body whose every path leaves still has an `Ok` arm — `Ok None`.

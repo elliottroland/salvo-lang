@@ -18,6 +18,10 @@
 // discharged by any fn in this file that consumes one — here, `close`.
 // Forgetting it on any path is a compile error naming the value and the
 // dischargers.
+// Non-resumption is imported, not implicit: a program that never throws
+// never links it [mod-import-module].
+import throw
+
 linear struct FileHandle {
     // What was opened, for the trace this example prints.
     name: Str

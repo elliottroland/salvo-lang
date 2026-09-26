@@ -72,9 +72,14 @@ design.
   siblings" item is now *unblocked* rather than closed: `set_of(first, ...rest)
   -> +NonEmpty Set<T>` siblings are writable where they were not, and whether
   std should have them is an API question.
-- **(e) `throw` out of `core`.** The module moves like `time` did, so a program
-  that never throws never links it. Every user of `Throw`/`try` gains an import,
-  which is the sweep.
+- **(e) ✅ `throw` out of `core`** — built 2026-09-26 [throw]
+  [test-implicit-import] (COMPLETED.md's log). `import throw`, and a test annex
+  gets it implicitly because the harness puts the effect there. Two defects fell
+  out of the module's name: Kotlin keyword package segments now mangle
+  [kt-package-keyword], and a duplicate emitted path is refused rather than
+  clobbered [backend-companion].
+
+**Step 1 is complete.**
 
 ### 2 — A task body's effects (recorded 2026-09-26; analysed, not built)
 
@@ -714,10 +719,14 @@ several are "revisit only if a customer appears".
   possible automation is hoisting the temporary into a fresh local, which is what
   the user writes today — not free of judgement, since the temporary then lives to
   the end of the block and a hoist inside a loop changes how often it is built.
-- **A runtime file name silently clobbers an emitted std module of the same
-  name** — worked around by naming the runtime files `hosttime.{rs,kt}`, not
-  fixed: extend the **companion** collision check [backend-companion] to the
-  runtime files, or namespace them under `salvo_rt/`.
+- **A runtime file name colliding with an emitted std module** — the *silence*
+  is closed (2026-09-26): emission refuses at the end when two files claim one
+  path [backend-companion], which is how it was caught the second time (`throw`
+  left `core`, and the runtime's `throw.kt` had been winning that path). The
+  workaround is still a rename each time — `hosttime.{rs,kt}`, now
+  `throwsignal.kt`. The durable fix, unscheduled: namespace the runtime under
+  `salvo_rt/`, which touches every golden, every example and the documented
+  `kotlinc`/`rustc` invocations, so it wants its own slice.
 - **`to_str(Duration)` stops at seconds**, and there is no `to_str` for `Instant`
   or `Tick`: a wall-clock text form is a date (the calendar layer's), and a
   monotonic reading has no rendering beyond its number. **Cancellation is not in

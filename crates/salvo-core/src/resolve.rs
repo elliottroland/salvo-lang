@@ -441,6 +441,13 @@ impl Level {
 /// no test file ever writes an import for the assertions it uses.
 pub const TEST_MODULE: &str = "test";
 
+/// [test-implicit-import] [throw] The non-resumption module, `throw`. Also
+/// implicitly available in a test annex, because the harness puts
+/// `[Throw<Failure>]` on a test body [test-body] and an assertion throws: a
+/// test file importing it would be importing something it never wrote
+/// (2026-09-26, when `throw` left `core`).
+pub const THROW_MODULE: &str = "throw";
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     // Pass 1: collect each module's own declarations (all files of the
     // module contribute).
@@ -834,17 +841,25 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             // (user decision 2026-09-23). It enters at the bulk-import rung,
             // so a test file's own `expect` silently wins — as anything beats
             // a whole-module import [mod-import-module].
-            let test_module = ModulePath(vec![TEST_MODULE.to_string()]);
-            if let Some((module, items)) = by_module.get_key_value(&test_module) {
-                add_items(
-                    &mut scope,
-                    items,
-                    module,
-                    None,
-                    Level::ModuleImport,
-                    None,
-                    &mut ctx,
-                );
+            //
+            // `throw` rides along, for the same reason: the harness — not the
+            // author — puts `[Throw<Failure>]` on a test body [test-body], and
+            // an assertion is a function that throws, so a test file that had
+            // to import `throw` would be importing something it never wrote
+            // (2026-09-26, with `throw` leaving `core`).
+            for implicit in [TEST_MODULE, THROW_MODULE] {
+                let path = ModulePath(vec![implicit.to_string()]);
+                if let Some((module, items)) = by_module.get_key_value(&path) {
+                    add_items(
+                        &mut scope,
+                        items,
+                        module,
+                        None,
+                        Level::ModuleImport,
+                        None,
+                        &mut ctx,
+                    );
+                }
             }
         }
         // Explicit imports.
