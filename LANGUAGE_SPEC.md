@@ -893,6 +893,16 @@ Conventions:
   elements said. Both the argument's expected type and the element-type read
   now treat `Unknown` as not concrete. An *empty* literal still needs its type
   from the position, which is the rule this left standing [col-literal].
+* [struct-literal-arg] **A bare generic struct literal determines its own type
+  arguments from its field values** (fixed 2026-09-26): `unwrap(Box { value: 7 })`
+  reads `T` off the field, where before it was "no matching overload for
+  `unwrap(Box)`" — the literal's type carried no arguments at all, so nothing
+  could match `Box<T>`. The struct-literal counterpart of [col-literal-arg], and
+  it ranks the same way: a written type argument or a concrete expectation
+  decides, and the fields are evidence of **last resort**, so
+  `Box<Str> { value: 7 }` is still reported. Each field's declared type is
+  unified against its value's type, in field order, so a later field may widen
+  an earlier binding exactly as a later argument does.
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the

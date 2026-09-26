@@ -227,3 +227,48 @@ fn a_lambda_before_its_binding_argument_is_not_inferred() {
         "expected the un-inferrable lambda to be reported"
     );
 }
+
+/// [struct-literal-arg] A **bare generic struct literal** determines the
+/// struct's own type arguments from its **field values**, which is the only
+/// evidence a literal written as a call argument has: there is no annotation,
+/// and the enclosing call's substitution is not solved yet. Before this,
+/// `unwrap(Box { value: 7 })` was "no matching overload for `unwrap(Box)`" —
+/// the literal's type had no arguments at all, so it could not match `Box<T>`
+/// (defect closed 2026-09-26; the collection-literal half was
+/// [col-literal-arg]).
+#[test]
+fn a_bare_generic_struct_literal_determines_its_type_argument() {
+    let msgs = messages(
+        "struct Box<T> { value: T }\n\n\
+         fn unwrap<T>(b: Box<T>) -> T => !b {\n    return b.value\n}\n\n\
+         fn go() [] -> Int {\n    return unwrap(Box { value: 7 })\n}\n",
+    );
+    assert!(msgs.is_empty(), "the field value determines `T`: {msgs:?}");
+}
+
+/// [struct-literal-arg] Two parameters, and a field each: both are determined,
+/// and the *declared* field order does not have to match the generic order.
+#[test]
+fn every_parameter_a_field_mentions_is_determined() {
+    let msgs = messages(
+        "struct Pair<A, B> { second: B, first: A }\n\n\
+         fn left<A, B>(p: Pair<A, B>) -> A => !p {\n    return p.first\n}\n\n\
+         fn go() [] -> Str {\n    return left(Pair { second: 1, first: \"x\" })\n}\n",
+    );
+    assert!(msgs.is_empty(), "both parameters are determined: {msgs:?}");
+}
+
+/// [struct-literal-arg] The fields are evidence of **last resort**: a written
+/// type argument still decides, so a literal whose field disagrees with it is
+/// reported rather than silently re-typed.
+#[test]
+fn a_written_type_argument_still_decides() {
+    let msgs = messages(
+        "struct Box<T> { value: T }\n\n\
+         fn go() [] -> None {\n    let b: Box<Str> = Box<Str> { value: 7 }\n}\n",
+    );
+    assert!(
+        !msgs.is_empty(),
+        "the annotation decides and the field must fit it"
+    );
+}

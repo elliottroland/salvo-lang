@@ -43,7 +43,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1544 tests green.
+targets and the output they print. 1547 tests green.
 
 ## The sequence
 
@@ -81,10 +81,12 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — The two open defects
+### 2 — One open defect
 
-Both are findings from the 2026-09-25 defect round, and both are *reported* by a
-target compiler rather than silently wrong.
+A finding from the 2026-09-25 defect round, *reported* by a target compiler
+rather than silently wrong. Its sibling — a bare generic struct literal not
+determining a type parameter — was fixed 2026-09-26 [struct-literal-arg]
+(COMPLETED.md's log).
 
 - **An un-annotated lending `?iter` has no lifetime to tie.** A fn-typed implicit
   whose return is a **borrowing** pass needs `holds proj(c)` [proj-infer] for the
@@ -111,24 +113,6 @@ target compiler rather than silently wrong.
   checker could synthesize it), or *refuse* the declaration naming
   `holds proj(c)`. Inference is the better default; the refusal is the cheap one.
   Kotlin runs both forms.
-
-- **A bare generic *struct* literal does not determine a type parameter.** The
-  collection-literal half is fixed [col-literal-arg]; a struct literal takes a
-  different path. Repro:
-
-  ```
-  struct Box<T> { value: T }
-  fn unwrap<T>(b: Box<T>) -> T => !b { return b.value }
-  fn main() [use] -> None {
-      use StdOutConsole()
-      println("${unwrap(Box { value: 7 })}")   // no matching overload for `unwrap(Box)`
-  }
-  ```
-
-  The fix is the struct-literal counterpart of the collection-literal one: infer
-  the literal's own type arguments from its **field values** (unify each declared
-  field type against the value's type) before the enclosing call's substitution
-  is solved.
 
 ### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
 

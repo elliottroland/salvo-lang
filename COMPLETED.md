@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1544 tests, complete: the toolchain tests are
+cargo test                  # 1547 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,26 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A bare generic struct literal determines its own type arguments
+(2026-09-26).** The second of the 2026-09-25 defect round's two open findings
+[struct-literal-arg]. `unwrap(Box { value: 7 })` was "no matching overload for
+`unwrap(Box)`": the literal's type carried *no* arguments at all — the annotation
+and the expectation are the only two sources `check_struct_lit` had, and a literal
+written as a call argument has neither, since the enclosing call's substitution is
+not solved yet. So `Box` could not match `Box<T>` on arity, let alone on `T`.
+
+- The fix is the struct-literal counterpart of [col-literal-arg]: each field's
+  *declared* type, lowered with the undetermined generics as `Ty::Var`s, is
+  unified against the value's type, and the literal's type is rebuilt with what
+  the fields determined. Ranking is unchanged — a written type argument or a
+  concrete expectation still decides, so `Box<Str> { value: 7 }` is still
+  reported, and the fields are evidence of last resort.
+- Field order gives the same widening an argument list gets for free, because
+  `unify` already widens a binding when a later position reveals the more general
+  type.
+- Tests: the repro, a two-parameter struct whose field order does not match its
+  generic order, and the precedence case. Both backends print `7`.
 
 **A task body's effects are inherited from the frame that mints it (2026-09-26,
 user decision — built).** ROADMAP step 2. A free `send fn` declares `[Console]`

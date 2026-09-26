@@ -22282,6 +22282,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         // literal is where it surfaces. A field whose *declared* type is
         // linear was already refused at the struct, so it is not reported
         // twice.
+        // [struct-literal-arg] The type arguments no annotation and no
+        // expectation determined: inferred from the field values below.
+        // Each undetermined generic lowered as itself (a `Ty::Var`), so the
+        // declared field type becomes a pattern `unify` can bind against.
+        let pattern_subst: HashMap<String, Ty> = decl
+            .generics
+            .iter()
+            .filter(|g| subst.get(&g.name).is_none_or(|t| t.is_unknown()))
+            .map(|g| (g.name.clone(), Ty::Var(g.name.clone())))
+            .collect();
+        let mut inferred: HashMap<String, Ty> = HashMap::new();
         let mut has_spread = false;
         let mut provided: HashSet<&str> = HashSet::new();
         for f in fields {
@@ -22292,6 +22303,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let fty = self.lower_type_subst(&df.ty, &subst, 0);
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
+                            // [struct-literal-arg] What this field says about an
+                            // **undetermined** type argument. `Box { value: 7 }`
+                            // written bare has nothing to take `T` from — no
+                            // annotation and, as a call argument, no expectation
+                            // — so the field values are the only evidence there
+                            // is. Collected here, where the declared field type
+                            // and the value's type are both in hand, and applied
+                            // after the loop so a later field can widen an
+                            // earlier binding the way an argument list does.
+                            if !pattern_subst.is_empty() {
+                                let pattern =
+                                    self.lower_type_subst(&df.ty, &pattern_subst, 0);
+                                unify(&pattern, &vty, &mut inferred);
+                            }
                             // [linear-generics] A field whose declared type
                             // mentions an opted-in parameter (`canbe
                             // linear`) accepts the store: the container is
@@ -22343,6 +22368,35 @@ impl<'p, 'r> Checker<'p, 'r> {
                             df.name.name, decl.name.name
                         ),
                     );
+                }
+            }
+        }
+        // [struct-literal-arg] Rebuild the literal's type with what the fields
+        // determined. Only the *undetermined* positions are filled, so a
+        // written `Box<Int>` or an expectation still decides — the fields are
+        // evidence of last resort, which is the same rank a collection
+        // literal's elements have [col-literal-arg].
+        if !inferred.is_empty() {
+            if let Ty::Named { name, args } = struct_ty.strip_quals() {
+                let filled: Vec<Ty> = decl
+                    .generics
+                    .iter()
+                    .enumerate()
+                    .map(|(i, g)| match args.get(i) {
+                        Some(t) if !t.is_unknown() => t.clone(),
+                        _ => inferred.get(&g.name).cloned().unwrap_or(Ty::Unknown),
+                    })
+                    .collect();
+                if filled.iter().any(|t| !t.is_unknown()) {
+                    let rebuilt = Ty::Named {
+                        name: name.clone(),
+                        args: filled,
+                    };
+                    let quals = match &struct_ty {
+                        Ty::Qualified { quals, .. } => quals.clone(),
+                        _ => Vec::new(),
+                    };
+                    return rebuilt.qualify(quals);
                 }
             }
         }
