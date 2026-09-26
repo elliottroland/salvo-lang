@@ -679,10 +679,25 @@ impl<'s> Parser<'s> {
                 self.parse_effect_kinded(false, true).map(Item::Effect)
             }
             TokenKind::KwHandler => self.parse_handler(false).map(Item::Handler),
-            // [qual-refn] A top-level refinement: the consumer's own
-            // statement about a function, which is how conflicting
-            // refinements from two qualifiers get reconciled.
-            TokenKind::KwRefn => self.parse_refn().map(Item::Refn),
+            // [qual-refn-scope] A refinement lives in the qualifier whose claim
+            // it is about — always (user decision 2026-09-26). The top-level
+            // form existed to *reconcile* two qualifiers that disagreed, and
+            // disagreement is now refused at the call and settled by naming a
+            // place [qual-refn-ambiguous], so the form has no job left.
+            TokenKind::KwRefn => {
+                let sp = self.peek().span;
+                let decl = self.parse_refn()?;
+                self.error(
+                    format!(
+                        "a refinement belongs to the qualifier whose claim it is \
+                         about: move `refn {}` into that qualifier's body \
+                         [qual-refn-scope]",
+                        decl.name.name
+                    ),
+                    sp,
+                );
+                Some(Item::Refn(decl))
+            }
             // [fn-rename] A module-scoped name for one overload.
             TokenKind::KwRename => self.parse_rename().map(Item::Rename),
             TokenKind::KwParams => self.parse_params_group().map(Item::Params),

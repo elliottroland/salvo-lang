@@ -2732,76 +2732,29 @@ Module {
                         ],
                         span: 2502..2557,
                     },
-                ],
-                has_body: true,
-                span: 2333..2559,
-            },
-        ),
-        Refn(
-            RefnDecl {
-                docs: [
-                    "[qual-refn-reconcile] A top-level refinement is the consumer's own word on",
-                    "a function, and replaces the qualifiers' refinements for that parameter.",
-                ],
-                name: Ident {
-                    name: "remove_first",
-                    span: 2720..2732,
-                },
-                generics: [
-                    Ident {
-                        name: "T",
-                        span: 2733..2734,
-                    },
-                ],
-                params: [
-                    Param {
+                    RefnDecl {
+                        docs: [
+                            "[qual-refn-scope] And removal can take it away again. Every refinement",
+                            "lives in the qualifier whose claim it is about — there is no top-level",
+                            "form.",
+                        ],
                         name: Ident {
-                            name: "list",
-                            span: 2736..2740,
+                            name: "remove_first",
+                            span: 2739..2751,
                         },
-                        ty: Named {
-                            qualifiers: [
-                                TypeRef {
-                                    name: Ident {
-                                        name: "Mut",
-                                        span: 2742..2745,
-                                    },
-                                    args: [],
-                                    value_args: [],
-                                    from: [],
-                                    at: None,
-                                    binder: false,
-                                    established: false,
-                                    alias: None,
-                                    span: 2742..2745,
-                                },
-                                TypeRef {
-                                    name: Ident {
-                                        name: "NonEmpty",
-                                        span: 2746..2754,
-                                    },
-                                    args: [],
-                                    value_args: [],
-                                    from: [],
-                                    at: None,
-                                    binder: false,
-                                    established: false,
-                                    alias: None,
-                                    span: 2746..2754,
-                                },
-                            ],
-                            base: TypeRef {
+                        generics: [],
+                        params: [
+                            Param {
                                 name: Ident {
-                                    name: "List",
-                                    span: 2755..2759,
+                                    name: "list",
+                                    span: 2752..2756,
                                 },
-                                args: [
-                                    Named {
-                                        qualifiers: [],
-                                        base: TypeRef {
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
                                             name: Ident {
-                                                name: "T",
-                                                span: 2760..2761,
+                                                name: "Mut",
+                                                span: 2758..2761,
                                             },
                                             args: [],
                                             value_args: [],
@@ -2810,52 +2763,93 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 2760..2761,
+                                            span: 2758..2761,
                                         },
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "NonEmpty",
+                                                span: 2762..2770,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 2762..2770,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "List",
+                                            span: 2771..2775,
+                                        },
+                                        args: [
+                                            Named {
+                                                qualifiers: [],
+                                                base: TypeRef {
+                                                    name: Ident {
+                                                        name: "T",
+                                                        span: 2776..2777,
+                                                    },
+                                                    args: [],
+                                                    value_args: [],
+                                                    from: [],
+                                                    at: None,
+                                                    binder: false,
+                                                    established: false,
+                                                    alias: None,
+                                                    span: 2776..2777,
+                                                },
+                                            },
+                                        ],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 2771..2778,
                                     },
-                                ],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 2755..2762,
-                            },
-                        },
-                        variadic: false,
-                        implicit: false,
-                        span: 2736..2762,
-                    },
-                ],
-                deductions: [
-                    RefnDeduction {
-                        param: Ident {
-                            name: "list",
-                            span: 2767..2771,
-                        },
-                        add: [],
-                        remove: [
-                            TypeRef {
-                                name: Ident {
-                                    name: "NonEmpty",
-                                    span: 2774..2782,
                                 },
-                                args: [],
-                                value_args: [],
-                                from: [],
-                                at: None,
-                                binder: false,
-                                established: false,
-                                alias: None,
-                                span: 2774..2782,
+                                variadic: false,
+                                implicit: false,
+                                span: 2752..2778,
                             },
                         ],
-                        preserve: [],
-                        span: 2767..2782,
+                        deductions: [
+                            RefnDeduction {
+                                param: Ident {
+                                    name: "list",
+                                    span: 2783..2787,
+                                },
+                                add: [],
+                                remove: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "NonEmpty",
+                                            span: 2790..2798,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 2790..2798,
+                                    },
+                                ],
+                                preserve: [],
+                                span: 2783..2798,
+                            },
+                        ],
+                        span: 2734..2798,
                     },
                 ],
-                span: 2715..2782,
+                has_body: true,
+                span: 2333..2800,
             },
         ),
     ],

@@ -289,7 +289,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             }
         }
         for ((callee, param, requires), mut list) in contributions {
-            // [qual-refn-reconcile] A top-level `refn` *replaces* the
+            // Historical: a top-level `refn` used to *replace* the
             // qualifiers' own refinements for that parameter. That is what
             // makes reconciling a conflict possible at all: joining them
             // would keep the disagreement, so the consumer's own module
@@ -342,7 +342,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             // not have been written together [qual-with]; an addition and
             // a removal of the same qualifier conflict outright. Never
             // is applied then — the caller can still test by hand, or
-            // reconcile with a top-level `refn`. Judged in *this* file's
+            // name the place it means [qual-refn-at]. Judged in *this* file's
             // scope, since that is where the refinements are visible.
             let mut conflict: Vec<String> = Vec::new();
             for (i, a) in group.add.iter().enumerate() {
@@ -709,8 +709,8 @@ fn check_refined_qual(
                 format!(
                     "a refinement declared by `{}` can only {verb} `{}`, not \
                      `{q}`: a qualifier states what happens to *its own* claim. \
-                     Write a top-level `refn` to reconcile several qualifiers in \
-                     your own module",
+                     A call that needs both statements names the place it means \
+                     (`f@place`) [qual-refn-ambiguous]",
                     owner.name.name, owner.name.name
                 ),
             ));

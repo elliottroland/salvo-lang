@@ -94,8 +94,9 @@ qualifier NonEmpty<T> of List<T> {
 
     // Adding an element makes the list non-empty.
     refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
-}
 
-// [qual-refn-reconcile] A top-level refinement is the consumer's own word on
-// a function, and replaces the qualifiers' refinements for that parameter.
-refn remove_first<T>(list: Mut NonEmpty List<T>) => list: -NonEmpty
+    // [qual-refn-scope] And removal can take it away again. Every refinement
+    // lives in the qualifier whose claim it is about — there is no top-level
+    // form.
+    refn remove_first(list: Mut NonEmpty List<T>) => list: -NonEmpty
+}

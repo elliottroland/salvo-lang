@@ -1631,13 +1631,21 @@ Conventions:
   * What a signature *reads* as, and what the deduction pass uses for an
     unconditional promise, is the precondition-free group — so a reader is never
     told a conditional fact as though it always held [qual-refn-docs].
-* [qual-refn-scope] A refinement declared **inside a qualifier** applies
-  wherever that qualifier is in scope, and nowhere else: the user opts
-  into the refinements by opting into the qualifier (user decision
-  2026-09-06). A **top-level** `refn` is *module*-scoped and **not
-  importable** — reconciling conflicting refinements is the consumer's
-  call, and a library shipping its own reconciliation would move the
-  conflict one level up.
+* [qual-refn-scope] **A refinement lives in the qualifier whose claim it is
+  about** — always (user decision 2026-09-26). It applies wherever that
+  qualifier is in scope and nowhere else: the user opts into the refinements by
+  opting into the qualifier (user decision 2026-09-06).
+  * A **top-level** `refn` is refused, with a diagnostic naming the move. It
+    existed to *reconcile* two qualifiers that disagreed (it replaced their
+    refinements for the parameters it named), and disagreement is now refused at
+    the call and settled by naming a place [qual-refn-ambiguous]
+    [qual-refn-at] — so the form had no job left, and having one refinement in
+    two possible places was the cost.
+  * A **constructive** qualifier may therefore have a body: what makes a
+    qualifier *predicate* is holding a `qualifies` [qual-predicate], not holding
+    braces. A body of refinements alone is the mint-only shape — `Sorted`'s
+    insert is the case that forced it: the claim cannot be tested, and still has
+    something to say about a function that keeps it.
 * [qual-refn-ambiguous] When the refinements applying to one (callee,
   parameter) **disagree**, the call is an **error** (user decision 2026-09-26):
   the compiler refuses to choose, and the diagnostic names the `f@place` that
@@ -1663,11 +1671,6 @@ Conventions:
   refines a callee is a legal selector even when it declares no overload of it
   [fn-overload-at]. The unpicked statement does not apply, which is the point:
   `add@core.list(xs, 1)` establishes `NonEmpty` and leaves `NE` behind.
-* [qual-refn-reconcile] A top-level `refn` **replaces** the qualifiers'
-  own refinements for the parameters it names, rather than joining them —
-  which is what makes reconciling a conflict possible at all. Same
-  precedence own-module declarations have over imported ones
-  [mod-collision].
 * [qual-refn-infer] Refinements reach **inferred** deductions
   [deduce-infer], so the fact survives one frame outward: a fn whose
   parameter declares the qualifier and whose body makes a refined call

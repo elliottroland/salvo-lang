@@ -16945,7 +16945,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Two cases apply nothing. A group whose refinements *conflict*
     /// [qual-refn-ambiguous] is suppressed, with one warning per (callee,
     /// parameter) — no error, since the caller can still test by hand or
-    /// reconcile with a top-level `refn`, but not silence either, or an
+    /// name the place it means [qual-refn-at], but not silence either, or an
     /// imported refinement would appear to do nothing for no visible
     /// reason. And a single addition is skipped when it could not co-apply
     /// with a qualifier the call *preserved* [qual-with]: the value cannot
@@ -17334,10 +17334,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let Some(qualifies) = q.fns.iter().find(|f| f.name.name == "qualifies") else {
+            // [qual-refn-scope] A **constructive** qualifier may still have a
+            // body: refinements live in the qualifier that owns the claim, and a
+            // mint-only claim has refinements to write like any other (`Sorted`'s
+            // insert). What makes a qualifier *predicate* is having a
+            // `qualifies`, not having braces — so a body of refinements alone is
+            // this shape, not a missing member.
+            if !q.refns.is_empty() && q.fns.is_empty() && q.field_overrides.is_empty() {
+                return;
+            }
             self.error(
                 q.name.span,
                 format!(
-                    "predicate qualifier `{}` must define a `qualifies` function",
+                    "qualifier `{}` has a body but no `qualifies`: a body may hold a                      `qualifies` (which makes the claim testable), refinements, or                      both — this one holds members that need a `qualifies` beside                      them",
                     q.name.name
                 ),
             );

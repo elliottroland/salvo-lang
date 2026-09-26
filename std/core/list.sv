@@ -429,7 +429,16 @@ export intrinsic fn to_str<T>(list: List<T>) [] -> Str => list
 // bound to a different `cmp` than the sort used would insert at a position
 // that is a lower bound for one ordering and nonsense for the other. The slot
 // makes the two different types, so they refuse to mix.
-export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty
+export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> with NonEmpty {
+    // [qual-refn] The claim's owner states what the insert below does to it,
+    // because the primitive cannot: a function that mutates may not promise back
+    // a qualifier it has never heard of [deduce-syntax], and inserting at the
+    // lower bound is exactly the operation that keeps a list ordered. Sound
+    // because the position is computed with `cmp` — the ordering the claim
+    // names, which is why the claim carries it.
+    refn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int)
+    => list: +Sorted
+}
 
 // ===== the ordering-taking primitives =====
 //
@@ -449,16 +458,6 @@ intrinsic fn sort_by<T>(list: List<T>, cmp: (T, T) -> Int) [] -> Mut List<T>
 // ties with it — which is the position that keeps the list ordered.
 intrinsic fn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int) [] -> None
 => list: Mut, !elem, cmp
-
-// [qual-refn] The claim's owner states what that insert does to it, because the
-// primitive cannot: a function that mutates may not promise back a qualifier it
-// has never heard of [deduce-syntax], and inserting at the lower bound is
-// exactly the operation that keeps a list ordered. Sound because the position is
-// computed with `cmp` — the ordering the claim names, which is why the claim
-// carries it. Module-scoped [qual-refn-scope], and `Sorted` has no `qualifies`
-// to put it beside, so it is written here rather than in the qualifier's body.
-refn insert_sorted_by<T>(list: Mut List<T>, elem: T, cmp: (T, T) -> Int)
-=> list: +Sorted
 
 // The **lowest** index that ties with [elem] under [cmp], or `None`. A tie is
 // `cmp(a, b) == 0`, never the host's equality: that is the only test

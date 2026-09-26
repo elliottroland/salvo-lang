@@ -1191,22 +1191,29 @@ fn a_refinement_parses_in_a_qualifier_body() {
 
 /// [qual-refn-scope] A top-level `refn` is an item of its own — the form
 /// that reconciles two qualifiers' conflicting refinements in one's own
-/// module [qual-refn-reconcile].
+/// [qual-refn-scope] A refinement belongs to the qualifier whose claim it is
+/// about, so the **top-level** form is refused, naming the move (user decision
+/// 2026-09-26). The declaration still parses — the diagnostic names it — so one
+/// misplaced refinement produces one error rather than a cascade.
 #[test]
-fn a_top_level_refinement_parses_as_an_item() {
+fn a_top_level_refinement_is_refused() {
     let source = "refn add<T>(list: Mut List<T>, elem: T) => list: +NonEmpty\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let msgs: Vec<String> = diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert_eq!(msgs.len(), 1, "one misplaced refinement, one error: {msgs:?}");
     assert!(
-        !diagnostics.iter().any(|d| d.is_error()),
-        "unexpected errors: {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        msgs[0].contains("belongs to the qualifier") && msgs[0].contains("refn add"),
+        "{}",
+        msgs[0]
     );
     let salvo_syntax::ast::Item::Refn(r) = &module.items[0] else {
         panic!("expected a refn item");
     };
     assert_eq!(r.name.name, "add");
-    assert_eq!(r.generics.len(), 1, "a top-level refn declares its own generics");
-    assert_eq!(r.deductions.len(), 1);
 }
 
 /// [qual-refn] The three things a refinement may not say are diagnostics

@@ -352,14 +352,9 @@ something@main(xs)   // this module's: establishes Q2
 
 The place you name is the only one that applies, so what the call establishes is what you asked for. Two refinements made by the *same* place are an error where they are written instead, since no selector could separate them.
 
-The other remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), declare `with` on your qualifier so both claims can co-apply, or state the reconciled result in your own module with a top-level `refn`:
+The other remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), or declare `with` on your qualifier so both claims can co-apply and the disagreement disappears.
 
-```
-// In your own module: replaces the qualifiers' refinements for `list`.
-refn something<T>(list: List<T>) => list: +Q1
-```
-
-A top-level refinement is module-scoped and not importable. Reconciling is the consumer's call — a library shipping its own reconciliation would just move the disagreement one level up.
+**A refinement always lives in the qualifier whose claim it is about.** There is no top-level form — a qualifier is the one party entitled to say what happens to its claim, and having one refinement in two possible places bought nothing once ambiguity became a question a call answers. A *constructive* qualifier can hold refinements too, without a `qualifies`: `Sorted` cannot be tested at runtime and still has something to say about an insert that keeps it.
 
 Finally, a refinement reaches **inferred** deductions, so the fact does not die at one frame:
 

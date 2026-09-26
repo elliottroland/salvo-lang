@@ -207,20 +207,42 @@ fn compatible_refinements_both_apply() {
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }
 
-/// [qual-refn-reconcile] The consumer's remedy: a top-level `refn`
-/// *replaces* the qualifiers' own refinements for that parameter, so the
-/// disagreement is gone and the reconciled result applies.
+/// [qual-refn-scope] A refinement belongs to the qualifier whose claim it is
+/// about, so the **top-level** form is a parse error naming the move (user
+/// decision 2026-09-26). It existed to *reconcile* two qualifiers that
+/// disagreed; disagreement is now refused at the call and settled by naming a
+/// place [qual-refn-ambiguous], so it has no job left.
 #[test]
-fn a_top_level_refinement_reconciles_a_conflict() {
+fn a_top_level_refinement_is_refused() {
+    let (_m, diags) = salvo_syntax::parse_module(
+        "refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n",
+    );
+    let msgs: Vec<String> = diags
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("belongs to the qualifier")
+            && m.contains("refn push")),
+        "got: {msgs:?}"
+    );
+}
+
+/// [qual-refn-scope] And a **constructive** qualifier — one with no
+/// `qualifies` — may still carry refinements, which is what the move needs:
+/// `Sorted` is mint-only and has an insert to speak about. A body makes a
+/// qualifier predicate only when it holds a `qualifies`.
+#[test]
+fn a_constructive_qualifier_may_hold_refinements() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
-         qualifier Sorted<T> of Store<T> {{\n    \
-         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
+         qualifier Sorted<T> of Store<T> with NonEmpty {{\n    \
          refn push(s: Mut Store<T>, value: T) => s: +Sorted\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n\n\
+         fn needs_sorted<T>(s: Sorted Store<T>) -> None {{\n}}\n\n\
          fn f(s: Mut Store<Int>) -> None {{\n    \
          push(s, 1)\n    \
-         let _n = needs_nonempty(s)\n}}\n"
+         let _n = needs_sorted(s)\n}}\n"
     );
     assert!(errors(&src).is_empty(), "{:?}", errors(&src));
 }
@@ -264,45 +286,6 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
         "expected the unimported qualifier to be unknown here: {diags:?}"
     );
 }
-
-/// [qual-refn-scope] A top-level refinement is module-scoped and *not*
-/// importable: reconciling is the consumer's call, and a library shipping
-/// its own reconciliation would move the conflict one level up.
-#[test]
-fn a_top_level_refinement_does_not_leave_its_module() {
-    let lib = format!(
-        "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
-         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) => s: +NonEmpty\n"
-    );
-    // The same module, second file: module scope, so it applies.
-    let same_module = "export fn g(s: Mut Store<Int>) -> None {\n    \
-                       push(s, 1)\n    \
-                       let _n = needs_nonempty(s)\n}\n";
-    assert!(
-        diagnostics(&[("lib.sv", &lib), ("lib2.sv", same_module)])
-            .iter()
-            .all(|d| !d.contains("no matching overload")),
-        "a top-level refinement should apply across its own module: {:?}",
-        diagnostics(&[("lib.sv", &lib), ("lib2.sv", same_module)])
-    );
-    // Another module, importing everything it can: the refinement stays
-    // behind, so the call fails.
-    let other = "import lib.NonEmpty\nimport lib.Store\n\
-                 import lib.push\nimport lib.needs_nonempty\n\
-                 export fn g(s: Mut Store<Int>) -> None {\n    \
-                 push(s, 1)\n    \
-                 let _n = needs_nonempty(s)\n}\n";
-    let diags = diagnostics(&[("lib.sv", &lib), ("other/user.sv", other)]);
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.contains("no matching overload for `needs_nonempty")),
-        "a top-level refinement must not be importable: {diags:?}"
-    );
-}
-
-// --- Declaration rules ---
 
 /// [qual-refn-match] The parameter list picks one overload, by names *and*
 /// types: a mismatch is an error at the refinement rather than a refinement
@@ -350,16 +333,17 @@ fn a_refinement_must_match_an_overload_exactly() {
 /// the remedy rather than reporting a shape mismatch.
 #[test]
 fn an_unbound_type_parameter_names_the_remedy() {
+    // `U` is neither the qualifier's parameter nor the refinement's own.
     let src = format!(
-        "{PRELUDE}\nqualifier NonEmpty<T> of Store<T> {{\n    \
-         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push(s: Mut Store<T>, value: T) => s: +NonEmpty\n"
+        "{PRELUDE}{NONEMPTY}\nqualifier Filled<T> of Store<T> {{\n    \
+         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
+         refn push(s: Mut Store<U>, value: U) => s: +Filled\n}}\n"
     );
     let diags = errors(&src);
     assert!(
         diags
             .iter()
-            .any(|d| d.contains("unknown type `T`") && d.contains("refn push<T>")),
+            .any(|d| d.contains("unknown type `U`") && d.contains("refn push<U>")),
         "{diags:?}"
     );
 }
@@ -380,7 +364,7 @@ fn a_qualifier_may_only_refine_its_own_claim() {
     assert!(
         diags.iter().any(|d| d
             .contains("a refinement declared by `NonEmpty` can only establish `NonEmpty`")
-            && d.contains("top-level `refn`")),
+            && d.contains("names the place it means")),
         "{diags:?}"
     );
 }
@@ -392,26 +376,34 @@ fn a_qualifier_may_only_refine_its_own_claim() {
 #[test]
 fn only_state_qualifiers_can_be_refined() {
     let provenance = format!(
-        "{PRELUDE}\nprovenance qualifier Trusted<T> of Store<T>\n\n\
-         qualifier NonEmpty<T> of Store<T> {{\n    \
-         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n}}\n\n\
-         refn push<T>(s: Mut Store<T>, value: T) => s: +Trusted\n"
+        "{PRELUDE}{NONEMPTY}\nprovenance qualifier Trusted<T> of Store<T>\n\n\
+         qualifier Filled<T> of Store<T> {{\n    \
+         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
+         refn push(s: Mut Store<T>, value: T) => s: +Trusted\n}}\n"
     );
     assert!(
         errors(&provenance)
             .iter()
-            .any(|d| d.contains("`Trusted` is a provenance qualifier")),
+            .any(|d| d.contains("`Trusted` is a provenance qualifier")
+                // Inside a qualifier body the own-claim rule fires first, which
+                // makes the same point: a qualifier speaks only for itself.
+                || d.contains("can only establish `Filled`")),
         "{:?}",
         errors(&provenance)
     );
     let intrinsic = format!(
-        "{PRELUDE}\nrefn push<T>(s: Mut Store<T>, value: T) => s: +Mut\n"
+        "{PRELUDE}{NONEMPTY}\nqualifier Filled<T> of Store<T> {{\n    \
+         fn qualifies(s: Store<T>) -> Bool {{\n        return true\n    }}\n\n    \
+         refn push(s: Mut Store<T>, value: T) => s: +Mut\n}}\n"
     );
     assert!(
         errors(&intrinsic)
             .iter()
             .any(|d| d.contains("unknown qualifier `Mut`")
-                || d.contains("compiler's own qualifiers")),
+                || d.contains("compiler's own qualifiers")
+                // Inside a qualifier body, the own-claim rule catches it first:
+                // `Mut` is not this qualifier's claim to speak about.
+                || d.contains("can only establish `Filled`")),
         "{:?}",
         errors(&intrinsic)
     );
