@@ -2,6 +2,7 @@ package salvo.core.hostfs
 
 import salvo.*
 import salvo.core.bytes.*
+import salvo.core.checked.*
 import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.nonempty.*
@@ -87,53 +88,53 @@ class __Mon_RawFs(private val inner: RawFs) : RawFs {
 class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun open_read(path: String): Union2<InStream, FsError> {
+    override fun open_read(path: String): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_open_read(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<InStream, FsError>(ok(InStream(handle = (r.value as Long))))
+                return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = (r.value as Long))))
             }
             is U2_2<*, *> -> {
-                return U2_2<InStream, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun open_read_at(path: String, offset: Long): Union2<InStream, FsError> {
+    override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_open_read_at(path, offset)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<InStream, FsError>(ok(InStream(handle = (r.value as Long))))
+                return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = (r.value as Long))))
             }
             is U2_2<*, *> -> {
-                return U2_2<InStream, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun open_write(path: String): Union2<OutStream, FsError> {
+    override fun open_write(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_open_write(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<OutStream, FsError>(ok(OutStream(handle = (r.value as Long))))
+                return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = (r.value as Long))))
             }
             is U2_2<*, *> -> {
-                return U2_2<OutStream, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun open_append(path: String): Union2<OutStream, FsError> {
+    override fun open_append(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_open_append(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<OutStream, FsError>(ok(OutStream(handle = (r.value as Long))))
+                return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = (r.value as Long))))
             }
             is U2_2<*, *> -> {
-                return U2_2<OutStream, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
@@ -143,66 +144,66 @@ class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun metadata(path: String): Union2<FileInfo, FsError> {
+    override fun metadata(path: String): Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_metadata(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<FileInfo, FsError>(ok((r.value as FileInfo)))
+                return U2_1<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as FileInfo)))
             }
             is U2_2<*, *> -> {
-                return U2_2<FileInfo, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun list_dir(path: String): Union2<List<String>, FsError> {
+    override fun list_dir(path: String): Union2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_list_dir(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<List<String>, FsError>(ok((r.value as List<String>)))
+                return U2_1<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as List<String>)))
             }
             is U2_2<*, *> -> {
-                return U2_2<List<String>, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun create_dirs(path: String): Union2<Unit, FsError> {
+    override fun create_dirs(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_create_dirs(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun delete(path: String): Union2<Unit, FsError> {
+    override fun delete(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_delete(path)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun rename_path(from: String, to: String): Union2<Unit, FsError> {
+    override fun rename_path(from: String, to: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_rename_path(from, to)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
@@ -212,53 +213,53 @@ class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_all(s: InStream): Union2<String, FsError> {
+    override fun read_all(s: InStream): Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_read_all(s.handle)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<String, FsError>(ok((r.value as String)))
+                return U2_1<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as String)))
             }
             is U2_2<*, *> -> {
-                return U2_2<String, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, FsError> {
+    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_read_bytes(s.handle, max)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<salvo.SalvoBytes, FsError>(ok((r.value as salvo.SalvoBytes)))
+                return U2_1<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as salvo.SalvoBytes)))
             }
             is U2_2<*, *> -> {
-                return U2_2<salvo.SalvoBytes, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, FsError> {
+    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_read_to_bytes(s.handle, buf, max)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Int, FsError>(ok((r.value as Int)))
+                return U2_1<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as Int)))
             }
             is U2_2<*, *> -> {
-                return U2_2<Int, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, FsError> {
+    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_read_to_str(s.handle, buf)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Long, FsError>(ok((r.value as Long)))
+                return U2_1<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok((r.value as Long)))
             }
             is U2_2<*, *> -> {
-                return U2_2<Long, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
@@ -272,15 +273,15 @@ class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun close(s: InStream): Union2<Unit, FsError> {
+    override fun close(s: InStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_close_read(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
@@ -302,28 +303,28 @@ class DefaultFs(private val __dep_RawFs: __Has_RawFs) : Fs {
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun flush(s: OutStream): Union2<Unit, FsError> {
+    override fun flush(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_flush(s.handle)
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun close__2(s: OutStream): Union2<Unit, FsError> {
+    override fun close__2(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val r = __dep_RawFs.__fx_RawFs.raw_close_write(s.handle)
         (s).let {}
         when (r) {
             is U2_1<*, *> -> {
-                return U2_1<Unit, FsError>(ok(Unit))
+                return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
             }
             is U2_2<*, *> -> {
-                return U2_2<Unit, FsError>(err(FsError(kind = (r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
+                return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>((r.value as Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>))))
             }
         }
     }

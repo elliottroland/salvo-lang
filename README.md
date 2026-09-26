@@ -231,8 +231,8 @@ fn main() [use] {
 - **Files**: `std`'s filesystem is the whole language in one surface — an
   `Fs` effect whose members cover paths *and* streams (so a double fakes all
   of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
-  `FsError` that cannot be dropped in silence (`ignore` it, or `detach` its
-  kind to keep it), a `Lines` pass for `for line in p`, one-shots
+  error a caller cannot drop in silence (`Checked<FsError>` — `ignore` it, or
+  `detach` it to read or keep it), a `Lines` pass for `for line in p`, one-shots
   (`read_to_str`, `read_lines`, `write_str`, `copy_file`) for the common case,
   bytes as themselves (`read_bytes`/`write_bytes` over `Bytes`, sharing one
   stream and one position with the text reads), a fill-a-buffer read for the

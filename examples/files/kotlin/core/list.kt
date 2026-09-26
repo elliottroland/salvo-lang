@@ -3,7 +3,6 @@ package salvo.core.list
 import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
-import salvo.core.fs.*
 import salvo.core.iterator.*
 import salvo.core.map.*
 import salvo.core.nonempty.*

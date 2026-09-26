@@ -42,9 +42,9 @@ use crate::time::*;
 pub fn verdict(started: &Tick, at: &Tick, budget: &Duration) -> String {
     let mut took = between__2(started, at);
     if cmp(&took, budget) > 0 {
-        return format!("late by {}", to_str__4(&minus(&took, budget)));
+        return format!("late by {}", to_str__3(&minus(&took, budget)));
     }
-    return format!("in time, {} to spare", to_str__4(&minus(budget, &took)));
+    return format!("in time, {} to spare", to_str__3(&minus(budget, &took)));
 }
 
 pub fn overdue<__Fx: __Has_Ticker>(__fx: &mut __Fx, started: &Tick, budget: &Duration) -> bool {
@@ -309,7 +309,7 @@ impl __Impl_Napping for Napping {
     }
 
     fn woke<__Fx: __Has_Timer + __Has_Ticker>(&mut self, __fx: &mut __Fx, started: Tick, out: crate::scheduler::SalvoReply, f: Fired) {
-        (out).send(Box::new(format!("napped {}", to_str__4(&elapsed(&mut *__fx, &started)))));
+        (out).send(Box::new(format!("napped {}", to_str__3(&elapsed(&mut *__fx, &started)))));
     }
 }
 
@@ -378,7 +378,7 @@ impl<__D0: Timer + Send + 'static, __D1: Ticker + Send + 'static> crate::schedul
 pub fn main() {
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
     let mut budget = millis(1500i64);
-    println(&mut __fx, &(format!("budget {}, doubled {}, in millis {}", to_str__4(&budget), to_str__4(&times(&budget, 2i64)), to_millis(&budget))));
+    println(&mut __fx, &(format!("budget {}, doubled {}, in millis {}", to_str__3(&budget), to_str__3(&times(&budget, 2i64)), to_millis(&budget))));
     let mut stamp = epoch_milli(1700000000000i64);
     println(&mut __fx, &(format!("stamp {}s, a minute later {}s", to_epoch_second(&stamp), to_epoch_second(&(plus__2(&stamp, &(minutes(1i64))))))));
     let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: crate::time::__Lock_Clock::new(DefaultClock::new()) };

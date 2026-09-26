@@ -63,12 +63,12 @@ fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
 }
 
 // The refusal, as its own function because every member needs it.
-fn fs_escaped(path: Str) [] -> FsError => path {
-    return FsError { kind: PathEscapes { path: copy(path) } }
+fn fs_escaped(path: Str) [] -> Checked<FsError> => path {
+    return checked<FsError>(PathEscapes { path: copy(path) })
 }
 
 export handler RestrictedFs(root: Str) [Fs] of Fs {
-    fn open_read(path: Str) -> Ok InStream | Err FsError => path {
+    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -76,7 +76,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return open_read(real)
     }
 
-    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err FsError => path {
+    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -84,7 +84,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return open_read_at(real, offset)
     }
 
-    fn open_write(path: Str) -> Ok OutStream | Err FsError => path {
+    fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -92,7 +92,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return open_write(real)
     }
 
-    fn open_append(path: Str) -> Ok OutStream | Err FsError => path {
+    fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -110,7 +110,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return exists(real)
     }
 
-    fn metadata(path: Str) -> Ok FileInfo | Err FsError => path {
+    fn metadata(path: Str) -> Ok FileInfo | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -118,7 +118,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return metadata(real)
     }
 
-    fn list_dir(path: Str) -> Ok List<Str> | Err FsError => path {
+    fn list_dir(path: Str) -> Ok List<Str> | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -126,7 +126,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return list_dir(real)
     }
 
-    fn create_dirs(path: Str) -> Ok None | Err FsError => path {
+    fn create_dirs(path: Str) -> Ok None | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -134,7 +134,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return create_dirs(real)
     }
 
-    fn delete(path: Str) -> Ok None | Err FsError => path {
+    fn delete(path: Str) -> Ok None | Err Checked<FsError> => path {
         let real = fs_resolve(root, path)
         if real is None {
             return err(fs_escaped(path))
@@ -143,7 +143,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
     }
 
     // Both ends are checked: a rename is two paths, and either may escape.
-    fn rename_path(from: Str, to: Str) -> Ok None | Err FsError => from, to {
+    fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
         let real_from = fs_resolve(root, from)
         if real_from is None {
             return err(fs_escaped(from))
@@ -162,19 +162,19 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return read_line(s)
     }
 
-    fn read_all(s: InStream) -> Ok Str | Err FsError => s {
+    fn read_all(s: InStream) -> Ok Str | Err Checked<FsError> => s {
         return read_all(s)
     }
 
-    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err FsError => s {
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<FsError> => s {
         return read_bytes(s, max)
     }
 
-    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => s, buf: Mut {
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<FsError> => s, buf: Mut {
         return read_to(s, buf, max)
     }
 
-    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err FsError => s, buf: Mut {
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<FsError> => s, buf: Mut {
         return read_to(s, buf)
     }
 
@@ -186,7 +186,7 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return position(s)
     }
 
-    fn close(s: InStream) -> Ok None | Err FsError => !s {
+    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s {
         return close(s)
     }
 
@@ -206,11 +206,11 @@ export handler RestrictedFs(root: Str) [Fs] of Fs {
         return position(s)
     }
 
-    fn flush(s: OutStream) -> Ok None | Err FsError => s {
+    fn flush(s: OutStream) -> Ok None | Err Checked<FsError> => s {
         return flush(s)
     }
 
-    fn close(s: OutStream) -> Ok None | Err FsError => !s {
+    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s {
         return close(s)
     }
 }

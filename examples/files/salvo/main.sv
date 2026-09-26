@@ -12,15 +12,15 @@
 //
 //   * an **open stream** is linear — the token must be closed on every path,
 //     and `close` is what discharges it;
-//   * an **error** is linear too — `Err FsError` must be acknowledged, by
-//     `ignore`, by `detach` (which hands back the droppable kind), or by
-//     narrowing the result to its `Ok` arm.
+//   * an **error** must be acknowledged too — `Err Checked<FsError>` carries
+//     the obligation, discharged by `ignore`, by `detach` (which hands back
+//     the failure itself), or by narrowing the result to its `Ok` arm.
 
 // The name of a failure without the path it happened to. Paths differ between
 // the real filesystem (where the sandbox has rebased them) and the fake, so
 // naming the *kind* is what keeps the two runs comparable — and `is` narrowing
 // over the union is how you read one.
-fn kind_name(kind: FsErrorKind) [] -> Str => kind {
+fn kind_name(kind: FsError) [] -> Str => kind {
     if kind is NotFound {
         return "not found"
     }
@@ -278,10 +278,10 @@ fn workflow() [Fs, Console] -> None {
         is Err { println("byte read failed: ${kind_name(detach(whole))}") }
     }
 
-    // 10. Failures, collected. A linear `FsError` may not live in a list
+    // 10. Failures, collected. A `Checked<FsError>` may not live in a list
     //    (nothing linear may live in a composite), so `detach` hands back the
-    //    droppable kind — which is the whole reason it exists.
-    let failures: Mut List<FsErrorKind> = mut_list_of()
+    //    bare `FsError` — which is the whole reason it exists.
+    let failures: Mut List<FsError> = mut_list_of()
     let missing = read_to_str("nope.txt")
     when missing {
         is Ok { println("unexpected: ${missing}") }

@@ -338,8 +338,8 @@ Within a *single* effect a member name may recur too, as an ordinary **overload*
 
 ```
 effect Fs {
-    fn close(s: InStream) -> Ok None | Err FsError => !s
-    fn close(s: OutStream) -> Ok None | Err FsError => !s
+    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s
+    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s
 }
 ```
 
@@ -348,7 +348,7 @@ Two members with the same name *and* the same parameter types are the error they
 A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` pass.
 
 ```
-fn close(p: Lines) [local Fs] -> Ok None | Err FsError => !p {   // a function
+fn close(p: Lines) [local Fs] -> Ok None | Err Checked<FsError> => !p {   // a function
     return close(p.s)                                            // ...calling the member
 }
 ```

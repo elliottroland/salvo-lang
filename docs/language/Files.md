@@ -1,11 +1,11 @@
 # Files
 
-The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, a linear error that cannot be dropped in silence, a pass for the lines, and a `platform handler` at the very bottom.
+The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, an error that cannot be dropped in silence, a pass for the lines, and a `platform handler` at the very bottom.
 
 A program that reads a file declares `[Fs]` and nothing else:
 
 ```
-fn first_line(path: Str) [Fs] -> Ok Str | Err FsError => path {
+fn first_line(path: Str) [Fs] -> Ok Str | Err Checked<FsError> => path {
     let opened = open_read(path)
     if opened is Err {
         return opened                    // the error travels; it still owes
@@ -18,7 +18,7 @@ fn first_line(path: Str) [Fs] -> Ok Str | Err FsError => path {
     }
     when line {
         is Str { return ok(line) }
-        is None { return err(FsError { kind: IoError {path: copy(path), message: "empty"} }) }
+        is None { return err(checked<FsError>(IoError {path: copy(path), message: "empty"})) }
     }
 }
 ```
@@ -27,8 +27,8 @@ Four things in that function are the language's, not the library's:
 
 * **`open_read` returns a union with a linear arm**, so the result *is* the stream: forget to look at it and the program does not compile; narrow it to `Err` and the stream was never opened.
 * **`InStream` is linear**, so the `close` is not politeness. Its only field is a handle — the position, the buffer and the resource live in the handler — which is why no stream operation needs `Mut`.
-* **`FsError` is linear too.** An error you do not care about takes one call to say so: `ignore(e)`. One you want to keep costs `detach(e)`, which hands back the plain `FsErrorKind` (a linear value may not be stored, so this is the way into a `List<FsErrorKind>`). Narrowing a result to its `Ok` arm discharges the error that was never there.
-* **Failures are returned, never thrown.** An effect member may declare no effects, `Throw` included, so every fallible member answers `Ok T | Err FsError`.
+* **The error carries an obligation too.** A failure arrives as `Checked<FsError>`, the same wrapper every "you must look at this" answer in the library uses. An error you do not care about takes one call to say so: `ignore(e)`. One you want to read or keep costs `detach(e)`, which hands back the plain `FsError` (a linear value may not be stored, so this is the way into a `List<FsError>`). Narrowing a result to its `Ok` arm discharges the error that was never there.
+* **Failures are returned, never thrown.** An effect member may declare no effects, `Throw` included, so every fallible member answers `Ok T | Err Checked<FsError>`.
 
 Reading the lines is ordinary iteration, over a pass that owns the stream:
 
@@ -36,8 +36,7 @@ Reading the lines is ordinary iteration, over a pass that owns the stream:
 fn print_file(path: Str) [Fs, Console] -> None => path {
     let opened = open_read(path)
     if opened is Err {
-        println("cannot read ${path}: ${to_str(opened)}")
-        ignore(opened)
+        println("cannot read ${path}: ${to_str(detach(opened))}")
         return None
     }
     let p = lines(opened)                // the stream's obligation moves in
@@ -63,12 +62,12 @@ fn main() [use] {
     let text = read_to_str("notes.txt")
     when text {
         is Ok { println(text) }
-        is Err { println(to_str(text)) ignore(text) }
+        is Err { println(to_str(detach(text))) }
     }
 }
 ```
 
-`DefaultFs` depends on `RawFs` and says so on its declaration, so nothing above it mentions the raw layer; `RawFs` trades in `Long` handles and droppable error kinds, so the host class never holds a Salvo obligation — the `close` that discharges a token is Salvo code, checked. Swapping the bottom swaps the filesystem: a handler of your own that implements `Fs` fakes the whole surface, streams included, because the stream operations are *members* rather than free functions.
+`DefaultFs` depends on `RawFs` and says so on its declaration, so nothing above it mentions the raw layer; `RawFs` trades in `Long` handles and bare `FsError`s, so the host class never holds a Salvo obligation — the `close` that discharges a token is Salvo code, checked. Swapping the bottom swaps the filesystem: a handler of your own that implements `Fs` fakes the whole surface, streams included, because the stream operations are *members* rather than free functions.
 
 Byte offsets are exact and usable: `write` and `write_line` answer how many bytes they took, `position` reports the consumed byte offset of a stream, and `open_read_at(path, offset)` reopens at one. Byte counts are `byte_size(str)`, deliberately a different function from `size(str)`, which counts characters. There is no seek — streams are forward-only.
 
@@ -76,7 +75,7 @@ Bytes are readable and writable as themselves: `read_bytes(s, max)` answers up t
 
 ```
 let s: InStream = opened
-let head = read_bytes(s, 4)      // Ok Bytes | Err FsError
+let head = read_bytes(s, 4)      // Ok Bytes | Err Checked<FsError>
 let rest = read_all(s)           // continues after those four bytes
 ```
 
@@ -87,7 +86,7 @@ let buf = mut_bytes()
 let reading = true
 while reading {
     clear(buf)
-    let got = read_to(s, buf, 65536)     // Ok Int | Err FsError
+    let got = read_to(s, buf, 65536)     // Ok Int | Err Checked<FsError>
     when got {
         is Ok { if got == 0 { reading = false } else { consume(buf) } }
         is Err { ignore(got) reading = false }

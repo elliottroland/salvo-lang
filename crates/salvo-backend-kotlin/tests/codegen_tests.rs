@@ -11041,10 +11041,10 @@ fn bytes_ships_one_runtime_class_for_both_shapes() {
 /// `position` after a ranged open, and a failure path acknowledged once.
 const FS_PROGRAM: &str = r#"
 fn describe(e: FsError) [] -> Str => e {
-    if e.kind is NotFound {
+    if e is NotFound {
         return "not found"
     }
-    if e.kind is InvalidUtf8 {
+    if e is InvalidUtf8 {
         return "not utf-8"
     }
     return "other"
@@ -11059,20 +11059,20 @@ fn main() [use] -> None {
     let made = create_dirs(dir)
     when made {
         is Ok { println("made") }
-        is Err { println("made: ${describe(made)}") ignore(made) }
+        is Err { println("made: ${describe(detach(made))}") }
     }
 
     let path = "__DIR__/notes.txt"
     let written = write_str(path, "alpha\nbeta\ngamma\n")
     when written {
         is Ok { println("wrote ${written}") }
-        is Err { println("wrote: ${describe(written)}") ignore(written) }
+        is Err { println("wrote: ${describe(detach(written))}") }
     }
 
     let all = read_lines(path)
     when all {
         is Ok { println("lines: ${all}") }
-        is Err { println("lines: ${describe(all)}") ignore(all) }
+        is Err { println("lines: ${describe(detach(all))}") }
     }
 
     let opened = open_read(path)
@@ -11085,10 +11085,10 @@ fn main() [use] -> None {
             let closed = close(p)
             when closed {
                 is Ok { println("closed") }
-                is Err { println("closed: ${describe(closed)}") ignore(closed) }
+                is Err { println("closed: ${describe(detach(closed))}") }
             }
         }
-        is Err { println("open: ${describe(opened)}") ignore(opened) }
+        is Err { println("open: ${describe(detach(opened))}") }
     }
 
     // A ranged open: "alpha\n" is six bytes, so the next line starts there.
@@ -11105,22 +11105,22 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("") }
-                is Err { println("tail: ${describe(shut)}") ignore(shut) }
+                is Err { println("tail: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("tail: ${describe(tail)}") ignore(tail) }
+        is Err { println("tail: ${describe(detach(tail))}") }
     }
 
     let missing = read_to_str("__DIR__/nope.txt")
     when missing {
         is Ok { println("unexpected") }
-        is Err { println("missing: ${describe(missing)}") ignore(missing) }
+        is Err { println("missing: ${describe(detach(missing))}") }
     }
 
     let listed = list_dir(dir)
     when listed {
         is Ok { println("dir: ${listed}") }
-        is Err { println("dir: ${describe(listed)}") ignore(listed) }
+        is Err { println("dir: ${describe(detach(listed))}") }
     }
 
 
@@ -11139,10 +11139,10 @@ fn main() [use] -> None {
             let shut = close(w)
             when shut {
                 is Ok { println("wrote raw") }
-                is Err { println("wrote raw: ${describe(shut)}") ignore(shut) }
+                is Err { println("wrote raw: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("raw open: ${describe(out)}") ignore(out) }
+        is Err { println("raw open: ${describe(detach(out))}") }
     }
     let raw = open_read("__DIR__/raw.bin")
     when raw {
@@ -11151,22 +11151,22 @@ fn main() [use] -> None {
             let head = read_bytes(s, 3)
             when head {
                 is Ok { println("read: ${head} at ${position(s)} (${to_hex(head)})") }
-                is Err { println("read: ${describe(head)}") ignore(head) }
+                is Err { println("read: ${describe(detach(head))}") }
             }
             // Bytes and text off one stream: the position is bytes either way,
             // so the text read picks up exactly where the byte read stopped.
             let text = read_all(s)
             when text {
                 is Ok { println("then: ${text}") }
-                is Err { println("then: ${describe(text)}") ignore(text) }
+                is Err { println("then: ${describe(detach(text))}") }
             }
             let shut = close(s)
             when shut {
                 is Ok { println("read raw") }
-                is Err { println("read raw: ${describe(shut)}") ignore(shut) }
+                is Err { println("read raw: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("raw read: ${describe(raw)}") ignore(raw) }
+        is Err { println("raw read: ${describe(detach(raw))}") }
     }
     // Opening between the bytes of a character is a *seek*, not a decode: it
     // succeeds, and the strict decode afterwards is what fails — recorded, so
@@ -11178,15 +11178,15 @@ fn main() [use] -> None {
             let bad = read_all(s)
             when bad {
                 is Ok { println("split: ${bad}") }
-                is Err { println("split: ${describe(bad)}") ignore(bad) }
+                is Err { println("split: ${describe(detach(bad))}") }
             }
             let shut = close(s)
             when shut {
                 is Ok { println("split closed") }
-                is Err { println("split close: ${describe(shut)}") ignore(shut) }
+                is Err { println("split close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("split open: ${describe(split)}") ignore(split) }
+        is Err { println("split open: ${describe(detach(split))}") }
     }
 
     // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
@@ -11203,8 +11203,7 @@ fn main() [use] -> None {
                 clear(buf)
                 let got = read_to(s, buf, 2)
                 if got is Err {
-                    println("read_to: ${describe(got)}")
-                    ignore(got)
+                    println("read_to: ${describe(detach(got))}")
                     reading = false
                 } else {
                     let n: Int = got
@@ -11220,10 +11219,10 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("filled closed") }
-                is Err { println("filled close: ${describe(shut)}") ignore(shut) }
+                is Err { println("filled close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("filled open: ${describe(held)}") ignore(held) }
+        is Err { println("filled open: ${describe(detach(held))}") }
     }
     // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
     let ch = open_chunks("__DIR__/raw.bin", 4)
@@ -11238,10 +11237,10 @@ fn main() [use] -> None {
             let shut = close(p)
             when shut {
                 is Ok { println("pass closed") }
-                is Err { println("pass close: ${describe(shut)}") ignore(shut) }
+                is Err { println("pass close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("pass open: ${describe(ch)}") ignore(ch) }
+        is Err { println("pass open: ${describe(detach(ch))}") }
     }
     // And the text side of `read_to`: a line per iteration, one builder.
     let lined = open_read(path)
@@ -11263,43 +11262,43 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("lines closed") }
-                is Err { println("lines close: ${describe(shut)}") ignore(shut) }
+                is Err { println("lines close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("lines open: ${describe(lined)}") ignore(lined) }
+        is Err { println("lines open: ${describe(detach(lined))}") }
     }
     // The one-shots that own the buffer: a whole-file copy and a whole-file
     // byte read, with no stream and no buffer in sight.
     let copied = copy_file(path, "__DIR__/copy.txt")
     when copied {
         is Ok { println("copied ${copied}") }
-        is Err { println("copied: ${describe(copied)}") ignore(copied) }
+        is Err { println("copied: ${describe(detach(copied))}") }
     }
     let all_bytes = read_to_bytes("__DIR__/copy.txt")
     when all_bytes {
         is Ok { println("copy holds ${size(all_bytes)} bytes") }
-        is Err { println("copy read: ${describe(all_bytes)}") ignore(all_bytes) }
+        is Err { println("copy read: ${describe(detach(all_bytes))}") }
     }
     let gone_copy = delete("__DIR__/copy.txt")
     when gone_copy {
         is Ok { println("copy deleted") }
-        is Err { println("copy deleted: ${describe(gone_copy)}") ignore(gone_copy) }
+        is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
     }
     let gone_bin = delete("__DIR__/raw.bin")
     when gone_bin {
         is Ok { println("raw deleted") }
-        is Err { println("raw deleted: ${describe(gone_bin)}") ignore(gone_bin) }
+        is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
     }
 
     let gone = delete(path)
     when gone {
         is Ok { println("deleted") }
-        is Err { println("deleted: ${describe(gone)}") ignore(gone) }
+        is Err { println("deleted: ${describe(detach(gone))}") }
     }
     let gone_dir = delete(dir)
     when gone_dir {
         is Ok { println("removed") }
-        is Err { println("removed: ${describe(gone_dir)}") ignore(gone_dir) }
+        is Err { println("removed: ${describe(detach(gone_dir))}") }
     }
 }
 "#;
@@ -11407,16 +11406,16 @@ fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
 fn describe(e: FsError) [] -> Str => e {
-    if e.kind is NotFound {
+    if e is NotFound {
         return "not found"
     }
-    if e.kind is PathEscapes {
+    if e is PathEscapes {
         return "escapes"
     }
-    if e.kind is NotADirectory {
+    if e is NotADirectory {
         return "not a directory"
     }
-    if e.kind is InvalidUtf8 {
+    if e is InvalidUtf8 {
         return "not utf-8"
     }
     return "other"
@@ -11426,7 +11425,7 @@ fn read_and_say(label: Str, path: Str) [Fs, Console] -> None => label, path {
     let text = read_to_str(path)
     when text {
         is Ok { println("${label}: ${size(text)}") }
-        is Err { println("${label}: ${describe(text)}") ignore(text) }
+        is Err { println("${label}: ${describe(detach(text))}") }
     }
 }
 
@@ -11439,13 +11438,13 @@ fn main() [use] -> None {
     let wrote = write_str("notes/a.txt", "alpha\nbeta\ngamma\n")
     when wrote {
         is Ok { println("wrote ${wrote}") }
-        is Err { println("wrote: ${describe(wrote)}") ignore(wrote) }
+        is Err { println("wrote: ${describe(detach(wrote))}") }
     }
 
     let lines = read_lines("notes/a.txt")
     when lines {
         is Ok { println("lines: ${lines}") }
-        is Err { println("lines: ${describe(lines)}") ignore(lines) }
+        is Err { println("lines: ${describe(detach(lines))}") }
     }
 
     // The byte offset the fake has to agree with the host about: "alpha\n" is
@@ -11463,16 +11462,16 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("closed") }
-                is Err { println("close: ${describe(shut)}") ignore(shut) }
+                is Err { println("close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("at 6: ${describe(tail)}") ignore(tail) }
+        is Err { println("at 6: ${describe(detach(tail))}") }
     }
 
     let listed = list_dir("notes")
     when listed {
         is Ok { println("dir: ${listed}") }
-        is Err { println("dir: ${describe(listed)}") ignore(listed) }
+        is Err { println("dir: ${describe(detach(listed))}") }
     }
 
 
@@ -11491,10 +11490,10 @@ fn main() [use] -> None {
             let shut = close(w)
             when shut {
                 is Ok { println("wrote raw") }
-                is Err { println("wrote raw: ${describe(shut)}") ignore(shut) }
+                is Err { println("wrote raw: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("raw open: ${describe(out)}") ignore(out) }
+        is Err { println("raw open: ${describe(detach(out))}") }
     }
     let raw = open_read("notes/raw.bin")
     when raw {
@@ -11503,22 +11502,22 @@ fn main() [use] -> None {
             let head = read_bytes(s, 3)
             when head {
                 is Ok { println("read: ${head} at ${position(s)} (${to_hex(head)})") }
-                is Err { println("read: ${describe(head)}") ignore(head) }
+                is Err { println("read: ${describe(detach(head))}") }
             }
             // Bytes and text off one stream: the position is bytes either way,
             // so the text read picks up exactly where the byte read stopped.
             let text = read_all(s)
             when text {
                 is Ok { println("then: ${text}") }
-                is Err { println("then: ${describe(text)}") ignore(text) }
+                is Err { println("then: ${describe(detach(text))}") }
             }
             let shut = close(s)
             when shut {
                 is Ok { println("read raw") }
-                is Err { println("read raw: ${describe(shut)}") ignore(shut) }
+                is Err { println("read raw: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("raw read: ${describe(raw)}") ignore(raw) }
+        is Err { println("raw read: ${describe(detach(raw))}") }
     }
     // Opening between the bytes of a character is a *seek*, not a decode: it
     // succeeds, and the strict decode afterwards is what fails — recorded, so
@@ -11530,15 +11529,15 @@ fn main() [use] -> None {
             let bad = read_all(s)
             when bad {
                 is Ok { println("split: ${bad}") }
-                is Err { println("split: ${describe(bad)}") ignore(bad) }
+                is Err { println("split: ${describe(detach(bad))}") }
             }
             let shut = close(s)
             when shut {
                 is Ok { println("split closed") }
-                is Err { println("split close: ${describe(shut)}") ignore(shut) }
+                is Err { println("split close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("split open: ${describe(split)}") ignore(split) }
+        is Err { println("split open: ${describe(detach(split))}") }
     }
 
     // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
@@ -11555,8 +11554,7 @@ fn main() [use] -> None {
                 clear(buf)
                 let got = read_to(s, buf, 2)
                 if got is Err {
-                    println("read_to: ${describe(got)}")
-                    ignore(got)
+                    println("read_to: ${describe(detach(got))}")
                     reading = false
                 } else {
                     let n: Int = got
@@ -11572,10 +11570,10 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("filled closed") }
-                is Err { println("filled close: ${describe(shut)}") ignore(shut) }
+                is Err { println("filled close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("filled open: ${describe(held)}") ignore(held) }
+        is Err { println("filled open: ${describe(detach(held))}") }
     }
     // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
     let ch = open_chunks("notes/raw.bin", 4)
@@ -11590,10 +11588,10 @@ fn main() [use] -> None {
             let shut = close(p)
             when shut {
                 is Ok { println("pass closed") }
-                is Err { println("pass close: ${describe(shut)}") ignore(shut) }
+                is Err { println("pass close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("pass open: ${describe(ch)}") ignore(ch) }
+        is Err { println("pass open: ${describe(detach(ch))}") }
     }
     // And the text side of `read_to`: a line per iteration, one builder.
     let lined = open_read("notes/a.txt")
@@ -11615,32 +11613,32 @@ fn main() [use] -> None {
             let shut = close(s)
             when shut {
                 is Ok { println("lines closed") }
-                is Err { println("lines close: ${describe(shut)}") ignore(shut) }
+                is Err { println("lines close: ${describe(detach(shut))}") }
             }
         }
-        is Err { println("lines open: ${describe(lined)}") ignore(lined) }
+        is Err { println("lines open: ${describe(detach(lined))}") }
     }
     // The one-shots that own the buffer: a whole-file copy and a whole-file
     // byte read, with no stream and no buffer in sight.
     let copied = copy_file("notes/a.txt", "notes/copy.txt")
     when copied {
         is Ok { println("copied ${copied}") }
-        is Err { println("copied: ${describe(copied)}") ignore(copied) }
+        is Err { println("copied: ${describe(detach(copied))}") }
     }
     let all_bytes = read_to_bytes("notes/copy.txt")
     when all_bytes {
         is Ok { println("copy holds ${size(all_bytes)} bytes") }
-        is Err { println("copy read: ${describe(all_bytes)}") ignore(all_bytes) }
+        is Err { println("copy read: ${describe(detach(all_bytes))}") }
     }
     let gone_copy = delete("notes/copy.txt")
     when gone_copy {
         is Ok { println("copy deleted") }
-        is Err { println("copy deleted: ${describe(gone_copy)}") ignore(gone_copy) }
+        is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
     }
     let gone_bin = delete("notes/raw.bin")
     when gone_bin {
         is Ok { println("raw deleted") }
-        is Err { println("raw deleted: ${describe(gone_bin)}") ignore(gone_bin) }
+        is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
     }
 
     // The restriction, over the same memory, for the length of the block: an

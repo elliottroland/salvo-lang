@@ -1,5 +1,6 @@
 use crate::collections::*;
 use crate::core_bytes::*;
+use crate::core_checked::*;
 use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
@@ -44,19 +45,19 @@ impl MemFs {
 
 impl Fs for MemFs {
 
-    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
+    fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if !self.files.contains_key(&path) {
-            return Union2::<InStream, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+            return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
         }
         self.next_handle = self.next_handle + ((1) as i64);
         self.reads.insert(self.next_handle.clone(), MemRead { path: path.clone(), at: 0, failed: false });
-        return Union2::<InStream, FsError>::U1(ok(InStream { handle: self.next_handle.clone() }));
+        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: self.next_handle.clone() }));
     }
 
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut content = self.files.get(&path);
         if content.is_none() {
-            return Union2::<InStream, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+            return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
         }
         let mut at = ((offset) as i32);
         if at < 0 {
@@ -68,17 +69,17 @@ impl Fs for MemFs {
         }
         self.next_handle = self.next_handle + ((1) as i64);
         self.reads.insert(self.next_handle.clone(), MemRead { path: path.clone(), at: at, failed: false });
-        return Union2::<InStream, FsError>::U1(ok(InStream { handle: self.next_handle.clone() }));
+        return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(InStream { handle: self.next_handle.clone() }));
     }
 
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         self.next_handle = self.next_handle + ((1) as i64);
         let mut empty = Vec::<u8>::new();
         self.writes.insert(self.next_handle.clone(), MemWrite { path: path.clone(), buffer: empty });
-        return Union2::<OutStream, FsError>::U1(ok(OutStream { handle: self.next_handle.clone() }));
+        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: self.next_handle.clone() }));
     }
 
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut existing = self.files.get(&path);
         let mut start = Vec::<u8>::new();
         if existing.is_none() {
@@ -87,7 +88,7 @@ impl Fs for MemFs {
         }
         self.next_handle = self.next_handle + ((1) as i64);
         self.writes.insert(self.next_handle.clone(), MemWrite { path: path.clone(), buffer: start });
-        return Union2::<OutStream, FsError>::U1(ok(OutStream { handle: self.next_handle.clone() }));
+        return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(OutStream { handle: self.next_handle.clone() }));
     }
 
     fn exists(&mut self, path: &String) -> bool {
@@ -97,23 +98,23 @@ impl Fs for MemFs {
         return fs_has_children(&self.files, path);
     }
 
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut content = self.files.get(&path);
         if content.is_none() {
             if fs_has_children(&self.files, path) {
-                return Union2::<FileInfo, FsError>::U1(ok(FileInfo { size: 0i64, is_dir: true }));
+                return Union2::<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(FileInfo { size: 0i64, is_dir: true }));
             }
-            return Union2::<FileInfo, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+            return Union2::<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
         }
-        return Union2::<FileInfo, FsError>::U1(ok(FileInfo { size: (((content.unwrap().clone().len() as i32)) as i64), is_dir: false }));
+        return Union2::<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(FileInfo { size: (((content.unwrap().clone().len() as i32)) as i64), is_dir: false }));
     }
 
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if self.files.contains_key(&path) {
-            return Union2::<Vec<String>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U4(NotADirectory { path: path.clone() }) }));
+            return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U4(NotADirectory { path: path.clone() }))));
         }
         if !fs_has_children(&self.files, path) {
-            return Union2::<Vec<String>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+            return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
         }
         let mut names: SalvoSet<String> = SalvoSet::from_elements::<HostHash, HostEq, _>(vec![]);
         let mut prefix = format!("{}/", path.clone());
@@ -132,65 +133,65 @@ impl Fs for MemFs {
             }
         }
         let mut sorted: Vec<String> = sort::<String>(&(names.iter().cloned().collect::<Vec<_>>()), &mut |__i0, __i1| (Ord::cmp(&__i0[..], &__i1[..]) as i32));
-        return Union2::<Vec<String>, FsError>::U1(ok(sorted));
+        return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(sorted));
     }
 
-    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
-        return Union2::<(), FsError>::U1(ok(()));
+    fn create_dirs(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
     }
 
-    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
+    fn delete(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if self.files.contains_key(&path) {
             self.files.remove(&path);
-            return Union2::<(), FsError>::U1(ok(()));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
         }
         if fs_has_children(&self.files, path) {
-            return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U8(IoError { path: path.clone(), message: "directory not empty".to_string() }) }));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U8(IoError { path: path.clone(), message: "directory not empty".to_string() }))));
         }
-        return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
     }
 
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut content = self.files.get(&from);
         if content.is_none() {
-            return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: from.clone() }) }));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: from.clone() }))));
         }
         let mut bytes: Vec<u8> = content.unwrap().clone();
         self.files.remove(&from);
         self.files.insert(to.clone(), bytes);
-        return Union2::<(), FsError>::U1(ok(()));
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
     }
 
     fn read_line(&mut self, s: &InStream) -> Option<String> {
         return mem_read_line(&mut self.reads, &self.files, s.handle);
     }
 
-    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+    fn read_all(&mut self, s: &InStream) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return mem_read_all(&mut self.reads, &self.files, s.handle);
     }
 
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return mem_read_bytes(&mut self.reads, &self.files, s.handle, max);
     }
 
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut got = mem_read_bytes(&mut self.reads, &self.files, s.handle, max);
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i32, FsError>::U2(got.u2().clone());
+            return Union2::<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(got.u2().clone());
         }
         let mut data: Vec<u8> = got.u1().clone();
         buf.extend_from_slice(&data[..]);
-        return Union2::<i32, FsError>::U1(ok((data.len() as i32)));
+        return Union2::<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok((data.len() as i32)));
     }
 
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut got = mem_read_all(&mut self.reads, &self.files, s.handle);
         if matches!(got, Union2::U2(_)) {
-            return Union2::<i64, FsError>::U2(got.u2().clone());
+            return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(got.u2().clone());
         }
         let mut text: String = got.u1().clone();
         buf.push_str(&text[..]);
-        return Union2::<i64, FsError>::U1(ok((text.len() as i64)));
+        return Union2::<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok((text.len() as i64)));
     }
 
     fn read_line_to(&mut self, s: &InStream, buf: &mut String) -> bool {
@@ -214,7 +215,7 @@ impl Fs for MemFs {
         return ((open.unwrap().clone().at) as i64);
     }
 
-    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+    fn close(&mut self, s: InStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut open = self.reads.get(&s.handle);
         let mut failed = false;
         let mut path = "<stream>".to_string();
@@ -225,9 +226,9 @@ impl Fs for MemFs {
         self.reads.remove(&s.handle);
         drop(s);
         if failed {
-            return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }) }));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }))));
         }
-        return Union2::<(), FsError>::U1(ok(()));
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
     }
 
     fn write(&mut self, s: &OutStream, text: &String) -> i64 {
@@ -250,25 +251,25 @@ impl Fs for MemFs {
         return (((open.unwrap().clone().buffer.len() as i32)) as i64);
     }
 
-    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+    fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut open = self.writes.get(&s.handle);
         if open.is_none() {
-            return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }) }));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }))));
         }
         self.files.insert(open.unwrap().clone().path.clone(), open.unwrap().clone().buffer.clone());
-        return Union2::<(), FsError>::U1(ok(()));
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
     }
 
-    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+    fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut open = self.writes.get(&s.handle);
         if open.is_none() {
             drop(s);
-            return Union2::<(), FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }) }));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }))));
         }
         self.files.insert(open.unwrap().clone().path.clone(), open.unwrap().clone().buffer.clone());
         self.writes.remove(&s.handle);
         drop(s);
-        return Union2::<(), FsError>::U1(ok(()));
+        return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(()));
     }
 }
 
@@ -286,7 +287,7 @@ pub fn mem_find_newline(data: &Vec<u8>, from: i32) -> i32 {
     let mut end = (data.len() as i32);
     let mut i = from;
     while i < end {
-        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at core.memfs:293:19")) as i32) == 10) {
+        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at core.memfs:291:19")) as i32) == 10) {
             return i;
         }
         i = i + 1;
@@ -326,7 +327,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String
         return None;
     }
     let mut stop = mem_find_newline(&bytes, at);
-    let mut line = { let __d = &bytes; let __i = at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:344:16");
+    let mut line = { let __d = &bytes; let __i = at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:342:16");
     let mut next_at = stop;
     if stop < end {
         next_at = stop + 1;
@@ -340,43 +341,43 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String
     return Some({ let __s = &text.as_ref().unwrap()[..]; __s.strip_suffix(&"\r".to_string()[..]).unwrap_or(__s).to_string() });
 }
 
-pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String, Vec<u8>>, handle: i64) -> Union2<String, FsError> {
+pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String, Vec<u8>>, handle: i64) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut open = reads.get(&handle);
     if open.is_none() {
-        return Union2::<String, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }) }));
+        return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }))));
     }
     let mut path: String = open.unwrap().clone().path.clone();
     if open.unwrap().clone().failed {
-        return Union2::<String, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }) }));
+        return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }))));
     }
     let mut content = files.get(&path);
     if content.is_none() {
-        return Union2::<String, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+        return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
     }
     let mut bytes: Vec<u8> = content.unwrap().clone();
     let mut end = (bytes.len() as i32);
-    let mut rest = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:375:16");
+    let mut rest = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:373:16");
     let mut text = String::from_utf8(rest.clone()).ok();
     if text.is_none() {
         reads.insert(handle.clone(), MemRead { path: path.clone(), at: end, failed: true });
-        return Union2::<String, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path.clone() }) }));
+        return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path.clone() }))));
     }
     reads.insert(handle.clone(), MemRead { path: path.clone(), at: end, failed: false });
-    return Union2::<String, FsError>::U1(ok(text.as_ref().unwrap().clone()));
+    return Union2::<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(text.as_ref().unwrap().clone()));
 }
 
-pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String, Vec<u8>>, handle: i64, max: i32) -> Union2<Vec<u8>, FsError> {
+pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String, Vec<u8>>, handle: i64, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     let mut open = reads.get(&handle);
     if open.is_none() {
-        return Union2::<Vec<u8>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }) }));
+        return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U7(StaleHandle { path: "<stream>".to_string() }))));
     }
     let mut path: String = open.unwrap().clone().path.clone();
     if open.unwrap().clone().failed {
-        return Union2::<Vec<u8>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }) }));
+        return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U6(InvalidUtf8 { path: path }))));
     }
     let mut content = files.get(&path);
     if content.is_none() {
-        return Union2::<Vec<u8>, FsError>::U2(err(FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }) }));
+        return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U1(NotFound { path: path.clone() }))));
     }
     let mut bytes: Vec<u8> = content.unwrap().clone();
     let mut stop = open.unwrap().clone().at + max;
@@ -387,7 +388,7 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<Strin
     if stop > end {
         stop = end;
     }
-    let mut taken = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:408:17");
+    let mut taken = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:406:17");
     reads.insert(handle.clone(), MemRead { path: path.clone(), at: stop, failed: false });
-    return Union2::<Vec<u8>, FsError>::U1(ok(taken));
+    return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(taken));
 }

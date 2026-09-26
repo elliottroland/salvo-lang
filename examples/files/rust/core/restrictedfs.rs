@@ -1,4 +1,5 @@
 use crate::core_bytes::*;
+use crate::core_checked::*;
 use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
@@ -50,8 +51,8 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     return Some(format!("{}/{}", root.clone(), rel));
 }
 
-pub fn fs_escaped(path: &String) -> FsError {
-    return FsError { kind: Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U5(PathEscapes { path: path.clone() }) };
+pub fn fs_escaped(path: &String) -> Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> {
+    return checked(Union8::<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>::U5(PathEscapes { path: path.clone() }));
 }
 
 #[derive(Clone)]
@@ -71,34 +72,34 @@ impl RestrictedFs {
 
 impl Fs for RestrictedFs {
 
-    fn open_read(&mut self, path: &String) -> Union2<InStream, FsError> {
+    fn open_read(&mut self, path: &String) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read(real.as_ref().unwrap());
     }
 
-    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, FsError> {
+    fn open_read_at(&mut self, path: &String, offset: i64) -> Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<InStream, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_read_at(real.as_ref().unwrap(), offset);
     }
 
-    fn open_write(&mut self, path: &String) -> Union2<OutStream, FsError> {
+    fn open_write(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_write(real.as_ref().unwrap());
     }
 
-    fn open_append(&mut self, path: &String) -> Union2<OutStream, FsError> {
+    fn open_append(&mut self, path: &String) -> Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<OutStream, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).open_append(real.as_ref().unwrap());
     }
@@ -111,46 +112,46 @@ impl Fs for RestrictedFs {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).exists(real.as_ref().unwrap());
     }
 
-    fn metadata(&mut self, path: &String) -> Union2<FileInfo, FsError> {
+    fn metadata(&mut self, path: &String) -> Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<FileInfo, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).metadata(real.as_ref().unwrap());
     }
 
-    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, FsError> {
+    fn list_dir(&mut self, path: &String) -> Union2<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<Vec<String>, FsError>::U2(err(fs_escaped(path)));
+            return Union2::<Vec<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).list_dir(real.as_ref().unwrap());
     }
 
-    fn create_dirs(&mut self, path: &String) -> Union2<(), FsError> {
+    fn create_dirs(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<(), FsError>::U2(err(fs_escaped(path)));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).create_dirs(real.as_ref().unwrap());
     }
 
-    fn delete(&mut self, path: &String) -> Union2<(), FsError> {
+    fn delete(&mut self, path: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real = fs_resolve(&self.root, path);
         if real.is_none() {
-            return Union2::<(), FsError>::U2(err(fs_escaped(path)));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(path)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).delete(real.as_ref().unwrap());
     }
 
-    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), FsError> {
+    fn rename_path(&mut self, from: &String, to: &String) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         let mut real_from = fs_resolve(&self.root, from);
         if real_from.is_none() {
-            return Union2::<(), FsError>::U2(err(fs_escaped(from)));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(from)));
         }
         let mut real_to = fs_resolve(&self.root, to);
         if real_to.is_none() {
-            return Union2::<(), FsError>::U2(err(fs_escaped(to)));
+            return Union2::<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U2(err(fs_escaped(to)));
         }
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).rename_path(real_from.as_ref().unwrap(), real_to.as_ref().unwrap());
     }
@@ -159,19 +160,19 @@ impl Fs for RestrictedFs {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_line(s);
     }
 
-    fn read_all(&mut self, s: &InStream) -> Union2<String, FsError> {
+    fn read_all(&mut self, s: &InStream) -> Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_all(s);
     }
 
-    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, FsError> {
+    fn read_bytes(&mut self, s: &InStream, max: i32) -> Union2<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_bytes(s, max);
     }
 
-    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, FsError> {
+    fn read_to(&mut self, s: &InStream, buf: &mut Vec<u8>, max: i32) -> Union2<i32, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_to(s, buf, max);
     }
 
-    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, FsError> {
+    fn read_to__2(&mut self, s: &InStream, buf: &mut String) -> Union2<i64, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).read_to__2(s, buf);
     }
 
@@ -183,7 +184,7 @@ impl Fs for RestrictedFs {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).position(s);
     }
 
-    fn close(&mut self, s: InStream) -> Union2<(), FsError> {
+    fn close(&mut self, s: InStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).close(s);
     }
 
@@ -203,11 +204,11 @@ impl Fs for RestrictedFs {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).position__2(s);
     }
 
-    fn flush(&mut self, s: &OutStream) -> Union2<(), FsError> {
+    fn flush(&mut self, s: &OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).flush(s);
     }
 
-    fn close__2(&mut self, s: OutStream) -> Union2<(), FsError> {
+    fn close__2(&mut self, s: OutStream) -> Union2<(), Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return __Has_Fs::__get_Fs(&mut self.__dep_Fs).close__2(s);
     }
 }

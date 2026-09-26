@@ -2192,3 +2192,46 @@ fn a_written_proj_entry_narrows_the_instantiation_link() {
     );
     assert!(stderr.contains("1 error"), "stderr: {stderr}");
 }
+
+// [fs-surface] [checked-type] The filesystem's failures carry the library's one
+// obligation: a member answers `Err Checked<FsError>`, so a result that is never
+// looked at does not compile, and the ways out are the generic ones — `ignore`,
+// `detach`, or narrowing to `Ok`. Against *real* std, because what is being
+// tested is the wiring between two std modules rather than the linear rule
+// itself (that is `linear_group_tests`').
+#[test]
+fn an_fs_failure_must_be_acknowledged() {
+    let dir = src_dir("fs_checked");
+    let program = |body: &str| {
+        format!(
+            "fn main() [use] -> None {{\n    use StdOutConsole()\n    \
+             use HostRawFs()\n    use DefaultFs()\n    \
+             let text = read_to_str(\"nope.txt\")\n    \
+             when text {{\n        is Ok {{ println(text) }}\n        \
+             is Err {{ {body} }}\n    }}\n}}\n"
+        )
+    };
+
+    // Looking at the `Err` arm and doing nothing with it leaves the obligation,
+    // and the diagnostic names the *generic* dischargers.
+    fs::write(dir.join("main.sv"), program("println(\"failed\")")).unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "stderr: {stderr}");
+    assert!(
+        stderr.contains("`text` still owns a linear value when it goes out of scope")
+            && stderr.contains("discharge it with `detach` / `ignore`"),
+        "stderr: {stderr}"
+    );
+
+    // `ignore` says the not-looking was deliberate; `detach` hands back the bare
+    // `FsError`, which `to_str` renders — the shape that replaced a read of the
+    // old wrapper.
+    for body in ["ignore(text)", "println(to_str(detach(text)))"] {
+        fs::write(dir.join("main.sv"), program(body)).unwrap();
+        let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{body}: {stderr}");
+        assert!(stderr.contains("no errors"), "{body}: {stderr}");
+    }
+}

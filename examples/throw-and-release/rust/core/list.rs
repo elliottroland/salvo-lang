@@ -1,7 +1,6 @@
 use crate::collections::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
-use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
 use crate::core_nonempty::*;

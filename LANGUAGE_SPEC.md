@@ -542,8 +542,9 @@ Conventions:
   discharged by `detach` (read it) or `ignore` (say you meant not to). Dropping
   one is the ordinary linear error [linear-group], which is the whole mechanism —
   no new rule, just the obligation applied to an *answer*.
-  * In `core` because std's own returns carry it ([col-bounds]'s `swap`), and a
-    type in a returned position must be visible wherever the function is.
+  * In `core` because std's own returns carry it ([col-bounds]'s `swap`, the
+    whole filesystem's `Err Checked<FsError>` [fs-surface]), and a type in a
+    returned position must be visible wherever the function is.
   * `ignore` refuses a **linear** `T`: discarding the wrapper would discharge the
     inner obligation too, which nothing has looked at. `detach` takes
     `<T canbe linear>` and hands the obligation on.
@@ -3747,8 +3748,8 @@ Conventions:
 
 ### The filesystem (std, `core.fs` + `core.hostfs`)
 
-* [fs-surface] `core.fs` declares the **surface**: `linear struct FsError`
-  over a droppable `FsErrorKind` union (8 arms), the linear stream tokens
+* [fs-surface] `core.fs` declares the **surface**: an `FsError` union
+  (8 arms) carried by `Checked<FsError>` [checked-type], the linear stream tokens
   `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
   *and* stream operations as members [effect-member-overload]), the `Lines`
   pass, the `Chunks` pass, and the one-shots (`read_to_str`, `read_lines`,
@@ -3756,14 +3757,18 @@ Conventions:
   `copy_file`). Application code declares `[Fs]` (or `[local Fs]` where a
   local binding suffices) and nothing else; the std forwarders themselves
   declare `[local Fs]` — the weakest form [effect-local].
-  * Fallible members return `Ok T | Err FsError`: an effect member may
+  * Fallible members return `Ok T | Err Checked<FsError>`: an effect member may
     declare no effects, so there is no `[Throw]` here
     [effect-member-no-effects]. The `Err` arm is linear, so a result that
     is never looked at is a compile error, and narrowing to `Ok` discharges
-    it [linear-union-arm]. `ignore(e)` acknowledges, `detach(e)` hands back
-    the droppable kind — which is what an aggregation collects, since a list
-    of *errors* wants no obligations in it even now that a container could
-    hold them [linear-container].
+    it [linear-union-arm]. The dischargers are `Checked<T>`'s own —
+    `ignore(e)` acknowledges, `detach(e)` hands back the bare `FsError`,
+    which is what an aggregation collects, since a list of *errors* wants no
+    obligations in it even now that a container could hold them
+    [linear-container]. There is no reading form that keeps the obligation:
+    looking at a failure means dealing with it, so a rendering is
+    `to_str(detach(e))` (user decision 2026-09-26: one mechanism for "you
+    must look at this", not two).
 * [fs-token] A stream token is **opaque and never `Mut`** (user decision
   2026-09-14): its only field is the handle, and every byte of mutable
   state — position, buffer, the resource — lives in *handler* state, where
@@ -3781,9 +3786,9 @@ Conventions:
   handler and surface at `close` (and `flush`): `read_line` reports the end
   of the stream either way, and `write` returns only the byte count, so a
   loop never narrows a result per line. `close` on both token types returns
-  `Ok None | Err FsError`, so dropping it on the floor does not compile.
+  `Ok None | Err Checked<FsError>`, so dropping it on the floor does not compile.
 * [fs-bytes] Bytes are part of the v1 surface: `read_bytes(s, max) ->
-  Ok List<Byte> | Err FsError` answers **up to** `max` bytes (fewer means
+  Ok List<Byte> | Err Checked<FsError>` answers **up to** `max` bytes (fewer means
   the stream ended, none means it had ended already) and
   `write_bytes(s, data) -> Long` writes them, neither encoding nor decoding
   anything — a file that is not text is read and written by the same effect.
@@ -3800,8 +3805,8 @@ Conventions:
     shipped buffer class on Kotlin [kt-bytes].
 * [fs-read-to] Every read has a **fill-a-buffer** form, for the loop where a
   payload per step is the cost (user decision 2026-09-15): `read_to(s, buf:
-  Mut Bytes, max) -> Ok Int | Err FsError`, `read_to(s, buf: Mut Str) ->
-  Ok Long | Err FsError` (the `read_all` parallel), and `read_line_to(s, buf:
+  Mut Bytes, max) -> Ok Int | Err Checked<FsError>`, `read_to(s, buf: Mut Str) ->
+  Ok Long | Err Checked<FsError>` (the `read_all` parallel), and `read_line_to(s, buf:
   Mut Str) -> Bool` (the `read_line` parallel — `false` for end-of-stream or a
   recorded failure, exactly as `read_line` answers `None`). One name for the
   two `read_to`s: the **buffer's type** picks the overload
@@ -3821,11 +3826,11 @@ Conventions:
     `copy_file(from, to)`, `read_to_bytes(path)`,
     `write_bytes_to(path, data)`, `fill_from(s, buf)`.
 * [fs-host-split] The host-backed filesystem is a **separate module**,
-  `core.hostfs`: `effect RawFs` (plain `Long` handles, droppable kinds),
+  `core.hostfs`: `effect RawFs` (plain `Long` handles, bare `FsError`s),
   `platform handler HostRawFs of RawFs` (std ships
   `std/platform/core/hostfs.{kt,rs}` [platform-handler]) and
-  `handler DefaultFs [RawFs] of Fs`, which mints the tokens, maps kinds
-  into `FsError` and discharges in Salvo — the host never holds an
+  `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
+  in `Checked<FsError>` and discharges in Salvo — the host never holds an
   obligation.
   * The split is load-bearing, not cosmetic: `core.fs` declares a `next`
     and a `to_str`, so name-based reachability drags it into ordinary
@@ -6330,7 +6335,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
     shape; extend if one appears.
   * **The casualty that remains** is the composed linear pass (a wrapper pass
     over `open_lines("a")` stores its source in an unopted field). The
-    fallible-open shape `Ok InStream | Err FsError` was the other one and
+    fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
     shipped with phase 4 [linear-union-arm].
 * [linear-container] **A container is linear exactly when its element type
   is** (LC-1/LC-5, user decisions 2026-09-15/16 — the answer to roadmap L8's

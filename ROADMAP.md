@@ -43,7 +43,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1538 tests green.
+targets and the output they print. 1539 tests green.
 
 ## The sequence
 
@@ -56,13 +56,9 @@ design.
 - **(a) ✅ `Checked<T>` in `core`, and a list write answers one** — built
   2026-09-26 [checked-type] [col-bounds] (COMPLETED.md's log). `take` is
   `detach`; the fallible `swap` hands back a `Checked<Bool>`.
-- **(b) The filesystem on `Checked<T>`.** Drop the bespoke linear `FsError`,
-  rename `FsErrorKind` → `FsError`, and let every `Err FsError` become
-  `Err Checked<FsError>`, so the "you must look at this" mechanism is one type
-  rather than two implementations of one idea. `ignore`/`detach`/`to_str` on the
-  wrapper are then the generic ones. **~825 references** across `std/core/fs.sv`,
-  `hostfs`, `memfs`, `restrictedfs`, `examples/files`, the specs and the docs —
-  which is the whole of the work; the design is settled.
+- **(b) ✅ The filesystem on `Checked<T>`** — built 2026-09-26 [fs-surface]
+  [checked-type] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
+  bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
 - **(c) The filesystem out of `core`.** `std.fs` holds the effect and
   `DefaultFs`; `std.fs.restricted`, `std.fs.mem` and `std.fs.host` hold the
   rest — so `import std.fs.mem.MemFs`. Two things to work out on the way: this
@@ -247,6 +243,22 @@ cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
   `fate_links_merge_across_branches` and `inferred_moves_consume_arguments` had to
   annotate their `let`s when the constructors started claiming, and those
   annotations come back out.
+- **An inferred type argument is not widened by the expected type** — found
+  while building step 1(b), and the same invariance in a narrower place.
+  `checked<T>(value: T)` binds `T` from the argument, so
+  `checked(NotFound { … })` is a `Checked<NotFound>` and the expected
+  `Checked<FsError>` does not widen it — not through a `let` annotation either
+  (probed). std therefore names the argument at all 35 construction sites,
+  `checked<FsError>(NotFound { … })`, which is explicit and costs a word. The
+  declared-position widening that the old `FsError { kind: … }` relied on still
+  works; what does not is *seeding a type variable* from the expectation. The
+  keyed-container work seeds a callee's type parameters from the expected type
+  already, so the machinery is there — the question is whether an expectation
+  may pick a **supertype** for an inferred argument, which is the same question
+  variance asks and should be answered with it. **A small DECISION**: widen
+  (unify against the expectation's arms, so `checked(NotFound { … })` at a
+  `Checked<FsError>` position infers `FsError`), or leave the explicit form as
+  the one way and keep this recorded as intended.
 - **DECISION — variance on generic parameters** (user direction 2026-09-23). A
   `List<NonEmpty List<Int>>` is not a `List<List<Int>>` today, so a constructor
   call cannot fill a plain type-argument position. The direction is `in`/`out`

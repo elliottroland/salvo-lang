@@ -77,7 +77,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("wrote {} bytes", *wrote.u1())));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("write failed: {}", kind_name(&(detach__2(wrote.u2().clone()))))));
+            println(&mut *__fx, &(format!("write failed: {}", kind_name(&(detach(wrote.u2().clone()))))));
         }
     }
     let mut text = read_to_str(&mut *__fx, &("notes.txt".to_string()));
@@ -86,7 +86,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("read back {} bytes", (text.u1().len() as i64))));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("read failed: {}", kind_name(&(detach__2(text.u2().clone()))))));
+            println(&mut *__fx, &(format!("read failed: {}", kind_name(&(detach(text.u2().clone()))))));
         }
     }
     let mut opened = __Has_Fs::__get_Fs(&mut *__fx).open_read(&("notes.txt".to_string()));
@@ -98,11 +98,11 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             }
             let mut closed = close(&mut *__fx, p);
             if matches!(closed, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(closed.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(closed.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("open failed: {}", kind_name(&(detach__2(opened.u2().clone()))))));
+            println(&mut *__fx, &(format!("open failed: {}", kind_name(&(detach(opened.u2().clone()))))));
         }
     }
     let mut out = __Has_Fs::__get_Fs(&mut *__fx).open_append(&("notes.txt".to_string()));
@@ -114,7 +114,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("appended {} bytes at offset {}", n, at)));
             let mut shut = __Has_Fs::__get_Fs(&mut *__fx).close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(shut.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(shut.u2().clone()))))));
             }
             let mut resumed = __Has_Fs::__get_Fs(&mut *__fx).open_read_at(&("notes.txt".to_string()), at);
             match resumed {
@@ -131,16 +131,16 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                     }
                     let mut done = __Has_Fs::__get_Fs(&mut *__fx).close(s);
                     if matches!(done, Union2::U2(_)) {
-                        println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                        println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
                     }
                 }
                 Union2::U2(_) => {
-                    println(&mut *__fx, &(format!("reopen failed: {}", kind_name(&(detach__2(resumed.u2().clone()))))));
+                    println(&mut *__fx, &(format!("reopen failed: {}", kind_name(&(detach(resumed.u2().clone()))))));
                 }
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("append failed: {}", kind_name(&(detach__2(out.u2().clone()))))));
+            println(&mut *__fx, &(format!("append failed: {}", kind_name(&(detach(out.u2().clone()))))));
         }
     }
     let mut bin = __Has_Fs::__get_Fs(&mut *__fx).open_write(&("raw.bin".to_string()));
@@ -153,11 +153,11 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("wrote {} raw bytes and {} encoded", n, m)));
             let mut shut = __Has_Fs::__get_Fs(&mut *__fx).close__2(w);
             if matches!(shut, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(shut.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(shut.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("raw open failed: {}", kind_name(&(detach__2(bin.u2().clone()))))));
+            println(&mut *__fx, &(format!("raw open failed: {}", kind_name(&(detach(bin.u2().clone()))))));
         }
     }
     let mut raw = __Has_Fs::__get_Fs(&mut *__fx).open_read(&("raw.bin".to_string()));
@@ -170,7 +170,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                     println(&mut *__fx, &(format!("first three: {} = {}", format!("[{}]", head.u1().clone().iter().map(|__b| __b.to_string()).collect::<Vec<String>>().join(", ")), head.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
                 }
                 Union2::U2(_) => {
-                    println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach__2(head.u2().clone()))))));
+                    println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach(head.u2().clone()))))));
                 }
             }
             let mut tail = __Has_Fs::__get_Fs(&mut *__fx).read_all(&s);
@@ -179,16 +179,16 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                     println(&mut *__fx, &(format!("the rest, as text: {}", tail.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(&mut *__fx, &(format!("decode failed: {}", kind_name(&(detach__2(tail.u2().clone()))))));
+                    println(&mut *__fx, &(format!("decode failed: {}", kind_name(&(detach(tail.u2().clone()))))));
                 }
             }
             let mut done = __Has_Fs::__get_Fs(&mut *__fx).close(s);
             if matches!(done, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("raw read failed: {}", kind_name(&(detach__2(raw.u2().clone()))))));
+            println(&mut *__fx, &(format!("raw read failed: {}", kind_name(&(detach(raw.u2().clone()))))));
         }
     }
     let mut split = __Has_Fs::__get_Fs(&mut *__fx).open_read_at(&("raw.bin".to_string()), 5i64);
@@ -201,7 +201,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                     println(&mut *__fx, &(format!("unexpected: {} decoded", broken.u1().clone())));
                 }
                 Union2::U2(_) => {
-                    println(&mut *__fx, &(format!("mid-character: {}", kind_name(&(detach__2(broken.u2().clone()))))));
+                    println(&mut *__fx, &(format!("mid-character: {}", kind_name(&(detach(broken.u2().clone()))))));
                 }
             }
             let mut done = __Has_Fs::__get_Fs(&mut *__fx).close(s);
@@ -210,12 +210,12 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                     println(&mut *__fx, &("unexpected: the failure was not recorded".to_string()));
                 }
                 Union2::U2(_) => {
-                    println(&mut *__fx, &(format!("and again at close: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                    println(&mut *__fx, &(format!("and again at close: {}", kind_name(&(detach(done.u2().clone()))))));
                 }
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("split open failed: {}", kind_name(&(detach__2(split.u2().clone()))))));
+            println(&mut *__fx, &(format!("split open failed: {}", kind_name(&(detach(split.u2().clone()))))));
         }
     }
     let mut held = __Has_Fs::__get_Fs(&mut *__fx).open_read(&("raw.bin".to_string()));
@@ -240,7 +240,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
                         }
                     }
                     Union2::U2(_) => {
-                        println(&mut *__fx, &(format!("fill failed: {}", kind_name(&(detach__2(got.u2().clone()))))));
+                        println(&mut *__fx, &(format!("fill failed: {}", kind_name(&(detach(got.u2().clone()))))));
                         reading = false;
                     }
                 }
@@ -248,11 +248,11 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("filled {} bytes in {} reads, one buffer", moved, steps)));
             let mut done = __Has_Fs::__get_Fs(&mut *__fx).close(s);
             if matches!(done, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("fill open failed: {}", kind_name(&(detach__2(held.u2().clone()))))));
+            println(&mut *__fx, &(format!("fill open failed: {}", kind_name(&(detach(held.u2().clone()))))));
         }
     }
     let mut lined = __Has_Fs::__get_Fs(&mut *__fx).open_read(&("notes.txt".to_string()));
@@ -275,11 +275,11 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("longest line: {} characters", longest)));
             let mut done = __Has_Fs::__get_Fs(&mut *__fx).close(s);
             if matches!(done, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("lines open failed: {}", kind_name(&(detach__2(lined.u2().clone()))))));
+            println(&mut *__fx, &(format!("lines open failed: {}", kind_name(&(detach(lined.u2().clone()))))));
         }
     }
     let mut ch = open_chunks(&mut *__fx, &("raw.bin".to_string()), 4);
@@ -293,11 +293,11 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("pass saw {} bytes", seen)));
             let mut done = close__2(&mut *__fx, p);
             if matches!(done, Union2::U2(_)) {
-                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach__2(done.u2().clone()))))));
+                println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));
             }
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("chunks failed: {}", kind_name(&(detach__2(ch.u2().clone()))))));
+            println(&mut *__fx, &(format!("chunks failed: {}", kind_name(&(detach(ch.u2().clone()))))));
         }
     }
     let mut copied = copy_file(&mut *__fx, &("notes.txt".to_string()), &("notes-copy.txt".to_string()));
@@ -306,7 +306,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("copied {} bytes", *copied.u1())));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("copy failed: {}", kind_name(&(detach__2(copied.u2().clone()))))));
+            println(&mut *__fx, &(format!("copy failed: {}", kind_name(&(detach(copied.u2().clone()))))));
         }
     }
     let mut whole = read_to_bytes(&mut *__fx, &("raw.bin".to_string()));
@@ -315,7 +315,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("raw.bin is {} bytes: {}", (whole.u1().len() as i32), whole.u1().iter().map(|__b| format!("{:02x}", __b)).collect::<String>())));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach__2(whole.u2().clone()))))));
+            println(&mut *__fx, &(format!("byte read failed: {}", kind_name(&(detach(whole.u2().clone()))))));
         }
     }
     let mut failures: Vec<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>> = vec![];
@@ -325,7 +325,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("unexpected: {}", missing.u1().clone())));
         }
         Union2::U2(_) => {
-            failures.push(detach__2(missing.u2().clone()));
+            failures.push(detach(missing.u2().clone()));
         }
     }
     let mut not_a_dir = __Has_Fs::__get_Fs(&mut *__fx).list_dir(&("notes.txt".to_string()));
@@ -334,7 +334,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("unexpected: {}", format!("[{}]", not_a_dir.u1().clone().iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
         }
         Union2::U2(_) => {
-            failures.push(detach__2(not_a_dir.u2().clone()));
+            failures.push(detach(not_a_dir.u2().clone()));
         }
     }
     println(&mut *__fx, &(format!("failures: {}", (failures.len() as i32))));
@@ -344,7 +344,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
     for mut name in vec!["notes.txt".to_string(), "notes-copy.txt".to_string(), "raw.bin".to_string()] {
         let mut gone = __Has_Fs::__get_Fs(&mut *__fx).delete(&name);
         if matches!(gone, Union2::U2(_)) {
-            println(&mut *__fx, &(format!("delete failed: {}", kind_name(&(detach__2(gone.u2().clone()))))));
+            println(&mut *__fx, &(format!("delete failed: {}", kind_name(&(detach(gone.u2().clone()))))));
         }
     }
     println(&mut *__fx, &("cleaned up".to_string()));
@@ -357,7 +357,7 @@ pub fn sandbox_edges<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &(format!("through `..`: wrote {} bytes", *inside.u1())));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("through `..`: {}", kind_name(&(detach__2(inside.u2().clone()))))));
+            println(&mut *__fx, &(format!("through `..`: {}", kind_name(&(detach(inside.u2().clone()))))));
         }
     }
     let mut up = read_to_str(&mut *__fx, &("../secret.txt".to_string()));
@@ -366,7 +366,7 @@ pub fn sandbox_edges<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &("unexpected: read outside the sandbox".to_string()));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("climbing out: {}", kind_name(&(detach__2(up.u2().clone()))))));
+            println(&mut *__fx, &(format!("climbing out: {}", kind_name(&(detach(up.u2().clone()))))));
         }
     }
     let mut absolute = read_to_str(&mut *__fx, &("/etc/hosts".to_string()));
@@ -375,14 +375,14 @@ pub fn sandbox_edges<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
             println(&mut *__fx, &("unexpected: an absolute path resolved".to_string()));
         }
         Union2::U2(_) => {
-            println(&mut *__fx, &(format!("absolute path: {}", kind_name(&(detach__2(absolute.u2().clone()))))));
+            println(&mut *__fx, &(format!("absolute path: {}", kind_name(&(detach(absolute.u2().clone()))))));
         }
     }
     let mut probe = "probe.txt".to_string();
     { let __a1 = &(format!("probe still there: {}", __Has_Fs::__get_Fs(&mut *__fx).exists(&probe))); println(&mut *__fx, __a1) };
     let mut gone = __Has_Fs::__get_Fs(&mut *__fx).delete(&probe);
     if matches!(gone, Union2::U2(_)) {
-        println(&mut *__fx, &(format!("delete failed: {}", kind_name(&(detach__2(gone.u2().clone()))))));
+        println(&mut *__fx, &(format!("delete failed: {}", kind_name(&(detach(gone.u2().clone()))))));
     }
 }
 
@@ -397,7 +397,7 @@ pub fn main() {
     let mut root = "tmp/files-example".to_string();
     let mut made = __Has_Fs::__get_Fs(&mut __fx3).create_dirs(&root);
     if matches!(made, Union2::U2(_)) {
-        println(&mut __fx3, &(format!("cannot create the working directory: {}", kind_name(&(detach__2(made.u2().clone()))))));
+        println(&mut __fx3, &(format!("cannot create the working directory: {}", kind_name(&(detach(made.u2().clone()))))));
         return;
     }
     println(&mut __fx3, &("-- the real filesystem, scoped to one directory --".to_string()));
@@ -410,7 +410,7 @@ pub fn main() {
     }
     let mut gone = __Has_Fs::__get_Fs(&mut __fx3).delete(&root);
     if matches!(gone, Union2::U2(_)) {
-        println(&mut __fx3, &(format!("cleanup failed: {}", kind_name(&(detach__2(gone.u2().clone()))))));
+        println(&mut __fx3, &(format!("cleanup failed: {}", kind_name(&(detach(gone.u2().clone()))))));
     }
     println(&mut __fx3, &("-- the same code, with no disk at all --".to_string()));
     if true {

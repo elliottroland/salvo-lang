@@ -2,6 +2,7 @@ package salvo.core.memfs
 
 import salvo.*
 import salvo.core.bytes.*
+import salvo.core.checked.*
 import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
@@ -28,19 +29,19 @@ class MemFs : Fs {
     private var writes: MutableMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
     private var next_handle: Long = 0L
 
-    override fun open_read(path: String): Union2<InStream, FsError> {
+    override fun open_read(path: String): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if (!files.containsKey(path)) {
-            return U2_2<InStream, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+            return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
         next_handle = next_handle + 1
         reads.put(next_handle, MemRead(path = path, at = 0, failed = false))
-        return U2_1<InStream, FsError>(ok(InStream(handle = next_handle)))
+        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = next_handle)))
     }
 
-    override fun open_read_at(path: String, offset: Long): Union2<InStream, FsError> {
+    override fun open_read_at(path: String, offset: Long): Union2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val content = files[path]
         if (content == null) {
-            return U2_2<InStream, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+            return U2_2<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
         var at = (offset).toInt()
         if (at < 0) {
@@ -52,17 +53,17 @@ class MemFs : Fs {
         }
         next_handle = next_handle + 1
         reads.put(next_handle, MemRead(path = path, at = at, failed = false))
-        return U2_1<InStream, FsError>(ok(InStream(handle = next_handle)))
+        return U2_1<InStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(InStream(handle = next_handle)))
     }
 
-    override fun open_write(path: String): Union2<OutStream, FsError> {
+    override fun open_write(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         next_handle = next_handle + 1
         val empty = salvo.SalvoBytes.joined()
         writes.put(next_handle, MemWrite(path = path, buffer = empty))
-        return U2_1<OutStream, FsError>(ok(OutStream(handle = next_handle)))
+        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = next_handle)))
     }
 
-    override fun open_append(path: String): Union2<OutStream, FsError> {
+    override fun open_append(path: String): Union2<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val existing = files[path]
         val start = salvo.SalvoBytes.joined()
         if (existing == null) {
@@ -71,7 +72,7 @@ class MemFs : Fs {
         }
         next_handle = next_handle + 1
         writes.put(next_handle, MemWrite(path = path, buffer = start))
-        return U2_1<OutStream, FsError>(ok(OutStream(handle = next_handle)))
+        return U2_1<OutStream, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(OutStream(handle = next_handle)))
     }
 
     override fun exists(path: String): Boolean {
@@ -81,23 +82,23 @@ class MemFs : Fs {
         return fs_has_children(files, path)
     }
 
-    override fun metadata(path: String): Union2<FileInfo, FsError> {
+    override fun metadata(path: String): Union2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val content = files[path]
         if (content == null) {
             if (fs_has_children(files, path)) {
-                return U2_1<FileInfo, FsError>(ok(FileInfo(size = 0L, is_dir = true)))
+                return U2_1<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(FileInfo(size = 0L, is_dir = true)))
             }
-            return U2_2<FileInfo, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+            return U2_2<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
-        return U2_1<FileInfo, FsError>(ok(FileInfo(size = (content.size).toLong(), is_dir = false)))
+        return U2_1<FileInfo, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(FileInfo(size = (content.size).toLong(), is_dir = false)))
     }
 
-    override fun list_dir(path: String): Union2<List<String>, FsError> {
+    override fun list_dir(path: String): Union2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if (files.containsKey(path)) {
-            return U2_2<List<String>, FsError>(err(FsError(kind = U8_4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotADirectory(path = path)))))
+            return U2_2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_4<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotADirectory(path = path)))))
         }
         if (!fs_has_children(files, path)) {
-            return U2_2<List<String>, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+            return U2_2<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
         }
         val names: MutableSet<String> = linkedSetOf<String>().also { __s -> __s.addAll(listOf()) }
         val prefix = "$path/"
@@ -116,67 +117,67 @@ class MemFs : Fs {
             }
         }
         val sorted: List<String> = sort(names.toMutableList(), { __i0, __i1 -> salvo.__salvoCompare(__i0, __i1) })
-        return U2_1<List<String>, FsError>(ok(sorted))
+        return U2_1<List<String>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(sorted))
     }
 
-    override fun create_dirs(path: String): Union2<Unit, FsError> {
-        return U2_1<Unit, FsError>(ok(Unit))
+    override fun create_dirs(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
+        return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
     }
 
-    override fun delete(path: String): Union2<Unit, FsError> {
+    override fun delete(path: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         if (files.containsKey(path)) {
             files.remove(path)
-            return U2_1<Unit, FsError>(ok(Unit))
+            return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
         }
         if (fs_has_children(files, path)) {
-            return U2_2<Unit, FsError>(err(FsError(kind = U8_8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(IoError(path = path, message = "directory not empty")))))
+            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(IoError(path = path, message = "directory not empty")))))
         }
-        return U2_2<Unit, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+        return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
     }
 
-    override fun rename_path(from: String, to: String): Union2<Unit, FsError> {
+    override fun rename_path(from: String, to: String): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val content = files[from]
         if (content == null) {
-            return U2_2<Unit, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = from)))))
+            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = from)))))
         }
         val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
         files.remove(from)
         files.put(to, bytes)
-        return U2_1<Unit, FsError>(ok(Unit))
+        return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
     }
 
     override fun read_line(s: InStream): String? {
         return mem_read_line(reads, files, s.handle)
     }
 
-    override fun read_all(s: InStream): Union2<String, FsError> {
+    override fun read_all(s: InStream): Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return mem_read_all(reads, files, s.handle)
     }
 
-    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, FsError> {
+    override fun read_bytes(s: InStream, max: Int): Union2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         return mem_read_bytes(reads, files, s.handle, max)
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, FsError> {
+    override fun read_to(s: InStream, buf: salvo.SalvoBytes, max: Int): Union2<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val got = mem_read_bytes(reads, files, s.handle, max)
         if (got is U2_2<*, *>) {
-            return U2_2<Int, FsError>((got.value as FsError))
+            return U2_2<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>((got.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>))
         }
         val data: salvo.SalvoBytes = (got.value as salvo.SalvoBytes)
         buf.append(data)
-        return U2_1<Int, FsError>(ok(data.size))
+        return U2_1<Int, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(data.size))
     }
 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, FsError> {
+    override fun read_to__2(s: InStream, buf: StringBuilder): Union2<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val got = mem_read_all(reads, files, s.handle)
         if (got is U2_2<*, *>) {
-            return U2_2<Long, FsError>((got.value as FsError))
+            return U2_2<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>((got.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>))
         }
         val text: String = (got.value as String)
         buf.append(text)
-        return U2_1<Long, FsError>(ok(text.toByteArray(Charsets.UTF_8).size.toLong()))
+        return U2_1<Long, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(text.toByteArray(Charsets.UTF_8).size.toLong()))
     }
 
     override fun read_line_to(s: InStream, buf: StringBuilder): Boolean {
@@ -200,7 +201,7 @@ class MemFs : Fs {
         return (open.at).toLong()
     }
 
-    override fun close(s: InStream): Union2<Unit, FsError> {
+    override fun close(s: InStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val open = reads[s.handle]
         var failed = false
         var path = "<stream>"
@@ -211,9 +212,9 @@ class MemFs : Fs {
         reads.remove(s.handle)
         (s).let {}
         if (failed) {
-            return U2_2<Unit, FsError>(err(FsError(kind = U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
+            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
         }
-        return U2_1<Unit, FsError>(ok(Unit))
+        return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
     }
 
     override fun write(s: OutStream, text: String): Long {
@@ -236,25 +237,25 @@ class MemFs : Fs {
         return (open.buffer.size).toLong()
     }
 
-    override fun flush(s: OutStream): Union2<Unit, FsError> {
+    override fun flush(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val open = writes[s.handle]
         if (open == null) {
-            return U2_2<Unit, FsError>(err(FsError(kind = U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
+            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
         }
         files.put(open.path, salvo.SalvoBytes(open.buffer))
-        return U2_1<Unit, FsError>(ok(Unit))
+        return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
     }
 
-    override fun close__2(s: OutStream): Union2<Unit, FsError> {
+    override fun close__2(s: OutStream): Union2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
         val open = writes[s.handle]
         if (open == null) {
             (s).let {}
-            return U2_2<Unit, FsError>(err(FsError(kind = U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
+            return U2_2<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
         }
         files.put(open.path, salvo.SalvoBytes(open.buffer))
         writes.remove(s.handle)
         (s).let {}
-        return U2_1<Unit, FsError>(ok(Unit))
+        return U2_1<Unit, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(Unit))
     }
 }
 
@@ -272,7 +273,7 @@ fun mem_find_newline(data: salvo.SalvoBytes, from: Int): Int {
     val end = data.size
     var i = from
     while (i < end) {
-        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.memfs:293:19"))).toInt() == 10) {
+        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.memfs:291:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -312,7 +313,7 @@ fun mem_read_line(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sal
         return null
     }
     val stop = mem_find_newline(bytes, at)
-    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:344:16"))
+    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:342:16"))
     var next_at = stop
     if (stop < end) {
         next_at = stop + 1
@@ -326,43 +327,43 @@ fun mem_read_line(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sal
     return text.removeSuffix("\r")
 }
 
-fun mem_read_all(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.SalvoBytes>, handle: Long): Union2<String, FsError> {
+fun mem_read_all(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.SalvoBytes>, handle: Long): Union2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     val open = reads[handle]
     if (open == null) {
-        return U2_2<String, FsError>(err(FsError(kind = U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
+        return U2_2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
     }
     val path: String = open.path
     if (open.failed) {
-        return U2_2<String, FsError>(err(FsError(kind = U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
+        return U2_2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
     }
     val content = files[path]
     if (content == null) {
-        return U2_2<String, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+        return U2_2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
     val end = bytes.size
-    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at core.memfs:375:16"))
+    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at core.memfs:373:16"))
     val text = rest.asString()
     if (text == null) {
         reads.put(handle, MemRead(path = path, at = end, failed = true))
-        return U2_2<String, FsError>(err(FsError(kind = U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
+        return U2_2<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
     }
     reads.put(handle, MemRead(path = path, at = end, failed = false))
-    return U2_1<String, FsError>(ok(text))
+    return U2_1<String, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(text))
 }
 
-fun mem_read_bytes(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.SalvoBytes>, handle: Long, max: Int): Union2<salvo.SalvoBytes, FsError> {
+fun mem_read_bytes(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.SalvoBytes>, handle: Long, max: Int): Union2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>> {
     val open = reads[handle]
     if (open == null) {
-        return U2_2<salvo.SalvoBytes, FsError>(err(FsError(kind = U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
+        return U2_2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_7<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(StaleHandle(path = "<stream>")))))
     }
     val path: String = open.path
     if (open.failed) {
-        return U2_2<salvo.SalvoBytes, FsError>(err(FsError(kind = U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
+        return U2_2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_6<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(InvalidUtf8(path = path)))))
     }
     val content = files[path]
     if (content == null) {
-        return U2_2<salvo.SalvoBytes, FsError>(err(FsError(kind = U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
+        return U2_2<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(err(checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>(U8_1<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>(NotFound(path = path)))))
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
     var stop = open.at + max
@@ -373,7 +374,7 @@ fun mem_read_bytes(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sa
     if (stop > end) {
         stop = end
     }
-    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:408:17"))
+    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:406:17"))
     reads.put(handle, MemRead(path = path, at = stop, failed = false))
-    return U2_1<salvo.SalvoBytes, FsError>(ok(taken))
+    return U2_1<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(taken))
 }

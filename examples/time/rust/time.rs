@@ -81,10 +81,10 @@ pub fn abs(d: Duration) -> Duration {
     return d;
 }
 
-pub fn to_str__4(d: &Duration) -> String {
+pub fn to_str__3(d: &Duration) -> String {
     if d.nanos < ((0) as i64) {
         let mut positive = Duration { nanos: 0i64 - d.nanos };
-        return format!("-{}", to_str__4(&positive));
+        return format!("-{}", to_str__3(&positive));
     }
     if d.nanos == ((0) as i64) {
         return "0s".to_string();

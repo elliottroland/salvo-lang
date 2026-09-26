@@ -29,19 +29,19 @@ export handler MemFs of Fs {
     writes: Mut Map<Long, MemWrite> = mut_map_of()
     next_handle: Long = 0
 
-    fn open_read(path: Str) -> Ok InStream | Err FsError => path {
+    fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path {
         if !contains_key(files, path) {
-            return err(FsError { kind: NotFound { path: copy(path) } })
+            return err(checked<FsError>(NotFound { path: copy(path) }))
         }
         next_handle = next_handle + 1
         put(reads, copy(next_handle), MemRead { path: copy(path), at: 0, failed: false })
         return ok(InStream { handle: copy(next_handle) })
     }
 
-    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err FsError => path {
+    fn open_read_at(path: Str, offset: Long) -> Ok InStream | Err Checked<FsError> => path {
         let content = get(files, path)
         if content is None {
-            return err(FsError { kind: NotFound { path: copy(path) } })
+            return err(checked<FsError>(NotFound { path: copy(path) }))
         }
         // A seek is a byte offset and nothing else — landing between the bytes
         // of a character is legal here exactly as it is on the host, and the
@@ -59,14 +59,14 @@ export handler MemFs of Fs {
         return ok(InStream { handle: copy(next_handle) })
     }
 
-    fn open_write(path: Str) -> Ok OutStream | Err FsError => path {
+    fn open_write(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
         next_handle = next_handle + 1
         let empty = mut_bytes()
         put(writes, copy(next_handle), MemWrite { path: copy(path), buffer: empty })
         return ok(OutStream { handle: copy(next_handle) })
     }
 
-    fn open_append(path: Str) -> Ok OutStream | Err FsError => path {
+    fn open_append(path: Str) -> Ok OutStream | Err Checked<FsError> => path {
         let existing = get(files, path)
         let start = mut_bytes()
         if existing is None {
@@ -86,23 +86,23 @@ export handler MemFs of Fs {
         return fs_has_children(files, path)
     }
 
-    fn metadata(path: Str) -> Ok FileInfo | Err FsError => path {
+    fn metadata(path: Str) -> Ok FileInfo | Err Checked<FsError> => path {
         let content = get(files, path)
         if content is None {
             if fs_has_children(files, path) {
                 return ok(FileInfo { size: 0, is_dir: true })
             }
-            return err(FsError { kind: NotFound { path: copy(path) } })
+            return err(checked<FsError>(NotFound { path: copy(path) }))
         }
         return ok(FileInfo { size: to_long(size(content)), is_dir: false })
     }
 
-    fn list_dir(path: Str) -> Ok List<Str> | Err FsError => path {
+    fn list_dir(path: Str) -> Ok List<Str> | Err Checked<FsError> => path {
         if contains_key(files, path) {
-            return err(FsError { kind: NotADirectory { path: copy(path) } })
+            return err(checked<FsError>(NotADirectory { path: copy(path) }))
         }
         if !fs_has_children(files, path) {
-            return err(FsError { kind: NotFound { path: copy(path) } })
+            return err(checked<FsError>(NotFound { path: copy(path) }))
         }
         // A `Set` keeps insertion order and does the deduplication, so the
         // sorted list below is the same on both backends [col-insertion-order].
@@ -126,29 +126,27 @@ export handler MemFs of Fs {
         return ok(sorted)
     }
 
-    fn create_dirs(path: Str) -> Ok None | Err FsError => path {
+    fn create_dirs(path: Str) -> Ok None | Err Checked<FsError> => path {
         // Directories are implicit here: there is nothing to create, and
         // reporting success is what the host does for an existing tree.
         return ok(None)
     }
 
-    fn delete(path: Str) -> Ok None | Err FsError => path {
+    fn delete(path: Str) -> Ok None | Err Checked<FsError> => path {
         if contains_key(files, path) {
             remove(files, path)
             return ok(None)
         }
         if fs_has_children(files, path) {
-            return err(FsError {
-                kind: IoError { path: copy(path), message: "directory not empty" }
-            })
+            return err(checked<FsError>(IoError { path: copy(path), message: "directory not empty" }))
         }
-        return err(FsError { kind: NotFound { path: copy(path) } })
+        return err(checked<FsError>(NotFound { path: copy(path) }))
     }
 
-    fn rename_path(from: Str, to: Str) -> Ok None | Err FsError => from, to {
+    fn rename_path(from: Str, to: Str) -> Ok None | Err Checked<FsError> => from, to {
         let content = get(files, from)
         if content is None {
-            return err(FsError { kind: NotFound { path: copy(from) } })
+            return err(checked<FsError>(NotFound { path: copy(from) }))
         }
         let bytes: Bytes = copy(content)
         remove(files, from)
@@ -163,18 +161,18 @@ export handler MemFs of Fs {
         return mem_read_line(reads, files, s.handle)
     }
 
-    fn read_all(s: InStream) -> Ok Str | Err FsError => s {
+    fn read_all(s: InStream) -> Ok Str | Err Checked<FsError> => s {
         return mem_read_all(reads, files, s.handle)
     }
 
-    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err FsError => s {
+    fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<FsError> => s {
         return mem_read_bytes(reads, files, s.handle, max)
     }
 
     // The fill-a-buffer reads [fs-read-to]: each is its returning sibling with
     // the destination handed in, so the fake has the same three shapes the
     // host does.
-    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err FsError => s, buf: Mut {
+    fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<FsError> => s, buf: Mut {
         let got = mem_read_bytes(reads, files, s.handle, max)
         if got is Err {
             return got
@@ -184,7 +182,7 @@ export handler MemFs of Fs {
         return ok(size(data))
     }
 
-    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err FsError => s, buf: Mut {
+    fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<FsError> => s, buf: Mut {
         let got = mem_read_all(reads, files, s.handle)
         if got is Err {
             return got
@@ -213,7 +211,7 @@ export handler MemFs of Fs {
         // The bytes consumed, and nothing to convert: the store *is* bytes.
         return to_long(open.at)
     }
-    fn close(s: InStream) -> Ok None | Err FsError => !s {
+    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s {
         let open = get(reads, s.handle)
         let failed = false
         let path = "<stream>"
@@ -225,7 +223,7 @@ export handler MemFs of Fs {
         discard(s)
         if failed {
             // The recorded read failure, reported where the host reports it.
-            return err(FsError { kind: InvalidUtf8 { path: path } })
+            return err(checked<FsError>(InvalidUtf8 { path: path }))
         }
         return ok(None)
     }
@@ -250,20 +248,20 @@ export handler MemFs of Fs {
         return to_long(size(open.buffer))
     }
 
-    fn flush(s: OutStream) -> Ok None | Err FsError => s {
+    fn flush(s: OutStream) -> Ok None | Err Checked<FsError> => s {
         let open = get(writes, s.handle)
         if open is None {
-            return err(FsError { kind: StaleHandle { path: "<stream>" } })
+            return err(checked<FsError>(StaleHandle { path: "<stream>" }))
         }
         put(files, copy(open.path), copy(open.buffer))
         return ok(None)
     }
 
-    fn close(s: OutStream) -> Ok None | Err FsError => !s {
+    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s {
         let open = get(writes, s.handle)
         if open is None {
             discard(s)
-            return err(FsError { kind: StaleHandle { path: "<stream>" } })
+            return err(checked<FsError>(StaleHandle { path: "<stream>" }))
         }
         put(files, copy(open.path), copy(open.buffer))
         remove(writes, s.handle)
@@ -357,18 +355,18 @@ fn mem_read_line(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: 
 }
 
 // Everything left in the stream, decoded strictly.
-fn mem_read_all(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long) [] -> Ok Str | Err FsError => reads: Mut, files, handle {
+fn mem_read_all(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long) [] -> Ok Str | Err Checked<FsError> => reads: Mut, files, handle {
     let open = get(reads, handle)
     if open is None {
-        return err(FsError { kind: StaleHandle { path: "<stream>" } })
+        return err(checked<FsError>(StaleHandle { path: "<stream>" }))
     }
     let path: Str = copy(open.path)
     if open.failed {
-        return err(FsError { kind: InvalidUtf8 { path: path } })
+        return err(checked<FsError>(InvalidUtf8 { path: path }))
     }
     let content = get(files, path)
     if content is None {
-        return err(FsError { kind: NotFound { path: copy(path) } })
+        return err(checked<FsError>(NotFound { path: copy(path) }))
     }
     let bytes: Bytes = copy(content)
     let end = size(bytes)
@@ -376,25 +374,25 @@ fn mem_read_all(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: L
     let text = str_of_bytes(rest)
     if text is None {
         put(reads, copy(handle), MemRead { path: copy(path), at: end, failed: true })
-        return err(FsError { kind: InvalidUtf8 { path: copy(path) } })
+        return err(checked<FsError>(InvalidUtf8 { path: copy(path) }))
     }
     put(reads, copy(handle), MemRead { path: copy(path), at: end, failed: false })
     return ok(text)
 }
 
 // Up to [max] bytes from the stream's position, undecoded.
-fn mem_read_bytes(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long, max: Int) [] -> Ok Bytes | Err FsError => reads: Mut, files, handle {
+fn mem_read_bytes(reads: Mut Map<Long, MemRead>, files: Map<Str, Bytes>, handle: Long, max: Int) [] -> Ok Bytes | Err Checked<FsError> => reads: Mut, files, handle {
     let open = get(reads, handle)
     if open is None {
-        return err(FsError { kind: StaleHandle { path: "<stream>" } })
+        return err(checked<FsError>(StaleHandle { path: "<stream>" }))
     }
     let path: Str = copy(open.path)
     if open.failed {
-        return err(FsError { kind: InvalidUtf8 { path: path } })
+        return err(checked<FsError>(InvalidUtf8 { path: path }))
     }
     let content = get(files, path)
     if content is None {
-        return err(FsError { kind: NotFound { path: copy(path) } })
+        return err(checked<FsError>(NotFound { path: copy(path) }))
     }
     let bytes: Bytes = copy(content)
     let stop = open.at + max

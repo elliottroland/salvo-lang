@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1538 tests, complete: the toolchain tests are
+cargo test                  # 1539 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,46 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The filesystem answers with `Checked<FsError>` (2026-09-26 — built).** ROADMAP
+step 1(b). The bespoke `linear struct FsError { kind: FsErrorKind }` is gone: the
+union is now simply `FsError` and every fallible member answers
+`Ok T | Err Checked<FsError>` [fs-surface] [checked-type], so std has **one**
+implementation of "you must look at this" rather than two of the same idea.
+`ignore` and `detach` are the generic ones, and the sweep was mechanical —
+`checked(…)` where a struct literal used to be, `detach(e)` where a caller used
+to read the wrapper.
+
+- **One affordance was deliberately dropped**: the old `to_str(e: FsError) => e`
+  rendered a failure *without* discharging it, so a program could log an error
+  and still owe it. `Checked<T>` has no borrowing read, and adding one would make
+  the obligation advisory, so a rendering is now `to_str(detach(e))` — looking at
+  a failure means dealing with it. Every call site in std, the docs and the two
+  fs fixtures reads that way now, and it is one call shorter than the
+  `to_str` + `ignore` pair it replaces.
+- **35 construction sites name their type argument**, `checked<FsError>(NotFound
+  { … })`, because an inferred type argument is not widened by the expected type:
+  `checked(NotFound { … })` is a `Checked<NotFound>` and the expected
+  `Checked<FsError>` does not change that — not through a `let` annotation
+  either. The old code was widening at a *declared field* position
+  (`FsError { kind: <arm> }`), which still works; what does not exist is seeding
+  a type variable with a supertype. Recorded in ROADMAP beside variance, where
+  the same question is already open, with a small DECISION attached.
+- **It removed a module edge nobody wanted.** `core.fs` used to declare its own
+  `ignore`/`detach`, and name-based reachability [mod-used-only] resolves a used
+  name to every module declaring it — so `core/list.rs` in the two
+  filesystem examples carried a `use crate::core_fs::*;` that a list write had
+  dragged in. With those two names gone from `core.fs`, the import goes too.
+- One test added, `an_fs_failure_must_be_acknowledged`, against **real** std
+  rather than a synthetic prelude: what it pins is the wiring between two std
+  modules (does `core.fs`'s failure reach `core.checked`'s obligation?), not the
+  linear rule, which `linear_group_tests` owns. It also records the improved
+  diagnostic — the refusal now names `detach` / `ignore` generically.
+- Verified by running all ten examples on both backends against their checked-in
+  `expected.txt`: identical, so the change is observably behaviour-preserving.
+  The example diffs are the regenerated fs modules plus `to_str__4` → `to_str__3`
+  in the time example — one fewer `to_str` in std shifts the global overload
+  index, the recorded gotcha working in reverse.
 
 **Ambiguity is refused, never resolved by position (2026-09-26, user decisions —
 built).** The value the user stated: *when faced with an ambiguity, refuse to
