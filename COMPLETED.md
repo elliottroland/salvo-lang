@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1500 tests, complete: the toolchain tests are
+cargo test                  # 1509 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,111 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A parameter group is a convenience, not a contract — a mixed identity fill is
+honoured (2026-09-26, user decision).** Found while lowering the generic-body
+case: filling *one* slot of `?Hashed<T>` and leaving the other to resolution was
+accepted by the checker and then dropped by both emitters — Kotlin silently keyed
+by the native container (wrong output [backend-never-wrong]), Rust reported "no
+resolved declaration", naming the wrong cause. The user's call: groups are a
+declaration-side shorthand, so a caller may fill any subset and the mix is
+lowered as written. Three causes, one per layer:
+
+- **The checker recorded a carried identity for a *resolved* or *forwarded* fill
+  but not a *written* one** — `mut_set_of(eq = f)` is `ImplicitArg::Given`, whose
+  published name never reached `carried_identities`, so neither backend could
+  find the declaration behind the slot. It now resolves the written name the same
+  way step 0 does.
+- **Kotlin's `keyed_pair` abandoned the whole pair** on the first slot that
+  resolved to an intrinsic (`identity_fn_name` answers `None` for the host's own
+  operation, and `?` propagated). Now a pair that is *entirely* the host's takes
+  the native container, and a mixed one renders the host slot as the lambda its
+  lowering makes [implicit-intrinsic]: `SalvoHashSet<Int>({ __i0 ->
+  (__i0).hashCode().toLong() }, ::all_same)`.
+- **Rust's generated marker called its identity with references** while a
+  declared identity over a Copy scalar takes its arguments by value — E0308,
+  reachable only once a written fill became a carried identity (before that a
+  scalar subject always took the `HostHash`/`HostEq` path and no marker existed).
+  The marker now splices each argument in the identity's own mode.
+- And **a mixed fill inside a generic body** — one slot the forwarded capability,
+  the other a name — is lowered too: a marker cannot be mixed into a value pair,
+  so the named slot becomes its own closure beside the shared handle. Kotlin
+  needed nothing for this; both are just functions there.
+
+**What the fix exposed, and what it cost nothing to learn**: for `?Hashed<T>` a
+mixed fill is either *invisible* or *broken*. A hash coarser than equality is
+legal, so writing `hash = by_x` beside a generated `eq` changes bucketing and no
+answer; and a custom `eq` beside the host's `hash` is an inconsistent pair the
+container never consults, because it buckets by hash first — `mut_set_of(eq =
+all_same)` over `1` and `2` prints `2` on **both** backends, identically and for
+the same reason. That is honoured-as-written and still reads as a bug, which is
+why the user recorded the `atomic params` idea (a group that must be filled as a
+unit) in ROADMAP with this example as its motivation, rather than making
+`?Hashed<T>` a special case now.
+
+Tests: `a_mixed_identity_fill_pairs_both_slots` on both backends (the written
+`hash` paired with the `eq` that `: auto Hashed<self>` generated),
+`a_scalar_identitys_marker_derefs_its_arguments`,
+`a_host_slot_in_a_mixed_pair_becomes_its_lowering`,
+`a_generic_body_mixes_a_forwarded_and_a_named_identity`, and four
+compile-and-run cases — the mixed demo and the generic×mixed one, on each
+backend, printing identical bytes.
+
+**A keyed container built inside a generic function, lowered on both backends
+(2026-09-26).** The half the capability work left refused by name: a generic body
+may declare `?Hashed<T>`/`?Ordered<T>` and build a `Set`/`Map`/`SortedSet`/
+`SortedMap` from it, but the identity arrives as a *forwarded implicit* — a
+capability the function was handed — while the constructions wanted a name. Both
+backends now take the capability **as functions**, which is the shape the
+identity actually has.
+
+- **Kotlin needed one line per path.** `keyed.kt`'s `SalvoHashMap`/`SalvoHashSet`
+  have taken `hashOf`/`eqOf` closures since they were written, and sorted
+  containers take a `Comparator`, so a forwarded capability is already the right
+  shape: `identity_fn_name` and `container_ordering` answer the *parameter's
+  name* for a `FnId::Binder` instead of erroring. (`container_ordering` had to be
+  fixed separately — it is the sorted pair's own path and the first fix did not
+  cover it, which the probe caught.)
+- **Rust needed a store per family and an owned convention** [rs-stored-implicit].
+  `HashedStore`/`BTreeStore` dispatch `Hash`/`Eq`/`Ord` through marker *types*
+  (`HashBy`/`OrdBy`), so a closure held elsewhere is unreachable from them: the
+  runtime grew `FnStore`, `FnSortedStore` and `FnSortedMapStore` beside them,
+  reached through `with_fns`/`with_cmp`. The hash store's representation is the
+  Kotlin runtime's — a slab in first-insertion order plus a bucket index
+  confirming hits with `eq` — so the two backends' containers are now structurally
+  the same thing. The kept capability arrives as
+  `Arc<dyn Fn(…) + Send + Sync>` rather than `&mut dyn FnMut`, which is the
+  convention exception an **iterator fn's callbacks already get** for the same
+  reason (`in_iterator_fn`: what receives it outlives the call) — the precedent
+  is what made this the cheap design.
+- **The demand is closed under forwarding** (`stored_implicit_demand`, mirroring
+  `lend_mut_demand`): seeds are the construction sites, and a fn that passes its
+  own implicit into a position already owned holds an `Arc` for the same reason.
+  A generic in such a fn is `Clone + Send + 'static`, the bounds the stores
+  declare.
+- **The option not taken**: rendering the identity as a *type parameter* per
+  instantiation (`collect_one::<T, HostHash, HostEq>`), which is zero-cost and
+  needs no runtime change. Rejected because it changes the emitted signature
+  shape at every call and forwarding site, while the owned-`Arc` form reuses a
+  convention that already exists and keeps the containers' boxed-store posture —
+  the reason bounds stay off every Salvo fn that touches one.
+- Verified byte-identical on both backends across all four families, a
+  forwarding chain, a **non-structural declared identity** (`1 2 2 2 / ann / cyd
+  / 2 {3, 4} {2, 9}` — a body that fell back to the host's hashing would print
+  different numbers) and a primitive key reaching the host's identity through the
+  same generic code. The e2e pair is
+  `rustc_compiles_and_runs_a_generic_keyed_container` and the Kotlin case beside
+  it; the limitation half of the old `the_capabilitys_two_limitations_are_named`
+  is gone, the test renamed to `a_tuple_key_is_refused_by_name`.
+- **One defect found underneath and recorded, not fixed** (ROADMAP, with a
+  **DECISION**): a **partially filled identity group** — `mut_set_of(eq = …)`
+  with the hash left to the host — is silently dropped by Kotlin (wrong output)
+  and misdiagnosed by Rust. The checker records a carried identity for a
+  *resolved* or *forwarded* fill but not for a **written** one, and Kotlin's
+  `keyed_pair` abandons the whole pair when either slot is intrinsic. It is
+  recorded rather than fixed because a host `hash` beside a custom `eq` is
+  precisely an *inconsistent* pair, so whether to honour the mix or refuse a
+  partial fill is a language call.
 
 **A keyed container's identity is a capability its constructor asks for
 (2026-09-26, user decision — landed).** `set_of<T>(...elems: T[], ?Hashed<T>)

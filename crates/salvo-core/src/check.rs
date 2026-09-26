@@ -4055,9 +4055,30 @@ impl<'p, 'r> Checker<'p, 'r> {
                     (identity, Some(want.strip_quals().clone()))
                 {
                     if let Some(subject) = params.first() {
-                        let ckey = (id, subject.strip_quals().clone());
-                        if let ImplicitArg::Resolved { key: fkey, .. } = &filled_arg {
-                            self.out.carried_identities.entry(ckey).or_insert(*fkey);
+                        let ckey = (id.clone(), subject.strip_quals().clone());
+                        match &filled_arg {
+                            ImplicitArg::Resolved { key: fkey, .. } => {
+                                self.out.carried_identities.entry(ckey).or_insert(*fkey);
+                            }
+                            // [cmp-carry] A slot **written at the call site**
+                            // (`mut_set_of(eq = same_age)`) carries its identity
+                            // exactly as a resolved one does: the name published
+                            // into the binder is a declaration, and a container
+                            // needs the declaration behind it. Without this the
+                            // written slot reached neither backend — Kotlin
+                            // silently dropped it and Rust could not name it
+                            // (fixed 2026-09-26, user decision: **honour a mixed
+                            // fill**; a group is a convenience, not a contract).
+                            ImplicitArg::Given { .. } => {
+                                if let FnId::Named { name, at } = &id {
+                                    if let Ok((fkey, _)) =
+                                        self.resolve_implicit_fn_at(name, at.as_deref(), &want)
+                                    {
+                                        self.out.carried_identities.entry(ckey).or_insert(fkey);
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }

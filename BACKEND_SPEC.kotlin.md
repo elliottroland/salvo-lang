@@ -949,8 +949,35 @@ where Rust had to build the fusion to get the same programs running
   end-to-end test, and a change to one reviews as code rather than as a diff
   of escaped text. The test's module list is what makes it complete rather
   than a sample, so a new runtime module belongs there the moment it exists.
-  Four exist: `throw.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
-  ([kt-bytes]) and `scheduler.kt` ([kt-actor]).
+  Six exist: `throw.kt` ([kt-throw-signal]), `compare.kt`, `bytes.kt`
+  ([kt-bytes]), `scheduler.kt` ([kt-actor]), `keyed.kt` ([kt-keyed]) and
+  `hosttime.kt`.
+* [kt-keyed] [cmp-carry] `keyed.kt` holds `SalvoHashMap`/`SalvoHashSet`, the
+  insertion-ordered hash containers keyed by a **pair of functions**
+  (`hashOf: (K) -> Long`, `eqOf: (K, K) -> Boolean`): entries live in a list in
+  first-insertion order and a bucket index maps a Salvo hash to the slots
+  holding it. `LinkedHashMap` cannot serve, because it keys by the JVM's
+  `hashCode`/`equals` and a Salvo identity is neither. The sorted pair needs no
+  file: `java.util.TreeMap(Comparator { … })` takes its ordering as a value
+  already.
+  * Because the containers take *functions*, an identity that is a **capability
+    the enclosing function was handed** — a keyed container built inside a
+    generic function — needs nothing more than the parameter's name
+    (2026-09-26). That is the whole of this backend's support for the shape the
+    Rust backend needed a value-keyed store and an owned convention for
+    ([rs-stored-implicit]); a forwarded `?cmp` reaches `Comparator` the same way,
+    through `cmp_body`.
+  * A **canonical intrinsic** identity is the host's own operation, which is
+    what the JVM's `hashCode`/`equals` already are, so it selects the native
+    container instead and the file is not emitted [cmp-groups].
+  * A **mixed** pair — one slot written, the other the host's — is honoured
+    (user decision 2026-09-26: a parameter group is a convenience, not a
+    contract): the declared slot is referenced and the host's becomes the lambda
+    its own lowering makes [implicit-intrinsic], so
+    `SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::all_same)`.
+    Only a pair that is *entirely* the host's takes the native container.
+    Until 2026-09-26 the first host slot abandoned the whole pair and a written
+    `eq = …` was silently lost — wrong output [backend-never-wrong].
 * `compare.kt` holds `__salvoCompare`, the structural comparison
   [kt-ordered] [col-sorted] needs. It exists because the JVM's own ordering
   cannot answer for Salvo's types: a `List` and a tuple are not

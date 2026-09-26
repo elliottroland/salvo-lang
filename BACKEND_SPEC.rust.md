@@ -1769,6 +1769,55 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     *not dropping*: `replace(key, value) -> Option<V>` (`insert` answers
     nothing, so it cannot be the write for a map of obligations) and
     `into_values() -> Vec<V>`, which is what `drain(map, each)` walks.
+* [rs-stored-implicit] [cmp-carry] **A capability the callee *keeps* arrives
+  owned**, as `std::sync::Arc<dyn Fn(…) -> … + Send + Sync>` rather than the
+  usual `&mut dyn FnMut` — the same convention exception an iterator fn's
+  callbacks get [rs-iter-pass], and for the same reason: what receives it
+  outlives the call. What keeps one is a **keyed container built inside a
+  generic function** (landed 2026-09-26): there the identity is a capability the
+  function was handed, so no marker type can name it and the container has to
+  hold the functions themselves.
+  * The runtime grew a **value-keyed store per family** beside the
+    marker-keyed ones — `FnStore` (hash/eq), `FnSortedStore` and
+    `FnSortedMapStore` (cmp) — reached through `SalvoSet::with_fns`,
+    `SalvoMap::with_fns`, `SalvoSortedSet::with_cmp` and
+    `SalvoSortedMap::with_cmp`. They cannot reuse `HashedStore`/`BTreeStore`
+    because `HashBy`/`OrdBy` dispatch their `Hash`/`Eq`/`Ord` impls through
+    *types*, and a closure held elsewhere is not reachable from them. The hash
+    store's shape is the Kotlin runtime's: a slab in first-insertion order plus
+    a bucket index from a Salvo hash to the slots holding it, confirming a hit
+    with `eq`. The sorted pair is a sorted `Vec` with `binary_search_by`.
+    `Arc` rather than `Box` so a container's clone shares its identity.
+  * **The demand is closed under forwarding.** The seeds are the construction
+    sites (an expression whose type is a keyed container carrying a
+    `FnId::Binder`); a fn that passes its own implicit into a position already
+    owned holds an `Arc` for the same reason, so it joins the set
+    (`stored_implicit_demand`, mirroring `lend_mut_demand`). At a call, a kept
+    position takes `Arc::new(move |…| …)` for a resolved or written identity and
+    `Arc::clone(&name)` for a forwarded one.
+  * **Its key type carries the store's bounds**: a generic in such a fn is
+    `Clone + Send + 'static` rather than the usual `Clone`, because the store is
+    a `Box<dyn … + Send>` over owned data. Every Salvo type satisfies both, so
+    this only spells at the one site what the container needs.
+  * The **intrinsic** identity is not special here: a host `hash`/`eq`/`cmp`
+    filling a kept position renders as its own lowering inside the closure, the
+    way any intrinsic implicit value does [implicit-intrinsic] — so a generic
+    body reaches the host's identity through exactly the same code as a
+    declared one.
+  * A **mixed** identity — one slot forwarded, another named — is honoured too
+    (user decision 2026-09-26): a marker type cannot be mixed into a value pair,
+    so the named slot becomes its own closure beside the forwarded handle
+    (`Arc::new(move |__a: &T, __b: &T| all_same(__a, __b))`, and
+    `<HostEq as SalvoEq<T>>::eq` for the host's). An identity that needs
+    implicits *of its own* has nothing to fill them from there and is refused by
+    name [backend-never-wrong].
+  * [rs-borrows] **A marker calls its identity in the identity's modes.** The
+    trait fixes the marker's own parameters as references, while a declared
+    identity over a Copy scalar takes its arguments by value — so the marker
+    derefs (`all_same(*__a, *__b)`). Splicing the reference through was rustc's
+    E0308, reachable the moment a *written* fill became a carried identity
+    (2026-09-26): before that, a scalar subject always took the `HostHash`/
+    `HostEq` path and no marker was generated for one.
 * [rs-mailbox] [actor-mailbox] **The mailbox bound is a generated field on the
   handler**, `__mailbox_capacity: i32`, initialised by `new` from the slot's
   expression — which is exactly where a state field's initialiser is computed,

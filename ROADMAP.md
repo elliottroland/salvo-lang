@@ -1519,6 +1519,7 @@ links to the section that states the options.
 | **Platform-handler thread-safety contract** — the declaration surface, what it asserts, and what the undeclared case means; unblocks the parity-restoring emissions | unscheduled (the assumption stands meanwhile, user decision 2026-09-20) | "Platform handlers — the thread-safety contract" |
 | **Project manifest** — name, contents, whether the CLI reads it too; anchors LSP per-document root discovery | next up (the group-borrowing ladder closed 2026-09-25) | "LSP source-root discovery, and a project manifest" |
 | **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
+| **`atomic params`** — whether a parameter group can demand to be filled all-or-nothing, so `?Hashed<T>` cannot be half-written (idea recorded 2026-09-26 with its motivating example) | unscheduled | "`atomic params` — a group that must be filled as a unit" |
 
 (**No phase-5 rows remain**: the spawn-line respelling, the last one, was
 decided and built 2026-09-16 — the mailbox moved to the handler
@@ -1533,6 +1534,76 @@ One further proposal is **deferred by decision** rather than waiting:
 `platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
 same day — see "Effects"; the `defers`-block proposal went with `defer`
 itself, 2026-09-10 — see "`defer` is deleted".)
+
+## `atomic params` — a group that must be filled as a unit (DECISION)
+
+Recorded 2026-09-26, from a defect in the keyed-container work. **A parameter
+group is a convenience, not a contract** (user, 2026-09-26): `params Hashed<T>`
+bundles `?hash` and `?eq` so a signature can name them once, and a caller may
+fill either, both, or neither — so a *mixed* fill is honoured, which is what the
+backends now do [cmp-carry].
+
+`?Hashed<T>` is the case that shows why a group might sometimes want to say
+otherwise. A hash and an equality are only meaningful **together**: the contract
+is that equal values hash equally, so filling one slot and leaving the other to
+resolution produces a pair nobody checked. The container is keyed by the hash
+*first* — a bucket index, then `eq` inside the bucket — so an inconsistent pair
+does not fail, it silently answers as though the written slot were not there:
+
+```
+export fn all_same(a: Int, b: Int) -> Bool => a, b {
+    return true
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    // "every Int is the same Int" — and yet:
+    let s: Mut Set<Int> = mut_set_of(eq = all_same)
+    add(s, 1)
+    add(s, 2)
+    println("${size(s)}")      // 2, on both backends
+}
+```
+
+Both backends print `2`, identically and for the same reason: `1` and `2` land in
+different buckets under the host's hash, so `all_same` is never consulted. The
+program is honoured exactly as written and the answer still reads as a bug.
+
+Worse, a *consistent* mixed fill is **unobservable**: a hash coarser than
+equality is legal, so writing `hash = by_x` beside a generated `eq` changes only
+bucketing, never an answer. So for `?Hashed<T>` specifically, a mixed fill is
+either invisible or broken — there is no case where it is the thing the author
+wanted.
+
+**The proposal**: a keyword on the group declaration that makes it all-or-nothing.
+
+```
+atomic params Hashed<T> {
+    ?hash: (T) -> Long,
+    ?eq: (T, T) -> Bool
+}
+```
+
+Filling one slot of an `atomic` group without the other is then a checker error
+naming the missing slot — and an *unfilled* group still resolves as it does today
+(the point is not to force the caller to write anything, only to stop them
+writing *half*). The questions for the call:
+
+- **The keyword.** `atomic` reads as "indivisible" but collides with the
+  concurrency sense it has everywhere else; `whole params`, `params … all`, or a
+  clause (`params Hashed<T> filled together`) are alternatives.
+- **What counts as filled.** Written at the call site is clearly filled, and an
+  unfilled group is clearly unfilled. A group where *resolution* found one slot
+  and not the other is the middle case: probably not an error, since the author
+  wrote nothing, but it is the same inconsistent pair.
+- **Whether `Ordered<T>` becomes one too.** It has a single slot today, so the
+  rule would be vacuous — but it would stop a later `?eq` being added to it
+  without the question being asked again.
+- **Whether this is a group property at all**, rather than a check that belongs
+  to `?Hashed<T>` specifically. A general mechanism is one keyword and one check;
+  a special case is neither, and there is exactly one motivating group so far.
+
+Until it is decided, the mixed fill stands and both backends lower it.
 
 ## Test-suite speed — recorded, not scheduled (user decision 2026-09-25)
 
@@ -1593,11 +1664,15 @@ identity**, whose constructors now ask for it as a capability
 [col-keyed-slots] — a declared `hash`/`eq` is honoured on both backends where
 Kotlin used to key structurally and rustc refused the program, and the identity
 is *passed* (`mut_set_of(hash = …, eq = …)`) rather than read off an
-annotation. Two limitations were accepted with it (user, 2026-09-26) and are
+annotation. One limitation was accepted with it (user, 2026-09-26) and is
 refused by name rather than left to a target compiler: a keyed container over a
-**tuple or list**, whose lift is "Recursive implicit resolution" above, and one
-built **inside a generic function**, whose identity is a capability rather than
-a name a container can carry. Three latent bugs fell out of landing it, all
+**tuple or list**, whose lift is "Recursive implicit resolution" above. The
+other — one built **inside a generic function** — was lowered the same day: the
+container takes the capability *as functions*, which Kotlin's containers have
+always accepted (so that backend needed only the parameter's name) and which
+Rust gained a value-keyed store per family for, with the kept capability
+arriving owned and the convention closed under forwarding
+[rs-stored-implicit]. Three latent bugs fell out of landing it, all
 fixed: Kotlin's `map_of`/`mut_map_of` bypassed the keyed constructor helper the
 *set* beside it used (so a named pair was silently ignored for maps alone), a
 program naming only a generated tuple class never imported its package, and

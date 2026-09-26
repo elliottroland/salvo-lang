@@ -188,8 +188,32 @@ An annotation that names a pair does not *choose* it — it has to agree with
 what the constructor resolved, because what fills the slot is what the
 container is actually keyed by.
 
-Two things do not work yet, and say so: a keyed container over a **tuple or a
-list** (their identities are the hosts' own and Salvo cannot name them yet —
-the same reason `(1, 2) == (1, 2)` does not resolve), and one built **inside a
-generic function**, where the identity is a capability the function was handed
-rather than a name the container can carry.
+Writing **one** slot and leaving the other is allowed: a parameter group is a
+convenience for the declaration, not a contract the caller has to fill
+wholesale, so `mut_set_of(hash = by_x)` keeps whatever `eq` resolution finds.
+Be careful with it, though — a hash and an equality are only meaningful
+together (equal values must hash equally), and a container looks up by the hash
+*first*, so a custom equality beside the host's hash quietly does nothing rather
+than failing.
+
+A **generic** function builds one the same way, by declaring the capability and
+letting the constructor's own slots be filled from it:
+
+```
+fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
+    let s: Mut Set<T> = mut_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+```
+
+The container is keyed by whatever the caller's `T` brought with it — a declared
+pair for a struct that has one, the host's own identity for a primitive — and a
+function that only *forwards* the capability to a builder needs to say nothing
+extra either. Both backends key the container by the functions themselves, which
+is what the two runtimes have always taken.
+
+One thing does not work yet, and says so: a keyed container over a **tuple or a
+list**, whose identities are the hosts' own and Salvo cannot name them yet — the
+same reason `(1, 2) == (1, 2)` does not resolve.

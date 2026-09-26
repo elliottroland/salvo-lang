@@ -3617,10 +3617,60 @@ impl<'p> Emitter<'p> {
         if ids.len() != 2 {
             return None;
         }
+        // [cmp-carry] A slot whose identity is the host's own operation has no
+        // symbol to reference (`identity_fn_name` answers `None`), and when
+        // *both* are the host's the native container is the right rendering —
+        // that is the common case, and the file is not needed at all.
+        //
+        // A **mixed** fill is honoured rather than dropped (user decision
+        // 2026-09-26: a parameter group is a convenience, not a contract the
+        // caller must fill wholesale): the declared slot is referenced and the
+        // host's slot becomes the lambda its own lowering makes
+        // [implicit-intrinsic]. Until this, `?` on the first `None` abandoned
+        // the whole pair and a written `eq = …` beside a host `hash` was
+        // silently lost — wrong output [backend-never-wrong].
+        let hash = self.identity_fn_name(&ids[0], &subject);
+        let eq = self.identity_fn_name(&ids[1], &subject);
+        if hash.is_none() && eq.is_none() {
+            return None;
+        }
         self.needs_keyed = true;
-        let hash = self.identity_fn_name(&ids[0], &subject)?;
-        let eq = self.identity_fn_name(&ids[1], &subject)?;
+        let hash = match hash {
+            Some(name) => name,
+            None => self.host_identity_value(&ids[0], &subject, "hash")?,
+        };
+        let eq = match eq {
+            Some(name) => name,
+            None => self.host_identity_value(&ids[1], &subject, "eq")?,
+        };
         Some((hash, eq))
+    }
+
+    /// [cmp-carry] [implicit-intrinsic] The **host's own** identity as a value:
+    /// the lambda an `intrinsic fn` becomes when it is passed rather than
+    /// called. Needed only for a *mixed* pair — one slot declared, the other
+    /// left to the host — because a container keyed by a pair has to be handed
+    /// two functions, and half of a pair is not one of them.
+    fn host_identity_value(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
+        let decl = self
+            .checked
+            .carried_identities
+            .get(&(id.clone(), subject.clone()))
+            .copied()
+            .and_then(|k| self.fn_by_key(k))
+            .cloned();
+        match decl {
+            Some(decl) if decl.intrinsic => Some(self.intrinsic_fn_value(&decl)),
+            // Nothing resolved the slot at all: the loud refusal belongs to
+            // `identity_fn_name`, which has already reported it.
+            _ => {
+                self.error(format!(
+                    "this collection's `{kind}` (`{id}`) has no lowering as a value, \
+                     so the pair `{subject}` is keyed by cannot be built [cmp-carry]"
+                ));
+                None
+            }
+        }
     }
 
     /// [cmp-carry] The Kotlin name of the declaration an identity resolves to —
@@ -3643,17 +3693,14 @@ impl<'p> Emitter<'p> {
             // A **function reference**: the container takes the pair as values, so
             // what it needs is `::name` rather than a call.
             Some(decl) => Some(format!("::{}", self.kotlin_fn_name(decl))),
-            None if matches!(id, FnId::Binder(_)) => {
-                // [cmp-carry] A forwarded capability has no declaration to
-                // reference: the same recorded lift as on the Rust backend.
-                self.error(format!(
-                    "a keyed container built inside a *generic* function is not \
-                     lowered yet: its identity is `{id}`, a capability this \
-                     function was handed, and the container needs one it can \
-                     name — build it in non-generic code for now [cmp-carry]"
-                ));
-                None
-            }
+            // [cmp-carry] [kt-keyed] A **forwarded capability**: the identity is
+            // the enclosing fn's own implicit parameter, which on this backend is
+            // an ordinary function *value* — so the container takes it
+            // directly, by name, and a generic body needs nothing else. (The
+            // Rust backend has to work for it: there an implicit arrives as a
+            // borrow, and a container has to keep what it is given
+            // [rs-stored-implicit].)
+            None if matches!(id, FnId::Binder(_)) => Some(kt_ident(id.base_name())),
             None => {
                 self.error(format!(
                     "the `{id}` this collection is keyed by has no resolved declaration"
@@ -3706,6 +3753,10 @@ impl<'p> Emitter<'p> {
             // names an identity, so this is the common path.
             Some(decl) if decl.intrinsic => None,
             Some(decl) => Some(self.kotlin_fn_name(decl)),
+            // [cmp-carry] [kt-keyed] A **forwarded capability**, exactly as in
+            // `identity_fn_name`: the ordering is this fn's own implicit
+            // parameter, and `cmp_body` calls it like any named one.
+            None if matches!(id, FnId::Binder(_)) => Some(kt_ident(id.base_name())),
             None => {
                 self.error(format!(
                     "the ordering `{id}` of this collection has no resolved declaration"

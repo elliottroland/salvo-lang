@@ -3415,6 +3415,229 @@ fn kotlinc_compiles_and_runs_a_declared_identity() -> KotlinCase {
     kotlin_case(files, "hashed_capability", "1 1 2\n")
 }
 
+/// [cmp-carry] [kt-keyed] A **mixed fill**, byte-identical to the Rust backend's
+/// `a_mixed_identity_fill_pairs_both_slots`: the written `hash` beside the `eq`
+/// that `: auto Hashed<self>` generated. This backend used to abandon the whole
+/// pair when *either* slot resolved to the host's own operation, so the written
+/// slot was silently lost and the native container answered instead — wrong
+/// output [backend-never-wrong], fixed 2026-09-26.
+const MIXED_IDENTITY_DEMO: &str = r#"
+// `auto Hashed<self>` generates `hash` and `eq`; the constructor keeps the
+// generated equality and writes a coarser hash of its own.
+struct Point : auto Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+export fn by_x(p: Point) -> Long => p {
+    return to_long(p.x)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s: Mut Set<Point> = mut_set_of(hash = by_x)
+    add(s, Point {x: 1, y: 1})
+    add(s, Point {x: 1, y: 2})
+    add(s, Point {x: 1, y: 1})
+    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x)
+    put(m, Point {x: 5, y: 0}, 1)
+    put(m, Point {x: 5, y: 0}, 2)
+    let v = get(m, Point {x: 5, y: 0})
+    when v {
+        is Int { println("${size(s)} ${size(m)} ${v}") }
+        is None { println("${size(s)} ${size(m)} missing") }
+    }
+}
+"#;
+
+#[test]
+fn a_mixed_identity_fill_pairs_both_slots() {
+    let program = build_program(&[("main.sv", MIXED_IDENTITY_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let kt = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt")
+        .content
+        .clone();
+    assert!(
+        kt.contains("salvo.SalvoHashSet<Point>(::by_x, ::eq__4)"),
+        "the written hash pairs with the generated eq: {kt}"
+    );
+    assert!(
+        kt.contains("salvo.SalvoHashMap<Point, Int>(::by_x, ::eq__4)"),
+        "and for a map too: {kt}"
+    );
+}
+
+fn kotlinc_compiles_and_runs_a_mixed_identity() -> KotlinCase {
+    let program = build_program(&[("main.sv", MIXED_IDENTITY_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "mixed_identity", "2 1 2\n")
+}
+
+/// [cmp-carry] [kt-keyed] A mixed fill **inside a generic body** — the two
+/// features crossed. This backend needs nothing for it: a forwarded slot is a
+/// parameter name and a named one is `::name`, and the container takes two
+/// functions either way.
+const GENERIC_MIXED_DEMO: &str = r#"
+// A generic identity that needs no capability of its own.
+export fn all_same<T>(a: T, b: T) -> Bool => a, b {
+    return true
+}
+
+// One slot forwarded (`hash`), one written at the constructor (`eq`).
+fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
+    let s: Mut Set<T> = mut_set_of(eq = all_same)
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${size(gather(1, 2))}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_generic_mixed_identity() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_MIXED_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic_mixed_identity", "2\n")
+}
+
+/// [cmp-carry] [kt-keyed] [implicit-intrinsic] The other half of a mixed fill:
+/// the **host's own** identity beside a written one. It has no symbol to
+/// reference, so it becomes the lambda its lowering makes — where a pair that is
+/// *entirely* the host's still selects the native container.
+#[test]
+fn a_host_slot_in_a_mixed_pair_becomes_its_lowering() {
+    let program = build_program(&[(
+        "main.sv",
+        "export fn all_same(a: Int, b: Int) -> Bool => a, b {\n    \
+         return true\n}\n\
+         fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let s: Mut Set<Int> = mut_set_of(eq = all_same)\n    \
+         add(s, 1)\n    \
+         println(\"${size(s)}\")\n}\n",
+    )]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    let kt = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt")
+        .content
+        .clone();
+    assert!(
+        kt.contains("SalvoHashSet<Int>({ __i0 -> (__i0).hashCode().toLong() }, ::all_same)"),
+        "the host's hash is its lowering as a lambda: {kt}"
+    );
+}
+
+/// [cmp-carry] [kt-keyed] The capability inside a **generic** body, byte-identical
+/// to the Rust backend's `rustc_compiles_and_runs_a_generic_keyed_container`.
+/// This backend needed nothing but the parameter's *name*: `keyed.kt`'s
+/// containers have always taken closures, so a forwarded capability is already
+/// the shape they want (2026-09-26).
+const GENERIC_KEYED_DEMO: &str = r#"
+struct Member {
+    id: Int,
+    name: Str
+}
+
+// A declared identity that is *not* structural: two members with one id are the
+// same member. A generic collector must key by *this*, not by the host's.
+fn hash(m: Member) -> Long => m {
+    return to_long(m.id)
+}
+
+fn eq(a: Member, b: Member) -> Bool => a, b {
+    return a.id == b.id
+}
+
+fn cmp(a: Member, b: Member) -> Int => a, b {
+    return a.id - b.id
+}
+
+// A generic body constructing each keyed family. The implicits are forwarded:
+// the enclosing fn declares the capability, and the constructor's own
+// `?Hashed<T>`/`?Ordered<T>` is filled from it.
+fn gather<T>(a: T, b: T, ?Hashed<T>) -> Mut Set<T> => !a, !b {
+    let s: Mut Set<T> = mut_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+// …and one that forwards the capability on rather than using it directly, which
+// is what makes the demand transitive.
+fn gather_three<T>(a: T, b: T, c: T, ?Hashed<T>) -> Set<T> => !a, !b, !c {
+    let s: Mut Set<T> = gather(a, b)
+    add(s, c)
+    return s
+}
+
+fn tally<T>(a: T, b: T, ?Hashed<T>) -> Map<T, Int> => !a, !b {
+    let m: Mut Map<T, Int> = mut_map_of()
+    put(m, a, 1)
+    put(m, b, 2)
+    return m
+}
+
+fn ranked<T>(a: T, b: T, ?Ordered<T>) -> SortedSet<T> => !a, !b {
+    let s: Mut SortedSet<T> = mut_sorted_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn scored<T>(a: T, b: T, ?Ordered<T>) -> SortedMap<T, Int> => !a, !b {
+    let m: Mut SortedMap<T, Int> = mut_sorted_map_of()
+    put(m, a, 1)
+    put(m, b, 2)
+    return m
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    // Fresh values per call: the collectors consume their elements.
+    let one = size(gather(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }))
+    let two = size(gather(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" }))
+    let three = gather_three(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }, Member { id: 2, name: "cyd" })
+    let tallied = tally(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" })
+    // One element: the declared `eq` collapses them.
+    println("${one} ${two} ${size(three)} ${size(tallied)}")
+    // Ordered by the declared `cmp`, not by the host's.
+    let order = ranked(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
+    for m in to_list(order) {
+        println(m.name)
+    }
+    let scores = scored(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
+    // A primitive key still reaches the host's own identity through the same
+    // generic body.
+    let ints = gather_three(3, 3, 4)
+    let sorted = ranked(9, 2)
+    println("${size(scores)} ${to_str(ints)} ${to_str(sorted)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_generic_keyed_container() -> KotlinCase {
+    let program = build_program(&[("main.sv", GENERIC_KEYED_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "generic_keyed", "1 2 2 2\nann\ncyd\n2 {3, 4} {2, 9}\n")
+}
+
 // ===== the defect round of 2026-09-25, byte-identical to the Rust side =====
 
 /// [interp-float] The float text table, byte-identical to the Rust backend's
@@ -4002,6 +4225,9 @@ fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_mixed_identity,
+    kotlinc_compiles_and_runs_a_generic_mixed_identity,
+    kotlinc_compiles_and_runs_a_generic_keyed_container,
     kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_distinct_pair_calls,
     kotlinc_compiles_and_runs_the_update_family,

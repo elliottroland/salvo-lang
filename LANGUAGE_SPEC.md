@@ -810,20 +810,24 @@ Conventions:
     so nothing is materialized for it: `Set<Str>` is exactly the type it has
     always been and only a container that says something *different* about its
     keys grows an argument to say it in.
-  * **Two limitations, accepted deliberately** (user, 2026-09-26), both refused
-    with a Salvo diagnostic rather than a target-compiler one:
-    * A **tuple or a list** cannot be a keyed container's subject, because
-      `core.compare` declares identities for the intrinsic scalars only and
-      [implicit-resolve] skips a candidate that itself needs implicits. This is
-      the same gap that stops `(1, 2) == (1, 2)` from resolving, and it did not
-      show before because a keyed container over a tuple reached the host's
-      structural comparison without asking anyone. ROADMAP's "Recursive
-      implicit resolution" is the lift.
-    * A keyed container **built inside a generic function** is refused at
-      emission: its identity is a capability the function was handed, and a
-      container needs one it can *name*. The checker accepts the program (the
-      capability is declared and forwarded), so the refusal names the shape and
-      the remedy rather than leaving it to rustc. What makes that stable for the canonical
+  * **One limitation, accepted deliberately** (user, 2026-09-26), refused with a
+    Salvo diagnostic rather than a target-compiler one: a **tuple or a list**
+    cannot be a keyed container's subject, because `core.compare` declares
+    identities for the intrinsic scalars only and [implicit-resolve] skips a
+    candidate that itself needs implicits. This is the same gap that stops
+    `(1, 2) == (1, 2)` from resolving, and it did not show before because a
+    keyed container over a tuple reached the host's structural comparison
+    without asking anyone. ROADMAP's "Recursive implicit resolution" is the
+    lift.
+  * **A keyed container built inside a generic function** carries an identity
+    the function was *handed* rather than one it can name, and both backends
+    lower it (2026-09-26): the container takes the capability **as functions**.
+    Kotlin needed only the parameter's name, its containers having always taken
+    closures; Rust grew a value-keyed store per family alongside the
+    marker-keyed ones, and the kept capability arrives owned
+    ([rs-stored-implicit]). A fn that merely *forwards* the capability to one
+    that builds a container is in the same position, so the owned convention is
+    closed under forwarding. What makes that stable for the canonical
     case is [cmp-canonical] — a canonical travels with its type, so the `cmp` an
     unwritten slot resolves to is the same one everywhere the type is usable.
   * **A non-canonical identity is kept at run time**, which is what the
@@ -2582,6 +2586,15 @@ Conventions:
   in their own right, and the group has **no binder** (user decision
   2026-09-05 — the binder referenced nothing, prevented no collision, and
   made the caller name it to override one member).
+  * **A group is a convenience, not a contract** (user decision 2026-09-26): a
+    caller may fill any subset of its members, and a **mixed fill** — one
+    member written, the rest left to resolution — is honoured rather than
+    refused. `mut_set_of(hash = by_x)` keeps the `eq` resolution finds and both
+    backends key the container by the pair [cmp-carry]. `?Hashed<T>` is the
+    case that argues the other way, since a hash and an equality only mean
+    something together; the proposal for a group that *must* be filled as a
+    unit (`atomic params`) is recorded in ROADMAP with its motivating example,
+    and until it is decided a group imposes nothing.
   * A group is never a value, which is what keeps it free of any runtime
     representation: neither backend knows groups exist. Declaring one as a
     struct of fn-typed fields instead is possible since [rs-fn-field] (a

@@ -13209,15 +13209,262 @@ fn rustc_compiles_and_runs_a_declared_identity() {
     run_rust_files(&files, "hashed_capability", "1 1 2\n");
 }
 
-/// [cmp-carry] The two limitations the capability makes visible, both refused
-/// with a Salvo diagnostic rather than a target-compiler one
+/// [cmp-carry] A **mixed fill**: one slot of `?Hashed<T>` written at the
+/// constructor, the other left to whatever resolution finds — here a coarser
+/// `hash` beside the `eq` that `: auto Hashed<self>` generated. Honoured rather
+/// than refused (user decision 2026-09-26: a parameter group is a convenience,
+/// not a contract the caller must fill wholesale), and the fix to a defect that
+/// dropped the written slot silently on Kotlin and misdiagnosed it here.
+const MIXED_IDENTITY_DEMO: &str = r#"
+// `auto Hashed<self>` generates `hash` and `eq`; the constructor keeps the
+// generated equality and writes a coarser hash of its own.
+struct Point : auto Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+export fn by_x(p: Point) -> Long => p {
+    return to_long(p.x)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s: Mut Set<Point> = mut_set_of(hash = by_x)
+    add(s, Point {x: 1, y: 1})
+    add(s, Point {x: 1, y: 2})
+    add(s, Point {x: 1, y: 1})
+    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x)
+    put(m, Point {x: 5, y: 0}, 1)
+    put(m, Point {x: 5, y: 0}, 2)
+    let v = get(m, Point {x: 5, y: 0})
+    when v {
+        is Int { println("${size(s)} ${size(m)} ${v}") }
+        is None { println("${size(s)} ${size(m)} missing") }
+    }
+}
+"#;
+
+#[test]
+fn a_mixed_identity_fill_pairs_both_slots() {
+    let files = generate(&[("main.sv", MIXED_IDENTITY_DEMO)]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    // The written `hash` and the generated `eq`, as one marker pair — a written
+    // fill is a carried identity now, which is what the checker was missing.
+    assert!(
+        rust.contains("SalvoSet::from_elements::<__Hash_by_x_Point, __Eq_eq__Point_Point, _>"),
+        "the written hash pairs with the resolved eq: {rust}"
+    );
+    assert!(
+        rust.contains("SalvoMap::from_entries::<__Hash_by_x_Point, __Eq_eq__Point_Point, _>"),
+        "and for a map too: {rust}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_mixed_identity() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MIXED_IDENTITY_DEMO)]);
+    run_rust_files(&files, "mixed_identity", "2 1 2\n");
+}
+
+/// [cmp-carry] [rs-stored-implicit] The two features crossed: a **mixed fill
+/// inside a generic body**, where one slot is the capability the function was
+/// handed and the other is a name. A marker cannot be mixed into a value pair,
+/// so the named slot becomes a closure of its own beside the forwarded handle.
+const GENERIC_MIXED_DEMO: &str = r#"
+// A generic identity that needs no capability of its own.
+export fn all_same<T>(a: T, b: T) -> Bool => a, b {
+    return true
+}
+
+// One slot forwarded (`hash`), one written at the constructor (`eq`).
+fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
+    let s: Mut Set<T> = mut_set_of(eq = all_same)
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${size(gather(1, 2))}")
+}
+"#;
+
+#[test]
+fn a_generic_body_mixes_a_forwarded_and_a_named_identity() {
+    let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    assert!(
+        rust.contains(
+            "SalvoSet::with_fns(std::sync::Arc::clone(&hash), \
+             std::sync::Arc::new(move |__a: &T, __b: &T| all_same(__a, __b)))"
+        ),
+        "the forwarded handle is shared and the named identity wrapped: {rust}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_mixed_identity() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
+    run_rust_files(&files, "generic_mixed_identity", "2\n");
+}
+
+/// [cmp-carry] [rs-borrows] A declared identity over a **Copy scalar** takes its
+/// arguments by value, while the marker's own parameters are references — so the
+/// marker derefs. Splicing the reference through was rustc's E0308, reachable
+/// the moment a written fill became a carried identity (2026-09-26)
+/// [backend-never-wrong].
+#[test]
+fn a_scalar_identitys_marker_derefs_its_arguments() {
+    let files = generate(&[(
+        "main.sv",
+        "export fn all_same(a: Int, b: Int) -> Bool => a, b {\n    \
+         return true\n}\n\
+         fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let s: Mut Set<Int> = mut_set_of(eq = all_same)\n    \
+         add(s, 1)\n    \
+         println(\"${size(s)}\")\n}\n",
+    )]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    assert!(
+        rust.contains("fn eq(__a: &i32, __b: &i32) -> bool { all_same(*__a, *__b) }"),
+        "a by-value identity is called with derefs: {rust}"
+    );
+}
+
+/// [cmp-carry] [rs-stored-implicit] The capability inside a **generic** body:
+/// every keyed family built from an identity the function was *handed* rather
+/// than one it can name (2026-09-26). The declared identity is non-structural,
+/// so a body that fell back to the host's hashing would print different numbers
+/// — and a primitive key reaches the host's identity through the same code.
+/// Byte-identical to the Kotlin backend's case [backend-parity].
+const GENERIC_KEYED_DEMO: &str = r#"
+struct Member {
+    id: Int,
+    name: Str
+}
+
+// A declared identity that is *not* structural: two members with one id are the
+// same member. A generic collector must key by *this*, not by the host's.
+fn hash(m: Member) -> Long => m {
+    return to_long(m.id)
+}
+
+fn eq(a: Member, b: Member) -> Bool => a, b {
+    return a.id == b.id
+}
+
+fn cmp(a: Member, b: Member) -> Int => a, b {
+    return a.id - b.id
+}
+
+// A generic body constructing each keyed family. The implicits are forwarded:
+// the enclosing fn declares the capability, and the constructor's own
+// `?Hashed<T>`/`?Ordered<T>` is filled from it.
+fn gather<T>(a: T, b: T, ?Hashed<T>) -> Mut Set<T> => !a, !b {
+    let s: Mut Set<T> = mut_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+// …and one that forwards the capability on rather than using it directly, which
+// is what makes the demand transitive.
+fn gather_three<T>(a: T, b: T, c: T, ?Hashed<T>) -> Set<T> => !a, !b, !c {
+    let s: Mut Set<T> = gather(a, b)
+    add(s, c)
+    return s
+}
+
+fn tally<T>(a: T, b: T, ?Hashed<T>) -> Map<T, Int> => !a, !b {
+    let m: Mut Map<T, Int> = mut_map_of()
+    put(m, a, 1)
+    put(m, b, 2)
+    return m
+}
+
+fn ranked<T>(a: T, b: T, ?Ordered<T>) -> SortedSet<T> => !a, !b {
+    let s: Mut SortedSet<T> = mut_sorted_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn scored<T>(a: T, b: T, ?Ordered<T>) -> SortedMap<T, Int> => !a, !b {
+    let m: Mut SortedMap<T, Int> = mut_sorted_map_of()
+    put(m, a, 1)
+    put(m, b, 2)
+    return m
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    // Fresh values per call: the collectors consume their elements.
+    let one = size(gather(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }))
+    let two = size(gather(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" }))
+    let three = gather_three(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }, Member { id: 2, name: "cyd" })
+    let tallied = tally(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" })
+    // One element: the declared `eq` collapses them.
+    println("${one} ${two} ${size(three)} ${size(tallied)}")
+    // Ordered by the declared `cmp`, not by the host's.
+    let order = ranked(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
+    for m in to_list(order) {
+        println(m.name)
+    }
+    let scores = scored(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
+    // A primitive key still reaches the host's own identity through the same
+    // generic body.
+    let ints = gather_three(3, 3, 4)
+    let sorted = ranked(9, 2)
+    println("${size(scores)} ${to_str(ints)} ${to_str(sorted)}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_generic_keyed_container() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", GENERIC_KEYED_DEMO)]);
+    run_rust_files(&files, "generic_keyed", "1 2 2 2\nann\ncyd\n2 {3, 4} {2, 9}\n");
+}
+
+/// [cmp-carry] The limitation the capability makes visible: a **tuple** key,
+/// refused with a Salvo diagnostic rather than a target-compiler one
 /// [backend-never-wrong]. Accepted deliberately (user, 2026-09-26): the lift
 /// is ROADMAP's "Recursive implicit resolution".
 #[test]
-fn the_capabilitys_two_limitations_are_named() {
+fn a_tuple_key_is_refused_by_name() {
     // A tuple has no declared identity, so a keyed container over one cannot
     // resolve its capability. (Comparing tuples never worked either — the same
-    // gap.)
+    // gap.) The *generic-body* limitation this test used to name alongside it
+    // was lowered on 2026-09-26 [rs-stored-implicit]; see
+    // `a_generic_body_builds_every_keyed_container` below.
     let errs = expect_errors(
         "fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
@@ -13228,21 +13475,62 @@ fn the_capabilitys_two_limitations_are_named() {
         errs.iter().any(|e| e.contains("no `cmp` fits")),
         "a tuple key must be refused by name: {errs:?}"
     );
-    // A *generic* body may now declare the capability and construct one — the
-    // checker accepts it, and the emitter refuses it loudly, because the
-    // identity is a parameter rather than a name a container can carry.
-    let errs = expect_errors(
-        "fn collect<T>(elem: T, ?Hashed<T>) -> Set<T> => !elem {\n    \
+}
+
+/// [cmp-carry] [rs-stored-implicit] A keyed container built inside a **generic**
+/// function: its identity is a capability the function was handed, so no marker
+/// type can name it and the runtime takes the functions themselves
+/// (`with_fns`/`with_cmp`). The implicit therefore arrives *owned*, behind an
+/// `Arc` — the convention an iterator fn's callbacks already get, for the same
+/// reason: the container outlives the call.
+#[test]
+fn a_generic_body_builds_every_keyed_container() {
+    let files = generate(&[(
+        "main.sv",
+        "fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {\n    \
          let s: Mut Set<T> = mut_set_of()\n    \
-         add(s, elem)\n    \
+         add(s, a)\n    \
+         add(s, b)\n    \
+         return s\n}\n\
+         fn ranked<T>(a: T, ?Ordered<T>) -> SortedSet<T> => !a {\n    \
+         let s: Mut SortedSet<T> = mut_sorted_set_of()\n    \
+         add(s, a)\n    \
          return s\n}\n\
          fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         println(\"${size(collect(3))}\")\n}\n",
+         println(\"${size(gather(1, 2))} ${size(ranked(3))}\")\n}\n",
+    )]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    // The capability arrives owned and sendable, which is what the store holds.
+    assert!(
+        rust.contains("hash: std::sync::Arc<dyn Fn(&T) -> i64 + Send + Sync>")
+            && rust.contains("eq: std::sync::Arc<dyn Fn(&T, &T) -> bool + Send + Sync>"),
+        "a kept capability arrives as an owned Arc: {rust}"
+    );
+    // Its key type is `Send + 'static`, the bound the runtime's stores declare.
+    assert!(
+        rust.contains("pub fn gather<T: Clone + Send + 'static>"),
+        "a container's key type carries the store's bounds: {rust}"
+    );
+    // The container is built from the functions, not from marker types.
+    assert!(
+        rust.contains("SalvoSet::with_fns(std::sync::Arc::clone(&hash), std::sync::Arc::clone(&eq))"),
+        "the hash pair is passed as values: {rust}"
     );
     assert!(
-        errs.iter().any(|e| e.contains("inside a *generic* function is not")),
-        "the generic body must be refused by name: {errs:?}"
+        rust.contains("SalvoSortedSet::with_cmp(std::sync::Arc::clone(&cmp))"),
+        "the ordering is passed as a value: {rust}"
+    );
+    // And the *caller*, which is not generic, hands over an owned closure
+    // rather than a borrow of one.
+    assert!(
+        rust.contains("gather::<i32>(1, 2, std::sync::Arc::new(move |"),
+        "a call fills a kept position with an owned closure: {rust}"
     );
 }
 

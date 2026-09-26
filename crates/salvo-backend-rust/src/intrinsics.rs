@@ -54,6 +54,13 @@ pub fn fn_call(
     type_args: &[String],
     spread: Spread,
     ordering: Option<&str>,
+    // [cmp-carry] The identity as **function values** rather than marker
+    // types: what a keyed container built inside a *generic* function is
+    // given, where the identity is a capability the function was handed and
+    // no type names it (2026-09-26). One string, already
+    // comma-separated — `hash, eq` or a single `cmp` — spliced into the
+    // runtime's `with_fns`/`with_cmp` entry points.
+    keyed_values: Option<&str>,
     // [rs-loc] The call is a return-path forward inside a lending fn's
     // **locator variant**: the lowering answers *position data* instead
     // of a borrow. Only the lenders with a locator form answer; the rest
@@ -73,11 +80,40 @@ pub fn fn_call(
     // by, when this call *constructs* one: the emitter reads it off the call's
     // own type, since that is where the identity lives.
     let ord = || ordering.unwrap_or("HostOrd");
+    let keyed = || ordering.unwrap_or("HostHash, HostEq");
+    // [cmp-carry] One place per family that knows how a keyed container is
+    // built, so the marker form and the function-value form cannot drift —
+    // the shape the Kotlin intrinsics have always had (`set_ctor`/`map_ctor`).
+    // The value form fills by insertion, which is what the runtime's
+    // `from_elements` does anyway.
+    let set_ctor = |iter: String| match keyed_values {
+        Some(fns) => format!(
+            "{{ let mut __c = SalvoSet::with_fns({fns}); for __e in {iter} {{ __c.insert(__e); }} __c }}"
+        ),
+        None => format!("SalvoSet::from_elements::<{}, _>({iter})", keyed()),
+    };
+    let map_ctor = |iter: String| match keyed_values {
+        Some(fns) => format!(
+            "{{ let mut __c = SalvoMap::with_fns({fns}); for (__k, __v) in {iter} {{ __c.insert(__k, __v); }} __c }}"
+        ),
+        None => format!("SalvoMap::from_entries::<{}, _>({iter})", keyed()),
+    };
+    let sorted_set_ctor = |iter: String| match keyed_values {
+        Some(fns) => format!(
+            "{{ let mut __c = SalvoSortedSet::with_cmp({fns}); for __e in {iter} {{ __c.insert(__e); }} __c }}"
+        ),
+        None => format!("SalvoSortedSet::from_elements::<{}, _>({iter})", ord()),
+    };
+    let sorted_map_ctor = |iter: String| match keyed_values {
+        Some(fns) => format!(
+            "{{ let mut __c = SalvoSortedMap::with_cmp({fns}); for (__k, __v) in {iter} {{ __c.insert(__k, __v); }} __c }}"
+        ),
+        None => format!("SalvoSortedMap::from_entries::<{}, _>({iter})", ord()),
+    };
     // [cmp-carry] …and the hash/equality **pair** a keyed container is kept by:
     // one marker each, the host's own when the type names none. The emitter hands
     // them over as one rendered argument list, since they always travel together
     // [col-membership].
-    let keyed = || ordering.unwrap_or("HostHash, HostEq");
     let a = |i: usize| args.get(i).map(String::as_str).unwrap_or("todo!()");
     // [col-bounds] An `Int` argument in an **index** position. The cast goes
     // through `i64` rather than straight to `usize`, because a *literal* takes
@@ -433,32 +469,19 @@ pub fn fn_call(
         ("array_by", Some("Int")) | ("list_by", Some("Int")) | ("mut_list_by", Some("Int")) => {
             format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
         }
-        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => format!(
-            "SalvoSet::from_elements::<{}, _>((0..({})).map({}))",
-            keyed(),
-            a(0),
-            a(1)
-        ),
-        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => format!(
-            "SalvoMap::from_entries::<{}, _>((0..({})).map({}))",
-            keyed(),
-            a(0),
-            a(1)
-        ),
+        ("set_by", Some("Int")) | ("mut_set_by", Some("Int")) => {
+            set_ctor(format!("(0..({})).map({})", a(0), a(1)))
+        }
+        ("map_by", Some("Int")) | ("mut_map_by", Some("Int")) => {
+            map_ctor(format!("(0..({})).map({})", a(0), a(1)))
+        }
 
         // [col-convert] The converters.
-        ("to_set", Some("List")) => {
-            format!("SalvoSet::from_elements::<{}, _>({}.iter().cloned())", keyed(), a(0))
-        }
+        ("to_set", Some("List")) => set_ctor(format!("{}.iter().cloned()", a(0))),
         ("to_map", Some("List")) if args.len() == 1 => {
-            format!("SalvoMap::from_entries::<{}, _>({}.iter().cloned())", keyed(), a(0))
+            map_ctor(format!("{}.iter().cloned()", a(0)))
         }
-        ("to_map", Some("List")) => format!(
-            "SalvoMap::from_entries::<{}, _>({}.iter().map({}))",
-            keyed(),
-            a(0),
-            a(1)
-        ),
+        ("to_map", Some("List")) => map_ctor(format!("{}.iter().map({})", a(0), a(1))),
 
         // core.seq -------------------------------------------------------
         // The `List` fast paths [fn-overload-rank] go through the
@@ -479,10 +502,10 @@ pub fn fn_call(
         // by the flow analysis and the array stays usable afterwards (the
         // same reasoning as the list constructors above).
         ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) if spread_any => {
-            format!("SalvoSet::from_elements::<{}, _>({})", keyed(), owned_iter())
+            set_ctor(owned_iter())
         }
         ("set_of", Some("[]")) | ("mut_set_of", Some("[]")) => {
-            format!("SalvoSet::from_elements::<{}, _>(vec![{}])", keyed(), args.join(", "))
+            set_ctor(format!("vec![{}]", args.join(", ")))
         }
         // The element is *moved* in, so it is spliced owned; `contains` and
         // `remove` only read theirs, so those borrow [rs-borrows].
@@ -510,17 +533,11 @@ pub fn fn_call(
         // [col-sorted] `BTreeSet`/`BTreeMap` keep their keys in order, and
         // `from_iter` builds one from anything iterable.
         ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) if spread_any => {
-            format!(
-                "SalvoSortedSet::from_elements::<{}, _>({})",
-                ord(),
-                owned_iter()
-            )
+            sorted_set_ctor(owned_iter())
         }
-        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => format!(
-            "SalvoSortedSet::from_elements::<{}, _>(vec![{}])",
-            ord(),
-            args.join(", ")
-        ),
+        ("sorted_set_of", Some("[]")) | ("mut_sorted_set_of", Some("[]")) => {
+            sorted_set_ctor(format!("vec![{}]", args.join(", ")))
+        }
         ("add", Some("SortedSet")) => format!("{}.insert({})", a(0), a(1)),
         ("remove", Some("SortedSet")) => format!("{}.remove(&{})", a(0), a(1)),
         ("contains", Some("SortedSet")) => format!("{}.contains(&{})", a(0), a(1)),
@@ -539,17 +556,11 @@ pub fn fn_call(
         ),
 
         ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) if spread_any => {
-            format!(
-                "SalvoSortedMap::from_entries::<{}, _>({})",
-                ord(),
-                owned_iter()
-            )
+            sorted_map_ctor(owned_iter())
         }
-        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => format!(
-            "SalvoSortedMap::from_entries::<{}, _>(vec![{}])",
-            ord(),
-            args.join(", ")
-        ),
+        ("sorted_map_of", Some("[]")) | ("mut_sorted_map_of", Some("[]")) => {
+            sorted_map_ctor(format!("vec![{}]", args.join(", ")))
+        }
         ("get", Some("SortedMap")) => format!("{}.get(&{})", a(0), a(1)),
         ("put", Some("SortedMap")) => format!("{}.insert({}, {})", a(0), a(1), a(2)),
         ("remove", Some("SortedMap")) => format!("{}.remove(&{})", a(0), a(1)),
@@ -569,10 +580,10 @@ pub fn fn_call(
         // [rs-collections] Entries are native 2-tuples on this backend
         // [type-tuple], which is exactly what `from_entries` consumes.
         ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) if spread_any => {
-            format!("SalvoMap::from_entries::<{}, _>({})", keyed(), owned_iter())
+            map_ctor(owned_iter())
         }
         ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => {
-            format!("SalvoMap::from_entries::<{}, _>(vec![{}])", keyed(), args.join(", "))
+            map_ctor(format!("vec![{}]", args.join(", ")))
         }
         // `get` borrows the value out of the map (`Option<&V>`): the
         // declaration is `(proj(map) V)?`, so a caller who wants to

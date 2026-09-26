@@ -697,6 +697,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 // ===== the hash and equality a keyed container is kept by [cmp-carry] =====
 
@@ -906,6 +907,149 @@ where
     }
 }
 
+/// [cmp-carry] A store whose identity is a **pair of functions** rather than a
+/// pair of marker types, for a keyed container built inside a *generic*
+/// function: there the identity is a capability the function was handed, so
+/// there is no type to name it by (added 2026-09-26).
+///
+/// Its representation matches the Kotlin runtime's `SalvoHashMap`, which has
+/// always held closures: entries live in a slab in first-insertion order and a
+/// bucket index maps a Salvo hash to the slots holding it, confirming a bucket
+/// hit with `eq`. That is also why it cannot reuse `HashedStore` — `HashBy`'s
+/// `Hash`/`Eq` impls dispatch through *types*, and a closure held elsewhere is
+/// not reachable from them.
+///
+/// `Arc` rather than `Box` so `clone_box` can share the identity: two clones of
+/// a map are keyed the same way by construction.
+struct FnStore<K, V> {
+    slots: Vec<Option<(K, V)>>,
+    buckets: HashMap<i64, Vec<usize>>,
+    hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+    eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    live: usize,
+}
+
+impl<K, V> FnStore<K, V> {
+    fn new(
+        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    ) -> Self {
+        FnStore {
+            slots: Vec::new(),
+            buckets: HashMap::new(),
+            hash,
+            eq,
+            live: 0,
+        }
+    }
+
+    /// The slot holding a key equal to `key`, if any.
+    fn slot_of(&self, key: &K) -> Option<usize> {
+        let bucket = self.buckets.get(&(self.hash)(key))?;
+        bucket.iter().copied().find(|&i| {
+            self.slots[i]
+                .as_ref()
+                .is_some_and(|(k, _)| (self.eq)(k, key))
+        })
+    }
+
+    fn compact_if_sparse(&mut self) {
+        if self.slots.len() <= 2 * self.live + 8 {
+            return;
+        }
+        self.slots.retain(|s| s.is_some());
+        self.buckets.clear();
+        for i in 0..self.slots.len() {
+            if let Some((k, _)) = &self.slots[i] {
+                let h = (self.hash)(k);
+                self.buckets.entry(h).or_default().push(i);
+            }
+        }
+    }
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> MapStore<K, V> for FnStore<K, V> {
+    fn get(&self, key: &K) -> Option<&V> {
+        let i = self.slot_of(key)?;
+        self.slots[i].as_ref().map(|(_, v)| v)
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let i = self.slot_of(key)?;
+        self.slots[i].as_mut().map(|(_, v)| v)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        match self.slot_of(&key) {
+            // An overwrite keeps the key's position [col-insertion-order].
+            Some(i) => self.slots[i] = Some((key, value)),
+            None => {
+                let h = (self.hash)(&key);
+                self.slots.push(Some((key, value)));
+                self.buckets.entry(h).or_default().push(self.slots.len() - 1);
+                self.live += 1;
+            }
+        }
+    }
+
+    fn replace(&mut self, key: K, value: V) -> Option<V> {
+        match self.slot_of(&key) {
+            Some(i) => self.slots[i].replace((key, value)).map(|(_, v)| v),
+            None => {
+                self.insert(key, value);
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        let i = self.slot_of(key)?;
+        let h = (self.hash)(key);
+        if let Some(bucket) = self.buckets.get_mut(&h) {
+            bucket.retain(|&j| j != i);
+            if bucket.is_empty() {
+                self.buckets.remove(&h);
+            }
+        }
+        let taken = self.slots[i].take().map(|(_, v)| v);
+        self.live -= 1;
+        self.compact_if_sparse();
+        taken
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.slot_of(key).is_some()
+    }
+
+    fn len(&self) -> usize {
+        self.live
+    }
+
+    fn slots(&self) -> &[Option<(K, V)>] {
+        &self.slots
+    }
+
+    fn take_values(&mut self) -> Vec<V> {
+        self.buckets.clear();
+        self.live = 0;
+        self.slots
+            .drain(..)
+            .flatten()
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    fn clone_box(&self) -> Box<dyn MapStore<K, V> + Send> {
+        Box::new(FnStore {
+            slots: self.slots.clone(),
+            buckets: self.buckets.clone(),
+            hash: Arc::clone(&self.hash),
+            eq: Arc::clone(&self.eq),
+            live: self.live,
+        })
+    }
+}
+
 pub struct SalvoMap<K, V> {
     // `+ Send` on the box rather than on the trait: a map is sendable when its
     // keys and values are, and stating it here keeps every operation bound-free —
@@ -923,6 +1067,18 @@ impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoMap<K, V> {
     {
         SalvoMap {
             store: Box::new(HashedStore::<H, E, K, V>::new()),
+        }
+    }
+
+    /// [cmp-carry] The same map, keyed by a **pair of functions**: what a
+    /// keyed container built inside a generic function is given, where the
+    /// identity is a capability rather than a name (2026-09-26).
+    pub fn with_fns(
+        hash: Arc<dyn Fn(&K) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&K, &K) -> bool + Send + Sync>,
+    ) -> Self {
+        SalvoMap {
+            store: Box::new(FnStore::new(hash, eq)),
         }
     }
 
@@ -1069,6 +1225,16 @@ impl<T: Clone + Send + 'static> SalvoSet<T> {
     {
         SalvoSet {
             entries: SalvoMap::new::<H, E>(),
+        }
+    }
+
+    /// [cmp-carry] Keyed by a pair of functions, for a generic body.
+    pub fn with_fns(
+        hash: Arc<dyn Fn(&T) -> i64 + Send + Sync>,
+        eq: Arc<dyn Fn(&T, &T) -> bool + Send + Sync>,
+    ) -> Self {
+        SalvoSet {
+            entries: SalvoMap::with_fns(hash, eq),
         }
     }
 
@@ -1320,6 +1486,86 @@ where
     }
 }
 
+/// [cmp-carry] The sorted store whose ordering is a **function** rather than a
+/// marker type — the sorted half of `FnStore`, for a container built inside a
+/// generic function (added 2026-09-26). A sorted `Vec` with binary search by the
+/// held comparator: `BTreeSet` cannot serve, because `OrdBy`'s `Ord` dispatches
+/// through a *type*.
+struct FnSortedStore<T> {
+    items: Vec<T>,
+    cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>,
+}
+
+impl<T> FnSortedStore<T> {
+    fn new(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
+        FnSortedStore {
+            items: Vec::new(),
+            cmp,
+        }
+    }
+
+    /// `Ok(i)` when an element comparing equal sits at `i`, `Err(i)` where one
+    /// would be inserted — `slice::binary_search_by` against the held ordering.
+    fn find(&self, value: &T) -> Result<usize, usize> {
+        self.items.binary_search_by(|probe| match (self.cmp)(probe, value) {
+            n if n < 0 => Ordering::Less,
+            0 => Ordering::Equal,
+            _ => Ordering::Greater,
+        })
+    }
+}
+
+impl<T: Clone + Send + 'static> SortedStore<T> for FnSortedStore<T> {
+    fn insert(&mut self, value: T) -> bool {
+        match self.find(&value) {
+            // A set: an element comparing equal is already there
+            // [col-membership].
+            Ok(_) => false,
+            Err(at) => {
+                self.items.insert(at, value);
+                true
+            }
+        }
+    }
+
+    fn remove(&mut self, value: &T) -> bool {
+        match self.find(value) {
+            Ok(at) => {
+                self.items.remove(at);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn contains(&self, value: &T) -> bool {
+        self.find(value).is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn min(&self) -> Option<&T> {
+        self.items.first()
+    }
+
+    fn max(&self) -> Option<&T> {
+        self.items.last()
+    }
+
+    fn to_vec(&self) -> Vec<T> {
+        self.items.clone()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedStore<T> + Send> {
+        Box::new(FnSortedStore {
+            items: self.items.clone(),
+            cmp: Arc::clone(&self.cmp),
+        })
+    }
+}
+
 // ===== the container the emitted code sees =====
 
 pub struct SalvoSortedSet<T> {
@@ -1336,6 +1582,13 @@ impl<T: Clone + Send + 'static> SalvoSortedSet<T> {
     pub fn new<C: SalvoCmp<T> + Send + 'static>() -> Self {
         SalvoSortedSet {
             store: Box::new(BTreeStore::<C, T>::new()),
+        }
+    }
+
+    /// [cmp-carry] Ordered by a **function**, for a generic body.
+    pub fn with_cmp(cmp: Arc<dyn Fn(&T, &T) -> i32 + Send + Sync>) -> Self {
+        SalvoSortedSet {
+            store: Box::new(FnSortedStore::new(cmp)),
         }
     }
 
@@ -1405,6 +1658,81 @@ trait SortedMapStore<K, V> {
     fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send>;
 }
 
+/// [cmp-carry] The sorted *map* store ordered by a **function**, completing the
+/// set of four (added 2026-09-26). A sorted `Vec` of entries, searched by the
+/// held comparator, for the same reason `FnSortedStore` is one.
+struct FnSortedMapStore<K, V> {
+    entries: Vec<(K, V)>,
+    cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>,
+}
+
+impl<K, V> FnSortedMapStore<K, V> {
+    fn find(&self, key: &K) -> Result<usize, usize> {
+        self.entries
+            .binary_search_by(|(probe, _)| match (self.cmp)(probe, key) {
+                n if n < 0 => Ordering::Less,
+                0 => Ordering::Equal,
+                _ => Ordering::Greater,
+            })
+    }
+}
+
+impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SortedMapStore<K, V>
+    for FnSortedMapStore<K, V>
+{
+    fn get(&self, key: &K) -> Option<&V> {
+        self.find(key).ok().map(|at| &self.entries[at].1)
+    }
+
+    fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match self.find(&key) {
+            Ok(at) => Some(std::mem::replace(&mut self.entries[at], (key, value)).1),
+            Err(at) => {
+                self.entries.insert(at, (key, value));
+                None
+            }
+        }
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        match self.find(key) {
+            Ok(at) => Some(self.entries.remove(at).1),
+            Err(_) => None,
+        }
+    }
+
+    fn contains_key(&self, key: &K) -> bool {
+        self.find(key).is_ok()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn first_key(&self) -> Option<&K> {
+        self.entries.first().map(|(k, _)| k)
+    }
+
+    fn last_key(&self) -> Option<&K> {
+        self.entries.last().map(|(k, _)| k)
+    }
+
+    fn keys(&self) -> Vec<K> {
+        self.entries.iter().map(|(k, _)| k.clone()).collect()
+    }
+
+    fn entries(&self) -> Vec<(K, V)> {
+        self.entries.clone()
+    }
+
+    fn clone_box(&self) -> Box<dyn SortedMapStore<K, V> + Send> {
+        Box::new(FnSortedMapStore {
+            entries: self.entries.clone(),
+            cmp: Arc::clone(&self.cmp),
+        })
+    }
+}
+
 struct BTreeMapStore<C, K, V> {
     inner: BTreeMap<OrdBy<C, K>, V>,
 }
@@ -1468,6 +1796,16 @@ impl<K: Clone + Send + 'static, V: Clone + Send + 'static> SalvoSortedMap<K, V> 
             }),
         }
     }
+    /// [cmp-carry] Ordered by a **function**, for a generic body.
+    pub fn with_cmp(cmp: Arc<dyn Fn(&K, &K) -> i32 + Send + Sync>) -> Self {
+        SalvoSortedMap {
+            store: Box::new(FnSortedMapStore {
+                entries: Vec::new(),
+                cmp,
+            }),
+        }
+    }
+
     pub fn from_entries<C: SalvoCmp<K> + Send + 'static, I: IntoIterator<Item = (K, V)>>(
         entries: I,
     ) -> Self {
