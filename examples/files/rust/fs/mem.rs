@@ -1,7 +1,6 @@
 use crate::collections::*;
 use crate::core_bytes::*;
 use crate::core_checked::*;
-use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -10,6 +9,7 @@ use crate::core_result::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::fs::*;
 use crate::unions::*;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -287,7 +287,7 @@ pub fn mem_find_newline(data: &Vec<u8>, from: i32) -> i32 {
     let mut end = (data.len() as i32);
     let mut i = from;
     while i < end {
-        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at core.memfs:291:19")) as i32) == 10) {
+        if (((data.get((i) as i64 as usize).copied().expect("salvo: value is absent at fs.mem:293:19")) as i32) == 10) {
             return i;
         }
         i = i + 1;
@@ -327,7 +327,7 @@ pub fn mem_read_line(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String
         return None;
     }
     let mut stop = mem_find_newline(&bytes, at);
-    let mut line = { let __d = &bytes; let __i = at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:342:16");
+    let mut line = { let __d = &bytes; let __i = at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:344:16");
     let mut next_at = stop;
     if stop < end {
         next_at = stop + 1;
@@ -356,7 +356,7 @@ pub fn mem_read_all(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<String,
     }
     let mut bytes: Vec<u8> = content.unwrap().clone();
     let mut end = (bytes.len() as i32);
-    let mut rest = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:373:16");
+    let mut rest = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = end; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:375:16");
     let mut text = String::from_utf8(rest.clone()).ok();
     if text.is_none() {
         reads.insert(handle.clone(), MemRead { path: path.clone(), at: end, failed: true });
@@ -388,7 +388,7 @@ pub fn mem_read_bytes(reads: &mut SalvoMap<i64, MemRead>, files: &SalvoMap<Strin
     if stop > end {
         stop = end;
     }
-    let mut taken = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at core.memfs:406:17");
+    let mut taken = { let __d = &bytes; let __i = open.unwrap().clone().at; let __j = stop; if __i >= 0 && __j >= __i && (__j as usize) <= __d.len() { Some(__d[(__i as usize)..(__j as usize)].to_vec()) } else { None } }.expect("salvo: value is absent at fs.mem:408:17");
     reads.insert(handle.clone(), MemRead { path: path.clone(), at: stop, failed: false });
     return Union2::<Vec<u8>, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>::U1(ok(taken));
 }

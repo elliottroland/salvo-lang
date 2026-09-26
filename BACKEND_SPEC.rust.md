@@ -1265,9 +1265,9 @@ a fn's signature must not depend on which of its callers holds a fusion.
 The reachability half arrived with std's filesystem (2026-09-14): std now
 ships a dependent handler (`DefaultFs [RawFs]`), so a declaration-wide gate
 fused every program ever compiled. It is also why that handler lives in
-`core.hostfs` rather than `core.fs` [fs-host-split] — reachability is
-name-based [mod-used-only] and `core.fs` declares a `next` and a `to_str`,
-so ordinary programs drag the *surface* in and must not be fused by it.
+`fs.host` rather than `fs` [fs-host-split]: the gate reads reachable
+*modules*, so a program that fakes the filesystem with `fs.mem` imports the
+surface and must not be fused by a handler it never registers.
 Emitting a dependent handler with the fusion off is an internal codegen
 error naming the handler, so the two halves cannot silently disagree.
 

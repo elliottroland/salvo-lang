@@ -2,6 +2,8 @@
 
 The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, an error that cannot be dropped in silence, a pass for the lines, and a `platform handler` at the very bottom.
 
+It is **imported, not implicit**: `import fs` brings the surface, and each implementation is its own module — `fs.host` for the machine's files, `fs.mem` for an in-memory fake, `fs.restricted` for a sandbox. A whole-module import names one module, so a test that fakes the filesystem never mentions the host's, and a program that never opens a file links none of it.
+
 A program that reads a file declares `[Fs]` and nothing else:
 
 ```
@@ -55,6 +57,9 @@ And the 90% case needs none of it — `read_to_str(path)`, `read_lines(path)`, `
 The composition root is where the filesystem is chosen:
 
 ```
+import fs
+import fs.host
+
 fn main() [use] {
     use StdOutConsole()
     use HostRawFs()      // the host's: real files, plain handles
@@ -96,9 +101,13 @@ while reading {
 
 Or hand the loop over: `chunks(s, size)` is a pass over a stream's bytes (a fresh buffer per step) as `lines(s)` is over its lines, and the one-shots keep the buffer out of sight entirely — `copy_file(from, to)`, `copy_stream(s, w)`, `read_to_bytes(path)`, `write_bytes_to(path, data)`.
 
-Two more handlers come with the surface, and neither is a special case of anything:
+Two more handlers ship beside the surface, each in its own module, and neither is a special case of anything:
 
 ```
+import fs
+import fs.mem
+import fs.restricted
+
 fn main() [use] {
     use StdOutConsole()
     use MemFs()                      // a filesystem in memory: no host, no disk

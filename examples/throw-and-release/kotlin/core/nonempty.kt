@@ -1,6 +1,5 @@
 package salvo.core.nonempty
 
-import salvo.core.bytes.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.set.*

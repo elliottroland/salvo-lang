@@ -1,9 +1,8 @@
-package salvo.core.memfs
+package salvo.fs.mem
 
 import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
-import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
@@ -11,6 +10,7 @@ import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.fs.*
 
 data class MemRead(
     val path: String,
@@ -273,7 +273,7 @@ fun mem_find_newline(data: salvo.SalvoBytes, from: Int): Int {
     val end = data.size
     var i = from
     while (i < end) {
-        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.memfs:291:19"))).toInt() == 10) {
+        if (((data.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.mem:293:19"))).toInt() == 10) {
             return i
         }
         i = i + 1
@@ -313,7 +313,7 @@ fun mem_read_line(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sal
         return null
     }
     val stop = mem_find_newline(bytes, at)
-    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:342:16"))
+    val line = (bytes.slice(at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:344:16"))
     var next_at = stop
     if (stop < end) {
         next_at = stop + 1
@@ -342,7 +342,7 @@ fun mem_read_all(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Salv
     }
     val bytes: salvo.SalvoBytes = salvo.SalvoBytes(content)
     val end = bytes.size
-    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at core.memfs:373:16"))
+    val rest = (bytes.slice(open.at, end) ?: throw AssertionError("salvo: value is absent at fs.mem:375:16"))
     val text = rest.asString()
     if (text == null) {
         reads.put(handle, MemRead(path = path, at = end, failed = true))
@@ -374,7 +374,7 @@ fun mem_read_bytes(reads: MutableMap<Long, MemRead>, files: Map<String, salvo.Sa
     if (stop > end) {
         stop = end
     }
-    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at core.memfs:406:17"))
+    val taken = (bytes.slice(open.at, stop) ?: throw AssertionError("salvo: value is absent at fs.mem:408:17"))
     reads.put(handle, MemRead(path = path, at = stop, failed = false))
     return U2_1<salvo.SalvoBytes, Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>>(ok(taken))
 }

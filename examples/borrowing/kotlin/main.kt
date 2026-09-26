@@ -107,7 +107,7 @@ fun main() {
     val pass = iter__3(roster)
     val standing = filter(pass, { f: Fighter ->
     f.hp > 10
-}, ::next__5)
+}, ::next__3)
     println(console, "1. ${standing.size} of ${roster.size} still standing")
     val bench: MutableList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
     bench.add(Fighter(name = "Dee", hp = 6, energy = 7))

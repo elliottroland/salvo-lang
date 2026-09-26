@@ -3750,9 +3750,9 @@ Conventions:
     (language-defined algorithms for hash *and* random together) is recorded
     in ROADMAP.md, unscheduled.
 
-### The filesystem (std, `core.fs` + `core.hostfs`)
+### The filesystem (std, module `fs` and the three under it)
 
-* [fs-surface] `core.fs` declares the **surface**: an `FsError` union
+* [fs-surface] Module **`fs`** declares the **surface**: an `FsError` union
   (8 arms) carried by `Checked<FsError>` [checked-type], the linear stream tokens
   `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
   *and* stream operations as members [effect-member-overload]), the `Lines`
@@ -3799,7 +3799,7 @@ Conventions:
   * **One stream, one position, counted in bytes**: text and byte
     operations interleave on a stream, so a `read_all` continues exactly
     where a `read_bytes` stopped. This is why the host handlers buffer
-    *bytes* below the decoder (`std/platform/core/hostfs.{kt,rs}`) rather
+    *bytes* below the decoder (`std/platform/fs/host.{kt,rs}`) rather
     than reusing a character-counting reader.
   * A ranged open that lands mid-codepoint is a **legal seek** — an offset
     is bytes, and bytes have no characters. The strict decode afterwards is
@@ -3829,22 +3829,36 @@ Conventions:
     one-shots that keep the buffer inside std: `copy_stream(s, w)`,
     `copy_file(from, to)`, `read_to_bytes(path)`,
     `write_bytes_to(path, data)`, `fill_from(s, buf)`.
-* [fs-host-split] The host-backed filesystem is a **separate module**,
-  `core.hostfs`: `effect RawFs` (plain `Long` handles, bare `FsError`s),
+* [fs-module] The filesystem is **imported, not implicit** (user decision
+  2026-09-26): module `fs` holds the surface, and `fs.host`, `fs.mem` and
+  `fs.restricted` hold the implementations. A whole-module import names one
+  module [mod-import-module], so `import fs` is the surface alone and each
+  implementation is its own line — which is the whole point of the split: a
+  test that fakes the filesystem never mentions the host's, and a program that
+  never opens a file links none of it.
+  * It left `core` because nothing in `core` needs it and everything in `core`
+    is visible everywhere. `core.fs` used to be dragged into any program that
+    iterates or interpolates (it declares a `next` and a `to_str`), which is
+    what [mod-used-only]'s name-based half does; an imported module cannot be.
+    Measured on `examples/throw-and-release`, which throws and never opens a
+    file: it stopped emitting `core/fs`, `core/bytes` (reached only through it)
+    and 136 lines of union wrappers — **1,398 lines** of generated code across
+    the two backends, for a program whose behaviour did not change.
+* [fs-host-split] The host-backed filesystem is its own module, **`fs.host`**:
+  `effect RawFs` (plain `Long` handles, bare `FsError`s),
   `platform handler HostRawFs of RawFs` (std ships
-  `std/platform/core/hostfs.{kt,rs}` [platform-handler]) and
+  `std/platform/fs/host.{kt,rs}` [platform-handler]) and
   `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
   in `Checked<FsError>` and discharges in Salvo — the host never holds an
   obligation.
-  * The split is load-bearing, not cosmetic: `core.fs` declares a `next`
-    and a `to_str`, so name-based reachability drags it into ordinary
-    programs [mod-used-only], while a *dependent handler* switches the
-    whole program to the fused effect emission
-    ([rs-effect-fusion]/[kt-effect-fusion]). Keeping `DefaultFs` out of
-    `core.fs` is what keeps a program that never opens a file unfused.
+  * The split is load-bearing, not cosmetic, and still is after the move: a
+    *dependent handler* switches the whole program to the fused effect
+    emission ([rs-effect-fusion]/[kt-effect-fusion]) and the gate reads the
+    reachable *modules*, so keeping `DefaultFs` out of `fs` is what keeps a
+    program that fakes the filesystem with `fs.mem` unfused.
   * `[RawFs]` stays greppable as the audit: nothing but a composition root
     (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
-* [fs-double] `core.memfs` ships **`MemFs of Fs`**: an in-memory filesystem
+* [fs-double] `fs.mem` ships **`MemFs of Fs`**: an in-memory filesystem
   in pure Salvo, with no dependency and no host anywhere, so a test that
   registers it touches no disk. It fakes the *whole* surface — streams
   included — which is what putting the stream operations on the effect buys
@@ -3865,7 +3879,7 @@ Conventions:
     does [fs-bytes]. This is the hazard the type exists to get right: a fake
     that stored text and counted characters would let unit tests pass while
     production broke.
-* [fs-restricted] `core.restrictedfs` ships **`RestrictedFs(root: Str) [Fs]
+* [fs-restricted] `fs.restricted` ships **`RestrictedFs(root: Str) [Fs]
   of Fs`**: an *interceptor* [effect-intercept], so it wraps whichever
   filesystem is already registered — the host's in production, a `MemFs` in a
   test of the restriction itself.
@@ -7431,7 +7445,7 @@ replaced the working document TESTING.md).
   [fn-overload-rank], same-named effect members [effect-member-overload], and
   the two mixed, since a call site cannot tell a member from a fn — so showing
   only the resolved one hid the fact that a choice was made. `read_to` in
-  `core.fs` is the case that prompted it.
+  `fs` is the case that prompted it.
   * Each entry renders from its own declaration (a member says which effect it
     belongs to, a fn shows its signature) with the module it comes from, which
     is the same information the scope ladder decides on [fn-overload-scope].

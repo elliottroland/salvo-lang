@@ -11,22 +11,14 @@ pub mod core_bytes;
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
-#[path = "core/fs.rs"]
-pub mod core_fs;
-#[path = "core/hostfs.rs"]
-pub mod core_hostfs;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
-#[path = "core/memfs.rs"]
-pub mod core_memfs;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
-#[path = "core/restrictedfs.rs"]
-pub mod core_restrictedfs;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/set.rs"]
@@ -35,23 +27,31 @@ pub mod core_set;
 pub mod core_sorted;
 #[path = "core/string.rs"]
 pub mod core_string;
-#[path = "platform/core/hostfs.rs"]
-pub mod platform_core_hostfs;
+#[path = "fs.rs"]
+pub mod fs;
+#[path = "fs/host.rs"]
+pub mod fs_host;
+#[path = "fs/mem.rs"]
+pub mod fs_mem;
+#[path = "fs/restricted.rs"]
+pub mod fs_restricted;
+#[path = "platform/fs/host.rs"]
+pub mod platform_fs_host;
 
 use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_console::*;
-use crate::core_fs::*;
-use crate::core_hostfs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
-use crate::core_memfs::*;
-use crate::core_restrictedfs::*;
 use crate::core_result::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::fs::*;
+use crate::fs_host::*;
+use crate::fs_mem::*;
+use crate::fs_restricted::*;
 use crate::unions::*;
 
 pub fn kind_name(kind: &Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>) -> String {
@@ -93,7 +93,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
     match opened {
         Union2::U1(_) => {
             let mut p = lines(opened.u1().clone());
-            while let Union2::U1(mut line) = next__3(&mut *__fx, &mut p) {
+            while let Union2::U1(mut line) = next__11(&mut *__fx, &mut p) {
                 println(&mut *__fx, &(format!("line: {}", line)));
             }
             let mut closed = close(&mut *__fx, p);
@@ -287,7 +287,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
         Union2::U1(_) => {
             let mut p = ch.u1().clone();
             let mut seen = 0;
-            while let Union2::U1(mut chunk) = next__4(&mut *__fx, &mut p) {
+            while let Union2::U1(mut chunk) = next__12(&mut *__fx, &mut p) {
                 seen = seen + (chunk.len() as i32);
             }
             println(&mut *__fx, &(format!("pass saw {} bytes", seen)));
@@ -388,11 +388,11 @@ pub fn sandbox_edges<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
 
 pub fn main() {
     let mut __fx = __Fx_main_1 { __h: StdOutConsole::new() };
-    let mut __bind = crate::core_hostfs::__Lock_RawFs::new(crate::platform_core_hostfs::HostRawFs::new());
-    let __handle = crate::core_hostfs::__Mon_RawFs::new(Box::new(__bind.clone()));
+    let mut __bind = crate::fs_host::__Lock_RawFs::new(crate::platform_fs_host::HostRawFs::new());
+    let __handle = crate::fs_host::__Mon_RawFs::new(Box::new(__bind.clone()));
     let mut __fx2 = __Fx_main_2 { __outer: &mut __fx, __h: __bind };
     let mut __bind2 = DefaultFs::new(__handle.clone());
-    let __handle2 = crate::core_fs::__Mon_Fs::new(Box::new(__bind2.clone()));
+    let __handle2 = crate::fs::__Mon_Fs::new(Box::new(__bind2.clone()));
     let mut __fx3 = __Fx_main_3 { __outer: &mut __fx2, __h: __bind2 };
     let mut root = "tmp/files-example".to_string();
     let mut made = __Has_Fs::__get_Fs(&mut __fx3).create_dirs(&root);
@@ -403,7 +403,7 @@ pub fn main() {
     println(&mut __fx3, &("-- the real filesystem, scoped to one directory --".to_string()));
     if true {
         let mut __bind3 = RestrictedFs::new(root.clone(), __handle2.clone());
-        let __handle3 = crate::core_fs::__Mon_Fs::new(Box::new(__bind3.clone()));
+        let __handle3 = crate::fs::__Mon_Fs::new(Box::new(__bind3.clone()));
         let mut __fx4 = __Fx_main_4 { __outer: &mut __fx3, __h: __bind3 };
         workflow(&mut __fx4);
         sandbox_edges(&mut __fx4);
@@ -414,8 +414,8 @@ pub fn main() {
     }
     println(&mut __fx3, &("-- the same code, with no disk at all --".to_string()));
     if true {
-        let mut __bind4 = crate::core_fs::__Lock_Fs::new(MemFs::new());
-        let __handle4 = crate::core_fs::__Mon_Fs::new(Box::new(__bind4.clone()));
+        let mut __bind4 = crate::fs::__Lock_Fs::new(MemFs::new());
+        let __handle4 = crate::fs::__Mon_Fs::new(Box::new(__bind4.clone()));
         let mut __fx5 = __Fx_main_4 { __outer: &mut __fx3, __h: __bind4 };
         workflow(&mut __fx5);
     }

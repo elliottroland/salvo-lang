@@ -228,7 +228,9 @@ fn main() [use] {
   borrow: `proj(list) T` returns an element without copying it, a
   struct with `proj` fields is a view, and a copy happens only where the
   program writes `copy`.
-- **Files**: `std`'s filesystem is the whole language in one surface — an
+- **Files**: `std`'s filesystem is the whole language in one surface, imported
+  rather than implicit (`import fs`, with `fs.host`, `fs.mem` and
+  `fs.restricted` beside it) — an
   `Fs` effect whose members cover paths *and* streams (so a double fakes all
   of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
   error a caller cannot drop in silence (`Checked<FsError>` — `ignore` it, or

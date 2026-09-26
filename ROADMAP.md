@@ -59,17 +59,12 @@ design.
 - **(b) ✅ The filesystem on `Checked<T>`** — built 2026-09-26 [fs-surface]
   [checked-type] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
   bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
-- **(c) The filesystem out of `core`.** `std.fs` holds the effect and
-  `DefaultFs`; `std.fs.restricted`, `std.fs.mem` and `std.fs.host` hold the
-  rest — so `import std.fs.mem`, and the split now *means* something: a
-  whole-module import names one module, not the tree under it
-  [mod-import-module] (user decision 2026-09-26, built). A **file and a module
-  sharing a name** (`fs.sv` beside an `fs/` directory) needs no rule — probed
-  2026-09-26, it checks clean and both backends print identical bytes, because
-  module paths are directory-derived and the Rust emitter flattens every module
-  into a `#[path]`-annotated crate-root `mod`. What is left is the sweep:
-  `core.fs` is visible everywhere today, so every user of the filesystem gains
-  an import. Step (b) is done, so the rename sweep has already happened.
+- **(c) ✅ The filesystem out of `core`** — built 2026-09-26 [fs-module]
+  [fs-host-split] (COMPLETED.md's log). Modules `fs`, `fs.host`, `fs.mem`,
+  `fs.restricted`, unprefixed (user decision: (B1), with step 9's `std.` prefix
+  left as its own slice). `DefaultFs` stays in `fs.host` rather than the surface
+  module — the fusion gate reads reachable modules, so a `fs.mem` test would
+  otherwise be fused by a handler it never registers.
 - **(d) `core.nonempty` dissolves into the collections.** Its `NonEmpty`
   qualifiers move next to the containers they claim, as `core.list`'s already is.
   The blocker to solve first is [qual-ctor-same-file]: a constructor must be
@@ -185,14 +180,20 @@ does with no manifest in sight (fall back to `rootUri`, today's behaviour).
 Three narrower questions, all downstream of "refuse to choose" (COMPLETED.md's
 log for the round itself).
 
-- **DECISION — identical-signature shadowing.** Two candidates with the *same*
-  signature at different rungs are now an ambiguity, so a module declaring its own
-  `size(List<T>)` must write `size@mymodule(xs)` at every call (or take the
-  overload out of the shared name with `rename fn` / `import … as`, which is the
-  intended shape). Nothing in std or the examples depended on the old silence —
-  the churn was six tests that existed to encode it — so this is a question about
-  *ergonomics*, not about breakage: is the strict reading what you want, or should
-  an exactly-identical signature at a nearer rung still shadow?
+- **✅ Identical-signature shadowing stays an ambiguity** — confirmed
+  2026-09-26 (user decision, COMPLETED.md's log). Nothing to build. What came
+  out of confirming it is a **small new question**: the remedy is
+  `f@<this module's path>(…)`, and there is no shorthand — `@mod` does not
+  exist, and `@mod`/`@import` as *rung* keywords were rejected 2026-09-07
+  because they ask the reader to know which rung a name arrived on. A `@mod`
+  (or `@self`) meaning **"this file's module"** is narrower than what was
+  rejected: one fixed meaning, no rung to know, and it stays short where a
+  module path does not (`size@orders.pricing(xs)`). Options: leave it (the path
+  is explicit and greppable, and a call needing the selector is rare by
+  design); add `@mod`; or add `@self`, which already means "this handler" for a
+  send [actor-self-send] and would then mean two things. Recommendation: leave
+  it until a real program reads badly — the trigger is narrow enough that the
+  evidence may never arrive.
 - **Implicit resolution still resolves by rung**, deliberately: an implicit has no
   written call site to annotate, and two same-named types have no distinguishing
   selector at all. If that is to change it needs a spelling first.
@@ -345,8 +346,18 @@ deliberately cut, in the order the decisions put it:
 - **The `std.` import prefix** (TF-8, decided 2026-09-19): `import std.time`
   rather than `import time`, `std` a reserved root, the bare spelling refused with
   the corrected path named, and the library tree moving to `lib/std`. Sequenced
-  after the MVP deliberately; note that **step 1(c) overlaps it** — `std.fs` is
-  the first module to want the prefix, so doing them together may be cheaper.
+  after the MVP deliberately. Step 1(c) shipped **without** the prefix (user
+  decision 2026-09-26, option B1), so the filesystem's modules are `fs`,
+  `fs.host`, `fs.mem`, `fs.restricted` and this step renames every top-level std
+  module at once. What it drags, and why it is its own slice: module paths derive
+  from the embed root, so moving the tree to `lib/std` renames `core.*` to
+  `std.core.*` — five hardcoded `"core"` sites in `resolve.rs` deciding implicit
+  visibility, `[std-shadow]`'s classification, the CLI embed root, and the
+  emitted path of every std module in every golden and every example. **Whether
+  `core` becomes `std.core` at all is the decision to take first**; the
+  alternative examined in that round was a reserved `std` root mapping to the
+  embedded library whatever the on-disk layout, leaving `core` unprefixed as a
+  stated exception.
 - **Smaller leftovers**: the annex's one-way visibility holds by construction but
   is not *checked*; the report has no `--format json` for editors; nothing
   migrates the compiler's own e2e suite onto `salvo test` (user decision: leave

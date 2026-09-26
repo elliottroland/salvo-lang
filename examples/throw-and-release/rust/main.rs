@@ -5,14 +5,10 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
-#[path = "core/bytes.rs"]
-pub mod core_bytes;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
-#[path = "core/fs.rs"]
-pub mod core_fs;
 #[path = "core/iterator.rs"]
 pub mod core_iterator;
 #[path = "core/list.rs"]
@@ -32,9 +28,7 @@ pub mod core_string;
 #[path = "core/throw.rs"]
 pub mod core_throw;
 
-use crate::core_bytes::*;
 use crate::core_console::*;
-use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;

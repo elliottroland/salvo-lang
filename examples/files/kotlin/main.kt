@@ -4,17 +4,17 @@ import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.console.*
-import salvo.core.fs.*
-import salvo.core.hostfs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
-import salvo.core.memfs.*
-import salvo.core.restrictedfs.*
 import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.fs.*
+import salvo.fs.host.*
+import salvo.fs.mem.*
+import salvo.fs.restricted.*
 
 fun kind_name(kind: Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>): String {
     if (kind is U8_1<*, *, *, *, *, *, *, *>) {
@@ -57,7 +57,7 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
         is U2_1<*, *> -> {
             val p = lines((opened.value as InStream))
             while (true) {
-                val __loop1_step = next__3(__fx, p)
+                val __loop1_step = next__11(__fx, p)
                 if (__loop1_step !is U2_1<String, Finished>) { break }
                 val line = __loop1_step.value
                 println(__fx, "line: $line")
@@ -254,7 +254,7 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
             val p = (ch.value as Chunks)
             var seen = 0
             while (true) {
-                val __loop2_step = next__4(__fx, p)
+                val __loop2_step = next__12(__fx, p)
                 if (__loop2_step !is U2_1<salvo.SalvoBytes, Finished>) { break }
                 val chunk = __loop2_step.value
                 seen = seen + chunk.size
@@ -359,7 +359,7 @@ fun<__Fx> sandbox_edges(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
-    val __fx2 = __Fx_2(__fx.__fx_Console, salvo.platform.core.hostfs.HostRawFs())
+    val __fx2 = __Fx_2(__fx.__fx_Console, salvo.platform.fs.host.HostRawFs())
     val __fx3 = __Fx_3(__fx2.__fx_Console, DefaultFs(__fx2), __fx2.__fx_RawFs)
     val root = "tmp/files-example"
     val made = __fx3.__fx_Fs.create_dirs(root)

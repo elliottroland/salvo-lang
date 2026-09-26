@@ -6162,10 +6162,10 @@ fn a_mutable_use_of_a_narrowed_place_borrows_the_storage() {
     let src = &main.content;
     for needle in [
         // The optional, and the `state` slot inside the generated pass.
-        "next__5(p.as_mut().unwrap())",
-        "next__5(__p.inner.as_mut().unwrap())",
+        "next__3(p.as_mut().unwrap())",
+        "next__3(__p.inner.as_mut().unwrap())",
         // The union arm.
-        "next__5(q.u1_mut())",
+        "next__3(q.u1_mut())",
         // The assignment base.
         "r.as_mut().unwrap().at = 2",
     ] {
@@ -9712,7 +9712,7 @@ fn bytes_is_a_vec_of_u8() {
 
 // ===== std's filesystem [platform-handler] [linear-group] =====
 
-/// std's `core.fs`, exercised end to end against real files: the
+/// std's `fs`, exercised end to end against real files: the
 /// `platform handler HostRawFs` at the bottom, `DefaultFs [RawFs]` above it,
 /// linear stream tokens discharged by an effect member, the `Lines` pass,
 /// the one-shots, a `position` after a ranged open, and a failure path whose
@@ -9724,6 +9724,9 @@ fn bytes_is_a_vec_of_u8() {
 /// lines byte for byte — the whole point of the layering is that only the
 /// host file differs.
 const FS_PROGRAM: &str = r#"
+import fs
+import fs.host
+
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"
@@ -10017,8 +10020,8 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     let files = generate(&[("main.sv", &fs_program())]);
     let surface = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/fs.rs"))
-        .expect("core/fs.rs")
+        .find(|f| f.rel_path == std::path::Path::new("fs.rs"))
+        .expect("fs.rs")
         .content;
     for expected in [
         "pub trait Fs {",
@@ -10040,8 +10043,8 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     // opens a file links none of it.
     let host = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/hostfs.rs"))
-        .expect("core/hostfs.rs")
+        .find(|f| f.rel_path == std::path::Path::new("fs/host.rs"))
+        .expect("fs/host.rs")
         .content;
     for expected in [
         "pub trait RawFs {",
@@ -10058,7 +10061,7 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     assert!(
         files
             .iter()
-            .any(|f| f.rel_path == std::path::Path::new("platform/core/hostfs.rs")),
+            .any(|f| f.rel_path == std::path::Path::new("platform/fs/host.rs")),
         "expected std's host companion to be emitted"
     );
 }
@@ -10087,6 +10090,10 @@ fn rustc_compiles_and_runs_the_fs_surface() {
 /// `byte_size` while slicing its content by characters. A fake that counted
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
+import fs
+import fs.mem
+import fs.restricted
+
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"
@@ -13689,7 +13696,7 @@ fn reachability_follows_resolution_not_names() {
         !iterating.iter().any(|p| p.contains("range")),
         "iterating must not emit `core.range`: {iterating:?}"
     );
-    // The same for the other names a program merely mentions: `core.fs`
+    // The same for the other names a program merely mentions: `fs`
     // declares `read`/`write`/`close`, `core.bytes` a `size`.
     assert!(
         !iterating.iter().any(|p| p.contains("fs") || p.contains("bytes")),
@@ -13983,7 +13990,7 @@ fn a_qualified_argument_still_binds_an_implicits_type_variable() {
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // Both calls fill `?next` from `core.list`, not from the sibling `Sib`.
     assert_eq!(
-        main.content.matches("next__5(").count(),
+        main.content.matches("next__3(").count(),
         2,
         "both calls must drive the list's `next`:\n{}",
         main.content

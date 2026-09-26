@@ -11032,7 +11032,7 @@ fn bytes_ships_one_runtime_class_for_both_shapes() {
 
 // ===== std's filesystem [platform-handler] [linear-group] =====
 
-/// std's `core.fs`, exercised end to end against real files — **verbatim the
+/// std's `fs`, exercised end to end against real files — **verbatim the
 /// Rust backend's program**, because the layering's promise is that only the
 /// host file differs: `platform handler HostRawFs` at the bottom,
 /// `DefaultFs [RawFs]` above it (a handler in *std* constructed from the
@@ -11040,6 +11040,9 @@ fn bytes_ships_one_runtime_class_for_both_shapes() {
 /// tokens discharged by an effect member, the `Lines` pass, the one-shots, a
 /// `position` after a ranged open, and a failure path acknowledged once.
 const FS_PROGRAM: &str = r#"
+import fs
+import fs.host
+
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"
@@ -11335,8 +11338,8 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     let files = generate_files(&[("main.sv", &fs_program())]);
     let surface = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/fs.kt"))
-        .expect("core/fs.kt")
+        .find(|f| f.rel_path == std::path::Path::new("fs.kt"))
+        .expect("fs.kt")
         .content;
     assert!(
         surface.contains("interface Fs {"),
@@ -11352,8 +11355,8 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     // opens a file links none of it.
     let host = &files
         .iter()
-        .find(|f| f.rel_path == std::path::Path::new("core/hostfs.kt"))
-        .expect("core/hostfs.kt")
+        .find(|f| f.rel_path == std::path::Path::new("fs/host.kt"))
+        .expect("fs/host.kt")
         .content;
     for expected in [
         "interface RawFs {",
@@ -11373,7 +11376,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
         .expect("main.kt");
     assert!(
         main.content
-            .contains("salvo.platform.core.hostfs.HostRawFs()"),
+            .contains("salvo.platform.fs.host.HostRawFs()"),
         "expected the shipped host class at the `use` site, got:\n{}",
         main.content
     );
@@ -11381,7 +11384,7 @@ fn the_fs_surface_emits_a_host_seam_and_a_generic_carrier() {
     assert!(
         files
             .iter()
-            .any(|f| f.rel_path == std::path::Path::new("platform/core/hostfs.kt")),
+            .any(|f| f.rel_path == std::path::Path::new("platform/fs/host.kt")),
         "expected std's host companion to be emitted"
     );
 }
@@ -11405,6 +11408,10 @@ fn kotlinc_compiles_and_runs_the_fs_surface() -> KotlinCase {
 /// `byte_size` while slicing its content by characters. A fake that counted
 /// characters would let this test pass and production break.
 const MEMFS_PROGRAM: &str = r#"
+import fs
+import fs.mem
+import fs.restricted
+
 fn describe(e: FsError) [] -> Str => e {
     if e is NotFound {
         return "not found"

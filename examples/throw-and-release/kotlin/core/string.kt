@@ -1,7 +1,6 @@
 package salvo.core.string
 
 import salvo.*
-import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
@@ -17,7 +16,7 @@ data class StrYield(
     var at: Int,
 )
 
-fun next__12(p: StrYield): Union2<Char, Finished> {
+fun next__10(p: StrYield): Union2<Char, Finished> {
     val chr = p.text.getOrNull(p.at)
     if (chr == null) {
         return U2_2<Char, Finished>(finished())

@@ -133,6 +133,66 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**The filesystem leaves `core` (2026-09-26, user decision — built).** ROADMAP
+step 1(c). Module **`fs`** holds the surface, `fs.host` the machine's
+filesystem, `fs.mem` the in-memory double and `fs.restricted` the sandbox
+[fs-module] [fs-host-split]. `import fs` is one line, each implementation is
+another, and the split now means something because a whole-module import names
+one module.
+
+- **The user chose (B1) — unprefixed, with step 9's `std.` prefix left as its own
+  slice.** The coupling is that module paths derive from the embed root (`std/`),
+  so `std.fs` needs step 9's move of the tree to `lib/std`, which renames `core.*`
+  to `std.core.*`: five hardcoded `"core"` sites in `resolve.rs`, `[std-shadow]`'s
+  classification, the CLI embed root, and the emitted path of every std module in
+  every golden and example. Two different kinds of sweep, so two slices — and
+  whether `core` becomes `std.core` gets its own sitting instead of being settled
+  in passing.
+- **The ROADMAP's plan had `DefaultFs` in the surface module, and that is wrong.**
+  Circular imports are legal (probed: two modules importing each other check
+  clean and run identically on both backends), so the shape was expressible —
+  but `program_needs_fusion` gates on reachable **modules**, so a dependent
+  handler in `fs` would fuse every program that merely imported the surface,
+  including a test whose only filesystem is `fs.mem`. `DefaultFs` therefore stays
+  with `RawFs` in `fs.host`, which is exactly the property [fs-host-split] was
+  written for — the reason changed (it used to be about name-based reachability
+  dragging `core.fs` into iterating programs) while the placement did not.
+- **What it bought, measured.** `examples/throw-and-release` throws and never
+  opens a file. It used to emit `core/fs` because [mod-used-only]'s name-based
+  half resolves a used name to *every* module declaring it and `core.fs` declares
+  a `next` and a `to_str` — and `core/bytes` behind it, and 136 lines of union
+  wrappers for types nothing referenced. **1,398 lines** of generated code gone
+  across the two backends for a program whose output did not change. An imported
+  module cannot be dragged in by a name.
+- The sweep: four std files moved (`core/fs.sv` → `fs.sv`, `core/hostfs.sv` →
+  `fs/host.sv`, `core/memfs.sv` → `fs/mem.sv`, `core/restrictedfs.sv` →
+  `fs/restricted.sv`), the platform companions with them
+  (`std/platform/core/hostfs.{kt,rs}` → `std/platform/fs/host.{kt,rs}`, package
+  and `use` lines retargeted), `import fs` added to the three implementations and
+  to `examples/files`, module-path assertions in both backends' fs tests, and the
+  goldens' `next__N` all dropping by two — `fs.sv` sorts after `core/*` where
+  `core/fs.sv` sorted before it, which is the recorded global-index gotcha
+  working in reverse. 113 example files changed, 232 insertions against 1,608
+  deletions.
+
+**Identical-signature shadowing stays an ambiguity (2026-09-26, user decision).**
+ROADMAP step 5's first bullet, confirmed rather than reversed: two candidates with
+the *same* signature at different rungs are an error naming both places
+[fn-overload-scope], and the caller writes `size@main(xs)` or takes the overload
+out of the shared name with `rename fn`. Nothing to build — it is already the
+behaviour — and the evidence that made it cheap is how *narrow* the trigger is: a
+module's own `size(List<Int>)` beside std's `size(List<T>)` still wins outright,
+because it is more specific. Only an indistinguishable signature is refused, and
+at that point "which did you mean?" is a fair question.
+
+- One correction on the record: there is **no `@mod`**. The selector takes a
+  module path, so `size@mod(xs)` reports "no overload … is declared in module
+  `mod`" (probed). `@mod`/`@import` as *rung* keywords were rejected 2026-09-07 —
+  they would ask the reader to know which rung a name arrived on. A `@mod`
+  meaning "this file's module" is a narrower proposal and is recorded in ROADMAP
+  as a question, since A1 makes the selector the remedy people will actually
+  type.
+
 **A whole-module import names one module, not the tree under it (2026-09-26,
 user decision — built).** `import std.fs` brings `std.fs`; `std.fs.mem` takes a
 second line [mod-import-module]. This reverses the prefix sweep the rule shipped

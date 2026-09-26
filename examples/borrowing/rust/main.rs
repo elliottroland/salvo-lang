@@ -150,7 +150,7 @@ pub fn main() {
     let mut standing = filter::<ListYield<Fighter>, &Fighter>(&mut pass, &mut (|f: &&Fighter| {
     let f = *f; 
     f.hp > 10
-}), &mut |__i0| next__5(__i0));
+}), &mut |__i0| next__3(__i0));
     println(&mut console, &(format!("1. {} of {} still standing", (standing.len() as i32), (roster.len() as i32))));
     let mut bench: Vec<Fighter> = vec![Fighter { name: "Cy".to_string(), hp: 12, energy: 2 }];
     bench.push(Fighter { name: "Dee".to_string(), hp: 6, energy: 7 });

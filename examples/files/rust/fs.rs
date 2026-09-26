@@ -333,7 +333,7 @@ pub fn lines(s: InStream) -> Lines {
     return Lines { s: s };
 }
 
-pub fn next__3<__Fx: __Has_Fs>(__fx: &mut __Fx, p: &mut Lines) -> Union2<String, Finished> {
+pub fn next__11<__Fx: __Has_Fs>(__fx: &mut __Fx, p: &mut Lines) -> Union2<String, Finished> {
     let mut line = __Has_Fs::__get_Fs(&mut *__fx).read_line(&p.s);
     match line {
         Some(_) => {
@@ -367,7 +367,7 @@ pub fn chunks(s: InStream, size: i32) -> Chunks {
     return Chunks { s: s, size: size };
 }
 
-pub fn next__4<__Fx: __Has_Fs>(__fx: &mut __Fx, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
+pub fn next__12<__Fx: __Has_Fs>(__fx: &mut __Fx, p: &mut Chunks) -> Union2<Vec<u8>, Finished> {
     let mut got = __Has_Fs::__get_Fs(&mut *__fx).read_bytes(&p.s, p.size);
     if matches!(got, Union2::U2(_)) {
         ignore(got.u2().clone());
@@ -420,7 +420,7 @@ pub fn read_lines<__Fx: __Has_Fs>(__fx: &mut __Fx, path: &String) -> Union2<Vec<
     }
     let mut p = lines(opened.u1().clone());
     let mut out: Vec<String> = vec![];
-    while let Union2::U1(mut line) = next__3(&mut *__fx, &mut p) {
+    while let Union2::U1(mut line) = next__11(&mut *__fx, &mut p) {
         out.push(line);
     }
     let mut closed = close(&mut *__fx, p);

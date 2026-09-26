@@ -17,6 +17,8 @@
 // What an open read stream is: which file, how far into its bytes the reader
 // has consumed, and whether a strict decode has already failed on it (which
 // ends iteration and surfaces at `close`).
+import fs
+
 struct MemRead { path: Str, at: Int, failed: Bool }
 
 // What an open write stream is: which file, and the bytes written so far.

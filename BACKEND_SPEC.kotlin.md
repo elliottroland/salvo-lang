@@ -349,7 +349,7 @@ Conventions:
   enclosing emitted function, so generated code stays warning-free whichever
   warning applies. Soundness is not delegated to the cast: the checker proved
   the arm before the emitter spelled it.
-  * Both halves were found by std's `core.fs` (2026-09-14): its narrowed
+  * Both halves were found by std's filesystem (2026-09-14): its narrowed
     reads of a nested error union drew the unchecked warning from a site that
     noted nothing, and `to_str`'s concrete arms drew the useless one — in
     std, which must compile clean.
@@ -579,9 +579,10 @@ where Rust had to build the fusion to get the same programs running
   carriers into an un-fused program: caught the same day).
   * The reachability half arrived with std's filesystem (2026-09-14): std
     now *ships* a dependent handler, so a declaration-wide gate fused every
-    program in existence. It is also why that handler lives in `core.hostfs`
-    rather than `core.fs` [fs-host-split] — reachability is name-based, and
-    `core.fs` declares a `next` and a `to_str`.
+    program in existence. It is also why that handler lives in `fs.host`
+    rather than `fs` [fs-host-split]: the gate reads reachable *modules*, so a
+    program faking the filesystem with `fs.mem` would otherwise be fused by a
+    handler it never registers.
   * A dependent handler cannot be emitted with the fusion off (it is an
     internal codegen error naming the handler), which is the other half of
     why the split is structural rather than tidiness.

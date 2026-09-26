@@ -1278,7 +1278,7 @@ fn describe(s: Str) -> Str {
 }
 
 // Two members of one effect sharing a name, which is the shape `read_to` has
-// in `core.fs` [effect-member-overload].
+// in `fs` [effect-member-overload].
 effect Store {
     fn keep(n: Int) -> Bool => n
     fn keep(s: Str) -> Bool => s

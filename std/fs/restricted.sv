@@ -20,6 +20,8 @@
 //
 // Resolution is right to left, counting the `..` segments still owed, which
 // is how `a/../b` stays inside while `../b` does not — and needs no stack.
+import fs
+
 fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     if starts_with(path, "/") {
         return None

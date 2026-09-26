@@ -187,10 +187,10 @@ fun main() {
     val total = xs.fold(0, { acc, n -> acc + n })
     println(console, "5. list: ${doubled.size} doubled, ${odd.size} odd, total $total")
     val words = listOf<String>("ann", "bo", "carol")
-    val lengths = map(iter__3(words), { w -> w.length }, ::next__5)
-    println(console, "5. lengths: ${reduce(iter__3(lengths), 0, { acc, n -> acc + n }, ::next__5)}")
+    val lengths = map(iter__3(words), { w -> w.length }, ::next__3)
+    println(console, "5. lengths: ${reduce(iter__3(lengths), 0, { acc, n -> acc + n }, ::next__3)}")
     val word = "iteration"
-    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__12)
+    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__10)
     println(console, "5. vowels: ${vowels.size}")
     println(console, "5. halving total ${reduce(iter__10(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__14)}")
     val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__13)

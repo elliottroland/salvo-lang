@@ -1,14 +1,14 @@
-// Host implementation of the platform declarations of Salvo module `core.hostfs`.
+// Host implementation of the platform declarations of Salvo module `fs.host`.
 //
 // Generated once by `salvo platform generate`; the compiler never writes
 // this file again — it is yours. Nothing here is checked by Salvo: the
 // Kotlin compiler checks it, against the interfaces the backend generates
 // from the `platform effect` and `platform handler` declarations.
-package salvo.platform.core.hostfs
+package salvo.platform.fs.host
 
 import salvo.*
-import salvo.core.fs.*
-import salvo.core.hostfs.*
+import salvo.fs.*
+import salvo.fs.host.*
 
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream

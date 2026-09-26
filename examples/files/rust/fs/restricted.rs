@@ -1,6 +1,5 @@
 use crate::core_bytes::*;
 use crate::core_checked::*;
-use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -9,6 +8,7 @@ use crate::core_result::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::fs::*;
 use crate::unions::*;
 
 pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
@@ -41,7 +41,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
     let mut parts: Vec<String> = vec![];
     let mut j = (kept.len() as i32) - 1;
     while j >= 0 {
-        parts.push(kept.get((j) as i64 as usize).expect("salvo: value is absent at core.restrictedfs:55:24").clone());
+        parts.push(kept.get((j) as i64 as usize).expect("salvo: value is absent at fs.restricted:57:24").clone());
         j = j - 1;
     }
     let mut rel = parts.join(&"/".to_string()[..]);
@@ -58,11 +58,11 @@ pub fn fs_escaped(path: &String) -> Checked<Union8<NotFound, PermissionDenied, A
 #[derive(Clone)]
 pub struct RestrictedFs {
     root: String,
-    __dep_Fs: crate::core_fs::__Mon_Fs,
+    __dep_Fs: crate::fs::__Mon_Fs,
 }
 
 impl RestrictedFs {
-    pub fn new(root: String, __dep_Fs: crate::core_fs::__Mon_Fs) -> Self {
+    pub fn new(root: String, __dep_Fs: crate::fs::__Mon_Fs) -> Self {
         Self {
             root,
             __dep_Fs,

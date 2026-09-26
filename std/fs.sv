@@ -4,14 +4,14 @@
 //
 // This module is the *surface* — types, the effect, the pass and the
 // one-shots. The filesystem of the machine the program runs on lives next
-// door in `core.hostfs` (`RawFs`, `HostRawFs`, `DefaultFs`), so a program
-// that never opens a file never links a host handler: this module is dragged
-// in by any program that iterates or interpolates (it declares a `next` and
-// a `to_str`), and that must stay cheap.
+// door in `fs.host` (`RawFs`, `HostRawFs`, `DefaultFs`), so a program that
+// fakes the filesystem never links a host handler — and a whole-module import
+// names one module, so `import fs` does not bring either of them
+// [mod-import-module].
 //
 // The layering, bottom to top:
 //
-//   * `RawFs` (core.hostfs) trades in plain `Long` handles and bare
+//   * `RawFs` (`fs.host`) trades in plain `Long` handles and bare
 //     `FsError`s. Its one implementation is the host's
 //     (`platform handler HostRawFs`), so no target-language class ever holds
 //     a Salvo obligation.

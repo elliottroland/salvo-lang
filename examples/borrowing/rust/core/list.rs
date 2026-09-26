@@ -67,7 +67,7 @@ pub struct ListYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__5<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -86,7 +86,7 @@ pub struct ListRevYield<'s, T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__6<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finished> {
+pub fn next__4<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
@@ -110,7 +110,7 @@ pub struct IdxYield<'s, T: Clone + 'static> {
     pub step: i32,
 }
 
-pub fn next__7<T: Clone>(p: &mut IdxYield<'_, T>) -> Union2<i32, Finished> {
+pub fn next__5<T: Clone>(p: &mut IdxYield<'_, T>) -> Union2<i32, Finished> {
     if p.at < 0 || p.at >= (p.items.len() as i32) {
         return Union2::<i32, Finished>::U2(finished());
     }
@@ -140,7 +140,7 @@ pub struct ListEnumYield<'s, T: Clone + 'static> {
     pub step: i32,
 }
 
-pub fn next__8<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+pub fn next__6<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::<Enumerated<T>, Finished>::U2(finished());

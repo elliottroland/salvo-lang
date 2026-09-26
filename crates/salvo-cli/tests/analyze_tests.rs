@@ -2204,7 +2204,8 @@ fn an_fs_failure_must_be_acknowledged() {
     let dir = src_dir("fs_checked");
     let program = |body: &str| {
         format!(
-            "fn main() [use] -> None {{\n    use StdOutConsole()\n    \
+            "import fs\nimport fs.host\n\n\
+             fn main() [use] -> None {{\n    use StdOutConsole()\n    \
              use HostRawFs()\n    use DefaultFs()\n    \
              let text = read_to_str(\"nope.txt\")\n    \
              when text {{\n        is Ok {{ println(text) }}\n        \

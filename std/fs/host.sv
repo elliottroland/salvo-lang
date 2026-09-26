@@ -1,11 +1,13 @@
 // The filesystem of the machine the program runs on: the raw host seam and
-// the handler that turns it into `core.fs`'s `Fs`.
+// the handler that turns it into `fs`'s `Fs`.
 //
-// Its own module, and deliberately: `core.fs` is reachable from any program
-// that iterates or interpolates (it declares a `next` and a `to_str`), while
-// nothing reaches *this* module unless the program names `HostRawFs` or
-// `DefaultFs`. A dependent handler switches the whole program to the fused
-// effect emission, so a filesystem nobody uses must not be linked.
+// Its own module, and deliberately: a program that fakes the filesystem
+// (`fs.mem`) imports `fs` without reaching this module at all. `DefaultFs` is
+// a *dependent* handler, and a reachable dependent handler switches the whole
+// program to the fused effect emission, so the handler nobody in a test uses
+// must not arrive with the surface.
+
+import fs
 
 // ===== the raw seam =====
 

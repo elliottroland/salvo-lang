@@ -1,12 +1,12 @@
 use crate::core_bytes::*;
 use crate::core_checked::*;
-use crate::core_fs::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_nonempty::*;
 use crate::core_result::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
+use crate::fs::*;
 use crate::unions::*;
 
 pub trait RawFs {
@@ -233,11 +233,11 @@ impl __Has_RawFs for __Mon_RawFs {
 
 #[derive(Clone)]
 pub struct DefaultFs {
-    __dep_RawFs: crate::core_hostfs::__Mon_RawFs,
+    __dep_RawFs: crate::fs_host::__Mon_RawFs,
 }
 
 impl DefaultFs {
-    pub fn new(__dep_RawFs: crate::core_hostfs::__Mon_RawFs) -> Self {
+    pub fn new(__dep_RawFs: crate::fs_host::__Mon_RawFs) -> Self {
         Self {
             __dep_RawFs,
         }

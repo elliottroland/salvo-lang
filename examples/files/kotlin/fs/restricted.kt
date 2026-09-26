@@ -1,9 +1,8 @@
-package salvo.core.restrictedfs
+package salvo.fs.restricted
 
 import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
-import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
@@ -11,6 +10,7 @@ import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.fs.*
 
 fun fs_resolve(root: String, path: String): String? {
     if (path.startsWith("/")) {
@@ -21,7 +21,7 @@ fun fs_resolve(root: String, path: String): String? {
     var skip = 0
     var i = segs.size - 1
     while (i >= 0) {
-        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at core.restrictedfs:32:19"))
+        val seg = (segs.getOrNull(i) ?: throw AssertionError("salvo: value is absent at fs.restricted:34:19"))
         if (seg == "..") {
             skip = skip + 1
         } else {
@@ -42,7 +42,7 @@ fun fs_resolve(root: String, path: String): String? {
     val parts: MutableList<String> = mutableListOf<String>()
     var j = kept.size - 1
     while (j >= 0) {
-        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at core.restrictedfs:55:24")))
+        parts.add((kept.getOrNull(j) ?: throw AssertionError("salvo: value is absent at fs.restricted:57:24")))
         j = j - 1
     }
     val rel = parts.joinToString("/")

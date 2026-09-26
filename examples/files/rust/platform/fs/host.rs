@@ -1,12 +1,12 @@
-// Host implementation of the platform declarations of Salvo module `core.hostfs`.
+// Host implementation of the platform declarations of Salvo module `fs.host`.
 //
 // Generated once by `salvo platform generate`; the compiler never writes
 // this file again — it is yours. Nothing here is checked by Salvo: rustc
 // checks it, against the traits the backend generates from the
 // `platform effect` and `platform handler` declarations.
 
-use crate::core_fs::*;
-use crate::core_hostfs::*;
+use crate::fs::*;
+use crate::fs_host::*;
 use crate::unions::*;
 
 use std::collections::HashMap;
@@ -110,7 +110,7 @@ impl HostRawFs {
     }
 }
 
-impl crate::core_hostfs::RawFs for HostRawFs {
+impl crate::fs_host::RawFs for HostRawFs {
     fn raw_open_read(&mut self, path: &String) -> Union2<i64, Kind> {
         match std::fs::File::open(path) {
             Ok(file) => {

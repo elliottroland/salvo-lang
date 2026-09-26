@@ -4,18 +4,18 @@ package salvo
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.console.*
-import salvo.core.fs.*
-import salvo.core.hostfs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
-import salvo.core.memfs.*
 import salvo.core.nonempty.*
-import salvo.core.restrictedfs.*
 import salvo.core.result.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.fs.*
+import salvo.fs.host.*
+import salvo.fs.mem.*
+import salvo.fs.restricted.*
 import salvo.main.*
 
 interface __Has_Console {

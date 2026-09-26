@@ -20,6 +20,14 @@
 // the real filesystem (where the sandbox has rebased them) and the fake, so
 // naming the *kind* is what keeps the two runs comparable — and `is` narrowing
 // over the union is how you read one.
+// The filesystem is `std`'s, imported: the surface, the host's
+// implementation, and the two doubles. A whole-module import names one
+// module, so each is its own line [mod-import-module].
+import fs
+import fs.host
+import fs.mem
+import fs.restricted
+
 fn kind_name(kind: FsError) [] -> Str => kind {
     if kind is NotFound {
         return "not found"

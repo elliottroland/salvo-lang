@@ -24,7 +24,7 @@ data class MapKeyYield<K>(
     var at: Int,
 )
 
-fun<K> next__9(p: MapKeyYield<K>): Union2<K, Finished> {
+fun<K> next__7(p: MapKeyYield<K>): Union2<K, Finished> {
     val key = p.items.getOrNull(p.at)
     if (key == null) {
         return U2_2<K, Finished>(finished())

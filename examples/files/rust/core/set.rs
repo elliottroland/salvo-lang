@@ -17,7 +17,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__9<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());

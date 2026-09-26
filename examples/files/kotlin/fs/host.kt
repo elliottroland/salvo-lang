@@ -1,14 +1,14 @@
-package salvo.core.hostfs
+package salvo.fs.host
 
 import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
-import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.nonempty.*
 import salvo.core.result.*
 import salvo.core.sorted.*
 import salvo.core.string.*
+import salvo.fs.*
 
 interface RawFs {
     fun raw_open_read(path: String): Union2<Long, Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>
