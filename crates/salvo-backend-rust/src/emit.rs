@@ -31,7 +31,8 @@ pub struct EmittedFile {
 /// mixed, defensive code may be unreachable).
 const CRATE_ATTRS: &str = "#![allow(non_snake_case, non_camel_case_types, unused_mut, \
                            unused_parens, unused_imports, dead_code, unreachable_code, \
-                           unused_variables, path_statements, unused_must_use, suspicious_double_ref_op)]\n";
+                           unused_variables, path_statements, unused_must_use, suspicious_double_ref_op, \
+                           non_upper_case_globals)]\n";
 
 /// Emits Rust for every *reachable* module that produces code
 /// [mod-used-only], plus the generated `unions.rs` and the crate-root
@@ -101,9 +102,21 @@ pub fn emit_program_reporting(
     program: &Program,
     entry: Option<&ModulePath>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
-    let symbols = Symbols::collect(program);
+    let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::check_program(program, &resolution, &symbols);
+    let checked = salvo_core::check_program(program, &resolution, &original_symbols);
+    // [effect-generic-decl] Emission reads the program with its effect-only
+    // generics erased — `ActorGroup<E>` becomes `ActorGroup`, since an
+    // `Addr<E>` is a scheduler index whatever `E` is — against the checker's
+    // tables from the original, which are keyed by span and so still apply.
+    let erased = salvo_core::erased_generics(program);
+    let erased_program = salvo_core::erase_effect_generics(program, &erased);
+    let program = &erased_program;
+    let symbols = Symbols::collect(program);
+    // Re-resolved over the erased copy: the emitter matches declarations by
+    // address between the scopes and the symbol table, so both must point
+    // into the same tree.
+    let resolution = salvo_core::resolve(program);
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
@@ -231,6 +244,7 @@ pub fn emit_program_reporting(
         emitter.generated_imports = generated;
         emitter.root_module = root_module;
         emitter.effect_paths = effect_paths.clone();
+        emitter.erased = erased.clone();
         let content = emitter.emit_module(unit.ast);
         errors.extend(emitter.errors);
         union_sizes.extend(emitter.union_sizes);
@@ -1386,6 +1400,9 @@ struct Emitter<'p> {
     /// [fn-effects] Absolute crate-path prefix per effect name, for the
     /// generated pass-trait file (which imports nothing).
     effect_paths: HashMap<String, String>,
+    /// [effect-generic-decl] The declarations whose generics are erased at
+    /// emission; an instance of one renders without its arguments.
+    erased: salvo_core::Erased,
     /// [rs-wire] Whether this file needs the wire runtime mounted: a codec
     /// was generated or `encode`/`decode` was lowered.
     needs_wire: bool,
@@ -2175,6 +2192,7 @@ impl<'p> Emitter<'p> {
             errors: Vec::new(),
             union_sizes: BTreeSet::new(),
             effect_paths: HashMap::new(),
+            erased: salvo_core::Erased::default(),
             needs_wire: false,
             ret_is_unit: false,
             effect_env: Vec::new(),
@@ -6759,10 +6777,21 @@ impl<'p> Emitter<'p> {
         // `List<T>` render identically and the deduction-driven parameter
         // mode decides `&` vs `&mut`.
         let _ = qualifiers;
-        self.emit_type_ref_named(&name, &base.args)
+        let args = self.visible_type_args(&name, &base.args).to_vec();
+        self.emit_type_ref_named(&name, &args)
     }
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
         self.emit_type_ref_named(&r.name.name, &r.args)
+    }
+
+    /// [effect-generic-decl] The type arguments to render for a named type:
+    /// none for an erased declaration.
+    fn visible_type_args<'t>(&self, name: &str, args: &'t [Type]) -> &'t [Type] {
+        if self.erased.is_erased(name) {
+            &[]
+        } else {
+            args
+        }
     }
 
     fn emit_type_ref_named(&mut self, name: &str, args: &[Type]) -> String {
@@ -7326,6 +7355,11 @@ impl<'p> Emitter<'p> {
                         }
                     }
                 }
+                // [effect-generic-decl] An erased declaration's instance has
+                // no arguments in the output.
+                if self.erased.is_erased(name) {
+                    return self.emit_named_parts(name, &[]);
+                }
                 let arg_strs: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
                 self.emit_named_parts(name, &arg_strs)
             }
@@ -7471,10 +7505,10 @@ impl<'p> Emitter<'p> {
     /// arguments on its wrapper's constructor (`::<i64>` for `Random<Int>`),
     /// empty for a non-generic effect.
     fn effect_instance_turbofish(&mut self, ty: &Ty) -> String {
-        let Ty::Named { args, .. } = ty.strip_quals() else {
+        let Ty::Named { name, args } = ty.strip_quals() else {
             return String::new();
         };
-        if args.is_empty() {
+        if args.is_empty() || self.erased.is_erased(name) {
             return String::new();
         }
         let args = args.clone();
@@ -16164,6 +16198,82 @@ impl<'p> Emitter<'p> {
                         "crate::scheduler::salvo_introduce(({node}) as u64, \
                          &({peers}).iter().map(|__p| crate::wire::salvo_encode(__p)).collect::<Vec<_>>())"
                     );
+                }
+                // [protocol-hash] The name and hash of a protocol named as a
+                // type argument: `protocol_name<Ping>()` is a string literal,
+                // `protocol_hash<Ping>()` the compiled-in constant.
+                "protocol_name" | "protocol_hash" if args.is_empty() => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error(format!("`{}` needs an effect as its type argument", f.name.name));
+                        return "String::new()".to_string();
+                    };
+                    if f.name.name == "protocol_name" {
+                        return format!("\"{effect}\".to_string()");
+                    }
+                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
+                        self.error(format!(
+                            "`protocol_hash<{effect}>()`: `{effect}` has no wire form, so no hash"
+                        ));
+                        return "String::new()".to_string();
+                    }
+                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
+                    return format!("{proto}.to_string()");
+                }
+                // [actor-group] The group surface.
+                "protocol" if args.is_empty() => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error("`protocol` needs an effect as its type argument");
+                        return "todo!()".to_string();
+                    };
+                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
+                        self.error(format!(
+                            "`protocol<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
+                        ));
+                        return "todo!()".to_string();
+                    }
+                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
+                    let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+                    return format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}");
+                }
+                "publish_group" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let name = self.emit_read(args[0]);
+                    let me = self.emit_read(args[1]);
+                    let msg = self.effect_path("ActorGroup", &msg_enum_name("ActorGroup"));
+                    return format!(
+                        "{{ let __me = ({me}).clone(); crate::scheduler::salvo_publish(({name}).clone(), __me, Some((__me, \
+                         |__n| Box::new({msg}::Peer(__n as i64)), \
+                         |__n, __ids| Box::new({msg}::Merged(__n as i64, __ids.iter().map(|__r| crate::scheduler::salvo_import_addr(*__r)).collect()))))) }}"
+                    );
+                }
+                "share_members" if args.len() == 3 => {
+                    self.needs_scheduler = true;
+                    let name = self.emit_read(args[0]);
+                    let node = self.emit_read(args[1]);
+                    let members = self.emit_read(args[2]);
+                    return format!(
+                        "crate::scheduler::salvo_share_members(&{name}, ({node}) as u64, &{members})"
+                    );
+                }
+                "pending" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_read(args[0]);
+                    return format!("crate::scheduler::salvo_pending(({a}).clone())");
+                }
+                "node_of" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_read(args[0]);
+                    return format!("(crate::scheduler::salvo_addr_identity(({a}).clone()).node as i64)");
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

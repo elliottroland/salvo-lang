@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–④ ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑤ ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -132,12 +132,12 @@ The layering, bottom up, and the order it is built in (each step runs on
    secret/TLS half of N-6 at the handshake (the name is compared, the secret
    is not yet carried); `HeartbeatNodeGroup` over a `Ddb` platform effect as
    the interop example.
-5. **Effect-typed generic parameters on declarations** (`<E>` on effects,
-   handlers and structs when every use is inside `Addr<E>`), then
-   **`ActorGroup<E>`** — a gossiping replica per node, `attach<E>(nodes)` (name
-   defaulting to the effect), `join(group, addr)`, `members`, `subscribe`,
-   `ActorChanges<E>`; `pending(addr)`; the **crossing-site `noremote` check**
-   (`attach<E>` refused when `E` has a `noremote` payload).
+5. ✅ **Effect-typed generics and `ActorGroup<E>` — built 2026-09-26**
+   (COMPLETED.md's log, "step ⑤"). [effect-generic-decl], [actor-group]:
+   erasure in `salvo_core::erase`, `attach`/`join`/`members`/`subscribe`,
+   `ActorChanges<E>`, `protocol<E>()` as the `noremote` crossing site,
+   `pending`, `node_of`, `eq` on addresses. **Left**: a partition/unreachable
+   withdrawal follows the node-group one (step ④'s leftover).
 6. **`[any E]` / `of any E`** — the weaker claim (no ordering, no shared state
    between sends), on both the requirement and the binding, viral downward
    like `local`; bare `[E]` keeps the strong meaning. With it the

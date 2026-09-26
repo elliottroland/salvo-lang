@@ -16446,9 +16446,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         }
         match arg {
+            // [effect-generic-decl] A generic effect's instance is an effect
+            // too (`Addr<ActorGroup<Counter>>`): its arguments are checked as
+            // the effect's own generics are, which the general walk does.
             ast::Type::Named { qualifiers, base } => {
                 qualifiers.is_empty()
-                    && base.args.is_empty()
                     && self.scope.effects.contains_key(base.name.name.as_str())
             }
             _ => false,
@@ -26460,6 +26462,42 @@ impl<'p, 'r> Checker<'p, 'r> {
                             block.describe()
                         ),
                     );
+                }
+            }
+        }
+        // [actor-group] [noremote] `protocol<E>()` names the protocol a group
+        // is of, and a group's members are reached from every node — so this
+        // is the **crossing site** where a protocol with a `noremote` payload
+        // is refused (user decision 2026-09-26: at the binding, not the
+        // declaration; the protocol stays a legal *local* one). The same
+        // predicate the emitters generate codecs from.
+        if decl.intrinsic && decl.name.name == "protocol" && args.is_empty() {
+            if let Some(ast_ty) = type_args.first() {
+                if let ast::Type::Named { base, .. } = ast_ty {
+                    if let Some(effect) = self.scope.effects.get(base.name.name.as_str()).copied() {
+                        let empty = std::collections::HashMap::new();
+                        for f in effect.fns.iter().filter(|f| f.is_send) {
+                            for p in f.params.iter().filter(|p| !p.implicit) {
+                                let Some(pty) = crate::wire::approx_ty(&p.ty, &empty) else { continue };
+                                if let Some(block) = crate::wire::wire_blocker(self.symbols, &pty) {
+                                    self.error(
+                                        span,
+                                        format!(
+                                            "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
+                                             so `protocol<{}>()` has nothing to name on the wire. Keep the \
+                                             actor local, or give the payload a wire form [noremote]",
+                                            effect.name.name,
+                                            effect.name.name,
+                                            f.name.name,
+                                            block.describe(),
+                                            effect.name.name
+                                        ),
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

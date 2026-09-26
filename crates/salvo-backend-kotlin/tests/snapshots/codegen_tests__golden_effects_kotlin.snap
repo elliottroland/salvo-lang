@@ -1127,7 +1127,7 @@ object SalvoSched {
     private val exportedTasks = HashMap<Long, Triple<Int, (Any?) -> Unit, (ByteArray) -> Pair<Boolean, Any?>>>()
     /** [addr-routable] Frames (from, to, bytes) for nodes with no route or wire yet. */
     private val parkedFramesOut = mutableListOf<Triple<Long, Long, ByteArray>>()
-    /** [node-group] Per hosted node: group name, own encoded endpoint, link face, events sink + builders. */
+    /** [node-group] Per hosted node: group name, own encoded endpoint, and the events sink with its three builders. */
     private class GroupState {
         var name = ""
         var endpoint = ByteArray(0)
@@ -1141,6 +1141,11 @@ object SalvoSched {
     private val peerProtocols = HashMap<Long, Map<String, String>>()
     /** [protocol-hash] This program's own table, registered at start-up. */
     private var protocols: List<Pair<String, String>> = emptyList()
+    /** [actor-group] What each hosted node publishes by name: identity, and the sink + builders. */
+    private class Published(val ref: SalvoRemoteRef, val sink: Int?, val named: ((Long) -> Any?)?, val members: ((Long, List<SalvoRemoteRef>) -> Any?)?)
+    private val published = HashMap<Long, HashMap<String, Published>>()
+    /** [actor-group] What peers have published: (node, name) → identity. */
+    private val peerNames = HashMap<Pair<Long, String>, SalvoRemoteRef>()
     /** Frames staged under the lock, sent once it is released. */
     private val outbox = ThreadLocal.withInitial { mutableListOf<Triple<ByteArray, ByteArray, (ByteArray, ByteArray) -> Unit>>() }
     // [main-pool] Pool 0 exists from the start and belongs to main.
@@ -2091,6 +2096,8 @@ object SalvoSched {
                 while (!actors[addr].dead && actors[addr].credits == 0) cv.await()
                 if (actors[addr].dead) return
                 actors[addr].credits -= 1
+                // On a proxy, `granted` counts what is in flight (what `pending` reads).
+                actors[addr].granted += 1
                 pools[currentPool()].node
             }
         // Encoded with the lock released (mirroring Rust, where the lock is
@@ -2210,6 +2217,57 @@ object SalvoSched {
         flushOut()
     }
 
+    private fun namedFrame(to: Long, from: Long, name: String, r: SalvoRemoteRef): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val d = java.io.DataOutputStream(out)
+        d.writeByte(8); d.writeLong(to); d.writeLong(from)
+        val nb = name.toByteArray(Charsets.UTF_8)
+        d.writeInt(nb.size); d.write(nb)
+        d.writeLong(r.node); d.writeLong(r.actor); d.writeLong(r.bits)
+        return out.toByteArray()
+    }
+
+    /** [actor-group] Publishes [addr] under [name] on the current node; hears of peers publishing the same. */
+    fun publish(name: String, addr: Int, sink: Int?, named: ((Long) -> Any?)?, members: ((Long, List<SalvoRemoteRef>) -> Any?)?) {
+        val already: List<Long> =
+            lock.withLock {
+                val node = pools[currentPool()].node
+                val a = actors[addr]
+                val r = a.remote ?: SalvoRemoteRef(a.node, addr.toLong(), a.bits)
+                published.getOrPut(node) { HashMap() }[name] = Published(r, sink, named, members)
+                for (to in peerProtocols.keys.toList()) routeFrame(node, to, namedFrame(to, node, name, r))
+                cv.signalAll()
+                peerNames.keys.filter { it.second == name }.map { it.first }
+            }
+        flushOut()
+        if (sink != null && named != null) {
+            for (n in already) enqueueEvent(sink, named(n))
+        }
+    }
+
+    /** [actor-group] Shares [members] with the replica named [name] on peer [to]: a MEMBERS frame. */
+    fun shareMembers(name: String, to: Long, members: List<Int>) {
+        lock.withLock {
+            val node = pools[currentPool()].node
+            val out = java.io.ByteArrayOutputStream()
+            val d = java.io.DataOutputStream(out)
+            d.writeByte(9); d.writeLong(to); d.writeLong(node)
+            val nb = name.toByteArray(Charsets.UTF_8)
+            d.writeInt(nb.size); d.write(nb)
+            d.writeInt(members.size)
+            for (m in members) {
+                val a = actors[m]
+                val r = a.remote ?: SalvoRemoteRef(a.node, m.toLong(), a.bits)
+                d.writeLong(r.node); d.writeLong(r.actor); d.writeLong(r.bits)
+            }
+            routeFrame(node, to, out.toByteArray())
+        }
+        flushOut()
+    }
+
+    /** [actor-group] [remote-backpressure] `pending(addr)`: queue depth locally, in-flight remotely. */
+    fun pending(addr: Int): Int = lock.withLock { val a = actors[addr]; if (a.remote != null) a.granted else a.userLen }
+
     private fun enqueueEvent(sink: Int, msg: Any?) {
         lock.withLock {
             if (!actors[sink].dead) {
@@ -2283,6 +2341,8 @@ object SalvoSched {
                 val parked = ArrayList(parkedFramesOut)
                 parkedFramesOut.clear()
                 for ((f, n, fr) in parked) routeFrame(f, n, fr)
+                // [actor-group] Everything this node publishes, told to the new peer.
+                published[node]?.forEach { (n, p) -> routeFrame(node, from, namedFrame(from, node, n, p.ref)) }
                 cv.signalAll()
                 Pair(g.sink, g.hello)
             }
@@ -2334,6 +2394,36 @@ object SalvoSched {
                         enqueueEvent(sink.first, sink.second!!(from))
                     }
                     flushOut()
+                    return true
+                }
+                if (kind == 8) {
+                    val from = d.readLong()
+                    val nb = ByteArray(d.readInt()); d.readFully(nb)
+                    val name = String(nb, Charsets.UTF_8)
+                    val r = SalvoRemoteRef(d.readLong(), d.readLong(), d.readLong())
+                    val p =
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            peerNames[Pair(from, name)] = r
+                            published[toNode]?.get(name)
+                        }
+                    if (p?.sink != null && p.named != null) enqueueEvent(p.sink, p.named.invoke(from))
+                    return true
+                }
+                if (kind == 9) {
+                    val from = d.readLong()
+                    val nb = ByteArray(d.readInt()); d.readFully(nb)
+                    val name = String(nb, Charsets.UTF_8)
+                    val count = d.readInt()
+                    val ids = ArrayList<SalvoRemoteRef>(count)
+                    for (i in 0 until count) ids.add(SalvoRemoteRef(d.readLong(), d.readLong(), d.readLong()))
+                    val p =
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            published[toNode]?.get(name)
+                        }
+                    // Built with the lock released: the builder imports every identity.
+                    if (p?.sink != null && p.members != null) enqueueEvent(p.sink, p.members.invoke(from, ids))
                     return true
                 }
                 if (kind == 7) {
@@ -2435,6 +2525,7 @@ object SalvoSched {
                             if (!hostedNodes.contains(toNode)) return false
                             val idx = proxies[SalvoRemoteRef(host, actor, bits)] ?: return false
                             actors[idx].credits += n
+                            actors[idx].granted = clamp(actors[idx].granted - n)
                             cv.signalAll()
                             true
                         }

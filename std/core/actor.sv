@@ -26,6 +26,11 @@
 // surface (`watch`) is how a death is *observed* rather than tripped over.
 export intrinsic type Addr<E>
 
+// [actor-types] Two addrs are equal when they name the same actor — the same
+// identity, whether both are the local index or one is a proxy of the other's
+// actor. What a group's membership check reads [actor-group].
+export intrinsic fn eq<E>(a: Addr<E>, b: Addr<E>) [] -> Bool => a, b
+
 // [actor-replyto] A one-shot answer channel, minted by `replyto k(captures)`
 // and consumed by sending to it. **Linear**, which is the guarantee the whole
 // request/response shape rests on: an answer is delivered exactly once, on

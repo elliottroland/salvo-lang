@@ -198,6 +198,13 @@ pub fn fn_call(
         // Vec<u8>` is element-wise, which is what the Kotlin runtime's
         // `SalvoBytes.equals` also does [kt-bytes].
         ("eq", Some("Bytes")) => format!("({} == {})", a(0), a(1)),
+        // [actor-types] Same actor: the same routable identity, so a proxy
+        // and the actor it stands for compare equal.
+        ("eq", Some("Addr")) => format!(
+            "(crate::scheduler::salvo_addr_identity(({}).clone()) == crate::scheduler::salvo_addr_identity(({}).clone()))",
+            a(0),
+            a(1)
+        ),
         ("eq", Some("Int" | "Long" | "Double" | "Float" | "Byte" | "Char" | "Bool")) => {
             format!("(({}) == ({}))", a(0), a(1))
         }

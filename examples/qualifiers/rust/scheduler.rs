@@ -138,6 +138,13 @@ pub type GoneOf = fn(u64) -> SalvoMsg;
 /// [node-group] Builds `PeerEvents.introduced` from the encoded endpoints an
 /// INTRO frame carries.
 pub type IntroOf = fn(&[Vec<u8>]) -> SalvoMsg;
+/// [actor-group] Builds the message a publisher receives when a peer node
+/// publishes the same name: given the peer node.
+pub type NamedOf = fn(u64) -> SalvoMsg;
+/// [actor-group] Builds the message a publisher receives when a peer's
+/// replica shares members: the peer node and the identities (which the
+/// builder imports into addrs).
+pub type MembersOf = fn(u64, &[RemoteRef]) -> SalvoMsg;
 
 struct GroupState {
     name: String,
@@ -325,6 +332,12 @@ struct Sched {
     /// [protocol-hash] This program's own table, registered by generated
     /// code at start-up: every actor effect with a wire form and its hash.
     protocols: Vec<(String, String)>,
+    /// [actor-group] What each hosted node publishes by name: the identity
+    /// and, when a local actor wants to hear of peers publishing the same
+    /// name, the sink and the builder for its message.
+    published: HashMap<u64, HashMap<String, (RemoteRef, Option<(usize, NamedOf, MembersOf)>)>>,
+    /// [actor-group] What peers have published: (node, name) → identity.
+    peer_names: HashMap<(u64, String), RemoteRef>,
     /// [time-timer] Whether the deadline thread is running. Started by the
     /// first `salvo_after`, so a program that never sets a timer has no timer
     /// thread — and one that does has exactly one, never a thread per timer.
@@ -364,6 +377,8 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 groups: HashMap::new(),
                 peer_protocols: HashMap::new(),
                 protocols: Vec::new(),
+                published: HashMap::new(),
+                peer_names: HashMap::new(),
                 timer_thread: false,
             }),
             Condvar::new(),
@@ -1285,6 +1300,14 @@ fn report_fault(s: &mut Sched, pool: usize, reason: String) {
 //   7 INTRO to.node u64, from.node u64, endpoints (u32 count, then each as a
 //           u32-length-prefixed encoded NodeEndpoint) — gossip's introductions,
 //           arriving as `PeerEvents.introduced`
+//   8 NAMED to.node u64, from.node u64, name (u32 len + UTF-8), identity
+//           (node u64, actor u64, bits u64) — "I publish this actor under this
+//           name" [actor-group]; sent to every peer at publish and to every
+//           new peer after its handshake, and delivered to the local publisher
+//           of the same name as the message its `publish` registered
+//   9 MEMBERS to.node u64, from.node u64, name, identities (u32 count, then
+//           24 bytes each) — a group replica sharing its members with the
+//           replica of the same name on a peer node
 // Delivery is at most once and in order per (sender, receiver) pair — the
 // transport's guarantee, and nothing more [net-transport].
 // ======================================================================
@@ -1545,6 +1568,9 @@ pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M,
         return;
     }
     s.actors[addr].credits -= 1;
+    // On a proxy, `granted` counts what is in flight: sent, not yet credited
+    // back — what `pending` reads.
+    s.actors[addr].granted += 1;
     let from = s.pools[salvo_current_pool()].node;
     // Encode with the lock **released**: a payload holding an `Addr` or a
     // `Reply` encodes its routable identity by asking the scheduler, which
@@ -1562,6 +1588,22 @@ pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M,
     route_frame(&mut s, from, r.node, frame);
     drop(s);
     flush_out();
+}
+
+/// [actor-group] [remote-backpressure] `pending(addr)`: how loaded a member
+/// looks from here — the queue depth of a local actor, or `bound − credits`
+/// for a proxy (the messages in flight to it that its host has not yet
+/// dequeued, as far as this node knows; `bound` is unknown for a proxy, so
+/// the messages *sent and not yet credited back* stand in for it).
+pub fn salvo_pending(addr: usize) -> i32 {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    let a = &s.actors[addr];
+    if a.remote.is_some() {
+        a.granted as i32
+    } else {
+        a.user_len as i32
+    }
 }
 
 /// [remote-backpressure] The credit balance of a proxy — what `pending(addr)`
@@ -1833,11 +1875,20 @@ fn deliver_handshake(kind: u8, frame: &[u8]) -> bool {
     for (f, n, fr) in parked {
         route_frame(&mut s, f, n, fr);
     }
+    // [actor-group] Everything this node publishes, told to the new peer.
+    let mine: Vec<(String, RemoteRef)> = s
+        .published
+        .get(&node)
+        .map(|m| m.iter().map(|(n, (r, _))| (n.clone(), *r)).collect())
+        .unwrap_or_default();
+    for (n, r) in mine {
+        let frame = named_frame(from, node, &n, r);
+        route_frame(&mut s, node, from, frame);
+    }
     cv.notify_all();
     drop(s);
     flush_out();
-    // The message is built with the lock released: the builder imports the
-    // peer's `NodeLink` addr, which asks the scheduler.
+    // The message is built with the lock released.
     if let Some((sink, hello, _, _)) = sink {
         let msg = hello(from, &endpoint, &table);
         let mut s = lock.lock().unwrap();
@@ -1848,6 +1899,97 @@ fn deliver_handshake(kind: u8, frame: &[u8]) -> bool {
         cv.notify_all();
     }
     true
+}
+
+fn named_frame(to: u64, from: u64, name: &str, r: RemoteRef) -> Vec<u8> {
+    let mut frame = vec![8u8];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&from.to_be_bytes());
+    put_str(&mut frame, name);
+    frame.extend_from_slice(&r.node.to_be_bytes());
+    frame.extend_from_slice(&r.actor.to_be_bytes());
+    frame.extend_from_slice(&r.bits.to_be_bytes());
+    frame
+}
+
+/// [actor-group] The current node publishes `addr` under `name`, and asks to
+/// hear — as the message `named` builds, at `sink` — of every peer node that
+/// publishes the same name, now or later. Peers already known learn of it
+/// now; a NAMED goes to every peer that completes a handshake afterwards.
+pub fn salvo_publish(name: String, addr: usize, sink: Option<(usize, NamedOf, MembersOf)>) {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let a = &s.actors[addr];
+    let r = a.remote.unwrap_or(RemoteRef {
+        node: a.node,
+        actor: addr as u64,
+        bits: a.bits,
+    });
+    s.published
+        .entry(node)
+        .or_default()
+        .insert(name.clone(), (r, sink));
+    let peers: Vec<u64> = s.peer_protocols.keys().copied().collect();
+    for to in peers {
+        let frame = named_frame(to, node, &name, r);
+        route_frame(&mut s, node, to, frame);
+    }
+    // Peers that published the name before we did are told to us now.
+    let already: Vec<u64> = s
+        .peer_names
+        .iter()
+        .filter(|((_, n), _)| *n == name)
+        .map(|((node, _), _)| *node)
+        .collect();
+    cv.notify_all();
+    drop(s);
+    flush_out();
+    if let Some((sink, named, _)) = sink {
+        for r in already {
+            let msg = named(r);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+    }
+}
+
+/// [actor-group] Shares `members` with the replica named `name` on peer
+/// `to`: a MEMBERS frame from the current node.
+pub fn salvo_share_members(name: &str, to: u64, members: &[usize]) {
+    let (lock, _) = state();
+    let mut s = lock.lock().unwrap();
+    let node = s.pools[salvo_current_pool()].node;
+    let mut frame = vec![9u8];
+    frame.extend_from_slice(&to.to_be_bytes());
+    frame.extend_from_slice(&node.to_be_bytes());
+    put_str(&mut frame, name);
+    frame.extend_from_slice(&(members.len() as u32).to_be_bytes());
+    for &m in members {
+        let a = &s.actors[m];
+        let r = a.remote.unwrap_or(RemoteRef {
+            node: a.node,
+            actor: m as u64,
+            bits: a.bits,
+        });
+        frame.extend_from_slice(&r.node.to_be_bytes());
+        frame.extend_from_slice(&r.actor.to_be_bytes());
+        frame.extend_from_slice(&r.bits.to_be_bytes());
+    }
+    route_frame(&mut s, node, to, frame);
+    drop(s);
+    flush_out();
+}
+
+/// [actor-group] What peer `node` published under `name`, if anything.
+pub fn salvo_lookup(node: u64, name: &str) -> Option<RemoteRef> {
+    let (lock, _) = state();
+    let s = lock.lock().unwrap();
+    s.peer_names.get(&(node, name.to_string())).copied()
 }
 
 fn read_u64(b: &[u8], at: usize) -> Option<u64> {
@@ -1910,6 +2052,76 @@ pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
         cv.notify_all();
         drop(s);
         flush_out();
+        return true;
+    }
+    if kind == 8 {
+        let Some(from) = read_u64(frame, 9) else { return false };
+        let mut at = 17;
+        let Some(name) = read_str(frame, &mut at) else { return false };
+        let (Some(n), Some(a), Some(b)) = (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
+        else {
+            return false;
+        };
+        let r = RemoteRef { node: n, actor: a, bits: b };
+        let sink = {
+            let mut s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            s.peer_names.insert((from, name.clone()), r);
+            s.published
+                .get(&to_node)
+                .and_then(|m| m.get(&name))
+                .and_then(|(_, sink)| *sink)
+        };
+        if let Some((sink, named, _)) = sink {
+            let msg = named(from);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
+        return true;
+    }
+    if kind == 9 {
+        let Some(from) = read_u64(frame, 9) else { return false };
+        let mut at = 17;
+        let Some(name) = read_str(frame, &mut at) else { return false };
+        let Some(count) = frame.get(at..at + 4) else { return false };
+        let count = u32::from_be_bytes([count[0], count[1], count[2], count[3]]) as usize;
+        at += 4;
+        let mut ids: Vec<RemoteRef> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let (Some(n), Some(a), Some(b)) =
+                (read_u64(frame, at), read_u64(frame, at + 8), read_u64(frame, at + 16))
+            else {
+                return false;
+            };
+            ids.push(RemoteRef { node: n, actor: a, bits: b });
+            at += 24;
+        }
+        let sink = {
+            let s = lock.lock().unwrap();
+            if !s.hosted_nodes.contains(&to_node) {
+                return false;
+            }
+            s.published
+                .get(&to_node)
+                .and_then(|m| m.get(&name))
+                .and_then(|(_, sink)| *sink)
+        };
+        // Built with the lock released: the builder imports every identity.
+        if let Some((sink, _, members)) = sink {
+            let msg = members(from, &ids);
+            let mut s = lock.lock().unwrap();
+            if !s.actors[sink].dead {
+                s.actors[sink].queue.push_back(Entry::User(msg, None));
+                s.actors[sink].user_len += 1;
+            }
+            cv.notify_all();
+        }
         return true;
     }
     if kind == 7 {
@@ -2058,6 +2270,9 @@ pub fn salvo_deliver_frame(frame: &[u8]) -> bool {
             match s.proxies.get(&r).copied() {
                 Some(idx) => {
                     s.actors[idx].credits += n;
+                    // The initial grant is not a credit back; only grants
+                    // matching in-flight messages reduce the count.
+                    s.actors[idx].granted = s.actors[idx].granted.saturating_sub(n);
                     cv.notify_all();
                     true
                 }

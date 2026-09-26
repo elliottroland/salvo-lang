@@ -429,6 +429,210 @@ fn dial(me: NodeEndpoint, dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> 
     let _sent = deliver(e, hello_frame())
 }
 
+// ---------------------------------------------------------- actor group ----
+
+// [protocol-hash] A protocol named as a value: what `attach` is told which
+// effect a group is of, so a peer whose hash for it differs is refused before
+// any message is exchanged. Built by [protocol], never by hand; `E` types the
+// value and is erased in the output [effect-generic-decl].
+export struct Protocol<E> {
+    name: Str,
+    hash: Str
+}
+
+// [protocol-hash] The protocol [E], as a value: `protocol<Counter>()`.
+export intrinsic fn protocol<E>() [] -> Protocol<E>
+
+// [actor-group] Membership of **actors of one protocol**, across every node
+// of a group — the other membership level, beside `NodeGroup`. An
+// `ActorGroup<E>` is a set of `Addr<E>`, one replica per node, the replicas
+// finding each other by name through the node group's peers and exchanging
+// their sets; a member may live on any node, and an addr answered by
+// `members` routes there like any addr [addr-routable]. Generic over the
+// *effect* [effect-generic-decl]: `ActorGroup<Counter>` and
+// `ActorGroup<Ledger>` are distinct types, so a group can only ever hold the
+// protocol it is of.
+export actor effect ActorGroup<E> {
+    // Register [member] here; every replica learns of it.
+    send fn join(member: Addr<E>) => !member
+    // Withdraw [member].
+    send fn leave(member: Addr<E>) => !member
+    // Every member known to this replica, across nodes.
+    send fn members(out: Reply<List<Addr<E>>>) => !out
+    // Hear about arrivals and departures.
+    send fn subscribe(w: Addr<ActorChanges<E>>) => !w
+    // Runtime: peer node [node] published a replica under this group's name.
+    send fn peer(node: Long) => !node
+    // Runtime: the replica on [from] shared everything it knows (a MEMBERS
+    // frame, sent with [share_members]). Replicas talk through frames rather
+    // than through addrs of one another, so the group serves `ActorGroup` and
+    // never sends it — no send cycle for the deadlock graph to warn of.
+    send fn merged(from: Long, found: List<Addr<E>>) => !from, !found
+    // The spawner hands the replica its own addr, which it publishes.
+    send fn start(me: Addr<ActorGroup<E>>) => !me
+}
+
+// [actor-group] What a subscriber hears.
+export actor effect ActorChanges<E> {
+    send fn joined(member: Addr<E>) => !member
+    send fn left(member: Addr<E>) => !member
+}
+
+// [actor-group] Publishes [me] under [name] on the current node and asks to
+// hear, as `ActorGroup.peer`, of every peer node that publishes the same name,
+// and as `ActorGroup.merged` of what those peers share.
+export intrinsic fn publish_group<E>(name: Str, me: Addr<ActorGroup<E>>) [] -> None => name, !me
+
+// [actor-group] Tells the replica named [name] on peer [node] about [members]:
+// a MEMBERS frame, arriving there as `ActorGroup.merged`.
+export intrinsic fn share_members<E>(name: Str, node: Long, members: List<Addr<E>>) [] -> None
+    => name, node, members
+
+// [actor-group] [remote-backpressure] How loaded a member looks from here:
+// the queue depth of a local actor, or the messages in flight to a remote one
+// that its host has not yet dequeued. What a pick compares (step ⑦).
+export intrinsic fn pending<E>(a: Addr<E>) [] -> Int => a
+
+// [actor-group] Attaches to the group of [proto] named [name] over [nodes]: one
+// replica, spawned on the current pool, published under the name. The same
+// name from two nodes is one group. Refused — at run time, by the replica —
+// for a peer whose hash of the protocol differs: its members are never merged.
+export fn attach<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
+    => !name, !proto, !nodes {
+    let group = spawn ActorGrouping<E>(name, proto, nodes) on pool(1)
+    group.start(copy(group))
+    return group
+}
+
+// [actor-group] Registers [member] in [group]: `join(pings, spawn Pinging() on
+// p)` is a node's whole way of hosting a member.
+export fn join<E>(group: Addr<ActorGroup<E>>, member: Addr<E>) [] -> None => group, !member {
+    group.join(member)
+}
+
+// [actor-group] The common case: the group named after the protocol itself.
+export fn attach<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !proto, !nodes {
+    let name = copy(proto.name)
+    return attach(name, proto, nodes)
+}
+
+// [actor-group] The std replica. State: members as a list of addrs (an addr
+// has no `hash` yet, so membership is checked by `eq`), the peer replicas, the
+// subscribers.
+export handler ActorGrouping<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn]
+    of ActorGroup<E> {
+    mailbox { capacity: 64 }
+
+    all: Mut List<Addr<E>> = mut_list_of()
+    peers: Mut List<Long> = mut_list_of()
+    watchers: Mut List<Addr<ActorChanges<E>>> = mut_list_of()
+
+    send fn start(me: Addr<ActorGroup<E>>) => !me {
+        publish_group(copy(name), me)
+    }
+
+    send fn join(member: Addr<E>) => !member {
+        if !admit(all, copy(member)) {
+            return
+        }
+        for w in watchers {
+            w.joined(copy(member))
+        }
+        for p in peers {
+            share_members(copy(name), copy(p), [copy(member)])
+        }
+    }
+
+    send fn leave(member: Addr<E>) => !member {
+        if !withdraw(all, copy(member)) {
+            return
+        }
+        for w in watchers {
+            w.left(copy(member))
+        }
+    }
+
+    send fn members(out: Reply<List<Addr<E>>>) => !out {
+        out.send(copy(all))
+    }
+
+    send fn subscribe(w: Addr<ActorChanges<E>>) => !w {
+        add(watchers, w)
+    }
+
+    send fn peer(node: Long) => !node {
+        // [protocol-hash] A peer whose version of the protocol differs is
+        // invisible: its members are never merged, and it never hears ours.
+        let theirs = peer_protocol(copy(node), copy(proto.name))
+        if theirs is None || !eq(theirs, proto.hash) {
+            return
+        }
+        if contains_node(peers, copy(node)) {
+            return
+        }
+        add(peers, copy(node))
+        share_members(copy(name), node, copy(all))
+    }
+
+    send fn merged(from: Long, found: List<Addr<E>>) => !from, !found {
+        if !contains_node(peers, copy(from)) {
+            let theirs = peer_protocol(copy(from), copy(proto.name))
+            if theirs is None || !eq(theirs, proto.hash) {
+                return
+            }
+            add(peers, from)
+        }
+        for m in found {
+            if admit(all, copy(m)) {
+                for w in watchers {
+                    w.joined(copy(m))
+                }
+            }
+        }
+    }
+}
+
+// Adds an addr to a list unless it is already there; answers whether it was
+// added. Linear scan: a group's member set is small.
+fn admit<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a {
+    for x in list {
+        if eq(x, a) {
+            return false
+        }
+    }
+    add(list, a)
+    return true
+}
+
+fn contains_node(list: List<Long>, n: Long) [] -> Bool => list, n {
+    for x in list {
+        if eq(x, n) {
+            return true
+        }
+    }
+    return false
+}
+
+fn withdraw<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a {
+    let mut_index: Int? = None
+    let i = 0
+    for x in list {
+        if eq(x, a) {
+            mut_index = i
+        }
+        i = i + 1
+    }
+    if mut_index is None {
+        return false
+    }
+    let _removed = remove_at(list, mut_index)
+    return true
+}
+
+// [addr-routable] The node an addr lives on — for a log line, and for the
+// group's peer check.
+export intrinsic fn node_of<E>(a: Addr<E>) [] -> Long => a
+
 // ---------------------------------------------------------------- host ----
 
 // The machine's transport: TCP, one connection per peer, length-prefixed
@@ -576,3 +780,13 @@ fn cut_key(a: NodeEndpoint, b: NodeEndpoint) [] -> Str => a, b {
     return "${to_str(a)}>${to_str(b)}"
 }
 
+
+// [protocol-hash] The name of protocol [E], as its declaration spells it: what
+// a group of `E` is keyed by across nodes, and the string `peer_protocol`
+// takes. Written with an explicit type argument, `protocol_name<Ping>()`.
+export intrinsic fn protocol_name<E>() [] -> Str
+
+// [protocol-hash] This program's canonical hash of protocol [E] — the constant
+// the compiler computed [protocol-hash] — for logging, and for comparing with
+// a peer's `peer_protocol` answer.
+export intrinsic fn protocol_hash<E>() [] -> Str

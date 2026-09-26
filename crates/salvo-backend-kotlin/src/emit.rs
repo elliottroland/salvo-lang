@@ -80,9 +80,20 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 pub fn emit_program_reporting(
     program: &Program,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
-    let symbols = Symbols::collect(program);
+    let original_symbols = Symbols::collect(program);
     let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::check_program(program, &resolution, &symbols);
+    let checked = salvo_core::check_program(program, &resolution, &original_symbols);
+    // [effect-generic-decl] Emission reads the program with its effect-only
+    // generics erased, against the checker's span-keyed tables from the
+    // original (see the Rust backend's `emit_program_reporting`).
+    let erased = salvo_core::erased_generics(program);
+    let erased_program = salvo_core::erase_effect_generics(program, &erased);
+    let program = &erased_program;
+    let symbols = Symbols::collect(program);
+    // Re-resolved over the erased copy: the emitter matches declarations by
+    // address between the scopes and the symbol table, so both must point
+    // into the same tree.
+    let resolution = salvo_core::resolve(program);
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
@@ -179,6 +190,7 @@ pub fn emit_program_reporting(
         // imports of Kotlin-visible items [kt-imports].
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         emitter.effect_paths = effect_paths.clone();
+        emitter.erased = erased.clone();
         emitter.fusion = fusion;
         let generated = emitter.generate_imports(
             unit.ast,
@@ -984,6 +996,8 @@ struct Emitter<'p> {
     /// [fn-effects] Fully-qualified package prefix per effect name, for the
     /// generated pass-interface file (which imports nothing).
     effect_paths: HashMap<String, String>,
+    /// [effect-generic-decl] Declarations whose generics are erased at emission.
+    erased: salvo_core::Erased,
     /// [kt-effect-fusion] The program-wide fusion gate: any handler
     /// declares an effect dependency. Mirrors [rs-effect-fusion]'s switch —
     /// a fn's signature must not depend on which of its callers holds a
@@ -1166,6 +1180,7 @@ impl<'p> Emitter<'p> {
             union_sizes: BTreeSet::new(),
             tuple_sizes: BTreeSet::new(),
             effect_paths: HashMap::new(),
+            erased: salvo_core::Erased::default(),
             fusion: false,
             has_ifaces: std::collections::BTreeMap::new(),
             handler_member_of: None,
@@ -3841,6 +3856,11 @@ impl<'p> Emitter<'p> {
                 return code;
             }
         }
+        // [effect-generic-decl] An erased declaration's instance has no
+        // arguments in the output.
+        if self.erased.is_erased(&name) {
+            return self.emit_type_ref_named(&name, &[]);
+        }
         self.emit_type_ref_named(&name, &base.args)
     }
     fn expand_mut_type(&mut self, name: &str, arg_strs: &[String]) -> Option<String> {
@@ -3854,6 +3874,9 @@ impl<'p> Emitter<'p> {
     }
 
     fn emit_type_ref(&mut self, r: &TypeRef) -> String {
+        if self.erased.is_erased(&r.name.name) {
+            return self.emit_type_ref_named(&r.name.name, &[]);
+        }
         self.emit_type_ref_named(&r.name.name, &r.args)
     }
 
@@ -4028,6 +4051,9 @@ impl<'p> Emitter<'p> {
                             return self.plain_addr_rendering(&effect, &rendered);
                         }
                     }
+                }
+                if self.erased.is_erased(name) {
+                    return self.emit_named_parts(name, &[]);
                 }
                 let arg_strs: Vec<String> = args.iter().map(|a| self.kotlin_ty(a)).collect();
                 self.emit_named_parts(name, &arg_strs)
@@ -8470,6 +8496,77 @@ impl<'p> Emitter<'p> {
                         "salvo.SalvoSched.introduce({node}, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
                     );
                 }
+                // [protocol-hash] The name and hash of a protocol named as a
+                // type argument.
+                "protocol_name" | "protocol_hash" if args.is_empty() => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error(format!("`{}` needs an effect as its type argument", f.name.name));
+                        return "\"\"".to_string();
+                    };
+                    if f.name.name == "protocol_name" {
+                        return format!("\"{effect}\"");
+                    }
+                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
+                        self.error(format!(
+                            "`protocol_hash<{effect}>()`: `{effect}` has no wire form, so no hash"
+                        ));
+                        return "\"\"".to_string();
+                    };
+                    return format!("{prefix}__PROTO_{}", kt_ident(&effect));
+                }
+                // [actor-group] The group surface.
+                "protocol" if args.is_empty() => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error("`protocol` needs an effect as its type argument");
+                        return "TODO()".to_string();
+                    };
+                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
+                        self.error(format!(
+                            "`protocol<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
+                        ));
+                        return "TODO()".to_string();
+                    };
+                    let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+                    return format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(&effect));
+                }
+                "publish_group" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let name = self.emit_expr(args[0]);
+                    let me = self.emit_expr(args[1]);
+                    let msg = msg_class_name("ActorGroup");
+                    return format!(
+                        "run {{ val __me = {me}; salvo.SalvoSched.publish({name}, __me, __me, \
+                         {{ __n -> {msg}.Peer(__n) }}, \
+                         {{ __n, __ids -> {msg}.Merged(__n, __ids.map {{ salvo.SalvoSched.importAddr(it) }}) }}) }}"
+                    );
+                }
+                "share_members" if args.len() == 3 => {
+                    self.needs_scheduler = true;
+                    let name = self.emit_expr(args[0]);
+                    let node = self.emit_expr(args[1]);
+                    let members = self.emit_expr(args[2]);
+                    return format!("salvo.SalvoSched.shareMembers({name}, {node}, {members})");
+                }
+                "pending" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.pending({a})");
+                }
+                "node_of" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    let a = self.emit_expr(args[0]);
+                    return format!("salvo.SalvoSched.addrIdentity({a}).node");
+                }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     self.needs_wire = true;
@@ -9167,7 +9264,13 @@ impl<'p> Emitter<'p> {
         // ordinary trailing arguments, so nothing about them is visible in
         // the emitted Kotlin.
         all.extend(self.emit_implicit_args(named, span));
-        let generics = self.emit_type_args(type_args);
+        // [effect-generic-decl] A function whose generics erased takes no
+        // type arguments in the output.
+        let generics = if f.generics.is_empty() {
+            String::new()
+        } else {
+            self.emit_type_args(type_args)
+        };
         // A call through an import alias keeps the alias: the generated
         // Kotlin alias import maps it to the declaration [kt-imports].
         // A mangled qualified overload keeps the same `__Qual` suffix on

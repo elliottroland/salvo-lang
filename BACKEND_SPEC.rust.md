@@ -1690,6 +1690,21 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   Frames staged under the lock go out through a thread-local outbox flushed
   after every release (`flush_out`), including in `run_job` for the credit a
   dequeue grants.
+* [rs-wire] [effect-generic-decl] [actor-group] The emitter builds against
+  `salvo_core::erase_effect_generics(program, &erased_generics(program))`:
+  `rust_ty`/`emit_named_type` drop the type arguments of an erased name, and a
+  call to an erased fn takes no turbofish (its `generics` are empty in the
+  copy, so `effect_instance_turbofish` has nothing to emit). `#![allow(…)]`
+  gains `non_upper_case_globals` for the free `__DECODE_*`/`__PROTO_*`
+  constants of erased generics. Runtime: `Sched.published` (node → name →
+  `Published { r#ref, sink, named, members }`) and `peer_names` ((node, name) →
+  `RemoteRef`); frames NAMED (8) and MEMBERS (9); `salvo_publish(name, addr,
+  sink, named, members)`, `salvo_share_members(name, to, members)`,
+  `salvo_pending(addr)` (queue depth locally, `granted` on a proxy; GRANT
+  decrements it). The handshake ACK/HELLO path sends every published name to
+  the new peer. Intrinsics lowered: `protocol_name`/`protocol_hash`/`protocol`
+  (from the per-protocol hash constant), `publish_group`, `share_members`,
+  `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

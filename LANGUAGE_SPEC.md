@@ -5416,6 +5416,51 @@ between endpoints and delivers what arrives into the scheduler.
     departure is only a LEAVE today; a failed `deliver` should become
     `left(n, "unreachable")`), and `HeartbeatNodeGroup` over a `Ddb` platform
     effect as the interop example.
+* [effect-generic-decl] **A generic that is only ever an effect is erased.**
+  A type parameter that occurs solely inside `Addr<…>` (or as the argument
+  of another erased declaration, or nowhere at all on a struct whose every
+  instantiation names an effect) carries no representation: `Addr<E>` lowers
+  to the same handle for every `E`. The checker sees `Reg<E>`, `attach<E>`,
+  `ActorGroup<E>` as ordinary generics — `Addr<ActorGroup<Ping>>` is checked
+  as such — and both emitters emit them **monomorphic**: `salvo_core::erase`
+  computes the erased set as a fixpoint over the program (self-reference
+  allowed, so `actor effect ActorGroup<E> { peer(other: Addr<ActorGroup<E>>) }`
+  erases), then emits a copy with those generic lists cleared and drops the
+  type arguments at every use — no turbofish, no `<T>` on the Kotlin fn.
+  Erasure is per declaration, not per name: `eq<E>(a: Addr<E>, b: Addr<E>)`
+  erases beside `eq(a: Box<T>, b: Box<T>)`, which keeps its `T`. A generic
+  that *also* occurs outside `Addr` stays a generic.
+  * Because the emitters match declarations by address between the resolver's
+    scopes and the symbol table, both are rebuilt over the erased copy; the
+    checker's span-keyed side tables from the original still apply, since
+    erasure changes no span.
+* [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
+  spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
+  `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`, plus the
+  mechanism's own `peer(node)`, `merged(from, found)`, `start(me)`.
+  `attach<E>(name, proto, nodes) -> Addr<ActorGroup<E>>` spawns the std
+  `ActorGrouping<E>` handler on the current node and **publishes it by
+  name**, so a replica attaching the same name on another node finds it: the
+  runtime carries a NAMED frame per published name (sent in the handshake to
+  every new peer, and on `publish` to every known peer) and a MEMBERS frame
+  for the member exchange, both frames rather than actor sends so the group
+  never sends the protocol it serves [actor-deadlock-cycle]. Replicas merge
+  their member sets, admit a remote member once, and withdraw every member
+  hosted on a node that leaves. `join<E>(group, member)` is the ordinary
+  send; `members` answers the union as seen locally.
+  * `protocol<E>() -> Protocol<E>{name, hash}` is the crossing site for
+    `noremote` [noremote]: it refuses when any `send fn` of `E` carries a
+    payload with no wire form — "a group of `E` cannot span nodes" — so an
+    `Addr<E>` that could not be routed is never published.
+  * `pending(addr) -> Int` answers the mailbox depth of a local actor and the
+    in-flight (granted, unacknowledged) count on a proxy
+    [remote-backpressure] — what a load-aware picker reads (step ⑦).
+  * `eq(a: Addr<E>, b: Addr<E>)` is identity on both backends, so members can
+    be compared and deduplicated; `node_of(addr) -> Node` answers the host.
+  * **Naming**: node groups and actor groups stay visibly distinct —
+    `NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` for the machines,
+    `ActorGroup<E>`/`ActorChanges<E>` (and `ActorGroupView<E>`/`ActorView<E>`
+    in step ⑦) for the actors; `Addr<E>` keeps its name.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)

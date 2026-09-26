@@ -104,6 +104,11 @@ pub fn fn_call(
         // [fn-attached] [kt-bytes] A buffer compares **structurally**: the
         // runtime class overrides `equals`/`hashCode` for exactly this.
         ("eq", Some("Bytes")) => format!("(({}) == ({}))", a(0), a(1)),
+        ("eq", Some("Addr")) => format!(
+            "(salvo.SalvoSched.addrIdentity({}) == salvo.SalvoSched.addrIdentity({}))",
+            a(0),
+            a(1)
+        ),
         // [cmp-hash-values] The host's own digest, widened to the `Long` the
         // signature answers. Values differ from Rust's by design; what holds
         // on both is that equal values hash equal.

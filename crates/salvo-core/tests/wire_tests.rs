@@ -23,12 +23,21 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
     "export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>\n",
     "export noremote intrinsic type Pool\n",
-    "export intrinsic fn pool(size: Int) [] -> Pool => size\n",
+    "export intrinsic fn pool(size: Int) [spawn] -> Pool => size\n",
+    "export intrinsic type Addr<E>\n",
+    "export linear intrinsic type Reply<T>\n",
+    "export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value\n",
+    "export struct Mailbox { capacity: Int }\n",
+    "export intrinsic fn mut_list_of<T>(...elems: T[]) [] -> Mut List<T>\n",
+    "export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n",
+    "export intrinsic fn copy<T>(value: T) [] -> T => value\n",
 );
 
 const STD_NET: &str = concat!(
     "export intrinsic fn encode<T>(value: T) [] -> Bytes => !value\n",
     "export intrinsic fn decode<T>(data: Bytes) [] -> T? => data\n",
+    "export struct Protocol<E> { name: Str, hash: Str }\n",
+    "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
 );
 
 fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
@@ -210,4 +219,47 @@ fn protocol_hash_follows_shape_not_names() {
         base,
         "the canonical form is `member(types);` with structs expanded"
     );
+}
+
+/// [actor-group] [noremote] The **crossing site**: naming a protocol with a
+/// `noremote` payload for a group is refused at `protocol<E>()`, by member and
+/// type — the protocol itself stays a legal local one (user decision
+/// 2026-09-26: the check lands at the binding, not the declaration).
+#[test]
+fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
+    let errs = messages(&format!(
+        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
+         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
+         actor effect Counter {{ send fn bump(n: Int) => !n }}\n\
+         fn main() -> None {{\n    let _ok = protocol<Counter>()\n    let _bad = protocol<Painter>()\n}}\n"
+    ));
+    assert_eq!(errs.len(), 1, "one refusal, for the noremote protocol only: {errs:?}");
+    assert!(
+        errs[0].contains("a group of `Painter` cannot span nodes")
+            && errs[0].contains("`Painter.paint` takes `Canvas`")
+            && errs[0].contains("[noremote]"),
+        "expected the crossing-site refusal, got {errs:?}"
+    );
+}
+
+/// [effect-generic-decl] An effect generic over an *effect*: `Addr<E>` is the
+/// one position `E` may take, a generic instance is itself an effect inside
+/// `Addr` (`Addr<Reg<Ping>>`), and a phantom struct parameter (`Protocol<E>`)
+/// types a value without occurring in it.
+#[test]
+fn effect_typed_generics_check() {
+    let errs = messages(&format!(
+        "{IMPORT}actor effect Ping {{ send fn ping(n: Int) => !n }}\n\
+         actor effect Reg<E> {{\n    send fn join(member: Addr<E>) => !member\n    \
+         send fn peers(out: Reply<List<Addr<E>>>) => !out\n    \
+         send fn twin(other: Addr<Reg<E>>) => !other\n}}\n\
+         handler Registering<E>() of Reg<E> {{\n    mailbox {{ capacity: 4 }}\n    \
+         all: Mut List<Addr<E>> = mut_list_of()\n    \
+         send fn join(member: Addr<E>) => !member {{ add(all, member) }}\n    \
+         send fn peers(out: Reply<List<Addr<E>>>) => !out {{ out.send(copy(all)) }}\n    \
+         send fn twin(other: Addr<Reg<E>>) => !other {{ }}\n}}\n\
+         fn main() [spawn] -> None {{\n    let _r = spawn Registering<Ping>() on pool(1)\n    \
+         let _p = protocol<Ping>()\n}}\n"
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }

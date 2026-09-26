@@ -157,3 +157,17 @@ let group = start_group(spawn GossipNodeGroup("mesh", copy(me), seeds) on p)
 group.subscribe(spawn Announcing() on p)                    // "+ b:1", "- b:1 (left)"
 let peers = waitfor out: Reply<List<Node>> { group.members(out) }
 ```
+
+### Actor groups
+
+Nodes are where actors live; the set of actors a program spreads across them is an **actor group**, `ActorGroup<E>` — a std actor effect over the protocol `E`. `attach(protocol<Ping>(), nodes)` starts one on the current node and publishes it by name, so the node that attaches the same protocol to the same node group gets a replica of the same group: the two exchange their members as nodes meet, admit each remote member once, and withdraw every member hosted on a node that leaves. `join(group, addr)` adds a member, `members(out)` answers the union as seen from here, and `subscribe(w)` delivers `ActorChanges<Ping>.joined` and `left` as ordinary messages, each carrying an `Addr<Ping>` that works wherever it arrives.
+
+```
+let pings = attach(protocol<Ping>(), nodes)             // one replica per node
+join(pings, spawn Pinging("a") on p)
+pings.subscribe(spawn Noticing("a") on p)               // "a: + a Ping (local: false)"
+```
+
+`protocol<E>()` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and every such generic is erased in the generated code.
+
+`pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy — which is what a load-aware picker reads; `node_of(addr)` names the host; and two `Addr<E>` compare with `eq`. Picking a member (`Pick<E>`, with the std `LeastLoaded`, `Sharded` and `Elected` handlers) is the next step of this design and not yet in the library.

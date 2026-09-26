@@ -13429,6 +13429,163 @@ fn rustc_compiles_and_runs_node_groups_over_mem_transport() {
     run_rust_files(&files, "net-node-groups", NODE_GROUP_DEMO_OUTPUT);
 }
 
+// ===== the network sequence, step ⑤: actor groups =====
+
+/// [effect-generic-decl] An effect generic over an *effect*, erased for the
+/// output: `Reg<E>` with `Addr<E>` payloads and `Registering<E>` are emitted as
+/// monomorphic items, and `spawn Registering<Ping>()` needs no turbofish.
+const EFFECT_GENERIC_DEMO: &str = r#"actor effect Ping { send fn ping(n: Int) => !n
+    send fn count(out: Reply<Int>) => !out }
+handler Pinging() [Console] of Ping {
+    mailbox { capacity: 4 }
+    seen: Int = 0
+    send fn ping(n: Int) => !n {
+        seen = seen + 1
+        println("ping ${n}")
+    }
+    send fn count(out: Reply<Int>) => !out { out.send(seen) }
+}
+
+actor effect Reg<E> {
+    send fn join(member: Addr<E>) => !member
+    send fn members(out: Reply<List<Addr<E>>>) => !out
+}
+
+handler Registering<E>() of Reg<E> {
+    mailbox { capacity: 8 }
+    all: Mut List<Addr<E>> = mut_list_of()
+    send fn join(member: Addr<E>) => !member { add(all, member) }
+    send fn members(out: Reply<List<Addr<E>>>) => !out { out.send(copy(all)) }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(1)
+    let reg = spawn Registering<Ping>() on p
+    let a = spawn Pinging() on p
+    reg.join(copy(a))
+    let ms = waitfor out: Reply<List<Addr<Ping>>> { reg.members(out) }
+    println("members: ${size(ms)}")
+    for m in ms { m.ping(7) }
+    let _seen = waitfor out: Reply<Int> { a.count(out) }
+}
+"#;
+
+const EFFECT_GENERIC_DEMO_OUTPUT: &str = "members: 1\nping 7\n";
+
+#[test]
+fn effect_only_generics_erase_to_monomorphic_items() {
+    let files = generate(&[("main.sv", EFFECT_GENERIC_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs");
+    let src = &main.content;
+    for expected in ["pub enum __Msg_Reg {", "pub struct Registering {", "pub trait Reg {"] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("Registering::<") && !src.contains("Reg<"),
+        "an erased declaration keeps no type arguments:\n{src}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_an_effect_typed_generic() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", EFFECT_GENERIC_DEMO)]);
+    run_rust_files(&files, "effect-generic", EFFECT_GENERIC_DEMO_OUTPUT);
+}
+
+/// [actor-group] An `ActorGroup<Ping>` spanning two virtual nodes: a replica
+/// per node found through the node group's peers (NAMED frames), a member
+/// joined on each side, both replicas listing both, a subscriber hearing the
+/// local and the remote arrival, and a ping to the remote member answered over
+/// the wire. Byte-identical on both backends.
+const ACTOR_GROUP_DEMO: &str = r#"import net
+import time
+
+actor effect Ping {
+    send fn ping(out: Reply<Str>) => !out
+}
+
+handler Pinging(who: Str) of Ping {
+    mailbox { capacity: 8 }
+    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+}
+
+handler Noticing(label: Str) [Console] of ActorChanges<Ping> {
+    mailbox { capacity: 16 }
+    send fn joined(member: Addr<Ping>) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
+    send fn left(member: Addr<Ping>) => !member { println("${label}: - a Ping") }
+}
+
+actor effect Boot {
+    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done
+}
+
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done {
+        let p = pool(1)
+        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+        listen(copy(at), spawn Receiving() on p)
+        add_route(this_node(), copy(at))
+        let nodes = start_group(spawn StaticNodeGroup("demo", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let pings = attach(protocol<Ping>(), nodes)
+        join(pings, spawn Pinging("b") on p)
+        done.send(pings)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let all = [copy(a), copy(b)]
+    let net = spawn MemNetwork() on pool(1)
+
+    use MemTransport(copy(a), copy(net))
+    let pa = pool(1)
+    route_frames(spawn Sending() on pa)
+    listen(copy(a), spawn Receiving() on pa)
+    add_route(this_node(), copy(a))
+    let nodes_a = start_group(spawn StaticNodeGroup("demo", copy(a), copy(all)) on pa)
+    let pings_a = attach(protocol<Ping>(), nodes_a)
+    pings_a.subscribe(spawn Noticing("a") on pa)
+    join(pings_a, spawn Pinging("a") on pa)
+
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
+    let pings_b = waitfor done: Reply<Addr<ActorGroup<Ping>>> { booter.boot(done) }
+
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
+    let seen_a = waitfor out: Reply<List<Addr<Ping>>> { pings_a.members(out) }
+    let seen_b = waitfor out: Reply<List<Addr<Ping>>> { pings_b.members(out) }
+    println("a's group sees ${size(seen_a)}, b's sees ${size(seen_b)}")
+    for m in seen_a {
+        let answer = waitfor r: Reply<Str> { m.ping(r) }
+        println("  ${answer}")
+    }
+}
+"#;
+
+const ACTOR_GROUP_DEMO_OUTPUT: &str = "a: + a Ping (local: true)\na: + a Ping (local: false)\na's group sees 2, b's sees 2\n  pong from a\n  pong from b\n";
+
+#[test]
+fn rustc_compiles_and_runs_an_actor_group_across_nodes() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", ACTOR_GROUP_DEMO)]);
+    run_rust_files(&files, "net-actor-group", ACTOR_GROUP_DEMO_OUTPUT);
+}
+
 /// [time-manual] Virtual time, in pure Salvo, through a two-face handler.
 #[test]
 fn rustc_compiles_and_runs_manual_time() {

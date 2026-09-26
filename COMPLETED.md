@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1579 tests, complete: the toolchain tests are
+cargo test                  # 1584 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,27 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ⑤ — effect-typed generics and `ActorGroup<E>`
+(2026-09-26 — built).** Two rules: [effect-generic-decl] — a type parameter
+that occurs only inside `Addr<…>` is checked as a generic and emitted
+monomorphic, by a fixpoint in `salvo_core::erase` and an erased copy of the
+program both emitters build against — and [actor-group] — `ActorGroup<E>` as
+a std actor effect (`join`/`leave`/`members`/`subscribe` plus the mechanism's
+`peer`/`merged`/`start`), `attach<E>(name?, proto, nodes)` publishing a
+replica by name through NAMED/MEMBERS frames, `ActorChanges<E>`,
+`protocol<E>()` as the `noremote` crossing site, `pending(addr)`,
+`node_of(addr)`, `eq` on addresses. **1584 tests** (+5: the crossing-site
+refusal and the effect-typed-generic check in `wire_tests`; erasure-to-
+monomorphic goldens; an effect-typed registry and a two-node actor group
+compiled and run on both backends, identical output). What it took, beyond
+the plan: an `eq(Addr<E>, Addr<E>)` intrinsic (identity on both backends —
+members must be deduplicated), member parameter names in a handler having to
+match the effect's (the Rust `&` placement is per-name), and the erased
+fixpoint allowing self-reference (`ActorGroup<E>` mentions
+`Addr<ActorGroup<E>>`). Left for step ⑦: the pickers that read `pending`.
+See the gotchas on erasure (pointer identity across the copy; phantom struct
+params).
 
 **The network sequence, step ④ — node groups (2026-09-26 — built).** One
 actor effect, `NodeGroup`, whose handlers are the mechanisms; the handshake
@@ -18853,6 +18874,26 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **An erased program copy invalidates every by-address table built from the
+  original** (2026-09-26). Step ⑤ emits against a copy of the program with
+  effect-only generics cleared [effect-generic-decl]. The first cut rebuilt
+  `Symbols` from the copy but kept the resolver's scopes from the original;
+  `kotlin_fn_name` matches declarations with `std::ptr::eq` between the two,
+  so every lookup missed and a mangled overload imported under an alias lost
+  its `__Loud` suffix — silently, since the plain name is a legal fallback.
+  Anything the emitter matches by identity must come from the *same* tree:
+  resolve and collect over the copy; only the checker's span-keyed tables may
+  come from the original (erasure changes no span). Corollary: the erased-fn
+  set is keyed by (module, span), not by name — `eq<E>(Addr<E>, Addr<E>)`
+  erases while the `eq` overloads on ordinary structs do not.
+- **"A generic nobody uses" is not "a generic that is an effect"**
+  (2026-09-26). The erasure fixpoint treated a struct's unused (phantom) type
+  parameter as effect-only, so `struct Box<T> : auto Eq<self> { item: T }`
+  — whose generated `eq(a: Box<T>, b: Box<T>)` mentions `T` only through
+  `Box<T>` — erased and emitted `Box<T>` with an unbound `T`. A phantom
+  parameter erases only when every instantiation argument found in the
+  program is an effect name (`Protocol<Ping>`); an uninstantiated or
+  value-instantiated one stays a generic.
 - **A rule change whose sweep is "move a declaration" wants a *position-aware*
   transform, not a regex over the file** (2026-09-26). Moving every
   `fn cmp@Person(…)` into its struct's body across the codegen suites looked like

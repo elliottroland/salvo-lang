@@ -4486,6 +4486,8 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_wire_format,
     kotlinc_compiles_and_runs_two_nodes_over_mem_transport,
     kotlinc_compiles_and_runs_node_groups_over_mem_transport,
+    kotlinc_compiles_and_runs_an_effect_typed_generic,
+    kotlinc_compiles_and_runs_an_actor_group_across_nodes,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -9429,6 +9431,128 @@ const NODE_GROUP_DEMO_OUTPUT: &str = "a: + b:1\na sees 1: b:1\nb sees 1: a:1\nb 
 fn kotlinc_compiles_and_runs_node_groups_over_mem_transport() -> KotlinCase {
     let files = generate_files(&[("main.sv", NODE_GROUP_DEMO)]);
     kotlin_case(files, "net-node-groups", NODE_GROUP_DEMO_OUTPUT)
+}
+
+// ===== the network sequence, step ⑤: actor groups =====
+
+/// The Rust backend's `EFFECT_GENERIC_DEMO` [effect-generic-decl].
+const EFFECT_GENERIC_DEMO: &str = r#"actor effect Ping { send fn ping(n: Int) => !n
+    send fn count(out: Reply<Int>) => !out }
+handler Pinging() [Console] of Ping {
+    mailbox { capacity: 4 }
+    seen: Int = 0
+    send fn ping(n: Int) => !n {
+        seen = seen + 1
+        println("ping ${n}")
+    }
+    send fn count(out: Reply<Int>) => !out { out.send(seen) }
+}
+
+actor effect Reg<E> {
+    send fn join(member: Addr<E>) => !member
+    send fn members(out: Reply<List<Addr<E>>>) => !out
+}
+
+handler Registering<E>() of Reg<E> {
+    mailbox { capacity: 8 }
+    all: Mut List<Addr<E>> = mut_list_of()
+    send fn join(member: Addr<E>) => !member { add(all, member) }
+    send fn members(out: Reply<List<Addr<E>>>) => !out { out.send(copy(all)) }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let p = pool(1)
+    let reg = spawn Registering<Ping>() on p
+    let a = spawn Pinging() on p
+    reg.join(copy(a))
+    let ms = waitfor out: Reply<List<Addr<Ping>>> { reg.members(out) }
+    println("members: ${size(ms)}")
+    for m in ms { m.ping(7) }
+    let _seen = waitfor out: Reply<Int> { a.count(out) }
+}
+"#;
+
+fn kotlinc_compiles_and_runs_an_effect_typed_generic() -> KotlinCase {
+    let files = generate_files(&[("main.sv", EFFECT_GENERIC_DEMO)]);
+    kotlin_case(files, "effect-generic", "members: 1\nping 7\n")
+}
+
+/// The Rust backend's `ACTOR_GROUP_DEMO`, verbatim [actor-group].
+const ACTOR_GROUP_DEMO: &str = r#"import net
+import time
+
+actor effect Ping {
+    send fn ping(out: Reply<Str>) => !out
+}
+
+handler Pinging(who: Str) of Ping {
+    mailbox { capacity: 8 }
+    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+}
+
+handler Noticing(label: Str) [Console] of ActorChanges<Ping> {
+    mailbox { capacity: 16 }
+    send fn joined(member: Addr<Ping>) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
+    send fn left(member: Addr<Ping>) => !member { println("${label}: - a Ping") }
+}
+
+actor effect Boot {
+    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done
+}
+
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(done: Reply<Addr<ActorGroup<Ping>>>) => !done {
+        let p = pool(1)
+        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+        listen(copy(at), spawn Receiving() on p)
+        add_route(this_node(), copy(at))
+        let nodes = start_group(spawn StaticNodeGroup("demo", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        let pings = attach(protocol<Ping>(), nodes)
+        join(pings, spawn Pinging("b") on p)
+        done.send(pings)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let all = [copy(a), copy(b)]
+    let net = spawn MemNetwork() on pool(1)
+
+    use MemTransport(copy(a), copy(net))
+    let pa = pool(1)
+    route_frames(spawn Sending() on pa)
+    listen(copy(a), spawn Receiving() on pa)
+    add_route(this_node(), copy(a))
+    let nodes_a = start_group(spawn StaticNodeGroup("demo", copy(a), copy(all)) on pa)
+    let pings_a = attach(protocol<Ping>(), nodes_a)
+    pings_a.subscribe(spawn Noticing("a") on pa)
+    join(pings_a, spawn Pinging("a") on pa)
+
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
+    let pings_b = waitfor done: Reply<Addr<ActorGroup<Ping>>> { booter.boot(done) }
+
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
+    let seen_a = waitfor out: Reply<List<Addr<Ping>>> { pings_a.members(out) }
+    let seen_b = waitfor out: Reply<List<Addr<Ping>>> { pings_b.members(out) }
+    println("a's group sees ${size(seen_a)}, b's sees ${size(seen_b)}")
+    for m in seen_a {
+        let answer = waitfor r: Reply<Str> { m.ping(r) }
+        println("  ${answer}")
+    }
+}
+"#;
+
+const ACTOR_GROUP_DEMO_OUTPUT: &str = "a: + a Ping (local: true)\na: + a Ping (local: false)\na's group sees 2, b's sees 2\n  pong from a\n  pong from b\n";
+
+fn kotlinc_compiles_and_runs_an_actor_group_across_nodes() -> KotlinCase {
+    let files = generate_files(&[("main.sv", ACTOR_GROUP_DEMO)]);
+    kotlin_case(files, "net-actor-group", ACTOR_GROUP_DEMO_OUTPUT)
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====

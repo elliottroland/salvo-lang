@@ -869,6 +869,17 @@ where Rust had to build the fusion to get the same programs running
   `sendWire(addr, msg, __PROTO_E, __Codec___Msg_E)`, `replyWire(tok, v,
   codec)`, `waiterDecoder(wid, dec)`, `mintTask(pool, dec) { … }` (the decoder
   precedes the trailing lambda), and `decodeReply` on the actor class.
+* [kt-wire] [effect-generic-decl] [actor-group] The emitter builds against
+  the erased program copy (see the Rust note): `kotlin_ty`/`emit_type_ref`
+  drop the type arguments of an erased name, an erased fn is emitted without
+  `<T>` and called without type arguments, and the resolver and symbol table
+  are both rebuilt over the copy, since `kotlin_fn_name` matches declarations
+  by address between them (an alias import of a mangled overload
+  [kt-qual-mangling] lost its suffix when they disagreed). Runtime:
+  `published`/`peerNames`, frames NAMED (8) and MEMBERS (9),
+  `publish(name, addr, sink, named, members)`, `shareMembers(name, to,
+  members)`, `pending(addr)` — byte-identical frames to Rust's. Intrinsics
+  lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle.
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,
