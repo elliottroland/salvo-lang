@@ -68,7 +68,8 @@ export struct Mailbox { capacity: Int }
 // worker: a spawn that writes no `on` clause runs on the pool current where
 // it was written, which in `main` is that one. Work placed there runs while
 // `main` waits in a `waitfor` and dies when `main` returns.
-export intrinsic type Pool
+// [noremote] A pool is a set of *this* node's threads: no wire form.
+export noremote intrinsic type Pool
 
 // [actor-spawn-expr] A pool of [size] threads. An ordinary function, not
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes

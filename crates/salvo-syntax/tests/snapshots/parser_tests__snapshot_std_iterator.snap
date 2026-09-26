@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 97
 expression: "parse_clean(&std_core(\"iterator.sv\"))"
 ---
 Module {
@@ -72,6 +73,7 @@ Module {
                 fields: [],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 1341..1359,
             },
         ),

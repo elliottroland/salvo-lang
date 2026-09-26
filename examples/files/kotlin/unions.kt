@@ -7,6 +7,20 @@ sealed interface Union2<out T1, out T2> {
 data class U2_1<out T1, out T2>(override val value: T1) : Union2<T1, T2>
 data class U2_2<out T1, out T2>(override val value: T2) : Union2<T1, T2>
 
+class Union2Codec<T1, T2>(private val c1: WireCodec<T1>, private val c2: WireCodec<T2>) : WireCodec<Union2<T1, T2>> {
+    override fun enc(v: Union2<T1, T2>, out: WireOut) {
+        when (v) {
+            is U2_1 -> { out.u8(0); c1.enc(v.value, out) }
+            is U2_2 -> { out.u8(1); c2.enc(v.value, out) }
+        }
+    }
+    override fun dec(inp: WireIn): Union2<T1, T2> = when (inp.u8()) {
+            0 -> U2_1(c1.dec(inp))
+            1 -> U2_2(c2.dec(inp))
+            else -> throw WireError()
+        }
+}
+
 sealed interface Union8<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8> {
     val value: Any?
 }
@@ -18,3 +32,29 @@ data class U8_5<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(
 data class U8_6<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T6) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
 data class U8_7<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T7) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
 data class U8_8<out T1, out T2, out T3, out T4, out T5, out T6, out T7, out T8>(override val value: T8) : Union8<T1, T2, T3, T4, T5, T6, T7, T8>
+
+class Union8Codec<T1, T2, T3, T4, T5, T6, T7, T8>(private val c1: WireCodec<T1>, private val c2: WireCodec<T2>, private val c3: WireCodec<T3>, private val c4: WireCodec<T4>, private val c5: WireCodec<T5>, private val c6: WireCodec<T6>, private val c7: WireCodec<T7>, private val c8: WireCodec<T8>) : WireCodec<Union8<T1, T2, T3, T4, T5, T6, T7, T8>> {
+    override fun enc(v: Union8<T1, T2, T3, T4, T5, T6, T7, T8>, out: WireOut) {
+        when (v) {
+            is U8_1 -> { out.u8(0); c1.enc(v.value, out) }
+            is U8_2 -> { out.u8(1); c2.enc(v.value, out) }
+            is U8_3 -> { out.u8(2); c3.enc(v.value, out) }
+            is U8_4 -> { out.u8(3); c4.enc(v.value, out) }
+            is U8_5 -> { out.u8(4); c5.enc(v.value, out) }
+            is U8_6 -> { out.u8(5); c6.enc(v.value, out) }
+            is U8_7 -> { out.u8(6); c7.enc(v.value, out) }
+            is U8_8 -> { out.u8(7); c8.enc(v.value, out) }
+        }
+    }
+    override fun dec(inp: WireIn): Union8<T1, T2, T3, T4, T5, T6, T7, T8> = when (inp.u8()) {
+            0 -> U8_1(c1.dec(inp))
+            1 -> U8_2(c2.dec(inp))
+            2 -> U8_3(c3.dec(inp))
+            3 -> U8_4(c4.dec(inp))
+            4 -> U8_5(c5.dec(inp))
+            5 -> U8_6(c6.dec(inp))
+            6 -> U8_7(c7.dec(inp))
+            7 -> U8_8(c8.dec(inp))
+            else -> throw WireError()
+        }
+}

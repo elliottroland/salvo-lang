@@ -14,9 +14,31 @@ pub struct NotFound {
     pub path: String,
 }
 
+impl crate::wire::__Wire for NotFound {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PermissionDenied {
     pub path: String,
+}
+
+impl crate::wire::__Wire for PermissionDenied {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,9 +46,31 @@ pub struct AlreadyExists {
     pub path: String,
 }
 
+impl crate::wire::__Wire for AlreadyExists {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct NotADirectory {
     pub path: String,
+}
+
+impl crate::wire::__Wire for NotADirectory {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,9 +78,31 @@ pub struct PathEscapes {
     pub path: String,
 }
 
+impl crate::wire::__Wire for PathEscapes {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct InvalidUtf8 {
     pub path: String,
+}
+
+impl crate::wire::__Wire for InvalidUtf8 {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,10 +110,34 @@ pub struct StaleHandle {
     pub path: String,
 }
 
+impl crate::wire::__Wire for StaleHandle {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct IoError {
     pub path: String,
     pub message: String,
+}
+
+impl crate::wire::__Wire for IoError {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+        crate::wire::__Wire::__enc(&self.message, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+            message: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn to_str(kind: &Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>) -> String {
@@ -83,6 +173,19 @@ pub fn to_str(kind: &Union8<NotFound, PermissionDenied, AlreadyExists, NotADirec
 pub struct FileInfo {
     pub size: i64,
     pub is_dir: bool,
+}
+
+impl crate::wire::__Wire for FileInfo {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.size, out);
+        crate::wire::__Wire::__enc(&self.is_dir, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            size: crate::wire::__Wire::__dec(r)?,
+            is_dir: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

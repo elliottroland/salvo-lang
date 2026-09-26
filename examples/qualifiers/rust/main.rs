@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -66,6 +68,19 @@ pub fn compact(list: &mut Vec<i32>) {
 pub struct Request {
     pub path: String,
     pub touches: i32,
+}
+
+impl crate::wire::__Wire for Request {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+        crate::wire::__Wire::__enc(&self.touches, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+            touches: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn authenticate(mut request: Request) -> Request {

@@ -34,6 +34,13 @@ data class Countdown(
     var at: Int,
 )
 
+object __Codec_Countdown : salvo.WireCodec<Countdown> {
+    override fun enc(v: Countdown, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): Countdown = Countdown(salvo.IntCodec.dec(inp))
+}
+
 fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
@@ -65,9 +72,23 @@ data class Halving(
     val start: Int,
 )
 
+object __Codec_Halving : salvo.WireCodec<Halving> {
+    override fun enc(v: Halving, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.start, out)
+    }
+    override fun dec(inp: salvo.WireIn): Halving = Halving(salvo.IntCodec.dec(inp))
+}
+
 data class __Pass_Halving(
     var at: Int,
 )
+
+object __Codec___Pass_Halving : salvo.WireCodec<__Pass_Halving> {
+    override fun enc(v: __Pass_Halving, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): __Pass_Halving = __Pass_Halving(salvo.IntCodec.dec(inp))
+}
 
 fun iter__10(h: Halving): __Pass_Halving {
     return __Pass_Halving(at = h.start)
@@ -86,6 +107,13 @@ data class Fibs(
     val count: Int,
 )
 
+object __Codec_Fibs : salvo.WireCodec<Fibs> {
+    override fun enc(v: Fibs, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.count, out)
+    }
+    override fun dec(inp: salvo.WireIn): Fibs = Fibs(salvo.IntCodec.dec(inp))
+}
+
 fun fibs(count: Int): Fibs {
     return Fibs(count = count)
 }
@@ -96,6 +124,16 @@ data class __Pass_Fibs(
     var b: Int,
     var made: Int,
 )
+
+object __Codec___Pass_Fibs : salvo.WireCodec<__Pass_Fibs> {
+    override fun enc(v: __Pass_Fibs, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.count, out)
+        salvo.IntCodec.enc(v.a, out)
+        salvo.IntCodec.enc(v.b, out)
+        salvo.IntCodec.enc(v.made, out)
+    }
+    override fun dec(inp: salvo.WireIn): __Pass_Fibs = __Pass_Fibs(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
 
 fun iter__11(f: Fibs): __Pass_Fibs {
     return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
@@ -118,6 +156,13 @@ data class Naturals(
     val from: Int,
 )
 
+object __Codec_Naturals : salvo.WireCodec<Naturals> {
+    override fun enc(v: Naturals, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.from, out)
+    }
+    override fun dec(inp: salvo.WireIn): Naturals = Naturals(salvo.IntCodec.dec(inp))
+}
+
 fun naturals(from: Int): Naturals {
     return Naturals(from = from)
 }
@@ -125,6 +170,13 @@ fun naturals(from: Int): Naturals {
 data class __Pass_Naturals(
     var at: Int,
 )
+
+object __Codec___Pass_Naturals : salvo.WireCodec<__Pass_Naturals> {
+    override fun enc(v: __Pass_Naturals, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): __Pass_Naturals = __Pass_Naturals(salvo.IntCodec.dec(inp))
+}
 
 fun iter__12(n: Naturals): __Pass_Naturals {
     return __Pass_Naturals(at = n.from)

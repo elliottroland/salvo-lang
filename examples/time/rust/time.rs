@@ -12,14 +12,47 @@ pub struct Duration {
     pub nanos: i64,
 }
 
+impl crate::wire::__Wire for Duration {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.nanos, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            nanos: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Instant {
     pub nanos: i64,
 }
 
+impl crate::wire::__Wire for Instant {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.nanos, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            nanos: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Tick {
     pub nanos: i64,
+}
+
+impl crate::wire::__Wire for Tick {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.nanos, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            nanos: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn nanos(n: i64) -> Duration {
@@ -355,6 +388,17 @@ pub struct Fired {
     pub at: Tick,
 }
 
+impl crate::wire::__Wire for Fired {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub trait Timer {
     fn after(&mut self, wait: Duration, done: crate::scheduler::SalvoReply);
 }
@@ -473,6 +517,26 @@ impl TimerCtl for __Stub_TimerCtl {
 pub enum __Msg_TimerCtl {
     Advance(Duration),
 }
+
+impl crate::wire::__Wire for __Msg_TimerCtl {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_TimerCtl::Advance(__p0) => {
+                out.push(0);
+                crate::wire::__Wire::__enc(__p0, out);
+            }
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_TimerCtl::Advance(crate::wire::__Wire::__dec(r)?)),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `TimerCtl`.
+pub const __PROTO_TimerCtl: &str = "93f92d20477305ad";
 
 pub struct ManualTime {
     now: i64,

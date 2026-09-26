@@ -82,6 +82,14 @@ pub const ACTOR_MODIFIER: &str = "actor";
 /// else — and the only word it may precede is `platform`.
 pub const THREADSAFE_MODIFIER: &str = "threadsafe";
 
+/// [noremote] The contextual modifier that keeps a type off the wire:
+/// `noremote struct Canvas { … }`, `noremote intrinsic type Pool` (user
+/// decision 2026-09-26). Every type is serializable by default; this is the
+/// opt-out, and it is transitive — a struct holding a `noremote` field is
+/// `noremote` itself. Contextual like the others: an ordinary identifier
+/// everywhere but directly before a type-declaring keyword.
+pub const NOREMOTE_MODIFIER: &str = "noremote";
+
 /// [actor-mailbox] The contextual name of an actor handler's settings slot:
 /// `mailbox { capacity: 16 }` (user decision 2026-09-16). Contextual like every
 /// other word this phase added — a state field may still be called `mailbox`;
@@ -577,6 +585,48 @@ impl<'s> Parser<'s> {
                 self.parse_test().map(Item::Test)
             }
             TokenKind::KwStruct => self.parse_struct(false).map(Item::Struct),
+            // [noremote] `noremote struct S`, `noremote linear struct S`,
+            // `noremote intrinsic type T`, `noremote type A = …`: the type
+            // stays off the wire. The word is peeled and the declaration
+            // parsed as usual, then flagged; anything but a type declaration
+            // after it is an error naming what it is for.
+            TokenKind::Ident(name)
+                if name == NOREMOTE_MODIFIER
+                    && matches!(
+                        self.peek_at(1).kind,
+                        TokenKind::KwStruct
+                            | TokenKind::KwLinear
+                            | TokenKind::KwIntrinsic
+                            | TokenKind::KwType
+                            | TokenKind::KwFn
+                            | TokenKind::KwHandler
+                            | TokenKind::KwEffect
+                            | TokenKind::KwQualifier
+                    ) =>
+            {
+                let span = self.peek().span;
+                self.bump();
+                let item = self.parse_declaration()?;
+                match item {
+                    Item::Struct(mut d) => {
+                        d.noremote = true;
+                        Some(Item::Struct(d))
+                    }
+                    Item::Type(mut d) => {
+                        d.noremote = true;
+                        Some(Item::Type(d))
+                    }
+                    other => {
+                        self.error(
+                            "`noremote` keeps a *type* off the wire, so it precedes a \
+                             `struct` or `type` declaration — a function, handler or \
+                             effect has no wire form to refuse [noremote]",
+                            span,
+                        );
+                        Some(other)
+                    }
+                }
+            }
             // [linear-group] [obligation-spelling] `linear struct X { … }`:
             // the exactly-once obligation as a declaration modifier.
             TokenKind::KwLinear if matches!(self.peek_at(1).kind, TokenKind::KwStruct) => {
@@ -878,6 +928,8 @@ impl<'s> Parser<'s> {
         Some(TypeDecl {
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
+            // [noremote] Set by `parse_declaration`, which peels the word.
+            noremote: false,
             docs,
             intrinsic,
             linear,
@@ -1240,6 +1292,8 @@ impl<'s> Parser<'s> {
         Some(StructDecl {
             // [mod-export] Set by `parse_item`, which reads the modifier.
             exported: false,
+            // [noremote] Set by `parse_declaration`, which peels the word.
+            noremote: false,
             docs,
             name,
             fns,
@@ -2305,10 +2359,14 @@ impl<'s> Parser<'s> {
                     | TokenKind::KwProvenance
                     | TokenKind::KwLinear
                     | TokenKind::KwParams
-            ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER || w == THREADSAFE_MODIFIER),
+            ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER || w == THREADSAFE_MODIFIER || w == NOREMOTE_MODIFIER),
             "iter" | "send" => matches!(next, TokenKind::KwFn),
             ACTOR_MODIFIER => matches!(next, TokenKind::KwEffect),
             THREADSAFE_MODIFIER => matches!(next, TokenKind::KwPlatform),
+            NOREMOTE_MODIFIER => matches!(
+                next,
+                TokenKind::KwStruct | TokenKind::KwLinear | TokenKind::KwIntrinsic | TokenKind::KwType
+            ),
             _ => false,
         }
     }

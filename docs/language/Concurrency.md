@@ -126,3 +126,16 @@ Two halves, deliberately asymmetric. **Outbound** is a plain effect, `Transport`
 `HostTcpTransport` is the machine's transport and std's first **`threadsafe` platform handler** (Backends.md) — a transport is reached from every pool at once, so the host synchronizes itself and the compiler shares it with no lock. Its listener also tells the scheduler that an outside source of work is open, so a program waiting for a frame is neither idle nor deadlocked while the wire may still deliver one.
 
 `MemTransport` is the double every later step tests on: one `MemNetwork` actor many virtual nodes share (with `partition`, `heal` and `kill` as its members, so a test scripts the faults), and one `MemTransport(me, net)` per node. It runs the same `Inbound` actors, frames and errors the real transport does, in one process, on both backends, with identical output.
+
+### The wire format, and `noremote`
+
+What crosses the wire is bytes in one **canonical encoding** the compiler owns — stated in one place, produced and read identically by both backends, so a Kotlin node and a Rust node are members of one group. Every type has a wire form **by default**: scalars, strings, `Bytes`, lists, tuples, optionals, unions (one tag byte holding the arm's declared index) and structs (fields in declaration order). The opt-out is a word on the declaration:
+
+```
+noremote struct Canvas { surface: GpuSurface }    // process-local: no wire form
+struct Frame { title: Str, canvas: Canvas }       // therefore none either — transitively
+```
+
+`encode(value)` answers the bytes and `decode<Point>(data)` reads them back (`None` when the bytes are not a well-formed `Point`), and both are refused at the call for a type with no wire form, naming the field or declaration that stops it. std's process-local handles — `Pool`, the file streams — are `noremote` by declaration; a function value and a `proj` view are, by construction. Keyed containers (`Set`, `Map`) are the one recorded gap: their identity capabilities do not travel yet, so send a `List` of the entries.
+
+Every actor protocol whose payloads all have a wire form also gets a **canonical hash** — over its members' shape, with structs expanded to their fields, so a renamed struct is the same protocol and a reordered field is not. Two nodes may talk on a protocol exactly when their hashes agree, and that is settled at the handshake, never at decode: an exhaustive `when` has no arm for a message it has never heard of, so the language cannot decode leniently and refuses early instead.

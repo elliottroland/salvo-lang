@@ -467,6 +467,11 @@ pub struct Checked {
     /// demands the host companion — only for handlers a program actually
     /// binds, rather than for every one a reachable module declares.
     pub used_handlers: std::collections::HashSet<String>,
+    /// [protocol-hash] Every actor effect's canonical protocol hash
+    /// (`crate::wire::protocol_hash`), by effect name. Computed once here so
+    /// both emitters carry the same constants and the handshake (step ④)
+    /// compares what the compiler computed rather than what a runtime hashed.
+    pub protocol_hashes: std::collections::BTreeMap<String, String>,
     /// Effect instances resolved for a `use`d handler's *dependencies*
     /// [effect-handler-deps], in the handler's declaration order (keyed by
     /// the `use` statement span). Only present when the handler declares
@@ -1240,6 +1245,14 @@ fn check_once<'p>(
 ) -> Checked {
     let mut out = Checked::default();
     out.errors.extend(resolution.errors.iter().cloned());
+    // [protocol-hash] One hash per actor effect, over its canonical form.
+    for (name, effect) in &symbols.effects {
+        if effect.is_actor {
+            let canonical = crate::wire::protocol_canonical(symbols, effect);
+            out.protocol_hashes
+                .insert(name.to_string(), crate::wire::protocol_hash(&canonical));
+        }
+    }
     // [qual-refn] Refinement validation is round-independent; its
     // diagnostics are replayed here so they land with everything else.
     out.errors.extend(refinements.errors.iter().cloned());
@@ -26415,6 +26428,41 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             result
         };
+        // [wire-format] [noremote] `encode(value)` / `decode<T>(bytes)`
+        // (std's `net`) need a type with a wire form, decided by the shared
+        // predicate the emitters generate codecs from — so a value that
+        // passes here has a codec on both backends, and one that does not is
+        // refused where the program asked, naming the field or the
+        // declaration that stops it. A generic instantiation is refused too
+        // (step ②'s cut): `encode` inside a generic body has nothing to
+        // dispatch on until a bound exists for it.
+        if decl.intrinsic
+            && matches!(decl.name.name.as_str(), "encode" | "decode")
+            && self.symbols.fns.get("encode").is_some_and(|fs| fs.iter().any(|f| f.intrinsic))
+        {
+            let subject: Option<Ty> = match decl.name.name.as_str() {
+                "encode" => arg_tys.first().cloned(),
+                _ => match &result {
+                    // `decode<T>` answers `T?`: the payload is the non-`None`
+                    // arm.
+                    Ty::Union(arms) => arms.iter().find(|a| !a.is_none_ty()).cloned(),
+                    other => Some(other.clone()),
+                },
+            };
+            if let Some(subject) = subject {
+                let subject = subject.strip_quals().clone();
+                if let Some(block) = crate::wire::wire_blocker(self.symbols, &subject) {
+                    self.error(
+                        span,
+                        format!(
+                            "`{}` needs a type with a wire form, and `{subject}` has none: {}                              [noremote]",
+                            decl.name.name,
+                            block.describe()
+                        ),
+                    );
+                }
+            }
+        }
         // [cmp-carry] An ordering is fixed **at construction**, and a keyed
         // container's constructor cannot publish one (its element may be a tuple,
         // which has no `cmp` to resolve — see COMPLETED.md), so the identity flows

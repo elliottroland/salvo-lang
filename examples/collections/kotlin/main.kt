@@ -20,9 +20,24 @@ data class Point(
     }
 }
 
+object __Codec_Point : salvo.WireCodec<Point> {
+    override fun enc(v: Point, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.x, out)
+        salvo.IntCodec.enc(v.y, out)
+    }
+    override fun dec(inp: salvo.WireIn): Point = Point(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
 data class Note(
     val text: String,
 )
+
+object __Codec_Note : salvo.WireCodec<Note> {
+    override fun enc(v: Note, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.text, out)
+    }
+    override fun dec(inp: salvo.WireIn): Note = Note(salvo.StrCodec.dec(inp))
+}
 
 fun by_len(a: String, b: String): Int {
     return (a.length).compareTo(b.length)

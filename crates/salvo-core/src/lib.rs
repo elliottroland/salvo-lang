@@ -16,6 +16,7 @@ pub mod refine;
 pub mod resolve;
 pub mod source;
 pub mod types;
+pub mod wire;
 
 pub use check::{
     check_program, Checked, Coercion, CompareVia, ImplicitArg, ImplicitParam, PassDriver,
@@ -37,6 +38,9 @@ pub use platform::{
 };
 pub use program::{Program, Symbols};
 pub use reach::reachable_modules;
+pub use wire::{
+    approx_ty, protocol_canonical, protocol_hash, struct_has_wire_form, wire_blocker, WireBlock,
+};
 pub use resolve::{resolve, DefSite, FnKey, ModuleScope, Resolution};
 pub use source::{
     CompanionFile, ModulePath, SourceFile, SourceSet, PLATFORM_DIR, TEST_SUFFIX,

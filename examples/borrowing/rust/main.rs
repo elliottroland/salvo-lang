@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -40,6 +42,21 @@ pub struct Fighter {
     pub name: String,
     pub hp: i32,
     pub energy: i32,
+}
+
+impl crate::wire::__Wire for Fighter {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.name, out);
+        crate::wire::__Wire::__enc(&self.hp, out);
+        crate::wire::__Wire::__enc(&self.energy, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            name: crate::wire::__Wire::__dec(r)?,
+            hp: crate::wire::__Wire::__dec(r)?,
+            energy: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn named<'a>(roster: &'a Vec<Fighter>, name: &String) -> Option<&'a Fighter> {
@@ -111,6 +128,19 @@ pub struct Squad {
     pub members: Vec<Fighter>,
 }
 
+impl crate::wire::__Wire for Squad {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.banner, out);
+        crate::wire::__Wire::__enc(&self.members, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            banner: crate::wire::__Wire::__dec(r)?,
+            members: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn rotate(squad: &mut Squad, __c1: usize, __c2: usize) {
     squad.members[__c1].energy = squad.members[__c1].energy - 1;
     squad.members[__c2].energy = squad.members[__c2].energy + 1;
@@ -121,6 +151,19 @@ pub fn rotate(squad: &mut Squad, __c1: usize, __c2: usize) {
 pub struct Camp {
     pub supplies: i32,
     pub banners: Vec<String>,
+}
+
+impl crate::wire::__Wire for Camp {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.supplies, out);
+        crate::wire::__Wire::__enc(&self.banners, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            supplies: crate::wire::__Wire::__dec(r)?,
+            banners: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn spend(camp: &mut Camp, n: i32) {

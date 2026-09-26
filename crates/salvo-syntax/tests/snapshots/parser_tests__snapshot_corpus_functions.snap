@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 128
 expression: "parse_clean(&corpus(\"functions.sv\"))"
 ---
 Module {
@@ -1220,6 +1221,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 929..974,
             },
         ),
@@ -1526,6 +1528,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 1068..1069,
             },
         ),
@@ -2168,6 +2171,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 1344..1405,
             },
         ),

@@ -5261,6 +5261,68 @@ between endpoints and delivers what arrives into the scheduler.
   * Test bodies have no `spawn` [test-body], so `net` is covered by a
     compile-and-run case per backend (identical output) rather than a
     `.test.sv` annex until the actor-testing slice lands.
+* [wire-format] **The canonical encoding** (step ②, user decision 2026-09-26:
+  Salvo owns serialization, so a Kotlin node and a Rust node share a group).
+  Stated once, in `salvo-core`'s `wire.rs`, and implemented twice, in each
+  backend's `wire` runtime, byte for byte; struct, union and message codecs
+  are **generated** by the emitters beside their declarations.
+  * `Bool` one byte; `Byte` one; `Int` four bytes big-endian; `Long` eight;
+    `Float` four (IEEE-754 bits); `Double` eight; `Char` four (the code
+    point); `Str` a `u32` byte length then UTF-8; `Bytes` a `u32` length then
+    the bytes; `None` nothing. An optional (`T?`, or any union with a `None`
+    arm) is a presence byte then the payload. A union of *n* non-`None` arms
+    is one tag byte holding the arm's index over the **declared** arms in
+    declaration order — the positional identity checker and emitters already
+    share — then the payload. A struct is its fields in declaration order; a
+    tuple its components; a `List`/array a `u32` count then the elements;
+    qualifiers erase [qual-erasure]. An actor message (`__Msg_E`) is a union
+    of the `send fn` members in declaration order, each its parameters.
+  * **Decoding is total**: a malformed input — truncated, a tag out of
+    range, invalid UTF-8, trailing bytes — answers `None`, never a trap.
+  * The surface is std `net`'s `encode<T>(value: T) -> Bytes` and
+    `decode<T>(data: Bytes) -> T?` (written `decode<Point>(data)`, since
+    only the type argument says what to read), both **refused at the call**
+    for a type with no wire form, naming what stops it. A generic `T` is
+    refused too: the form is the instantiation's, and `encode` inside a
+    generic body has nothing to dispatch on (recorded cut; a `Wire` bound
+    would lift it).
+  * **Keyed containers** (`Set`, `Map`, `SortedSet`, `SortedMap`) have no
+    wire form yet — their identity capabilities (`hash`/`eq`, `cmp`) are
+    resolved by the checker per type and would have to travel into the
+    decoder; send a `List` of the entries. Recorded cut. `Addr<E>` and
+    `Reply<T>` wait for step ③'s routable identity.
+* [noremote] **Serializable by default, `noremote` the opt-out** (user
+  decision 2026-09-26, refusing the opt-in marker as the Akka experience —
+  forgotten at the leaf, reported at the root). `noremote struct S { … }`,
+  `noremote intrinsic type T`, `noremote type A = …`: the type has no wire
+  form, and **neither does anything holding one** — a struct with a
+  `noremote` field is `noremote` whether or not it says so, and the
+  diagnostic names the field (`Frame.canvas (Canvas)`). Contextual, like
+  `actor`; before anything but a type declaration it is an error saying what
+  it is for. A function value and a `proj` view are `noremote` by
+  construction. std marks its process-local handles: `Pool`, `InStream`,
+  `OutStream`.
+  * **One predicate, two consumers** (`salvo_core::wire_blocker`): the
+    checker refuses `encode`/`decode` with it, and both emitters generate a
+    codec for exactly the structs that pass it — so a value that encodes has
+    a codec on both backends, and the two can never disagree
+    [backend-never-wrong]. From step ⑤ the same predicate refuses
+    `attach<E>` of a protocol with a blocked payload — the crossing site the
+    user chose over the declaration.
+* [protocol-hash] **The canonical hash of an actor protocol**: FNV-1a 64
+  over the canonical form — every `send fn` in declaration order as
+  `name(types);`, each struct **expanded to its field types** (so a renamed
+  struct is the same protocol and a reordered field is not, matching the
+  positional encoding), unions as their arms, qualifiers erased — rendered as
+  sixteen hex digits and emitted as a constant beside the message codec
+  (`__PROTO_E` on both backends). Computed by the compiler
+  (`Checked.protocol_hashes`), so the two backends carry the same constant
+  and no runtime hashes anything. What the handshake exchanges (step ④) and
+  `attach`/`join` compare (step ⑤), **never at decode**: exhaustive `when`
+  over positional arms means an old node has no value to construct for an
+  arm it lacks, so compatibility is settled before a byte is read.
+  * Generated only for a protocol whose every payload has a wire form; one
+    with a `noremote` payload is a legal *local* protocol with no hash.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)

@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
 #[path = "core/checked.rs"]

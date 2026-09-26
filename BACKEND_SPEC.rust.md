@@ -1657,6 +1657,19 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     [kt-monitor]; the asymmetry is the same one [rs-platform-handler]
     records.
 
+* [rs-wire] [wire-format] The wire runtime is `runtime/wire.rs`, mounted as
+  `crate::wire` when a codec is generated or `encode`/`decode` lowered: a
+  `__Wire` trait (`__enc(&self, &mut Vec<u8>)`, `__dec(&mut __Reader) ->
+  Option<Self>`) with impls for the scalars, `String`, `()`, `Vec<T>`
+  (`List`, arrays **and** `Bytes` — one impl, since `u8` is one byte),
+  `Option<T>`, and tuples to arity 8; `salvo_encode`/`salvo_decode` (the
+  latter refusing trailing bytes). Unions get `impl<T1: __Wire, …> __Wire for
+  UnionN` in the unions file when the wire is mounted. Every struct with a
+  wire form gets `impl __Wire for S` beside it (generic ones conditional on
+  `T: __Wire`), every actor protocol with one gets `impl __Wire for __Msg_E`
+  plus `pub const __PROTO_E: &str`. `encode(v)` lowers to
+  `salvo_encode(&v)`, `decode<T>(b)` to `salvo_decode::<T>(&b)` with `T` from
+  the call's checked type argument.
 * [rs-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `trait` is emitted as any effect's, and the `use` site
   constructs the host struct as `crate::platform_<M>::H::new(args)` — `M`

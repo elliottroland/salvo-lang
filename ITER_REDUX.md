@@ -598,3 +598,431 @@ something.
 3. No `Iterable` group in the first cut.
 4. Which std producers become `iter fn`s (the unnamed ones), which stay
    structs (the stored ones).
+
+---
+
+# Round 3 (2026-09-26, later still): `for` over a step call, `iter fn` as a fn kind
+
+Correction taken: `linear` is a keyword modifier on the struct, not an
+always-on `Linear` qualifier, and the move away from that was deliberate
+("always on" and "qualifier" are at odds). Round 2's declared-claim
+recommendation loses its precedent and is withdrawn.
+
+## The proposal, as read
+
+1. **`for` loops over a call that returns `Emitted T | Finished`.** The base
+   form is `for i in next(list_yield) { … }`: the subject is a *step call*,
+   re-invoked each turn until `Finished`.
+2. An **`iter fn`** is a fn kind whose declared return is `Emitted T |
+   Finished` but whose call mints a compiler-built pass and drives its
+   compiler-built `next`. `for i in iter(my_struct)` is the shorthand where
+   the pass goes unnamed. Any name, any parameters; the hidden struct and
+   `next` are named from the fn.
+3. **Canonicity is declared on the struct**, as a group obligation:
+   `: Yield<self, T>` makes `next` canonical (`for i in list_yield`);
+   `params Iter<It, T> { iter fn iter(it: It) -> Emitted T | Finished }` and
+   `: Iter<self, T>` make `iter` canonical (`for i in my_struct`). Declaring
+   both is an error; extra non-canonical `next`s and `iter fn`s are fine.
+4. **`iter` marks a fn type**, like `once` marks one: `?Iter<C, Int>` spreads to
+   `?iter: iter (C) -> Emitted Int | Finished`, and `for i in collection`
+   inside `total<C>(collection: C, ?Iter<C, Int>)` drives through it.
+
+## Verdict
+
+It works, and it is the best of the three rounds: it keeps today's pass model
+whole (named structs, `Yield` obligation, `self` in the clause, drive in
+place), gets the any-name `iter fn` and the honest signature, and needs
+**no qualifier, no constructor, no type normalisation, no [qual-generic]
+change, and no generic `next` driver** — so round 1's gaps 1, 2, 4, 5, 6 and
+7 do not arise. Four rules need pinning down, one of which decides whether
+`total(xs)` works for a `List`.
+
+### Rule A — the step-call form: arguments are evaluated once
+
+`for i in f(args)` where `f` returns `Emitted T | Finished` is new semantics
+for `for`: the subject call is the loop's condition, re-evaluated per turn.
+The rule that makes it coherent is **arguments evaluate once, before the
+loop**, into places the per-turn call receives: `for i in next(p)` steps `p`
+where it lives ([iter-drive-in-place] falls out for free), and `for i in
+next(iter(xs))` binds the temporary to a hidden local first (a *linear*
+temporary refused there, as today). Two consequences to state:
+
+- The step fn must be **re-callable on the same arguments**: a parameter it
+  consumes (`=> !x`) cannot be handed to it twice, so that is an error at the
+  loop naming the parameter — the general form of today's "`next` must take
+  `Mut It`".
+- A **non-call** subject of type `Emitted T | Finished` (`for i in (if c {
+  next(a) } else { next(b) })`) is an error: a union is not iterable, and
+  only a call can be re-invoked. No ambiguity with the value forms, since no
+  value of that type is otherwise a `for` subject.
+
+This is a `while let Emitted i = f(args)` with once-evaluated arguments, and
+it is what lets a **non-canonical** step or minter be driven at all
+(`for i in step_back(p)`, `for i in reversed(xs)`) — the point of allowing
+several per type.
+
+### Rule B — what a bare call to an `iter fn` yields
+
+`let p = iter(c)` is used today (Passes.md: "or hold the pass and drive it
+yourself"; `take(p, 2)` then `take(p, 9)`). Under the proposal the declared
+return is `Emitted T | Finished`, which is not what a call in expression
+position produces. Decide:
+
+- **(i)** an `iter fn` may be called only as a `for` subject or filled into
+  an `iter`-kinded position — staged driving is lost; or
+- **(ii)** a call in expression position **mints the pass** (today's
+  behaviour), whose type is the hidden struct, inferred and unnameable; the
+  hidden struct declares `: Yield<self, T>` and its `next` is named `next`
+  (distinct by argument type, so several `iter fn`s over one subject do not
+  collide), so `for i in p`, `for i in next(p)` and `map(p, f)` all work.
+
+Recommendation: (ii). It is what exists, and it makes the `iter` arrow's
+meaning exact: "a call yields a pass whose `next` yields this".
+
+### Rule C — what fills an `iter (C) -> Emitted T | Finished` position
+
+This is the decision that matters for std. Two readings:
+
+- **Strict**: only an `iter fn` fits (kinds must match, so a plain `fn iter(x)
+  -> Emitted T | Finished` — a *step* fn — does not, and neither does a plain
+  fn returning a pass). Then `?Iter<List<Int>, Int>` has **no candidate**,
+  because `core.list`'s `iter` is a plain `fn iter<T>(list: List<T>) -> Mut
+  ListYield<T>` — and it must stay one, since `ListYield` has to be nameable
+  (round 2, §8). `total(xs)` would fail for the most common container.
+- **Semantic**: the position is filled by **any fn whose call yields a pass
+  emitting `T`** — an `iter fn`, or a plain fn returning a `P` with `P :
+  Yield<self, T>`. The `iter` arrow is then exactly "∃ pass type. `(C) -> Mut
+  It` with `It : Yield<self, T>`", spelled without the existential, and an
+  `iter fn` is one way of being that.
+
+Recommendation: semantic, for both the implicit position and the `: Iter<self,
+T>` obligation. It keeps `iter fn` pure sugar (a minter with an anonymous
+pass), lets std's named passes fill `?Iter`, and makes the obligation
+satisfiable by a delegating container without a wrapper pass (`fn iter(bag:
+Bag) -> Mut ListYield<Int>`). The match rule for [group-obligation] is one
+line: a return type `Emitted T | Finished` on an `iter fn` member is satisfied
+by a return type `P` whose canonical `Yield` emits `T`.
+
+### Rule D — lowering: the `iter` arrow is a pair plus a hidden generic
+
+Neither backend has a fn type with an existential return, and boxing the pass
+is refused. So an `iter`-kinded parameter lowers to **two** parameters and
+**one hidden type variable** on the enclosing fn:
+
+```
+fn total<C>(collection: C, ?Iter<C, Int>) -> Int
+// is, after desugaring,
+fn total<C, __It>(collection: C, ?iter: (c: C) -> Mut __It, ?next: (it: Mut __It) -> Emitted Int | Finished) -> Int
+```
+
+That is **exactly the 2026-09-10 container-shaped combinator**
+(`total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`), which
+already compiles and runs on both backends — with `It` hidden. So the `iter`
+arrow reduces to a shape that exists; what is new is the hiding:
+
+- `__It` is inferred from the resolved minter's return (the [implicit-infer]
+  repeated sweep does this today), never written; an explicit type-argument
+  list at the call names the visible generics only.
+- `for i in collection` in the body: the subject's type `C` has an
+  `iter`-kinded implicit **named `iter`** over it → mint with it, drive with
+  the paired `next`. `for i in reversed(collection)` with a second implicit
+  `?reversed: iter (C) -> …` is Rule A applied to a fn value. Naming, not
+  shape, decides canonicity in generic code too — consistent with the
+  obligation.
+- Calling `iter(collection)` in the body yields a `Mut __It`, and passing it
+  to `map(…, ?Yield<It, T>)` forwards the paired `next` by name and type
+  [implicit-forward] — so a generic source function can reach every std
+  combinator.
+- Rendered generics gain `__It` in both targets (Rust monomorphises it,
+  Kotlin erases it); only the emitters see it.
+- The same lowering serves an `iter`-kinded **positional** parameter (`fn
+  drive<C>(c: C, f: iter (C) -> Emitted Int | Finished)`, called as `drive(xs,
+  iter)` or `drive(xs, reversed)`); a lambda can never fill one (it has no
+  pass). Allow it — it is the same machinery — or restrict to implicits for
+  the first cut.
+
+Rejected alternative: lower an `iter`-kinded value as a **push** function
+(`(C, (T) -> ControlFlow)`), which needs no hidden type. `break` fits;
+`return` from the body, effects in the body and staged driving do not, and
+the emitters already refuse early return inside lambdas. The pair is the
+honest shape.
+
+### On "`iter` is a qualifier of the fn type"
+
+It is a **kind**, not a qualifier: it changes what a call *means* (mint, then
+drive) rather than bounding uses as `once` does, and it has no `qualifies`,
+no `is`, no erasure story. `send fn` is the nearer precedent — a fn kind with
+its own call semantics. Worth spelling it as a kind in the docs so nobody
+looks for `is iter`.
+
+### Smaller points
+
+- **`: Iter<self, T>, Yield<self, T>` is an error** — agreed, with the
+  framing "two answers to `for i in s`" (drive `s`, or mint from `s`) rather
+  than "two canonical `next`s"; the `Iter` member's `next` is on the hidden
+  struct, not on `s`. Today's [iter-resolve] ordering ("pass before `iter`")
+  becomes unnecessary.
+- **Multi-parameter `iter fn`s** (`iter fn chunks<T>(list: List<T>, size:
+  Int)`) capture every non-subject argument into the pass — owned, or `proj`
+  by the existing tier scan — and the hidden struct and `next` are keyed by
+  the fn name (`__Pass_chunks_List`). Only the one-parameter `iter` named by
+  the obligation is canonical.
+- **The obligation check** gains a kind: `Yield`'s `fn next` member is not
+  satisfied by an `iter fn next`, and (under strict Rule C) `Iter`'s member
+  not by a plain step fn. Under semantic Rule C the second half is the
+  "yields a pass emitting `T`" match instead.
+- **Effects** on a step call or an `iter fn` are ordinary effects per turn,
+  as today.
+- **What stays from round 1**: hidden names keyed by fn (§9), the `state`
+  annotation cost (§8), the sugar's return type reading as an element (§9,
+  accepted).
+- **What is not gained** relative to the qualifier design: the drive still
+  finds `next` through the obligation rather than an identity in the type
+  (not a scan — [iter-protocol] reads the declaration), and `T` is read off
+  the resolved `next`/minter, which is [implicit-infer]'s ordinary first
+  bullet. Neither is a cost worth a qualifier.
+
+## Decisions for the user
+
+1. Rule B: (ii) a bare call to an `iter fn` mints the pass. (Recommended.)
+2. Rule C: semantic filling — any pass-minting fn fits an `iter` arrow and
+   the `Iter` obligation. (Recommended; strict breaks `total(xs)`.)
+3. Rule D: `iter`-kinded parameters positional as well as implicit, or
+   implicits only in the first cut.
+4. Spelling: `iter (C) -> Emitted T | Finished` as a fn kind, documented
+   beside `send fn`.
+
+---
+
+# Round 4 (2026-09-26, later): `iter T` as the pass placeholder in the group
+
+## The proposal, as read
+
+```
+params Iter<C, T> {
+    fn iter(collection: C) -> iter T
+    fn next(iterator: iter T) -> Emitted T | Finished
+}
+```
+
+`iter T` is a type placeholder standing for "the pass this implementation
+mints, emitting `T`" — one type across both members. An implementation is
+either two fns with a concrete struct filling `iter T`, or a single `iter fn
+iter(collection: C) -> Emitted T | Finished`, which generates both. On spread,
+`iter T` is exactly the hidden `__It` of round 3's lowering.
+
+## Verdict
+
+Better than round 3, and it is the shape to build. The pair that round 3 hid
+behind an `iter` arrow is now **visible in the group**, so the lowering is
+literal: a `?Iter<C, T>` spread yields two implicits because every group
+spread yields one per member [implicit-group], and the only new thing is a
+placeholder type. `iter fn` becomes an *implementation strategy* for a
+two-member obligation rather than a kind with its own call semantics, which
+removes round 3's Rule C (what fills an arrow) and Rule D (the desugar into a
+pair) as separate decisions. Rule A (the step-call form of `for`) and Rule B
+(a bare `iter(c)` mints the pass) stand unchanged.
+
+What `iter T` is: an **associated type with no name** — fixed per
+implementation, opaque per spread. The nearest precedents are `self` in an
+obligation (a placeholder resolved per declaring type) and `proj T` (a type
+former written as a prefix). It is a type former, not a qualifier: no
+`qualifies`, no `is iter`, and it erases to the concrete pass type.
+
+## Rules to pin down
+
+### 1. What `iter T` requires of the type that fills it
+
+Two readings for the obligation `struct Bag : Iter<self, Int>` satisfied by
+hand:
+
+- **Shape**: any `P` with an `iter(bag) -> P` and a `next(p: Mut P) -> Emitted
+  Int | Finished` overload. Then a `P` without `: Yield<self, Int>` satisfies
+  `Iter` but is not itself a pass — `for x in iter(bag)` (value form) would
+  have no canonical `next` to drive with. Two ways to be a pass, inconsistent
+  with [iter-protocol]'s "the tie is declared, never inferred from a method
+  name".
+- **Declared** (recommended): `iter T` denotes **a type declaring `: Yield<self,
+  T>`** — a std pass, a user pass, or the hidden struct of an `iter fn`. The
+  `next` member is then satisfied by construction (it *is* `Yield`'s member),
+  and `Iter`'s listing it is what makes the spread carry it.
+
+Under the declared reading the two groups are one protocol stated twice, and
+that is worth saying in `core/iterator.sv`: `Yield<It, T>` is the pass
+obligation and the pass-shaped spread; `Iter<C, T>` is the source obligation
+and the source-shaped spread, whose second member is `Yield`'s with `It =
+iter T`. (If groups could spread inside groups — `params Iter<C, T> { fn
+iter(collection: C) -> iter T ; ?Yield<iter T, T> }` — the duplication would
+vanish, but that is machinery nobody else needs.)
+
+A walking pass emits `proj T` (`ListYield<T> : Yield<self, proj T>`); the
+match of `iter T` against it should accept the projection, as a reading
+combinator's `?Yield<It, T>` does today.
+
+### 2. `Mut`
+
+The sketch has `fn next(iterator: iter T)`. Advancing mutates, and every
+`next` in std is `(p: Mut P) => p: Mut`. Either write it —
+`fn iter(collection: C) -> Mut iter T` and `fn next(iterator: Mut iter T) ->
+Emitted T | Finished => iterator: Mut` — or define `iter T` as inherently a
+mutable position. Recommend writing it, for parity with `Yield` and so
+`let p = iter(c)` has a type the checker treats as `Mut` for the same reason
+it does today.
+
+### 3. Where `iter T` may be written
+
+Inside a group's member signatures, and nowhere else in the first cut. In
+the body of a fn that spreads `?Iter<C, T>`, `let p = iter(c)` has type `Mut
+iter T` by inference and needs no annotation. Allowing it in a *signature*
+(`fn f<C>(c: C, ?Iter<C, Int>) -> Mut iter Int`) would leak the hidden
+generic into a public type — expressible today as `f<C, It>(…) -> Mut It`
+with the generic visible — and is a possible later sugar, not a need.
+
+### 4. Filling the pair: resolve `next` by the pass's declaration, not by scope
+
+This is the one place the ordinary rule needs a variant. [implicit-resolve]
+is local: a call gets the `next` visible where it is written. But the `next`
+paired with `iter T` is the *canonical* one of whatever concrete pass `iter`
+returned — and that pass may be a hidden struct from another module, whose
+generated `next` is not in the caller's scope by name (today's [iter-fn]:
+"the generated pass type inherits its visibility", which is about the type,
+not about an unqualified `next` at a call site three modules away).
+
+Recommendation: once `iter T` is bound to a concrete `P`, the `?next` implicit
+is filled from **`P`'s own `Yield` obligation**, wherever the call is — the
+rule `for` already follows ([iter-protocol]: "`for` reads the declaration").
+`?iter` itself: `C`'s declared `Iter` obligation when it has one, else
+ordinary resolution by name (which is how an intrinsic `List`, with no
+obligation, reaches `core.list`'s exported `iter`), and `iter = other`
+overrides either [implicit-override]. Overriding `next` alone should be
+refused — it is not a choice the caller has, given `iter T` — which is a
+`with`-style tie ([implicit-with]: `iter with next`) and could be written as
+one in the group.
+
+### 5. Lowering
+
+Per `?Iter<C, T>` spread: one hidden type parameter and two implicit fn
+parameters, exactly the 2026-09-10 shape (`total<C, It>(c: C, ?iter: (c: C)
+-> Mut It, ?Yield<It, Int>)`) with `It` hidden. Hidden generics render in
+both targets (Rust monomorphises, Kotlin erases); an explicit type-argument
+list at a call names visible generics only. `for i in c` in the body mints
+with the spread's `iter` and drives with the `next` **paired by `iter T`** —
+structural, not by convention. `iter(c)` in the body yields a `Mut iter T`,
+and handing it to `map(…, ?Yield<It, T>)` forwards the paired `next` by name
+and type [implicit-forward]. Nothing here is new to the emitters.
+
+### 6. Two sources in one fn
+
+`fn merge<A, B, T>(a: A, b: B, ?Iter<A, T>, ?Iter<B, T>)` produces two
+implicits named `iter` and two named `next`, at different types, and two
+hidden generics. Calls in the body pick by argument type (`iter(a)` vs
+`iter(b)`; `next(p)` by which `iter T` `p` has), and the call site fills each
+by its own `C`. This should work as two `?Yield` spreads over different `It`s
+would today, but nothing has exercised two same-named implicits in one
+signature; it is the first thing to test.
+
+### 7. Carried over
+
+- **Rule A** (round 3): `for i in f(args)` re-invokes a step call per turn,
+  arguments evaluated once; a consuming parameter is an error at the loop; a
+  non-call subject of union type is an error.
+- **Rule B**: a bare `iter(c)` mints the pass; its type is the hidden struct,
+  inferred — or, in generic code, `Mut iter T`.
+- `: Iter<self, T>, Yield<self, T>` is an error ("two answers to `for i in
+  s`").
+- Multi-parameter `iter fn`s (`iter fn chunks(list, size)`) capture
+  non-subject arguments into the pass; hidden struct and `next` keyed by fn
+  name; only the one-parameter `iter` named by the obligation is canonical.
+- `state` annotations, hidden names in diagnostics, the sugar's return type
+  reading as an element: unchanged costs.
+
+## Decisions for the user
+
+1. `iter T` denotes a type declaring `: Yield<self, T>` (declared reading).
+2. `Mut` written explicitly in both members.
+3. `iter T` legal only inside group members for the first cut.
+4. `next` paired with `iter T` is filled from the pass's declaration; `iter`
+   from `C`'s obligation, else by scope; `iter with next`.
+
+---
+
+# Round 5 (2026-09-26, later): what an `iter fn` call is typed as
+
+Settled by the user: every `iter T` declares `: Yield<self, T>`; `iter with
+next` on the group; and the obligation-fulfilling declarations are **imported
+with the struct**, which covers round 4 §4 — the hidden `next` travels with
+the hidden struct, so ordinary scope resolution finds it and the
+"by declaration" variant is withdrawn. The `with` tie is what stops a caller
+overriding `next` without `iter`. In the fully explicit form `f<C, It, T>(c:
+C, ?iter: (C) -> Mut It, ?next: (Mut It) -> Emitted T | Finished)`, `iter T`
+is simply what fills `It`.
+
+## The question: the type of `iter(c)` when `iter` is an `iter fn`
+
+The call yields the hidden struct — a real type with a real `: Yield<self, T>`
+obligation and a generated `next`, so `for`, `next(p)`, and `map(p, f)` all
+work by the existing rules. What it lacks is a **spelling**, and that is what
+`iter T` supplies: **`Mut iter T` is the language's name for an anonymous pass
+type.** One concept, three places:
+
+| where | `iter T` is |
+|---|---|
+| a group member (`fn iter(collection: C) -> Mut iter T`) | the associated placeholder, one type across the members |
+| a fn body spreading `?Iter<C, T>` | the opaque hidden generic `It` |
+| the type of an `iter fn` call (`let p = iter(bag)`) | the concrete anonymous struct, displayed as `Mut iter Int` |
+
+The declared return of the `iter fn` stays the step's (`Emitted T |
+Finished`); the *call's* type is `Mut iter T`. That is the mismatch already
+accepted in round 1 §9, now with a name for the other side.
+
+Rules that follow:
+
+- **Two anonymous passes never unify.** `iter Int` from `reversed` and `iter
+  Int` from `iter` are distinct types that print alike; a mismatch
+  diagnostic names the minting fn (`iter Int (from reversed)`), the way two
+  same-named structs in two modules would need their module.
+- **As a `let` annotation, `iter T` is a pattern** ([cmp-carry]'s rule for
+  annotations): `let p: Mut iter Int = iter(bag)` asserts "a pass of Int" and
+  the variable keeps the concrete type. A *named* pass fits it too
+  (`let p: Mut iter Int = iter(xs)` over a `ListYield<Int>`) — the pattern
+  means "declares `: Yield<self, Int>`", and nothing is widened.
+- **In a signature or a struct field it is refused** in the first cut (an
+  existential there is boxing, or a hidden generic that leaks); the
+  remedy named is a visible generic (`<It>`) or the concrete pass name.
+- **In a `state` block it can be allowed**, because a `state` field has an
+  initializer to fill the pattern from — which closes round 1 §8 for the
+  case that mattered:
+  ```
+  iter fn pairs<T>(list: List<T>) -> Emitted (T, T) | Finished {
+      state { inner: Mut iter (proj T) = iter(list) }
+      …
+  }
+  ```
+  The field's type is the initializer's concrete type; the annotation is
+  checked as a pattern. Worth doing in the same change, since it is the
+  pattern rule applied to a third site rather than new machinery.
+
+## Round 5a: should `iter T` imply `Mut`?
+
+Yes. The argument is not just that every use happens to be `Mut`; it is
+entailed. A type filling `iter T` declares `: Yield<self, T>`, whose `next`
+takes `Mut self`, so the type must `canbe Mut` — and advancing is the *only*
+operation a pass has, so a non-`Mut` pass has nothing it can do. A spelling
+that allows a useless form is worse than one that does not.
+
+So `iter T` is a type former whose expansion is `Mut <pass>`:
+
+- `fn iter(collection: C) -> iter T` and `fn next(iterator: iter T) -> Emitted
+  T | Finished => iterator: Mut` in the group; `let p = iter(bag)` has type
+  `iter Int`; `state { inner: iter (proj T) = iter(list) }`.
+- **`Mut iter T` is refused** as a duplicate ([qual-no-dup]), with the hint
+  that `iter T` is already mutable — the same way `Mut Mut` is.
+- **The deduction stays written.** `=> iterator: Mut` is a contract, not a
+  type, and a bodiless member's clause is its whole contract; implying it
+  would be the first implied deduction in the language. One word in one
+  place in `core/iterator.sv`.
+- The hidden struct of an `iter fn` gets `canbe Mut`, as it does today.
+
+This is not an always-on qualifier on a value's type: `iter T` *denotes* a
+`Mut`-qualified type, the way `T?` denotes `T | None`. Nothing is gained by a
+value, and nothing can be dropped.

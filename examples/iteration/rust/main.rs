@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/array.rs"]
 pub mod core_array;
 #[path = "core/checked.rs"]
@@ -62,6 +64,17 @@ pub struct Countdown {
     pub at: i32,
 }
 
+impl crate::wire::__Wire for Countdown {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn countdown(from: i32) -> Countdown {
     return Countdown { at: from };
 }
@@ -91,9 +104,31 @@ pub struct Halving {
     pub start: i32,
 }
 
+impl crate::wire::__Wire for Halving {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.start, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            start: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct __Pass_Halving {
     pub at: i32,
+}
+
+impl crate::wire::__Wire for __Pass_Halving {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn iter__10(h: &Halving) -> __Pass_Halving {
@@ -114,6 +149,17 @@ pub struct Fibs {
     pub count: i32,
 }
 
+impl crate::wire::__Wire for Fibs {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.count, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            count: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn fibs(count: i32) -> Fibs {
     return Fibs { count: count };
 }
@@ -124,6 +170,23 @@ pub struct __Pass_Fibs {
     pub a: i32,
     pub b: i32,
     pub made: i32,
+}
+
+impl crate::wire::__Wire for __Pass_Fibs {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.count, out);
+        crate::wire::__Wire::__enc(&self.a, out);
+        crate::wire::__Wire::__enc(&self.b, out);
+        crate::wire::__Wire::__enc(&self.made, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            count: crate::wire::__Wire::__dec(r)?,
+            a: crate::wire::__Wire::__dec(r)?,
+            b: crate::wire::__Wire::__dec(r)?,
+            made: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn iter__11(f: &Fibs) -> __Pass_Fibs {
@@ -148,6 +211,17 @@ pub struct Naturals {
     pub from: i32,
 }
 
+impl crate::wire::__Wire for Naturals {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.from, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            from: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn naturals(from: i32) -> Naturals {
     return Naturals { from: from };
 }
@@ -155,6 +229,17 @@ pub fn naturals(from: i32) -> Naturals {
 #[derive(Clone, Debug, PartialEq)]
 pub struct __Pass_Naturals {
     pub at: i32,
+}
+
+impl crate::wire::__Wire for __Pass_Naturals {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn iter__12(n: &Naturals) -> __Pass_Naturals {

@@ -9,6 +9,8 @@ pub mod collections;
 pub mod scheduler;
 #[path = "hosttime.rs"]
 pub mod hosttime;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/actor.rs"]
 pub mod core_actor;
 #[path = "core/checked.rs"]
@@ -430,6 +432,23 @@ impl Fragile for __Stub_Fragile {
 pub enum __Msg_Fragile {
     Crash,
 }
+
+impl crate::wire::__Wire for __Msg_Fragile {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        match self {
+            __Msg_Fragile::Crash => out.push(0),
+        }
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        match r.u8()? {
+            0 => Some(__Msg_Fragile::Crash),
+            _ => None,
+        }
+    }
+}
+
+/// [protocol-hash] The canonical hash of `Fragile`.
+pub const __PROTO_Fragile: &str = "a8c912bc262644a0";
 
 pub struct Breaking {
     pub __mailbox_capacity: i32,

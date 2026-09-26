@@ -9,6 +9,8 @@ pub mod collections;
 pub mod scheduler;
 #[path = "hosttime.rs"]
 pub mod hosttime;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/actor.rs"]
 pub mod core_actor;
 #[path = "core/checked.rs"]

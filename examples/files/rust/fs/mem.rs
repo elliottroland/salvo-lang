@@ -18,10 +18,38 @@ pub struct MemRead {
     pub failed: bool,
 }
 
+impl crate::wire::__Wire for MemRead {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+        crate::wire::__Wire::__enc(&self.at, out);
+        crate::wire::__Wire::__enc(&self.failed, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+            at: crate::wire::__Wire::__dec(r)?,
+            failed: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MemWrite {
     pub path: String,
     pub buffer: Vec<u8>,
+}
+
+impl crate::wire::__Wire for MemWrite {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.path, out);
+        crate::wire::__Wire::__enc(&self.buffer, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            path: crate::wire::__Wire::__dec(r)?,
+            buffer: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub struct MemFs {

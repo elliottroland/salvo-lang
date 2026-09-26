@@ -14,6 +14,15 @@ data class Fighter(
     var energy: Int,
 )
 
+object __Codec_Fighter : salvo.WireCodec<Fighter> {
+    override fun enc(v: Fighter, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.name, out)
+        salvo.IntCodec.enc(v.hp, out)
+        salvo.IntCodec.enc(v.energy, out)
+    }
+    override fun dec(inp: salvo.WireIn): Fighter = Fighter(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun named(roster: List<Fighter>, name: String): Fighter? {
     for (f in roster) {
         if (f.name == name) {
@@ -72,6 +81,14 @@ data class Squad(
     var members: List<Fighter>,
 )
 
+object __Codec_Squad : salvo.WireCodec<Squad> {
+    override fun enc(v: Squad, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.banner, out)
+        salvo.ListCodec(__Codec_Fighter).enc(v.members, out)
+    }
+    override fun dec(inp: salvo.WireIn): Squad = Squad(salvo.StrCodec.dec(inp), salvo.ListCodec(__Codec_Fighter).dec(inp))
+}
+
 fun rotate(squad: Squad, from: Fighter, to: Fighter) {
     from.energy = from.energy - 1
     to.energy = to.energy + 1
@@ -82,6 +99,14 @@ data class Camp(
     var supplies: Int,
     var banners: MutableList<String>,
 )
+
+object __Codec_Camp : salvo.WireCodec<Camp> {
+    override fun enc(v: Camp, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.supplies, out)
+        salvo.MutListCodec(salvo.StrCodec).enc(v.banners, out)
+    }
+    override fun dec(inp: salvo.WireIn): Camp = Camp(salvo.IntCodec.dec(inp), salvo.MutListCodec(salvo.StrCodec).dec(inp))
+}
 
 fun spend(camp: Camp, n: Int) {
     camp.supplies = camp.supplies - n

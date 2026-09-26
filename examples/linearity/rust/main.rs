@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -35,6 +37,19 @@ use crate::seq::*;
 pub struct Ticket {
     pub id: i32,
     pub seat: String,
+}
+
+impl crate::wire::__Wire for Ticket {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.id, out);
+        crate::wire::__Wire::__enc(&self.seat, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            id: crate::wire::__Wire::__dec(r)?,
+            seat: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn issue(console: &mut dyn Console, id: i32, seat: String) -> Ticket {

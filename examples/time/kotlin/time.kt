@@ -17,6 +17,13 @@ data class Duration(
     }
 }
 
+object __Codec_Duration : salvo.WireCodec<Duration> {
+    override fun enc(v: Duration, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.nanos, out)
+    }
+    override fun dec(inp: salvo.WireIn): Duration = Duration(salvo.LongCodec.dec(inp))
+}
+
 data class Instant(
     val nanos: Long,
 ) : Comparable<Instant> {
@@ -26,6 +33,13 @@ data class Instant(
     }
 }
 
+object __Codec_Instant : salvo.WireCodec<Instant> {
+    override fun enc(v: Instant, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.nanos, out)
+    }
+    override fun dec(inp: salvo.WireIn): Instant = Instant(salvo.LongCodec.dec(inp))
+}
+
 data class Tick(
     val nanos: Long,
 ) : Comparable<Tick> {
@@ -33,6 +47,13 @@ data class Tick(
         run { val __c = salvo.__salvoCompare(nanos, other.nanos); if (__c != 0) return __c }
         return 0
     }
+}
+
+object __Codec_Tick : salvo.WireCodec<Tick> {
+    override fun enc(v: Tick, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.nanos, out)
+    }
+    override fun dec(inp: salvo.WireIn): Tick = Tick(salvo.LongCodec.dec(inp))
 }
 
 fun nanos(n: Long): Duration {
@@ -218,6 +239,13 @@ data class Fired(
     val at: Tick,
 )
 
+object __Codec_Fired : salvo.WireCodec<Fired> {
+    override fun enc(v: Fired, out: salvo.WireOut) {
+        __Codec_Tick.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): Fired = Fired(__Codec_Tick.dec(inp))
+}
+
 interface Timer {
     fun after(wait: Duration, done: salvo.SalvoReply)
 }
@@ -281,6 +309,21 @@ class __Stub_TimerCtl(private val addr: Int) : TimerCtl {
 sealed class __Msg_TimerCtl {
     class Advance(val by: Duration) : __Msg_TimerCtl()
 }
+
+object __Codec___Msg_TimerCtl : salvo.WireCodec<__Msg_TimerCtl> {
+    override fun enc(v: __Msg_TimerCtl, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_TimerCtl.Advance -> { out.u8(0); __Codec_Duration.enc(v.by, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_TimerCtl = when (inp.u8()) {
+            0 -> __Msg_TimerCtl.Advance(__Codec_Duration.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `TimerCtl`. */
+const val __PROTO_TimerCtl: String = "93f92d20477305ad"
 
 class ManualTime : Timer, TimerCtl {
     private var now: Long = 0L

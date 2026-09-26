@@ -17,10 +17,27 @@ data class MemRead(
     val failed: Boolean,
 )
 
+object __Codec_MemRead : salvo.WireCodec<MemRead> {
+    override fun enc(v: MemRead, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+        salvo.IntCodec.enc(v.at, out)
+        salvo.BoolCodec.enc(v.failed, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemRead = MemRead(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.BoolCodec.dec(inp))
+}
+
 data class MemWrite(
     val path: String,
     val buffer: salvo.SalvoBytes,
 )
+
+object __Codec_MemWrite : salvo.WireCodec<MemWrite> {
+    override fun enc(v: MemWrite, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+        salvo.BytesCodec.enc(v.buffer, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemWrite = MemWrite(salvo.StrCodec.dec(inp), salvo.BytesCodec.dec(inp))
+}
 
 class MemFs : Fs {
     private var files: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }

@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1565 tests, complete: the toolchain tests are
+cargo test                  # 1577 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,54 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ② — codecs and the protocol hash (2026-09-26 —
+built).** Salvo owns its serialization; **1577 tests** (+12).
+
+*What landed.* `salvo-core/src/wire.rs`: the encoding stated in prose, the
+shared predicate `wire_blocker` (with `WireBlock` reasons), `approx_ty`
+(moved out of the Kotlin emitter), `protocol_canonical` + `protocol_hash`
+(FNV-1a 64, sixteen hex digits). `noremote` as a contextual modifier before
+a `struct`/`type` declaration ([noremote]; `Pool`, `InStream`, `OutStream`
+marked in std). The checker refuses `encode`/`decode` at the call by the
+predicate and records `Checked.protocol_hashes`. Runtimes: `wire.rs` (a
+`__Wire` trait, impls for scalars/`String`/`Vec`/`Option`/tuples) and
+`wire.kt` (codec **values**, `WireCodec<T>`, composed per type). Emitters:
+`impl __Wire for S` / `object __Codec_S` beside every struct with a wire
+form, union codecs in the unions file, `impl __Wire for __Msg_E` / `object
+__Codec___Msg_E` plus `__PROTO_E` for every protocol whose payloads pass,
+and `encode`/`decode` lowering. std `net` exports the two intrinsics.
+Verified by a compile-and-run case per backend whose **printed hex is
+identical** — the byte-for-byte parity assertion — plus seven checker tests
+(refusals by name; the hash follows shape, not names) and generated-text
+checks. Rules: [wire-format], [noremote], [protocol-hash], [rs-wire],
+[kt-wire].
+
+*What building it settled or found:*
+
+* **One predicate, two consumers.** The checker's refusal and the emitters'
+  codec generation read the same `wire_blocker`, so "it encodes" and "it has
+  a codec on both backends" cannot drift apart — the [backend-never-wrong]
+  shape applied to serialization. The predicate lives in `salvo-core`, not
+  the checker, because the emitters need it without a `Checker` in hand.
+* **Keyed containers are a recorded cut**, not an oversight: a
+  `SalvoSet<T>` carries its `hash`/`eq` pair as runtime closures resolved by
+  the checker *per construction site*, and a decoder has no site. Threading
+  the identity markers into a struct's generated decoder is the fix, when a
+  payload wants it. `Addr`/`Reply` wait for step ③ by design.
+* **Generic `T` is refused at `encode`**, because a `__Wire` bound on every
+  generic parameter would refuse fn-typed instantiations everywhere; the
+  remote send of step ③ is always on a concrete `__Msg_E`, so nothing the
+  sequence needs is blocked.
+* **Kotlin codecs must be top-level objects**, which the dot-named nested
+  structs (`Environment.Id`) found the moment kotlinc ran: a named `object`
+  cannot be local, so a nested struct's codec is `__Codec_Environment_Id`
+  after the outer class, not inside it. `Mut Str` (a `StringBuilder`) needed
+  its own codec too; both surfaced from the full case registry, not from
+  the new test — which is what the registry is for.
+* **Every example regenerated** (116 files): every struct now carries a
+  codec on both backends, and the runtime file joins any program with a
+  struct. Accepted as the price of default-on; dead-code allowances cover it.
 
 **The network sequence, step ① — `threadsafe` and the wire (2026-09-26 —
 built).** The first step of ROADMAP.md section 2, on both backends with

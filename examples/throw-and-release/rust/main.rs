@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -41,6 +43,17 @@ use std::ops::ControlFlow;
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileHandle {
     pub name: String,
+}
+
+impl crate::wire::__Wire for FileHandle {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.name, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            name: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn open_file(console: &mut dyn Console, name: String) -> FileHandle {

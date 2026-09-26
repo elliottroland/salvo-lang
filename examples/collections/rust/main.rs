@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "wire.rs"]
+pub mod wire;
 #[path = "core/checked.rs"]
 pub mod core_checked;
 #[path = "core/console.rs"]
@@ -38,9 +40,33 @@ pub struct Point {
     pub y: i32,
 }
 
+impl crate::wire::__Wire for Point {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.x, out);
+        crate::wire::__Wire::__enc(&self.y, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            x: crate::wire::__Wire::__dec(r)?,
+            y: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Note {
     pub text: String,
+}
+
+impl crate::wire::__Wire for Note {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.text, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            text: crate::wire::__Wire::__dec(r)?,
+        })
+    }
 }
 
 pub fn by_len(a: &String, b: &String) -> i32 {

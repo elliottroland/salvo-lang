@@ -79,10 +79,12 @@ export struct FileInfo { size: Long, is_dir: Bool }
 // stream this is. Linear, so a stream that is never closed is a compile
 // error rather than a leak [linear-group]; `close` is the discharger, and it
 // is an effect member, so a double discharges it too.
-export linear struct InStream { handle: Long }
+// [noremote] A stream is a handle into *this* process's open-file table, so
+// it has no wire form — and neither does anything holding one.
+export noremote linear struct InStream { handle: Long }
 
 // A stream open for writing. Its `close` flushes.
-export linear struct OutStream { handle: Long }
+export noremote linear struct OutStream { handle: Long }
 
 // The filesystem. Path operations and stream operations are members of one
 // effect, so application code declares `[Fs]` and nothing else — and a

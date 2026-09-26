@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 73
 expression: "parse_clean(&std_core(\"bytes.sv\"))"
 ---
 Module {
@@ -31,6 +32,7 @@ Module {
                 exported: true,
                 intrinsic: true,
                 linear: false,
+                noremote: false,
                 name: Ident {
                     name: "Bytes",
                     span: 1151..1156,
@@ -2248,6 +2250,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 5234..5394,
             },
         ),

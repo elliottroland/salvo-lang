@@ -2771,3 +2771,44 @@ fn an_unterminated_nested_string_is_reported() {
         "got {errors:?}"
     );
 }
+
+// --- the wire opt-out [noremote] ---
+
+/// [noremote] `noremote` before a `struct` or a `type` sets the flag, with
+/// `export`, `linear` and `intrinsic` composing as usual.
+#[test]
+fn noremote_parses_on_structs_and_types() {
+    let source = "noremote struct Canvas { surface: Int }\n\
+                  export noremote linear struct InStream { handle: Long }\n\
+                  export noremote intrinsic type Pool\n\
+                  struct Plain { n: Int }\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let flags: Vec<(bool, bool)> = module
+        .items
+        .iter()
+        .map(|item| match item {
+            salvo_syntax::ast::Item::Struct(d) => (d.noremote, d.exported),
+            salvo_syntax::ast::Item::Type(d) => (d.noremote, d.exported),
+            _ => panic!("expected a type declaration"),
+        })
+        .collect();
+    assert_eq!(flags, vec![(true, false), (true, true), (true, true), (false, false)]);
+}
+
+/// [noremote] Before anything but a type declaration it is an error naming
+/// what the word is for.
+#[test]
+fn noremote_on_a_fn_is_an_error() {
+    let source = "noremote fn go() -> None {\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics.iter().any(|d| d.is_error() && d.message.contains("[noremote]")),
+        "expected the misplaced-`noremote` error, got: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

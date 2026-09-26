@@ -44,6 +44,14 @@ data class Request(
     var touches: Int,
 )
 
+object __Codec_Request : salvo.WireCodec<Request> {
+    override fun enc(v: Request, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+        salvo.IntCodec.enc(v.touches, out)
+    }
+    override fun dec(inp: salvo.WireIn): Request = Request(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun authenticate(request: Request): Request {
     return request
 }

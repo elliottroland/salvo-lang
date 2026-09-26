@@ -31,6 +31,14 @@ data class Span(
     val end: Int,
 )
 
+object __Codec_Span : salvo.WireCodec<Span> {
+    override fun enc(v: Span, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.start, out)
+        salvo.IntCodec.enc(v.end, out)
+    }
+    override fun dec(inp: salvo.WireIn): Span = Span(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}
+
 fun SpanOf_qualifies(span: Span, str: String): Boolean {
     return span.start >= 0 && span.start <= span.end && span.end <= str.length
 }

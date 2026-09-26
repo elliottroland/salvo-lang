@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 83
 expression: "parse_clean(&std_core(\"list.sv\"))"
 ---
 Module {
@@ -21,6 +22,7 @@ Module {
                 exported: true,
                 intrinsic: true,
                 linear: false,
+                noremote: false,
                 name: Ident {
                     name: "List",
                     span: 581..585,
@@ -6461,6 +6463,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 14616..15047,
             },
         ),
@@ -7325,6 +7328,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 16070..16376,
             },
         ),
@@ -8511,6 +8515,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 17648..17942,
             },
         ),
@@ -9048,6 +9053,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 18794..18851,
             },
         ),
@@ -9828,6 +9834,7 @@ Module {
                 ],
                 fns: [],
                 linear: false,
+                noremote: false,
                 span: 19719..20024,
             },
         ),

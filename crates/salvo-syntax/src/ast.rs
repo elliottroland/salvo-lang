@@ -209,6 +209,11 @@ pub struct TypeDecl {
     /// the declaring file must contain a discharger, and every value owes.
     /// Only an `intrinsic type` may carry it, never an alias.
     pub linear: bool,
+    /// [noremote] `noremote intrinsic type Pool`: no wire form — a value of
+    /// it cannot cross to another machine, and neither can anything holding
+    /// one. The opt-out of serializable-by-default (user decision
+    /// 2026-09-26); std marks its process-local handles with it.
+    pub noremote: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// [linear-container] Per-parameter `canbe` opt-ins, exactly as a
@@ -274,6 +279,11 @@ pub struct StructDecl {
     /// modifier; the modifier is for leaf types and concrete linear
     /// fields.
     pub linear: bool,
+    /// [noremote] `noremote struct Canvas { … }`: no wire form, and
+    /// transitive — a struct with a `noremote` field is `noremote` whether or
+    /// not it says so. The opt-out of serializable-by-default (user decision
+    /// 2026-09-26).
+    pub noremote: bool,
     pub span: Span,
 }
 

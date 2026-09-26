@@ -44,7 +44,7 @@ bridge), time, free concurrency, shareable-by-default handlers, refinement types
 group borrowing, the testing framework, the comparison/hashing capabilities, and
 the wire under actors across machines (`net`, step ① of the network sequence).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1565 tests green.
+targets and the output they print. 1577 tests green.
 
 ## The sequence
 
@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; step ① ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–② ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -110,12 +110,14 @@ The layering, bottom up, and the order it is built in (each step runs on
    network actor — trivial once step ④ wants it); a `.test.sv` annex for
    `net` (test bodies have no `spawn`); and the multi-face stateful monitor
    gap, which is why the double is two pieces.
-2. **Codecs and the protocol hash.** A compiler-defined canonical encoding
-   (positional; union arms by declared index), an encoder/decoder generated
-   per type on both backends so a Kotlin node and a Rust node share a group;
-   **serializable by default, `noremote` the opt-out** on a type, transitive;
-   process-local handles `noremote` by construction. One canonical hash per
-   actor effect.
+2. ✅ **Codecs and the protocol hash — built 2026-09-26** (COMPLETED.md's
+   log, "step ②"). [wire-format] [noremote] [protocol-hash] [rs-wire]
+   [kt-wire]: the encoding stated once in `salvo-core/src/wire.rs`, codecs
+   generated per struct/union/message on both backends, `encode`/`decode` in
+   std `net` refused by the shared predicate, `__PROTO_E` constants.
+   **Recorded cuts**: keyed containers have no wire form (identity
+   capabilities would have to travel into the decoder); a generic `T` is
+   refused at `encode`; Kotlin tuples past `Triple` have no codec.
 3. **Routable `Addr<E>`/`Reply<T>`** — `(node, id, bits)`, locality a runtime
    fact, unguessable bits so the two-face guarantee survives the wire;
    credit-based back-pressure so `capacity` stays true remotely; at-most-once,

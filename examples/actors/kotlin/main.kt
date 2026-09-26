@@ -232,6 +232,21 @@ sealed class __Msg_Fragile {
     class Crash() : __Msg_Fragile()
 }
 
+object __Codec___Msg_Fragile : salvo.WireCodec<__Msg_Fragile> {
+    override fun enc(v: __Msg_Fragile, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Fragile.Crash -> { out.u8(0) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Fragile = when (inp.u8()) {
+            0 -> __Msg_Fragile.Crash()
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Fragile`. */
+const val __PROTO_Fragile: String = "a8c912bc262644a0"
+
 class Breaking : Fragile {
     internal val __mailboxCapacity: Int = 1
     internal var __addr: Int? = null

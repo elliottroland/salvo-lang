@@ -6,9 +6,23 @@ data class Mailbox(
     val capacity: Int,
 )
 
+object __Codec_Mailbox : salvo.WireCodec<Mailbox> {
+    override fun enc(v: Mailbox, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.capacity, out)
+    }
+    override fun dec(inp: salvo.WireIn): Mailbox = Mailbox(salvo.IntCodec.dec(inp))
+}
+
 data class Fault(
     val reason: String,
 )
+
+object __Codec_Fault : salvo.WireCodec<Fault> {
+    override fun enc(v: Fault, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.reason, out)
+    }
+    override fun dec(inp: salvo.WireIn): Fault = Fault(salvo.StrCodec.dec(inp))
+}
 
 interface Faults {
     fun faulted(fault: Fault)
@@ -24,11 +38,41 @@ sealed class __Msg_Faults {
     class Faulted(val fault: Fault) : __Msg_Faults()
 }
 
+object __Codec___Msg_Faults : salvo.WireCodec<__Msg_Faults> {
+    override fun enc(v: __Msg_Faults, out: salvo.WireOut) {
+        when (v) {
+            is __Msg_Faults.Faulted -> { out.u8(0); __Codec_Fault.enc(v.fault, out) }
+        }
+    }
+    override fun dec(inp: salvo.WireIn): __Msg_Faults = when (inp.u8()) {
+            0 -> __Msg_Faults.Faulted(__Codec_Fault.dec(inp))
+        else -> throw salvo.WireError()
+    }
+}
+
+/** [protocol-hash] The canonical hash of `Faults`. */
+const val __PROTO_Faults: String = "b2ab28f759af3855"
+
 data class Exit(
     val reason: String,
 )
+
+object __Codec_Exit : salvo.WireCodec<Exit> {
+    override fun enc(v: Exit, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.reason, out)
+    }
+    override fun dec(inp: salvo.WireIn): Exit = Exit(salvo.StrCodec.dec(inp))
+}
 
 data class Idle(
     val parked_gates: Int,
     val parked_tokens: Int,
 )
+
+object __Codec_Idle : salvo.WireCodec<Idle> {
+    override fun enc(v: Idle, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.parked_gates, out)
+        salvo.IntCodec.enc(v.parked_tokens, out)
+    }
+    override fun dec(inp: salvo.WireIn): Idle = Idle(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+}

@@ -1,0 +1,243 @@
+// [wire-format] [kt-wire] The canonical encoding, the other half: the Kotlin
+// runtime's codecs for every type the language defines without the
+// program's help. Byte for byte what the Rust runtime's `wire.rs` produces
+// and reads — the encoding is stated once, in `salvo-core`'s `wire.rs`, and
+// implemented twice. Struct, union and message codecs are *generated* by the
+// emitter beside their declarations as `__Codec_X` objects and classes.
+//
+// Kotlin has no type-directed trait dispatch for decoding, so a codec is a
+// **value** (`WireCodec<T>`), composed for compound types: `ListCodec(IntCodec)`
+// is the codec of `List<Int>`. The emitter renders that composition at each
+// site from the checked type.
+//
+// Every integer is big-endian; every length is a `u32`; an optional is a
+// presence byte; a union is a tag byte holding the arm's declared index.
+// Decoding is total: a malformed input throws `WireError` inside and answers
+// `null` from `salvoDecode`, which also refuses trailing bytes.
+package salvo
+
+import java.io.ByteArrayOutputStream
+
+class WireError : Exception()
+
+class WireOut {
+    private val buf = ByteArrayOutputStream()
+
+    fun u8(b: Int) {
+        buf.write(b and 0xff)
+    }
+
+    fun i32(v: Int) {
+        u8(v ushr 24); u8(v ushr 16); u8(v ushr 8); u8(v)
+    }
+
+    fun i64(v: Long) {
+        i32((v ushr 32).toInt()); i32(v.toInt())
+    }
+
+    fun raw(bytes: ByteArray) {
+        buf.write(bytes)
+    }
+
+    fun toBytes(): SalvoBytes = SalvoBytes(buf.toByteArray())
+}
+
+class WireIn(private val data: ByteArray) {
+    private var pos = 0
+
+    private fun take(n: Int): ByteArray {
+        if (n < 0 || pos + n > data.size) throw WireError()
+        val out = data.copyOfRange(pos, pos + n)
+        pos += n
+        return out
+    }
+
+    fun u8(): Int {
+        if (pos >= data.size) throw WireError()
+        return data[pos++].toInt() and 0xff
+    }
+
+    fun i32(): Int = (u8() shl 24) or (u8() shl 16) or (u8() shl 8) or u8()
+
+    fun i64(): Long = (i32().toLong() shl 32) or (i32().toLong() and 0xffffffffL)
+
+    /** A length prefix, bounded by what is left. */
+    fun len(): Int {
+        val n = i32()
+        if (n < 0 || n > data.size - pos) throw WireError()
+        return n
+    }
+
+    fun raw(n: Int): ByteArray = take(n)
+
+    val done: Boolean get() = pos == data.size
+}
+
+interface WireCodec<T> {
+    fun enc(v: T, out: WireOut)
+    fun dec(inp: WireIn): T
+}
+
+/** `encode(value)`: the whole value, as one frame. */
+fun <T> salvoEncode(v: T, c: WireCodec<T>): SalvoBytes {
+    val out = WireOut()
+    c.enc(v, out)
+    return out.toBytes()
+}
+
+/** `decode<T>(bytes)`: `null` on a malformed input, including trailing bytes. */
+fun <T> salvoDecode(b: SalvoBytes, c: WireCodec<T>): T? {
+    val inp = WireIn(b.toByteArray())
+    return try {
+        val v = c.dec(inp)
+        if (!inp.done) null else v
+    } catch (e: WireError) {
+        null
+    }
+}
+
+object BoolCodec : WireCodec<Boolean> {
+    override fun enc(v: Boolean, out: WireOut) = out.u8(if (v) 1 else 0)
+    override fun dec(inp: WireIn): Boolean = when (inp.u8()) {
+        0 -> false
+        1 -> true
+        else -> throw WireError()
+    }
+}
+
+object ByteCodec : WireCodec<UByte> {
+    override fun enc(v: UByte, out: WireOut) = out.u8(v.toInt())
+    override fun dec(inp: WireIn): UByte = inp.u8().toUByte()
+}
+
+object IntCodec : WireCodec<Int> {
+    override fun enc(v: Int, out: WireOut) = out.i32(v)
+    override fun dec(inp: WireIn): Int = inp.i32()
+}
+
+object LongCodec : WireCodec<Long> {
+    override fun enc(v: Long, out: WireOut) = out.i64(v)
+    override fun dec(inp: WireIn): Long = inp.i64()
+}
+
+object FloatCodec : WireCodec<Float> {
+    override fun enc(v: Float, out: WireOut) = out.i32(v.toRawBits())
+    override fun dec(inp: WireIn): Float = Float.fromBits(inp.i32())
+}
+
+object DoubleCodec : WireCodec<Double> {
+    override fun enc(v: Double, out: WireOut) = out.i64(v.toRawBits())
+    override fun dec(inp: WireIn): Double = Double.fromBits(inp.i64())
+}
+
+/** A `Char` is its code point: what Rust's `char` carries, on four bytes. */
+object CharCodec : WireCodec<Char> {
+    override fun enc(v: Char, out: WireOut) = out.i32(v.code)
+    override fun dec(inp: WireIn): Char {
+        val cp = inp.i32()
+        if (cp < 0 || cp > 0xffff) throw WireError()
+        return cp.toChar()
+    }
+}
+
+object StrCodec : WireCodec<String> {
+    override fun enc(v: String, out: WireOut) {
+        val bytes = v.toByteArray(Charsets.UTF_8)
+        out.i32(bytes.size)
+        out.raw(bytes)
+    }
+    override fun dec(inp: WireIn): String {
+        val n = inp.len()
+        val bytes = inp.raw(n)
+        // Strict: what Rust's `String::from_utf8` refuses, this refuses.
+        val decoder = Charsets.UTF_8.newDecoder()
+        return try {
+            decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+        } catch (e: java.nio.charset.CharacterCodingException) {
+            throw WireError()
+        }
+    }
+}
+
+/** A `Mut Str` is a `StringBuilder` on this backend; its bytes are a string's. */
+object MutStrCodec : WireCodec<StringBuilder> {
+    override fun enc(v: StringBuilder, out: WireOut) = StrCodec.enc(v.toString(), out)
+    override fun dec(inp: WireIn): StringBuilder = StringBuilder(StrCodec.dec(inp))
+}
+
+object BytesCodec : WireCodec<SalvoBytes> {
+    override fun enc(v: SalvoBytes, out: WireOut) {
+        val bytes = v.toByteArray()
+        out.i32(bytes.size)
+        out.raw(bytes)
+    }
+    override fun dec(inp: WireIn): SalvoBytes = SalvoBytes(inp.raw(inp.len()))
+}
+
+/** `None` (the unit type) is nothing on the wire. */
+object UnitCodec : WireCodec<Unit> {
+    override fun enc(v: Unit, out: WireOut) {}
+    override fun dec(inp: WireIn) = Unit
+}
+
+class ListCodec<T>(private val elem: WireCodec<T>) : WireCodec<List<T>> {
+    override fun enc(v: List<T>, out: WireOut) {
+        out.i32(v.size)
+        for (e in v) elem.enc(e, out)
+    }
+    override fun dec(inp: WireIn): List<T> {
+        val n = inp.len()
+        val out = ArrayList<T>(n)
+        for (i in 0 until n) out.add(elem.dec(inp))
+        return out
+    }
+}
+
+/** A `Mut List<T>` decodes to a mutable list; the bytes are a list's. */
+class MutListCodec<T>(private val elem: WireCodec<T>) : WireCodec<MutableList<T>> {
+    override fun enc(v: MutableList<T>, out: WireOut) {
+        out.i32(v.size)
+        for (e in v) elem.enc(e, out)
+    }
+    override fun dec(inp: WireIn): MutableList<T> {
+        val n = inp.len()
+        val out = ArrayList<T>(n)
+        for (i in 0 until n) out.add(elem.dec(inp))
+        return out
+    }
+}
+
+/** An optional — `T?`, or a union with a `None` arm — is a presence byte. */
+class OptCodec<T : Any>(private val inner: WireCodec<T>) : WireCodec<T?> {
+    override fun enc(v: T?, out: WireOut) {
+        if (v == null) {
+            out.u8(0)
+        } else {
+            out.u8(1)
+            inner.enc(v, out)
+        }
+    }
+    override fun dec(inp: WireIn): T? = when (inp.u8()) {
+        0 -> null
+        1 -> inner.dec(inp)
+        else -> throw WireError()
+    }
+}
+
+class PairCodec<A, B>(private val a: WireCodec<A>, private val b: WireCodec<B>) : WireCodec<Pair<A, B>> {
+    override fun enc(v: Pair<A, B>, out: WireOut) {
+        a.enc(v.first, out); b.enc(v.second, out)
+    }
+    override fun dec(inp: WireIn): Pair<A, B> = Pair(a.dec(inp), b.dec(inp))
+}
+
+class TripleCodec<A, B, C>(
+    private val a: WireCodec<A>,
+    private val b: WireCodec<B>,
+    private val c: WireCodec<C>,
+) : WireCodec<Triple<A, B, C>> {
+    override fun enc(v: Triple<A, B, C>, out: WireOut) {
+        a.enc(v.first, out); b.enc(v.second, out); c.enc(v.third, out)
+    }
+    override fun dec(inp: WireIn): Triple<A, B, C> = Triple(a.dec(inp), b.dec(inp), c.dec(inp))
+}

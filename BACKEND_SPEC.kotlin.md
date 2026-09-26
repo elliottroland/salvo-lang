@@ -843,6 +843,22 @@ where Rust had to build the fusion to get the same programs running
   the host skeletons and the call sites agree — and so the Rust backend, which
   has no choice in the matter, picks the same names. A call site emits the
   overload the *checker* resolved (`Checked::effect_member_calls`).
+* [kt-wire] [wire-format] The wire runtime is `runtime/wire.kt`, copied when
+  a codec is generated or `encode`/`decode` lowered. Kotlin has no
+  type-directed decode, so a codec is a **value** — `WireCodec<T>` with
+  `enc(v, WireOut)` / `dec(WireIn): T` — composed for compound types:
+  `ListCodec(IntCodec)`, `MutListCodec`, `MutStrCodec` (a `StringBuilder`'s
+  bytes are a string's), `OptCodec(inner)` for a nullable, `PairCodec`/
+  `TripleCodec`, `UnionNCodec(c1, …)` generated in the unions file. Every
+  struct with a wire form gets a top-level `object __Codec_S` (a `class`
+  taking one codec per type parameter when generic; a nested dot-named
+  struct's is `__Codec_Outer_Inner`, since a named `object` cannot be local),
+  every actor protocol with one gets `object __Codec___Msg_E` plus `const val
+  __PROTO_E`. `encode(v)` lowers to `salvoEncode(v, codec)` with the codec
+  composed from the argument's checked type, `decode<T>(b)` to
+  `salvoDecode(b, codec)` from the type argument. Decoding throws `WireError`
+  inside and answers `null` outside. Tuples past `Triple` have no codec yet
+  (reported, not guessed).
 * [kt-platform-handler] [platform-handler] A `platform handler H of E` emits
   **nothing**: `E`'s `interface` is emitted as any effect's, and the `use`
   site constructs the host class — `salvo.platform.<M>.H(args)`,

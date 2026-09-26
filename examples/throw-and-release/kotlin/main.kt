@@ -14,6 +14,13 @@ data class FileHandle(
     val name: String,
 )
 
+object __Codec_FileHandle : salvo.WireCodec<FileHandle> {
+    override fun enc(v: FileHandle, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.name, out)
+    }
+    override fun dec(inp: salvo.WireIn): FileHandle = FileHandle(salvo.StrCodec.dec(inp))
+}
+
 fun open_file(console: Console, name: String): FileHandle {
     println(console, "1. open $name")
     return FileHandle(name = name)

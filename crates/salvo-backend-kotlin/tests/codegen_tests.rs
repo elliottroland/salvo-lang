@@ -4483,6 +4483,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_threadsafe_platform_handler,
     kotlinc_compiles_and_runs_the_mem_transport,
     kotlinc_compiles_and_runs_the_tcp_transport_on_localhost,
+    kotlinc_compiles_and_runs_the_wire_format,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -9149,6 +9150,81 @@ const NET_TCP_SMOKE_OUTPUT: &str = "listen: sent\nvoid: unreachable: 127.0.0.1:4
 fn kotlinc_compiles_and_runs_the_tcp_transport_on_localhost() -> KotlinCase {
     let files = generate_files(&[("main.sv", NET_TCP_SMOKE)]);
     kotlin_case(files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT)
+}
+
+// ===== the network sequence, step ②: the wire format =====
+
+/// The Rust backend's `WIRE_DEMO`, verbatim, with the same expected hex — the
+/// byte-for-byte parity assertion for the wire [wire-format] [kt-wire].
+const WIRE_DEMO: &str = r#"import net
+
+struct Point { x: Int, y: Long }
+struct Tag { name: Str }
+struct Pin { at: Point, label: Str?, tags: List<Tag>, kind: Circle | Square | None, raw: Bytes, ok: Bool }
+struct Circle { r: Double }
+struct Square { side: Float }
+
+fn main() [use] {
+    use StdOutConsole()
+    let p = Pin {
+        at: Point { x: -2, y: 5000000000 },
+        label: "home",
+        tags: [Tag { name: "a" }, Tag { name: "bé" }],
+        kind: Square { side: 1.5 },
+        raw: to_bytes("hi"),
+        ok: true
+    }
+    let bytes = encode(p)
+    println("${size(bytes)} bytes: ${to_hex(bytes)}")
+    let back = decode<Pin>(bytes)
+    if back is None {
+        println("decode failed")
+        return
+    }
+    println("${back.at.x} ${back.at.y} ${back.label ?: "-"} ${size(back.tags)} ${back.ok}")
+    let kind = back.kind
+    when kind {
+        is Circle { println("circle") }
+        is Square { println("square ${kind.side}") }
+        is None { println("no kind") }
+    }
+    let bad = decode<Point>(to_bytes("x"))
+    println("bad is none: ${bad is None}")
+    println("int: ${to_hex(encode(258))}  str: ${to_hex(encode("é"))}  opt: ${to_hex(encode(none_int()))}")
+}
+
+fn none_int() -> Int? { return None }
+
+actor effect Ledger {
+    send fn record(entry: Str, amount: Long) => !entry, !amount
+    send fn close()
+}
+"#;
+
+const WIRE_DEMO_OUTPUT: &str = "50 bytes: fffffffe000000012a05f2000100000004686f6d650000000200000001610000000362c3a901013fc0000000000002686901\n-2 5000000000 home 2 true\nsquare 1.5\nbad is none: true\nint: 00000102  str: 00000002c3a9  opt: 00\n";
+
+#[test]
+fn a_protocol_with_a_wire_form_gets_a_codec_and_a_hash() {
+    let files = generate_files(&[("main.sv", WIRE_DEMO)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let src = &main.content;
+    for expected in [
+        "object __Codec_Pin : salvo.WireCodec<Pin> {",
+        "object __Codec___Msg_Ledger : salvo.WireCodec<__Msg_Ledger> {",
+        "const val __PROTO_Ledger: String = \"",
+        "salvo.salvoEncode(",
+        "salvo.salvoDecode(",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+}
+
+fn kotlinc_compiles_and_runs_the_wire_format() -> KotlinCase {
+    let files = generate_files(&[("main.sv", WIRE_DEMO)]);
+    kotlin_case(files, "wire-format", WIRE_DEMO_OUTPUT)
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====

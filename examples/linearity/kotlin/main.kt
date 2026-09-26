@@ -12,6 +12,14 @@ data class Ticket(
     val seat: String,
 )
 
+object __Codec_Ticket : salvo.WireCodec<Ticket> {
+    override fun enc(v: Ticket, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.id, out)
+        salvo.StrCodec.enc(v.seat, out)
+    }
+    override fun dec(inp: salvo.WireIn): Ticket = Ticket(salvo.IntCodec.dec(inp), salvo.StrCodec.dec(inp))
+}
+
 fun issue(console: Console, id: Int, seat: String): Ticket {
     println(console, "1. issued #$id for $seat")
     return Ticket(id = id, seat = seat)

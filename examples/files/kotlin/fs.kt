@@ -15,34 +15,91 @@ data class NotFound(
     val path: String,
 )
 
+object __Codec_NotFound : salvo.WireCodec<NotFound> {
+    override fun enc(v: NotFound, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): NotFound = NotFound(salvo.StrCodec.dec(inp))
+}
+
 data class PermissionDenied(
     val path: String,
 )
+
+object __Codec_PermissionDenied : salvo.WireCodec<PermissionDenied> {
+    override fun enc(v: PermissionDenied, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): PermissionDenied = PermissionDenied(salvo.StrCodec.dec(inp))
+}
 
 data class AlreadyExists(
     val path: String,
 )
 
+object __Codec_AlreadyExists : salvo.WireCodec<AlreadyExists> {
+    override fun enc(v: AlreadyExists, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): AlreadyExists = AlreadyExists(salvo.StrCodec.dec(inp))
+}
+
 data class NotADirectory(
     val path: String,
 )
+
+object __Codec_NotADirectory : salvo.WireCodec<NotADirectory> {
+    override fun enc(v: NotADirectory, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): NotADirectory = NotADirectory(salvo.StrCodec.dec(inp))
+}
 
 data class PathEscapes(
     val path: String,
 )
 
+object __Codec_PathEscapes : salvo.WireCodec<PathEscapes> {
+    override fun enc(v: PathEscapes, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): PathEscapes = PathEscapes(salvo.StrCodec.dec(inp))
+}
+
 data class InvalidUtf8(
     val path: String,
 )
+
+object __Codec_InvalidUtf8 : salvo.WireCodec<InvalidUtf8> {
+    override fun enc(v: InvalidUtf8, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): InvalidUtf8 = InvalidUtf8(salvo.StrCodec.dec(inp))
+}
 
 data class StaleHandle(
     val path: String,
 )
 
+object __Codec_StaleHandle : salvo.WireCodec<StaleHandle> {
+    override fun enc(v: StaleHandle, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+    }
+    override fun dec(inp: salvo.WireIn): StaleHandle = StaleHandle(salvo.StrCodec.dec(inp))
+}
+
 data class IoError(
     val path: String,
     val message: String,
 )
+
+object __Codec_IoError : salvo.WireCodec<IoError> {
+    override fun enc(v: IoError, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.path, out)
+        salvo.StrCodec.enc(v.message, out)
+    }
+    override fun dec(inp: salvo.WireIn): IoError = IoError(salvo.StrCodec.dec(inp), salvo.StrCodec.dec(inp))
+}
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun to_str(kind: Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>): String {
@@ -78,6 +135,14 @@ data class FileInfo(
     val size: Long,
     val is_dir: Boolean,
 )
+
+object __Codec_FileInfo : salvo.WireCodec<FileInfo> {
+    override fun enc(v: FileInfo, out: salvo.WireOut) {
+        salvo.LongCodec.enc(v.size, out)
+        salvo.BoolCodec.enc(v.is_dir, out)
+    }
+    override fun dec(inp: salvo.WireIn): FileInfo = FileInfo(salvo.LongCodec.dec(inp), salvo.BoolCodec.dec(inp))
+}
 
 data class InStream(
     val handle: Long,

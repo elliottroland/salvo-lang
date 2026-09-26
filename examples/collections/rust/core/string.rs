@@ -30,6 +30,19 @@ pub struct Span {
     pub end: i32,
 }
 
+impl crate::wire::__Wire for Span {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.start, out);
+        crate::wire::__Wire::__enc(&self.end, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            start: crate::wire::__Wire::__dec(r)?,
+            end: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn SpanOf_qualifies(span: &Span, str: &String) -> bool {
     return span.start >= 0 && span.start <= span.end && span.end <= (str.chars().count() as i32);
 }

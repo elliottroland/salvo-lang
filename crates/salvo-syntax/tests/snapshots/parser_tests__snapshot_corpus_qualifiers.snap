@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 133
 expression: "parse_clean(&corpus(\"qualifiers.sv\"))"
 ---
 Module {
@@ -435,6 +436,7 @@ Module {
                 exported: false,
                 intrinsic: false,
                 linear: false,
+                noremote: false,
                 name: Ident {
                     name: "Result",
                     span: 237..243,

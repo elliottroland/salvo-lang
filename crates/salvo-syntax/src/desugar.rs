@@ -465,6 +465,9 @@ fn expand(
     }
     let pass_struct = StructDecl {
         fns: Vec::new(),
+        // [noremote] A pass holds a position into a value the frame owns;
+        // it is never sent anywhere, so the flag is moot — off.
+        noremote: false,
         docs: vec![format!(
             "The pass over `{}`, generated from its `iter fn next` [iter-fn].",
             base.name.name

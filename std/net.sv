@@ -1,7 +1,9 @@
 // `net`: the wire under actors across machines — step ① of the network
 // sequence (ROADMAP.md section 2; user decisions 2026-09-26). Rules:
 // [net-transport] (the effect and `Inbound`), [net-host] (`HostTcpTransport`),
-// [net-mem] (`MemNet`/`MemNetwork`/`MemTransport`).
+// [net-mem] (`MemNet`/`MemNetwork`/`MemTransport`), [wire-format] and
+// [noremote] (`encode`/`decode`; the encoding itself is fixed in salvo-core's
+// `wire.rs` and implemented in each backend's `wire` runtime).
 //
 // The design's one-line shape is that **the network enters at the actor
 // group, never at the spawn**: every actor is spawned by the node that hosts
@@ -98,6 +100,25 @@ export effect Transport {
     // virtual node it stands for.
     fn local_endpoint() -> NodeEndpoint
 }
+
+// ----------------------------------------------------------------- wire ----
+
+// [wire-format] The canonical encoding, as a value: every type has a wire
+// form unless it is (or holds) something declared `noremote` [noremote], and
+// the compiler generates the codec for both backends — so the bytes `encode`
+// answers on a Kotlin node are the bytes a Rust node's `decode` reads. What
+// the frames of step ③ carry.
+//
+// Refused at the call, naming the field or declaration that stops it, for a
+// type with no wire form; a generic `T` is refused too until the
+// instantiation is known.
+export intrinsic fn encode<T>(value: T) [] -> Bytes => !value
+
+// [wire-format] The inverse: `None` when the bytes are not a well-formed
+// encoding of `T` — truncated, or a union tag out of range. Written as
+// `decode<Point>(data)`, since nothing but the type argument says what to
+// read.
+export intrinsic fn decode<T>(data: Bytes) [] -> T? => data
 
 // ---------------------------------------------------------------- host ----
 
