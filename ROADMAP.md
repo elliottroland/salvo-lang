@@ -43,7 +43,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1539 tests green.
+targets and the output they print. 1540 tests green.
 
 ## The sequence
 
@@ -61,12 +61,15 @@ design.
   bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
 - **(c) The filesystem out of `core`.** `std.fs` holds the effect and
   `DefaultFs`; `std.fs.restricted`, `std.fs.mem` and `std.fs.host` hold the
-  rest — so `import std.fs.mem.MemFs`. Two things to work out on the way: this
-  is the first time a **file and a module share a name** (`fs.sv` beside an
-  `fs/` directory), which source discovery and module-path classification have
-  never had to resolve; and `core.fs` is currently visible everywhere, so every
-  user of the filesystem gains an import. Sequence after (b), so the rename
-  sweep happens once.
+  rest — so `import std.fs.mem`, and the split now *means* something: a
+  whole-module import names one module, not the tree under it
+  [mod-import-module] (user decision 2026-09-26, built). A **file and a module
+  sharing a name** (`fs.sv` beside an `fs/` directory) needs no rule — probed
+  2026-09-26, it checks clean and both backends print identical bytes, because
+  module paths are directory-derived and the Rust emitter flattens every module
+  into a `#[path]`-annotated crate-root `mod`. What is left is the sweep:
+  `core.fs` is visible everywhere today, so every user of the filesystem gains
+  an import. Step (b) is done, so the rename sweep has already happened.
 - **(d) `core.nonempty` dissolves into the collections.** Its `NonEmpty`
   qualifiers move next to the containers they claim, as `core.list`'s already is.
   The blocker to solve first is [qual-ctor-same-file]: a constructor must be

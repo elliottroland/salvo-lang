@@ -258,7 +258,8 @@ fn main() [use] {
   writes down, and the standard library's own plumbing is unreachable rather
   than merely undocumented. A name arrives by being in your own file, by being
   exported from `core`, or by an `import` — of one name (`import time.Duration`)
-  or of a whole module (`import time`). Using a private name says so and names
+  or of a whole module (`import time` — that module, not the tree under it).
+  Using a private name says so and names
   the fix, rather than claiming the name does not exist.
 - **Testing**: a test is a declaration named by a string —
   `test "an empty cart totals to zero" { ... }` — living in a companion file

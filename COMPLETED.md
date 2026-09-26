@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1539 tests, complete: the toolchain tests are
+cargo test                  # 1540 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -133,6 +133,33 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**A whole-module import names one module, not the tree under it (2026-09-26,
+user decision — built).** `import std.fs` brings `std.fs`; `std.fs.mem` takes a
+second line [mod-import-module]. This reverses the prefix sweep the rule shipped
+with on 2026-09-18, and the user's reasoning is the asymmetry: *importing more is
+always one more statement, while importing less would need new syntax*, so the
+narrow reading is the one to default to — "this might become an issue later, but
+right now I would prefer a way to import less".
+
+- The question came out of ROADMAP step 1(c): under the sweep, splitting the
+  filesystem into `std.fs` plus `std.fs.{mem,restricted,host}` would have bought
+  namespacing and nothing else, since one `import std.fs` handed the program every
+  fake as well. Now the split means what it looks like.
+- **Nothing to sweep.** std is flat today — `heap`, `random`, `test`, `time` and
+  `core.*`, with no module under a non-core one — so no existing import changed
+  meaning, and the examples and goldens are untouched. The reversal is therefore
+  free *now* and would not have been after 1(c).
+- **One diagnostic added, one kept.** A path that names no module but has modules
+  under it is the mistake the exact reading introduces, so it is refused by name:
+  "no module `time` — it is a path prefix, not a module … Import the ones you
+  want: `import time.clock`, `import time.types`". And `import core` still warns
+  *redundant* rather than reporting an unknown module: it names no module of its
+  own (`core.list` and `core.string` are separate modules) but everything under it
+  is visible anyway — a case the prefix sweep had been covering silently.
+- Tests: `a_module_import_names_one_module_not_a_tree` (the refusal, naming both
+  submodules) replaces `a_module_import_covers_submodules`, and
+  `a_submodule_is_imported_by_naming_it` pins the two-line form.
+
 **The filesystem answers with `Checked<FsError>` (2026-09-26 — built).** ROADMAP
 step 1(b). The bespoke `linear struct FsError { kind: FsErrorKind }` is gone: the
 union is now simply `FsError` and every fallible member answers
@@ -146,7 +173,11 @@ to read the wrapper.
   rendered a failure *without* discharging it, so a program could log an error
   and still owe it. `Checked<T>` has no borrowing read, and adding one would make
   the obligation advisory, so a rendering is now `to_str(detach(e))` — looking at
-  a failure means dealing with it. Every call site in std, the docs and the two
+  a failure means dealing with it. A caller that means to look *without*
+  discharging reads the field, `to_str(e.value)`, which works today on both
+  backends (probed) and is the honest spelling: it says the obligation is still
+  owed. The general form waits on recursive implicit resolution (ROADMAP step 6),
+  which is what a `to_str(Checked<T>)` would need (user, 2026-09-26). Every call site in std, the docs and the two
   fs fixtures reads that way now, and it is one call shorter than the
   `to_str` + `ignore` pair it replaces.
 - **35 construction sites name their type argument**, `checked<FsError>(NotFound

@@ -545,6 +545,10 @@ Conventions:
   * In `core` because std's own returns carry it ([col-bounds]'s `swap`, the
     whole filesystem's `Err Checked<FsError>` [fs-surface]), and a type in a
     returned position must be visible wherever the function is.
+  * **Looking without discharging is a field read**, `e.value` — the obligation
+    stays owed, which is what the spelling says. There is no
+    `to_str(Checked<T>)`: it would need the element's own `to_str` as an
+    implicit, which waits on recursive implicit resolution (user, 2026-09-26).
   * `ignore` refuses a **linear** `T`: discarding the wrapper would discharge the
     inner obligation too, which nothing has looked at. `detach` takes
     `<T canbe linear>` and hands the obligation on.
@@ -6558,16 +6562,25 @@ the same day. **Not part of `core`**: the surface is imported, and one
   * Import prefixes match module paths exactly or as a leading path
     (`import core.Str` finds `core.string`).
 * [mod-import-module] `import time` imports a whole **module** — every name
-  in it, and in every module under it (`time.clock`, `time.timer`), by the
-  same prefix match the name form uses (user decision 2026-09-18, with
-  `core.time` moved out to module `time`: a std surface that is not
-  implicitly visible needs one line to reach, not one line per name).
+  in it (user decision 2026-09-18, with `core.time` moved out to module
+  `time`: a std surface that is not implicitly visible needs one line to
+  reach, not one line per name).
+  * **One module, not the tree under it** (user decision 2026-09-26):
+    `import std.fs` brings `std.fs` and `std.fs.mem` takes a second line.
+    Importing *less* is what an import is for, and importing more is always
+    one more statement — so the reading that can be widened by the writer is
+    the default. This reverses the prefix sweep the rule shipped with; a path
+    that names no module but has modules under it is refused, naming each one
+    as `import <module>`.
   * **The reading is decided by the path**, not by new syntax: every
-    segment lowercase *and* at least one module matching means the module
+    segment lowercase *and* a module matching exactly means the module
     form, since a type is uppercase [name-casing] and a fn import still
     has a module prefix in front of it. A single-segment path can only be
     a module, so an unknown one says so and lists the importable modules
     rather than reporting the `module.item` shape.
+  * `import core` names no module of its own (`core.list`, `core.string` and
+    the rest are separate modules) and is **redundant** rather than unknown:
+    everything under `core` is visible anyway [mod-visibility].
   * **A bulk import never fights anything.** It enters at its own ladder
     rung — above implicit `core.*`, below a named import and below this
     module's own declarations [fn-overload-scope] — and loses *silently*

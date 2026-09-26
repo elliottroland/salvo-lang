@@ -101,16 +101,38 @@ fn a_module_import_brings_every_name() {
     );
 }
 
-// [mod-import-module] The sweep follows the *prefix*, like the name form
-// (`import core.Str` finds `core.string`): `import time` covers `time.clock`
-// and `time.timer` too.
+// [mod-import-module] A whole-module import names **one** module, not the tree
+// under it (user decision 2026-09-26): importing less is what an import is for,
+// and importing more is one more statement. A path that is only a *prefix* says
+// so and lists the modules it could have meant.
 #[test]
-fn a_module_import_covers_submodules() {
-    // Each file names only its own module's declarations [mod-visibility] —
-    // the point under test is that *main* sees both modules from one import.
+fn a_module_import_names_one_module_not_a_tree() {
     let types = "export struct Span {\n    nanos: Int\n}\n";
     let clock = "export fn seconds(n: Int) [] -> Int {\n    return n * 1000\n}\n";
-    let main = "import time\n\nfn f() [] -> Span {\n    return Span {nanos: seconds(2)}\n}\n";
+    let main = "import time\n\nfn f() [] -> Int {\n    return seconds(2)\n}\n";
+    let diags = resolve_diags(&[
+        ("time/types.sv", types),
+        ("time/clock.sv", clock),
+        ("main.sv", main),
+    ]);
+    assert_eq!(diags.len(), 1, "expected one diagnostic: {diags:?}");
+    assert!(
+        diags[0].contains("no module `time` — it is a path prefix")
+            && diags[0].contains("`import time.clock`")
+            && diags[0].contains("`import time.types`"),
+        "expected the prefix refusal naming both submodules, got: {}",
+        diags[0]
+    );
+}
+
+// [mod-import-module] And naming the submodule works — one line per module, so
+// a file states exactly which of a tree's modules it depends on.
+#[test]
+fn a_submodule_is_imported_by_naming_it() {
+    let types = "export struct Span {\n    nanos: Int\n}\n";
+    let clock = "export fn seconds(n: Int) [] -> Int {\n    return n * 1000\n}\n";
+    let main = "import time.types\nimport time.clock\n\n\
+                fn f() [] -> Span {\n    return Span {nanos: seconds(2)}\n}\n";
     let diags = check_diags(&[
         ("time/types.sv", types),
         ("time/clock.sv", clock),
@@ -118,7 +140,7 @@ fn a_module_import_covers_submodules() {
     ]);
     assert!(
         errors(&diags).is_empty(),
-        "expected submodules to be swept in, got: {:?}",
+        "expected both imports to work, got: {:?}",
         errors(&diags)
     );
 }

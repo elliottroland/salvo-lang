@@ -1317,25 +1317,20 @@ fn resolve_import<'p>(
     // segment is lowercase, so it can never capture a name import: module
     // path segments are lowercase [name-casing] while a type is uppercase,
     // and a *fn* import is distinguished by its module prefix still
-    // matching a module. Prefix semantics match the name form's — `import
-    // time` sweeps `time` and every `time.*` module, the way `import
-    // core.Str` finds `core.string`.
+    // matching a module. The path names **one** module and not the tree
+    // under it (user decision 2026-09-26): `import std.fs` brings `std.fs`,
+    // and `std.fs.mem` takes a second line. Importing less is what an import
+    // is for, and importing more is always one more statement.
     let all_lower = import
         .path
         .iter()
         .all(|seg| !seg.name.starts_with(|c: char| c.is_uppercase()));
     if all_lower {
         let prefix: Vec<&str> = import.path.iter().map(|i| i.name.as_str()).collect();
-        let mut modules: Vec<&&ModulePath> = by_module
+        let named: Option<&&ModulePath> = by_module
             .keys()
-            .filter(|path| {
-                path.0.len() >= prefix.len() && path.0.iter().zip(&prefix).all(|(a, b)| a == b)
-            })
-            .collect();
-        if !modules.is_empty() {
-            // Deterministic order: the first module to carry a name wins it
-            // [mod-import-module].
-            modules.sort_by_key(|m| m.to_string());
+            .find(|path| path.0.len() == prefix.len() && path.0.iter().eq(prefix.iter()));
+        if let Some(module) = named {
             if let Some(alias) = &import.alias {
                 ctx.errors.push(FileDiagnostic::error(
                     file_idx,
@@ -1350,30 +1345,13 @@ fn resolve_import<'p>(
                 ));
                 return;
             }
-            let mut added = false;
-            for module in modules {
-                // Already visible at another level: `core.*` is implicit
-                // everywhere and the file's own module adds itself. Adding
-                // them again would put every fn in the overload set twice —
-                // the same declaration at two rungs, which the refinement
-                // matcher counts [qual-refn-match].
-                let is_core = module.0.first().is_some_and(|p| p == "core");
-                if is_core || **module == *own_module {
-                    continue;
-                }
-                let items = &by_module[*module];
-                add_items(
-                    scope,
-                    items,
-                    module,
-                    None,
-                    Level::ModuleImport,
-                    Some(import.span),
-                    ctx,
-                );
-                added = true;
-            }
-            if !added {
+            // Already visible at another level: `core.*` is implicit
+            // everywhere and the file's own module adds itself. Adding
+            // them again would put every fn in the overload set twice —
+            // the same declaration at two rungs, which the refinement
+            // matcher counts [qual-refn-match].
+            let is_core = module.0.first().is_some_and(|p| p == "core");
+            if is_core || **module == *own_module {
                 ctx.errors.push(FileDiagnostic::warning(
                     file_idx,
                     import.span,
@@ -1384,7 +1362,65 @@ fn resolve_import<'p>(
                         prefix.join(".")
                     ),
                 ));
+            } else {
+                let items = &by_module[*module];
+                add_items(
+                    scope,
+                    items,
+                    module,
+                    None,
+                    Level::ModuleImport,
+                    Some(import.span),
+                    ctx,
+                );
             }
+            return;
+        }
+        // [mod-import-module] A path that names no module but has modules
+        // *under* it is the one mistake the exact reading introduces, so it
+        // names them: `import std.fs` where only `std.fs.mem` exists.
+        let mut under: Vec<String> = by_module
+            .keys()
+            .filter(|path| {
+                path.0.len() > prefix.len() && path.0.iter().zip(&prefix).all(|(a, b)| a == b)
+            })
+            .map(|m| m.to_string())
+            .collect();
+        if !under.is_empty() {
+            under.sort();
+            under.dedup();
+            // `import core` names no module of its own — `core.list`,
+            // `core.string` and the rest are separate modules — but
+            // everything under it is visible anyway, so the honest answer is
+            // the redundancy warning rather than "no such module"
+            // [mod-visibility].
+            if prefix.first() == Some(&"core") {
+                ctx.errors.push(FileDiagnostic::warning(
+                    file_idx,
+                    import.span,
+                    format!(
+                        "redundant import: everything in `{}` is already visible here \
+                         (`core.*` is implicit) [mod-visibility]",
+                        prefix.join(".")
+                    ),
+                ));
+                return;
+            }
+            ctx.errors.push(FileDiagnostic::error(
+                file_idx,
+                import.span,
+                format!(
+                    "no module `{}` — it is a path prefix, not a module, and a \
+                     whole-module import names one module rather than the tree \
+                     under it. Import the ones you want: {} [mod-import-module]",
+                    prefix.join("."),
+                    under
+                        .iter()
+                        .map(|m| format!("`import {m}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
             return;
         }
         // [mod-import-module] A single-segment path can only ever have been
