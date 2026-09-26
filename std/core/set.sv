@@ -25,22 +25,23 @@ export intrinsic type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut
 // A duplicate element is dropped — the last one wins, as it does in a set
 // literal [col-duplicate-keys], so the result may be smaller than the
 // argument list.
-export intrinsic fn set_of<T>(...elems: T[]) [] -> Set<T>
+export intrinsic fn set_of<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
 
 // Mutable constructor
-export intrinsic fn mut_set_of<T>(...elems: T[]) [] -> Mut Set<T>
+export intrinsic fn mut_set_of<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 
 // [col-by] Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].
-export intrinsic fn set_by<T>(size: Int, init: (Int) -> T) [] -> Set<T> => size, init
+export intrinsic fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+=> size, init
 
 // Mutable variant
-export intrinsic fn mut_set_by<T>(size: Int, init: (Int) -> T) [] -> Mut Set<T>
+export intrinsic fn mut_set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
 => size, init
 
 // [col-convert] The elements of [list] as a set, in first-appearance order;
 // duplicates collapse.
-export intrinsic fn to_set<T>(list: List<T>) [] -> Set<T> => list
+export intrinsic fn to_set<T>(list: List<T>, ?Hashed<T>) [] -> Set<T>(?hash, ?eq) => list
 
 // Adds an element to the set, reporting whether it was *new*: `false` means
 // an equal element was already there and the set is unchanged. The set

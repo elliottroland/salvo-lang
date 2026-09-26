@@ -1600,6 +1600,10 @@ struct Checker<'p, 'r> {
     out: &'r mut Checked,
     /// Lexical scope stack of local variables (params + lets + bindings).
     locals: Vec<HashMap<String, LocalVar>>,
+    /// [col-key-eligible] Types already reported as ineligible keys in this
+    /// file, so one mistake produces one diagnostic even when both a written
+    /// annotation and the call it types arrive at the same type.
+    reported_ineligible_keys: HashSet<String>,
     /// Generic type parameters currently in scope.
     generics: HashSet<String>,
     /// Return type of the function being checked.
@@ -1980,6 +1984,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
+            reported_ineligible_keys: HashSet::new(),
             scope,
             resolution,
             symbols,
@@ -2572,6 +2577,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved = self.enter_generics(&s.generics);
                     self.validate_auto_quals(&s.auto_qualifiers);
                     self.check_obligations(s);
+                    self.check_struct_cycle(s);
                     for field in &s.fields {
                         self.validate_type(&field.ty);
                         // [proj-field] Any struct may hold a borrow through a
@@ -4027,6 +4033,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             else {
                 continue;
             };
+            let filled_arg = arg.clone();
             // [cmp-binder] What filled a **binder** becomes part of the call's
             // type: `empty_heap(…)` answers `Heap(cmp@Person) Mut List<Person>`
             // because the identity resolution chose is substituted into the
@@ -4034,8 +4041,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             // what it was bound to.
             if imp.binder {
                 let key = FnId::subst_key(&imp.name);
-                if let (false, Some(id)) = (subst.contains_key(&key), identity) {
+                if let (false, Some(id)) = (subst.contains_key(&key), identity.clone()) {
                     subst.insert(key, Ty::FnName(id));
+                }
+                // [cmp-carry] A **container** keyed by what filled the binder
+                // needs the declaration behind the name, not only the name: the
+                // Rust backend generates a marker that calls it, and the Kotlin
+                // one a closure. A written type records this already
+                // (`record_carried_identities`); a slot filled by resolution —
+                // which is how every keyed constructor fills it since the
+                // capability landed (2026-09-25) — is recorded here.
+                if let (Some(id), Some(Ty::Fn { params, .. })) =
+                    (identity, Some(want.strip_quals().clone()))
+                {
+                    if let Some(subject) = params.first() {
+                        let ckey = (id, subject.strip_quals().clone());
+                        if let ImplicitArg::Resolved { key: fkey, .. } = &filled_arg {
+                            self.out.carried_identities.entry(ckey).or_insert(*fkey);
+                        }
+                    }
                 }
             }
             filled.push(arg);
@@ -5512,7 +5536,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // teaches nothing and must not match everything.
                 let mut binding: HashMap<String, Ty> = HashMap::new();
                 let matched = have_params.iter().zip(&want_params).all(|(have, want)| {
-                    ty_mentions_vars(want, callee_generics) || unify(have, want, &mut binding)
+                    if ty_mentions_vars(want, callee_generics) {
+                        return true;
+                    }
+                    // Exact first, so a `Mut` parameter keeps demanding a
+                    // `Mut` argument…
+                    let mut exact = binding.clone();
+                    if unify(have, want, &mut exact) {
+                        binding = exact;
+                        return true;
+                    }
+                    // …then again with the *argument's* claims dropped
+                    // [qual-erasure]: a value carrying more than the
+                    // parameter mentions still fits it, and matching
+                    // strictly here meant a qualified argument taught the
+                    // call nothing. `total(list_of(1, 2, 3))` — whose
+                    // argument is `NonEmpty List<Int>` [col-of-nonempty] —
+                    // left `It` unbound, so the `?next` beside it resolved
+                    // by *rung* and a sibling pass's `next` won, emitting a
+                    // call the target compiler rejected (fixed 2026-09-25;
+                    // `total([1, 2, 3])` always worked, which is what
+                    // pointed at the qualifier).
+                    let mut relaxed = binding.clone();
+                    if unify(have, want.strip_quals(), &mut relaxed) {
+                        binding = relaxed;
+                        return true;
+                    }
+                    false
                 });
                 if !matched {
                     continue;
@@ -5542,11 +5592,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             };
             // Read our own variables back off the instantiated candidate.
+            // The parameters are relaxed the same way the match above is: the
+            // *argument's* claims are not the candidate's business, and
+            // insisting on them here threw away everything the return type
+            // had to teach — which is where `It` was being lost.
             let mut extended = progressive.clone();
             let ok = want_params
                 .iter()
                 .zip(&have_params)
-                .all(|(want, have)| unify(want, have, &mut extended))
+                .all(|(want, have)| {
+                    let mut exact = extended.clone();
+                    if unify(want, have, &mut exact) {
+                        extended = exact;
+                        return true;
+                    }
+                    let mut relaxed = extended.clone();
+                    if unify(want.strip_quals(), have, &mut relaxed) {
+                        extended = relaxed;
+                        return true;
+                    }
+                    false
+                })
                 && unify(&want_ret, &have_ret, &mut extended);
             if ok {
                 *progressive = extended;
@@ -9515,8 +9581,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// *concrete*: `to_set([1, 2])` expects `List<T>` for an unbound `T`, and
     /// taking `T` as the element type would leave nothing to infer it from —
     /// the literal's own elements are what determine it (and then bind `T`).
+    /// `Unknown` counts as not concrete for the same reason, and is the form
+    /// the case actually arrives in: substituting an unbound variable yields
+    /// `Unknown`, so testing only for `Var` missed it (fixed 2026-09-25).
     fn concrete_elem(ty: Option<Ty>) -> Option<Ty> {
-        ty.filter(|t| !matches!(t.strip_quals(), Ty::Var(_)))
+        ty.filter(|t| !matches!(t.strip_quals(), Ty::Var(_)) && !ty_mentions_unknown(t))
     }
 
     /// [col-literal] The type of a collection literal: the named container
@@ -10255,6 +10324,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             match self.resolve_implicit_fn_at(&fname, selector.as_deref(), &want) {
                 Ok((found, _)) => {
                     self.out.carried_identities.insert(key, found);
+                    // [fn-ref-table] [mod-used-only] The written identity is a
+                    // fn *reference* at this span: recording it here is what
+                    // makes the module declaring it reachable per-*file*, now
+                    // that a pure fn name no longer carries a name-based edge.
+                    self.out.fn_refs.insert(self.key(written.span()), found);
                 }
                 Err(_) => {
                     let slot = self
@@ -10303,6 +10377,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         if let Some(reason) = bad {
             let span = base.args[0].span();
+            // [type-unknown-lenient] Shared with the inferred path's dedup: a
+            // written annotation and the call it types are one mistake.
+            self.reported_ineligible_keys.insert(format!("{key}"));
             self.error(span, reason);
         }
     }
@@ -10350,6 +10427,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// resolved. Walks nested positions so `List<Map<Double, Int>>` is
     /// caught too.
     fn check_key_eligibility_ty(&mut self, ty: &Ty, span: Span, depth: usize) {
+        // [type-unknown-lenient] One mistake, one diagnostic: an ineligible key
+        // a *written* type already reported must not be reported again when a
+        // call's substitution arrives at the same type. `fn probe() -> Set<Double>`
+        // with `return set_of()` says it once at the declaration — where the fix
+        // goes — and the call inside it learned `T = Double` from that very
+        // annotation (2026-09-26, with the expected-type seeding that made the
+        // call's instantiation known at all).
+
         if depth > 8 {
             return;
         }
@@ -10382,7 +10467,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.key_ineligible(&args[0])
                     };
                     if let Some(reason) = bad {
-                        self.error(span, reason);
+                        // [type-unknown-lenient] One mistake, one diagnostic: an
+                        // ineligible key a *written* type already reported is not
+                        // reported again when a call's substitution arrives at the
+                        // same type. `fn probe() -> Set<Double>` with
+                        // `return set_of()` says it at the declaration — where the
+                        // fix goes — and the call learned `T = Double` from that
+                        // very annotation (2026-09-26, with the expected-type
+                        // seeding that made the call's instantiation known).
+                        if self.reported_ineligible_keys.insert(format!("{}", args[0])) {
+                            self.error(span, reason);
+                        }
                         return;
                     }
                 }
@@ -15936,6 +16031,190 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declares *that* it projects, and each literal says *what* — the
     /// source is a property of the value, not the type, and is tracked by
     /// the fate links of whoever holds the struct [proj-infer].
+    /// [type-no-cycle] A struct may not **contain itself**: a field whose
+    /// type reaches the struct again without indirecting through a container
+    /// makes an infinitely large value. Kotlin never noticed (its fields are
+    /// references) while Rust failed downstream with a raw E0072 and no Salvo
+    /// diagnostic — a [backend-never-wrong] hole, closed here with the
+    /// declaration-site error the recursive-types plan owed (2026-09-25).
+    ///
+    /// Cycle edges are the ones that lay a value out *inline*: a field of
+    /// struct type, a tuple element, a union arm, a nullable's inner type, an
+    /// alias expansion, and a type argument of a **user** generic (which is
+    /// substituted into its fields). Not edges, because each indirects
+    /// already: `List<T>`, `Set`/`Map`, an array, a fn type, and a `proj`
+    /// field (a borrow — which is how the `List<T>` remedy the diagnostic
+    /// names works, and why a pass over a tree is fine).
+    fn check_struct_cycle(&mut self, decl: &ast::StructDecl) {
+        let start = decl.name.name.as_str();
+        // The field whose type closes the cycle, and the path it took.
+        let mut culprit: Option<(&ast::FieldDecl, Vec<String>)> = None;
+        for field in &decl.fields {
+            if culprit.is_some() {
+                break;
+            }
+            let mut seen: Vec<String> = vec![start.to_string()];
+            if self.type_reaches(&field.ty, start, &mut seen, 0) {
+                culprit = Some((field, seen));
+            }
+        }
+        let Some((field, path)) = culprit else { return };
+        let via = if path.len() > 1 {
+            format!(" (through {})", path[1..].join(" → "))
+        } else {
+            String::new()
+        };
+        self.error(
+            field.name.span,
+            format!(
+                "`{start}` contains itself through field `{}`{via}, so a value of \
+                 it would be infinitely large. Indirect through a container — \
+                 `List<{start}>` holds any number of them, including none, and \
+                 is how a tree or a linked structure is written",
+                field.name.name
+            ),
+        );
+    }
+
+    /// [type-no-cycle] Whether `ty` reaches the struct named `target` through
+    /// inline edges only. `seen` carries the path for the diagnostic and stops
+    /// the walk from looping on an unrelated cycle; `depth` is a guard against
+    /// a pathological alias chain.
+    fn type_reaches(
+        &self,
+        ty: &ast::Type,
+        target: &str,
+        seen: &mut Vec<String>,
+        depth: usize,
+    ) -> bool {
+        if depth > 64 {
+            return false;
+        }
+        match ty {
+            // An array indirects (`Vec<T>`), so it is not a cycle edge.
+            ast::Type::Array { .. } => false,
+            ast::Type::Fn { .. } => false,
+            ast::Type::Nullable { inner, .. } => {
+                self.type_reaches(inner, target, seen, depth + 1)
+            }
+            ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms
+                .iter()
+                .any(|arm| self.type_reaches(arm, target, seen, depth + 1)),
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                // A `proj` group is a borrow: it indirects.
+                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                    return false;
+                }
+                self.type_reaches(base, target, seen, depth + 1)
+            }
+            ast::Type::Named { qualifiers, base } => {
+                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                    return false;
+                }
+                self.named_reaches(base, target, seen, depth)
+            }
+        }
+    }
+
+    fn named_reaches(
+        &self,
+        base: &ast::TypeRef,
+        target: &str,
+        seen: &mut Vec<String>,
+        depth: usize,
+    ) -> bool {
+        let name = base.name.name.as_str();
+        if name == target {
+            return true;
+        }
+        let decl = self.scope.structs.get(name).copied();
+        // A type argument is an inline edge only where the type *stores* it
+        // inline: a user struct with a bare `value: T` field does, while
+        // `List<T>`, `Bag<T>` (whose `T` sits inside a `List`) and every
+        // opaque intrinsic container indirect. Getting this wrong in the
+        // permissive direction refuses a legal `List<Dir>`/`List<File>` pair,
+        // which is how it was found.
+        if let Some(d) = decl {
+            for (i, arg) in base.args.iter().enumerate() {
+                if self.generic_stored_inline(d, i, 0)
+                    && self.type_reaches(arg, target, seen, depth + 1)
+                {
+                    return true;
+                }
+            }
+        }
+        if seen.iter().any(|s| s == name) {
+            return false;
+        }
+        // A type alias expands.
+        if let Some(alias) = self
+            .scope
+            .type_aliases
+            .get(name)
+            .and_then(|t| t.alias.as_ref())
+        {
+            seen.push(name.to_string());
+            if self.type_reaches(alias, target, seen, depth + 1) {
+                return true;
+            }
+            seen.pop();
+        }
+        let Some(next) = decl else { return false };
+        seen.push(name.to_string());
+        for field in &next.fields {
+            if self.type_reaches(&field.ty, target, seen, depth + 1) {
+                return true;
+            }
+        }
+        seen.pop();
+        false
+    }
+
+    /// [type-no-cycle] Whether a struct stores its `gi`th type parameter
+    /// **inline** — directly, or through another struct that does. A
+    /// parameter reached only through a container (`items: List<T>`) is not
+    /// stored inline, which is what makes a tree of `List<Tree>` legal.
+    fn generic_stored_inline(&self, decl: &ast::StructDecl, gi: usize, depth: usize) -> bool {
+        if depth > 32 {
+            return true; // conservative: report rather than miss
+        }
+        let Some(param) = decl.generics.get(gi) else {
+            return false;
+        };
+        decl.fields
+            .iter()
+            .any(|f| self.type_stores_inline(&f.ty, &param.name, depth))
+    }
+
+    fn type_stores_inline(&self, ty: &ast::Type, param: &str, depth: usize) -> bool {
+        match ty {
+            ast::Type::Array { .. } | ast::Type::Fn { .. } => false,
+            ast::Type::Nullable { inner, .. } => self.type_stores_inline(inner, param, depth),
+            ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => {
+                arms.iter().any(|a| self.type_stores_inline(a, param, depth))
+            }
+            ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+                !qualifiers.iter().any(|q| q.name.name == "proj")
+                    && self.type_stores_inline(base, param, depth)
+            }
+            ast::Type::Named { qualifiers, base } => {
+                if qualifiers.iter().any(|q| q.name.name == "proj") {
+                    return false;
+                }
+                if base.name.name == param {
+                    return true;
+                }
+                let Some(d) = self.scope.structs.get(base.name.name.as_str()).copied() else {
+                    return false;
+                };
+                base.args.iter().enumerate().any(|(i, arg)| {
+                    self.generic_stored_inline(d, i, depth + 1)
+                        && self.type_stores_inline(arg, param, depth + 1)
+                })
+            }
+        }
+    }
+
     fn check_proj_field(&mut self, owner: &str, field: &ast::FieldDecl) {
         for r in proj_refs(&field.ty) {
             if let Some(from) = r.from.first() {
@@ -18639,8 +18918,13 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn fate_move(&mut self, value: &Expr, action: &str, moved_by: &'static str, span: Span) {
         // [proj-anywhere] Returning or storing a view of a temporary. Driving
-        // one (`for x in iter(list_of(1, 2))`) is fine: the temporary lives for
-        // the whole loop statement on both backends.
+        // one (`for x in iter(list_of(1, 2))`) is allowed — and the Rust
+        // backend earns it by hoisting the temporary into a local in front of
+        // the loop [rs-loop-temp], since the loop *binds* the pass and a Rust
+        // temporary would die at the end of the statement (E0716). The claim
+        // this comment used to make — that the temporary lives for the whole
+        // loop statement on both backends — was simply false, and the emitted
+        // program did not compile (fixed 2026-09-25).
         if action != "iterate" {
             self.reject_temp_view(value, action);
         }
@@ -20660,6 +20944,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             if decl.params.len() != 1 {
                 continue;
             }
+            // [iter-resolve] A `Ty::Named` carries no module, so unifying the
+            // protocol shape by *name* cannot tell two same-named structs
+            // apart: with a user `Range` beside `core.range`'s, the loop drove
+            // the wrong module's `next` and emitted a call the target compiler
+            // rejected (E0308) — wrong output, not a diagnostic. Compare the
+            // **declarations** instead: the subject's name resolved in *this*
+            // file against the parameter's name resolved in the file that
+            // declares the overload (fixed 2026-09-25).
+            if !self.same_pass_decl(stripped, decl, entry.key) {
+                continue;
+            }
             let saved = self.enter_generics(&decl.generics);
             let pt = self.lower_type(&decl.params[0].ty);
             let ret = decl
@@ -20685,6 +20980,44 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Some((entry.key, elem, emitted_arm, arms, pt));
         }
         None
+    }
+
+    /// [iter-resolve] Whether a `next` overload's state parameter names the
+    /// **same declaration** as the loop's subject. Both sides are resolved in
+    /// their own file's scope and compared by declaration identity, which is
+    /// what a name cannot do across modules. A subject or parameter that is
+    /// not a plain struct name (a generic variable, an intrinsic type, a
+    /// machine) answers `true`: those are matched by `unify` as before, and
+    /// this test only exists to separate two structs of one name.
+    fn same_pass_decl(&self, subject: &Ty, decl: &'p FnDecl, key: FnKey) -> bool {
+        let Ty::Named { name, .. } = subject.strip_quals() else {
+            return true;
+        };
+        let Some(mine) = self.scope.structs.get(name.as_str()).copied() else {
+            return true;
+        };
+        let param_name = match &decl.params[0].ty {
+            ast::Type::Named { base, .. } => base.name.name.as_str(),
+            ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
+                ast::Type::Named { base, .. } => base.name.name.as_str(),
+                _ => return true,
+            },
+            _ => return true,
+        };
+        if param_name != name {
+            // A differing name is `unify`'s business (a generic parameter, an
+            // alias); only a *collision* needs deciding here.
+            return true;
+        }
+        let Some(theirs) = self
+            .resolution
+            .scopes
+            .get(key.file)
+            .and_then(|s| s.structs.get(param_name).copied())
+        else {
+            return true;
+        };
+        std::ptr::eq(mine, theirs)
     }
 
     /// [iter-protocol] The element type of a **pass**: a value whose type
@@ -20794,6 +21127,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         for entry in entries {
             let decl = entry.decl;
             if decl.params.len() != 1 {
+                continue;
+            }
+            // [iter-resolve] The mint is chosen by declaration identity, not
+            // by type *name*, for the same reason the `next` scan is: two
+            // same-named structs in two modules are one `Ty::Named`, and
+            // minting from one module's `iter` while driving the other's
+            // `next` emitted a program neither backend accepts.
+            if !self.same_pass_decl(subject, decl, entry.key) {
                 continue;
             }
             let saved = self.enter_generics(&decl.generics);
@@ -24268,7 +24609,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 | Expr::ArrayLit { .. }
                 | Expr::SetLit { .. }
                 | Expr::MapLit { .. } => {
-                    let concrete = exp.filter(|t| !ty_mentions_vars(t, &lead_generics));
+                    // An **unbound** variable substitutes to `Unknown`, so a
+                    // pattern that still mentions one arrives here looking
+                    // concrete (`List<T>` as `List<Unknown>`) — and handing
+                    // that in made the literal adopt `Unknown` as its element
+                    // type and discard what its own elements say, which is why
+                    // `to_set([1, 2])` could not infer `T` (fixed 2026-09-25).
+                    let concrete = exp.filter(|t| {
+                        !ty_mentions_vars(t, &lead_generics) && !ty_mentions_unknown(t)
+                    });
                     self.check_expr(a, concrete.as_ref())
                 }
                 // [fn-effects] A *named fn* passed by value needs the
@@ -24682,6 +25031,35 @@ impl<'p, 'r> Checker<'p, 'r> {
         // *between* arguments, so without this one a container-shaped
         // combinator could never infer its pass type.
         let mut subst = subst;
+        // [implicit-infer] The **expected type** binds the callee's ordinary
+        // type parameters before its implicits resolve, not only afterwards in
+        // `settle_type_args`: an implicit is resolved against what the call
+        // knows, and a *no-argument* constructor knows nothing else.
+        // `let s: Mut Set<Str> = mut_set_of()` has to learn `T = Str` from the
+        // annotation, or `?Hashed<T>`'s members are looked for at
+        // `(?, ?) -> Bool` and every `eq` in scope matches — an ambiguity the
+        // program cannot fix (found 2026-09-25, giving the keyed containers
+        // their capability).
+        //
+        // **Type parameters only.** A value slot the expectation happens to
+        // name is deliberately *not* seeded: `[cmp-binder]` says what filled
+        // the binder decides what a structure carries, so an annotation naming
+        // a pair does not resolve one — the program passes `hash = …` /
+        // `cmp = …`, which is the single way to choose an identity (user
+        // decision 2026-09-26, preferring one way over two).
+        if let Some(exp) = expected.filter(|e| !e.is_unknown() && **e != Ty::Never) {
+            let saved = self.enter_generics(&decl.generics);
+            let ret = self.fn_return_ty(decl);
+            self.generics = saved;
+            let mut from_expected: HashMap<String, Ty> = HashMap::new();
+            if unify(&ret, exp, &mut from_expected) {
+                for (g, ty) in from_expected {
+                    if callee_generics.contains(&g) && !ty.is_unknown() && !subst.contains_key(&g) {
+                        subst.insert(g, ty);
+                    }
+                }
+            }
+        }
         self.extend_subst_from_implicits(best_key, &callee_generics, &mut subst);
         // [proj-type] The pass the spread is filled from decides whether the
         // element is borrowed — before the `next` is looked for at that type.

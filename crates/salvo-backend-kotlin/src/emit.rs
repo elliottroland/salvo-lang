@@ -73,7 +73,7 @@ pub fn emit_program_reporting(
         .map(|d| d.render(&program.files))
         .collect();
     // [mod-used-only] Only modules the program uses are transpiled.
-    let reachable = salvo_core::reachable_modules(program, &resolution);
+    let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
     // The modules that will exist as Kotlin files: targets for generated
     // imports [kt-package].
     let emitted_modules: HashSet<&ModulePath> = program
@@ -1389,6 +1389,15 @@ impl<'p> Emitter<'p> {
         // nothing hit until `std.test`'s assertions, the first throwing
         // module that is not an entry point (found 2026-09-23).
         if self.needs_throw {
+            imports.insert("import salvo.*".to_string());
+        }
+        // [kt-tuple-class] …and so do the generated tuple classes. A file that
+        // names a tuple past `Triple` and *nothing else* from the root package
+        // had no import for `SalvoTuple4` and up, so it did not compile — the
+        // same shape as the throw signal above, and hidden for as long as it
+        // was because the case that exercised it also built a keyed container,
+        // which imports the root package for its runtime (found 2026-09-26).
+        if !self.tuple_sizes.is_empty() {
             imports.insert("import salvo.*".to_string());
         }
         if !imports.is_empty() {
@@ -3048,6 +3057,18 @@ impl<'p> Emitter<'p> {
                 }
             }
         }
+        // [interp-to-str] [iter-resolve] …and the callees the checker resolved
+        // that the source never *names*: the `to_str` an interpolation picked,
+        // the `iter`/`next` a `for` drives. Name-based imports cannot see
+        // these, so the file emitted a call to a symbol it had not imported
+        // (fixed 2026-09-25).
+        for dep in salvo_core::reach::resolved_dep_files(self.checked, self.file_idx) {
+            let Some(unit) = self.program.units().nth(dep) else { continue };
+            let module = &unit.file.module;
+            if module != own && emitted_modules.contains(module) {
+                imports.insert(format!("import {}.*", kotlin_package(module)));
+            }
+        }
         for item in &ast.items {
             let Item::Import(imp) = item else { continue };
             let (Some(alias), Some(item_name)) = (&imp.alias, imp.path.last()) else {
@@ -3612,9 +3633,27 @@ impl<'p> Emitter<'p> {
             .copied()
             .and_then(|k| self.fn_by_key(k));
         match decl {
+            // [cmp-groups] A **canonical intrinsic** is the host's own
+            // operation, which is what the JVM's `hashCode`/`equals` already
+            // are — so the native container is the right rendering and there is
+            // no symbol to reference. Since the keyed constructors took the
+            // capability (2026-09-25) every container names an identity, so
+            // this is the common path rather than an edge.
+            Some(decl) if decl.intrinsic => None,
             // A **function reference**: the container takes the pair as values, so
             // what it needs is `::name` rather than a call.
             Some(decl) => Some(format!("::{}", self.kotlin_fn_name(decl))),
+            None if matches!(id, FnId::Binder(_)) => {
+                // [cmp-carry] A forwarded capability has no declaration to
+                // reference: the same recorded lift as on the Rust backend.
+                self.error(format!(
+                    "a keyed container built inside a *generic* function is not \
+                     lowered yet: its identity is `{id}`, a capability this \
+                     function was handed, and the container needs one it can \
+                     name — build it in non-generic code for now [cmp-carry]"
+                ));
+                None
+            }
             None => {
                 self.error(format!(
                     "the `{id}` this collection is keyed by has no resolved declaration"
@@ -3660,6 +3699,12 @@ impl<'p> Emitter<'p> {
             .copied()
             .and_then(|k| self.fn_by_key(k));
         match decl {
+            // [cmp-groups] A **canonical intrinsic** is the host's own
+            // comparison — `__salvoCompare`, which is what `None` selects — and
+            // has no emitted symbol a comparator could call. Since the sorted
+            // constructors took the capability (2026-09-25) every container
+            // names an identity, so this is the common path.
+            Some(decl) if decl.intrinsic => None,
             Some(decl) => Some(self.kotlin_fn_name(decl)),
             None => {
                 self.error(format!(

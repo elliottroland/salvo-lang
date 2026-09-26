@@ -3,7 +3,6 @@ package salvo.core.map
 import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
-import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*

@@ -3144,10 +3144,13 @@ fn main() [use] {
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24}
     )
+    // [cmp-binder] The ordering is **passed**: what fills the binder decides
+    // what the container carries (user decision 2026-09-26).
     let byage: SortedSet<Person>(by_age) = sorted_set_of(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
-        Person {name: "Bob", age: 24}
+        Person {name: "Bob", age: 24},
+        cmp = by_age
     )
     println("byname ${lowest(byname)!.name} of ${size(byname)}")
     println("byage ${lowest(byage)!.name} of ${size(byage)}")
@@ -3155,7 +3158,7 @@ fn main() [use] {
     // `cmp`-distinct membership: a second 24-year-old is the same member under
     // `by_age`, and its own member under the canonical ordering.
     let twin = Person {name: "Eve", age: 24}
-    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of()
+    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of(cmp = by_age)
     let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
     add(grown_age, Person {name: "Bob", age: 24})
     add(grown_name, Person {name: "Bob", age: 24})
@@ -3202,7 +3205,10 @@ fn tally<T>(s: Set<T>) -> Int => s {
 fn main() [use] {
     use StdOutConsole()
     let all: Mut Set<Person> = mut_set_of()
-    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of()
+    // [cmp-binder] The pair is **passed**, never inferred from the annotation:
+    // what fills the binder decides what the container is keyed by (user
+    // decision 2026-09-26 — one way to choose an identity).
+    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of(hash = age_hash, eq = same_age)
     let bob = Person {name: "Bob", age: 24}
     add(all, copy(bob))
     add(byage, bob)
@@ -3362,6 +3368,258 @@ fn main() [use] {
     println("${get(es, 0)!.hp} ${get(es, 0)!.energy} ${get(es, 1)!.hp} ${get(es, 1)!.energy}")
 }
 "#;
+
+/// [cmp-carry] The declared-identity program, byte-identical to the Rust
+/// backend's `rustc_compiles_and_runs_a_declared_identity`. This backend is
+/// where the old behaviour was *silently wrong*: `LinkedHashSet` keyed by the
+/// JVM's structural equality, so a declared `eq` was ignored and the program
+/// printed `2` where it should print `1`.
+const HASHED_CAPABILITY_DEMO: &str = r#"
+struct Member {
+    id: Int,
+    name: Str
+}
+
+// A declared identity that is *not* structural: two members with one id are
+// the same member, whatever the name says.
+fn hash(m: Member) -> Long => m {
+    return to_long(m.id)
+}
+
+fn eq(a: Member, b: Member) -> Bool => a, b {
+    return a.id == b.id
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s: Mut Set<Member> = mut_set_of()
+    add(s, Member { id: 1, name: "ann" })
+    add(s, Member { id: 1, name: "bob" })
+    let m: Mut Map<Member, Int> = mut_map_of()
+    put(m, Member { id: 2, name: "cyd" }, 1)
+    put(m, Member { id: 2, name: "dee" }, 2)
+    // …and a container of a primitive still keys by the host's own identity.
+    let words: Mut Set<Str> = mut_set_of()
+    add(words, "a")
+    add(words, "a")
+    add(words, "b")
+    println("${size(s)} ${size(m)} ${size(words)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_declared_identity() -> KotlinCase {
+    let program = build_program(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "hashed_capability", "1 1 2\n")
+}
+
+// ===== the defect round of 2026-09-25, byte-identical to the Rust side =====
+
+/// [interp-float] The float text table, byte-identical to the Rust backend's
+/// `rustc_compiles_and_runs_salvos_float_text`. Kotlin prints Salvo's rule
+/// natively — it *is* Kotlin's rule (user decision 2026-09-25) — so this side
+/// is the reference and the Rust side was changed to match it.
+const FLOAT_TEXT_DEMO: &str = r#"
+struct Point {
+    x: Double,
+    ratio: Float
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${2.0} ${8.25} ${0.0 - 2.0} ${0.0} ${0.001} ${0.0001}")
+    println("${1234567.0} ${12345678.0} ${100000000000000000000.0} ${0.00000000000001}")
+    let zero = 0.0
+    let one = 1.0
+    println("${zero / zero} ${one / zero} ${0.0 - one / zero}")
+    println("${Point { x: 2.0, ratio: 3.0 }}")
+    let xs: List<Double> = list_of(2.0, 0.5)
+    println("${xs} ${to_str(xs)} ${list_of(list_of(4.0))}")
+    let m: Map<Str, Double> = {"a": 2.0}
+    println("${m}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_salvos_float_text() -> KotlinCase {
+    let program = build_program(&[("main.sv", FLOAT_TEXT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [[4.0]]\n{a: 2.0}\n")
+}
+
+
+/// [rs-loop-temp] Iterating a temporary: Kotlin always ran this (the list is a
+/// reference), which is why the Rust hoist is the fix rather than a refusal —
+/// this pair is the parity assertion.
+const LOOP_TEMP_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    for x in iter(list_of(1, 2)) {
+        println("a ${x}")
+    }
+    for x in filter(iter(list_of(3, 4, 5)), (n: Int) -> { return n > 3 }) {
+        println("b ${x}")
+    }
+    let xs: List<Int> = list_of(9)
+    for x in xs {
+        println("c ${x}")
+    }
+}
+"#;
+
+/// [iter-resolve] A user struct named like std's, driven by its own `iter`
+/// and `next`: kotlinc reported an argument type mismatch before the lookups
+/// compared declarations instead of names.
+const SAME_NAME_PASS_DEMO: &str = r#"
+struct Range {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> Range {
+    return Range { start: start, end: end }
+}
+
+iter fn next(r: Range) -> Emitted Int | Finished {
+    state {
+        i: Int = r.start
+    }
+    if i >= r.end {
+        return finished()
+    }
+    let out = i.copy()
+    i += 1
+    return emitted(out)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for i in range(1, 4) {
+        println("${i}")
+    }
+}
+"#;
+
+/// [interp-to-str] A `to_str` resolved in another module the file never names:
+/// the symbol was unresolved on this backend too.
+const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
+    (
+        "pair.sv",
+        r#"
+export struct Pair {
+    a: Int,
+    b: Int
+}
+"#,
+    ),
+    (
+        "fmt.sv",
+        r#"
+import pair
+
+export fn to_str(p: Pair) -> Str => p {
+    return "(${p.a}, ${p.b})"
+}
+"#,
+    ),
+    (
+        "main.sv",
+        r#"
+import pair
+import fmt
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let p = Pair { a: 1, b: 2 }
+    println("${p}")
+}
+"#,
+    ),
+];
+
+/// [implicit-infer] A qualified argument through an implicit fn position: the
+/// wrong `next` was called on both backends.
+const QUALIFIED_IMPLICIT_DEMO: &str = r#"
+struct Sib : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(p: Mut Sib) -> Emitted Int | Finished => p: Mut {
+    if p.at > 2 {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(p.at)
+}
+
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
+    let t = 0
+    for x in iter(c) {
+        t = t + x
+    }
+    return t
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${total(list_of(1, 2, 3))}")
+    println("${total([1, 2, 3])}")
+}
+"#;
+
+/// [col-literal] Bare collection literals as arguments.
+const BARE_LITERAL_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("A ${size(to_set([1, 2]))}")
+    println("B ${size(to_list({3, 4}))}")
+    let words = to_set(["a", "b", "a"])
+    println("C ${size(words)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_loop_over_a_temporary() -> KotlinCase {
+    let program = build_program(&[("main.sv", LOOP_TEMP_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "loop_temp", "a 1\na 2\nb 4\nb 5\nc 9\n")
+}
+
+fn kotlinc_compiles_and_runs_a_user_struct_named_like_stds() -> KotlinCase {
+    let program = build_program(&[("main.sv", SAME_NAME_PASS_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "same_name_pass", "1\n2\n3\n")
+}
+
+fn kotlinc_compiles_and_runs_a_to_str_from_another_module() -> KotlinCase {
+    let program = build_program(INTERP_TO_STR_MODULES);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "interp_to_str_module", "(1, 2)\n")
+}
+
+fn kotlinc_compiles_and_runs_a_qualified_argument_through_an_implicit() -> KotlinCase {
+    let program = build_program(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "qualified_implicit", "6\n6\n")
+}
+
+fn kotlinc_compiles_and_runs_bare_literal_arguments() -> KotlinCase {
+    let program = build_program(&[("main.sv", BARE_LITERAL_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "bare_literal", "A 2\nB 2\nC 2\n")
+}
 
 /// [canbe-entry] The **anchored** `canbe in` program, byte-identical stdout to
 /// the Rust backend's `rustc_compiles_and_runs_an_anchored_canbe_call`. Kotlin
@@ -3753,6 +4011,13 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_search_loop_lender,
     kotlinc_compiles_and_runs_a_covered_call,
     kotlinc_compiles_and_runs_an_anchored_canbe_call,
+    kotlinc_compiles_and_runs_a_loop_over_a_temporary,
+    kotlinc_compiles_and_runs_salvos_float_text,
+    kotlinc_compiles_and_runs_a_declared_identity,
+    kotlinc_compiles_and_runs_a_user_struct_named_like_stds,
+    kotlinc_compiles_and_runs_a_to_str_from_another_module,
+    kotlinc_compiles_and_runs_a_qualified_argument_through_an_implicit,
+    kotlinc_compiles_and_runs_bare_literal_arguments,
     kotlinc_compiles_and_runs_a_read_before_a_mutation,
     kotlinc_compiles_and_runs_a_field_granular_mutation,
     kotlinc_compiles_and_runs_a_contents_mutation_handle,
@@ -6793,12 +7058,15 @@ fn main() [use] -> None {
     println("${q.0} ${q.1} ${q.2} ${q.3} ${q.4}")
     let (a, b, c, d, e) = q
     println("${a} ${b} ${c} ${d} ${e}")
-    // Ordered *and* hashed, so the generated class has to compare and hash
-    // structurally like a `Pair` does.
-    let keys: SortedSet<(Int, Int, Int, Int)> = sorted_set_of((2, 0, 0, 0), (1, 9, 9, 9))
-    for k in iter(keys) {
-        println("${k.0}${k.1}${k.2}${k.3}")
-    }
+    // A keyed container over a tuple used to live here, exercising the
+    // generated class's structural comparison. It cannot today: a keyed
+    // constructor asks for its identity as a capability (user decision
+    // 2026-09-26) and `core.compare` declares `cmp`/`hash` for the intrinsic
+    // scalars only, so a tuple has no identity to pass — the same gap that
+    // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
+    // never worked either. ROADMAP's "Recursive implicit resolution" is the
+    // lift; until then the arity, the component reads and the destructuring
+    // above are what this case is about.
 }
 "#;
 
@@ -6807,7 +7075,7 @@ fn kotlinc_compiles_and_runs_tuples_past_three() -> KotlinCase {
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "big-tuple", "1 two true 4 five\n1 two true 4 five\n1999\n2000\n")
+    kotlin_case(files, "big-tuple", "1 two true 4 five\n1 two true 4 five\n")
 }
 
 /// [kt-tuple-class] What a tuple past three lowers to: a `SalvoTupleN` literal,
@@ -6849,11 +7117,6 @@ fn tuples_past_three_emit_a_generated_class() {
             && tuples.content.contains(") : SalvoTuple {")
             && tuples.content.contains("val v3: T4"),
         "the generated tuple class is wrong:\n{}",
-        tuples.content
-    );
-    assert!(
-        tuples.content.contains("data class SalvoTuple4<"),
-        "the 4-tuple the sorted set needs is missing:\n{}",
         tuples.content
     );
 }

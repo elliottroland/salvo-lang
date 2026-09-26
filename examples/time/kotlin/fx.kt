@@ -2,16 +2,11 @@
 package salvo
 
 import salvo.core.actor.*
-import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.console.*
-import salvo.core.fs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
-import salvo.core.result.*
-import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -32,14 +27,6 @@ interface __Has_Console {
 
 class __One_Console(private val __e: Console) : __Has_Console {
     override val __fx_Console: Console get() = __e
-}
-
-interface __Has_Fs {
-    val __fx_Fs: Fs
-}
-
-class __One_Fs(private val __e: Fs) : __Has_Fs {
-    override val __fx_Fs: Fs get() = __e
 }
 
 interface __Has_Ticker {

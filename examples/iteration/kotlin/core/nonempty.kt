@@ -1,7 +1,6 @@
 package salvo.core.nonempty
 
 import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.seq.*

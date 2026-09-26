@@ -1,7 +1,6 @@
 package salvo.core.fs
 
 import salvo.*
-import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*

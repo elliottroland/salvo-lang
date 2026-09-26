@@ -1,12 +1,8 @@
 package salvo.main
 
-import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.console.*
-import salvo.core.fs.*
 import salvo.core.list.*
 import salvo.core.map.*
-import salvo.core.range.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*

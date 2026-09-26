@@ -32,6 +32,13 @@ let widened = count + total          // computes at Long: 84
 let half = 7 / 2                     // integer division: 3
 ```
 
+A float's **text** is the same on every backend: the shortest digits that
+round-trip, always a decimal point, and scientific notation outside
+`[10^-3, 10^7)` — so `${2.0}` is `2.0`, `${0.0001}` is `1.0E-4`, `${1234567.0}`
+is `1234567.0` and `${12345678.0}` is `1.2345678E7`, with `NaN`, `Infinity` and
+`-Infinity` for the specials. That holds wherever a float becomes text: on its
+own, inside a list or a map value, and as a struct field.
+
 Numeric literals default to `Int` and `Double`: `1` is an `Int` and `1.2` is a `Double`. Suffixes select the other widths: `1L` is a `Long`, and `1.2f` is a `Float` (the `f` suffix requires a decimal point — write `1.0f`, not `1f`). Underscores may separate digits (`1_000_000L`). An **unsuffixed** literal also *adopts* the numeric type its position expects — `let x: Long = 1`, `let d: Double = 3` and passing `1` to a `Long` parameter all work, and `x + 1` needs no `1L` because the operator widening covers it. Adoption is for literals only: an `Int` *variable* never becomes a `Long` implicitly — write `to_long(n)`.
 
 ## Strings
@@ -199,6 +206,34 @@ When the type of a struct is known, then the type annotation can be dropped:
 ```
 let person: Person = {name: "Roland", age: 36}
 ```
+
+A struct may not **contain itself**, directly or through other structs: a value
+of it would be infinitely large, so the declaration is an error naming the
+field that closes the cycle.
+
+```
+struct Node {
+    value: Int,
+    next: Node?      // error: `Node` contains itself through field `next`
+}
+```
+
+Indirect through a container instead, which is how a tree or a linked structure
+is written — a `List` holds any number of them, including none:
+
+```
+struct Tree {
+    value: Int,
+    kids: List<Tree>     // fine, and so is `Tree[]`
+}
+```
+
+Only edges that lay a value out *inline* count: a field of struct type, a tuple
+element, a union arm, a nullable's inner type, an alias expansion, and a type
+argument a generic struct stores inline (`Wrapper<Looped>` where `Wrapper<T>`
+has a `value: T`). A `List`, `Set`, `Map`, array, function type or `proj` field
+indirects already, so recursion through one is legal — including a mutually
+recursive pair (`Dir` holding `List<File>` and `File` holding `List<Dir>`).
 
 ## Nullability via "| None"
 

@@ -1,15 +1,11 @@
 package salvo.main
 
 import salvo.*
-import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.console.*
-import salvo.core.fs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
-import salvo.core.range.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -51,7 +47,7 @@ fun main() {
     val seen: MutableSet<String> = linkedSetOf<String>()
     seen.add("first")
     println(console, "1. empty then filled ${seen.joinToString(", ", "{", "}")}")
-    val tally: MutableMap<String, Int> = linkedMapOf<String, Int>(Pair("pear", 1), Pair("apple", 2))
+    val tally: MutableMap<String, Int> = linkedMapOf<String, Int>().also { __m -> __m.putAll(listOf(Pair("pear", 1), Pair("apple", 2))) }
     tally.put("fig", 3)
     tally.put("pear", 99)
     println(console, "2. insertion order kept ${tally.entries.joinToString(", ", "{", "}") { "${it.key}: ${it.value}" }}")

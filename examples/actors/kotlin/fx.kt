@@ -2,17 +2,11 @@
 package salvo
 
 import salvo.core.actor.*
-import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.console.*
-import salvo.core.fs.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
-import salvo.core.range.*
-import salvo.core.result.*
-import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -32,12 +26,4 @@ interface __Has_Counter {
 
 class __One_Counter(private val __e: Counter) : __Has_Counter {
     override val __fx_Counter: Counter get() = __e
-}
-
-interface __Has_Fs {
-    val __fx_Fs: Fs
-}
-
-class __One_Fs(private val __e: Fs) : __Has_Fs {
-    override val __fx_Fs: Fs get() = __e
 }

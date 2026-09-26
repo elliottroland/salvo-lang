@@ -252,7 +252,8 @@ fn a_plain_str_records_nothing() {
 /// Salvo error now, naming the `to_str` that would fix it.
 #[test]
 fn interpolating_a_type_with_no_text_form_is_an_error() {
-    let src = "struct Opaque { inner: Opaque? }\n\
+    let src = "struct Inner { n: Int }\n\
+               struct Opaque { inner: Inner }\n\
                fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
     let msgs = messages(src);
     assert!(
@@ -265,7 +266,8 @@ fn interpolating_a_type_with_no_text_form_is_an_error() {
 /// site* (user decision 2026-09-11), so declaring one is all it takes.
 #[test]
 fn a_to_str_in_scope_makes_a_type_interpolable() {
-    let src = "struct Opaque { inner: Opaque? }\n\
+    let src = "struct Inner { n: Int }\n\
+               struct Opaque { inner: Inner }\n\
                fn to_str(o: Opaque) [] -> Str => o { return \"op\" }\n\
                fn probe(o: Opaque) -> None => o {\n    let _s = \"${o}\"\n}\n";
     let msgs = messages(src);

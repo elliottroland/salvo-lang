@@ -2,147 +2,54 @@ import random.Random
 import random.DefaultRandom
 
 struct Person {
-    name: Str,
+    first_name: Str
+    last_name: Str? = None
     age: Int
 }
 
-fn main() [use] {
-    use StdOutConsole
-    // use DefaultRandom
-    use CyclicRandom([1.2, 5.7, 2.4])
-
-    let file = get_file()
-
-    let list = mutable_list(1,2,3)
-    list.add(3)
-    let num: Int = list.remove_first()
-    if list is NonEmpty {
-        let num2: Int = list.remove_first()
+fn full_name(p: Person) -> Str {
+    if p.last_name !is None {
+        return "${p.first_name} ${p.last_name}"
     }
-
-    let person = Person { name: "Roland", age: 36 }
-    let name = person.name
-    println("${name}")
-    consume(name)
-    println("${person.name}")
-
-    println("${list}")
-
-    let i = 21
-    if i is Positive {
-        println("${repeat(i, 100)}")
-    }
-
-    random_number()
-
-    let v = maybe_fail()
-    when v {
-        is Ok { println("it was ok: ${v}") }
-        is Err { println("it was an err: ${v}") }
-    }
-
-    close(file)
-
-    let result = try {
-        if random() < 0.5 {
-            maybe_throw()
-        } else {
-            maybe_throw2()
-        }
-    }
+    return p.first_name
 }
 
-fn consume(name: Str) -> [] None {
-
-}
-
-fn repeat(n: Positive Int, gen: () [Random] -> Int) -> NonEmpty List<Int> {
-    let list = mutable_list<Int>()
-    let i = 0
-    while i++ < n {
-        list.add(copy(i))
-    }
-    return list
-}
-
-fn get_file() [Console] -> FileStream {
-    let file = FileStream { name: "some file" }
-    return file
-}
-
-fn maybe_throw() [Random, Throw<Str>] -> Int {
-    if random() < 0.5 {
-        throw("Hello world")
-    }
-    return -1
-}
-
-fn maybe_throw2() [Random, Throw<Int>] -> Str {
-    if random() < 0.5 {
-        throw(10)
-    }
-    return ""
-}
-
-fn maybe_fail() [Random] -> Ok Mut Str | Err Int {
-    if random() < 0.5 {
-        let s: Mut Str = mutable_str("it worked!")
-        return ok(s)
-    }
-    return err(1)
-}
-
-fn repeat(n: Positive Int, value: Int) -> NonEmpty List<Int> {
-    let list: Mut List<Int> = mutable_list()
-    let i = 0
-    while i++ < n {
-        list.add(copy(value))
-    }
-    return list
-}
-
-qualifier NonEmpty<T> of List<T> {
+qualifier NE<T> of List<T> with NonEmpty {
     fn qualifies(list: List<T>) -> Bool {
-        return list.size() > 0
+        return size(list) >= 5
     }
 
-    // Refinements allow us to update deductions without having to run the
-    // `qualifies` function each time.
-    refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]
+    refn add<T>(list: NE Mut List<T>, elem: T) => list: +NE
 }
 
-fn remove_first<T>(list: Mut List<T>) -> T? {
-    return list.get(0)
-}
-
-fn remove_first<T>(list: NonEmpty Mut List<T>) -> [list: Mut] T {
-    return list.get(0)!
-}
-
-// Determines that an integer is greater than 0
-qualifier Positive of Int {
-    fn qualifies(int: Int) -> Bool {
-        return int > 0
-    }
-}
-
-handler CyclicRandom(arr: Double[]) of Random {
+handler CyclicRandom(numbers: NE List<Double>) of Random {
     i: Int = 0
 
-    fn random() -> [] Double {
-        return arr[i++ % size(arr)]
+    fn random() -> Double {
+        assert!(i is Idx(numbers))
+        return numbers.get(i++).copy()
     }
 }
 
-fn random_number() [Random, Console] -> Double {
-    println("I'm about to generate a random number")
-    return random()
+fn main() [use] {
+    use StdOutConsole()
+    use CyclicRandom([1.4, 6.3, 2.342])
+
+    let roland = Person { first_name: "Roland", age: 35 }
+    let numbers: Mut List<Int> = [1, 2, 3, 4, 5]
+
+    if numbers is NE {
+        numbers.add(6)
+        print_full_name_with(roland, numbers)
+    }
 }
 
-struct FileStream : Linear<self> {
-    name: Str
+fn print_full_name(p: Person) [Console, Random] {
+    println("${full_name(p)}, your lucky number is: ${random()}")
 }
 
-fn close(fs: FileStream) [Console] -> [] None {
-    println("Closing file: ${fs.name}")
+fn print_full_name_with(p: Person, numbers: NE List<Int>) [Console] {
+    for i in numbers {
+        println("${full_name(p)}, your lucky number is: ${i}")
+    }
 }

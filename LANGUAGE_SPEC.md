@@ -172,6 +172,26 @@ Conventions:
     both backends reach the payload (Kotlin through the wrapper's
     `.value`, Rust through the arm accessor). `Mut Str` never reaches the
     question: a builder is converted first [str-drop-mut].
+* [interp-float] **A float's text is Salvo's rule, which is Kotlin's** (user
+  decision 2026-09-25): the shortest digits that round-trip, **always a
+  decimal point**, and computerized scientific notation outside
+  `[10^-3, 10^7)` — `2.0`, `8.25`, `-2.0`, `0.001`, `1.0E-4`, `1234567.0`,
+  `1.2345678E7`, `1.0E20`; `NaN`, `Infinity`, `-Infinity` for the specials.
+  `Float` follows the same rule at its own precision.
+  * The alternative considered and rejected the same day: always writing the
+    number out in full, which reads better at `1.0E20` and turns `1.0E-300`
+    into three hundred zeros. Kotlin's threshold is the compromise, and
+    adopting it outright means one backend prints it natively.
+  * Kotlin needs nothing. **Rust** does: its `Display` writes the full number
+    and drops the `.0`, so the same value printed differently on the two
+    backends — a [backend-parity] break in program output. The Rust backend
+    routes every float that becomes text through a runtime helper
+    [rs-float-text], including inside a container (a list of floats is
+    rendered element-wise, since the runtime's `Display` can only call
+    `Display` on its elements) and a struct field rendered field-wise
+    [interp-struct].
+  * Floats are not `Set` elements or `Map` keys [col-key-eligible], so only
+    the *value* half of a map needs the rule.
   * **Otherwise a `to_str`**, resolved *at the interpolation site* like an
     implicit parameter (user decision 2026-09-11): a `to_str` in scope
     whose parameter accepts the type and which returns `Str`. The winner is
@@ -770,10 +790,40 @@ Conventions:
   `SortedMap<K, V>(?cmp: (K, K) -> Int)`,
   `Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool)`,
   `Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool)`.
+  * **The constructors ask for the identity as a capability** (user decision
+    2026-09-26): `set_of<T>(...elems: T[], ?Hashed<T>) -> Set<T>(?hash, ?eq)`,
+    and the same for the other four families' constructors — so what a container
+    is keyed by is decided where it is *built*, and a hand-written `hash`/`eq`
+    is honoured instead of ignored. Before this nothing filled the slots, and
+    the two backends disagreed about the same program: Kotlin keyed by the JVM's
+    structural equality (a declared `eq` silently unused) and rustc refused it.
+  * **The identity is passed, never inferred from an annotation**: the program
+    writes `mut_set_of(hash = age_hash, eq = same_age)`. An annotation that
+    names a pair must *agree* with what the constructor resolved rather than
+    choosing it, because [cmp-binder] says what filled the binder decides what a
+    structure carries — and one way to choose an identity beats two. The
+    expected type does bind the callee's ordinary type *parameters* before its
+    implicits resolve (`let s: Mut Set<Str> = mut_set_of()` learns `T = Str`,
+    without which every `eq` in scope matches `?eq: (?, ?) -> Bool`), and
+    deliberately not its slots.
   * **An unwritten slot is resolved by its name** [cmp-carry] [implicit-resolve],
     so nothing is materialized for it: `Set<Str>` is exactly the type it has
     always been and only a container that says something *different* about its
-    keys grows an argument to say it in. What makes that stable for the canonical
+    keys grows an argument to say it in.
+  * **Two limitations, accepted deliberately** (user, 2026-09-26), both refused
+    with a Salvo diagnostic rather than a target-compiler one:
+    * A **tuple or a list** cannot be a keyed container's subject, because
+      `core.compare` declares identities for the intrinsic scalars only and
+      [implicit-resolve] skips a candidate that itself needs implicits. This is
+      the same gap that stops `(1, 2) == (1, 2)` from resolving, and it did not
+      show before because a keyed container over a tuple reached the host's
+      structural comparison without asking anyone. ROADMAP's "Recursive
+      implicit resolution" is the lift.
+    * A keyed container **built inside a generic function** is refused at
+      emission: its identity is a capability the function was handed, and a
+      container needs one it can *name*. The checker accepts the program (the
+      capability is declared and forwarded), so the refusal names the shape and
+      the remedy rather than leaving it to rustc. What makes that stable for the canonical
     case is [cmp-canonical] — a canonical travels with its type, so the `cmp` an
     unwritten slot resolves to is the same one everywhere the type is usable.
   * **A non-canonical identity is kept at run time**, which is what the
@@ -784,6 +834,16 @@ Conventions:
     its `TreeSet`/`TreeMap` with the identity as the comparator and its hash
     containers over the pair as values [kt-ordered]. `Set<Str>` is unchanged
     either way: the canonical path is the host's own hashing and ordering.
+* [col-literal-arg] **A bare collection literal as an argument determines the
+  callee's type parameter** (fixed 2026-09-25): `to_set([1, 2])` reads `T` off
+  the literal's own elements. An expected element type only helps when it is
+  *concrete*, and the case arrived in a form the guard did not recognise —
+  substituting an **unbound** variable yields `Unknown`, so the pattern
+  `List<T>` reached the literal as `List<Unknown>`, looking concrete; the
+  literal then adopted `Unknown` as its element type and discarded what its
+  elements said. Both the argument's expected type and the element-type read
+  now treat `Unknown` as not concrete. An *empty* literal still needs its type
+  from the position, which is the rule this left standing [col-literal].
 * [col-to-str] `to_str` of a collection is **the language's format, not the
   target's**, and both backends emit the same string: `[1, 2, 3]` for a
   list, `{1, 2, 3}` for a set, `{a: 1, b: 2}` for a map — the shape of the
@@ -1018,6 +1078,27 @@ Conventions:
   when the expected type is known (`let p: Person = {name: ...}`).
   * A struct literal with no inferable type is a codegen error, never a
     guess.
+* [type-no-cycle] **A struct may not contain itself** (the diagnostic the
+  recursive-types plan owed, built 2026-09-25): a field whose type reaches the
+  struct again *without indirecting* makes an infinitely large value. The error
+  sits at the declaration, names the field that closes the cycle and the path it
+  took, and names the remedy — indirect through a container.
+  * Cycle edges are the ones that lay a value out **inline**: a field of struct
+    type, a tuple element, a union arm, a nullable's inner type, an alias
+    expansion, and a type argument a generic struct *stores* inline
+    (`Wrapper<Looped>` where `Wrapper<T>` has `value: T`).
+  * Not edges, because each indirects already: `List`, `Set`, `Map`, an array,
+    a fn type, and a `proj` field. So `struct Tree { kids: List<Tree> }` is how
+    a tree is written, a mutually recursive pair through containers is legal,
+    and a generic whose parameter sits *inside* a container is too
+    (`Bag<T> { items: List<T> }` with `N { b: Bag<N> }`) — the precision a
+    name-based container test got wrong on the first attempt.
+  * Why it is owed: Kotlin compiled such a struct (its fields are references)
+    while Rust failed downstream with a raw E0072 and no Salvo diagnostic —
+    a [backend-never-wrong] hole. The *feature* (a boxing rule that would make
+    recursive types work) is separate and unscheduled; the refusal is honest
+    either way. Two pre-existing tests used a recursive struct as an
+    incidental fixture, which is how casually the hole was being relied on.
 * [struct-mut] `struct Name canbe Mut { ... }` opts a struct into the `Mut`
   auto-qualifier; only `Mut Name` values may have fields assigned.
   * `Mut` is the only auto-qualifier.
@@ -2219,6 +2300,16 @@ Conventions:
     [iter-protocol], then `iter` [iter-pass]. The pass comes before `iter`
     because a type with both is *already* a position in a sequence, so minting
     a second pass from it would be wrong.
+  * **Both lookups match the subject by declaration, not by type name** (fixed
+    2026-09-25): a `Ty::Named` carries no module, so two same-named structs in
+    two modules are one type as far as unification is concerned — a user
+    `Range` beside `core.range`'s drove the *other* module's `next`, or minted
+    with the other module's `iter`, and the emitted program was rejected by
+    both target compilers (E0308 / an argument type mismatch). Wrong output
+    rather than a diagnostic, so [backend-never-wrong]-grade. Each side's name
+    is resolved in *its own* file's scope and the declarations compared; a name
+    that differs, or a subject that is not a plain struct, stays `unify`'s
+    business.
 * [iter-generic-drive] A `for` over a **type parameter** drives it when the
   enclosing fn has a protocol-shaped `?Yield<It, T>` spread for it
   [implicit-group] (user decision 2026-09-09): the position *is* the declaration
@@ -2592,6 +2683,15 @@ Conventions:
     part of the pattern, and then the *caller's* variables bind from the
     instantiated candidate. A part that is still one of the caller's
     variables teaches nothing and must not match everything.
+    * **The argument's own claims are not the candidate's business** (fixed
+      2026-09-25): both directions try an exact unification first — so a `Mut`
+      parameter keeps demanding a `Mut` argument — and then again with the
+      *argument's* qualifiers dropped [qual-erasure]. Matching strictly meant a
+      **qualified argument taught the call nothing**:
+      `total(list_of(1, 2, 3))`, whose argument is `NonEmpty List<Int>`
+      [col-of-nonempty], left `It` unbound, so the `?next` beside it resolved
+      by rung [fn-overload-scope] and a sibling pass's `next` won — a call
+      neither backend accepts, while `total([1, 2, 3])` had always worked.
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
     combinator work — `total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c),
@@ -6457,13 +6557,34 @@ the same day. **Not part of `core`**: the surface is imported, and one
   * Kinds are per-namespace (struct/effect/handler/qualifier/type
     alias/opaque type): same-name declarations of different kinds do
     not collide.
-* [mod-used-only] Only modules used by the program are transpiled.
-  * Roots are the user modules declaring `fn main` (all user modules for
-    a library compile without one). Reachability follows *name usage*:
-    every identifier/type name a file mentions is looked up in its
-    resolved scope (`ModuleScope::name_origins`), and each declaring
-    module becomes reachable (`reach.rs`). Deliberately conservative:
-    shadowed and overloaded names pull in every declaring module.
+* [mod-used-only] Only modules used by the program are transpiled. Roots are
+  the user modules declaring `fn main` (all user modules for a library compile
+  without one), and from there a module is reached **two ways** (user decision
+  2026-09-25):
+  * **By resolution, for functions** (`resolved_dep_files`): the checker
+    recorded which declaration every call [call-resolve], fn-name reference
+    [fn-ref-table], filled implicit [implicit-resolve], resolved comparison
+    [cmp-groups], carried identity [cmp-carry], interpolated `to_str`
+    [interp-to-str] and driven `next`/`iter` [iter-resolve] resolved to, so the
+    edge follows *that*. Both backends' import computation reads the same
+    table, so what a file depends on cannot be answered two ways.
+  * **By name, for everything else**: a type, struct, effect, handler,
+    qualifier or `params` group a file mentions is looked up in its resolved
+    scope (`ModuleScope::name_origins`) and each declaring module becomes
+    reachable. These are not overload sets, so the conservatism is cheap. A
+    name that is *both* a function and a type somewhere in scope keeps its
+    name edge — only the pure-fn case is precise enough to narrow.
+  * Why the split: a *name* resolves to every module declaring it, so under the
+    old name-only rule a program that merely iterated — using the name `next` —
+    pulled in `core.range` and whatever it dragged, because `core.range`
+    declares a `next` too. The ten checked-in examples lost **11,562 lines** of
+    generated code to the narrowing, with nothing added.
+  * The two errors point opposite ways, which is why the fn side draws on every
+    resolution table rather than only on calls: an edge too many emits a module
+    nothing calls (wasteful), an edge too few emits a call with nothing to bind
+    to (broken — rustc E0425, an unresolved reference on Kotlin; the shape a
+    *missing* resolution edge produced before the tables were consulted at
+    all).
   * A module's backend companion files [backend-companion] travel with it;
     a reachable module is emitted only if it produces code.
 

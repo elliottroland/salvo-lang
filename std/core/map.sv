@@ -29,31 +29,32 @@ export intrinsic type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> 
 // variadic tail is owned and needs no entry in the clause [deduce-syntax].
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
-export intrinsic fn map_of<K, V>(...entries: (K, V)[]) [] -> Map<K, V>
+export intrinsic fn map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 
 // Mutable constructor
-export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
+export intrinsic fn mut_map_of<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
 
 // [col-by] Builds a map from [size] generated entries: `map_by(3, i -> (i, i
 // * i))` maps each index to its square. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-export intrinsic fn map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Map<K, V>
+export intrinsic fn map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 => size, init
 
 // Mutable variant
-export intrinsic fn mut_map_by<K, V>(size: Int, init: (Int) -> (K, V)) [] -> Mut Map<K, V>
+export intrinsic fn mut_map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
 => size, init
 
 // [col-convert] A map from a list of pairs — the first element of each pair
 // is the key, the second the value. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
-export intrinsic fn to_map<K, V>(pairs: List<(K, V)>) [] -> Map<K, V> => pairs
+export intrinsic fn to_map<K, V canbe linear>(pairs: List<(K, V)>, ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+=> pairs
 
 // [col-convert] A map from a list of *anything*, with [entry] saying what
 // key and value each element becomes. The two forms are the same function
 // spelled for the two sources people actually have: a list of pairs, or a
 // list plus a rule.
-export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V)) [] -> Map<K, V>
+export intrinsic fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
 => items, entry
 
 // Possibly gets the value stored under [key]. The value is **borrowed** —

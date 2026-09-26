@@ -375,8 +375,31 @@ Lifting it (resolve a candidate's own implicits recursively, bottom-up, and refu
 a cycle) would make the claim true in Salvo and would let a keyed container over a
 tuple or a list name its ordering like any other. Found while wiring the keyed
 containers' runtimes, where the gap is what stopped the constructors from asking
-for the capability. Not blocking: the canonical path uses the host's structural
-ordering, which agrees with a generated `auto fn cmp` by construction.
+for the capability.
+
+**Now a prerequisite, not an optional refinement** (2026-09-26): the user's
+decision that the keyed constructors take the capability makes this the thing
+standing in the way. With `sorted_set_of<T>(..., ?Ordered<T>)` declared, a
+`SortedSet<(Int, Int, Int, Int)>` has to resolve `?cmp` at the *tuple*, and
+`core.compare` has no `cmp` for one — so a program that works today stops. The
+lift has two halves, and the second is the larger:
+
+1. **Resolution** — `resolve_implicit_fn_at`'s one-line skip ("a default that
+   itself needs implicits would have to be resolved recursively; out of scope
+   for now") becomes a recursive resolution with a depth cap and a cycle
+   refusal. Contained.
+2. **Emission** — a filled implicit that *itself* needs implicits has to be
+   handed its own, so `ImplicitArg::Resolved` needs nested arguments and both
+   backends' adapter closures have to pass them (`cmp((A, B))` calling
+   `cmp(A)`/`cmp(B)`). `implicit_args` records no nesting today, so this is
+   where the work is.
+
+The cheaper alternative, with its cost stated: declare the tuple and `List<T>`
+`cmp`/`eq`/`hash` as **intrinsics**, which is what the backends already do
+structurally (`Vec<T>: Ord`, `__salvoCompare`). No recursion needed, and it
+*documents* the status quo — but it freezes it: an element type's own declared
+identity would be ignored inside a tuple or list key, because the host compares
+structurally. That is already true today; declaring it makes it look intended.
 
 ## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
 
@@ -1511,15 +1534,91 @@ One further proposal is **deferred by decision** rather than waiting:
 same day — see "Effects"; the `defers`-block proposal went with `defer`
 itself, 2026-09-10 — see "`defer` is deleted".)
 
+## Test-suite speed — recorded, not scheduled (user decision 2026-09-25)
+
+The stamp key stays **keyed on the generated sources**: it cannot go stale, and
+that is worth more than the seconds a cheaper key would save. This section is
+the note to come back to *if* it ever bites — nothing here is scheduled.
+
+Where the time goes today (measured 2026-09-25, `[profile.dev] opt-level = 1`):
+a warm `cargo test` is ~28s against a ~15s budget, and ~15s of it is the Kotlin
+codegen binary. The reason is structural: a toolchain test's stamp is the
+content hash of *the generated files*, so discovering that a stamp **hits**
+means parsing, checking and emitting the case over all of `std` first. The work
+is the key's own computation, and it grows with `KOTLIN_CASES`. (The Rust
+backend does not have the problem: its cases build one at a time inside their
+own gate.)
+
+The options, cheapest first, none of them free:
+
+- **A source-keyed stamp** — hash the `.sv` sources plus an emitter-version
+  token instead of the generated files. Cheap to check without emitting, and
+  the trade is exactly the current key's virtue: a version token can be
+  forgotten, and then a stale pass is possible where today one cannot be.
+- **Cache the emission, not just the verdict** — keep the generated text beside
+  the stamp so a miss on one case does not re-emit the others. Keeps the
+  content key honest; costs disk and a cache-shape decision.
+- **Emit once per source, run many** — several `KOTLIN_CASES` entries share
+  identical `std` emission; the per-case work is the user module. Hoisting the
+  std half would need the emitter to be splittable that way, which it is not
+  today.
+- **Shrink the registry** — fold cases whose only difference is their expected
+  output into one program with more lines. Cheap, and loses the per-case
+  failure names.
+
+The measurements to take first, if it comes up: how much of the ~15s is `std`
+re-emission versus per-case work, and how much the narrowed reachability
+[mod-used-only] already took off (a fresh run dropped from ~133s to ~121s when
+the examples stopped emitting modules they never called).
+
 ## Open defects
 
 Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
 paste and a root cause, so picking one up needs no re-investigation. Closed ones
 move to COMPLETED.md with their repro intact.
 
-**Nine open**, and **these are next**: the user's direction of 2026-09-23 is
-to clear them once the refinement work is done, before the variance and
-qualifier-dropping sections above. (**Closed 2026-09-25**, both found while
+**Two open** (was ten), and **these are next**: the user's direction of
+2026-09-23 is to clear them once the refinement work is done, before the
+variance and qualifier-dropping sections above. Both are findings from the defect round (the un-annotated lending `?iter`, whose fix is a small call of
+its own, and the struct-literal half of the inference one). Closed 2026-09-25
+by decision: the **float text** (Salvo's rule is Kotlin's [interp-float], with
+the Rust backend rendering through a helper to match it [rs-float-text]); the
+**exported-name over-emission** (reachability follows *resolution* for
+functions now [mod-used-only] — the ten examples lost 11,562 lines of generated
+code, and a fresh test run got ~10% faster because there is less to compile);
+and the **warm-run stamp key**, which the user chose to leave keyed on the
+generated sources — the note about what could be done if it ever bites is now
+"Test-suite speed" below. And **closed 2026-09-26**: the **keyed containers'
+identity**, whose constructors now ask for it as a capability
+[col-keyed-slots] — a declared `hash`/`eq` is honoured on both backends where
+Kotlin used to key structurally and rustc refused the program, and the identity
+is *passed* (`mut_set_of(hash = …, eq = …)`) rather than read off an
+annotation. Two limitations were accepted with it (user, 2026-09-26) and are
+refused by name rather than left to a target compiler: a keyed container over a
+**tuple or list**, whose lift is "Recursive implicit resolution" above, and one
+built **inside a generic function**, whose identity is a capability rather than
+a name a container can carry. Three latent bugs fell out of landing it, all
+fixed: Kotlin's `map_of`/`mut_map_of` bypassed the keyed constructor helper the
+*set* beside it used (so a named pair was silently ignored for maps alone), a
+program naming only a generated tuple class never imported its package, and
+std's map constructors never declared `<V canbe linear>`.
+(**Closed 2026-09-25, the defect round**, repros and root causes in
+COMPLETED.md: **iterating a temporary** emitted Rust that would not compile
+(E0716 — the pass local outlives the statement the subject was written in, so
+the subject's temporaries are now hoisted in front of the loop
+[rs-loop-temp]); **two same-named structs** confused pass driving, minting with
+one module's `iter` and driving the other's `next` (wrong output — both lookups
+compare *declarations* now, not type names [iter-resolve]); **a qualified
+argument** taught an implicit position nothing, so `It` stayed unbound and a
+sibling's `next` won by rung (the candidate match and its read-back now drop the
+*argument's* claims [implicit-infer]); **a `to_str` resolved in another module**
+was neither emitted nor imported (reachability and both backends' imports follow
+the checker's resolved-but-unnamed callees now [mod-used-only]); **a recursive
+struct** was an undiagnosed E0072 (the declaration-site refusal
+[type-no-cycle], with `List<T>` named as the remedy); and **a bare collection
+literal** could not determine a type parameter (substituting an unbound variable
+yields `Unknown`, which arrived looking concrete [col-literal-arg]).
+**Also closed 2026-09-25**, both found while
 writing `examples/borrowing/` and fixed the same day — repros and root causes
 in COMPLETED.md: the **anchored `canbe in` form did not lower** on the Rust
 backend (its anchor is a parameter and a second `&mut` was synthesized beside
@@ -1568,166 +1667,59 @@ std fn — one loud half inside std's own emission and one *silently wrong
 output* half through `@module` — and consuming a handler's stored values,
 which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
 
-- **A warm *unskipped* run still re-emits every Kotlin case before its stamp
-  can hit** (found 2026-09-15; the skip-gate half of the original defect was
-  fixed 2026-09-21 — the `SALVO_SKIP_E2E` gate is hoisted above case-building
-  in `kotlinc_compiles_and_runs_every_case`, driver test 0.00s under skip,
-  and `[profile.dev] opt-level = 1` cut the remaining per-case emit cost;
-  numbers and record in COMPLETED.md's log). What remains: the stamp key is
-  the content hash of the *generated* files, so a warm run without the skip
-  must parse + check + emit every `KOTLIN_CASES` entry over `std` just to
-  discover the stamp hits. At opt-level 1 that is ~7.5s for the codegen
-  binary (was ~30s), so the pressure is off — but it still grows with the
-  registry. The fix is a **source-keyed stamp**: hash the `.sv` source plus
-  an emitter-version token instead of the generated files, cheap to check
-  without emitting. That is a testkit design change and wants its own think:
-  the current key's virtue is that it cannot go stale, and a
-  source-plus-version key trades that for speed — the user's call. The Rust
-  backend's per-test runner does not have the problem (its cases build one
-  at a time, inside their own gate). **Measured again 2026-09-25** after
-  `examples/borrowing/` added a case: the Kotlin codegen binary is ~15s warm
-  (the entry above recorded ~7.5s), and a warm `cargo test` is ~28s against a
-  ~15s budget — the growth is the registry, exactly as predicted, so the
-  source-keyed stamp is worth more than it was.
-
-- **Iterating a *temporary* container emits Rust that does not compile**
-  (found 2026-09-18 while building loop destructuring; pre-existing, and
-  unrelated to patterns — a plain name reproduces it). Repro:
+- **An un-annotated lending `?iter` has no lifetime to tie** (found
+  2026-09-25, *underneath* the qualified-argument defect: its rustc error was
+  masked by that one's type error, so it is pre-existing). A fn-typed implicit
+  whose return is a **borrowing** pass needs the `holds proj(c)` annotation
+  [proj-infer] for the emitter to tie the lifetime [rs-proj-lends]; without it
+  the adapter closure is `&mut dyn FnMut(&C) -> It` with `It` instantiated to a
+  lifetime-carrying type, and rustc says "lifetime may not live long enough".
+  Repro:
 
   ```
+  fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int => c {
+      let t = 0
+      for x in iter(c) { t = t + x }
+      return t
+  }
+
   fn main() [use] -> None {
-      use StdOutConsole
-      for x in iter(list_of(1, 2)) {     // rustc: E0716, temporary dropped
-          println("${x}")
-      }
+      use StdOutConsole()
+      println("${total([1, 2, 3])}")   // rustc: lifetime may not live long enough
   }
   ```
 
-  The emitted line is `let mut __loop1_pass = iter__3(&(vec![1, 2]));` — the
-  pass borrows a temporary that dies at the end of that statement. Kotlin is
-  fine (the list is a reference). Root cause: the pass-loop header emits the
-  subject inline where an owned local is needed, so the fix is to hoist the
-  temporary into a `let` before the header (`let __loop1_subject = vec![…];`)
-  whenever the subject is not a place — which is what rustc's own suggestion
-  says. Note that check.rs's [proj-anywhere] comment claims driving a temporary
-  "is fine: the temporary lives for the whole loop statement on both backends",
-  which is exactly what is wrong.
+  Adding `holds proj(c)` fixes it, and that is the documented form ([rs-proj-lends]
+  names it), so the shape is *writable* — what is missing is the diagnostic.
+  Two candidate fixes, and the choice is a small language call: **infer the
+  lend** for a fn type whose return instantiates to a borrow-holding type (the
+  [proj-infer] fallback already says "conservatively every kept parameter" for
+  bodiless declarations — it is the *emitter* that needs the annotation, so the
+  checker could synthesize it), or **refuse** the declaration with an error
+  naming `holds proj(c)`. Inference is the better default; the refusal is the
+  cheap one. Kotlin runs both forms.
 
-- **An exported std name is everybody's output** [mod-used-only] (sharpened
-  2026-09-23, when `core.range` was exported so `range` could be used at all —
-  the user's call, and the right one). Reachability resolves a *used name* to
-  every module declaring it, so a program that merely iterates (using the name
-  `next`) now emits `core/range` and whatever it drags. Repro: any example;
-  `examples/*/rust/main.rs` all gained `pub mod core_range;`. The fix is
-  resolution-based reachability — the checker already records which declaration
-  each call resolved to (`Checked::call_fn`), so the edge could follow *that*
-  instead of the name. Until then, adding an exported `next`/`iter`/`to_str`/
-  `add` to std costs every program, and the examples must be regenerated with it.
-
-- **Two same-named structs in two modules confuse pass-driving resolution**
-  (found 2026-09-23, after `core.range` exported a `Range`). A module declaring
-  its own `Range` with an `iter fn next` and driving it with `for` emitted a
-  call to the *other* module's `iter`/`next` (`iter__5(&(range__4(1, 4)))`,
-  rustc: "expected `core_range::Range`, found `Range`"). Repro: the codegen
-  tests' `DEMO`/`LOOPS` sources before they were renamed to `Upto` — declare
-  `struct Range { start: Int, end: Int }` plus `iter fn next(r: Range)` in a
-  user module and write `for i in range(1, 4)`. Root cause is type identity by
-  *name* in the pass-driving lookup, so two `Range`s are indistinguishable
-  there. Wrong output rather than a diagnostic, so it is
-  [backend-never-wrong]-grade.
-
-- **A qualified argument stops a type variable binding through an implicit fn
-  position** (found 2026-09-23 with the new constructors). Repro: with
-  `fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int`,
-  the call `total(list_of(1, 2, 3))` — whose argument is `NonEmpty List<Int>`
-  [col-of-nonempty] — resolves `?iter` correctly to the list's but `?next` to a
-  *sibling* pass's `next` declared in the caller's own module, because `It` is
-  still unbound when the group's members resolve and the nearer rung then wins
-  [implicit-resolve] [fn-overload-scope]. `total([1, 2, 3])` (an unqualified
-  literal) resolves correctly. Emits a call the target compiler rejects.
-
-- **An interpolation-resolved `to_str` from another module is not imported**
-  (found 2026-09-23 building the test harness). A file that interpolates a
-  value whose `to_str` [interp-to-str] lives in a *different* module emits a
-  call to it without importing the module: Rust says "cannot find function
-  `to_str__3` in this scope", Kotlin the same for the symbol. Root cause:
-  `generate_imports` walks `reach::used_names`, and an interpolation never
-  *names* the `to_str` the checker resolved for it — the same blind spot the
-  pass-driving loop needed its `Finished` special case for. Fix: feed
-  `Checked::interp_to_str` (and `interp_struct`) into the import computation
-  in both emitters. Repro: any `${failure}` outside `std.test` before the
-  generated harness was changed to call `to_str` explicitly — which is the
-  workaround in `salvo-test`'s harness today.
-
-- **A whole-valued `Double`/`Float` interpolates differently per backend**
-  (found 2026-09-14 while testing the operator slice; pre-existing). Repro:
+- **A bare generic *struct* literal still does not determine a type parameter**
+  (sharpened 2026-09-25). The collection-literal half of this is fixed
+  [col-literal-arg], and the roadmap's guess that they were "probably one fix"
+  was wrong: a struct literal takes a different path, so `unwrap(Box { value: 7 })`
+  with `fn unwrap<T>(b: Box<T>) -> T` still reports "no matching overload for
+  `unwrap(Box)`". Repro:
 
   ```
+  struct Box<T> { value: T }
+  fn unwrap<T>(b: Box<T>) -> T => !b { return b.value }
   fn main() [use] -> None {
-      use StdOutConsole
-      let d = 2.0
-      println("${d}")     // Rust: "2"   Kotlin: "2.0"
+      use StdOutConsole()
+      println("${unwrap(Box { value: 7 })}")   // no matching overload for `unwrap(Box)`
   }
   ```
 
-  Root cause: Rust's `Display` for `f64` drops the trailing `.0` where
-  Kotlin's `toString` keeps it; fractional values agree (`8.25` both). A
-  [backend-never-wrong]-grade parity break in the printed *text*. The fix
-  belongs in the interpolation lowering [interp-to-str]: a Salvo-emitted
-  float formatter (or a `format!("{:?}")`-shaped rendering on Rust, which
-  keeps the `.0`) — decide once, test with whole, fractional, negative-zero
-  and very large values on both backends.
+  The fix is the struct-literal counterpart of the collection-literal one: infer
+  the literal's own type arguments from its **field values** (unify each declared
+  field type against the value's type) before the enclosing call's substitution
+  is solved. Recorded with the linear-types leftover it was filed beside.
 
-- **A container operation inside a *generic* function is a backend
-  divergence** (reproduced 2026-09-13). Repro:
-
-  ```
-  fn collect_one<T>(elem: T) [] -> Set<T> => !elem {
-      let s: Mut Set<T> = mut_set_of()
-      add(s, elem)
-      return s
-  }
-  ```
-
-  Kotlin compiles and runs it (erased generics, `LinkedHashSet` takes
-  anything); Rust fails with a raw rustc **E0599** — "the method `insert`
-  exists for struct `SalvoSet<T>`, but its trait bounds were not satisfied" —
-  because the emitted signature carries only the bounds Salvo knows
-  (`T: Clone`), while `insert` needs `T: Hash + Eq`. No Salvo diagnostic, so
-  this is a [backend-never-wrong] violation.
-  Root cause: **there is no way to write the bound.** Key eligibility
-  [col-key-eligible] is checked where a container type is *instantiated*, and
-  a type parameter is deliberately allowed through there ("checked at the
-  instantiation") — but a generic fn body is a use site with no instantiation
-  in sight, and a type parameter accepts only `canbe linear`
-  ("only `linear` is supported in a type-parameter `with` clause").
-  The fix is the same mechanism `sort`/`binary_search`/`add_sorted` need — see
-  the C-6 decision under "Standard library surface" — and it cuts both ways:
-  the checker could refuse the unbounded body with a Salvo error, and the Rust
-  emitter could put `T: Hash + Eq` (or `T: Ord`) on the signature and make the
-  program work. Until then, container operations belong in non-generic code.
-
-- **A recursive struct is an undiagnosed backend divergence** (reproduced
-  2026-09-12). Repro: `struct Node { value: Int, next: Node | None }` plus
-  any use. The checker accepts it on both backends; Kotlin compiles and runs
-  (`data class` fields are references); Rust emits `pub next: Option<Node>`
-  and fails downstream with rustc E0072 — a raw target-compiler error, no
-  Salvo diagnostic. Same through a union arm (`type Tree = Int | Branch`).
-  Root cause: no cycle check anywhere over the type graph — nothing ever
-  admitted or refused recursive types. Fix: the SCC walk + declaration-site
-  diagnostic described under "Recursive types" step 1 (`List`/array edges
-  are not cycle edges — recursion through `List<T>` works end to end today
-  and stays legal). The full feature is separate and unscheduled; the
-  diagnostic is owed regardless.
-
-- **A bare inline collection literal does not determine a callee's type
-  parameter** (reproduced 2026-09-12). Repro: `to_set([1, 2])` reports
-  "cannot infer type argument `T`"; binding it first (`nums = [1, 2]` then
-  `to_set(nums)`) works, as does annotating. Root cause: argument type
-  inference runs before the literal is given an expected type, so the
-  literal's element type is still unknown when the substitution is solved —
-  the same shape as the recorded "bare generic struct literals not inferring
-  type args" leftover under "Linear types", and probably one fix.
 
 ## Linear types
 

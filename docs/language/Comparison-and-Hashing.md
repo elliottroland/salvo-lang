@@ -161,3 +161,35 @@ argument** (`Heap<T>(?cmp) List<T>`), so two built under different orderings
 are different types and refuse to mix. That machinery — slots on a qualifier,
 and the function identities that fill them — is
 [Implicit parameters](Implicit-Parameters.md).
+
+A keyed container is the same story, and its **constructor asks for the
+identity**: `set_of` takes `?Hashed<T>`, `sorted_set_of` takes `?Ordered<T>`,
+and the pair that resolved lands in the type the call answers. So the ordinary
+case needs nothing —
+
+```
+let names: Mut Set<Str> = mut_set_of()          // the host's own identity
+let people: Mut Set<Person> = mut_set_of()      // `Person`'s declared pair
+```
+
+— and a container keyed by *something else* passes it, which is the one way to
+choose:
+
+```
+fn age_hash(p: Person) -> Long => p { return to_long(p.age) }
+fn same_age(a: Person, b: Person) -> Bool => a, b { return a.age == b.age }
+
+// two people of an age are one member here, and the type says so
+let byage: Mut Set<Person>(age_hash, same_age) =
+    mut_set_of(hash = age_hash, eq = same_age)
+```
+
+An annotation that names a pair does not *choose* it — it has to agree with
+what the constructor resolved, because what fills the slot is what the
+container is actually keyed by.
+
+Two things do not work yet, and say so: a keyed container over a **tuple or a
+list** (their identities are the hosts' own and Salvo cannot name them yet —
+the same reason `(1, 2) == (1, 2)` does not resolve), and one built **inside a
+generic function**, where the identity is a capability the function was handed
+rather than a name the container can carry.

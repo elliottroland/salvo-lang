@@ -1,7 +1,6 @@
 package salvo.core.restrictedfs
 
 import salvo.*
-import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.fs.*
 import salvo.core.list.*

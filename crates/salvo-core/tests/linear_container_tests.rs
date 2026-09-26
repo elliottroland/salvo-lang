@@ -37,7 +37,7 @@ export intrinsic fn remove_first<T canbe linear>(list: Mut List<T>) [] -> T? => 
 export intrinsic fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
 =>[each] !x => !list, each
 export intrinsic type Map<K, V canbe linear> canbe Mut
-export intrinsic fn mut_map_of<K, V>(...entries: (K, V)[]) [] -> Mut Map<K, V>
+export intrinsic fn mut_map_of<K, V canbe linear>(...entries: (K, V)[]) [] -> Mut Map<K, V>
 export intrinsic fn put<K, V>(map: Mut Map<K, V>, key: K, value: V) [] -> None
 => map: Mut, !key, !value
 export intrinsic fn replace<K, V canbe linear>(map: Mut Map<K, V>, key: K, value: V) [] -> V?

@@ -93,7 +93,7 @@ pub fn emit_program_reporting(
         .filter(|d| !d.is_error())
         .map(|d| d.render(&program.files))
         .collect();
-    let reachable = salvo_core::reachable_modules(program, &resolution);
+    let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| reachable.contains(&u.file.module) && module_produces_code(u.ast))
@@ -179,6 +179,9 @@ pub fn emit_program_reporting(
             &resolution.scopes[file_idx],
             &mod_names,
             root_module,
+            program,
+            &checked,
+            file_idx,
         );
         let mut emitter = Emitter::new(&symbols, &checked, program, file_idx, &unit.file.name);
         emitter.fusion = fusion;
@@ -466,7 +469,7 @@ pub fn platform_skeletons(
             .map(|d| d.render(&program.files))
             .collect());
     }
-    let reachable = salvo_core::reachable_modules(program, &resolution);
+    let reachable = salvo_core::reachable_modules(program, &resolution, &checked);
     let emitted_modules: HashSet<&ModulePath> = program
         .units()
         .filter(|u| reachable.contains(&u.file.module) && module_produces_code(u.ast))
@@ -722,6 +725,9 @@ fn generated_imports(
     scope: &salvo_core::ModuleScope<'_>,
     mod_names: &BTreeMap<ModulePath, String>,
     root_module: Option<&ModulePath>,
+    program: &Program,
+    checked: &Checked,
+    file_idx: usize,
 ) -> BTreeSet<String> {
     let mut imports = BTreeSet::new();
     let module_use = |module: &ModulePath| -> Option<String> {
@@ -753,6 +759,18 @@ fn generated_imports(
     for module in scope.name_origins.get("Finished").into_iter().flatten() {
         if *module != own {
             if let Some(import) = module_use(module) {
+                imports.insert(import);
+            }
+        }
+    }
+    // [interp-to-str] [iter-resolve] …and the callees the checker resolved that
+    // the source never *names*: the `to_str` an interpolation picked, the
+    // `iter`/`next` a `for` drives. Name-based imports cannot see these, so the
+    // file emitted a call to a symbol it had not imported (fixed 2026-09-25).
+    for dep in salvo_core::reach::resolved_dep_files(checked, file_idx) {
+        let Some(unit) = program.units().nth(dep) else { continue };
+        if unit.file.module != *own {
+            if let Some(import) = module_use(&unit.file.module) {
                 imports.insert(import);
             }
         }
@@ -2077,6 +2095,66 @@ impl<'p> Emitter<'p> {
     /// re-evaluated per turn and the `Finished` arm needs no arm of its own.
     /// The subject is *moved* into the local: driving consumes a pass
     /// [once-fn], so nothing else can be looking at it.
+    /// [rs-loop-temp] The temporaries a `for`'s subject expression borrows,
+    /// hoisted into locals in front of the loop. A pass is **bound** by the
+    /// loop header (`let mut __loopN_pass = …`), so a borrow inside the
+    /// subject has to outlive the statement it was written in — which a Rust
+    /// temporary does not (E0716), while Kotlin's reference does. The
+    /// language allows the shape deliberately ("a view of a temporary may be
+    /// *used* within its statement", [proj-anywhere], and a `for` is that
+    /// use), so the fix is the hoist rustc's own suggestion asks for rather
+    /// than a refusal.
+    ///
+    /// Walks the subject's calls innermost-first and hoists every argument
+    /// that is **borrowed and not a place** — the temporary cases —
+    /// registering each in `hoisted_reads`, which the argument renderers
+    /// consult. An owned (consumed) position needs nothing: a moved value is
+    /// not borrowed from anywhere.
+    fn hoist_subject_temporaries(&mut self, subject: &Expr, indent: usize) -> Vec<String> {
+        let pad = "    ".repeat(indent);
+        let mut out: Vec<String> = Vec::new();
+        self.collect_subject_temporaries(subject, &pad, &mut out);
+        out
+    }
+
+    fn collect_subject_temporaries(&mut self, expr: &Expr, pad: &str, out: &mut Vec<String>) {
+        let Expr::Call { callee, args, span, .. } = expr else {
+            for child in child_exprs(expr) {
+                self.collect_subject_temporaries(child, pad, out);
+            }
+            return;
+        };
+        let key = self.checked.call_fn.get(&(self.file_idx, *span)).copied();
+        let Some((key, decl)) = key.and_then(|k| self.fn_by_key(k).map(|d| (k, d))) else {
+            return;
+        };
+        let mut all: Vec<&Expr> = Vec::new();
+        if let Some(recv) = dot_receiver(callee) {
+            all.push(recv);
+        }
+        all.extend(args.iter());
+        let params: Vec<Param> = decl.params.iter().filter(|p| !p.implicit).cloned().collect();
+        for (i, arg) in all.iter().enumerate() {
+            // Innermost first: a hoisted local may itself be built from one.
+            self.collect_subject_temporaries(arg, pad, out);
+            let Some(p) = params.get(i) else { break };
+            let mode = self.param_mode(Some(key), p);
+            if matches!(mode, ParamMode::Owned)
+                || self.place_is_pure(arg)
+                || self.hoisted_reads.contains_key(&(self.file_idx, arg.span()))
+            {
+                continue;
+            }
+            let code = self.emit_owned(arg);
+            self.hoist_id += 1;
+            let name = format!("__t{}", self.hoist_id);
+            let mutable = if matches!(mode, ParamMode::RefMut) { "mut " } else { "" };
+            out.push(format!("{pad}let {mutable}{name} = {code};\n"));
+            self.hoisted_reads
+                .insert((self.file_idx, arg.span()), name);
+        }
+    }
+
     fn emit_pass_loop_header(
         &mut self,
         driver: salvo_core::PassDriver,
@@ -2173,6 +2251,10 @@ impl<'p> Emitter<'p> {
         // takes it over rather than cloning it: a clone would leave the original
         // unreleased, which for a linear pass is the leak `close` exists to
         // prevent — and cost an allocation for every other pass.
+        // [rs-loop-temp] The pass local outlives the statement the subject was
+        // written in, so a temporary the subject borrows is hoisted in front
+        // of the loop (E0716 otherwise; Kotlin needs nothing).
+        let temps = self.hoist_subject_temporaries(iterable, indent);
         let subject = match driver.mint_iter_fn {
             // [iter-pass] The subject is a *container*, not a pass: its `iter`
             // mints one, called once before the loop. The arguments go through
@@ -2201,8 +2283,9 @@ impl<'p> Emitter<'p> {
             }
         };
         format!(
-            "{pad}let mut {place} = {subject};\n\
-             {pad}while let {arm}({var}) = {callee}({lead}&mut {place}) {{\n"
+            "{temps}{pad}let mut {place} = {subject};\n\
+             {pad}while let {arm}({var}) = {callee}({lead}&mut {place}) {{\n",
+            temps = temps.concat()
         )
     }
 
@@ -6285,7 +6368,19 @@ impl<'p> Emitter<'p> {
     /// the name is the *checker's* answer — resolving it here could disagree with
     /// what the checker type-checked against.
     fn identity_marker(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
-        let marker = format!("__{kind}_{}", rs_ident(&id.to_string().replace('@', "__")));
+        // The **subject** is part of the name: one `cmp`/`hash` serves many
+        // element types, and a marker impl is written for exactly one — sharing
+        // the name silently gave `SortedSet<Str>` and `SortedSet<Int>` the same
+        // marker (rustc then complained about the element type, which is how it
+        // was found once every container started naming an identity).
+        let elem_tag = rs_ident(&self.rust_ty(subject).replace(
+            |c: char| !c.is_ascii_alphanumeric(),
+            "_",
+        ));
+        let marker = format!(
+            "__{kind}_{}_{elem_tag}",
+            rs_ident(&id.to_string().replace('@', "__"))
+        );
         if !self.ordering_markers.contains_key(&marker) {
             let decl = self
                 .checked
@@ -6294,11 +6389,43 @@ impl<'p> Emitter<'p> {
                 .copied()
                 .and_then(|k| self.fn_by_key(k));
             let Some(decl) = decl else {
+                // [cmp-carry] A **forwarded** capability: the identity is the
+                // enclosing fn's own implicit parameter, so there is no
+                // declaration to name and a marker cannot be generated. The
+                // container would have to keep the function as a *value*, which
+                // is the recorded lift (ROADMAP); until then this is refused
+                // loudly rather than mis-lowered [backend-never-wrong].
+                if matches!(id, FnId::Binder(_)) {
+                    self.error(format!(
+                        "a keyed container built inside a *generic* function is not \
+                         lowered yet: its identity is `{id}`, a capability this \
+                         function was handed, and the container needs one it can \
+                         name — build it in non-generic code for now [cmp-carry]"
+                    ));
+                    return None;
+                }
                 self.error(format!(
                     "the `{id}` this collection is keyed by has no resolved declaration"
                 ));
                 return None;
             };
+            // [cmp-groups] A **canonical intrinsic** is the host's own
+            // operation — that is what `hash(Int)`/`eq(Str, Str)`/`cmp(Int,
+            // Int)` *mean* — so it needs no marker of its own, and has no
+            // emitted symbol a marker could call. Every keyed container names
+            // an identity since the constructors took the capability
+            // (2026-09-25), so this is now the common path, not an edge.
+            if decl.intrinsic {
+                self.needs_collections = true;
+                return Some(
+                    match kind {
+                        "Hash" => "HostHash",
+                        "Eq" => "HostEq",
+                        _ => "HostOrd",
+                    }
+                    .to_string(),
+                );
+            }
             let target = self.rust_fn_name(decl);
             let elem = self.rust_ty(subject);
             let body = match kind {
@@ -6345,36 +6472,15 @@ impl<'p> Emitter<'p> {
             // No identity in the type: the host's own ordering, as ever.
             return Some("HostOrd".to_string());
         };
-        let marker = format!("__Cmp_{}", rs_ident(&id.to_string().replace('@', "__")));
-        if !self.ordering_markers.contains_key(&marker) {
-            // The declaration behind the name is the *checker's* answer
-            // [cmp-carry]: resolving it here could disagree with what the
-            // checker type-checked against.
-            let key = (id.clone(), subject.clone());
-            let Some(decl) = self
-                .checked
-                .carried_identities
-                .get(&key)
-                .copied()
-                .and_then(|k| self.fn_by_key(k))
-            else {
-                self.error(format!(
-                    "the ordering `{id}` of this collection has no resolved declaration"
-                ));
-                return Some("HostOrd".to_string());
-            };
-            let target = self.rust_fn_name(decl);
-            let elem = self.rust_ty(&subject);
-            self.needs_collections = true;
-            self.ordering_markers.insert(marker.clone(), elem.clone());
-            self.generated_items.push(format!(
-                "\npub struct {marker};\n\
-                 impl SalvoCmp<{elem}> for {marker} {{\n    \
-                 fn cmp(__a: &{elem}, __b: &{elem}) -> i32 {{ {target}(__a, __b) }}\n\
-                 }}\n"
-            ));
-        }
-        Some(marker)
+        let id = id.clone();
+        // One implementation with the hash pair's [cmp-carry]: the same marker
+        // naming, and the same "a canonical intrinsic *is* the host's ordering"
+        // fallback. Keeping a second copy here is what let the intrinsic case
+        // reach rustc as a call to a function with no emitted symbol.
+        Some(
+            self.identity_marker(&id, &subject, "Cmp")
+                .unwrap_or_else(|| "HostOrd".to_string()),
+        )
     }
 
     /// Renders a checker `Ty` as Rust (qualifiers erased, unions as the
@@ -12872,6 +12978,88 @@ impl<'p> Emitter<'p> {
         )
     }
 
+    /// [interp-float] The text of a value whose type **contains a float**,
+    /// rendered by Salvo's rule — which is Kotlin's (user decision
+    /// 2026-09-25): always a decimal point, scientific notation outside
+    /// `[10^-3, 10^7)`. Rust's `Display` writes neither, so every float that
+    /// becomes text goes through `strings::salvo_f64_text`, and a *container*
+    /// of floats is rendered element-wise here rather than by the runtime's
+    /// `Display` (which can only call `Display` on its elements).
+    ///
+    /// `None` when the type holds no float: then today's rendering stands, so
+    /// nothing else in the output changes.
+    fn float_text_expr(&mut self, ty: &Ty, code: &str) -> Option<String> {
+        let bare = ty.strip_quals();
+        match bare {
+            Ty::Named { name, args } => match (name.as_str(), args.len()) {
+                ("Double", 0) => {
+                    self.needs_str = true;
+                    Some(format!("crate::strings::salvo_f64_text({code})"))
+                }
+                ("Float", 0) => {
+                    self.needs_str = true;
+                    Some(format!("crate::strings::salvo_f32_text({code})"))
+                }
+                ("List", 1) => {
+                    let inner = self.float_text_expr(&args[0], "__ft")?;
+                    Some(format!(
+                        "format!(\"[{{}}]\", {code}.iter().map(|__ft| {inner})\
+                         .collect::<Vec<_>>().join(\", \"))"
+                    ))
+                }
+                ("Set", 1) | ("SortedSet", 1) => {
+                    let inner = self.float_text_expr(&args[0], "__ft")?;
+                    self.needs_collections = true;
+                    Some(format!(
+                        "format!(\"{{{{{{}}}}}}\", {code}.iter().map(|__ft| {inner})\
+                         .collect::<Vec<_>>().join(\", \"))"
+                    ))
+                }
+                ("Map", 2) | ("SortedMap", 2) => {
+                    // Either half may hold the float; the other keeps `Display`.
+                    let key = self
+                        .float_text_expr(&args[0], "__fk")
+                        .unwrap_or_else(|| "__fk.to_string()".to_string());
+                    let val = self
+                        .float_text_expr(&args[1], "__fv")
+                        .unwrap_or_else(|| "__fv.to_string()".to_string());
+                    if !Self::ty_has_float(&args[0]) && !Self::ty_has_float(&args[1]) {
+                        return None;
+                    }
+                    self.needs_collections = true;
+                    Some(format!(
+                        "format!(\"{{{{{{}}}}}}\", {code}.iter()\
+                         .map(|(__fk, __fv)| format!(\"{{}}: {{}}\", {key}, {val}))\
+                         .collect::<Vec<_>>().join(\", \"))"
+                    ))
+                }
+                _ => None,
+            },
+            Ty::Array(elem) => {
+                let inner = self.float_text_expr(elem, "__ft")?;
+                Some(format!(
+                    "format!(\"[{{}}]\", {code}.iter().map(|__ft| {inner})\
+                     .collect::<Vec<_>>().join(\", \"))"
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// [interp-float] Whether a type holds a float anywhere the text rules
+    /// reach — the cheap test that keeps every other rendering untouched.
+    fn ty_has_float(ty: &Ty) -> bool {
+        match ty.strip_quals() {
+            Ty::Named { name, args } => {
+                matches!(name.as_str(), "Double" | "Float") || args.iter().any(Self::ty_has_float)
+            }
+            Ty::Array(elem) => Self::ty_has_float(elem),
+            Ty::Union(arms) => arms.iter().any(Self::ty_has_float),
+            Ty::Tuple(elems) => elems.iter().any(Self::ty_has_float),
+            _ => false,
+        }
+    }
+
     /// [interp-to-str] One interpolated value: the `to_str` the checker
     /// resolved for it, applied, or the value itself when it renders
     /// natively.
@@ -12882,15 +13070,39 @@ impl<'p> Emitter<'p> {
         if let Some(name) = self.hoisted_reads.get(&key).cloned() {
             return name;
         }
+        // [interp-float] A float — or a container of them — is written by
+        // Salvo's rule rather than Rust's `Display`.
+        if let Some(ty) = self.ty_of(expr.span()).cloned() {
+            if Self::ty_has_float(&ty) {
+                let code = self.emit_expr(expr);
+                if let Some(text) = self.float_text_expr(&ty, &code) {
+                    return text;
+                }
+            }
+        }
         // [interp-struct] A struct with no `to_str` of its own renders
         // field-wise, in the language's format rather than Rust `Debug`'s.
         if let Some(name) = self.checked.interp_struct.get(&key).cloned() {
             if let Some(fields) = self.struct_field_names(&name) {
                 let place = self.emit_expr(expr);
                 let inner: Vec<String> = fields.iter().map(|f| format!("{f}: {{}}")).collect();
+                // [interp-float] A float *field* is written by Salvo's rule
+                // too. Only scalars can appear here: the field-wise derivation
+                // applies exactly when every field renders natively
+                // [interp-struct], so a `List<Double>` field means the struct
+                // has its own `to_str` instead.
                 let args: Vec<String> = fields
                     .iter()
-                    .map(|f| format!("{place}.{}", rs_ident(f)))
+                    .map(|f| {
+                        let code = format!("{place}.{}", rs_ident(f));
+                        match self.struct_field_float(&name, f) {
+                            Some(helper) => {
+                                self.needs_str = true;
+                                format!("crate::strings::{helper}({code})")
+                            }
+                            None => code,
+                        }
+                    })
                     .collect();
                 return format!(
                     "format!(\"{name} {{{{ {} }}}}\", {})",
@@ -12934,6 +13146,33 @@ impl<'p> Emitter<'p> {
     }
 
     /// [interp-struct] The field names of a declared struct, in order.
+    /// [interp-float] The float helper a struct field's *declared* type wants,
+    /// if any: read off the AST, since only a written scalar reaches the
+    /// field-wise rendering.
+    fn struct_field_float(&self, struct_name: &str, field: &str) -> Option<&'static str> {
+        for module in self.program.modules.iter() {
+            for item in &module.items {
+                let Item::Struct(decl) = item else { continue };
+                if decl.name.name != struct_name {
+                    continue;
+                }
+                let f = decl.fields.iter().find(|f| f.name.name == field)?;
+                let Type::Named { qualifiers, base } = &f.ty else {
+                    return None;
+                };
+                if !qualifiers.is_empty() || !base.args.is_empty() {
+                    return None;
+                }
+                return match base.name.name.as_str() {
+                    "Double" => Some("salvo_f64_text"),
+                    "Float" => Some("salvo_f32_text"),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
     fn struct_field_names(&self, name: &str) -> Option<Vec<String>> {
         for module in self.program.modules.iter() {
             for item in &module.items {
@@ -14509,7 +14748,8 @@ impl<'p> Emitter<'p> {
         if let Some(name) = self.hoisted_reads.get(&(self.file_idx, arg.span())).cloned() {
             return match mode {
                 ParamMode::Owned => name,
-                _ => format!("&{name}"),
+                ParamMode::Ref => format!("&{name}"),
+                ParamMode::RefMut => format!("&mut {name}"),
             };
         }
         // [rs-loc] Set when this argument is a lambda filling a
@@ -14636,6 +14876,19 @@ impl<'p> Emitter<'p> {
         if f.name.name == "discard" && args.len() == 1 {
             let code = self.emit_expr(args[0]);
             return format!("drop({code})");
+        }
+        // [interp-float] `to_str` of a value **holding floats** is rendered
+        // element-wise by Salvo's float rule; the runtime's `Display` impls
+        // can only call `Display` on their elements, which is Rust's rule.
+        if f.name.name == "to_str" && args.len() == 1 {
+            if let Some(ty) = self.ty_of(args[0].span()).cloned() {
+                if Self::ty_has_float(&ty) {
+                    let code = self.emit_read(args[0]);
+                    if let Some(text) = self.float_text_expr(&ty, &code) {
+                        return text;
+                    }
+                }
+            }
         }
         if f.name.name != "copy" || args.len() != 1 {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
@@ -14845,6 +15098,13 @@ impl<'p> Emitter<'p> {
             .collect();
         let mut out: Vec<String> = Vec::with_capacity(args.len());
         for (i, arg) in args.iter().enumerate() {
+            // [rs-mut-arg-hoist] [rs-loop-temp] An argument hoisted into a
+            // local ahead of this expression is read as that local; a
+            // template splices a place, so the bare name is what it wants.
+            if let Some(name) = self.hoisted_reads.get(&(self.file_idx, arg.span())).cloned() {
+                out.push(name);
+                continue;
+            }
             let is_variadic_part = variadic_at.is_some_and(|v| i >= v);
             let param_ty = fixed.get(i).map(|p| p.ty.clone());
             // [rs-read-mode] What *this* parameter wants of its argument, which

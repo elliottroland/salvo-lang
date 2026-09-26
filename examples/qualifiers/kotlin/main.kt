@@ -1,7 +1,5 @@
 package salvo.main
 
-import salvo.core.array.*
-import salvo.core.bytes.*
 import salvo.core.console.*
 import salvo.core.list.*
 import salvo.core.map.*

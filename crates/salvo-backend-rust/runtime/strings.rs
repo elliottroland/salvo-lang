@@ -27,3 +27,82 @@ impl SalvoStr for String {
         true
     }
 }
+
+/// [interp-float] A float's text, by **Salvo's rule, which is Kotlin's**
+/// (user decision 2026-09-25): the shortest digits that round-trip, always a
+/// decimal point, and computerized scientific notation outside
+/// `[10^-3, 10^7)`. Rust's own `Display` writes the number out in full and
+/// drops the `.0`, so the two backends printed different text for the same
+/// value (`2` against `2.0`, `100000000000000000000` against `1.0E20`) — a
+/// [backend-parity] break in program output. Kotlin prints this natively;
+/// this is how Rust joins it.
+///
+/// Both cases are driven off `{:e}`, which gives the shortest round-tripping
+/// digits with an exponent — the same digits Kotlin's `toString` chooses, so
+/// only the arrangement differs.
+/// Takes anything that borrows an `f64` (the value, or a `&f64` out of an
+/// iterator), so no call site has to write a deref.
+pub fn salvo_f64_text<T: std::borrow::Borrow<f64>>(x: T) -> String {
+    let x = *x.borrow();
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    salvo_float_text(&format!("{:e}", x))
+}
+
+/// The same for `Float` (`f32`), whose shortest digits are its own.
+pub fn salvo_f32_text<T: std::borrow::Borrow<f32>>(x: T) -> String {
+    let x = *x.borrow();
+    if x.is_nan() {
+        return "NaN".to_string();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+    }
+    salvo_float_text(&format!("{:e}", x))
+}
+
+/// Rearranges `{:e}`'s output (`-1.25e2`, `0e0`) into Salvo's form.
+fn salvo_float_text(sci: &str) -> String {
+    let (mantissa, exponent) = match sci.split_once('e') {
+        Some(parts) => parts,
+        // `{:e}` always writes an exponent; if it ever does not, the text is
+        // already plain and passing it through beats inventing something.
+        None => return sci.to_string(),
+    };
+    let exp: i32 = exponent.parse().unwrap_or(0);
+    let sign = if mantissa.starts_with('-') { "-" } else { "" };
+    let digits: String = mantissa.chars().filter(|c| c.is_ascii_digit()).collect();
+    // The plain window is Java's: 10^-3 <= |value| < 10^7.
+    if (-3..=6).contains(&exp) {
+        if exp >= 0 {
+            let point = exp as usize + 1;
+            let whole = if digits.len() > point {
+                digits[..point].to_string()
+            } else {
+                // Fewer digits than the exponent needs: pad with zeros
+                // (`1e3` is `1000.0`).
+                format!("{:0<width$}", digits, width = point)
+            };
+            let frac = if digits.len() > point {
+                digits[point..].to_string()
+            } else {
+                "0".to_string()
+            };
+            format!("{sign}{whole}.{frac}")
+        } else {
+            let zeros = "0".repeat((-exp - 1) as usize);
+            format!("{sign}0.{zeros}{digits}")
+        }
+    } else {
+        let frac = if digits.len() > 1 {
+            digits[1..].to_string()
+        } else {
+            "0".to_string()
+        };
+        format!("{sign}{}.{frac}E{exp}", &digits[..1])
+    }
+}

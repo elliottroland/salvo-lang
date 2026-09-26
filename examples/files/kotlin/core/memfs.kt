@@ -1,7 +1,6 @@
 package salvo.core.memfs
 
 import salvo.*
-import salvo.core.array.*
 import salvo.core.bytes.*
 import salvo.core.fs.*
 import salvo.core.list.*
@@ -24,9 +23,9 @@ data class MemWrite(
 )
 
 class MemFs : Fs {
-    private var files: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>()
-    private var reads: MutableMap<Long, MemRead> = linkedMapOf<Long, MemRead>()
-    private var writes: MutableMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>()
+    private var files: MutableMap<String, salvo.SalvoBytes> = linkedMapOf<String, salvo.SalvoBytes>().also { __m -> __m.putAll(listOf()) }
+    private var reads: MutableMap<Long, MemRead> = linkedMapOf<Long, MemRead>().also { __m -> __m.putAll(listOf()) }
+    private var writes: MutableMap<Long, MemWrite> = linkedMapOf<Long, MemWrite>().also { __m -> __m.putAll(listOf()) }
     private var next_handle: Long = 0L
 
     override fun open_read(path: String): Union2<InStream, FsError> {

@@ -2,14 +2,29 @@
 //! actually uses are transpiled.
 //!
 //! Roots are the user modules that declare `fn main` (or *all* user
-//! modules when no `main` exists — a library compile). From there,
-//! modules are reached through *name usage*: every identifier and type
-//! name a file mentions is looked up in that file's resolved scope
-//! (`ModuleScope::name_origins`), and every module declaring the name
-//! under it becomes reachable. This is deliberately conservative — a
-//! name shadowed by a local still pulls in the modules that declare it,
-//! and an overloaded name pulls in every declaring module — but it never
-//! drops a module the emitted code could reference.
+//! modules when no `main` exists — a library compile). From there, a
+//! module is reached two ways:
+//!
+//! * **By resolution**, for functions (user decision 2026-09-25): the
+//!   checker recorded which declaration every call, fn-name reference,
+//!   filled implicit, resolved operator, interpolated `to_str` and driven
+//!   `next`/`iter` actually resolved to, so the edge follows *that*. A
+//!   name-based edge cannot: it resolves a *name* to every module
+//!   declaring it, so a program that merely iterates — using the name
+//!   `next` — pulled in `core.range` and whatever it drags, because
+//!   `core.range` declares a `next` too.
+//! * **By name**, for everything else: a type, struct, effect, handler,
+//!   qualifier or `params` group a file mentions is looked up in that
+//!   file's resolved scope (`ModuleScope::name_origins`) and every module
+//!   declaring it becomes reachable. These names are not overload sets, so
+//!   the conservatism costs little — and a name that is *both* a function
+//!   and a type somewhere in scope keeps its name edge, since only the
+//!   pure-fn case is precise enough to narrow.
+//!
+//! The direction of the two errors is worth keeping in mind: an edge too
+//! many emits a module nothing calls (wasteful), an edge too few emits a
+//! call with nothing to bind to (broken). That is why the fn narrowing
+//! draws on every resolution table there is rather than only on calls.
 //!
 //! Only `.sv` sources contribute usage; companion files are carried along
 //! with their module [backend-companion].
@@ -26,9 +41,16 @@ use crate::resolve::Resolution;
 use crate::source::ModulePath;
 
 /// The modules reachable from the program's roots [mod-used-only].
+///
+/// Edges are *name* usage (see the module docs) **plus** the checker's
+/// resolved-but-unnamed callees (`resolved_dep_files`): an interpolation never
+/// names the `to_str` it resolved to and a `for` names neither its `iter` nor
+/// its `next`, so a module reached only that way was left un-emitted and the
+/// call had nothing to bind to (fixed 2026-09-25).
 pub fn reachable_modules<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
+    checked: &crate::check::Checked,
 ) -> HashSet<&'p ModulePath> {
     // Roots: user modules declaring `fn main`, else every user module.
     let mut roots: Vec<&ModulePath> = program
@@ -61,15 +83,110 @@ pub fn reachable_modules<'p>(
             }
             let scope = &resolution.scopes[file_idx];
             for name in used_names(unit.ast) {
+                // [mod-used-only] A name that is *only* a function here is
+                // resolved rather than guessed: the tables below say which
+                // declaration each use meant.
+                if is_only_a_fn_name(scope, name) {
+                    continue;
+                }
                 for dep in scope.name_origins.get(name).into_iter().flatten() {
                     if !reachable.contains(*dep) {
                         queue.push(dep);
                     }
                 }
             }
+            for dep_file in resolved_dep_files(checked, file_idx) {
+                let Some(dep) = program.units().nth(dep_file) else { continue };
+                if !reachable.contains(&dep.file.module) {
+                    queue.push(&dep.file.module);
+                }
+            }
         }
     }
     reachable
+}
+
+/// [mod-used-only] The files whose **functions** a file resolved to: every
+/// call, fn-name reference, filled implicit, resolved comparison, carried
+/// identity, interpolated `to_str` and driven `next`/`iter`. This is both the
+/// reachability edge for fn names and what each backend's import computation
+/// reads, so the two cannot disagree about what a file depends on.
+///
+/// Every table that records "this reference means *that* declaration" belongs
+/// here. Some are the only record there is — an interpolation never names the
+/// `to_str` the checker picked for it, and a `for` names neither the `iter` it
+/// mints with nor the `next` it drives — and the rest replace a name-based
+/// guess with the answer.
+///
+/// Answers *file* indices, which each backend maps to its own module naming.
+pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> HashSet<usize> {
+    let mut out: HashSet<usize> = HashSet::new();
+    let mine = |key: &&(usize, salvo_syntax::Span)| key.0 == file_idx;
+    // Calls, and fn *names* used any other way (a fn passed by value, a
+    // callee, a declaration site) [fn-ref-table].
+    for (_, fn_key) in checked.call_fn.iter().filter(|(k, _)| mine(k)) {
+        out.insert(fn_key.file);
+    }
+    for (_, fn_key) in checked.fn_refs.iter().filter(|(k, _)| mine(k)) {
+        out.insert(fn_key.file);
+    }
+    // [implicit-resolve] What fills an implicit position — `?cmp`, `?hash`,
+    // a group's `next` — is a function the emitted call hands over.
+    for (_, args) in checked.implicit_args.iter().filter(|(k, _)| mine(k)) {
+        for arg in args {
+            if let crate::check::ImplicitArg::Resolved { key, .. } = arg {
+                out.insert(key.file);
+            }
+        }
+    }
+    // [cmp-groups] An operator names nothing: `a < b` resolves to a `cmp`.
+    for (_, via) in checked.comparisons.iter().filter(|(k, _)| mine(k)) {
+        if let crate::check::CompareVia::Call(key) = via {
+            out.insert(key.file);
+        }
+    }
+    // [interp-to-str] [interp-struct] The text form an interpolation resolved.
+    for (_, fn_key) in checked.interp_to_str.iter().filter(|(k, _)| mine(k)) {
+        out.insert(fn_key.file);
+    }
+    // [iter-resolve] The `next` a `for` drives and the `iter` it mints with.
+    for (_, driver) in checked.for_drivers.iter().filter(|(k, _)| mine(k)) {
+        if let Some(key) = driver.next.key() {
+            out.insert(key.file);
+        }
+        if let Some(key) = driver.mint_iter_fn {
+            out.insert(key.file);
+        }
+    }
+    // [cmp-carry] An identity a keyed container carries reaches this answer
+    // through `fn_refs`, where the checker records it at the span that names
+    // it — per *file*, which the `carried_identities` table is not: it is
+    // keyed by (name, subject), so scanning it whole made every program
+    // depend on every identity any program mentioned (an empty `main` emitted
+    // the sequence helpers, which is how it was caught).
+    out.remove(&file_idx);
+    out
+}
+
+/// [mod-used-only] Whether a name is, in this scope, **only** a function —
+/// the case resolution can answer precisely. A name that also denotes a
+/// struct, effect, handler, qualifier, `params` group or type keeps its
+/// name-based edge: those are not overload sets, so the conservatism is
+/// cheap, and mixing the two rules for one name would need per-module
+/// knowledge that `name_origins` does not carry.
+fn is_only_a_fn_name(scope: &crate::resolve::ModuleScope<'_>, name: &str) -> bool {
+    scope.fns.contains_key(name)
+        && !scope.structs.contains_key(name)
+        && !scope.effects.contains_key(name)
+        && !scope.handlers.contains_key(name)
+        && !scope.qualifiers.contains_key(name)
+        && !scope.param_groups.contains_key(name)
+        && !scope.type_aliases.contains_key(name)
+        && !scope.opaque_types.contains_key(name)
+        // An effect *member* shares a name with no module-level fn worth
+        // narrowing: the member travels with its effect, which is a type
+        // name and keeps its own edge.
+        && !scope.effect_members.contains_key(name)
 }
 
 /// Every identifier and type name a module's source mentions (types in

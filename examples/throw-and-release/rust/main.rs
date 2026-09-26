@@ -5,8 +5,6 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
-#[path = "core/array.rs"]
-pub mod core_array;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
 #[path = "core/console.rs"]
@@ -23,8 +21,6 @@ pub mod core_map;
 pub mod core_nonempty;
 #[path = "core/result.rs"]
 pub mod core_result;
-#[path = "core/seq.rs"]
-pub mod core_seq;
 #[path = "core/set.rs"]
 pub mod core_set;
 #[path = "core/sorted.rs"]
@@ -34,7 +30,6 @@ pub mod core_string;
 #[path = "core/throw.rs"]
 pub mod core_throw;
 
-use crate::core_array::*;
 use crate::core_bytes::*;
 use crate::core_console::*;
 use crate::core_fs::*;

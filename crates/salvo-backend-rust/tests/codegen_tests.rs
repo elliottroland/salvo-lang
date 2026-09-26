@@ -3052,16 +3052,19 @@ fn main() [use] -> None {
     println("${q.0} ${q.1} ${q.2} ${q.3} ${q.4}")
     let (a, b, c, d, e) = q
     println("${a} ${b} ${c} ${d} ${e}")
-    // Ordered *and* hashed, so the generated class has to compare and hash
-    // structurally like a `Pair` does.
-    let keys: SortedSet<(Int, Int, Int, Int)> = sorted_set_of((2, 0, 0, 0), (1, 9, 9, 9))
-    for k in iter(keys) {
-        println("${k.0}${k.1}${k.2}${k.3}")
-    }
+    // A keyed container over a tuple used to live here, exercising the
+    // generated class's structural comparison. It cannot today: a keyed
+    // constructor asks for its identity as a capability (user decision
+    // 2026-09-26) and `core.compare` declares `cmp`/`hash` for the intrinsic
+    // scalars only, so a tuple has no identity to pass — the same gap that
+    // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
+    // never worked either. ROADMAP's "Recursive implicit resolution" is the
+    // lift; until then the arity, the component reads and the destructuring
+    // above are what this case is about.
 }
 "#;
 
-const BIG_TUPLE_OUTPUT: &str = "1 two true 4 five\n1 two true 4 five\n1999\n2000\n";
+const BIG_TUPLE_OUTPUT: &str = "1 two true 4 five\n1 two true 4 five\n";
 
 #[test]
 fn rustc_compiles_and_runs_tuples_past_three() {
@@ -5602,10 +5605,13 @@ fn main() [use] {
         Person {name: "Ada", age: 36},
         Person {name: "Bob", age: 24}
     )
+    // [cmp-binder] The ordering is **passed**: what fills the binder decides
+    // what the container carries (user decision 2026-09-26).
     let byage: SortedSet<Person>(by_age) = sorted_set_of(
         Person {name: "Cyd", age: 31},
         Person {name: "Ada", age: 36},
-        Person {name: "Bob", age: 24}
+        Person {name: "Bob", age: 24},
+        cmp = by_age
     )
     println("byname ${lowest(byname)!.name} of ${size(byname)}")
     println("byage ${lowest(byage)!.name} of ${size(byage)}")
@@ -5613,7 +5619,7 @@ fn main() [use] {
     // `cmp`-distinct membership: a second 24-year-old is the same member under
     // `by_age`, and its own member under the canonical ordering.
     let twin = Person {name: "Eve", age: 24}
-    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of()
+    let grown_age: Mut SortedSet<Person>(by_age) = mut_sorted_set_of(cmp = by_age)
     let grown_name: Mut SortedSet<Person> = mut_sorted_set_of()
     add(grown_age, Person {name: "Bob", age: 24})
     add(grown_name, Person {name: "Bob", age: 24})
@@ -5691,7 +5697,10 @@ fn tally<T>(s: Set<T>) -> Int => s {
 fn main() [use] {
     use StdOutConsole()
     let all: Mut Set<Person> = mut_set_of()
-    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of()
+    // [cmp-binder] The pair is **passed**, never inferred from the annotation:
+    // what fills the binder decides what the container is keyed by (user
+    // decision 2026-09-26 — one way to choose an identity).
+    let byage: Mut Set<Person>(age_hash, same_age) = mut_set_of(hash = age_hash, eq = same_age)
     let bob = Person {name: "Bob", age: 24}
     add(all, copy(bob))
     add(byage, bob)
@@ -13126,6 +13135,493 @@ fn rustc_compiles_and_runs_a_covered_call() {
     }
     let files = generate(&[("main.sv", CANBE_DEMO)]);
     run_rust_files(&files, "canbe_covered", "8 3 18\n");
+}
+
+/// [cmp-carry] [col-membership] A keyed container's identity is a
+/// **capability its constructor asks for** (user decision 2026-09-26): the
+/// resolved `hash`/`eq` pair fills the type's slots, so a *declared*
+/// non-structural identity is honoured rather than ignored. Before this,
+/// nothing filled the slots: Kotlin silently keyed by the JVM's structural
+/// equality (printing `2` where the declared `eq` says `1`) and rustc refused
+/// the program outright — the [backend-never-wrong]-grade half.
+///
+/// A primitive keeps the host's own identity, because a canonical intrinsic
+/// *is* the host's operation [cmp-groups] — which is what keeps every existing
+/// program's emission unchanged.
+const HASHED_CAPABILITY_DEMO: &str = r#"
+struct Member {
+    id: Int,
+    name: Str
+}
+
+// A declared identity that is *not* structural: two members with one id are
+// the same member, whatever the name says.
+fn hash(m: Member) -> Long => m {
+    return to_long(m.id)
+}
+
+fn eq(a: Member, b: Member) -> Bool => a, b {
+    return a.id == b.id
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s: Mut Set<Member> = mut_set_of()
+    add(s, Member { id: 1, name: "ann" })
+    add(s, Member { id: 1, name: "bob" })
+    let m: Mut Map<Member, Int> = mut_map_of()
+    put(m, Member { id: 2, name: "cyd" }, 1)
+    put(m, Member { id: 2, name: "dee" }, 2)
+    // …and a container of a primitive still keys by the host's own identity.
+    let words: Mut Set<Str> = mut_set_of()
+    add(words, "a")
+    add(words, "a")
+    add(words, "b")
+    println("${size(s)} ${size(m)} ${size(words)}")
+}
+"#;
+
+#[test]
+fn a_declared_identity_keys_its_container() {
+    let files = generate(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // The declared pair becomes a marker; the primitive keeps the host's.
+    assert!(
+        main.content.contains("__Hash_hash_Member") && main.content.contains("__Eq_eq_Member"),
+        "the declared identity must reach the container as a marker:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("SalvoSet::<String>::from_elements::<HostHash, HostEq, _>")
+            || main.content.contains("from_elements::<HostHash, HostEq, _>(vec![])"),
+        "a primitive keys by the host's own identity:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_declared_identity() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
+    run_rust_files(&files, "hashed_capability", "1 1 2\n");
+}
+
+/// [cmp-carry] The two limitations the capability makes visible, both refused
+/// with a Salvo diagnostic rather than a target-compiler one
+/// [backend-never-wrong]. Accepted deliberately (user, 2026-09-26): the lift
+/// is ROADMAP's "Recursive implicit resolution".
+#[test]
+fn the_capabilitys_two_limitations_are_named() {
+    // A tuple has no declared identity, so a keyed container over one cannot
+    // resolve its capability. (Comparing tuples never worked either — the same
+    // gap.)
+    let errs = expect_errors(
+        "fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let ns: SortedSet<(Int, Int)> = sorted_set_of((1, 2))\n    \
+         println(\"${size(ns)}\")\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("no `cmp` fits")),
+        "a tuple key must be refused by name: {errs:?}"
+    );
+    // A *generic* body may now declare the capability and construct one — the
+    // checker accepts it, and the emitter refuses it loudly, because the
+    // identity is a parameter rather than a name a container can carry.
+    let errs = expect_errors(
+        "fn collect<T>(elem: T, ?Hashed<T>) -> Set<T> => !elem {\n    \
+         let s: Mut Set<T> = mut_set_of()\n    \
+         add(s, elem)\n    \
+         return s\n}\n\
+         fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         println(\"${size(collect(3))}\")\n}\n",
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("inside a *generic* function is not")),
+        "the generic body must be refused by name: {errs:?}"
+    );
+}
+
+// ===== the defect round of 2026-09-25 =====
+
+/// [mod-used-only] Reachability follows **resolution** for functions, not
+/// names (user decision 2026-09-25, closing a defect open since 2026-09-23).
+/// A name resolves to every module declaring it, so a program that merely
+/// iterates — using the name `next` — used to emit `core.range` as well,
+/// because `core.range` declares a `next` too. The checker knows which `next`
+/// the loop drives, so the edge follows that.
+const REACH_ITERATES_ONLY: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    let xs: List<Int> = list_of(1, 2, 3)
+    for x in xs {
+        println("${x}")
+    }
+    let total = reduce(iter(xs), 0, (a: Int, b: Int) -> { return a + b })
+    println("${total}")
+}
+"#;
+
+/// …and a program that really does range still gets it, which is the half a
+/// narrowing could quietly break.
+const REACH_RANGES: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    for i in range(1, 4) {
+        println("${i}")
+    }
+}
+"#;
+
+#[test]
+fn reachability_follows_resolution_not_names() {
+    let emitted = |src: &str| -> Vec<String> {
+        generate(&[("main.sv", src)])
+            .iter()
+            .map(|f| f.rel_path.display().to_string())
+            .collect()
+    };
+    let iterating = emitted(REACH_ITERATES_ONLY);
+    assert!(
+        !iterating.iter().any(|p| p.contains("range")),
+        "iterating must not emit `core.range`: {iterating:?}"
+    );
+    // The same for the other names a program merely mentions: `core.fs`
+    // declares `read`/`write`/`close`, `core.bytes` a `size`.
+    assert!(
+        !iterating.iter().any(|p| p.contains("fs") || p.contains("bytes")),
+        "…nor the modules that merely share a name: {iterating:?}"
+    );
+    // What it does use is still there.
+    for needed in ["core/list.rs", "core/console.rs", "core/seq.rs"] {
+        assert!(
+            iterating.iter().any(|p| p.ends_with(needed)),
+            "{needed} is used and must be emitted: {iterating:?}"
+        );
+    }
+    let ranging = emitted(REACH_RANGES);
+    assert!(
+        ranging.iter().any(|p| p.ends_with("core/range.rs")),
+        "a program that ranges needs `core.range`: {ranging:?}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_after_the_reachability_narrowing() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    run_rust_files(
+        &generate(&[("main.sv", REACH_ITERATES_ONLY)]),
+        "reach_iterates",
+        "1\n2\n3\n6\n",
+    );
+    run_rust_files(&generate(&[("main.sv", REACH_RANGES)]), "reach_ranges", "1\n2\n3\n");
+}
+
+
+/// [interp-float] A float's text is **Salvo's rule, which is Kotlin's** (user
+/// decision 2026-09-25): the shortest digits that round-trip, always a decimal
+/// point, and scientific notation outside `[10^-3, 10^7)`. Rust's `Display`
+/// writes the number in full and drops the `.0`, so the same value printed
+/// differently on the two backends (`2` against `2.0`,
+/// `100000000000000000000` against `1.0E20`) — a [backend-parity] break in
+/// program *output*, which is why the expected text below is the assertion.
+///
+/// The table walks both ends of the plain window (`1234567.0` plain,
+/// `1.2345678E7` scientific), the signs, zero, `NaN` and both infinities, a
+/// struct rendered field-wise [interp-struct], a list, an explicit `to_str`, a
+/// nested list, and a map *value* — every path where a float becomes text.
+const FLOAT_TEXT_DEMO: &str = r#"
+struct Point {
+    x: Double,
+    ratio: Float
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${2.0} ${8.25} ${0.0 - 2.0} ${0.0} ${0.001} ${0.0001}")
+    println("${1234567.0} ${12345678.0} ${100000000000000000000.0} ${0.00000000000001}")
+    let zero = 0.0
+    let one = 1.0
+    println("${zero / zero} ${one / zero} ${0.0 - one / zero}")
+    println("${Point { x: 2.0, ratio: 3.0 }}")
+    let xs: List<Double> = list_of(2.0, 0.5)
+    println("${xs} ${to_str(xs)} ${list_of(list_of(4.0))}")
+    let m: Map<Str, Double> = {"a": 2.0}
+    println("${m}")
+}
+"#;
+
+#[test]
+fn a_float_renders_by_salvos_rule() {
+    let files = generate(&[("main.sv", FLOAT_TEXT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("crate::strings::salvo_f64_text"),
+        "a float goes through the helper, not `Display`:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("crate::strings::salvo_f32_text"),
+        "…and a `Float` through its own:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_salvos_float_text() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", FLOAT_TEXT_DEMO)]);
+    run_rust_files(&files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [[4.0]]\n{a: 2.0}\n");
+}
+
+
+/// [rs-loop-temp] Iterating a **temporary** container: the loop *binds* the
+/// pass, so a Rust temporary the subject borrows dies too early (E0716) while
+/// Kotlin's reference does not. The subject's temporaries are hoisted into
+/// locals in front of the loop — rustc's own suggestion — including through a
+/// view that holds the borrow (`filter(iter(…), …)`).
+const LOOP_TEMP_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    for x in iter(list_of(1, 2)) {
+        println("a ${x}")
+    }
+    for x in filter(iter(list_of(3, 4, 5)), (n: Int) -> { return n > 3 }) {
+        println("b ${x}")
+    }
+    let xs: List<Int> = list_of(9)
+    for x in xs {
+        println("c ${x}")
+    }
+}
+"#;
+
+#[test]
+fn a_loops_temporary_subject_is_hoisted() {
+    let files = generate(&[("main.sv", LOOP_TEMP_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    assert!(
+        main.content.contains("let __t1 = vec![1, 2];"),
+        "the temporary must be bound before the loop:\n{}",
+        main.content
+    );
+    assert!(
+        main.content.contains("let mut __loop1_pass = iter__3(&__t1);"),
+        "…and the pass must borrow the local:\n{}",
+        main.content
+    );
+    // Exactly one hoist: the `filter(…)` loop iterates the returned list
+    // *natively* [iter-for-native], where the temporary lives to the end of
+    // the `for` statement and needs nothing, and the place subject (`xs`) is
+    // already a local.
+    assert_eq!(
+        main.content.matches("let __t").count(),
+        1,
+        "only the pass-driving loop over a temporary hoists:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_loop_over_a_temporary() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", LOOP_TEMP_DEMO)]);
+    run_rust_files(&files, "loop_temp", "a 1\na 2\nb 4\nb 5\nc 9\n");
+}
+
+/// [iter-resolve] Two same-named structs in two modules: a user `Range` beside
+/// `core.range`'s. The pass-driving lookups matched the subject by *type name*,
+/// so the loop could mint with one module's `iter` and drive the other's
+/// `next` — wrong output, not a diagnostic (E0308 in rustc, an argument type
+/// mismatch in kotlinc). Both lookups compare **declarations** now.
+const SAME_NAME_PASS_DEMO: &str = r#"
+struct Range {
+    start: Int,
+    end: Int
+}
+
+fn range(start: Int, end: Int) -> Range {
+    return Range { start: start, end: end }
+}
+
+iter fn next(r: Range) -> Emitted Int | Finished {
+    state {
+        i: Int = r.start
+    }
+    if i >= r.end {
+        return finished()
+    }
+    let out = i.copy()
+    i += 1
+    return emitted(out)
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    for i in range(1, 4) {
+        println("${i}")
+    }
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_a_user_struct_named_like_stds() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", SAME_NAME_PASS_DEMO)]);
+    run_rust_files(&files, "same_name_pass", "1\n2\n3\n");
+}
+
+/// [interp-to-str] [iter-resolve] A `to_str` the checker resolved in **another
+/// module** that the file never *names*: name-based reachability left the
+/// module un-emitted and name-based imports left it un-imported, so the call
+/// had nothing to bind to. Resolution edges now reach it
+/// (`reach::resolved_dep_files`).
+const INTERP_TO_STR_MODULES: &[(&str, &str)] = &[
+    (
+        "pair.sv",
+        r#"
+export struct Pair {
+    a: Int,
+    b: Int
+}
+"#,
+    ),
+    (
+        "fmt.sv",
+        r#"
+import pair
+
+export fn to_str(p: Pair) -> Str => p {
+    return "(${p.a}, ${p.b})"
+}
+"#,
+    ),
+    (
+        "main.sv",
+        r#"
+import pair
+import fmt
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let p = Pair { a: 1, b: 2 }
+    println("${p}")
+}
+"#,
+    ),
+];
+
+#[test]
+fn rustc_compiles_and_runs_a_to_str_from_another_module() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(INTERP_TO_STR_MODULES);
+    assert!(
+        files.iter().any(|f| f.rel_path.ends_with("fmt.rs")),
+        "the module the interpolation resolved into must be emitted"
+    );
+    run_rust_files(&files, "interp_to_str_module", "(1, 2)\n");
+}
+
+/// [implicit-infer] A **qualified argument** through an implicit fn position:
+/// `total(list_of(1, 2, 3))`'s argument is `NonEmpty List<Int>`
+/// [col-of-nonempty], and matching the candidate `iter` strictly against that
+/// claim taught the call nothing — so `It` stayed unbound and the `?next`
+/// beside it resolved by *rung*, picking a sibling pass's `next` and emitting
+/// a call the target compiler rejected. The unqualified literal always worked,
+/// which is what pointed at the qualifier.
+const QUALIFIED_IMPLICIT_DEMO: &str = r#"
+struct Sib : Yield<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(p: Mut Sib) -> Emitted Int | Finished => p: Mut {
+    if p.at > 2 {
+        return finished()
+    }
+    p.at = p.at + 1
+    return emitted(p.at)
+}
+
+fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Yield<It, Int>) -> Int => c {
+    let t = 0
+    for x in iter(c) {
+        t = t + x
+    }
+    return t
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${total(list_of(1, 2, 3))}")
+    println("${total([1, 2, 3])}")
+}
+"#;
+
+#[test]
+fn a_qualified_argument_still_binds_an_implicits_type_variable() {
+    let files = generate(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
+    let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
+    // Both calls fill `?next` from `core.list`, not from the sibling `Sib`.
+    assert_eq!(
+        main.content.matches("next__5(").count(),
+        2,
+        "both calls must drive the list's `next`:\n{}",
+        main.content
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_qualified_argument_through_an_implicit() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
+    run_rust_files(&files, "qualified_implicit", "6\n6\n");
+}
+
+/// [col-literal] A **bare collection literal** as an argument now determines
+/// the callee's type parameter: substituting an unbound variable yields
+/// `Unknown`, which arrived looking concrete, and the literal adopted it as
+/// its element type instead of reading its own elements — so `to_set([1, 2])`
+/// could not infer `T`.
+const BARE_LITERAL_DEMO: &str = r#"
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("A ${size(to_set([1, 2]))}")
+    println("B ${size(to_list({3, 4}))}")
+    let words = to_set(["a", "b", "a"])
+    println("C ${size(words)}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_bare_literal_arguments() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", BARE_LITERAL_DEMO)]);
+    run_rust_files(&files, "bare_literal", "A 2\nB 2\nC 2\n");
 }
 
 /// [canbe-entry] [rs-loc] The **anchored** form (`=> t canbe in lib.tracks`):

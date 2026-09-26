@@ -31,10 +31,10 @@ export intrinsic type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
-export intrinsic fn sorted_set_of<T>(...elems: T[]) [] -> SortedSet<T>
+export intrinsic fn sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
 
 // Mutable constructor
-export intrinsic fn mut_sorted_set_of<T>(...elems: T[]) [] -> Mut SortedSet<T>
+export intrinsic fn mut_sorted_set_of<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
 
 // Adds an element, reporting whether it was new.
 export intrinsic fn add<T>(set: Mut SortedSet<T>, elem: T) [] -> Bool => set: Mut, !elem
@@ -74,10 +74,10 @@ export intrinsic type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
 // since the order is the keys'.
-export intrinsic fn sorted_map_of<K, V>(...entries: (K, V)[]) [] -> SortedMap<K, V>
+export intrinsic fn sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
 
 // Mutable constructor
-export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[]) [] -> Mut SortedMap<K, V>
+export intrinsic fn mut_sorted_map_of<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
 
 // Possibly gets the value stored under [key], **borrowed** out of the map
 // [copy-opt-in].

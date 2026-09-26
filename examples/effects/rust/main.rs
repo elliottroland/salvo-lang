@@ -5,10 +5,6 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
-#[path = "core/array.rs"]
-pub mod core_array;
-#[path = "core/bytes.rs"]
-pub mod core_bytes;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -19,8 +15,6 @@ pub mod core_list;
 pub mod core_map;
 #[path = "core/nonempty.rs"]
 pub mod core_nonempty;
-#[path = "core/seq.rs"]
-pub mod core_seq;
 #[path = "core/set.rs"]
 pub mod core_set;
 #[path = "core/sorted.rs"]

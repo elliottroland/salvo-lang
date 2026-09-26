@@ -1,7 +1,6 @@
 package salvo.core.set
 
 import salvo.*
-import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.nonempty.*

@@ -434,10 +434,18 @@ pub fn fn_call(
         // 2-tuple already is [type-tuple], so the entries pass straight
         // through. A repeated key resolves last-wins, as Salvo's rule says
         // [col-duplicate-keys].
+        // [cmp-carry] Through `map_ctor`, like every other keyed constructor:
+        // this one built a `linkedMapOf` directly, so a map whose type named a
+        // `hash`/`eq` pair silently keyed by the JVM's `hashCode`/`equals`
+        // instead — the *set* beside it was routed and the map was not (fixed
+        // 2026-09-26, when the constructors began naming an identity and the
+        // two disagreed on the same program).
         ("map_of", Some("[]")) | ("mut_map_of", Some("[]")) => format!(
-            "linkedMapOf<{}, {}>({})",
-            type_args.first().map(String::as_str).unwrap_or("Any"),
-            type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            "{}.also {{ __m -> __m.putAll(listOf({})) }}",
+            map_ctor(
+                type_args.first().map(String::as_str).unwrap_or("Any"),
+                type_args.get(1).map(String::as_str).unwrap_or("Any"),
+            ),
             args.join(", ")
         ),
         // Absence is `null`, never a default [type-nullable].

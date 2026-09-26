@@ -1939,3 +1939,57 @@ fn fine(s: Mut Squad, one: Mut Entity, other: Mut Entity) -> None
         "`fine` must be accepted: {messages:?}"
     );
 }
+
+// ===== [type-no-cycle] a struct may not contain itself =====
+
+/// [type-no-cycle] The declaration-site diagnostic the recursive-types plan
+/// owed (defect closed 2026-09-25): a struct that contains itself without
+/// indirecting is an infinitely large value. Kotlin never noticed (its fields
+/// are references) and Rust failed downstream with a raw E0072, so this was a
+/// [backend-never-wrong] hole. Through a nullable, through a union arm, and
+/// through an alias.
+#[test]
+fn a_struct_that_contains_itself_is_refused() {
+    let cases = [
+        "struct Node { value: Int, next: Node? }\n",
+        "struct Node { value: Int, next: Node | None }\n",
+        "struct Branch { left: Tree, right: Tree }\ntype Tree = Int | Branch\n",
+        "struct Wrapper<T> { value: T }\nstruct Looped { w: Wrapper<Looped> }\n",
+    ];
+    for src in cases {
+        let (_, checked) = check_src(src);
+        let msgs: Vec<String> = checked.errors.iter().map(|e| e.message.clone()).collect();
+        assert!(
+            msgs.iter().any(|m| m.contains("contains itself")),
+            "expected the cycle refusal for `{src}`, got {msgs:?}"
+        );
+    }
+}
+
+/// [type-no-cycle] …and the shapes that indirect stay legal — which is what
+/// the diagnostic names as the remedy. A container edge is not a cycle edge,
+/// including when the recursion runs through *two* modules' worth of
+/// containers, and a generic whose parameter sits inside a container is fine
+/// (the precision that a name-based container test got wrong).
+#[test]
+fn indirecting_through_a_container_is_legal() {
+    let cases = [
+        "struct Tree { value: Int, kids: List<Tree> }\n",
+        "struct Dir { files: List<File> }\nstruct File { parent: List<Dir> }\n",
+        "struct Bag<T> { items: List<T> }\nstruct N { b: Bag<N> }\n",
+        "struct Row { cells: Cell[] }\nstruct Cell { row: Row[] }\n",
+    ];
+    for src in cases {
+        let (_, checked) = check_src(src);
+        let msgs: Vec<String> = checked
+            .errors
+            .iter()
+            .filter(|e| e.is_error())
+            .map(|e| e.message.clone())
+            .collect();
+        assert!(
+            !msgs.iter().any(|m| m.contains("contains itself")),
+            "`{src}` indirects and must be accepted, got {msgs:?}"
+        );
+    }
+}

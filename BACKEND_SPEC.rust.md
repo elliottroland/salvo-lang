@@ -719,6 +719,46 @@ the blanket rule:
 * Views of temporaries are refused by the checker [proj-anywhere]; the
   only thing this backend adds is that rustc would have said the same
   (E0716).
+* [rs-float-text] **A float's text comes from the runtime helper, not
+  `Display`** (built 2026-09-25, closing the parity defect of 2026-09-14).
+  Salvo's rule is Kotlin's [interp-float], which Rust's `Display` matches in
+  neither respect: it writes the number out in full (`100000000000000000000`
+  for `1.0E20`) and drops the `.0` (`2` for `2.0`). `strings::salvo_f64_text`
+  and `salvo_f32_text` rearrange `{:e}`'s output — the same shortest
+  round-tripping digits Kotlin's `toString` chooses, so only the arrangement
+  differs — into the plain window or the scientific form, and answer `NaN` /
+  `Infinity` / `-Infinity` for the specials. They take anything that borrows
+  the float (`Borrow<f64>`), so no call site writes a deref.
+  * Verified against Kotlin's own output on 33 values, including both
+    threshold boundaries, the denormal minimum, `MAX`, `1e300`, `1e-300` and
+    the f32 cases.
+  * **Three sites**, because the rule has to hold wherever a float becomes
+    text: an interpolated part, `to_str` of a value holding floats, and a
+    struct field rendered field-wise [interp-struct]. A container is rendered
+    **element-wise** here rather than by the runtime's `Display` impls, which
+    can only call `Display` on their elements; the renderer recurses, so
+    `List<List<Double>>` and a map's value half are covered. A type holding no
+    float keeps its existing rendering, so nothing else in the output moved.
+* [rs-loop-temp] **A `for` over a temporary hoists it** (built 2026-09-25,
+  closing a defect open since 2026-09-18). A pass-driving loop *binds* the pass
+  (`let mut __loopN_pass = …`), so a Rust temporary the subject borrows dies at
+  the end of the statement it was written in (E0716) — while the language allows
+  the shape deliberately ("a view of a temporary may be *used* within its
+  statement", [proj-anywhere], and a `for` is that use) and Kotlin's reference
+  needs nothing. So the subject's temporaries are bound to locals in front of
+  the loop, which is rustc's own suggestion:
+  `let __t1 = vec![1, 2]; let mut __loop1_pass = iter__3(&__t1);`.
+  * **Which temporaries**: the subject's calls are walked innermost-first and
+    every argument that is **borrowed and not a place** is hoisted, registered
+    in the same substitution table [rs-mut-arg-hoist] uses. An owned (consumed)
+    position needs nothing — a moved value is not borrowed from anywhere. So a
+    view of a temporary hoists through the call that holds it
+    (`filter(iter(list_of(…)), …)`), while a native container loop needs no
+    hoist at all (the temporary lives to the end of the `for` statement there,
+    which includes the body).
+  * check.rs's [proj-anywhere] comment used to claim the temporary "lives for
+    the whole loop statement on both backends", which was simply false; the
+    comment now points here.
 * [rs-mut-arg-hoist] **A read before a mutation, in one expression** (built
   2026-09-25, closing the defect of the same day). Rust holds a read borrow
   for the whole expression it sits in, so a sibling that mutably borrows the

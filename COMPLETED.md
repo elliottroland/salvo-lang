@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1482 tests, complete: the toolchain tests are
+cargo test                  # 1500 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,338 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A keyed container's identity is a capability its constructor asks for
+(2026-09-26, user decision — landed).** `set_of<T>(...elems: T[], ?Hashed<T>)
+-> Set<T>(?hash, ?eq)`, and the same across the five families' fifteen
+constructors [col-keyed-slots]. The type declared the slots, `params Hashed<T>`
+existed and both runtimes could already take a pair as values; nothing *filled*
+the slots, so both backends fell back to the host's identity — Kotlin keying by
+the JVM's structural equality with a declared `eq` silently unused, rustc
+refusing the program outright. Now a declared non-structural identity is
+honoured: the probe that printed `2` on Kotlin and did not compile on Rust
+prints `1` on both.
+
+The identity is **passed, never read off an annotation** — the user's call, on
+the reasoning that one way beats two and the explicit form already existed. So
+`mut_set_of(hash = age_hash, eq = same_age)`, and an annotation naming a pair
+must agree with what the constructor resolved rather than choosing it, which
+keeps [cmp-binder]'s rule intact. The expected type does bind the callee's
+ordinary type *parameters* before its implicits resolve — a no-argument
+constructor has nothing else, and without it every `eq` in scope matches
+`?eq: (?, ?) -> Bool` — and deliberately not its slots.
+
+**Two limitations accepted deliberately** (user: "I'm ok with the limitation
+today… we'll get to how to make this work in the long run later"), both refused
+with a Salvo diagnostic rather than a target compiler's: a keyed container over
+a **tuple or a list**, because `core.compare` declares identities for the
+intrinsic scalars only and [implicit-resolve] skips a candidate that itself
+needs implicits — the lift is ROADMAP's "Recursive implicit resolution", and the
+same gap already stopped `(1, 2) == (1, 2)` from resolving — and one built
+**inside a generic function**, where the identity is a capability the function
+was handed rather than a name a container can carry. The second is newly
+*writable* (the checker accepts the forwarded capability), so its refusal names
+the shape and the remedy instead of reaching rustc. One test changed for the
+first limitation: the big-tuple case lost the sorted set it used to exercise the
+generated class's structural comparison, which was the only way to reach that
+comparison and only worked because the constructor asked nobody.
+
+**Three latent bugs fell out of landing it**, each hidden by the very thing the
+capability changed:
+
+* Kotlin's `map_of`/`mut_map_of` built a `linkedMapOf` directly instead of going
+  through the `map_ctor` helper every other keyed constructor uses — so a named
+  pair was routed for a `Set` and silently ignored for a `Map`. Found because
+  one program now exercised both and the backends disagreed (`1 2 2` against
+  `1 1 2`).
+* A program naming only a **generated tuple class** never imported the package
+  it lives in, so it did not compile on Kotlin. Masked for as long as it was
+  because the case that exercised tuples also built a keyed container, which
+  imports the root package for its runtime — the same shape as the throw
+  signal's missing import, fixed 2026-09-23.
+* std's **map constructors never declared `<V canbe linear>`**, though the type
+  and every operation do: a map of obligations type-checked only because `V` was
+  unknown at the constructor call.
+
+Also fixed while here: an ineligible key reported twice (once at a written
+annotation, once at the call it typed, now that the call knows its
+instantiation) [type-unknown-lenient]. Tests: a declared-identity e2e pair
+covering a `Set`, a `Map` and a primitive container (`1 1 2` on both backends), a
+Rust golden asserting the marker pair and the host fallback, and one checker
+test naming both limitations. 1500 green.
+
+**An identity is passed, never inferred from an annotation (2026-09-26, user
+decision).** The question the keyed-container build surfaced: with the
+constructors taking `?Hashed<T>`, a no-argument call has only the expected type
+to resolve against — and seeding the expectation makes a *named* pair in an
+annotation **decide** the identity rather than merely agree with it. The user
+chose the explicit form: `mut_set_of(hash = age_hash, eq = same_age)`, on the
+reasoning that one way to do a thing beats two and the explicit form is already
+supported. So `[cmp-binder]`'s rule stands — what *filled* the binder decides
+what a structure carries — and `an_annotation_keeps_an_ordering_it_does_not_name`
+keeps asserting exactly what its name says.
+
+Built on that decision: the expected type now seeds a callee's ordinary **type
+parameters** before its implicits resolve, and deliberately not its value slots.
+The seeding is needed for the capability to work at all (`let s: Mut Set<Str> =
+mut_set_of()` must learn `T = Str`, or `?eq` is looked for at `(?, ?) -> Bool`
+and every `eq` in scope matches — an ambiguity the program cannot fix); leaving
+the slots out is what keeps the one way one.
+
+Two latent gaps fell out of the seeding, both fixed. std's **map constructors
+never declared `<V canbe linear>`** — the type does, and every operation does,
+but `map_of`/`mut_map_of`/`map_by`/`mut_map_by`/`to_map` did not, so a map of
+obligations type-checked only because `V` was unknown at the constructor call.
+And an **ineligible key was reported twice**: once at a written annotation
+(`fn probe() -> Set<Double>`) and again at the call it typed, now that the call
+knows its instantiation — one mistake, one diagnostic
+[type-unknown-lenient], deduped across the written and inferred paths.
+
+**The capability itself is parked on a prerequisite, and the reason is worth the
+record.** The std declarations are written and probed: std checks clean, and the
+headline symptom is fixed — a hand-written `hash`/`eq` with no type naming it
+prints `1` on both backends, where Kotlin printed `2` (silently structural) and
+Rust did not compile. But with the capability declared, a keyed container over a
+**tuple or a list** cannot resolve its identity: `core.compare` declares
+`cmp`/`hash` for the intrinsic scalars only, and [implicit-resolve] skips a
+candidate that itself needs implicits — so `SortedSet<(Int, Int, Int, Int)>`,
+which works today through the host's structural ordering, would stop. That is
+ROADMAP's "Recursive implicit resolution", recorded 2026-09-22 with this exact
+motivation and marked "not blocking"; the decision to take the capability
+promotes it to the critical path. Its two halves are now written out there —
+resolution is a one-line skip to lift, while *emission* needs nested implicit
+arguments (`cmp((A, B))` has to be handed `cmp(A)`/`cmp(B)`), which
+`implicit_args` does not model — together with the cheaper alternative
+(declare the tuple and list identities as intrinsics, which documents today's
+host behaviour and freezes it). The constructors were reverted rather than
+landed with a working-today program broken. Green at 1497.
+
+**The keyed-container capability: decided, started, parked on one more decision
+(2026-09-25, user decisions (a), (b), (d) of that day).** The user's calls: the
+constructors take the capability for consistency, the markers follow
+`[cmp-carry]`'s precedent, and Kotlin gets a runtime container taking the two
+functions as Rust has. Probing (d) found it **already built** — `keyed.kt`'s
+`SalvoHashMap`/`SalvoHashSet` have taken `hashOf`/`eqOf` closures since
+`[cmp-carry]` landed, and they are used wherever a type *names* a pair. So the
+whole mechanism works today if you write the pair into the type
+(`Set<Member>(hash, eq)` prints `1` on both backends, honouring a declared
+`eq`); what was missing was only that nothing ever *fills* the slots.
+
+The user's question on (c) — is the closure-versus-type problem unique to
+hash/eq? — was answered by probe: **no.** `SortedSet` fails identically today
+(`SalvoSortedSet::from_elements::<HostOrd, _>` with `T: Ord` unsatisfied in a
+generic body, while Kotlin silently uses the JVM's natural ordering). The
+distinction worth keeping: an *operation* through an implicit already works
+(`CompareVia::Implicit` — the closure is borrowed for the call), while a
+**container must keep** the identity past the call that supplied it. It has not
+bitten because you cannot get there: no constructor asks for the capability, so
+inside generic code the only thing available is the host marker, which does not
+compile.
+
+**Three pieces landed**, each a latent-bug fix that stands on its own and is
+green without the std change: `carried_identities` is now recorded for a slot
+filled by *resolution* (and the written case also lands in `fn_refs`, which is
+what keeps it reachable per-file under the narrowed reachability); a
+**canonical intrinsic** identity renders as the host path on both backends
+rather than as a marker calling a symbol that does not exist; and a marker's
+name now carries its **subject**, with the Rust ordering path delegating to one
+implementation — `__Cmp_cmp` was shared between `SortedSet<Str>` and
+`SortedSet<Int>`, a [backend-never-wrong]-grade collision that only stayed
+hidden because a written identity at two element types is rare.
+
+**Parked, and why.** The std declarations were written and probed: std checks
+clean, and the silent-wrongness case (a hand-written `hash`/`eq`, no type
+naming it) prints `1` on both backends where Kotlin used to print `2` and Rust
+did not compile. But a no-argument constructor has nothing but the **expected
+type** to resolve its implicits against, so `let s: Mut Set<Str> = mut_set_of()`
+needs the annotation to seed `T` before they resolve — and seeding it makes a
+*named* pair in the annotation **decide** the resolution rather than merely
+agree with it. That reads better and preserves every existing program
+(`Mut Set<Person>(age_hash, same_age)` keys by that pair; a bare
+`Mut Set<Person>` keys canonically — both probe-verified identical on the two
+backends), but it contradicts `[cmp-binder]`'s rule that what *filled* the
+binder wins, and `carry_tests`' `an_annotation_keeps_an_ordering_it_does_not_name`
+asserts the opposite reading by name. That is a decision, not an
+implementation detail, so the std half was reverted rather than landed with a
+test rewritten to suit it. ROADMAP carries the three remaining steps with the
+decision stated. The tree is green at 1497 with the three fixes above.
+
+**Reachability follows resolution for functions (2026-09-25, user decision
+"let's follow resolution instead, and fix any issues as they come").** The
+defect was over-emission: a *name* resolves to every module declaring it, so a
+program that merely iterated — using the name `next` — pulled in `core.range`
+and whatever it dragged, because `core.range` declares a `next` too. Now the
+graph has **two kinds of edge** [mod-used-only]: functions go by resolution,
+everything else (types, structs, effects, handlers, qualifiers, `params`
+groups) still goes by name, since those are not overload sets and the
+conservatism there is cheap. A name that is *both* a function and a type
+somewhere in scope keeps its name edge — only the pure-fn case is precise
+enough to narrow.
+
+What made it safe was drawing on **every** table that records "this reference
+means *that* declaration", not just calls: `call_fn`, `fn_refs`,
+`implicit_args`' resolved fills, `comparisons` (an operator names nothing —
+`a < b` resolves to a `cmp`), `carried_identities` (a named ordering a
+container carries, which reaches the emitter as a generated marker),
+`interp_to_str` and `for_drivers`. Missing any one of those would have produced
+the *opposite* failure, which is the one that matters: an edge too many wastes
+a module, an edge too few emits a call with nothing to bind to. The same table
+already feeds both backends' import computation, so what a file depends on
+cannot be answered two ways.
+
+The measured result: the ten checked-in examples lost **11,562 lines** of
+generated code across 258 files with **nothing added** — every golden diff was
+a pure removal, which is the property to check when a narrowing lands. The
+examples' `core/` counts went from 14 to 8–10 for most of them (`files` keeps
+14, because it really does use the filesystem). A full fresh test run dropped
+from ~133s to ~121s, simply because there is less generated code to compile.
+Verified beyond the suite: std's own 45 tests, and a probe set for the edges a
+name never shows — an operator's `cmp`, a carried `SortedSet<Person>(by_age)`,
+`auto Ordered`/`auto Hashed`, a cross-module `to_str`, a user struct named like
+std's, and a program that really does `range` (which still gets `core.range`).
+Two tests pin it: the narrowing itself (iterating emits no `range`, `fs` or
+`bytes`; ranging does emit `range`) and a compile-and-run pair for both.
+
+**The stamp key stays as it is (2026-09-25, user decision).** The warm-run cost
+— a `cargo test` at ~28s against a ~15s budget, ~15s of it the Kotlin codegen
+binary — comes from the stamp being the content hash of the *generated* files,
+so discovering a hit means emitting the case first. The user's call: keep it,
+because a key that cannot go stale is worth more than the seconds. It stops
+being an open defect and becomes ROADMAP's "Test-suite speed" section — the
+options (a source-keyed stamp and its staleness risk, caching the emission,
+emitting `std` once for many cases, shrinking the registry) and the
+measurements to take first, if it ever bites. The narrowing above already took
+~10% off a fresh run, which is the kind of thing that keeps it from biting.
+
+**A float's text is Kotlin's rule (2026-09-25, user decision).** The oldest
+parity defect in the list — `${2.0}` printing `2` on Rust and `2.0` on Kotlin —
+and measuring it first changed the question. It was filed as a missing `.0`;
+the table showed the *threshold* diverges too (`1.0E20` against
+`100000000000000000000`, `1.0E-14` against `0.00000000000001`), so the call was
+not which backend to change but **what the canonical text is**. The user's first
+preference was "always a decimal point, and write the number out in full"; the
+second, after the consequence landed — `1.0E-300` becomes three hundred zeros —
+was **Kotlin's rule outright**: shortest round-tripping digits, always a decimal
+point, scientific notation outside `[10^-3, 10^7)`, and `NaN` / `Infinity` /
+`-Infinity` [interp-float]. That makes one backend free and the other's job
+mechanical.
+
+`strings::salvo_f64_text` (and the `f32` sibling) rearranges `{:e}`'s output —
+the *same* shortest digits Kotlin's `toString` picks, so only the arrangement
+differs — and takes anything that borrows the float, so no call site writes a
+deref [rs-float-text]. Verified against Kotlin's own output on **33 values**
+before wiring anything: both threshold boundaries, the signs, zero, the
+denormal minimum, `MAX`, `1e300`, `1e-300`, the specials and the f32 cases, all
+identical.
+
+The part worth recording is how many places a float becomes text. Three, and
+missing any one of them would have moved the divergence rather than closed it:
+an interpolated part, `to_str` of a value *holding* floats, and a struct field
+rendered field-wise [interp-struct]. A container had to be rendered
+**element-wise by the emitter** rather than by the runtime's `Display` impls,
+which can only call `Display` on their elements — so the renderer recurses and
+`List<List<Double>>` and a map's value half come out right. A type holding no
+float keeps its old rendering, which is why nothing else in the suite churned.
+Floats are not `Set` elements or `Map` keys [col-key-eligible], so only the
+value half of a map needed it. Tests: a golden (the helper is used for both
+widths) and an e2e pair over a six-line table that covers every path. 1495
+green.
+
+**And the container-bound defect turned out to be the tip of a bigger one**
+(user analysis, same day). The user named the real cause: `Set<T>(?hash, ?eq)`
+declares value slots and `params Hashed<T>` exists, but **no constructor takes
+the implicits or fills the slots** — so nothing flows to the marker choice and
+the Rust emitter always picks `HostHash`/`HostEq`. Probing it produced a third
+symptom nobody had filed: a struct with a *hand-written* `hash`/`eq` prints `2`
+on Kotlin where the declared `eq` says `1` (the JVM's structural equality was
+used instead) and does not compile on Rust at all. So the generic-body failure,
+the ignored identity and `: auto Hashed<self>` "working" are one gap, and
+`: auto` works only because structural *is* the host's. The plan — std's
+constructors declaring the capability and filling the slots, marker generation
+beside `ordering_marker_for`, and the open question of how a *closure* identity
+reaches a runtime that wants types — is in ROADMAP as the decision it is: it
+changes std's surface.
+
+**The defect round: six closed, two found (2026-09-25, user request "let's go
+through the defects").** Every one was reproduced first, which paid for itself
+twice — one filed repro no longer reproduced the way it was written, and one
+fix uncovered a second defect its error had been masking.
+
+**Iterating a temporary** (open since 2026-09-18) emitted Rust that would not
+compile. The loop *binds* the pass, so a temporary the subject borrows dies at
+the end of the statement it was written in (E0716), while Kotlin's reference
+does not and the language allows the shape deliberately. Fixed by hoisting the
+subject's temporaries into locals in front of the loop [rs-loop-temp] — rustc's
+own suggestion — walking the subject's calls innermost-first and hoisting every
+argument that is *borrowed and not a place*, through the same substitution table
+[rs-mut-arg-hoist] introduced earlier the same day. So a **view** of a temporary
+hoists too (`filter(iter(list_of(…)), …)`), while a native container loop needs
+nothing, since there the temporary lives to the end of the `for` statement. The
+stale comment in check.rs that claimed otherwise now points at the rule.
+
+**Two same-named structs** confused pass driving — wrong output, so
+[backend-never-wrong]-grade. A `Ty::Named` carries no module, so a user `Range`
+beside `core.range`'s is one type to `unify`: the loop could mint with one
+module's `iter` and drive the other's `next`. Both lookups compare
+**declarations** now, each side's name resolved in its own file's scope
+[iter-resolve]. Fixing only the `next` scan moved the failure rather than
+closing it, which is how the second lookup was found.
+
+**A qualified argument** taught an implicit position nothing. `total(list_of(1,
+2, 3))`'s argument is `NonEmpty List<Int>` [col-of-nonempty], the candidate
+`iter` was matched against it *strictly*, the match failed on the claim, and so
+`It` stayed unbound and the `?next` beside it resolved by rung — a sibling
+pass's `next`, which neither backend accepts. Both the match and its **read-back**
+now try an exact unification first (so a `Mut` parameter keeps demanding a `Mut`
+argument) and then again with the argument's qualifiers dropped
+[implicit-infer]. The read-back was the part that mattered: it was discarding
+everything the return type had to teach. `total([1, 2, 3])` had always worked,
+which is what pointed at the qualifier.
+
+**A `to_str` resolved in another module** was neither imported nor *emitted*.
+The filed repro named only the import half; reproducing it showed the module was
+unreachable to begin with, so the fix had to reach reachability too:
+`reach::resolved_dep_files` answers the files a module's resolved-but-unnamed
+callees live in — the `to_str` an interpolation picked, the `iter`/`next` a
+`for` drives — and both reachability and both backends' import computation read
+it [mod-used-only]. One table, so the two backends cannot drift.
+
+**A recursive struct** was an undiagnosed E0072. The declaration-site refusal
+[type-no-cycle] names the field that closes the cycle, the path it took, and
+`List<T>` as the remedy. The precision took two attempts: the first test for
+"does this container indirect?" asked whether the name was an intrinsic, which
+refused a legal `Dir`/`File` pair through `List`; the right question is whether
+the type **stores** its parameter inline, computed per struct and followed
+through nested generics — so `Wrapper<Looped>` is a cycle and `Bag<N>` (whose
+`T` sits in a `List`) is not. Two pre-existing tests used a recursive struct as
+an incidental "no text form" fixture, which is how casually the hole was being
+relied on; both now use a non-recursive one.
+
+**A bare collection literal** could not determine a type parameter, and the
+cause was worth the instrumentation it took to find: substituting an **unbound**
+variable yields `Unknown`, so the parameter pattern `List<T>` arrived at the
+literal as `List<Unknown>` — looking concrete, passing the guard that was meant
+to keep it out — and the literal adopted `Unknown` as its element type and
+discarded what its own elements said. Both the argument's expected type and the
+element-type read now treat `Unknown` as not concrete [col-literal-arg]. The
+`concrete_elem` helper had the right idea and the wrong test, with
+`to_set([1, 2])` named in its own doc comment.
+
+**Two defects found in the process**, both filed with repros: an
+**un-annotated lending `?iter`** has no lifetime for the emitter to tie (its
+rustc error was masked by the qualified-argument defect's type error, so it is
+pre-existing; `holds proj(c)` is the documented form and fixes it, so what is
+missing is a diagnostic or an inference — a small call), and the **struct-literal
+half** of the bare-literal inference is a *different* path from the collection
+one, so the roadmap's "probably one fix" was wrong.
+
+Eleven tests: five rustc e2e pairs with five Kotlin parity cases (the loop
+temporary, the same-named structs, the cross-module `to_str`, the qualified
+implicit, the bare literals), two Rust goldens (the hoist, and both calls
+driving the list's `next`), and four checker tests (the cycle refused three
+ways, the container forms still legal, the literal inferred, the empty literal
+still refused). 1493 green, and `docs/language/Data-and-Types.md` gained the
+recursion rule with its remedy.
 
 **The opaque lend reads the type first: `T holds proj(a, b)` (2026-09-25,
 user decision).** The user found `filter`'s
@@ -16313,7 +16645,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1482)
+## Test inventory (all green: 1500)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -17515,6 +17847,30 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Reproduce the filed repro before fixing it — the filing may be stale or
+  half the story.** In the 2026-09-25 defect round, one entry's repro no longer
+  reproduced as written (the `to_str` import case needed the module to be
+  *unreachable*, not merely un-imported, so the fix had to reach reachability
+  too), one entry's real trigger was one step away from the filed description
+  (the same-named-struct defect had *two* name-based lookups, and fixing the
+  `next` one only moved the failure to the `iter` one), and one fix uncovered a
+  pre-existing defect underneath: **rustc reports borrowck errors only after
+  type checking passes**, so a lifetime error can sit invisible behind an
+  E0308 on an earlier line. When a fix makes a new error appear, check whether
+  it is new or merely unmasked — the emitted text tells you (it was identical
+  before the fix).
+
+- **An unbound type variable substitutes to `Unknown`, so a guard that tests
+  for `Var` misses it.** `substitute_vars` erases unbound variables, which means
+  a parameter pattern `List<T>` reaches an argument as `List<Unknown>` — and any
+  check of the form "is this expected type concrete enough to use?" has to
+  exclude `Unknown` as well as `Var`, or it will hand an argument a type that
+  teaches it nothing. That is exactly how `to_set([1, 2])` lost its element
+  type, with a helper whose doc comment named the case and whose test was one
+  variant short. The instrumented route to the answer was two `eprintln!`s
+  behind an env var, which is worth reaching for early: the arg types and the
+  substitution at the point of the error name the culprit in one run.
 
 - **A word that follows a type has to be reserved, because a type is a chain
   of words.** `Mut List<proj T> holds proj(it)` parsed `holds` as one more
