@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1550 tests, complete: the toolchain tests are
+cargo test                  # 1551 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -175,10 +175,22 @@ them.
   ROADMAP rather than dismissed: the trigger is a program that needs a pass
   independent of its container (storing it, returning it, or sending it —
   [actor-sendable] refuses a borrowing pass).
+- **The spare clause warns** (user decision, same day): with the lend inferred,
+  writing it on an opaque-returning slot says nothing, and Salvo already reports
+  annotations that change nothing [fn-overload-at]. One diagnostic per *clause*
+  rather than per source — `holds proj(c, k)` is one thing the author wrote —
+  and silent where the return is concrete, which is the case that keeps the form
+  alive. It needed a memory of the spans it has warned about: a fn type's
+  contract is lowered once per *mention*, so the first version arrived several
+  times for one clause.
 - Tests: a compile-and-run case over three shapes in one program (two-parameter
   slot, one-parameter slot, and the snapshotting candidate through the same slot),
-  a signature assertion pinning the single shared lifetime, and a regression
-  asserting `core/seq.rs` renders no lifetime for its unnamed slot.
+  a signature assertion pinning the single shared lifetime, a regression asserting
+  `core/seq.rs` renders no lifetime for its unnamed slot, and a CLI test covering
+  the warning's three states (written-and-spare, dropped, concrete-and-needed).
+  One existing LSP hover test now expects the warning: its fixture writes a
+  fn-type lend deliberately, because the *rendering* of one is what it tests —
+  hover shows what the author wrote, not what the compiler would infer.
 
 **A bare generic struct literal determines its own type arguments
 (2026-09-26).** The second of the 2026-09-25 defect round's two open findings

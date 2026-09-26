@@ -1834,6 +1834,11 @@ struct Checker<'p, 'r> {
     /// block ends. Each takes an overload *out* of its own name and gives it
     /// the new one, so both directions read this table.
     renames: Vec<RenameBinding<'p>>,
+    /// [proj-infer-fn-type] Spans already warned about a spare lend. A fn
+    /// type's contract is lowered once per *mention* — a signature, an
+    /// instantiation, a substitution — so the warning needs a memory or it
+    /// arrives several times for one clause.
+    warned_spare_lends: HashSet<(usize, Span)>,
     /// Enclosing `try` delimiters [try], innermost last: each collects the
     /// message types of the throws performed in its body.
     try_stack: Vec<TryCtx>,
@@ -2054,6 +2059,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             lending_ctor: None,
             own_implicits: Vec::new(),
             renames: Vec::new(),
+            warned_spare_lends: HashSet::new(),
             try_stack: Vec::new(),
             effect_uses: Vec::new(),
         }
@@ -15363,6 +15369,44 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
+        // [proj-infer-fn-type] A written lend on an **opaque-returning** slot
+        // says what the signature already infers, and an annotation that
+        // changes nothing reads as evidence that something needs saying — the
+        // same reason a no-op `@place` selector warns [fn-overload-at] (user
+        // decision 2026-09-26). It stays a warning, not an error: the program
+        // is correct and the clause is merely spare.
+        if infer_lends {
+            // One diagnostic per *clause*, naming every source it spends:
+            // `holds proj(c, k)` is one thing the author wrote, so it reads as
+            // one thing to remove.
+            let spare: Vec<&ast::Ident> = deductions
+                .iter()
+                .flatten()
+                .filter(|d| matches!(d.target, ast::DeductionTarget::Opaque))
+                .filter_map(|d| d.proj_sources())
+                .flatten()
+                .filter(|src| param_names.iter().flatten().any(|p| p.name == src.name))
+                .collect();
+            if let Some(first) = spare.first() {
+                let span = first.span;
+                if self.warned_spare_lends.insert((self.file_idx, span)) {
+                    let names: Vec<&str> = spare.iter().map(|i| i.name.as_str()).collect();
+                    self.warn(
+                        span,
+                        format!(
+                            "`holds proj({})` here says what the signature already \
+                             infers: a fn type whose return is a bare type parameter \
+                             lends its named kept positions, because the result's real \
+                             type is the caller's to choose and only a lend makes the \
+                             borrow it may hold nameable [proj-infer-fn-type]. Drop the \
+                             clause — it is still needed where the return is a concrete \
+                             type",
+                            names.join(", ")
+                        ),
+                    );
+                }
+            }
+        }
         // Validate the group's entries name the fn type's parameters.
         if let Some(list) = deductions {
             for d in list {

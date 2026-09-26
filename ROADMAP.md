@@ -43,7 +43,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1550 tests green.
+targets and the output they print. 1551 tests green.
 
 ## The sequence
 
@@ -112,11 +112,11 @@ What the second one left open, deliberately, is the reading it chose *against*:
   the restrictive slot becomes worth stating, and the shape is above. Note the
   matching must be **directional**: a lending slot still accepts a non-lending
   candidate, so it is subtyping on the contract rather than equality.
-- A smaller consequence, unresolved: with the lend inferred, writing
-  `holds proj(c)` on an **opaque-returning** slot is now redundant, and Salvo
-  warns on annotations that change nothing elsewhere [fn-overload-at]. Whether it
-  should warn here too is a one-line call — left alone because a *concrete*
-  return still needs the clause, so the form is not dead.
+- ✅ The spare clause **warns** (user decision 2026-09-26, built): writing
+  `holds proj(c)` on an opaque-returning slot says what the signature infers, so
+  it is reported the way a no-op `@place` selector is [fn-overload-at] — one
+  diagnostic per clause, naming every source, and silent where the return is
+  concrete.
 
 ### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
 

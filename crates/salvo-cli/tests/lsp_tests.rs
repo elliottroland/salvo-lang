@@ -1555,11 +1555,20 @@ fn main() [use] {
             }}
         }),
     );
+    // [proj-infer-fn-type] One diagnostic, and it is expected: `total`'s slot
+    // returns a bare type parameter, so its lend is inferred and the written
+    // one is spare (2026-09-26). The fixture keeps it deliberately — a written
+    // fn-type lend is the thing whose *rendering* is under test here, and hover
+    // shows what the author wrote rather than what the compiler would infer.
     let params = expect_diagnostics(&lsp.rx);
-    assert_eq!(
-        params["diagnostics"].as_array().unwrap().len(),
-        0,
-        "diagnostics: {params}"
+    let diags = params["diagnostics"].as_array().unwrap();
+    assert_eq!(diags.len(), 1, "diagnostics: {params}");
+    assert!(
+        diags[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("says what the signature already infers"),
+        "the only diagnostic is the spare-lend warning: {params}"
     );
 
     // The fn declaration: annotation on the return, no `proj` clause entry.

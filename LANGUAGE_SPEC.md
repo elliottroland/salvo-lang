@@ -5259,6 +5259,15 @@ the same day. **Not part of `core`**: the surface is imported, and one
       name** infers nothing (std's `?copy: (T) -> T`), and a **concrete** return
       infers nothing, because a concrete type says for itself whether it borrows.
       Together these are why no existing signature changed meaning.
+    * **Writing it anyway warns** (user decision 2026-09-26): on an
+      opaque-returning slot the clause says what the signature already infers,
+      and an annotation that changes nothing reads as evidence that something
+      needs saying — the same reason a no-op `@place` selector warns
+      [fn-overload-at]. A warning rather than an error, since the program is
+      correct and the clause is merely spare; **one diagnostic per clause**,
+      naming every source it spends (`holds proj(c, k)`), because that is one
+      thing the author wrote and one thing to remove. Silent where the return is
+      concrete, where the clause is load-bearing.
     * Before it, the most ordinary generic-iteration signature in the language
       type-checked, ran on Kotlin, and failed at rustc with "lifetime may not
       live long enough" in code the author never wrote — an accept/reject

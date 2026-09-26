@@ -2236,3 +2236,70 @@ fn an_fs_failure_must_be_acknowledged() {
         assert!(stderr.contains("no errors"), "{body}: {stderr}");
     }
 }
+
+// [proj-infer-fn-type] A fn-typed slot whose return is a bare type parameter
+// lends its named kept positions by inference (2026-09-26), so writing the
+// clause there says nothing — and an annotation that changes nothing reads as
+// evidence that something needs saying, the same reason a no-op `@place`
+// selector warns [fn-overload-at]. A **warning**, because the program is
+// correct and the clause is merely spare; and silent where the return is
+// concrete, since a named type says for itself whether it borrows.
+#[test]
+fn a_spare_lend_on_an_opaque_slot_warns_once() {
+    let dir = src_dir("spare_lend");
+    let total = |slot: &str| {
+        format!(
+            "fn total<C, It, T>(c: C, ?iter: {slot}, ?Yield<It, T>) -> Int\n=> c {{\n    \
+             let n = 0\n    for _ in iter(c) {{\n        n = n + 1\n    }}\n    return n\n}}\n\n\
+             fn main() [use] -> None {{\n    use StdOutConsole()\n    \
+             println(\"${{total([\"a\", \"b\"])}}\")\n}}\n"
+        )
+    };
+
+    // Written where it is inferred: one diagnostic, naming the clause.
+    fs::write(
+        dir.join("main.sv"),
+        total("(c: C) -> Mut It holds proj(c)"),
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "a spare clause is legal: {stderr}");
+    assert_eq!(
+        stderr.matches("says what the signature already infers").count(),
+        1,
+        "one clause, one diagnostic: {stderr}"
+    );
+    assert!(
+        stderr.contains("`holds proj(c)`") && stderr.contains("1 warning"),
+        "it names the clause it wants dropped: {stderr}"
+    );
+
+    // Dropping it is what the warning asks for, and then there is nothing to say.
+    fs::write(dir.join("main.sv"), total("(c: C) -> Mut It")).unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("no errors"), "{stderr}");
+    assert!(
+        !stderr.contains("already infers"),
+        "nothing written, nothing to warn about: {stderr}"
+    );
+
+    // A **concrete** return still needs the clause, so it stays silent.
+    fs::write(
+        dir.join("main.sv"),
+        "fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListYield<T> holds proj(c)) -> Int\n\
+         => xs {\n    let n = 0\n    for _ in iter(xs) {\n        n = n + 1\n    }\n    \
+         return n\n}\n\n\
+         fn main() [use] -> None {\n    use StdOutConsole()\n    \
+         println(\"${walk([1, 2, 3])}\")\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("no errors"), "{stderr}");
+    assert!(
+        !stderr.contains("already infers"),
+        "a concrete return infers nothing, so the clause is load-bearing: {stderr}"
+    );
+}
