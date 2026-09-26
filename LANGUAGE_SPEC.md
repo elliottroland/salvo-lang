@@ -5237,6 +5237,32 @@ the same day. **Not part of `core`**: the surface is imported, and one
     internal entry (`DeductionTarget::Opaque`), so validation,
     `declared_lends`, the emitters and the hover's lent flags are unchanged
     by either respelling.
+  * [proj-infer-fn-type] **On a fn type whose return is opaque, the lend is
+    inferred** (user decision 2026-09-26): a return that is a bare type
+    parameter — which every pass-minting slot has (`?iter: (c: C) -> Mut It`) —
+    may instantiate to a type holding a borrow of what the slot was given, and
+    only a lend makes that borrow nameable. So every **named, kept** position
+    of such a fn type lends, conservatively, which is what this rule's fallback
+    already says for a bodiless declaration — and a fn type *is* a bodiless
+    declaration.
+    * **Why it is free**, probed before deciding: the lend is *strictly more
+      permissive* than its absence. A candidate whose result holds no borrow
+      simply does not use the lifetime, so `core.set`'s snapshotting `iter`
+      fills a lent slot exactly as `core.list`'s borrowing one does. No program
+      that compiled without the lend stops compiling with it.
+    * **One shared lifetime, not one per parameter.** The opaque return's hidden
+      lifetime has to *be* one of the parameters', and separate lifetimes leave
+      the target compiler no way to know which — so all the tied positions share
+      `'c` [rs-proj-lends].
+    * **Two things scope it**, both from the same principle — a lend names a
+      source, and the source must be a parameter here: a position with **no
+      name** infers nothing (std's `?copy: (T) -> T`), and a **concrete** return
+      infers nothing, because a concrete type says for itself whether it borrows.
+      Together these are why no existing signature changed meaning.
+    * Before it, the most ordinary generic-iteration signature in the language
+      type-checked, ran on Kotlin, and failed at rustc with "lifetime may not
+      live long enough" in code the author never wrote — an accept/reject
+      divergence [backend-parity] whose fix the author had no way to guess.
 
   * A `=>[f]` group reaches a fn type **through its qualifiers**: a
     `once (t: T) -> None` parameter is a qualifier group wrapping the fn type,

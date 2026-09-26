@@ -43,7 +43,7 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1547 tests green.
+targets and the output they print. 1550 tests green.
 
 ## The sequence
 
@@ -81,75 +81,42 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — One open defect
+### 2 — Recorded: the restrictive reading of a fn-typed slot's lend
 
-A finding from the 2026-09-25 defect round, *reported* by a target compiler
-rather than silently wrong. Its sibling — a bare generic struct literal not
-determining a type parameter — was fixed 2026-09-26 [struct-literal-arg]
-(COMPLETED.md's log).
+Both defects of the 2026-09-25 round are closed — a bare generic struct literal
+now determines its type arguments [struct-literal-arg], and a fn-typed slot whose
+return is opaque now **infers** its lend [proj-infer-fn-type] (both 2026-09-26,
+COMPLETED.md's log).
 
-- **An un-annotated lending `?iter` has no lifetime to tie.** A fn-typed implicit
-  whose return is a **borrowing** pass needs `holds proj(c)` [proj-infer] for the
-  emitter to tie the lifetime [rs-proj-lends]; without it rustc says "lifetime
-  may not live long enough". Repro:
+What the second one left open, deliberately, is the reading it chose *against*:
 
-  ```
-  fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int => c {
-      let t = 0
-      for x in iter(c) { t = t + x }
-      return t
-  }
-
-  fn main() [use] -> None {
-      use StdOutConsole()
-      println("${total([1, 2, 3])}")   // rustc: lifetime may not live long enough
-  }
-  ```
-
-  Adding `holds proj(c)` fixes it, so the shape is writable — what is missing is
-  the diagnostic. Kotlin runs both forms.
-
-  **Probed 2026-09-26, and the result narrows the question.** `holds proj(c)` is
-  **strictly more permissive**: across slot × candidate × whether the pass
-  escapes the function, every program that compiles without it compiles with it,
-  and it additionally admits the lending candidate. std has both candidates —
-  `core.list`'s `iter` lends (`ListYield.items: proj List<T>`), `core.set`'s
-  snapshots (`SetYield.items: List<T>`) — and the permissive slot accepts both.
-
-  | slot | candidate | pass escapes | Rust |
-  |---|---|---|---|
-  | `(c: C) -> Mut It` | `Set` | no / yes | `15` / `15` |
-  | `(c: C) -> Mut It` | `List` | no / yes | **lifetime error** both |
-  | `… holds proj(c)` | `Set` | no / yes | `15` / `15` |
-  | `… holds proj(c)` | `List` | no / yes | `6` / `6` |
-
-  And the clause on a fn-typed slot is today **purely an emission hint** — it
-  changes one lifetime in the emitted signature and nothing in the checker, which
-  is why its absence reaches rustc. Probed both things a no-lend contract would
-  buy: consuming the container while the pass is live (`=> !c` — accepted under
-  *both* slots) and returning the pass (accepted and compiled under both). In a
-  generic body there is nothing an opaque `C` can be done to anyway.
-
-  **DECISION, and it is one question**: should "this fn does not lend" be a
-  statable contract on a fn-typed slot?
-  * **Yes** → make the clause part of the match at [implicit-resolve]: a
-    restrictive slot rejects `core.list`'s `iter` with a Salvo diagnostic naming
-    the candidate and `holds proj(c)`. Both readings keep meaning; the matching
-    must be **directional** (a permissive slot still accepts a non-lending
-    candidate), and the cost is that the language's most ordinary
-    generic-iteration signature carries a clause to permit the obvious.
-  * **No** → **infer** the lend (recommended, user's reading 2026-09-26): the
-    permissive form is simply the right signature and the compiler writes it. The
-    [proj-infer] fallback already says "conservatively every kept parameter" for
-    a bodiless declaration, and a fn-typed parameter *is* a bodiless declaration.
-    Accept with it that `holds proj(c)` on a fn-typed slot then observably means
-    nothing, so it should warn or be refused there — Salvo already warns on a
-    no-op annotation [fn-overload-at].
-  * **Unprobed edge, to settle before building the inference**: a slot whose fn
-    type takes *more than one* parameter (`(a: A, b: B) -> Mut It`). Tying every
-    parameter's lifetime is the conservative choice and is **not** evidenced free
-    the way the one-parameter case is; scoping the tie to the parameters the
-    slot's fn type actually names is the safer shape.
+- **A slot could state that its fn does *not* lend.** `(c: C) -> Mut It` would
+  then mean "the pass must not borrow the container", and implicit resolution
+  would refuse `core.list`'s borrowing `iter` for it — naming the candidate and
+  `holds proj(c)` — while accepting `core.set`'s snapshotting one. The machinery
+  is already there: resolution **already** compares a candidate's contract against
+  a slot's and refuses a mismatch (probed 2026-09-26: a keep/consume mismatch is
+  reported with both remedies named), so adding the lend to that comparison is
+  small.
+- **Why it was not taken**: the restrictive reading buys nothing observable
+  today. The two things it would protect — mutating or consuming the container
+  while the pass is live, and the pass outliving the container — are both accepted
+  under *either* reading (probed), and in a generic body there is nothing an
+  opaque `C` can be done to anyway. So the restriction would have cost an
+  annotation on the language's most ordinary generic-iteration signature to
+  express a property nothing yet depends on.
+- **The trigger for revisiting**: a program that *needs* a pass independent of
+  its container — one that stores it, returns it past the container's life, or
+  sends it to another thread ([actor-sendable] refuses a borrowing pass, so a
+  task or actor taking a pass is the likely first customer). When that appears,
+  the restrictive slot becomes worth stating, and the shape is above. Note the
+  matching must be **directional**: a lending slot still accepts a non-lending
+  candidate, so it is subtyping on the contract rather than equality.
+- A smaller consequence, unresolved: with the lend inferred, writing
+  `holds proj(c)` on an **opaque-returning** slot is now redundant, and Salvo
+  warns on annotations that change nothing elsewhere [fn-overload-at]. Whether it
+  should warn here too is a one-line call — left alone because a *concrete*
+  return still needs the clause, so the form is not dead.
 
 ### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
 

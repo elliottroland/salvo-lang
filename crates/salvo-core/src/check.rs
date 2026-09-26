@@ -15236,6 +15236,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             params,
             param_names,
             deductions,
+            ret,
             ..
         } = ty
         else {
@@ -15244,6 +15245,20 @@ impl<'p, 'r> Checker<'p, 'r> {
         if param_names.iter().all(|n| n.is_none()) && deductions.is_none() {
             return None;
         }
+        // [proj-infer-fn-type] Whether this fn type's kept positions lend
+        // without saying so: only where the **return is opaque to the
+        // signature**, meaning a bare type parameter. That is the case a
+        // written lend exists for — the result's real type is chosen by
+        // whoever fills the slot, so the signature cannot see whether it holds
+        // a borrow, and one Rust signature has to serve every filling. A
+        // *concrete* return says for itself (`-> Mut List<T>` holds nothing;
+        // `-> Mut ListYield<T>` is a named borrowing type the emitter already
+        // ties), so nothing is inferred there and no existing signature
+        // changes meaning.
+        let infer_lends = matches!(ret.as_ref(), ast::Type::Named { qualifiers, base, .. }
+            if base.args.is_empty()
+                && qualifiers.iter().all(|q| q.name.name == "Mut")
+                && self.generics.contains(base.name.name.as_str()));
         let declared_quals = |t: &ast::Type| -> Vec<String> {
             match t {
                 ast::Type::Named { qualifiers, .. }
@@ -15309,9 +15324,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => (true, QualEffect::KeepAll),
                 };
                 // [proj-infer] `-> T holds proj(c)` on a fn type (synthesized
-                // into its contract list by the parser): the only way to say
-                // what a bodiless value's result holds.
-                let lent = match (name, deductions) {
+                // into its contract list by the parser): what a bodiless
+                // value's result holds.
+                let written = match (name, deductions) {
                     (Some(id), Some(list)) => list
                         .iter()
                         .filter_map(|d| d.proj_sources())
@@ -15319,6 +15334,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .any(|src| src.name == id.name),
                     _ => false,
                 };
+                // [proj-infer-fn-type] **Unwritten, so inferred** (user
+                // decision 2026-09-26): a fn type whose *return* is opaque —
+                // a bare type parameter, which is every pass-minting slot
+                // (`?iter: (c: C) -> Mut It`) — may instantiate to a type
+                // holding a borrow of what it was given, and only the lend
+                // makes that borrow nameable. So every **kept** position of
+                // such a fn type lends, conservatively, which is what
+                // [proj-infer]'s fallback already says for a bodiless
+                // declaration — and a fn type *is* a bodiless declaration.
+                //
+                // Free, and probed: the lend is strictly more permissive than
+                // its absence, because a candidate whose result holds no
+                // borrow simply does not use the lifetime. Writing the clause
+                // is therefore redundant rather than meaningful, which is why
+                // this reads the two cases the same way.
+                // A lend **names a source**, so an unnamed position cannot
+                // carry one: std's `?copy: (T) -> T` has no name for a
+                // lifetime to attach to, and inferring one there emitted a
+                // `&'c T` nothing declared.
+                let lent = written || (infer_lends && kept && name.is_some());
                 FnParamContract {
                     name: name.as_ref().map(|id| id.name.clone()),
                     kept,

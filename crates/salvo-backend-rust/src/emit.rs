@@ -1281,6 +1281,13 @@ struct Emitter<'p> {
     /// the current fn's implicit parameters render: the enclosing fn keeps
     /// `c` under lifetime `'c`, which the position's `&'c C` shares.
     lent_position_params: Vec<String>,
+    /// [rs-proj-lends] The enclosing fn's own fixed parameter names, set before
+    /// its implicits render: a lent position can only borrow under `'c` if some
+    /// parameter *here* carries that lifetime, so a position naming something
+    /// else renders the elided `&T` instead of a `&'c T` nothing declares.
+    /// Needed once the lend became inferrable — a written one was always a
+    /// parameter of the enclosing signature, an inferred one need not be.
+    enclosing_param_names: std::collections::HashSet<String>,
     /// [proj-type] The lifetime a `proj` renders under while set (`'s` inside
     /// a borrowing struct or a `next` over one, `'a` on a tied return):
     /// `&'s T` instead of the elided `&T`.
@@ -2145,6 +2152,7 @@ impl<'p> Emitter<'p> {
             derived_return_fn: false,
             emitting_producer_args: false,
             lent_position_params: Vec::new(),
+            enclosing_param_names: std::collections::HashSet::new(),
             proj_lifetime: None,
             proj_return: false,
             borrowed_arm_locals: HashMap::new(),
@@ -5520,6 +5528,12 @@ impl<'p> Emitter<'p> {
         let own_implicits = self.implicits_of(f);
         let saved_implicits = std::mem::replace(&mut self.implicits, own_implicits);
         self.lent_position_params.clear();
+        self.enclosing_param_names = f
+            .params
+            .iter()
+            .filter(|p| !p.implicit)
+            .map(|p| p.name.name.clone())
+            .collect();
         for imp in &self.implicits.clone() {
             // [rs-iter-pass] An iterator fn's callbacks arrive **owned** and
             // `'static`, because its pass calls them long after this returns —
@@ -7447,7 +7461,12 @@ impl<'p> Emitter<'p> {
                 // by-value parameter could not outlive (E0515).
                 if kept && mutable {
                     format!("&mut {base}")
-                } else if kept && lent {
+                } else if kept
+                    && lent
+                    && entry
+                        .and_then(|e| e.name.as_deref())
+                        .is_some_and(|n| self.enclosing_param_names.contains(n))
+                {
                     // The result's type (`It`) is fixed at the call site, so
                     // the borrow it holds cannot be a fresh per-call lifetime:
                     // it is the enclosing fn's borrow of the parameter this

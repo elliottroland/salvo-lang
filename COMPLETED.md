@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1547 tests, complete: the toolchain tests are
+cargo test                  # 1550 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,53 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A fn-typed slot with an opaque return infers its lend (2026-09-26, user
+decision — built).** The last defect of the 2026-09-25 round
+[proj-infer-fn-type]. `total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`
+— the most ordinary generic-iteration signature in the language — type-checked,
+ran on Kotlin, and failed at rustc with "lifetime may not live long enough" in
+code the author never wrote. The slot's closure type had an anonymous input
+lifetime while the pass it returns holds a borrow of the input, and nothing tied
+them.
+
+- **The user's reframing is what settled it.** I had framed it as a missing
+  diagnostic, with inference and refusal as equal options. The user asked whether
+  the restrictive reading is ever *wanted* — whether `holds proj(c)` is simply the
+  more permissive signature and the bare one just does not describe what
+  `iter(list)` does. Probing every combination of slot × candidate × whether the
+  pass escapes the function says yes: the lend is **strictly more permissive**,
+  every program that compiles without it compiles with it, and it additionally
+  admits the lending candidate. std has both candidates —  `core.list`'s `iter`
+  lends (`ListYield.items: proj List<T>`), `core.set`'s snapshots — and a lent
+  slot takes either.
+- **One shared lifetime is the correct design, not merely the simple one.** The
+  opaque return's hidden lifetime has to *be* one of the parameters', and separate
+  lifetimes leave rustc no way to know which — which is what the two-parameter
+  probe showed before any code was written (`holds proj(c, k)` works; `k: &K` is a
+  reference even at `Int`, because generics are opaque, so there is always a
+  lifetime to tie).
+- **Two things scope it, and the first attempt lacked them.** Inferring for every
+  fn type with a bare-type-parameter return broke `core.seq`: std's
+  `?copy: (T) -> T` has an **unnamed** parameter, so there was nothing for a
+  lifetime to attach to and the emitter rendered a `&'c T` no signature declared
+  (E0261, in three examples). A lend *names a source*, so an unnamed position
+  infers nothing; a **concrete** return infers nothing either, because a concrete
+  type says for itself whether it borrows. The Rust emitter additionally gates the
+  render on the enclosing fn *having* the parameter named, so the dangling
+  lifetime is now unreachable rather than merely unreached.
+- **What resolution already did, and is worth knowing**: it compares a
+  candidate's *contract* against a slot's and refuses a mismatch with both
+  remedies named — a keep/consume mismatch reported itself precisely while this
+  was being probed. The lend was simply not part of that comparison. That makes
+  the restrictive reading cheap to add later, which is why it is recorded in
+  ROADMAP rather than dismissed: the trigger is a program that needs a pass
+  independent of its container (storing it, returning it, or sending it —
+  [actor-sendable] refuses a borrowing pass).
+- Tests: a compile-and-run case over three shapes in one program (two-parameter
+  slot, one-parameter slot, and the snapshotting candidate through the same slot),
+  a signature assertion pinning the single shared lifetime, and a regression
+  asserting `core/seq.rs` renders no lifetime for its unnamed slot.
 
 **A bare generic struct literal determines its own type arguments
 (2026-09-26).** The second of the 2026-09-25 defect round's two open findings

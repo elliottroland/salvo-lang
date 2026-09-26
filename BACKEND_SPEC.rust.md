@@ -1271,6 +1271,15 @@ surface and must not be fused by a handler it never registers.
 Emitting a dependent handler with the fusion off is an internal codegen
 error naming the handler, so the two halves cannot silently disagree.
 
+**[proj-infer-fn-type] [rs-proj-lends] An inferred lend ties one lifetime.** A
+fn-typed slot whose return is opaque gets `'c` on its named kept positions and on
+the enclosing parameters they name — one lifetime for all of them, because the
+slot's return type is chosen by the caller and its hidden lifetime must be one
+this signature declares. The render is gated on the enclosing fn *having* that
+parameter: a position naming something else falls back to the elided `&T`, which
+is what stops a `&'c T` no signature declares (the failure std's
+`?copy: (T) -> T` produced the first time the inference was too broad).
+
 **[task-effects] [rs-task] An inherited effect travels as an owned handle.** A
 task's closure is `move` and `'static`, so a `&mut dyn E` from the minting frame
 cannot go in it. What travels is the effect's **`__Mon_E`**, which is `Clone`

@@ -12062,6 +12062,122 @@ const TASK_KERNEL_OUTPUT: &str = "row=70
 placed=40
 ";
 
+/// [proj-infer-fn-type] [rs-proj-lends] A fn-typed slot whose **return is
+/// opaque** — a bare type parameter, which every pass-minting slot is — lends
+/// its kept positions without saying so (user decision 2026-09-26). Before
+/// this, the most ordinary generic-iteration signature in the language emitted
+/// a closure type with an anonymous input lifetime while the pass it returns
+/// holds a borrow of the input, and rustc said "lifetime may not live long
+/// enough" about code nobody wrote. Kotlin ran it, so it was an accept/reject
+/// divergence [backend-parity].
+///
+/// Two parameters, because one shared lifetime is not merely the simple choice:
+/// the opaque return's hidden lifetime has to *be* one of them, and separate
+/// lifetimes would leave rustc no way to know which.
+const INFERRED_LEND: &str = r#"
+struct Stepped : Yield<self, proj Str> canbe Mut {
+    items: proj List<Str>,
+    at: Int,
+    step: Int
+}
+
+fn next(p: Mut Stepped) [] -> Emitted (proj(p) Str) | Finished => p: Mut {
+    let elem = get(p.items, p.at)
+    if elem is None {
+        return finished()
+    }
+    p.at = p.at + p.step
+    return emitted(elem)
+}
+
+fn iter(list: List<Str>, step: Int) [] -> Mut Stepped => list, step {
+    return Mut Stepped { items: list, at: 0, step: copy(step) }
+}
+
+// No `holds proj(...)` written on either slot.
+fn count<C, K, It, T>(c: C, k: K, ?iter: (c: C, k: K) -> Mut It, ?Yield<It, T>) -> Int
+=> c, k {
+    let n = 0
+    for _ in iter(c, k) {
+        n = n + 1
+    }
+    return n
+}
+
+fn total<C, It, T>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, T>) -> Int => c {
+    let n = 0
+    for _ in iter(c) {
+        n = n + 1
+    }
+    return n
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    println("${count(["a", "b", "c", "d", "e", "f"], 2)}")
+    println("${total(["x", "y", "z"])}")
+    // The owning pass still fits the same slot: the lifetime it does not use
+    // costs it nothing, which is why inferring the lend is free.
+    println("${total({"p", "q"})}")
+}
+"#;
+
+const INFERRED_LEND_OUTPUT: &str = "3
+3
+2
+";
+
+#[test]
+fn rustc_compiles_and_runs_an_inferred_lend() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", INFERRED_LEND)]);
+    run_rust_files(&files, "inferred-lend", INFERRED_LEND_OUTPUT);
+}
+
+/// [proj-infer-fn-type] The signature it produces: **one** lifetime, shared by
+/// the container and by the slot's matching parameter, so the pass the slot
+/// mints can hold it.
+#[test]
+fn an_opaque_returning_slot_ties_one_lifetime() {
+    let files = generate(&[("main.sv", INFERRED_LEND)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    assert!(
+        text.contains("pub fn count<'c, C: Clone, K: Clone, It: Clone, T: Clone>(c: &'c C, k: &'c K, iter: &mut dyn FnMut(&'c C, &'c K) -> It"),
+        "both parameters share one lifetime with the slot's:\n{text}"
+    );
+    assert!(
+        text.contains("pub fn total<'c, C: Clone, It: Clone, T: Clone>(c: &'c C, iter: &mut dyn FnMut(&'c C) -> It"),
+        "the one-parameter case ties the same way:\n{text}"
+    );
+}
+
+/// [proj-infer-fn-type] The inference is scoped to an **opaque** return, and a
+/// lend **names a source** — so a slot with no parameter name (std's
+/// `?copy: (T) -> T`) gets nothing, which is what stops a `&'c T` no signature
+/// declares. `core.seq`'s combinators are the regression: they carry exactly
+/// that slot.
+#[test]
+fn an_unnamed_or_concrete_slot_infers_no_lend() {
+    let files = generate(&[("main.sv", INFERRED_LEND)]);
+    let seq = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "core/seq.rs");
+    if let Some(seq) = seq {
+        assert!(
+            !seq.content.contains("&'c T"),
+            "an unnamed slot must not render a lifetime:\n{}",
+            seq.content
+        );
+    }
+}
+
 /// [task-effects] A task body's effects are **inherited from the frame that
 /// minted it** (user decision 2026-09-26). Two shapes in one program, because
 /// they exercise different halves: a task minted from a frame that *binds* the
