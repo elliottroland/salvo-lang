@@ -62,6 +62,8 @@ println(text)              // Hello, world
 
 Everything else in `core.string` takes a plain `Str`, and a `Mut Str` reaches all of it by *dropping* its `Mut` like any other qualifier — `size(text)`, `trim(text)`, `text == other` all work. The difference from every other qualifier is invisible in Salvo and matters to the backends: `Mut` is the one qualifier a target may render as a different type (a `StringBuilder` on the JVM), so dropping it there is a real conversion rather than a widening. The compiler records the drop and each backend renders what it needs, which is what keeps `text == other` a comparison of *characters* on both targets.
 
+**An interpolation may hold a string literal**, and that literal may interpolate in turn: `"${name ?: "unknown"}"` is an ordinary thing to write, and the inner quotes belong to the inner literal. Escapes work inside it as anywhere else.
+
 **Interpolation needs a text form.** `"${value}"` works directly for the scalars, `Str`, and a union whose every arm is one of those. Anything else needs a `to_str` — a function taking the value and returning `Str` — which the compiler looks for *at the interpolation site*, exactly as it fills an implicit parameter:
 
 ```

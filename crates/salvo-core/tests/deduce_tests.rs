@@ -1993,3 +1993,67 @@ fn indirecting_through_a_container_is_legal() {
         );
     }
 }
+
+/// The prelude the view tests need: an element read that hands back a
+/// projection, over both a scalar and a non-scalar element type.
+fn view_errors(src: &str) -> Vec<String> {
+    let mut sources = SourceSet::default();
+    sources.add(
+        "std/core/prelude.sv",
+        SourceSet::classify(Path::new("core/prelude.sv")).unwrap(),
+        format!(
+            "{STD_PRELUDE}export intrinsic type Str\n\
+             export intrinsic fn get<T>(list: List<T>, i: Int) [] -> proj(list) T => list\n"
+        ),
+        true,
+    );
+    sources.add(
+        "main.sv",
+        SourceSet::classify(Path::new("main.sv")).unwrap(),
+        src.to_string(),
+        false,
+    );
+    let mut modules = Vec::new();
+    for file in &sources.files {
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+        assert!(errors.is_empty(), "parse errors: {errors:?}");
+        modules.push(module);
+    }
+    let program = Program {
+        files: sources.files,
+        modules,
+        companions: Vec::new(),
+    };
+    let symbols = Symbols::collect(&program);
+    let resolution = resolve(&program);
+    let checked = check_program(&program, &resolution, &symbols);
+    checked
+        .errors
+        .iter()
+        .filter(|e| e.is_error())
+        .map(|e| e.message.clone())
+        .collect()
+}
+
+// [copy-scalar-free] A call handing back a borrowed **copy scalar** borrows
+// nothing: `proj Int` *is* `Int` on both backends, which `Ty::qualify` already
+// erases from the type — so the value travels like any owned scalar. Before
+// this, reading an element out of a `List<Int>` and returning it was refused as
+// "a view of `list`", asking for a `copy` neither backend would emit.
+#[test]
+fn a_projected_scalar_is_not_a_view() {
+    let messages = view_errors("fn head(list: List<Int>) -> Int => list {\n    return get(list, 0)\n}\n");
+    assert!(messages.is_empty(), "got {messages:?}");
+}
+
+// [copy-scalar-free] The same read of a *non*-scalar element stays a view: the
+// exemption is the scalar's freedom, not a hole in the rule.
+#[test]
+fn a_projected_non_scalar_is_still_a_view() {
+    let messages = view_errors("fn head(list: List<Str>) -> Str => list {\n    return get(list, 0)\n}\n");
+    assert!(
+        messages.iter().any(|m| m.contains("it is a view of `list`")),
+        "got {messages:?}"
+    );
+}

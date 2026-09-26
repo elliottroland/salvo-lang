@@ -8,7 +8,6 @@ struct Person {
 }
 
 fn full_name(p: Person) -> Str {
-    // TODO: This ?: should resolve the value to a string rather than terminate the string
     return "${p.first_name} ${p.last_name ?: "unknown"}"
 }
 
@@ -25,15 +24,14 @@ handler CyclicRandom(numbers: NE List<Double>) of Random {
 
     fn random() -> Double {
         assert!(i is Idx(numbers))
-        // TODO: This shouldn't need a copy for a scalar
         return numbers.get(i++)
     }
 }
 
 fn main() [use] {
     use StdOutConsole()
-    let random_numbers = [1.4, 6.3, 2.342]
-    // TODO: This should not accept random_number here
+    let random_numbers = [1.4, 6.3, 2.342, 0.5, 0.9]
+    assert!(random_numbers is NE)
     use CyclicRandom(random_numbers)
 
     let roland = Person { first_name: "Roland", age: 35 }

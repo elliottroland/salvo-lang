@@ -7610,6 +7610,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             let logical = arg_tys[i].clone();
             let repr = self.repr_of(&args[i], &logical);
             self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
+            // A constructor argument has to *fit* its parameter, exactly as a
+            // call's argument does — a handler has no overload set, so nothing
+            // else was reporting it and a claim the parameter demands
+            // (`numbers: NE List<Double>`) was accepted from a value that does
+            // not carry it. The argument is stored, so the position is owned.
+            if !logical.is_unknown() && !self.arg_fits_param(&logical, &sp, false) {
+                let pname = value_params
+                    .get(i)
+                    .map(|p| p.name.name.clone())
+                    .unwrap_or_else(|| format!("argument {}", i + 1));
+                self.error(
+                    args[i].span(),
+                    format!(
+                        "handler `{}` declares `{pname}: {sp}`, and this argument is \
+                         `{logical}`",
+                        id.name
+                    ),
+                );
+            }
         }
         // [copy-implicit] The constructor's implicit parameters are filled
         // here, at the handler's now-known type arguments — recorded under
@@ -8111,6 +8130,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return links;
             }
             if let Some(sources) = self.out.derived_calls.get(&(self.file_idx, *span)).cloned() {
+                // [copy-scalar-free] A borrowed copy scalar *is* the value on
+                // both backends — `proj Int` is `Int`, which `Ty::qualify`
+                // already erases — so a call handing one back borrows nothing
+                // and the result travels freely. Without this, reading an
+                // element of a `List<Double>` and returning it asks for a
+                // `copy` that neither backend would emit.
+                if self
+                    .out
+                    .ty_of(self.file_idx, *span)
+                    .is_some_and(|t| crate::types::is_copy_scalar(t.strip_quals()))
+                {
+                    return Vec::new();
+                }
                 // [proj-readonly] A wholesale projection: the result *is* the
                 // argument's data — of every named source.
                 let mut links: Vec<FateLink> = Vec::new();

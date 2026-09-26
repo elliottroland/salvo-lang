@@ -330,19 +330,33 @@ impl<'s> Lexer<'s> {
                     self.bump(); // {
                     let expr_start = self.offset();
                     let mut depth = 1usize;
-                    while let Some(c) = self.peek() {
+                    loop {
+                        let Some(c) = self.peek() else { break };
                         match c {
-                            '{' => depth += 1,
+                            '{' => {
+                                depth += 1;
+                                self.bump();
+                            }
                             '}' => {
                                 depth -= 1;
                                 if depth == 0 {
                                     break;
                                 }
+                                self.bump();
                             }
-                            '"' | '\n' => break, // nested strings unsupported inside `${}`
-                            _ => {}
+                            // A nested literal is skipped whole, so its own
+                            // quotes and braces cannot end the interpolation
+                            // [interp-nested-str].
+                            '"' => {
+                                if !self.skip_nested_string() {
+                                    break;
+                                }
+                            }
+                            '\n' => break,
+                            _ => {
+                                self.bump();
+                            }
                         }
-                        self.bump();
                     }
                     let expr_end = self.offset();
                     if self.peek() == Some('}') {
@@ -367,6 +381,62 @@ impl<'s> Lexer<'s> {
             parts.push(StrPart::Text(text));
         }
         self.push_here(TokenKind::Str(parts), start);
+    }
+
+    /// Skips a `"..."` literal met inside a `${...}` interpolation, so the
+    /// literal's own quotes and braces do not end the interpolation. A literal
+    /// may interpolate in turn, which is why this recurses. Answers false when
+    /// the literal is unterminated, leaving the caller to report it.
+    /// [interp-nested-str]
+    fn skip_nested_string(&mut self) -> bool {
+        self.bump(); // opening quote
+        loop {
+            match self.peek() {
+                None | Some('\n') => return false,
+                Some('"') => {
+                    self.bump();
+                    return true;
+                }
+                Some('\\') => {
+                    self.bump();
+                    if self.bump().is_none() {
+                        return false;
+                    }
+                }
+                Some('$') if self.peek_at(1) == Some('{') => {
+                    self.bump(); // $
+                    self.bump(); // {
+                    let mut depth = 1usize;
+                    loop {
+                        match self.peek() {
+                            None | Some('\n') => return false,
+                            Some('"') => {
+                                if !self.skip_nested_string() {
+                                    return false;
+                                }
+                            }
+                            Some('{') => {
+                                depth += 1;
+                                self.bump();
+                            }
+                            Some('}') => {
+                                depth -= 1;
+                                self.bump();
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {
+                                self.bump();
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    self.bump();
+                }
+            }
+        }
     }
 
     fn char_literal(&mut self, start: u32) {

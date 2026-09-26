@@ -204,3 +204,39 @@ fn a_protocol_tag_stacks_with_state_claims_without_with() {
                return ok(fill())\n}\n";
     assert!(errors(src).is_empty(), "got {:?}", errors(src));
 }
+
+// [qual-subject] A handler's constructor argument has to *fit* the parameter
+// it is stored in, exactly as a call's argument does. A handler has no overload
+// set, so nothing else reported it: a parameter demanding a claim
+// (`numbers: NonEmpty Store<Int>`) silently accepted a value that does not
+// carry one, and the mismatch surfaced — if at all — inside the member bodies.
+#[test]
+fn a_handler_constructor_argument_must_carry_the_claim() {
+    let src = format!(
+        "{PRELUDE}\neffect Pick {{\n    fn pick() -> None\n}}\n\n\
+         handler First(s: NonEmpty Store<Int>) of Pick {{\n    \
+         fn pick() -> None {{\n    }}\n}}\n\n\
+         fn f(plain: Store<Int>) [use] -> None {{\n    use First(plain)\n}}\n"
+    );
+    let errors = errors(&src);
+    assert!(
+        errors
+            .iter()
+            .any(|m| m.contains("handler `First` declares `s: NonEmpty Store<Int>`")),
+        "got {errors:?}"
+    );
+}
+
+// [qual-subject] And it is satisfied by a value that does carry the claim —
+// the check is the ordinary fit, not a refusal of claims at constructors.
+#[test]
+fn a_handler_constructor_argument_accepts_the_claim() {
+    let src = format!(
+        "{PRELUDE}\neffect Pick {{\n    fn pick() -> None\n}}\n\n\
+         handler First(s: NonEmpty Store<Int>) of Pick {{\n    \
+         fn pick() -> None {{\n    }}\n}}\n\n\
+         fn f(plain: Store<Int>) [use] -> None {{\n    use First(nonempty(plain))\n}}\n"
+    );
+    let errors = errors(&src);
+    assert!(errors.is_empty(), "got {errors:?}");
+}

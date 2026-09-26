@@ -2664,3 +2664,46 @@ fn field_granular_mutation_entries_parse() {
         "{bad:?}"
     );
 }
+
+/// [interp-nested-str] A string literal inside `${...}` is part of the
+/// fragment, not the end of the enclosing literal. Before this, the
+/// interpolation scanner stopped at the inner quote and the file lexed as an
+/// unterminated string — which made `?:` with a text fallback unwritable.
+#[test]
+fn an_interpolation_may_hold_a_string_literal() {
+    let errors = errors_of(
+        "fn f(name: Str?) -> Str {\n    return \"hello ${name ?: \"unknown\"}\"\n}\n",
+    );
+    assert!(errors.is_empty(), "got {errors:?}");
+}
+
+/// [interp-nested-str] The nested literal may interpolate in turn, and its
+/// braces belong to it: the skip recurses rather than counting braces flat.
+#[test]
+fn a_nested_string_may_interpolate_in_turn() {
+    let errors = errors_of(
+        "fn f(a: Str, b: Str) -> Str {\n    return \"x ${size(\"${a} and ${b}\")} y\"\n}\n",
+    );
+    assert!(errors.is_empty(), "got {errors:?}");
+}
+
+/// [interp-nested-str] An escaped quote inside the nested literal does not end
+/// it, so the scanner honours escapes while skipping.
+#[test]
+fn a_nested_string_honours_escapes() {
+    let errors = errors_of(
+        "fn f() -> Str {\n    return \"q ${size(\"a\\\"b\")} z\"\n}\n",
+    );
+    assert!(errors.is_empty(), "got {errors:?}");
+}
+
+/// [interp-nested-str] Unterminated is still unterminated: the fragment's
+/// literal has to close, and the diagnostic is the interpolation's.
+#[test]
+fn an_unterminated_nested_string_is_reported() {
+    let errors = errors_of("fn f() -> Str {\n    return \"q ${size(\"a)} z\"\n}\n");
+    assert!(
+        errors.iter().any(|m| m.contains("unterminated")),
+        "got {errors:?}"
+    );
+}

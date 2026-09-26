@@ -106,6 +106,16 @@ Conventions:
   literals.
   * The lexer captures each `${...}` fragment as raw source + offset; the
     parser re-lexes fragments with spans shifted back into the file.
+* [interp-nested-str] A **string literal may appear inside `${...}`**, and it
+  may interpolate in turn: the fragment scanner skips a nested literal whole,
+  honouring escapes, so the literal's own quotes and braces belong to it rather
+  than ending the enclosing string. `"${name ?: \"unknown\"}"` is the shape
+  that forced it — a text fallback is the most ordinary thing to write in an
+  interpolation, and until this the file lexed as an unterminated string.
+  * Only the nesting is new: the fragment is still captured as raw source and
+    re-lexed by the parser, which is what makes the recursion free.
+  * An unterminated nested literal is reported as the *interpolation's* error,
+    since that is the construct the scanner was in.
   * Interpolation is a *read* (user decision 2026-09-02, L2a): `"${n}"`
     never consumes `n` [deduce-consume]. Both backends render the
     interpolated value as an owned copy purely for formatting — no
@@ -3223,6 +3233,12 @@ Conventions:
     arguments and registers the *concrete* effect instance
     (`use CyclicRandom(list_of(1,2,3))` registers `Random<Int>`), recorded
     in `use_effects`.
+  * **Each argument must fit its constructor parameter**, by the same relation
+    a call's argument is judged by (`arg_fits_param`, in an owned position —
+    a constructor argument is stored [deduce-consume]). A handler has no
+    overload set, so nothing else was reporting this: a parameter demanding a
+    claim (`numbers: NE List<Double>`) used to accept a value without it, and
+    the disagreement surfaced later or not at all.
 * [use-local] **A bare `use H(args)` binds shareable by default** (user
   decision 2026-09-20; the motivating goal is spawn-inheritance — a bare
   `[E]` in a signature has to *guarantee* shareability for a `spawn` to
@@ -6074,6 +6090,12 @@ the same day. **Not part of `core`**: the surface is imported, and one
   `copy` is owed (user decision 2026-09-11). Poison still applies. The
   same exemption lets a bodiless declaration leave a scalar parameter out
   of its clause [deduce-syntax], and the hover omits scalars.
+  * And a call **handing one back** records no fate link at all: `proj Int` is
+    `Int` — `Ty::qualify` erases the qualifier — so there is nothing borrowed to
+    keep a link to, and the result travels like any owned scalar (returned,
+    stored, sent). Without this, `return get(numbers, i)` on a `List<Double>`
+    was refused as a view of `numbers` and asked for a `copy` that neither
+    backend would emit. A non-scalar element read is unaffected.
 * [copy-implicit] `?copy: (v: T) -> T` is an ordinary implicit parameter
   (user decision 2026-09-11): a generic body that must copy a `T` it
   cannot see through — `filter_to`'s `add(dest, copy(x))`, a handler
