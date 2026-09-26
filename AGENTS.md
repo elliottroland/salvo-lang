@@ -25,12 +25,13 @@ Guidance for AI agents (and humans) contributing to this repository.
    backend-prefixed rules (`kt-…`). Backend-prefixed labels must only be
    referenced from that backend's crate; core crates
    reference backend-neutral labels only.
-3. **`ROADMAP.md`** — what is left to do: **"The sequence"** (the agreed order
-   of work), **open defects** (reproduced bugs with their root cause), the
-   phases not yet built, and the decisions and plans already made about each,
-   with language-design decision points marked **DECISION**. **Read it before
-   starting any task** — it is where the work is, it says what comes next, and
-   it says which choices are the user's to make.
+3. **`ROADMAP.md`** — what is left to do, as **one sequence** (consolidated
+   2026-09-26): each step with the decisions and plans already made about it,
+   language-design calls marked **DECISION**, the open defects with their
+   repros, and a "Recorded, not scheduled" tail for what was deliberately
+   parked. **Read it before starting any task** — it is where the work is, it
+   says what comes next, and it says which choices are the user's to make.
+   Finished work is *not* here: it moves to COMPLETED.md.
 4. **`COMPLETED.md`** — the record: the decision log (newest first), the
    milestone history, every option explored and abandoned, defects found and
    closed, the test inventory, and **"Gotchas / lessons learned"**. Consult it
@@ -52,7 +53,7 @@ which rules are in play and where they live in the code*.
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `std/**/*.kotlin.sv`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `std/**/*.rust.sv`) |
-| `ROADMAP.md` | What is left: open defects, unbuilt phases, decisions and plans about them | Always |
+| `ROADMAP.md` | What is left, as one sequence: steps, open defects, decisions, and the parked tail | Always |
 | `COMPLETED.md` | The record: decision log, milestone history, abandoned options, closed defects, test inventory, gotchas | Always |
 | `AGENTS.md` | This file — how to work on the repo | Always |
 | `examples/README.md` | The worked examples: layout, how to regenerate them, and the conventions they must keep | When adding or touching an example, or when a language change invalidates one |

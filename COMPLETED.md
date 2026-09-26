@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1523 tests, complete: the toolchain tests are
+cargo test                  # 1538 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,112 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**Ambiguity is refused, never resolved by position (2026-09-26, user decisions —
+built).** The value the user stated: *when faced with an ambiguity, refuse to
+choose and let the user choose instead*. It replaced two rules that chose, and
+the demo defect that prompted it is the clearest case — `numbers.add(6)` where
+std's `NonEmpty` refinement and the file's own `NE` refinement both spoke,
+incompatibly, and the second addition was silently dropped for being
+incompatible with the first. The caller then failed *elsewhere*, at a call whose
+parameter wanted `NE`.
+
+- **Refinements** [qual-refn-ambiguous]: disagreement is an error at the call,
+  naming `f@place` for each side, and `f@place` applies **only** that place's
+  statements — rebuilt from its own contributions, since the merged view is
+  suppressed by the very disagreement the selector settles [qual-refn-at]. Two
+  disagreeing refinements from *one* place are an error at the refinements
+  instead: no selector could separate them. Disagreement is now judged **across**
+  requires-groups, not only within one, which is what the demo needed.
+- **Overloads** [fn-overload-scope]: scope decides what is *visible*, never what
+  a call means. Every fitting candidate competes on signature alone, and no
+  single winner is an error naming the places. This reverses 2026-09-07's "scope
+  beats signature" (whose compromise — pick the nearer scope, warn when a more
+  specific signature was discarded — still chose), and it made the
+  canonical-ambiguity carve-out of 2026-09-21 redundant: that rule existed to
+  stop `Own` beating `Import` in silence, and the silence is gone. **Nothing in
+  std or the examples depended on it** — the churn was six tests that existed to
+  encode the old rule.
+- **One declaration is one candidate.** Deduping the pool by declaration was
+  needed before the new rule could mean what it says: a fn reachable both as an
+  implicitly available name and as a member of the file's own module (std's
+  `test` inside an annex) is not an alternative to itself. Implicit resolution
+  needed the same dedupe.
+- **Implicit resolution keeps the rung ladder**, deliberately: an implicit has no
+  written call site to annotate, and two same-named types (a program's own
+  `ListYield` beside std's) have no distinguishing selector at all.
+- **A selector that changes nothing warns** [fn-overload-at] — noise in a
+  disambiguation spelling reads as evidence that something is ambiguous. std had
+  one (`remove_first@core.list`), now deleted.
+
+**A function is declared *on* a struct, not `@`-scoped to it (2026-09-26, user
+decision — built).** `fn cmp@Person(…)` is gone. A function attaches by being
+written **inside the struct's body**, or by being the file's fulfilment of one of
+the struct's obligations (`: Ordered<self>` plus a `cmp` in the same file)
+[fn-attached]. Both are "declare something on the struct" — the shape actors and
+qualifiers already use — and the rule that falls out is the one worth
+remembering: *everything declared on a struct is imported with it*.
+
+- **Two routes, two representations.** An inner fn is hoisted to module level in
+  desugaring and carries `scoped_to`; an obligation fulfilment is a fact about a
+  *pair*, worked out in resolution (`Resolution::attached`) because the group's
+  members have to be resolved first — and because the import rule needs it, and
+  imports are resolved before anything is checked. The checker reads both through
+  one accessor.
+- **`export`**: an inner fn takes the struct's visibility and writing `export` on
+  one is a parse error; a detached fulfilment of an *exported* type's obligation
+  must `export` too, or the capability would be unreachable where the type is
+  usable. A private type demands nothing.
+- Attachment is same-file **by construction**, which is what the old rule needed a
+  check for. `eq@Bytes` became a plain std overload: an `intrinsic type` has
+  neither route, and `core.*` is visible everywhere anyway — which is the
+  travelling attachment exists to provide.
+
+**Refinements live in their qualifier (2026-09-26, user decision — built).** The
+top-level `refn` is refused, naming the move [qual-refn-scope]. It existed to
+*reconcile* two qualifiers that disagreed, and disagreement is now a question the
+call answers, so the form had no job left. One adjustment made it possible: a
+**constructive** qualifier may have a body, since what makes a qualifier
+*predicate* is holding a `qualifies`, not holding braces — `Sorted` is mint-only
+and still has something to say about an insert that keeps it.
+
+**Three demo defects, and two Rust-backend defects behind them (2026-09-26).**
+
+- **A nested string literal inside `${…}` did not lex** [interp-nested-str] —
+  `"${name ?: "unknown"}"`, the most ordinary thing to write in an interpolation,
+  made the file an unterminated string. The fragment scanner now skips a nested
+  literal whole, honouring escapes, and recurses for a literal that interpolates
+  in turn.
+- **A derived call handing back a copy scalar recorded a fate link**
+  [copy-scalar-free], so `return numbers.get(i++)` on a `List<Double>` was
+  refused as a view and asked for a `copy` neither backend would emit. `proj Int`
+  *is* `Int`, which `Ty::qualify` already erased from the type; now the link goes
+  too. Lifting it exposed a **Rust** defect the checker had been masking: a
+  generic `-> proj(list) T` renders `&T`, so an instantiation at a scalar needs a
+  deref at the call — added there, where both facts are known, with the
+  comparison path deferring to it rather than derefing twice.
+- **Handler constructor arguments were never checked** against their parameters
+  [effect-use]: a handler has no overload set, so nothing reported that
+  `numbers: NE List<Double>` had accepted a plain list. The second Rust defect
+  surfaced here: a dependent claim's slot path was emitted verbatim, so a handler
+  *state field* in an `assert!(i is Idx(numbers))` came out as `numbers` instead
+  of `self.numbers`.
+
+**Smaller items of the same sitting (2026-09-26).**
+
+- **`for _ in …`** binds nothing on both backends [placeholder]: Rust takes the
+  wildcard pattern (`mut _` is not a binding it accepts), Kotlin drops the `val`
+  line for a pass loop and names an unreachable local for a native `for`, which
+  has no wildcard form. Two such loops in one function are independent.
+- **`Checked<T>` moved into `core`** with `take` renamed to **`detach`**
+  [checked-type], and the fallible **`swap` answers one** [col-bounds]: the
+  failure it reports is exactly the kind with no symptom at the call site. The
+  total `swap` — both indices claimed — still answers `None` and discharges the
+  inner obligation itself.
+- **`salvo run` defaults to the rust backend**, as `salvo test` already did, and
+  **`salvo test` takes `--clean-target`** [cli-run] [test-filter]. The defaults
+  differ deliberately: a test run keeps its generated harness, so a failure can
+  be read.
 
 **`with` in a deduction clause: implicits that are filled together
 (2026-09-26, user decision — built).** The shape is the user's: state the relation
@@ -20313,3 +20419,308 @@ snapshot diffs.
   stays a value (`import core.list.size`). The synthesized dotted key is
   short-lived, so `ModuleItems::name_ref` exchanges it for the
   declaration's own `&'p str` before it enters the scope maps.
+
+## Shared mutable state (`Cell`) — the design, recorded (open DECISION)
+
+Moved here from ROADMAP.md with the 2026-09-26 consolidation: the design is
+complete and the *question* — whether shared mutable state joins the language at
+all — is the live item, which ROADMAP.md's sequence carries.
+
+**Deliberately not before phase 5** (user decision 2026-09-09): the OTP model has
+actors own their state and message-pass, so it may remove this item's
+motivation entirely — and deciding it earlier would spend the same
+language-design call twice.
+
+An idea developed 2026-09-03 while looking for a way to keep *immutable*
+effects testable (a recording double needs state). It stands on its own
+merits and is **not** tied to that use case — most of the patterns below
+have nothing to do with effects. Open **DECISION**.
+
+### The problem it addresses (and what it unlocks)
+
+Salvo's mutation rule is about the **handle**: you may mutate through a
+path only if that path is `Mut`, which is exclusive. Several ordinary
+patterns need the opposite — mutation through a *shared* path:
+
+- two lambdas appending to one accumulator (today the first one to mutate
+  a capture *consumes* it, so the second is an error and the original is
+  dead afterwards — verified: "`total` cannot be used here: it was
+  consumed (moved) by a lambda that captures and mutates it");
+- memoization / lazy initialization behind an immutable handle;
+- counters, metrics, id generators shared by several holders;
+- a stateful handler of an effect whose other handlers want to be shared;
+- **a producer writing to a collection its caller keeps** — refused outright
+  since 2026-09-08 [iter-mut-param], and the case with the sharpest
+  requirements of the five (see "Producers: the `Mut`-parameter case (option
+  C)" below).
+
+### The proposal: a capability qualifier, not a container type
+
+`Cell` joins the intrinsic capability qualifiers (`Mut`, `Linear`,
+`once`, `proj`) rather than arriving as a std generic type
+`Cell<T>`. The family fits exactly — each intrinsic qualifier exists
+because it needs "a representation choice, a flow rule, a subtyping
+direction or a restricted position that no user declaration could
+supply", and `Cell` needs the first three:
+
+- `Mut T` — mutation permitted, only through *this* handle.
+- `Cell T` — mutation permitted through *any* handle.
+
+**Benefits over a container type:**
+
+- **No wrapper noise.** `count = count + 1` and `if count > 3`, rather
+  than `set(count, get(count) + 1)` and `if get(count) > 3`. Reads and
+  assignments keep ordinary syntax; only the *permission* differs.
+- **It inherits machinery instead of adding surface**: `canbe Cell`
+  opt-in on declarations, qualifier erasure, overload selection, and
+  D1's stripping rule — where `Cell`, being a capability rather than a
+  claim about contents, is never stripped (like `Mut` and provenance).
+- **Family membership is the documentation.** "Capability qualifiers say
+  what you may do with a handle" already exists as a concept; a std
+  container with its own API is a second thing to learn.
+- Danger stays visible in the type either way: `Cell Int` at every use
+  site, greppable, opt-in — unlike interior mutability hidden inside an
+  ordinary type.
+
+### Representation, and why it cannot panic
+
+- **Copyable contents → Rust `Cell<T>`**: `get`/`set` only, no borrow
+  guard exists, so no runtime check and no panic is *representable*
+  (verified: a shared id generator, `ids: 1 2 3`).
+- **Collections → Rust `RefCell<T>`**: a guard exists, but the only
+  operations are std primitives whose define templates the compiler
+  controls (`${list}.push(${value})`), so no Salvo code ever runs inside
+  the borrow (verified: a recording double shared by a capturing logger
+  *and* used directly, all three writes recorded).
+- Kotlin: a plain mutable field. No parity gap — both backends accept the
+  same programs.
+
+**The rule that keeps this true:** a cell may be mutated by assignment
+and by *standard-library* primitives, but never lent to a user-defined
+`Mut` parameter. Handing `&mut` into user code is what puts a borrow
+guard around a user call, which is precisely where B2's reentrancy panics
+came from (see E1a). One sentence to teach: "you can mutate a cell; you
+cannot hand its insides to a function you wrote."
+
+### Rules it drags in (the real design work)
+
+- **No state qualifiers on cell contents.** A claim like `NonEmpty` is
+  about contents, and contents can change through a handle the compiler
+  is not looking at — so `qualifier … of Cell …` must be rejected for
+  *state* claims. Provenance claims are fine (they are about where the
+  handle came from). This is the one genuine soundness rule, enforced at
+  the declaration.
+- **No shared-fate links.** Reads copy rather than lend, so
+  `let v = count` is an independent value: no link, no poison. Simpler
+  than the field case, and a direct consequence of "no handle into the
+  contents".
+- **Linear contents need `replace`.** Overwriting a cell holding a
+  `canbe linear` value would silently drop an obligation; `replace(cell,
+  v) -> T` hands the old value back and transfers the obligation, while
+  plain assignment over linear contents stays an error.
+- **Deductions say nothing.** A fn taking a `Cell` and writing it needs
+  no `Mut`, so its signature cannot report the write — acceptable only
+  because the first rule leaves no claim worth preserving.
+
+### The concession being accepted
+
+`Cell` is a sanctioned hole in "no hidden shared mutable state": two
+holders can surprise each other, and the ownership analysis stops helping
+inside a cell. That is the price of shared mutable state in any language
+with an ownership discipline; what makes it defensible is that it is
+visible in the type rather than hidden behind an ordinary one.
+
+### Producers: the `Mut`-parameter case (option C)
+
+Added 2026-09-08 with the decision that refused it for now
+([iter-mut-param]; the divergence that forced that is in COMPLETED.md, under
+"Defects found and closed").
+A producer taking `sink: Mut List<Int>` and appending to it as it yields is
+the pattern, and it is the most demanding customer this roadmap has:
+
+- **The handle outlives the call.** A producer's parameters are captured by a
+  *factory* that may mint a pass at any later time, so this is not "two
+  holders in one scope" — it is a handle stored for an unbounded period, which
+  is what makes `Rc<RefCell<…>>` (rather than a scoped `&mut`) the only Rust
+  shape that works. Every other case on the list above is at least *nameable*
+  within one scope.
+- **It multiplies.** A factory mints many passes, each capturing the same
+  cell, and they can be alive at once (`zip(p, p)`). So the borrow discipline
+  has to hold between *passes*, not just between a producer and its caller —
+  and that is exactly where a `RefCell` would panic at run time, the outcome
+  "Representation, and why it cannot panic" is written to avoid.
+- **It makes replayability a question rather than a promise.** `Iter<T>` is a
+  factory whose contract is that a second `for` starts from the beginning
+  [iter-protocol]. Sharing a cell with the caller keeps the *elements*
+  replayable while the side effect accumulates, so two loops over one factory
+  stop being interchangeable. Whether that is acceptable is a language call,
+  not a representation detail.
+
+**If `Cell` lands, this is the acceptance case to run first**, because it
+exercises the two hard parts together: a cell captured for longer than any
+scope, and several live holders derived from one capture. The narrower version
+— a producer returning `once Iter<T>`, where exactly one pass exists — needs no
+`Cell` at all and may be answerable with **shared fate** ([fate-link]) once a
+pass *is* the state machine (roadmap I2c); that is recorded under "Producer
+parameters: `Mut` refused" and is the cheaper thing to try first.
+
+### Relationship to E1
+
+`Cell` is **not load-bearing** for effects. E1's chosen strategy (B9
+handler fusion) keeps handler members able to mutate dependencies they
+receive as parameters, so recording test doubles need no interior
+mutability and effects need no immutable/mutable distinction. `Cell`
+therefore stands on the lambda/memoization/counter cases, which are real
+limitations today, and can land independently of the effects work if it is
+wanted at all.
+
+
+## Regions — the design, recorded (designed 2026-09-10, unbuilt)
+
+Moved here from ROADMAP.md with the 2026-09-26 consolidation: the design calls are
+made and recorded below; what is left to *decide* and to build is in ROADMAP.md's
+sequence.
+
+Raised by the user: model Vale-style regions as effects — a scope explicitly
+opens a region, functions declare that they use the caller's region, the way
+`try`/`throw` works. Designed across one session (this supersedes the first
+write-up of the same day; the decision record is in COMPLETED.md). The design
+calls are made; the build is scheduled **into phase 5**, where its customers
+live.
+
+### What transfers from Vale, and what does not
+
+Vale's regions exist to remove *generational-reference* runtime checks; that
+motivation does not transfer — Salvo's safety is static. What transfers is
+**region-scoped data** (a value that may not outlive a scope) and
+**scope-wide immutability** as a fact the checker can use. Said plainly: a
+region is a lifetime with a coarser grain and a friendlier name, and it
+spends part of the "no lifetimes in the source" premise deliberately — one
+binder per scope instead of a lifetime per value.
+
+### The decided reading: R1 — values may not outlive their region
+
+R1 (region-scoped data plus scope immutability) is the design. R2 — the
+region *owns cleanup obligations* and bulk-discharges them at close — is
+**rejected** (user, 2026-09-10): linearity cleanup stays explicit, per path,
+because discharge can be a *choice* (`stop` vs `join` on a thread handle),
+can need context the scope does not hold (`remove(cache, handle)`), and
+discharge functions can use effects, which an implicit close has no business
+supplying (the first two are the examples recorded under L8). Regions manage
+**memory and lifetime, never obligations** — linear values are exempt below —
+which also avoids the `defer` trap ("a block whose end runs cleanup") by
+construction rather than by rule.
+
+### The design
+
+- **`effect Region`, with an intrinsic handler.** `Region` is an ordinary
+  effect whose members are `reg` and `unreg`; the `region { … }` delimiter
+  registers the **intrinsic handler** for its scope. This keeps "an effect is
+  a capability with a handler" true — `Throw` remains the single handler-less
+  exception — while regions inherit the full effect machinery: `[Region]` in
+  effect lists, outward propagation, "no delimiter above you" diagnostics,
+  innermost-wins. No labelled regions in v1 (precedent: no labelled throws).
+  `main` may open `region { }` but may not declare `[Region]` — no caller.
+- **`Reg`, an intrinsic provenance qualifier**, marks membership — provenance
+  because mutation can never invalidate where a handle came from. Merely
+  *holding* a `Reg T` needs no effect entry (having one proves a region is
+  open below you); `[Region]` is declared by whoever calls `reg`/`unreg` or
+  constructs into the caller's region, per ordinary effect rules. The
+  register/region double reading of `reg` is intentional; spec prose must
+  keep the bare word "register" for handlers and `use`.
+- **Transitive through projections**: a projection of a `Reg` value is `Reg`
+  (`node.name` on a `Reg Node` is `Reg Str`), so inner tags carry no
+  information and are rejected (`Reg List<Reg Node>` is an error; write
+  `Reg List<Node>`). Whether propagation-through-projection becomes a
+  *general* per-qualifier property (L8 wants something adjacent for
+  obligations) is **deferred until more examples exist** (user, 2026-09-10).
+  It cannot be uniform: `Authenticated Request` must not project to
+  `Authenticated Str`.
+- **Inverted defaults — regional by birth.** Every value constructed in
+  region context (lexically inside `region { }`, or in the body of a fn
+  declaring `[Region]`) is `Reg`. `reg(v)` moves an outside value in — a
+  consuming deduction, no copy. `unreg(v)` takes a copy out:
+  `fn unreg<T>(value: Reg T) [Region] -> T` — the copy is built into => value
+  the function, since duplicable handles mean exclusivity can never be
+  proven; it **elides when the argument is a fresh construction**, which is
+  also the opt-out-at-construction spelling (`unreg(Summary { … })`). `copy`
+  respects ambient placement (a copy made in region context is `Reg`);
+  `unreg` is the override.
+- **Exemptions.** Copy scalars (`Int`, `Bool`, …) are never `Reg` — no
+  lifetime to manage, nothing to tag. Linear values are implicitly
+  un-regional: a `: Linear` construction in region context is an ordinary
+  value under the existing per-path discharge rules (see the R2 rejection).
+- **`Mut` interplay — the freeze.** A `Reg` value with a `Mut` handle follows
+  today's rules unchanged (exclusive handle, fate links, deductions) — this
+  is how anything is *built* inside a region, and it matches the arena
+  reality (allocation hands back exclusive access). The **freeze** is
+  dropping the `Mut` — widening (`^Mut`) or moving into a non-`Mut` position —
+  after which the value gets the regional treatment: handles freely
+  duplicable, **no shared-fate links**, and **state qualifiers permanent**
+  (nothing can ever mutate a frozen value, so `Reg NonEmpty List<Int>` never
+  loses `NonEmpty` — the exact mirror of `Cell`'s "no state qualifiers on
+  contents").
+- **The escape rule.** Nothing carrying a region's provenance may escape its
+  delimiter — as the block's value, by `return` or `break`-with-value, or by
+  storage into an outer variable or literal. The existing consumption/flow
+  analysis is the machinery; the diagnostic names the escape event and the
+  remedy ("`unreg(v)` to take a copy out"). Ordinary locals declared in the
+  block are untouched — the region delimits only its members, and both
+  disciplines coexist in one scope with the qualifier saying which one a
+  value is under.
+
+### What it retires, for frozen `Reg` values
+
+| today | frozen `Reg` value |
+|---|---|
+| returning a kept parameter's projection is a move / needs `copy` | legal — the return borrows the region, not the parameter |
+| derived returns (`proj(p)`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
+| shared fate: links, root mutation poisons derivatives | no links exist; nothing can mutate a frozen root |
+| storing one value in two literals consumes it at the first | handles duplicate freely |
+| re-test (`is NonEmpty`) after every mutating call | claims are permanent |
+
+Honest framing, kept from the first write-up: this is a **second axis**, not
+a reduction of the first. Deductions, `Mut`, shared fate and `Linear` all
+remain, unchanged, for un-regional values. The D7 watch-list entry
+`Local`/`Escaping` is this idea under a smaller name; fold it into this
+design when phase 5 picks it up.
+
+### Backend lowering, staged
+
+- **Kotlin**: erased entirely — `region { }` is a plain block, `Reg T` is
+  `T`, `reg`/`unreg` are identity/copy. The same story as deductions
+  [qual-erasure].
+- **Rust v1 [rs-region-rc]**: `Reg T` → `Rc<T>`, `reg` → `Rc::new`, `unreg` →
+  clone-out. Zero lifetimes in generated signatures — the first write-up's
+  concern that regions put `'r` everywhere is answered by staging, not
+  denied. The escape rule is enforced *semantically* from day one even
+  though `Rc` would not dangle, deliberately, so v2 is a pure representation
+  swap. Flag: `Rc` is not `Send` — the same phase-5 blocker as
+  [rs-fn-field].
+- **Rust v2 [rs-region-arena]**: a real arena (hand-rolled in emitted
+  `core/` while output stays a single `rustc` invocation), `Reg T` → `&'r T`,
+  one mechanical lifetime per delimiter, `[Region]` fns get `'r` threaded
+  like an effect parameter. The recorded hard part is drop glue for regional
+  collections (a `Reg List` owns a heap buffer that must not leak past the
+  region).
+
+### Why phase 5 (user, 2026-09-10)
+
+An actor in the OTP model *is* a region: a private heap, bulk-freed on
+death, with "leaving the region requires move/copy" as the sendability rule.
+The null hypothesis for the phase-5 design session is that `region { }` is
+the **sequential special case of an actor** — one that runs inline and dies
+at the brace — giving one concept instead of two. The escaping-closure fix
+[fate-lambda] is already a phase-5 prerequisite, and R1 is its notation.
+Deciding regions standalone earlier would spend part of the same design call
+twice — the reasoning that already deferred `Cell`.
+
+### Still open when phase 5 picks this up
+
+- The exact freeze spelling: `^Mut` as an expression, freeze-by-position
+  only, or both.
+- Cross-region operations (Vale's "read an outer region while building an
+  inner one") — deliberately out of v1.
+- `unreg` of a deeply regional structure must copy deeply — same per-backend
+  rules as `copy`, including its refuse-rather-than-diverge cases.
+- Folding D7's `Local`/`Escaping` watch-list entry into this design.

@@ -1,1684 +1,115 @@
 # Salvo Compiler — Roadmap
 
-What is left to build, with the decisions and plans already made about each
-item. The record of what is *already* built — and the reasoning that got it
-there — is [COMPLETED.md](COMPLETED.md); this document assumes it and points
-into it rather than repeating it. The two replaced PROGRESS.md (2026-09-09).
+What is **left** to build. Everything finished — the milestones, the four
+completed sequences, the options explored and abandoned, and every closed defect
+with its repro — is in [COMPLETED.md](COMPLETED.md); this document assumes it and
+points into it rather than repeating it.
 
-Companion documents: [docs/language/](docs/language/) is the narrative spec (source of
-truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a labeled
-rule (`[qual-erasure]` style) with the compiler decisions under it;
+Consolidated 2026-09-26 (user request): the finished sections that used to fill
+this file are gone, their reasoning already recorded in COMPLETED.md's decision
+log, and what remains is **one sequence**.
+
+Companion documents: [docs/language/](docs/language/) is the narrative spec
+(source of truth); [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) states every feature as a
+labeled rule (`[qual-erasure]` style) with the compiler decisions under it;
 `BACKEND_SPEC.<backend>.md` ([kotlin](BACKEND_SPEC.kotlin.md),
-[rust](BACKEND_SPEC.rust.md)) repeats rules with backend interpretation details
-and adds backend-prefixed rules (`kt-…`, `rs-…`) — load it only when working on
-that backend. Labels are referenced from compiler code and tests
-(`grep -rn '[rule-name]'`); backend-prefixed labels may only be referenced from
-that backend's crate. Keep all of these in sync when adding or changing
-features. Detailed feature mechanics live in the specs; these two documents keep
-the decision log, the plan, and the hard-won operational knowledge.
+[rust](BACKEND_SPEC.rust.md)) repeats rules with backend interpretation and adds
+backend-prefixed rules — load one only when working on that backend. Labels are
+referenced from code and tests (`grep -rn '[rule-name]'`).
 
 ## How to read this
 
-- **Items marked DECISION need a language-design call before implementation**,
-  and that call is the user's: state the options, the trade-offs and a
-  recommendation, then wait (AGENTS.md's first invariant). Everything else is
-  engineering under decisions already made.
-- **Standing constraints on every item here.** Unsupported constructs are
-  *errors*, never wrong output ([backend-never-wrong]). The two backends must
-  agree observably; a divergence is closed by restriction or by faithful
-  emission, never by silently cloning mutable data (the backend-parity
-  principle, in COMPLETED.md). Backwards compatibility is not a requirement, so
-  a rule change is a sweep of every example rather than a shim.
-- **Section names in quotes point into COMPLETED.md** unless the section is in
-  this file. The two documents were one until 2026-09-09, so an "above" or
-  "below" in moved text may mean the other document.
-- **"The sequence" is finished** (user decision 2026-09-09, all five phases
-  complete 2026-09-16), and so are **"The second sequence"** (all six steps
-  complete 2026-09-18) and **"Refinement types — the build sequence"** (all
-  seven steps complete 2026-09-24). All are kept as the record of the order
-  the work was done in, and the themed sections below stay tagged with the
-  phase they belonged to. With no sequence in progress, the work is: the
-  **open defects**, then the **decisions waiting on the user**, then whatever
-  those decisions schedule.
+- **The sequence is the order of work.** Take the next unblocked item; nothing
+  below step 1 is blocked on anything above it except where it says so.
+- **A `DECISION` needs a language-design call before implementation**, and that
+  call is the user's: state the options, the trade-offs and a recommendation,
+  then wait (AGENTS.md's first invariant).
+- **Standing constraints on every item.** Unsupported constructs are *errors*,
+  never wrong output [backend-never-wrong]. The two backends must agree
+  observably; a divergence is closed by restriction or by faithful emission.
+  Backwards compatibility is not a requirement, so a rule change is a sweep of
+  every example rather than a shim.
 - **Before starting anything**: read COMPLETED.md's "Gotchas / lessons learned"
   for traps in the area you are touching, and its decision log for whether the
   question was already answered.
 
 ## Where we are
 
-The arcs that are *complete*: shared fate and borrow emission (S1–S3), must-use
-linearity with a designated `close` (L6, L7a–d), the effects arc through handler
-dependencies, `throw`/`try` and effects on fn types (E1, E3 steps 1–3),
-places and field narrowing (P1), deductions with refinements (D1, D3), dot-names
-(N1), overload resolution (finalized), the std string and sequence surfaces
-(S-Str, S-Seq), the iterator reduction to `next` (R0–R5 plus the generic
-drive), the collections (S-Col) and **the filesystem (S-IO, phase 4 —
-complete 2026-09-14, bytes and worked example included)**. What is left is
-below, grouped by theme; **"The sequence" is the order it will be done in**,
-and each themed section is tagged with the phase it belongs to. **All five
-phases are complete** (phase 5 landed 2026-09-16): actors spawn, send, park
-continuations, bridge into `main`, depend on one another, watch each other die
-and hold queues of obligations — on both backends with identical output, with a
-worked example in `examples/actors/`. **"The second sequence" is finished too**
-(steps 1–6, 2026-09-17/18): the `waitfor` package, the task kernel, `on_idle`,
-multi-effect handlers, `core.time` — now module `time` — and the coupling stance,
-each recorded below with what it left behind. **The refinement-types sequence
-is finished too** (all seven steps, 2026-09-24, above). With no sequence in
-progress the work is the open defects below, then the decisions waiting on
-the user — SHAREABLE_HANDLERS.md's calls were
-**all taken 2026-09-19** (SH-8 was fixed 2026-09-18 as the prerequisite; the
-round, including the same-day SH-6 revision to shape-based classification, is
-in COMPLETED.md's log), so the shareable-handler build is pure engineering:
-**SH-3, SH-1 and SH-2 are built** (2026-09-19, one day — monitors and mixed
-handlers end to end on both backends with identical output; [monitor-handler],
-[mixed-handler], [rs-mixed], [kt-mixed]; COMPLETED.md's log). SH-9's
-direct-answer default is enforced by construction meanwhile (no `replyto`
-inside a mixed handler until `defer`). **SH-4 is built too** (same day: the
-occupancy edge and the servant node, no-downgrade classification, the upcall
-cycle refused with the three remedies — COMPLETED.md's log). **And SH-5(d) is built**
-(same day: the capability deleted whole, the block edge site-inferred with
-construction-propagation, the sweep done — COMPLETED.md's log). **And SH-7's sugar is built**
-(same day, zero emitter changes — a `use` of a spawn expression; dep clauses
-wait for the `using` rename). **And `defer` is whole** (2026-09-19, two same-day slices: the word, the
-contract point with its four escape hooks, upper-bound checking, forwarding
-deferral, then **parking inside mixed handlers** — the servant-continuation
-emission on both backends, the checker lift of the staged refusal, the
-servant's gate treatment in the graph; [defer-deduction], COMPLETED.md's
-log). **And Salvo can test itself** (2026-09-23, user decisions of that day):
-`test "name" { … }` blocks in `*.test.sv` annexes, `salvo test` running them
-through a generated Salvo harness with one report on both backends, `std.test`
-for assertions, and `std/heap.sv` — moved out of `demo/` — as the first std
-module with a suite of its own. TESTING.md is retired with its own charter's
-blessing; the record is COMPLETED.md's log, the rules are [test-decl] …
-[test-report], and what was cut from the MVP is "Testing — the MVP is built,
-here is the rest" below. **With that the shareable-handler design is built end
-to end and SHAREABLE_HANDLERS.md is retired** — its record lives in COMPLETED.md's
-decision log. First-slice cuts to lift later: mixed handlers with
-dependencies (reroute the dependent-member machinery through handler-local
-dispatch — and when it lands, the servant-send ambiguity refusal gets its
-first live trigger and needs a test: a bare sibling call whose name an
-available effect member also claims requires `@self`, built 2026-09-19 but
-dormant while deps are refused), overloaded servant members, and several
-faces. Servant sibling calls and `k@self` in mixed handlers landed
-2026-09-19 (user decision; COMPLETED.md's log). **And the shareable-by-default
-arc is built** (user decisions 2026-09-20, both sittings the same day —
-`use` binds shareable, `use local`/`[local E]` are the opt-outs, monitor
-deps as owned handles, priced lock waits, generic monitors; COMPLETED.md's
-log and the section below for what it leaves behind).
-
-## Refinement types — the build sequence — ✅ finished 2026-09-24 (user decisions 2026-09-23)
-
-All seven steps built and recorded in COMPLETED.md's log ("Refinement types,
-step 0" … "step 6", plus the design entry "Refinement types via qualifiers —
-the design, decided whole"). REFINEMENT_TYPES.md is **retired** per its
-charter — its argument trail lives in the log. Kept as the record of the
-order the work was done in; the open leftovers each step names below are the
-live items.
-
-0. ✅ **Plain iteration vocabulary** — built 2026-09-23 (COMPLETED.md's log,
-   "Refinement types, step 0"). `reversed(list)`, `enumerate(list)`,
-   `enumerate_rev(list)` in `core.list`, with the module's first test annex.
-   The probe answered: the element is **not** a tuple but the view struct
-   `Enumerated<T> { index: Int, elem: proj T }` — a tuple literal cannot
-   store a projection ([fate-derived-readonly]), a `proj` field can
-   [proj-field]. Consequence for step 5: the claimed respell lands on the
-   struct's `index` **field** (`index: Idx(…) Int`), not on a tuple
-   component.
-1. ✅ **The respell round** — built 2026-09-23 (COMPLETED.md's log,
-   "Refinement types, step 1"): value-argument blocks on qualifiers
-   (`Heap<T>(?Ordered<T>)`, `?` on implicits only), **all-or-none type
-   generics** at use sites, `proj[from: x]` → `proj(x)`, `-> T as Q` →
-   `-> +Q T`, **and the tag reclassification** — `provenance qualifier` onto
-   `Emitted`/`Ok`/`Err`/`Thrown`, the round's one semantic change (they
-   start surviving exhaustive stripping and composing without `with`; sweep-
-   check nothing relied on the old stripping), plus the provenance range
-   documentation in docs/language/ (authority and protocol role, one kind).
-   Sweep: std, specs, examples, corpus, inline test sources.
-2. ✅ **Local slots** — built 2026-09-23/24 (COMPLETED.md's log,
-   "Refinement types, step 2"); the `Span`/`substr`/`slice` driver moved
-   to step 3, where the consuming overloads make it observable. As
-   planned: qualifier value slots
-   (`qualifier KeyOf<K, V>(map: Map<K, V>) of K`), dependent `qualifies`
-   (subject + one param per slot), `is KeyOf(m)` / `assert!` narrowing,
-   place-filled slots bound to fate roots, conservative cross-value
-   stripping (any `Mut` use of the linked value strips). **Driver:
-   `Span`/`substr`/`slice`** (immutable subjects — no invalidation pressure)
-   plus `KeyOf` local-only.
-3. ✅ **Signatures** — built 2026-09-24 (COMPLETED.md's log, "Refinement
-   types, step 3"). Deferred within it: `binary_search`'s mint needs `+Q`
-   in a union arm (step 5); `KeyOf`'s total `get` follows `preserve`
-   (step 4); the `Bytes` span twin needs same-name-different-subject value
-   slots (unscheduled). As planned: dependent claims in parameter position
-   (sibling-parameter
-   references, proj's rule) and return position (`+Q` trusted in the
-   owner's file / plain checked; `binary_search -> (+Idx(list) Int)?`), the
-   std total overloads (`get`/`swap`/`substr`/`slice`) and minting producers
-   (`binary_search`/`span`), and the delegation-recursion regression test
-   (a total overload delegating to the optional one re-picks itself; drop
-   the claim first — the `first(NonEmpty)` lesson).
-4. ✅ **Preservation** — built 2026-09-24 (COMPLETED.md's log, "Refinement
-   types, step 4"), including `KeyOf`'s total `get`. As planned:
-   `preserve Q` entries in refns and in own deduction
-   clauses (checked against the body like [deduce-gained]), the std audit
-   of which mutators preserve `KeyOf`/`Idx`, propagation limits per
-   [qual-refn-infer].
-5. ✅ **Pass minting** — built 2026-09-24 (COMPLETED.md's log, "Refinement
-   types, step 5"); **the founding example is closed**. Left out, by
-   design: `enumerate`'s claimed `index` field (a dependent claim on a
-   struct field names a value the struct does not contain) and a claimed
-   `keys` pass (the map pass walks a key snapshot). As planned:
-   Yield-clause elements carrying dependent claims with
-   `self.field` slots (`: Yield<self, Idx(self.list) Int>`), proj-link
-   substitution at the mint; `keys` (pass form), `indices`, `rev_indices`,
-   and the claim-carrying respell of `enumerate`/`enumerate_rev` — closes
-   the founding example (`for i in rev_indices(xs) { get(xs, i) }` total).
-   The snapshot form (`keys -> List<KeyOf(map) K>`) waits for the variance
-   round.
-6. ✅ **Constants** — built 2026-09-24 (COMPLETED.md's log, "Refinement
-   types, step 6"): the third slot kind, `InRange(0, 65535) Int`, exact
-   matching. **Two remainders, unscheduled**: literal establishment
-   (`listen(8080)` proving itself — compile-time evaluation of
-   `qualifies`) and constant subtyping (`InRange(10, 20)` fitting an
-   `InRange(0, 100)` position — needs per-qualifier semantics for what
-   the constants *mean*, a **DECISION**-shaped question when it is
-   wanted).
-
-## Shareable by default — ✅ built 2026-09-20 (both sittings; record in COMPLETED.md's log)
-
-The whole arc landed the same day it was decided: `use` binds shareable by
-default (stateless bare, stateful monitor), `use local` opts out, `[local E]`
-accepts a local binding, monitors declare shareable deps captured as owned
-handles, waits under a lock are priced through the deadlock graph (option
-(b)), and — the handoff decision — **generic monitors**: `handler
-CyclicRandom of Random<Int>` shares by default, the per-effect wrappers
-generic exactly as the effect. std's forwarders took `[local E]`; platform
-handlers are assumed thread-safe and classify bare. See [use-local],
-[effect-local],
-[monitor-handler], [effect-handler-deps] and the decision-log entry.
-What it leaves behind, each deliberate:
-
-- **Spawn-inheritance** — ✅ **built 2026-09-20** (the same session it was
-  decided; the record is COMPLETED.md's log): the `with` clause on `use` and
-  `spawn` (superseding the never-built `using` rename), spawn-dep synthesis
-  from the spawning scope, and the lexical-cut lift via one hidden fused
-  handle-bundle parameter (`__Hs_N`, Rust-only, admitted only by
-  `use`/`spawn` in the effect list). `examples/effects` is annotation-free
-  again. See [with-clause], [spawn-inherit], [rs-handle-bundle]. What it
-  leaves behind:
-  - **A `with` item may not have dependencies of its own** — a clause item
-    is a private instance with no scope to resolve them from, so the remedy
-    today is to register it with `use` first. On the *`use`* side the lift is
-    natural (the clause is evaluated in a scope that could resolve them, and
-    the handle machinery is recursive); on the spawn side it stays refused.
-  - **A `with` clause needs the handle form**: a handler whose dependencies
-    take the fusion form ([use-local]'s `local`/actor-effect/generic-instance
-    deps) threads them per call from the scope's fused value, which has no
-    slot for a private instance. Refused by name.
-  - **`main`'s platform-effect parameters cannot be captured** as handles
-    (the host owns those instances). Folded into the platform-handler
-    design round below.
-- **`local` inference**: the checker writing `local` for you, lifting the
-  virality down local-trafficking call chains (the deduction pattern:
-  written validates, unwritten infers).
-- **Generic-instance dependencies stay fusion-pinned**: `handler X
-  [Random<Int>] of E` binds `use local` only. The representation now exists
-  (`__Mon_Random<i64>` — the *of* side shipped), so lifting the
-  `handler_handle_deps` exclusion is engineering: dep fields at the
-  instantiated wrapper type on Rust, `__Has_E`-typed ctor params picking up
-  the instantiation on Kotlin, and the classify blocker goes with it.
-- **One lock behind several faces**: a stateful multi-face handler still
-  binds `use local` only (no backend representation for one lock under
-  several effect types).
-- **A written thread-safety contract for platform handlers** — moved to its
-  own section, "Platform handlers — the thread-safety contract", which
-  carries the divergence record and the parity plan.
-
-## The `?` family — built; pick chains left as a question (user decisions 2026-09-20/21)
-
-The whole round is **done** (2026-09-20/21, five steps in one day): `Nothing` →
-`Never`, the three escapes as `Never`-typed expressions, `^ Q` → `is ^Q` with a
-binding form, `?:`/`?.` for `T?`, qualifier picks with `_`, a guarding `?:`
-narrowing its subject, `waitfor` binder inference, and the arm-mapping re-wrap
-for sub-union values. The record is COMPLETED.md's decision log (one entry per
-step, with what each cost and what it uncovered); the rules are [elvis],
-[safe-call], [pick], [placeholder], [elvis-guard], [waitfor-infer], [qual-lift],
-[expr-escape] and [rewrap], plus [kt-elvis]/[rs-elvis] and
-[kt-safe-call]/[rs-safe-call] in the backend specs. OPTIONALS.md, the working
-document, was deleted with the last step.
-
-### Pick chains — **recorded, not scheduled**: are they useful? (user call 2026-09-21)
-
-The one shape the round leaves unbuilt, and deliberately unscheduled — the user's
-framing: *record it and see whether it is actually useful*.
-
-```
-fn result_or_thrown(…) -> Ok Str | Err Int | Thrown Str
-
-let t: Str | Err Int | Err Thrown Str = result_or_thrown() ^Ok?: Err?: err(_)
-```
-
-Each pick claims arms that pass through as the expression's value; only the last
-`?:` has a right-hand side, with `_` bound to whatever no pick claimed. Decided
-with the rest of [pick] and still standing if it is ever built: picks consume
-arms **in order**, and the **empty pick** (a plain `?:`, which picks the
-non-`None` arms) may appear anywhere in the chain — so on
-`Ok Int | Err Str | None`, `^Ok?: ?: rhs` picks `Int`, then `Err Str`, and leaves
-`None` to the right-hand side.
-
-**Why it is only a question.** The same program is expressible today: one pick
-plus a `when` on the right-hand side says it, and the arm-mapping re-wrap that a
-chain needs is already built [rewrap]. So a chain buys brevity, nothing more —
-and the evidence that would settle it is *a real program in `examples/` or `std/`
-that reads worse without one*. Until such a site turns up, the cost is not worth
-paying blind.
-
-**What it would cost, so the answer starts from a plan.** Not a re-wrap problem
-any more; a structural one: `Expr::Elvis` holds `pick: Option<ElvisPick>`, and a
-chain needs `picks: Vec<ElvisPick>`, with the checker consuming arms pick by pick
-(each one's remainder feeding the next) and both emitters emitting an `if`/`else
-if` chain instead of one conditional. The parser needs the chain loop — the
-lookahead that recognises a pick (`peek_elvis_pick`) already exists and already
-handles the "another pick, or the right-hand side?" question for one pick.
-
-## Mutating through a union arm (DECISION)
-
-Left behind by the 2026-09-20 fix to [rs-narrow-mut] (COMPLETED.md's log and its
-closed-defect entry). One shape is now **refused on Rust and accepted on
-Kotlin**, which is a divergence closed by restriction on one side and therefore
-a decision rather than a resting place:
-
-```
-fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
-    if o is ^Ok {
-        add(o, 7)          // Kotlin: mutates the caller's list
-    }                      // Rust: reported — `o` is read-only here
-}
-```
-
-The parameter renders `&Union2<…>` because an arm's `Mut` is not a claim about
-`o`, and **nothing can ask for the `&mut`**: a written `=> o: Mut` is refused by
-the checker ("a deduction may preserve or drop qualifiers, not add them"). So
-the question is what a `Mut` arm means for the *parameter* that carries it.
-
-- **(a) The arm's `Mut` makes the parameter mutable.** `default_param_mode`
-  reads `type_has_mut_arm`, so the parameter is `&mut Union2<…>` and the peel
-  works. Cost: the Rust signature then disagrees with the checker's contract,
-  which still says the parameter is a kept read — and two arguments naming the
-  same place, which the checker permits as two reads, become two `&mut` borrows
-  and an E0499 on a program Salvo accepted. Fixing *that* means teaching the
-  fate analysis about it, which is the real scope of this option.
-- **(b) Admit the deduction.** Relax "may not add qualifiers" so `=> o: Mut` is
-  legal when `Mut` is present on an arm, and let the inference write it from the
-  body. Cost: a written deduction now means "through an arm", which is a new
-  reading of the clause; benefit: the contract stays visible in the signature,
-  which is what deductions are for, and the caller's obligations follow from it.
-- **(c) Keep the refusal, and refuse it in the *checker*** so both backends say
-  the same thing. Cost: a Kotlin program stops compiling; benefit: the language
-  has one story again, and the remedy (take the payload as its own `Mut List<T>`
-  parameter) is one line at each site.
-
-**Recommendation: (b)**, with (c) as the fallback if the deduction reading turns
-out to cost more than it buys. (a) is the one to avoid: it makes the two sides of
-the compiler disagree about what a signature means, which is how the original
-defect happened.
-
-## Ordering, equality and hashing — the round, and what it left
-
-**The round is complete** (2026-09-22). Its five steps landed in order and
-ORDERING.md, which held the sequence and the reasoning, is deleted; the record is
-COMPLETED.md's decision log, and the rules are [cmp-groups], [cmp-hash-values],
-[cmp-canonical], [cmp-auto], [op-order], [op-equality], [cmp-carry], [cmp-binder],
-[col-membership], [col-keyed-slots], [col-sorted-list], plus "A structure that
-holds an ordering" in docs/language/. In one line each: the three capabilities are
-`params` groups, a canonical is `@`-scoped to its type, `auto fn` generates a
-structural member beside hand-written ones, the operators resolve through the
-groups, a structure or a claim **names the ordering it holds** as a type argument,
-and the four keyed containers plus the `Sorted` list claim keep their keys by the
-ordering or hash their type names — on both backends.
-
-`Ordered<T>` deliberately does **not** carry an `eq`: neither host's sorted
-container consults equality, so the slot would be read by nothing — and keeping
-the two apart is what lets one program hold a `Set<Person>` by all fields beside
-a `SortedSet<Person>(by_age)` by rank without either being a lie. The
-`cmp`/`eq`/`hash` contracts stay **trusted**, as [cmp-groups] already has them.
-
-What the round left open:
-
-- **`fn qualifies@Positive`** — migrating qualifier bodies' `fn qualifies` to the
-  same `@`-scoped shape the canonicals use (separately decided when raised).
-  Handler members stay put: they interact with handler state.
-- **Recursive implicit resolution**, so a tuple or a list can have a `cmp` of its
-  own — its own section below.
-
-The heap plan is **finished** (2026-09-22) and HEAP_QUALIFIER.md is deleted:
-`demo/heap.sv` — a binary heap in user space, which is what the plan existed to
-make possible — compiles and runs on both backends, and every item on its list
-landed that day (COMPLETED.md's log has each: the ordering round, `+Q`
-[deduce-reapply], `swap` [col-bounds], `!is` [is-not], `+=` [op-compound]). Five
-defects fell out of building them, all closed: a hover-only `proj proj`, a
-literal index on the Rust backend, implicit arguments dropped for a callee the
-checker had not yet walked, a forwarded implicit needing a convention adapter,
-and an assignment to a non-place reaching rustc.
-
-## Recursive implicit resolution — so a tuple can have a `cmp` (found 2026-09-22)
-
-[col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
-do, comparing lexicographically", and that is true of the two **backends** rather
-than of the language: `core.compare` declares `cmp` for the intrinsic scalars
-only. It cannot declare one for a tuple, because
-`cmp<A, B>(a: (A, B), b: (A, B)) -> Int` needs `?Ordered<A>, ?Ordered<B>` and
-[implicit-resolve] **skips a candidate that itself needs implicits** — a rule
-recorded as "out of scope for now, and silently skipping it is better than picking
-it and failing later".
-
-Lifting it (resolve a candidate's own implicits recursively, bottom-up, and refuse
-a cycle) would make the claim true in Salvo and would let a keyed container over a
-tuple or a list name its ordering like any other. Found while wiring the keyed
-containers' runtimes, where the gap is what stopped the constructors from asking
-for the capability.
-
-**Now a prerequisite, not an optional refinement** (2026-09-26): the user's
-decision that the keyed constructors take the capability makes this the thing
-standing in the way. With `sorted_set_of<T>(..., ?Ordered<T>)` declared, a
-`SortedSet<(Int, Int, Int, Int)>` has to resolve `?cmp` at the *tuple*, and
-`core.compare` has no `cmp` for one — so a program that works today stops. The
-lift has two halves, and the second is the larger:
-
-1. **Resolution** — `resolve_implicit_fn_at`'s one-line skip ("a default that
-   itself needs implicits would have to be resolved recursively; out of scope
-   for now") becomes a recursive resolution with a depth cap and a cycle
-   refusal. Contained.
-2. **Emission** — a filled implicit that *itself* needs implicits has to be
-   handed its own, so `ImplicitArg::Resolved` needs nested arguments and both
-   backends' adapter closures have to pass them (`cmp((A, B))` calling
-   `cmp(A)`/`cmp(B)`). `implicit_args` records no nesting today, so this is
-   where the work is.
-
-The cheaper alternative, with its cost stated: declare the tuple and `List<T>`
-`cmp`/`eq`/`hash` as **intrinsics**, which is what the backends already do
-structurally (`Vec<T>: Ord`, `__salvoCompare`). No recursion needed, and it
-*documents* the status quo — but it freezes it: an element type's own declared
-identity would be ignored inside a tuple or list key, because the host compares
-structurally. That is already true today; declaring it makes it look intended.
-
-## Overload resolution — no silent scope winners (direction decided 2026-09-21, unscheduled)
-
-The user's intent, stated while deciding the ordering round's canonical
-placement: **reject scope-based silent winners everywhere** — ambiguity
-between fitting candidates should be an error naming the selector
-spellings, not a resolution by rung. The round's decision 9 (ambiguity
-around an `@`-scoped canonical always errors, explicit and implicit
-alike) is the first installment; the rest is deferred to this item so it
-can be designed as a **consistency pass across features** rather than
-piecemeal. What it revisits:
-
-- [fn-overload-scope]'s "scope beats signature" (user decision
-  2026-09-07, with its warning-plus-`@module` confirmation mechanism) —
-  the largest piece; the warning machinery suggests the errors can name
-  their remedies the same way.
-- What counts as a *silent winner* versus *designed shadowing* has to be
-  drawn feature by feature: a later `use` shadowing an earlier handler is
-  interception semantics, not an accident ([effect-member-overload] and
-  the outward-binding rule), and a fn-typed local shadowing a name
-  outright is the caller's explicit choice. The pass should list every
-  resolution-by-position rule in the spec and decide each.
-- Migration: erroring where code silently resolved today sweeps std and
-  examples; no compatibility machinery (per the invariant), but the sweep
-  is why this is its own item.
-
-## Value-level backend parity for hash and random (recorded, not scheduled)
-
-Decided 2026-09-21 (the ordering round's decision 13, COMPLETED.md's log):
-callable `hash` lowers to
-each backend's **native** hashing, so hash *values* diverge across
-backends — accepted deliberately, on the analogy of the two backends
-generating different random numbers. The shape and the high-level
-guarantees are identical (`eq(a,b)` ⇒ `hash(a) == hash(b)` within one
-execution); the exact values are not, and per-run divergence on one
-backend (a seeded hasher) is within contract. This item records the
-possible future reversal, for hash and random *together*: language-defined
-algorithms implemented identically in both runtimes, if value-level
-reproducibility across targets ever earns its cost (the rejected sketch:
-FNV-1a 64 over a canonical byte encoding — length-prefixed strings,
-fields in declaration order, arm index before payload). Until then a
-program must not print or persist a hash value and expect cross-backend
-identity — an example's `expected.txt` cannot contain one, the posture
-random already has.
-
-## Group borrowing — the ladder (building; steps ①–③ landed 2026-09-24)
-
-Every rung has landed; the working document folded into COMPLETED.md's
-decision log and the specs on 2026-09-25 and was deleted, per its charter.
-What it decided is in the log entries (2026-09-24 and -25) and in
-[proj-mut], [elem-distinct], [col-noteq], [col-update], [col-locate],
-[canbe-entry], [deduce-field], [qual-field-place], [rs-loc] and
-[rs-elem-mut]. Status:
-
-- **① BUILT** (2026-09-24, COMPLETED.md's log): mutable element handles —
-  [proj-mut] + [rs-elem-mut], P-9's mode-inferred bindings. `List<Mut T>`
-  lends; two read handles coexist; mutation poisons siblings, not the
-  acting handle; Rust renders statement-scoped `get_mut` splices and
-  captured-index virtual bindings; the v1 cut (bound mints only from a
-  direct `get(place, i)!`) is a loud codegen error.
-- **② BUILT** (2026-09-24, COMPLETED.md's log): `NotEq` awareness —
-  [elem-distinct] + [col-noteq]. Element links carry the minting
-  index's identity (erased on reassignment of the index), poison consults
-  a live `NotEq` claim before killing a sibling, one call may take two
-  proven handles (`salvo_pair_mut`, statement position only — the loud v1
-  cut), and the [qual-depend] reassignment-strips defect found en route is
-  fixed. **Leftover, mostly closed 2026-09-25:** a mutable element handle
-  beside its *container* in one call used to fail at rustc (E0499/E0502)
-  rather than at the checker, and the recorded plan was to refuse it.
-  Both reproduced instances are fixed instead, which is the better outcome:
-  the **anchored `canbe in` form** lowers (its anchor *is* the container
-  parameter, so the pair shares it rather than borrowing it twice
-  [rs-loc] — and that form is now how a handle travels beside its own
-  container), and a **read before a mutation in one expression** is hoisted
-  [rs-mut-arg-hoist]. What is left of the note: a handle beside a *read
-  projection* of its container in one call, where neither applies because
-  the earlier sibling is neither a place nor coverable — no repro in hand,
-  and the hoist reports the mutable-data cases loudly. **Still open after ④**
-  (2026-09-25): the fold never happened, and the two reproduced instances
-  are filed under "Open defects" below — the anchored `canbe in` form,
-  where the shape is *mandatory* rather than avoidable (so refusing it is
-  not the fix), and a plain `Mut` argument beside a read of the same
-  variable in one interpolation.
-- **③ BUILT** (2026-09-24, COMPLETED.md's log): the update family
-  [col-update] as ordinary std Salvo, riding **mode-specialized lending**
-  [rs-loc] (re-founded as locator variants in ④a slice 1) (option (a), the user's call — user-written accessors
-  serve `Mut` positions too; demand-driven `__mut` emissions). The
-  `Distinct(i)`→`NotEq(i)` rename landed here [col-noteq], and three
-  gaps found en route are fixed (declared dependent claims now live in
-  their own body [qual-depend]; the pair rule covers fn-value and
-  effect-member calls; a latent double-lifetime retag). **Leftover
-  note**: `NotEq` could one day take any `?eq`-capable subject (user
-  note 2026-09-24).
-- **④a BUILT** (2026-09-24, COMPLETED.md's log): the locator substrate
-  [rs-loc] in five slices — locator variants, bound mints, fn values,
-  std's `Locate` bundle [col-locate], effect members, search loops. Every
-  parked lending cut is lifted; what remains cut is a non-indexable
-  anchor (generic containers — the type-erased-locator lift) and
-  branch-dependent path sets.
-- **④b BUILT** (2026-09-24, COMPLETED.md's log): the `canbe` grammar in
-  full [canbe-entry], the coverage-shaped same-call exemption, and the
-  shared-anchor rendering [rs-loc]. The GB-6 Kotlin copy audit came back
-  clean.
-- **⑤ v1 BUILT** (2026-09-25, COMPLETED.md's log): field-granular
-  mutation entries [deduce-field] — `=> h.tags: Mut` narrows the event,
-  `=> !h.tags` states a replacement, written entries validated against the
-  body, surviving derivations rendered as virtual places. **v2 BUILT** the
-  same day: the `crosses` bit on links, so a *contents* mutation spares a
-  container handle while a *replacement* — and any derivation reaching
-  through the contents — still poisons. Also owed: **inference** of the
-  field sets (v1/v2 are written-only; an unannotated fn keeps the
-  conservative whole-value event), and the follow-on **qualifiers on struct
-  fields**.
-  The same write-vs-destroy distinction decides **in-place writes during
-  iteration**, today refused by the driven-origins rule.
-### Recorded refinements (the ladder's leftovers)
-
-Each was considered and deliberately deferred; the reasoning is in
-COMPLETED.md's log for 2026-09-24/25.
-
-- **Locators through opaque anchors.** A mutable lend materializes by
-  re-indexing its anchor, so a *generic container* has no index and is a
-  loud cut [rs-loc]. Two compatible lifts: **implicit-supplied locator
-  fns** — the `?at`/`Locate` idiom [col-locate], already usable by
-  convention, which pierces opacity at the call site the way `?cmp` does —
-  and **type-erased locators**, a boxed re-materialization closure for the
-  fully general case (one allocation and a dynamic call, at opacity
-  boundaries only).
-- **Branch-dependent path sets.** A lend whose returned path varies by
-  branch wants a small generated path enum, matched by the
-  re-materialization. `lends.rs` already computes the finite path set;
-  nothing has needed it yet.
-- **GhostCell / branded tokens — declined, kept as the fallback.** The
-  soundness-proven alternative to the locator model (elements in
-  `GhostCell<'brand, T>`, aliasing `&` handles, writes through a token the
-  compiler threads like an effect). Declined because the brand is a
-  scope-bound *lifetime* and actor state escapes every scope: one global
-  token would serialize element writes across pools, and the
-  runtime-branded variants panic (the rejected posture). If locators ever
-  prove insufficient, this is the next thing to weigh.
-- **The bounds-check mitigation ladder**, in order of posture preserved:
-  an `Idx`-claim-justified audited `get_unchecked` splice; then
-  debug-checked / release-unchecked; then an audited raw-pointer `Lend<T>`
-  primitive. Raw pointers and `RefCell` are **rejected on the record** —
-  the first abandons "a checker bug is a compile error, never UB" and
-  dangles under reallocation (closing the door this ladder walked through),
-  the second taxes every read and buys no grow-survival either.
-- **`NotEq` over any `?eq`-capable subject** [col-noteq]: today it is
-  `Int`-only, which is all element disjointness needs.
-- **The sharing story, decided once.** When the `Cell` **DECISION** is
-  taken, the 2×2 table it belongs in — shared-immutable versus
-  shared-mutable, invalidation-checked versus unchecked (today's fate
-  links, frozen `Reg`, `canbe` groups, `Cell`) — should be on that table,
-  together with the observation that `proj` is the degenerate group (a
-  read-only member of a singleton group under maximal invalidation
-  sensitivity), so the two are points on one dial rather than two features.
-- **In-place writes during iteration.** Refused by the driven-origins rule
-  [iter-fn]. The contents-versus-replacement distinction [deduce-field] is
-  what would license it — a write that destroys no storage cannot invalidate
-  the pass — and the locator model already makes the shape renderable.
-
-## LSP source-root discovery, and a project manifest (direction decided 2026-09-24; next up)
-
-**The defect (user report, 2026-09-24).** Editing std with the *repository
-root* as the editor's workspace folder produces spurious diagnostics —
-the reported one being at `std/core/list.sv:86` on the total `swap`'s
-delegation:
-
-> this call may invalidate `Idx` claims about `list`, which the enclosing
-> function promises to preserve: only calls that themselves preserve `Idx`
-> may take `list` as `Mut`
-
-which reads as the checker ignoring the `preserve Idx` refn eleven lines
-up. It is not: the LSP takes the client's `rootUri` as the analysis root
-(`lsp.rs`), and under the repo root the on-disk file classifies by path as
-module **`std.core.list`** while the embedded copy is **`core.list`** —
-`apply_std_shadow` matches by module path [std-shadow], so the shadow
-misses and both copies load, the disk one as a plain user file. With two
-`swap`s in scope, the refns refuse to attach ("this refinement matches more
-than one `swap` in scope", lines 64–65 of the same file), so
-`preserved_claims` for the delegation lacks `Idx` and the enclosing
-`preserve` promise check fires [qual-preserve]. The line-86 error is
-collateral of the mis-rooted analysis, alongside ~750 lines of other noise
-(the repo's independent trees — `std/`, `examples/*/salvo/`, `demo/`, test
-corpora — analyzed as one program).
-
-Repro (no editor needed):
-
-```bash
-cargo run -- analyze --src .      # from the repo root
-# → refinement-ambiguity errors at std/core/list.sv:64–65,
-#   the preserve error at :86, "intrinsic … is the compiler's to
-#   declare, not yours" per std intrinsic, and more
-cargo run -- analyze --src std    # correct root: no errors
-```
-
-The checker itself is sound here: `analyze --src std` is clean, and
-`hover_works_in_a_std_shadowing_file` (root = `std/`) asserts the
-`preserve Idx` refinement renders at exactly the reported call. The
-**workaround** until this lands: open `std/` as its own workspace folder
-(or add it to a multi-root workspace) — the configuration the 2026-09-24
-std-shadow LSP fix was built for (COMPLETED.md's log).
-
-**The decided direction (user, 2026-09-24): per-document source-root
-discovery in the LSP, anchored by a project manifest** — option (b) of the
-round, chosen over (a) widening [std-shadow] to strip a leading `std/`
-segment (fixes only this case, and silently re-classifies a user's own
-`std/` tree) and (c) documenting the workaround alone. The LSP should pick
-each open document's analysis root as its nearest enclosing source tree
-rather than analyzing the whole workspace as one program; since nothing
-marks a tree today, that wants a **project manifest** (a marker file naming
-the source root, and whatever else earns its place — backend, main,
-target dir are the obvious candidates, each currently CLI-only flags).
-The manifest's shape and contents are a **DECISION** for that session:
-what the file is called, what it may state, whether `salvo run`/`compile`
-/`test` read it too (they should, or the LSP and the CLI disagree about
-what a project is), and what root discovery does with no manifest in
-sight (fall back to `rootUri`, today's behavior).
-
-**Next up** (user, 2026-09-24: the group-borrowing ladder came first; it
-closed 2026-09-25).
-
-## Platform handlers — the thread-safety contract (DECISION)
-
-**Where this stands (user decision 2026-09-20, third round):** a platform
-handler is *assumed thread-safe by its design*. It classifies bare under
-[use-local], so nothing depending on a platform-backed effect writes
-`local E` (`DefaultFs [RawFs]` is annotation-free) — and nothing validates
-the assumption. The user's call at the time: assume always, design the
-validation/specification mechanism later. This section is that later.
-
-**The divergence it must close** (recorded in [rs-platform-handler]): the
-two backends share a platform instance differently. Kotlin binds the **raw
-host instance** — no wrapper, no `synchronized`. Rust shares the same
-instance through the per-effect **lock adapter** (`__Lock_E` over
-`Arc<Mutex<H>>`), not as a semantic monitor but because the generated
-effect trait's members take `&mut self`, and a local binding coexisting
-with captured handles needs shared ownership the host struct cannot provide
-(`HostRawFs` holds an open-file table and derives no `Clone`). For a host
-that honors the assumption the two are observationally equivalent — same
-instance, same calls, same results; the lock costs latency under
-contention, nothing more. For a host that *violates* it, the failure modes
-diverge: the Kotlin build **races** (data corruption, arbitrary behavior)
-while the Rust build is **accidentally serialized** by the lock — so a
-buggy host can appear to work on Rust and break on Kotlin. At the boundary,
-a host member that blocks waiting for another thread to enter a *sibling*
-member deadlocks on Rust and proceeds on Kotlin (outside "thread-safe by
-design", but it is where the line sits).
-
-**What could change in the emissions to restore full parity**, once a
-contract exists:
-
-- **(a) Drop the Rust lock — the shapes converge upward.** For an effect
-  whose platform handler declares the contract, the Rust backend emits the
-  trait's members as **`&self`** (a parallel shared-access trait, or the
-  effect's own trait when every handler of it is platform), shares the
-  instance as **`Arc<H>`**, and deletes the `__Lock_E` wrap at platform
-  bindings. That is byte-for-byte Kotlin's shape: one raw instance, no
-  compiler synchronization, the host's own discipline load-bearing on both
-  backends. The bonus is that Rust then **machine-checks half the
-  contract for free**: `&self` members force the host struct to compile
-  under shared access, so its interior mutability must actually be
-  `Sync` (a `RefCell` no longer compiles where a `Mutex`/`RwLock`/atomics
-  do) — the Rust host is validated by rustc while the Kotlin host stays on
-  trust, which is already a strictly smaller gap than today's.
-- **(b) Or serialize both — parity by lowering Kotlin to Rust's shape.**
-  Emit Kotlin's platform bindings behind `__Mon_E` (`synchronized`) again,
-  matching the Rust lock. Uniform failure mode (a non-conforming host is
-  serialized everywhere, so it *works* everywhere), no host changes — but
-  it imposes a global lock on hosts that did their own finer-grained
-  synchronization, which is the cost the assume-thread-safe decision
-  refused. Fits as the *fallback* emission for a platform handler that
-  does **not** declare the contract, with (a) as the declared path.
-
-**DECISION — the contract's surface**, the user's call before any of this
-is built: where the declaration lives (`platform handler HostRawFs of
-RawFs` growing a clause vs. a marker on the `platform effect`/effect), what
-it asserts (full concurrent safety vs. per-member claims), and whether the
-undeclared case keeps today's assumption, takes (b)'s serialized fallback,
-or becomes an error. The skeleton generator (`salvo platform generate`)
-should print the chosen contract into the host file it writes, so the
-person implementing the host signs what the compiler assumes.
-
-## The sequence (user decision 2026-09-09) — ✅ finished 2026-09-16
-
-Five phases, in this order — **all complete**. Kept as the record of what was in
-scope for each, what had to be decided before it started, and what rode along
-with it; the detail of each is in COMPLETED.md's log, and what each one left
-behind is in the themed sections below.
-
-**1 — Finish the iterators.** ("Iterators", below.) **✅ Complete 2026-09-10**
-— every item below landed, was answered, or was retired; what the phase leaves
-behind is the recorded cuts under "Iterators", each a diagnostic. Phase 2 is
-next.
-
-- ✅ **A generic function over *containers*** landed 2026-09-10: `?iter` as an
-  implicit whose result determines the pass type, which is the only way the shape
-  can work for an `iter fn` subject (its pass has no name to write). See
-  COMPLETED.md. **std stays pass-only** (user decision 2026-09-10): a source need
-  not have a container behind it, so anything new in `std/` — S-IO's streams
-  included — takes a pass and lets the caller write `iter(c)`.
-- ✅ **`iter fn` with a `state { … }` block** landed 2026-09-09 — a hand-written
-  `next` whose pass struct is generated, which is the answer to "the generated
-  state machine is a lot of code": most producers need no machine at all. The
-  generated pass holds only as much of the subject as the body reads (nothing, a
-  snapshot per field, or the whole value). It also closed a
-  `for`-over-a-container emission defect and lifted the effectful-`next` cut. See
-  COMPLETED.md.
-- ✅ **The qualifier-flattening defect** closed 2026-09-10: `emitted(ok("x"))`
-  builds straight into an `Emitted (Ok Str | Err Str)` arm, which is what makes
-  `Emitted (Ok T | Err E)` writable at all — phase 4 needs exactly that shape.
-  It also closed a latent emission gap on the same path (a group over plain
-  arms, `Emitted (Str | Int)`, emitted one wrap where two were needed). See
-  COMPLETED.md.
-- ✅ **"A suspending loop driving a pass" is retired, not built** (2026-09-10).
-  The item described a `for` inside a `yield fn` body, driving a nested pass out
-  of a machine slot — and `yield fn`, the planner it named and the slot
-  machinery all went with the deletion earlier the same day. Nothing suspends
-  any more: a `for` inside an `iter fn`'s `next` is an ordinary loop, and the
-  capability the cut actually cost — *lazily* interleaving with an inner pass,
-  as a flatten does — is written by holding that pass in `state`. Checking that
-  found the defect below instead. See COMPLETED.md.
-- ✅ **Mutation through a narrowed place on Rust** closed 2026-09-10 — the
-  worst class of bug this repo has had: silently wrong output rather than a
-  diagnostic. See COMPLETED.md.
-- ✅ **The `?close` implicit is answered, not built** (2026-09-10): an
-  early-stopping combinator already releases its source. `[iter-drive-in-place]`
-  plus the `?Linear<It>` spread — option (a), chosen over R0's sketch — put the
-  release on the type that owns the resource, and a `for` over a pass the fn
-  owns releases it on every exit. Phase 4 therefore has what it needs to stop
-  reading a file part-way. See COMPLETED.md.
-- ✅ **The riding-along polish landed 2026-09-10**: emitted Kotlin carries
-  `@Suppress("UNCHECKED_CAST")` where a generic payload read needs it
-  ([kt-suppress-cast] — std's `seq.kt` compiles warning-free again), implicit
-  resolution applies the overload scope ladder before declaring ambiguity
-  (a program's own `ListYield` + `next` no longer collides with std's), and
-  the stale `Iter<T>` compiler comments are gone — with a dead
-  `once_position` arm (a latent bug for a user struct named `Iter`) removed
-  along the way. See COMPLETED.md.
-- ✅ **Mutable origins, option (e) is closed** (2026-09-10): the per-field
-  snapshot already landed with `iter fn` `state` blocks, and the same-file
-  restriction is now lifted — the CLI and LSP expand `iter fn`s program-wide,
-  so a subject declared in another file snapshots per field too. Generic
-  subjects and assignment-through-the-subject keep the whole-value fallback,
-  as recorded. See COMPLETED.md.
-- ✅ **`yield fn` is deleted** (user decision 2026-09-10): `iter fn` covers the
-  same ground without a state machine, so the sugar, the `yield` keyword and
-  the whole machine apparatus went — `generator.rs`, both backends' renderers,
-  the per-`defer` flags, the origin mints and the Rust `iter.rs` runtime. See
-  COMPLETED.md.
-**2b — Copies only by opt-in.** **✅ Complete 2026-09-11** — `proj` everywhere,
-views, `?copy`, the std audit, `iter fn` passes borrowing their subject, and
-the `=>` deduction respelling; leftovers under "Projections and copies —
-leftovers". Phase 3 is next.
-
-**2 — Finish shared fate: places and partial moves.** ("Linear types → L5".)
-**✅ Complete 2026-09-10** — both halves: field-disjoint poison
-[fate-field-disjoint] and partial moves [fate-partial-move], both on the
-`Place` substrate P1 built. Phase 3 is next.
-
-**3 — Finish linearity: composition and conditionality.** **✅ Complete
-2026-09-12** — decided and built in one day (all calls and the build record
-in COMPLETED.md's decision log, "Phase 3 decided" and "Phase 3 built").
-The lowercase obligation keywords, `linear struct` + the same-file
-discharge model, linear union arms (the fallible open), no implicit
-discharge sites (loop splicing deleted; the consuming-callback pattern +
-std's `drop`), conditional containers with settle-by-decomposition,
-`once` on any type (D6), the effect-member and fn-value instantiation
-bans, and generic-fn-value instantiation from the expected type — all
-with acceptance tests on both backends. Leftovers, recorded under
-"Linear types" below: the generic wrapper-pass loop-emission gap, bare
-generic struct literals not inferring type args, and intrinsic
-containers (`List<linear T>`) deferred by decision.
-
-**4 — The filesystem, on an IO stream design** ("Standard library surface →
-S-IO"), using linearity and iterators — which is why it follows 1 and 3.
-**✅ Complete 2026-09-15** — decided in six rounds of user decisions and built
-across two days: the Has-accessor effect fusion, the operator-typing slice, the
-`@Effect` grammar, O-R2 interception, the `platform handler` mechanism,
-effect-member overloading, the [linear-group] member-discharger amendment,
-then `core.fs` + `core.hostfs`, `MemFs`, `RestrictedFs`, the byte payload
-(`Byte` unsigned on both backends, then **`Bytes`** as std's buffer
-[bytes-type]), the fill-a-buffer reads and the copy one-shots [fs-read-to],
-and `examples/files/`. FILE_SYSTEM.md, the plan of record, has **retired into
-COMPLETED.md's decision log** as its charter said; the as-built rules live in
-LANGUAGE_SPEC.md ([fs-surface] … [fs-v1-cuts], [byte-value], [bytes-type],
-[fs-read-to]). **Phase 5 is next**, and nothing from phase 4 is left open.
-Leftovers found on the way are under "S-IO" below.
-
-**S-Col — collections rode before phase 4 and landed 2026-09-12**, the same
-day it was decided: `Set`/`Map`/`SortedSet`/`SortedMap`, collection literals,
-universal struct `==`, `canbe hashed`/`canbe ordered`, and the
-`*_of`/`*_by`/`to_*` conventions. See COMPLETED.md. The in-memory test
-filesystem (`MemFs`) was to be its first internal customer and now has the
-collections it needs.
-
-**5 — Actors: effect handlers bound asynchronously.** ("Actors", below.)
-**✅ Complete 2026-09-16** — designed across 2026-09-14/15 and built in eight
-slices over two days: the scheduler library in both backends' runtime files, the
-surface (`actor effect`, `send fn`, `spawn … capacity … on`, `Addr<E>`,
-`Reply<T>`, `replyto`/`replyto!`, `k@self`, `use addr`, `waitfor`), dependent
-spawns, request/response without `main` in the loop, `watch` with the static
-deadlock baseline, obligations in collections, and `examples/actors/` as the
-worked example — all on **both backends with identical output**. The record is
-COMPLETED.md's log; the as-built rules are [actor-kind] … [actor-watch],
-[linear-container], [linear-state], [rs-actor] and [kt-actor]. Deliberately
-left for later: the **sugar tower** (below), the **spawn-line respelling** (a
-DECISION, above), and the leftovers under items 6 and 7 — the self-send mailbox
-wedge, the type-level graph's imprecision, the effectful discharger, and the
-missing positional list write.
-
-**With it, all five phases of "the sequence" are done.**
-**The sugar pass leaves the phase** (user decision 2026-09-15;
-"The sugar pass — after phase 5"): phase 5 ships the explicit surface, and
-call syntax, `then`, `defer` and merge/join become later items with their own
-decision surfaces. [fate-lambda] goes with them — no first-pass form crosses
-a closure.
-
-**Not before then: `Cell`.** It exists to make shared mutable state
-expressible, and the OTP answer is that actors own their state and
-message-pass — so phase 5 may remove its motivation entirely. Deciding it
-earlier spends a language-design call twice.
-
-**Not before then either: laziness** (user decision 2026-09-10). std's lazy pair
-was **removed** the same day rather than carried through four phases as a design
-constraint — see "Laziness, after concurrency" below for the direction to take
-when it is picked up.
-
-## The second sequence — time and free concurrency (user decisions 2026-09-17) — ✅ finished 2026-09-18
-
-TIME.md's T-1…T-5 and free concurrency's FC-1…FC-6 were **all decided
-2026-09-17** (the log entry has the full list), and **all six steps are built**,
-so both working documents have **retired into COMPLETED.md's log and the specs**
-as their charters said. The sequence is kept as the record of the order the work
-was done in, and each step's leftovers follow it. What is left overall is the
-**open defects** below, the **decisions waiting on the user**, and the themed
-sections.
-
-1. ✅ **The `waitfor` package** — **built 2026-09-17**, the whole of FC-4(a) +
-   T-5(c): the main pool, the pump, `thread()`'s `Dedicated Pool` consumed by
-   `on`, `[waitfor]` as a propagating capability effect (on fns, handler
-   dependency lists and effect *members*), the two grant checks, the optional
-   `on` clause, and the deadlock graph's signature-level third edge. The
-   record is COMPLETED.md's log; the rules are [main-pool], [waitfor-pump],
-   [waitfor-effect], [waitfor-dedicated]. What it left behind is listed under
-   "The `waitfor` package — leftovers" below.
-2. ✅ **The task kernel** — **built 2026-09-17**, all of FC-1 + FC-2 + FC-3 with
-   FC-5 and FC-6 riding: the free `send fn` and its refusal list, `replyto`
-   targeting one from any function (the `Task` arm on the token, resolved
-   lexical-member-first), the optional `on` clause defaulting to the mint-site
-   pool, the pool fault sink (`pool(n, sink)` — positional, not the sketch's
-   `faults:`, since a name before a colon at a call site is the
-   implicit-override syntax), and whole-program tracing of task bodies for
-   [actor-deadlock-cycle]. Rules: [free-send-fn], [task-mint],
-   [task-pool-inherit], [pool-fault-sink], [rs-task], [kt-task]. Leftovers
-   under "The task kernel — leftovers" below.
-3. ✅ **`on_idle`** — **built 2026-09-18**, all of T-3(a): the runtime's
-   quiescence detection exposed as a `watch`-shaped linear one-shot
-   (`on_idle(p, notify)` answering `Idle { parked_gates, parked_tokens }`),
-   with the undischarged-token accounting the payload needed and firing at
-   both places a thread runs dry. The record is COMPLETED.md's log; the rule
-   is [actor-on-idle]. Leftovers under "`on_idle` — leftovers" below.
-4. ✅ **Multi-effect handlers** — **built 2026-09-18**, all of T-4(a):
-   `handler H() of E1, E2`, a `spawn` answering one addr per face (a tuple for
-   several, the bare `Addr<E>` for one), a `use` binding every face, and the
-   same-named-member rule as decided — identical signatures mean one method
-   implements both, different parameters mean two members, and same parameters
-   with a different return type is refused. Conformance (every member of every
-   face) is now a Salvo diagnostic rather than the target compiler's. The record
-   is COMPLETED.md's log; the rule is [effect-handler-multi]. Leftovers under
-   "Multi-effect handlers — leftovers" below. **Step 5 is next.**
-5. ✅ **`core.time`** — **built 2026-09-18**, all of T-1(b) + T-2's surface,
-   with the embedded DECISION settled the same day: `Instant` (wall clock,
-   epoch nanos), `Tick` (monotonic) and `Duration` as single-field `Long`
-   structs; `Clock` (`now`, `to_instant`, `to_tick`) and `Ticker` (`tick`) with
-   pure-Salvo defaults over two intrinsics; `actor effect Timer` +
-   `struct Fired { at: Tick }` + `DefaultTimer` over one intrinsic and a
-   single-thread deadline registry in each runtime; and `ManualTime of Timer,
-   TimerCtl` as the pure-Salvo fake. The module is **not in `core`** (user
-   decision), which brought **whole-module imports** (`import time`) with it.
-   The record is COMPLETED.md's log; the rules are [time-types],
-   [time-ticker], [time-clock], [time-timer], [time-manual],
-   [mod-import-module], [rs-time], [kt-time]. Leftovers under
-   "`core.time` — leftovers" below.
-6. ✅ **The coupling stance** — **built 2026-09-18**, all of T-2: time-as-data as
-   the std posture, stated as a rule with the three test postures under it and
-   the scheduler-owned upgrade path recorded un-built; the unified test clock
-   (a `Ticker` whose reading is a zero deadline on the timer the test advances)
-   demonstrated on both backends with identical output; `examples/time/` as the
-   worked example, which teaches the posture rather than the API; and a
-   **docs/language/Time.md**. One std change was needed and it was
-   load-bearing: `ManualTime` now fires an **already-due deadline at
-   registration**, as the real timer does — without it a reading parks forever.
-   The record is COMPLETED.md's log (which also carries T-2's argument trail,
-   since TIME.md is now deleted); the rule is [time-coupling]. Leftovers under
-   "The coupling stance — leftovers" below.
-
-### The `waitfor` package — leftovers (2026-09-17)
-
-Found while building step 1; none blocks step 2.
-
-- **A pool's sole worker blocking on its own pool wedges, and only the
-  `main` case is caught.** Both runtimes report a full *main-pool* mailbox
-  by name (the sending thread is the only one that could drain it). The
-  general shape — a one-thread pool whose occupant sends into a full mailbox
-  on that same pool, `thread()` included — still hangs. The precise runtime
-  condition is "no thread other than this one can serve the target's pool",
-  which the scheduler could compute (it knows each pool's worker count); the
-  reason it is not built is that the interesting case arrives with step 2,
-  when a pool holds tasks as well as actors. Sibling of the recorded
-  self-send mailbox wedge.
-- **The `[waitfor]` spawn-placement diagnostic states a hazard the pump rule
-  removed** (noticed 2026-09-18 while unpacking SH-5). Grant check I tells the
-  user that "a shared `pool(n)` would let one wait stall every actor on it" —
-  but [waitfor-pump] landed in the same step, and a wait *serves* its pool,
-  excluding only the waiting actor's own activations, so a wait on a shared
-  pool stalls exactly one mailbox: its own. The text is the original,
-  pre-pump justification. It disappears with the check under every SH-5 option
-  except (a); under (a) it has to be rewritten to the two costs that are real
-  (a pinned stack frame, and the waiter's own stalled mailbox).
-- **A `use` site does not check the `[spawn]` capability**, where it now
-  checks `[waitfor]`. A handler declaring `[spawn]` among its dependencies
-  can be `use`d from a function that does not hold it, and its members
-  inherit the capability — so `[spawn]` is manufactured from nothing at that
-  seam. Noticed while writing the `waitfor` grant check (which does the check
-  `spawn` is missing). Not reproduced as a program yet; the fix is the same
-  five lines, and `handler_dep_effects`'s `EffectRef::Spawn(_) => continue`
-  is where it belongs.
-- ✅ **`waitfor` inside a `use`-bound handler's member is covered now**
-  (2026-09-18, by step 6): the unified test clock [time-coupling] *is* that
-  shape — a `Ticker` handler whose member waits — and it behaves as predicted,
-  the member running inline so the wait belongs to the binding scope. Two
-  compile-and-run cases and `examples/time/` exercise it on both backends. The
-  previously tested paths were `main`, a plain fn, and a *spawned* handler on a
-  dedicated thread.
-- **The actor surface is only partly in docs/language/.** Phase 5 and steps 1–2
-  put every actor rule in LANGUAGE_SPEC.md; docs/language/ has the linearity
-  chapter's "the actor owes until it ends" bullet and, since 2026-09-17, a
-  **"Where work runs"** chapter (user request) covering pools, placement, the
-  serving rule, every case of *when* a task runs, what a wait serves, and the
-  task-body effect cut. What is still owed there is the surface itself —
-  `actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch` — so
-  the new chapter currently assumes vocabulary the document has not introduced.
-  `on_idle` joined that chapter as it landed (2026-09-18), which is the pattern
-  to keep, and **the time half of the debt is paid**: step 6 added a
-  **"## Time"** chapter after "Where work runs" (the types, the two clock
-  effects, `Timer` as an actor effect, and the testing posture
-  [time-coupling]). What is still owed is the **actor surface** prose itself —
-  and it is now owed twice over, since both new chapters assume the vocabulary.
-
-### The task kernel — leftovers (2026-09-17)
-
-Found while building step 2; none blocks step 3.
-
-- **A task body may declare no effects but `[waitfor]`** [free-send-fn], and
-  the recorded lift is *actor-backed* ones: an effect whose provider at the
-  mint site is an addr stub is sendable (a stub holds a `usize`/`Int`), so the
-  mint could capture it into the closure and the body could call the effect's
-  members unqualified. What blocks it today is that the checker does not record
-  *how* each effect in scope was bound at a mint site, and capturing a locally
-  constructed handler would send a value the minting scope still owns. Until
-  then the diagnostic names the remedy that works: take an `Addr` capture and
-  send to it.
-- **A free `send fn` may not be generic**, for a reason that does not go away
-  on its own: a mint carries captures and no type arguments. The shape that
-  would fix it is inferring the instantiation from the capture types plus the
-  token's expected payload — worth building only if a generic task body is
-  actually wanted.
-- **Direct invocation is unspelled.** `parse_row(out, row) on p` as a
-  fire-and-forget statement is *derivable* (a mint plus an immediate
-  self-discharge), so the kernel shipped targets-only and the spelling stays a
-  separate decision. Note that a bare call is now the "runs by being scheduled
-  rather than called" **error**, so whatever the form is, it has to say more
-  than a call does.
-- **A main-pool task whose answer arrives after `main`'s last wait never runs**,
-  silently — verified 2026-09-17 on both backends. It is not a new rule (work on
-  the main pool runs only during a wait [waitfor-pump], and everything dies when
-  `main` returns [actor-waitfor]), but it is the shape "wire it and forget it"
-  produces, and what is lost is the task's captures — reply tokens whose
-  obligations linearity guaranteed statically. Candidate diagnostic, deliberately
-  not built yet because it needs a decision about scope: a report at `main`'s
-  return naming work still queued on the main pool. The same argument applies to
-  an actor message queued there, so the choice is either both or neither.
-- **The parked-obligation gap in the deadlock graph** (FC-6, recorded rather
-  than closed): an actor gated on a token that a *task* must discharge has a
-  wait-for edge pointing at no effect node, because the holder is a closure.
-  Under it: linearity refuses dropping the token, and the runtime's idle report
-  names the gated waiter if the task's chain dies.
-- **FC-7, host bridging, stays deferred** until a host caller exists — recorded
-  here because its working document is gone: **pure** functions are plainly
-  callable from the host (ordinary Rust fns / Kotlin functions); **effectful**
-  ones need generated shims — a *sync* bridge (enqueue, block the calling
-  thread: `waitfor`'s shape exported, and under [waitfor-effect] it simply
-  *carries* `[waitfor]`, since a host thread is a dedicated thread, so it type
-  checks like everything else instead of being runtime-checked) and an *async*
-  bridge (the host's native future, completed by a token) — plus **handler
-  wiring at the export**, for which the spawn's `with` clause is the existing
-  spelling. Nothing in the kernel forecloses any of it.
-
-### `on_idle` — leftovers (2026-09-18)
-
-Found while building step 3; none blocks step 4.
-
-- **Firing is on *global* quiescence, not the named pool's**, which is the
-  conservative reading of T-3 and a decision made in the build (the argument is
-  in COMPLETED.md's log): a pool can be idle while another pool holds work that
-  will send into it, so per-pool firing can answer "settled" to a program that
-  is not. The named pool decides the *answer* — the counts are scoped to it —
-  not the timing. The refinement, if the earlier edge is ever wanted, is a
-  per-pool predicate (each pool's running-activation count, which the scheduler
-  would have to start tracking) plus a rule for what to do about work on other
-  pools aimed at this one.
-- **A program cannot name `main`'s pool**, so `main`-pool quiescence is only
-  askable from an actor (via the runtime's constant) and not from Salvo: `pool`
-  and `thread` mint pools, and nothing answers "the pool I am running on". A
-  `current_pool()`-shaped intrinsic would close it and is a surface decision,
-  unscheduled — nothing needs it yet, because the pool a test cares about is
-  the one it created.
-- **A repeating hook is re-registration, by design** [actor-on-idle], and what
-  that costs has not been tried: the member the answer wakes has to mint and
-  register again, so a supervisor watching for repeated quiescence writes the
-  loop itself. If that turns out to be the common shape, the answer is a
-  many-shot form (an `Addr<E>` sink like [pool-fault-sink]'s), not a flag on
-  this one.
-- **An `Idle` answer cannot name *who* is parked**, only how many: the counts
-  are `Int`s, where the runtime's own report prints `actor 3`. Naming them needs
-  an identity in the payload that the language has no type for (an `Addr` is
-  typed by an effect, and the runtime holds an index), so the fix arrives with
-  whatever makes an actor's identity expressible.
-- **`parked_tokens` drops what a fault lost, deliberately.** A token whose
-  holder died stays counted forever, since the obligation is genuinely gone;
-  a program that recovers by respawning therefore sees a count that never
-  returns to zero. That is the honest reading, but it means "both zero" is a
-  *sufficient*, not necessary, sign of a clean finish after any death.
-- **DECISION — should the hook read the report's condition?** The deadlock
-  report's `active` hole was fixed 2026-09-18 (COMPLETED.md's log): a frame
-  parked in a wait is counted out of the running frames, so the report now
-  fires for an occupied waiter. The **hook** was deliberately left on the
-  stricter predicate, because relaxing it is observable behaviour and therefore
-  the user's call: today a program that is stuck *with* a parked frame gets the
-  report and exit 1, where the relaxed reading would fire `Idle { parked_gates,
-  parked_tokens }` and let the program react. The argument for relaxing it is
-  consistency — `main`'s wait already does not hold off idleness, and the
-  payload exists precisely to say "idle and still owed something"; the argument
-  against is that `on_idle`'s meaning drifts from "the work I sent has
-  finished" toward "nobody can move", which is the report's job. One line in
-  each runtime either way ([waitfor-pump]'s `stuck` versus `idle`).
-- **The deadlock report names actors by index, not by handler or member.** It
-  now distinguishes the two unservable shapes — parked in a wait, and gated —
-  but prints `actor 0`, where a diagnosis wants `CyclicRandom` and the member
-  it is parked in. Both need plumbing the runtime does not have: a
-  `&'static str` per spawn for the handler, and one per waiter mint for the
-  member (both emitters, every hand-written driver call site, and the
-  snapshots). Worth doing as one item — richer reports for gates and parks
-  alike — rather than half of it with the defect fix.
-
-Parked with named triggers: FC-5's minter-attribution refinement (if the sink
-proves too coarse for recovery); deadlock stratification and the
-`Reply | TimedOut` timeout form (observed false positives; **writable now** that
-step 5 has landed — `Timer` is its missing prerequisite); lambdas as mint
-targets (with [fate-lambda], the sugar pass).
-
-### Multi-effect handlers — leftovers (2026-09-18)
-
-Found while building step 4; none blocks step 5.
-
-- **A same-named member across two faces still needs `@Effect` at the *call*
-  site**, even where the parameters distinguish it: [effect-at] fires when two
-  effects *in scope* declare the name, keying on the name rather than on the
-  parameters, so `ping(7)` is refused with "more than one is in scope" and
-  `ping@A(7)` is the fix. Not wrong, but it makes the "overloading distinguishes
-  them" half of the rule less useful than it reads: the handler may implement
-  both, while callers still disambiguate by hand. The fix is to let [effect-at]'s
-  ambiguity check consider the argument types before demanding a selector —
-  worth doing when a real program hits it.
-- ✅ **`let (a, b) = 7` is an error now** (fixed 2026-09-18, same day, at the
-  user's request): a tuple pattern needs a tuple of its arity behind it
-  [let-destructure], so destructuring a *one*-face spawn is refused too. See
-  COMPLETED.md's log.
-- **A dependent multi-face handler is untested.** `handler H [Dep] of A, B` is
-  accepted and both emitters have the shape for it (the Rust side emits a
-  forwarding impl per face over `__Impl_H`, the Kotlin side one carrier), but the
-  cases that run are independent multi-face handlers plus a *dependent
-  single*-face one. Worth a case when something needs it; the pieces are all
-  exercised separately.
-- ✅ **A handler of more than three faces works on both backends now** (fixed
-  2026-09-18, at the user's request): the spawn's addr tuple past three is a
-  generated `SalvoTupleN` on Kotlin rather than a codegen error
-  [kt-tuple-class].
-- **The `__Cont_E` → `__Cont_H` rename touched every actor's generated code**,
-  which is worth knowing before the next emitter change in that area: the
-  continuation type is now the *handler's*, emitted beside it, while the message
-  enum stays the effect's. Two handlers of one protocol therefore get two
-  continuation types with the same variants — slightly more generated code, and
-  the price of a mint being lexical.
-
-### `core.time` — leftovers (2026-09-18)
-
-Found while building step 5; none blocks step 6.
-
-- **A runtime file name silently clobbers an emitted std module of the same
-  name.** `runtime/time.rs` and std's module `time` both write `time.rs`; one
-  overwrites the other and the program fails several steps later (duplicate
-  `pub mod`, missing symbols). Worked around by naming the runtime files
-  `hosttime.{rs,kt}`, not fixed: the emitters already have a collision check
-  for **companion** files [backend-companion], and extending it to the runtime
-  files (or namespacing them under a `salvo_rt/` directory) closes the hole for
-  good. Both backends have it.
-- ✅ **`fire_after` is private now** (closed 2026-09-18 by [mod-export], which it
-  prompted): declarations are module-private by default and `export` is the way
-  out, so std's plumbing — `fire_after`, `earliest_due`, the `mem_*` helpers,
-  `fs_resolve`, `MemRead`/`MemWrite` — is genuinely unreachable rather than
-  merely undocumented. The general question the leftover raised (does the
-  language want a visibility modifier?) was answered yes, by the user, the same
-  day. See COMPLETED.md's log; leftovers under "Module visibility — leftovers".
-- ✅ **`examples/time/` exists** (added 2026-09-18 with step 6, which is what it
-  was waiting for): six sections from spans and the two timelines to virtual
-  time and the unified test clock, teaching the coupling posture rather than the
-  API.
-- **`to_str(Duration)` stops at seconds** (`120s`, not `2m`) and there is no
-  `to_str` for `Instant` or `Tick` at all: a wall-clock text form is a date,
-  which is the calendar layer's, and a monotonic reading has no meaningful
-  rendering beyond its number. A program prints `to_epoch_milli(i)` today.
-- **Cancellation is not in the timer surface** (recorded by decision, T-1): a
-  timer nobody wants fires into a continuation that finds its work done. A
-  cancel handle is the addition if that no-op activation ever measures.
-- **The wall-clock layer is designed but unbuilt**, and its shape is fixed by
-  what landed: `DateTime` as the calendar *view* of an `Instant` in a zone,
-  `Period` for calendar spans, `to_datetime`/`to_instant` bridges (the second
-  partial, since a local time can be nonexistent or ambiguous), and a
-  `WallClock` effect whose member must **not** be named `now` — two effects in
-  scope declaring one name need a selector [effect-at], and neither takes
-  arguments to distinguish. Timers stay monotonic; a wall-scheduled fire is an
-  additive `Timer` member that needs re-arming after a clock adjustment.
-
-### The coupling stance — leftovers (2026-09-18)
-
-Found while building step 6, the last of the second sequence. None blocks
-anything scheduled.
-
-- **The unified test clock fakes `Ticker`; the `Clock` face is untested.** A
-  wall-clock version is writable the same way — a `TestClock(timer, base:
-  Instant)` whose `now()` is `base` plus the virtual tick, with `to_instant` /
-  `to_tick` the affine map that correlation implies — and it is *more* work than
-  the `Ticker` form because `Clock` has three members where `Ticker` has one.
-  Nobody has needed it: code that measures uses ticks, which is the point of the
-  two timelines. Write it when a test needs a deterministic wall clock *and*
-  deadlines in the same program.
-- **A handler that waits on a *positive* deadline still wedges a `ManualTime`
-  test — but it now says so** (updated 2026-09-18). A synchronous
-  `sleep`-shaped helper (`fn nap(d: Duration) [Timer, waitfor]`) parks its
-  actor's activation, and `main` is typically inside `waitfor … on_idle`, which
-  does not fire while an actor is occupied — so nothing advances virtual time.
-  Until the report's hole was fixed that was a silent hang; it is now the named
-  deadlock report, naming the actor parked in a wait. Reading the clock is not
-  affected at all (a zero deadline fires at registration [time-coupling]),
-  which is what made step 6 work. What is still owed is the *shape* of the fix
-  for a test that means to do this: the deadline has to be advanced by someone
-  who is not parked behind it, which is the ordering `on_idle` exists to
-  sequence.
-- **Every clock reading through the unified form is a round trip**: a message to
-  the timer, a park, and a wake, per `tick()`. Fine for a fake, and the reason
-  the recorded order of postures puts it last, but a test that reads the clock
-  inside a loop pays per iteration. The alternatives are already recorded —
-  scheduler-owned virtual time (which makes a reading a local read again) or
-  SH-5's deletion, **built** (2026-09-19): the `[waitfor]` declaration and
-  the owed dedicated thread are both gone.
-- **The round trip per reading is the stance's remaining cost** — the owed
-  dedicated thread went with SH-5(d) (built 2026-09-19). The T-2 upgrade path
-  (scheduler-owned virtual time) remains the answer if the round trip ever
-  bites.
-
-### Module visibility — leftovers (2026-09-18)
-
-Found while building [mod-export] (private by default, `export` to let a
-declaration out — the user's call the same day, prompted by `fire_after`). None
-blocks anything.
-
-- **Emission still marks everything public**, by decision: the rule is a checker
-  rule, and both backends emit what they emitted before (Rust `pub`, Kotlin
-  top-level). Narrowing generated visibility would buy dead-code warnings the
-  suite already tolerates, and cross-module emission is a fragile seam (the
-  `__mailbox_capacity` E0616 gotcha). The refinement, if it is ever wanted: emit
-  a non-exported declaration without `pub` and `internal` respectively, which
-  also needs the *reachability* pass to agree or the target compiler will
-  complain about items it can no longer see.
-- **Reachability is still name-based, and now has a cheap precision win
-  available** [mod-used-only]: a module pulled in because it declares a *private*
-  name matching a used one cannot possibly be the declaration in question, so
-  the export filter could prune it. That would shave some of the recorded
-  "hello-world links `core.set`" cost without the larger fix (resolving through
-  the checker's call targets).
-- **A private type in an exported signature is an opaque type, deliberately**,
-  and nothing checks that the author meant it. If it turns out to be a mistake
-  more often than a tool, the check is a type-walk over exported signatures
-  (unions, tuples, generics, fn types) and a diagnostic at the declaration —
-  Rust's `private_interfaces` lint, essentially.
-- **No re-export**, so a module cannot pass a dependency's name through to its
-  own consumers: a facade module has to declare wrappers. Nobody has wanted one
-  yet; the spelling would be `export import a.B`, which is currently a targeted
-  parse error.
-- **No example shows `export`.** Every program in `examples/` is a single file,
-  so none of them needs the modifier and a reader of the examples never meets
-  it — the language docs' modules chapter and the tests are the only places it
-  appears. A two-file example (a library module plus a `main.sv` that imports
-  it) would fix that and would be the first multi-module example in the tree.
-- **Member- and field-level visibility is unasked**, and one consequence is
-  worth writing down: an exported struct exports its fields, so a std type
-  cannot have a private field. [time-types] rests on fields being public
-  (structural equality plus public fields is what makes a single-field
-  `Duration` canonical), so this is a considered omission rather than an
-  oversight.
-
-### Patterns — what is left (2026-09-18)
-
-The two silent tuple holes and the loop-destructuring cut were all closed the day
-they were found (COMPLETED.md's log: the pattern-arity error, the generated
-Kotlin tuple classes, and `for (k, v) in pairs` on both backends). What remains:
-
-- **Nested patterns are refused**, in a loop as in a `let`
-  (`let ((a, b), c) = …` → "nested destructuring patterns are not supported
-  yet"). Both backends' destructuring is one level deep — a name per part, read
-  off the value or the element temporary — so nesting means recursing that
-  emission with a temporary per level. Nobody has wanted it yet.
-- **Struct patterns bind by field name only**: there is no `..` rest, no
-  nested field pattern, and no binding of a *projection* (`{address.city}`).
-  The `let` surface has always been this, and the loop inherited it.
-
-## Testing — the MVP is built, here is the rest (user decisions 2026-09-23)
-
-The testing framework's core is built and `salvo test` runs std's own suite
-(the decisions, the build and what it turned up are in COMPLETED.md's log;
-the rules are [test-decl] … [test-report] and the chapter in docs/language/).
-What was deliberately **cut from the MVP**, in the order the decisions put it:
-
-- **`context` scopes** — decided in shape already (TF-9, user decision
-  2026-09-19): nesting plus per-test re-run initialization (`use`s and `let`s
-  that run again for every test, so no cross-test state is expressible), with
-  the test's id joining the context names. Three sub-calls ride the
-  implementation: statements **preamble-only** (recommended, error otherwise),
-  a preamble may do **anything a test body may**, and a **childless context
-  warns**. The lowering is per-test inlining — each test's synthesized fn is
-  its ancestors' preambles concatenated with its body — which makes isolation
-  true by construction.
-- **Property testing** (TF-5, TF-5b): `check(runs, property)` with the
-  generator arriving as the implicit parameter **`?generate`**, so the
-  *qualifier on the parameter type picks the generator* (`(text: ValidDate Str)
-  -> …`); randomness threaded as a `Mut Rng` **value**, which the
-  effect-free-resolution rule turns into a determinism guarantee; shrinking by
-  replaying the generator over a shrunken draw stream. Prerequisites, both
-  recorded here: std needs wrapping/bit `Long` intrinsics for a pure-Salvo
-  splitmix64 (parity by construction — user recommendation, not yet decided),
-  and `resolve_implicit_fn` must stop skipping candidates that take implicits
-  (the same lift [interp-to-str] wants). The worked example that settled the
-  design — a date parser with constructive `ValidDate`/`InvalidDate`
-  qualifiers declared *in the annex* — is in COMPLETED.md's log.
-- **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
-  [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
-  over [actor-watch], and the [time-coupling] ladder in the docs. Needs
-  `spawn` added to [test-body]'s implicit powers, and the harness's default
-  fault sink to record rather than print. No test scheduler (rejected as
-  out of scale: it would be a second scheduler per backend runtime).
-- **The blackbox tier** (TF-2's `tests/` tree): ordinary modules that
-  `import` what they test and see only exports — the contract tier beside the
-  annex's implementation tier. Nothing about it is decided beyond the shape.
-- **`--isolate`, `--timeout`, crash recovery** (TF-4's process model): one
-  process per test, a per-test wall-clock kill, and automatic re-run of a
-  crashed batch's remainder. The MVP runs everything in one process and
-  reports a test that died without finishing (`DIED`), which is the cheap
-  half.
-- **The `std.` import prefix** (TF-8, decided 2026-09-19, not built):
-  `import std.time` rather than `import time`, `std` a reserved root, the
-  bare spelling refused with the corrected path named, and the library tree
-  moving to `lib/std`. Sequenced *after* the MVP deliberately (user decision
-  2026-09-23): std's own `.sv` files carry no import lines, so the annexes
-  written here need no rewrite when it lands. What does: every example, every
-  corpus file, the inline sources in Rust tests, the spec snippets, the
-  resolver's import-suggestion paths [diag-import-suggest], the LSP
-  quickfixes, and the `include_dir!` root. Under it, `std.test`'s implicit
-  availability stays as built, and an **explicit** `import std.test` from a
-  production file is refused.
-- **Smaller leftovers from the MVP build**: `expect_eq` on a generic
-  container cannot resolve a `to_str` (the `resolve_implicit_fn` lift above);
-  the annex's one-way visibility holds by construction but is not *checked*,
-  so a production file that writes `import heap.test` compiles under
-  `salvo test` and fails under `salvo run` (a clear error, not silent, but a
-  rule could say so); the report has no `--format json` for editors; and
-  nothing migrates the compiler's own e2e suite onto `salvo test` (user
-  decision 2026-09-23: leave it, revisit later).
-
-## The `NonEmpty` constructor convention — what is left (user decisions 2026-09-23)
-
-`list_of`/`mut_list_of` have the two shapes ([col-of-nonempty]; the round is in
-COMPLETED.md's log). What it leaves:
-
-- **The siblings**: `set_of`, `mut_set_of`, `map_of`, `mut_map_of`,
-  `sorted_set_of`, `mut_sorted_set_of`, `sorted_map_of`, `mut_sorted_map_of`.
-  Their `NonEmpty` qualifiers live in `core.nonempty`, and a constructor must be
-  declared in its qualifier's file [qual-ctor-same-file] — so either the
-  element-taking constructors live *there* (delegating with
-  `set_of@core.set(...)`, the pattern `min`/`max` already use for the same
-  reason), or the qualifiers move next to their containers, which the header of
-  `core/nonempty.sv` explains they cannot. Recommendation: the former.
-- **Literals**: `[1, 2, 3]` claims nothing today, while `list_of(1, 2, 3)`
-  claims `NonEmpty`. Making a non-empty literal claim it is consistent and
-  removes the asymmetry a reader will trip on; it also spreads the claim to
-  every literal in every program. Same question for `{"a"}` and `{"k": "v"}`.
-  **DECISION**.
-- **A lone `...spread` builds no list** any more, since a spread may not fill a
-  required parameter [fn-variadic]. The user is "fine without it for now"
-  (2026-09-23) — revisit if it turns out to be needed, and the answer then is
-  either fixed-beats-variadic overload ranking (so a variadic-only `list_of`
-  can coexist) or a named conversion.
-
-## Qualifiers are droppable — assignment should say so (user decision 2026-09-23)
-
-A variable's type may never *widen* (that is the rule `let out = list_of(0)`
-then `out = a_plain_list` runs into), **but qualifiers are not part of that
-rule**: a qualifier is by definition something that optionally applies to a
-type, so dropping one is always legal. The user's call, 2026-09-23. What it
-means concretely:
-
-- Assigning a `List<Int>` to a variable inferred as `NonEmpty List<Int>` must be
-  accepted, and the variable simply stops being `NonEmpty` from there (the flow
-  state already models exactly this — a mutating call drops claims the same
-  way).
-- The same for a *narrower* assignment: assigning a `NonEmpty List<Int>` where
-  the variable is plain stays legal and adds nothing (today it narrows, which is
-  fine).
-- Provenance qualifiers [qual-subject] need thought here: dropping one on
-  assignment is harmless, but re-*gaining* it must stay impossible.
-- Where it shows up today: `crates/salvo-cli/tests/analyze_tests.rs`'s
-  `fate_links_merge_across_branches` and `inferred_moves_consume_arguments` had
-  to annotate their `let`s when the constructors started claiming; those
-  annotations come back out when this lands.
-
-## Variance on generic parameters (user direction 2026-09-23) — **DECISION**
-
-A `List<NonEmpty List<Int>>` is not a `List<List<Int>>` today, because type
-arguments are invariant — so a constructor call cannot fill a plain
-type-argument position and even an annotation does not widen it
-([col-of-nonempty]'s sharp edge). The user's direction: introduce **variance on
-generic parameters**, in the shape C# and Kotlin use (`in`/`out` declaration-site
-variance).
-
-What has to be decided with it, since Salvo's type language is not theirs:
-
-- **Declaration-site or use-site?** `intrinsic type List<out T>` says every
-  `List` is covariant in `T`; a use-site form (`List<out T>` at the position)
-  is more flexible and more to write. Kotlin has both; recommendation is
-  declaration-site first, because std's containers are where it pays.
-- **What `Mut` does to it.** A `Mut List<T>` cannot be covariant in `T` — that
-  is the classic array-store hole — so variance has to interact with the
-  mutability qualifier rather than being a property of the type alone. The
-  natural rule: the covariance of a type argument holds only while the value is
-  not `Mut`.
-- **Whether qualifiers on a type argument are a separate question.** The case
-  that raised this needs only `NonEmpty List<Int>` → `List<Int>` *inside* a type
-  argument, which is qualifier-dropping (above) rather than full variance. A
-  narrower rule — qualifiers are droppable at any depth in an immutable
-  position — might close the real case without a variance system, and is worth
-  pricing first.
-- **Both backends.** Kotlin has declaration-site variance natively; Rust has
-  none, so the emitted Rust must not depend on it (Salvo's generics erase to
-  Rust generics, so a covariant use would need a copy or a reborrow — the
-  Rust backend's own rule to work out).
-
-Sequenced after the refinement work and the open defects (user direction
-2026-09-23).
-
-## Assertions — what is left of the decided design (user decisions 2026-09-23)
-
-The assertions round is decided in full (A-1…A-7, COMPLETED.md's log) and the
-rules are [assert-op], [assert-fn], [assert-narrow] and [assert-trap]. Three
-forms are built — `expr!` with its refusal, `assert!(cond, "why")` with its
-narrowing, `unreachable!("why")` — with one trap text on both backends. Two
-decided slices are **not built**; both are plans now, not questions.
-
-- **A-5 is built** (2026-09-23, revised the same day — COMPLETED.md's log): the
-  generated harness catches a trap through `std.test`'s `trapped_by` intrinsic,
-  so a failing `assert!` is that test's failure [test-recover]. The runner's
-  restart path stays as a backstop for an uncatchable death. What it leaves:
-  * ~~`expect_panics`-style helpers~~ — **built** the same day as
-    `trap_of`/`expect_trap`/`expect_trap_with` [test-trap-expect], with
-    `std/test.test.sv` (the test module's own annex) testing them.
-  * **Tests should arguably use `assert!` rather than `std.test`'s `expect`**
-    (the user's note): the narrowing is the reason, and it would make the two
-    vocabularies one. What `expect` still buys is a failure that is *data* (a
-    `Failure` the harness reads) rather than a trap; with `trapped_by` in place
-    the difference has narrowed to the message's shape.
-  * **Parallel tests**, which is what the revision was for: with the catch in
-    the harness, running tests concurrently is a scheduling question rather than
-    a recovery one. Nothing about the protocol needs to change — a `begin` line
-    per test plus a verdict — but the report's per-test timings and the
-    interleaving of a test's own output do.
-- **A-6: the trap policy for the other three failure classes.** Decided:
-  - **Subscript out of range** → trap with *our* message (index and length),
-    replacing the hosts' two different texts. Needs care on the *place* path
-    (`arr[i] = x`), where a block expression cannot stand.
-  - **Division by zero** → trap with our message; both hosts already trap, only
-    the text differs.
-  - **Integer overflow** → **wrapping**, stated in the spec, with `checked_*` /
-    `saturating_*` std functions for the cases that care. This is the JVM's
-    behaviour today and the cheap one on Rust; the alternative costs a check on
-    every arithmetic operation. **It is the only row that changes what existing
-    programs compute**, so it wants its own slice and a parity test: today Kotlin
-    wraps silently while Rust refuses a constant fold and panics in debug.
-
-## One read, one mode — the clone the unwrap paths pay (three slices built 2026-09-23)
-
-Reading an optional in Salvo is **free**: `xs!` and a narrowed read of `xs` are
-reads, and the language copies only where a program writes `copy`
-[copy-opt-in]. On the Rust backend those lowered to a **clone**, because the
-emitter decided how to render a read *before* it knew what the position wanted.
-
-**Built (2026-09-23)**: the emitter carries a wanted mode — `Read` by
-default, raised to `Own` for the duration of `emit_owned`'s walk [rs-read-mode] —
-and the sites that would otherwise clone consult it through one shared predicate
-(`owned_optional_local`) so they cannot disagree:
-
-```
-fn len_of(s: Str) -> Int => s { return size(s) }      // keeps its argument
-fn shout(s: Str) -> Str => !s { return s }            // consumes it
-
-let maybe: Str? = "hello"
-len_of(maybe!)      // a read
-shout(maybe!)       // an owned value
-```
-
-```rust
-// before: a clone either way
-len_of(&(maybe.as_ref().expect("…").clone()))
-shout(maybe.as_ref().expect("…").clone())
-// after
-len_of(maybe.as_ref().expect("…"))                    // the borrow *is* the value
-shout(maybe.as_ref().expect("…").clone())             // unchanged: it needs one
-```
-
-**Built the same day, second slice**: an **intrinsic** argument takes its mode
-from the intrinsic's own declaration rather than from the position the call sits
-in, so `contains(str, needle) => str, needle` no longer clones what it keeps.
-That slice also closed a silently-wrong lowering it walked straight into:
-`add(xs!, 3)` on a `Mut List<Int>?` local rendered the argument owned and
-appended to the clone (`xs 1` on Rust, `xs 2` on Kotlin); a `Mut` parameter now
-reaches the payload through `as_mut()`.
-
-**Built the same day, third slice**: the **narrowed** path. `narrow_unwrap`
-consults the mode too, so every narrowed read in the tree borrows unless its
-position owns:
-
-```
-if name is Str {
-    println("${size(name)}")        // name.as_ref().unwrap()
-    let held: Str = name            // name.as_ref().unwrap().clone()
-}
-```
-
-A `&T` position asks `narrowed_borrow` before adding its `&`, which is the
-narrowed twin of the `!` predicate. Two positions that walk with `emit_place` had
-to raise the mode explicitly, since the ambient mode at a statement is `Read`: a
-move-mode binding and a consuming `for` subject. `examples/files` carries the
-visible half — twenty clones gone from `RestrictedFs`'s forwarding, and the
-`Bytes` reads in `main.rs`.
-
-### What is left
-
-**1. A rendering that *reports* a reference.** The slices above work because
-their sites know the shape they will get, and can ask a predicate first
-(`owned_optional_local`, `narrowed_borrow`). The general case cannot: a site that
-wants `&T` writes `&{code}`, and if `{code}` is already a `&T` the result is
-`&&T`. Fine for two shapes, unsustainable for many. The durable answer is for the
-rendering to answer *what it produced* (`Rendered { code, is_ref }`) so a site
-can decide whether to add the `&`. That is the refactor the section is named
-after, and the slices above are the parts that do not need it.
-
-The site waiting on it is **interpolation**, which is the most common read
-position in the tree and still clones every narrowed or `!`-ed value:
-
-```rust
-// std/test.sv's expect_trap_with, where the same `trap` two lines up borrows
-format!("… got `{}`: {}", trap.as_ref().unwrap().clone(), label.clone())
-```
-
-`emit_interp_value` cannot simply switch to `emit_read`: its native branch would
-take the reference happily (`format!("{}", &String)` displays), but the two
-`to_str` branches in the same function write `to_str(&{arg})` and
-`{place}.{field}` — three questions to the predicate, in one function, which is
-precisely the shape that wants the rendering to answer for itself.
-
-### Why it is worth finishing
-
-- It is the last **systematic** copy nobody wrote, and `[copy-opt-in]` is a
-  stated principle rather than an aspiration.
-- It is measurable: `examples/*/rust/**` carries the clones, so the diff *is* the
-  benefit. Through the narrowed slice the tree is 15 clones lighter
-  (`examples/files`, where `RestrictedFs` forwards a narrowed path to every `Fs`
-  member); interpolation is where the rest of them are.
-- The mode pays elsewhere. Three recorded items are the same missing information
-  in other clothes: the `to_str` a generic container cannot compose
-  [interp-to-str], the temporary-subject `for` loop (E0716, in "Open defects"),
-  and the copy an adapter closure makes of a returned projection.
-
-## Decisions waiting on the user
-
-Every item here needs a language-design call before it can be built, and the
-call is the user's (AGENTS.md's first invariant). They are listed in one place
-because that is the question a session most often needs answered first; each
-links to the section that states the options.
-
-| Question | Due | Where |
-|---|---|---|
-| `Cell` — whether shared mutable state joins the language at all | after phase 5 | "Shared mutable state" |
-| **D4** — predicate `is` on a union subject (needs qualifiers over unions) | unscheduled | "Deductions and qualifier reasoning" |
-| **`size(Str)` outside ASCII** — what a `Str` index means (code points, UTF-16 units, bytes), then one lowering per backend | unscheduled | "Open defects" |
-| **Recursive types** — the Rust boxing rule, regular-recursion-only, constructibility, depth semantics | unscheduled, end of the queue | "Recursive types" |
-| **Intersection types** — whether `Addr<A & B>`-style types join the language (recorded 2026-09-17 with T-4, which shipped the tuple form instead) | unscheduled, future consideration | COMPLETED.md's log, T-4(c) |
-| **Platform-handler thread-safety contract** — the declaration surface, what it asserts, and what the undeclared case means; unblocks the parity-restoring emissions | unscheduled (the assumption stands meanwhile, user decision 2026-09-20) | "Platform handlers — the thread-safety contract" |
-| **Project manifest** — name, contents, whether the CLI reads it too; anchors LSP per-document root discovery | next up (the group-borrowing ladder closed 2026-09-25) | "LSP source-root discovery, and a project manifest" |
-| **`on_idle`'s predicate** — whether the quiescence hook reads the deadlock report's weaker condition, so a stuck program with a parked frame gets an `Idle` answer instead of the report | with the shareable-handler calls | "`on_idle` — leftovers" |
-
-(**No phase-5 rows remain**: the spawn-line respelling, the last one, was
-decided and built 2026-09-16 — the mailbox moved to the handler
-[actor-mailbox]. The four original DECISIONs, the
-supervision/monitors story, and the three questions the build itself surfaced
-— self-sends, sendability's content, and the sequencing of the effect
-unification against the rest of the phase — were all decided 2026-09-14/15;
-see "The sequence" phase 5, "Actors", "The sugar pass"
-below, and COMPLETED.md's decision log. Phase 5 is engineering from here.)
-
-One further proposal is **deferred by decision** rather than waiting:
-`platform type`. (`platform handler` was un-deferred 2026-09-14 and built the
-same day — see "Effects"; the `defers`-block proposal went with `defer`
-itself, 2026-09-10 — see "`defer` is deleted".)
-
-## Test-suite speed — recorded, not scheduled (user decision 2026-09-25)
-
-The stamp key stays **keyed on the generated sources**: it cannot go stale, and
-that is worth more than the seconds a cheaper key would save. This section is
-the note to come back to *if* it ever bites — nothing here is scheduled.
-
-Where the time goes today (measured 2026-09-25, `[profile.dev] opt-level = 1`):
-a warm `cargo test` is ~28s against a ~15s budget, and ~15s of it is the Kotlin
-codegen binary. The reason is structural: a toolchain test's stamp is the
-content hash of *the generated files*, so discovering that a stamp **hits**
-means parsing, checking and emitting the case over all of `std` first. The work
-is the key's own computation, and it grows with `KOTLIN_CASES`. (The Rust
-backend does not have the problem: its cases build one at a time inside their
-own gate.)
-
-The options, cheapest first, none of them free:
-
-- **A source-keyed stamp** — hash the `.sv` sources plus an emitter-version
-  token instead of the generated files. Cheap to check without emitting, and
-  the trade is exactly the current key's virtue: a version token can be
-  forgotten, and then a stale pass is possible where today one cannot be.
-- **Cache the emission, not just the verdict** — keep the generated text beside
-  the stamp so a miss on one case does not re-emit the others. Keeps the
-  content key honest; costs disk and a cache-shape decision.
-- **Emit once per source, run many** — several `KOTLIN_CASES` entries share
-  identical `std` emission; the per-case work is the user module. Hoisting the
-  std half would need the emitter to be splittable that way, which it is not
-  today.
-- **Shrink the registry** — fold cases whose only difference is their expected
-  output into one program with more lines. Cheap, and loses the per-case
-  failure names.
-
-The measurements to take first, if it comes up: how much of the ~15s is `std`
-re-emission versus per-case work, and how much the narrowed reachability
-[mod-used-only] already took off (a fresh run dropped from ~133s to ~121s when
-the examples stopped emitting modules they never called).
-
-## Open defects
-
-Bugs found and reproduced, not yet fixed. Each carries a repro small enough to
-paste and a root cause, so picking one up needs no re-investigation. Closed ones
-move to COMPLETED.md with their repro intact.
-
-**Two open** (was ten), and **these are next**: the user's direction of
-2026-09-23 is to clear them once the refinement work is done, before the
-variance and qualifier-dropping sections above. Both are findings from the defect round (the un-annotated lending `?iter`, whose fix is a small call of
-its own, and the struct-literal half of the inference one). Closed 2026-09-25
-by decision: the **float text** (Salvo's rule is Kotlin's [interp-float], with
-the Rust backend rendering through a helper to match it [rs-float-text]); the
-**exported-name over-emission** (reachability follows *resolution* for
-functions now [mod-used-only] — the ten examples lost 11,562 lines of generated
-code, and a fresh test run got ~10% faster because there is less to compile);
-and the **warm-run stamp key**, which the user chose to leave keyed on the
-generated sources — the note about what could be done if it ever bites is now
-"Test-suite speed" below. And **closed 2026-09-26**: the **keyed containers'
-identity**, whose constructors now ask for it as a capability
-[col-keyed-slots] — a declared `hash`/`eq` is honoured on both backends where
-Kotlin used to key structurally and rustc refused the program, and the identity
-is *passed* (`mut_set_of(hash = …, eq = …)`) rather than read off an
-annotation. One limitation was accepted with it (user, 2026-09-26) and is
-refused by name rather than left to a target compiler: a keyed container over a
-**tuple or list**, whose lift is "Recursive implicit resolution" above. The
-other — one built **inside a generic function** — was lowered the same day: the
-container takes the capability *as functions*, which Kotlin's containers have
-always accepted (so that backend needed only the parameter's name) and which
-Rust gained a value-keyed store per family for, with the kept capability
-arriving owned and the convention closed under forwarding
-[rs-stored-implicit]. Three latent bugs fell out of landing it, all
-fixed: Kotlin's `map_of`/`mut_map_of` bypassed the keyed constructor helper the
-*set* beside it used (so a named pair was silently ignored for maps alone), a
-program naming only a generated tuple class never imported its package, and
-std's map constructors never declared `<V canbe linear>`.
-(**Closed 2026-09-25, the defect round**, repros and root causes in
-COMPLETED.md: **iterating a temporary** emitted Rust that would not compile
-(E0716 — the pass local outlives the statement the subject was written in, so
-the subject's temporaries are now hoisted in front of the loop
-[rs-loop-temp]); **two same-named structs** confused pass driving, minting with
-one module's `iter` and driving the other's `next` (wrong output — both lookups
-compare *declarations* now, not type names [iter-resolve]); **a qualified
-argument** taught an implicit position nothing, so `It` stayed unbound and a
-sibling's `next` won by rung (the candidate match and its read-back now drop the
-*argument's* claims [implicit-infer]); **a `to_str` resolved in another module**
-was neither emitted nor imported (reachability and both backends' imports follow
-the checker's resolved-but-unnamed callees now [mod-used-only]); **a recursive
-struct** was an undiagnosed E0072 (the declaration-site refusal
-[type-no-cycle], with `List<T>` named as the remedy); and **a bare collection
-literal** could not determine a type parameter (substituting an unbound variable
-yields `Unknown`, which arrived looking concrete [col-literal-arg]).
-**Also closed 2026-09-25**, both found while
-writing `examples/borrowing/` and fixed the same day — repros and root causes
-in COMPLETED.md: the **anchored `canbe in` form did not lower** on the Rust
-backend (its anchor is a parameter and a second `&mut` was synthesized beside
-it, so every anchored call was E0499 — a documented form that could not run at
-all), and a **read before a mutation in one expression** emitted E0502
-(`"${b.n} ${bumped(b)}"`), now hoisted into a `let` in front of the expression
-[rs-mut-arg-hoist]. **Closed 2026-09-23**: `x!` in a **`Mut`
-intrinsic parameter** position mutated a clone — `add(xs!, 3)` on a
-`Mut List<Int>?` local emitted `xs.as_ref().expect(…).clone().push(3)`, printing
-`1` where Kotlin printed `2`; the argument now reaches the payload through
-`as_mut()` [rs-read-mode] [rs-narrow-mut], and the shape is a case on both
-backends. **Also closed 2026-09-23**: two `!`s on one optional
-*local* moved it twice on Rust — the lowering now reads it through a borrow
-[rs-opt-borrow], the form a narrowed read already used; the generalisation that
-would remove the clone from *both* paths is the "one read, one mode" section
-above. **Also closed 2026-09-23**: `!` on a non-optional was
-accepted and lowered to an unwrap — refused at the checker now, as decision A-1
-of the assertions round (COMPLETED.md's log). **Also closed 2026-09-23**: a
-refinement applied inside a branch was lost — the deduction pass suppressed *every*
-re-establishment under a conditional; with [qual-refn-narrow] a refinement that
-merely **keeps** a claim is distinguishable from one that establishes it, and
-only the latter is suppressed. `std.heap`'s sift-down is written naturally
-again. **Also closed 2026-09-23**: `range` was unusable outside 
-`core.range` — its `Range` and `next` were private, so the exported
-constructors could not be driven; the user exported both, and what that costs
-is the first entry below. **Closed 2026-09-20**: mutating a `Mut` payload through a
-narrowing on three further sites — the intrinsic path, the `^` branch shadow and
-a moved parameter's `mut` binder — silently wrong on Rust and divergent from
-Kotlin; the repro and the shape it left refused are in COMPLETED.md. **Closed
-2026-09-18**: the idle report never fired when the
-waiter was an occupied actor — the prerequisite of SHAREABLE_HANDLERS.md's
-SH-8; the repro and the fix are in COMPLETED.md. Closed in the sessions before
-this one, with repros and
-root causes in COMPLETED.md: the retagged-lambda deref-in-cast miss (E0606)
-and the adapter's silent clone of a returned projection; a tuple-array type
-`(Str, Int)[]` misparsed as an effect list, an effect member hijacking a
-same-named fn-typed local, and variadic args moving out of their caller's
-locals. The broken `Int[n] { … }` array generator was closed by **deleting
-the form** — user decision 2026-09-13. Mixing a plain argument with a
-`...spread` in one variadic call is now **supported** rather than refused,
-which also let std's `non_empty_list` go back to being ordinary Salvo. A
-user-declared variadic of a *primitive* element type no longer breaks on
-Kotlin: a variadic parameter is an ordinary `Array<T>` there, not a `vararg`
-[kt-variadic]. **Closed 2026-09-15**: an effect member whose name is also a
-std fn — one loud half inside std's own emission and one *silently wrong
-output* half through `@module` — and consuming a handler's stored values,
-which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
-
-- **An un-annotated lending `?iter` has no lifetime to tie** (found
-  2026-09-25, *underneath* the qualified-argument defect: its rustc error was
-  masked by that one's type error, so it is pre-existing). A fn-typed implicit
-  whose return is a **borrowing** pass needs the `holds proj(c)` annotation
-  [proj-infer] for the emitter to tie the lifetime [rs-proj-lends]; without it
-  the adapter closure is `&mut dyn FnMut(&C) -> It` with `It` instantiated to a
-  lifetime-carrying type, and rustc says "lifetime may not live long enough".
-  Repro:
+Everything the four sequences covered is built and running on **both backends
+with identical output**: shared fate and borrow emission, linearity with a
+designated `close`, effects through handler dependencies, `throw`/`try`, places
+and field narrowing, deductions with refinements, the iterator reduction to
+`next`, the collections, the filesystem, actors (spawn, send, park, watch,
+bridge), time, free concurrency, shareable-by-default handlers, refinement types,
+group borrowing, the testing framework, and the comparison/hashing capabilities.
+Ten worked examples in `examples/` carry the checked-in generated code for both
+targets and the output they print. 1538 tests green.
+
+## The sequence
+
+### 1 — The std reorganisation (started 2026-09-26; steps b–e open)
+
+One theme: std's shape. Step (a) landed with the sitting that scheduled the rest,
+and each remaining step is mechanical but wide — the sweeps are the cost, not the
+design.
+
+- **(a) ✅ `Checked<T>` in `core`, and a list write answers one** — built
+  2026-09-26 [checked-type] [col-bounds] (COMPLETED.md's log). `take` is
+  `detach`; the fallible `swap` hands back a `Checked<Bool>`.
+- **(b) The filesystem on `Checked<T>`.** Drop the bespoke linear `FsError`,
+  rename `FsErrorKind` → `FsError`, and let every `Err FsError` become
+  `Err Checked<FsError>`, so the "you must look at this" mechanism is one type
+  rather than two implementations of one idea. `ignore`/`detach`/`to_str` on the
+  wrapper are then the generic ones. **~825 references** across `std/core/fs.sv`,
+  `hostfs`, `memfs`, `restrictedfs`, `examples/files`, the specs and the docs —
+  which is the whole of the work; the design is settled.
+- **(c) The filesystem out of `core`.** `std.fs` holds the effect and
+  `DefaultFs`; `std.fs.restricted`, `std.fs.mem` and `std.fs.host` hold the
+  rest — so `import std.fs.mem.MemFs`. Two things to work out on the way: this
+  is the first time a **file and a module share a name** (`fs.sv` beside an
+  `fs/` directory), which source discovery and module-path classification have
+  never had to resolve; and `core.fs` is currently visible everywhere, so every
+  user of the filesystem gains an import. Sequence after (b), so the rename
+  sweep happens once.
+- **(d) `core.nonempty` dissolves into the collections.** Its `NonEmpty`
+  qualifiers move next to the containers they claim, as `core.list`'s already is.
+  The blocker to solve first is [qual-ctor-same-file]: a constructor must be
+  declared in its qualifier's file, which is why the claims were gathered in one
+  module in the first place — so either the element-taking constructors move with
+  them (delegating with `set_of@core.set(…)`, the pattern `min`/`max` already
+  use) or the rule is relaxed for an `intrinsic`'s `+Q` return. This also closes
+  the recorded "`NonEmpty` constructor convention — the siblings" item.
+- **(e) `throw` out of `core`.** The module moves like `time` did, so a program
+  that never throws never links it. Every user of `Throw`/`try` gains an import,
+  which is the sweep.
+
+### 2 — A task body's effects (recorded 2026-09-26; analysed, not built)
+
+A free `send fn` may declare no effects [free-send-fn], and the user's decision
+is that it should **inherit them from the function that minted the reply**: the
+restriction was written when there were no thread-shareable handlers, and there
+are now.
+
+Lifting the refusal is one line in the checker and the program then type-checks;
+the **emission** is the work. A mint becomes
+`Box::new(move |v| report(__c0, *v))`, and an effectful target needs its handler
+arguments *inside* that closure, which must be `Send + 'static`. The machinery
+exists: spawn-inheritance built fused handle bundles (`__Hs_N`,
+[rs-handle-bundle]) for exactly "carry this scope's shareable handlers into a
+child". The slice: synthesise the target's effect arguments at the mint from the
+minting scope's handles (the checker's `spawn_dep_items` is the precedent),
+capture the bundle, and pass it per activation on both backends. A probe is in
+`tmp/task1`.
+
+### 3 — The two open defects
+
+Both are findings from the 2026-09-25 defect round, and both are *reported* by a
+target compiler rather than silently wrong.
+
+- **An un-annotated lending `?iter` has no lifetime to tie.** A fn-typed implicit
+  whose return is a **borrowing** pass needs `holds proj(c)` [proj-infer] for the
+  emitter to tie the lifetime [rs-proj-lends]; without it rustc says "lifetime
+  may not live long enough". Repro:
 
   ```
   fn total<C, It>(c: C, ?iter: (c: C) -> Mut It, ?Yield<It, Int>) -> Int => c {
@@ -1693,22 +124,17 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   }
   ```
 
-  Adding `holds proj(c)` fixes it, and that is the documented form ([rs-proj-lends]
-  names it), so the shape is *writable* — what is missing is the diagnostic.
-  Two candidate fixes, and the choice is a small language call: **infer the
-  lend** for a fn type whose return instantiates to a borrow-holding type (the
-  [proj-infer] fallback already says "conservatively every kept parameter" for
-  bodiless declarations — it is the *emitter* that needs the annotation, so the
-  checker could synthesize it), or **refuse** the declaration with an error
-  naming `holds proj(c)`. Inference is the better default; the refusal is the
-  cheap one. Kotlin runs both forms.
+  Adding `holds proj(c)` fixes it, so the shape is writable — what is missing is
+  the diagnostic. **A small language call**: *infer* the lend for a fn type whose
+  return instantiates to a borrow-holding type (the [proj-infer] fallback already
+  says "conservatively every kept parameter" for bodiless declarations, so the
+  checker could synthesize it), or *refuse* the declaration naming
+  `holds proj(c)`. Inference is the better default; the refusal is the cheap one.
+  Kotlin runs both forms.
 
-- **A bare generic *struct* literal still does not determine a type parameter**
-  (sharpened 2026-09-25). The collection-literal half of this is fixed
-  [col-literal-arg], and the roadmap's guess that they were "probably one fix"
-  was wrong: a struct literal takes a different path, so `unwrap(Box { value: 7 })`
-  with `fn unwrap<T>(b: Box<T>) -> T` still reports "no matching overload for
-  `unwrap(Box)`". Repro:
+- **A bare generic *struct* literal does not determine a type parameter.** The
+  collection-literal half is fixed [col-literal-arg]; a struct literal takes a
+  different path. Repro:
 
   ```
   struct Box<T> { value: T }
@@ -1722,1538 +148,582 @@ which Rust silently cloned and Kotlin shared. Both in COMPLETED.md.)
   The fix is the struct-literal counterpart of the collection-literal one: infer
   the literal's own type arguments from its **field values** (unify each declared
   field type against the value's type) before the enclosing call's substitution
-  is solved. Recorded with the linear-types leftover it was filed beside.
+  is solved.
 
+### 4 — Project manifest and LSP source-root discovery (DECISION, then build)
 
-## Linear types
+**The defect**: editing std with the *repository root* as the editor's workspace
+folder produces ~750 lines of spurious diagnostics, because the LSP takes the
+client's `rootUri` as the analysis root and the repo's independent trees (`std/`,
+`examples/*/salvo/`, `demo/`, test corpora) are then analyzed as one program. The
+reported symptom was at `std/core/list.sv:86` — a `preserve Idx` promise
+apparently ignored — and it is collateral: under the repo root the on-disk file
+classifies as module `std.core.list` while the embedded copy is `core.list`, so
+[std-shadow] misses, both copies load, and the duplicated `swap` makes the
+refinements refuse to attach. Repro without an editor:
 
-**Phases 2 and 3.** The arc's completed stages, the backend-parity principle they rest on, and the
-`Place` substrate are in COMPLETED.md ("Roadmap: toward full linear types"
-and "Roadmap: place-based flow analysis"). What is left:
+```bash
+cargo run -- analyze --src .      # from the repo root: errors in std
+cargo run -- analyze --src std    # the correct root: clean
+```
 
-### L5 — Places and partial moves (phase 2) — ✅ complete 2026-09-10
+The **workaround** meanwhile: open `std/` as its own workspace folder.
 
-Both halves are built. **Poison** [fate-field-disjoint]: a fate link carries
-the projection path out of its root, an event carries the path it hit, and
-poison fires only where the two overlap. **Moves** [fate-partial-move]: a move
-of a projection records it as moved out of its root rather than consuming the
-whole variable, so a disjoint field stays readable, reading the moved field
-back is an error naming it, a whole-value use is refused, and reassigning the
-place revives it. Both rest on `Place::overlaps` — the relation P1 built for
-narrowing — which is why the phase cost a fraction of the "place lattice
-instead of per-variable states" it was budgeted as. See COMPLETED.md for what
-it took, the evidence that forced it, and the Rust alignment.
+**The decided direction** (user, 2026-09-24): per-document source-root discovery
+in the LSP, anchored by a **project manifest** — option (b) of that round, chosen
+over widening [std-shadow] to strip a leading `std/` (fixes only this case, and
+silently re-classifies a user's own `std/` tree) and over documenting the
+workaround alone.
 
-Settled along the way, and worth not re-opening: **partial moves need no
-signature notation**. Rust's model is that ownership is all-or-nothing per
-parameter — a borrowed parameter refuses a move out of it (E0507), an owned one
-may be partially moved because the caller already surrendered the whole value
-— so the state is function-local. Salvo already implemented exactly this, so
-the binary kept/moved deduction stands. `proj(p)` is a different
-axis (the **return** channel, where the borrowed place escapes), and a
-place-parameterized deduction (`[p: -tags]`) is deliberately **not** wanted: it
-is viral, and passing the field rather than the struct (`f(p.tags)`) says the
-same thing with no notation.
+**DECISION — the manifest's shape**: what the file is called, what it may state
+(source root certainly; backend, main and target dir are the obvious candidates,
+each a CLI flag today), whether `run`/`compile`/`test` read it too (they should,
+or the LSP and the CLI disagree about what a project is), and what root discovery
+does with no manifest in sight (fall back to `rootUri`, today's behaviour).
 
-**Not L5: field smart-casting.** Place-based *type narrowing* (reads of
-`h.field` narrowed by `h.field is T`) is a separate feature from place-based
-ownership — it was roadmap phase **P1**, done 2026-09-03, and it is the
-substrate both halves of L5 stand on.
+### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
-### L7 remainders — recorded, none forced
+Three narrower questions, all downstream of "refuse to choose" (COMPLETED.md's
+log for the round itself).
 
-The L7 milestone landed in four pieces (L7a `<T canbe linear>`, L7b `once` fn
-types, L7c derived returns, L7d fn-type contracts). What it recorded and did not
-build:
+- **DECISION — identical-signature shadowing.** Two candidates with the *same*
+  signature at different rungs are now an ambiguity, so a module declaring its own
+  `size(List<T>)` must write `size@mymodule(xs)` at every call (or take the
+  overload out of the shared name with `rename fn` / `import … as`, which is the
+  intended shape). Nothing in std or the examples depended on the old silence —
+  the churn was six tests that existed to encode it — so this is a question about
+  *ergonomics*, not about breakage: is the strict reading what you want, or should
+  an exactly-identical signature at a nearer rung still shadow?
+- **Implicit resolution still resolves by rung**, deliberately: an implicit has no
+  written call site to annotate, and two same-named types have no distinguishing
+  selector at all. If that is to change it needs a spelling first.
+- **The rest of the resolution-by-position rules.** The round covered calls and
+  refinements. A pass over the spec should list every remaining
+  resolution-by-position rule and decide each — separating *silent winners* from
+  *designed shadowing* (a later `use` shadowing an earlier handler is interception
+  semantics [effect-intercept], and a fn-typed local shadowing a name outright is
+  the caller's explicit choice).
 
-- **The internal qualifier unification** (phase 2 of the parameterized-qualifier
-  design: folding links/poison/`consumed_by` into parameterized qualifiers on
-  the narrowed type, with per-qualifier join directions). Unforced — L7c and L7d
-  landed on links alone. The dividend would be diagnostics carrying LSP
-  related-information spans from the qualifier's parameters.
-- **`once` inference**: a callee that calls its fn-typed parameter at most once
-  does not auto-promote it to `once`; written only [once-fn]. The same
-  written-validates / unwritten-infers pattern deductions use, when it is taken.
-- **Per-parameter written contracts beyond kept/moved/quals** on fn types
-  [fn-contract].
-- **Accumulator bodies in a derived-return fn** (`best = person; …; return best`)
-  are rejected by the provenance validation: the recorded refinement is
-  reassignable borrowed locals [readonly-return].
+### 6 — Recursive implicit resolution, so a tuple can have a `cmp`
 
-### The linear instantiation ban misses generic effect members (phase 3)
+[col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
+do, comparing lexicographically", and that is true of the two *backends* rather
+than of the language: `core.compare` declares `cmp` for the intrinsic scalars
+only. It cannot declare one for a tuple, because
+`cmp<A, B>(a: (A, B), b: (A, B)) -> Int` needs `?Ordered<A>, ?Ordered<B>` and
+[implicit-resolve] **skips a candidate that itself needs implicits**.
 
-`[linear-generics]` refuses instantiating an unconstrained type parameter with a
-linear type — checked in `resolve_named_call` on the resolved substitution — but
-an **effect member's own generics** are not covered, so a linear value can be
-smuggled through one. A hole in what already shipped rather than a missing
-feature, and it belongs with phase 3 because that is when the obligation rules
-are being reopened anyway.
+This is the accepted limitation behind the keyed containers: a keyed container over
+a **tuple or list** is refused by name (user decision 2026-09-26 — "I'm ok with the
+limitation today"). Lifting it has two halves, and the second is the larger:
 
-### L8 — Composition and conditional linearity — ✅ complete 2026-09-12
+1. **Resolution** — `resolve_implicit_fn_at`'s one-line skip becomes a recursive
+   resolution with a depth cap and a cycle refusal. Contained.
+2. **Emission** — a filled implicit that *itself* needs implicits has to be handed
+   its own, so `ImplicitArg::Resolved` needs nested arguments and both backends'
+   adapter closures have to pass them (`cmp((A, B))` calling `cmp(A)`/`cmp(B)`).
+   `implicit_args` records no nesting today, so this is where the work is.
 
-Answered together with D6 and D7 and built the same day (phase 3; the
-decision set and build record are in COMPLETED.md's log). Union arms carry
-obligations and settle by narrowing [linear-union-arm]; conditional
-containers are `struct Box<T canbe linear>` with settle-by-decomposition,
-and concrete linear fields take the `linear struct` marker
-[linear-generics] [linear-composite]; the wrapper pass (lazy `take` over a
-linear source) runs on both backends. What the phase leaves open:
+The cheaper alternative, with its cost stated: declare the tuple and `List<T>`
+`cmp`/`eq`/`hash` as **intrinsics**, which is what the backends already do
+structurally. No recursion needed, and it *documents* the status quo — but it
+freezes it: an element type's own declared identity would be ignored inside a
+tuple or list key. That is already true; declaring it makes it look intended.
 
-- **Generic wrapper-pass loop emission.** A `for` in a *caller* over a
-  generic conditional pass (`Take<It>` instantiated at the call) does not
-  fill the pass's `next` implicit at the loop's emission — rustc E0061
-  (`next__5(&mut t)` missing the callback argument). Checker-clean;
-  refused only by the target compiler, so loud, never wrong. Repro: the
-  step-6 generic wrapper probe; the concrete-wrapper e2e
-  (`wrapper-pass`) covers the semantics meanwhile.
-- **Bare generic struct literals do not infer type arguments**:
-  `Box { item: open_lines(n) }` needs `Box<Lines> { … }` written.
-  Pre-existing; surfaced by the conditional-container work.
-- ✅ **Intrinsic containers** — decided 2026-09-15 and **built 2026-09-16**
-  (phase 5 item 7): `List`/`Map` values opt in with `canbe linear` on the type
-  declaration, take-by-move answers `T?`, `drain(container, each)` is the
-  terminal, `Set`/keys are refused because dedup is dropping, and handler state
-  owns obligations across activations [linear-container] [linear-state]. What
-  it left open is under phase 5 item 7 in "The sequence".
+Two recorded items wait on the same lift: `expect_eq` on a generic container
+cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
+(step 9) needs it.
 
+### 7 — Qualifiers are droppable, then variance
 
-## Effects
+- **Qualifiers are droppable on assignment** (user decision 2026-09-23, not
+  built). A variable's type may never *widen*, but a qualifier is by definition
+  something that optionally applies, so dropping one is always legal: assigning a
+  plain `List<Int>` to a variable inferred as `NonEmpty List<Int>` must be
+  accepted, and the variable simply stops being `NonEmpty` (the flow state already
+  models exactly this — a mutating call drops claims the same way). Provenance
+  qualifiers need thought: dropping one is harmless, re-*gaining* it must stay
+  impossible. Where it shows up today: `analyze_tests`'
+  `fate_links_merge_across_branches` and `inferred_moves_consume_arguments` had to
+  annotate their `let`s when the constructors started claiming, and those
+  annotations come back out.
+- **DECISION — variance on generic parameters** (user direction 2026-09-23). A
+  `List<NonEmpty List<Int>>` is not a `List<List<Int>>` today, so a constructor
+  call cannot fill a plain type-argument position. The direction is `in`/`out`
+  declaration-site variance as C# and Kotlin have it. What has to be decided with
+  it: declaration-site or use-site (recommendation: declaration-site first,
+  because std's containers are where it pays); what `Mut` does to it (a
+  `Mut List<T>` cannot be covariant in `T` — the classic array-store hole — so the
+  natural rule is that covariance holds only while the value is not `Mut`);
+  whether qualifiers on a type argument are a **separate, narrower** rule worth
+  pricing first (the case that raised this needs only `NonEmpty List<Int>` →
+  `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
+  that the emitted Rust must not depend on it, since Rust has no variance.
 
-E1 (handler dependencies, and the Rust fusion behind them), E3 steps 1–3
-(`throw`/`try`, effects on fn types — and `defer`, since deleted) and the six ownership strategies
-explored on the way are in COMPLETED.md ("Roadmap: effects"). What is left:
+### 8 — Mutating through a union arm (DECISION)
 
-### E3 step 4 — effect transformers, and async as the second one
+One shape is **refused on Rust and accepted on Kotlin**, which is a divergence
+closed by restriction on one side and therefore a decision rather than a resting
+place:
 
-The general prize, and the last rung of the handler-control arc. A
-**transformer** is an effect member that runs a fn-typed parameter with
-*additional* effects available — its body having registered handlers for them.
-`Retry`, `Timeout` and async are all that shape, and `try` could be re-expressed
-as a library transformer if it reads better than the intrinsic.
+```
+fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
+    if o is ^Ok {
+        add(o, 7)          // Kotlin: mutates the caller's list
+    }                      // Rust: reported — `o` is read-only here
+}
+```
 
-- **The gate is already built.** Step 3 made fn-type effect lists real and
-  threads effects *into* a fn value instead of capturing them [fn-effects], so
-  the mechanism a transformer needs exists. What remains is the surface.
-- **No silent colouring** (user decision 2026-09-04): the ability to not resume
-  is declared on the effect member, never discovered from the handler — which is
-  forced anyway by a user fn being emitted once whatever handlers flow in.
+The parameter renders `&Union2<…>` because an arm's `Mut` is not a claim about
+`o`, and **nothing can ask for the `&mut`**: a written `=> o: Mut` is refused
+("a deduction may preserve or drop qualifiers, not add them"). So the question is
+what a `Mut` arm means for the *parameter* that carries it.
+
+- **(a) The arm's `Mut` makes the parameter mutable.** Cost: the Rust signature
+  then disagrees with the checker's contract, which still says the parameter is a
+  kept read — and two arguments naming the same place, which the checker permits
+  as two reads, become two `&mut` borrows and an E0499 on a program Salvo
+  accepted. Teaching the fate analysis about that is the real scope.
+- **(b) Admit the deduction.** Relax "may not add qualifiers" so `=> o: Mut` is
+  legal when `Mut` is present on an arm, and let inference write it from the body.
+  Cost: a written deduction now means "through an arm", a new reading of the
+  clause; benefit: the contract stays visible in the signature, which is what
+  deductions are for.
+- **(c) Keep the refusal, and refuse it in the *checker*** so both backends say
+  the same thing. Cost: a Kotlin program stops compiling; benefit: one story, and
+  the remedy (take the payload as its own `Mut List<T>` parameter) is one line.
+
+**Recommendation: (b)**, with (c) as the fallback. (a) is the one to avoid: it
+makes the two sides of the compiler disagree about what a signature means, which
+is how the original defect happened.
+
+### 9 — Testing, beyond the MVP (decided 2026-09-23, not built)
+
+The framework's core is built and `salvo test` runs std's own suite. What was
+deliberately cut, in the order the decisions put it:
+
+- **`context` scopes** — decided in shape (TF-9): nesting plus per-test re-run
+  initialization (`use`s and `let`s that run again for every test, so no
+  cross-test state is expressible), with the test's id joining the context names.
+  Three sub-calls ride the implementation: statements **preamble-only**
+  (recommended, error otherwise), a preamble may do **anything a test body may**,
+  and a **childless context warns**. The lowering is per-test inlining, which
+  makes isolation true by construction.
+- **Property testing** (TF-5): `check(runs, property)` with the generator arriving
+  as the implicit **`?generate`**, so the *qualifier on the parameter type picks
+  the generator* (`(text: ValidDate Str) -> …`); randomness threaded as a
+  `Mut Rng` **value**, which the effect-free-resolution rule turns into a
+  determinism guarantee; shrinking by replaying the generator over a shrunken draw
+  stream. Two prerequisites: std needs wrapping/bit `Long` intrinsics for a
+  pure-Salvo splitmix64 (parity by construction — a recommendation, not yet
+  decided), and step 6's implicit lift.
+- **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
+  [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
+  over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and
+  the harness's default fault sink to record rather than print. No test scheduler
+  (rejected as out of scale).
+- **The blackbox tier** (TF-2's `tests/` tree): ordinary modules that `import`
+  what they test and see only exports.
+- **`--isolate`, `--timeout`, crash recovery** (TF-4): one process per test, a
+  per-test wall-clock kill, automatic re-run of a crashed batch's remainder. The
+  MVP runs everything in one process and reports a test that died (`DIED`).
+- **The `std.` import prefix** (TF-8, decided 2026-09-19): `import std.time`
+  rather than `import time`, `std` a reserved root, the bare spelling refused with
+  the corrected path named, and the library tree moving to `lib/std`. Sequenced
+  after the MVP deliberately; note that **step 1(c) overlaps it** — `std.fs` is
+  the first module to want the prefix, so doing them together may be cheaper.
+- **Smaller leftovers**: the annex's one-way visibility holds by construction but
+  is not *checked*; the report has no `--format json` for editors; nothing
+  migrates the compiler's own e2e suite onto `salvo test` (user decision: leave
+  it).
+
+### 10 — The assertion trap policy (A-6, decided 2026-09-23, not built)
+
+Three failure classes still take the hosts' behaviour:
+
+- **Subscript out of range** → trap with *our* message (index and length),
+  replacing the hosts' two different texts. Needs care on the *place* path
+  (`arr[i] = x`), where a block expression cannot stand.
+- **Division by zero** → trap with our message; both hosts already trap, only the
+  text differs.
+- **Integer overflow** → **wrapping**, stated in the spec, with `checked_*` /
+  `saturating_*` std functions for the cases that care. This is the JVM's
+  behaviour today and the cheap one on Rust. **It is the only row that changes
+  what existing programs compute**, so it wants its own slice and a parity test:
+  today Kotlin wraps silently while Rust refuses a constant fold and panics in
+  debug.
+
+### 11 — One read, one mode: the rendering that reports a reference
+
+Three slices landed 2026-09-23 [rs-read-mode]; what is left is the **refactor the
+section is named after**. The slices work because their sites know the shape they
+will get and can ask a predicate first (`owned_optional_local`,
+`narrowed_borrow`). The general case cannot: a site that wants `&T` writes
+`&{code}`, and if `{code}` is already a `&T` the result is `&&T`. The durable
+answer is for the rendering to answer *what it produced* (`Rendered { code,
+is_ref }`) so a site can decide whether to add the `&`.
+
+The site waiting on it is **interpolation**, the most common read position in the
+tree, which still clones every narrowed or `!`-ed value:
+
+```rust
+// std/test.sv's expect_trap_with, where the same `trap` two lines up borrows
+format!("… got `{}`: {}", trap.as_ref().unwrap().clone(), label.clone())
+```
+
+`emit_interp_value` cannot simply switch to `emit_read`: its native branch would
+take the reference happily (`format!("{}", &String)` displays), but the two
+`to_str` branches in the same function write `to_str(&{arg})` and
+`{place}.{field}` — three questions to the predicate in one function, which is
+precisely the shape that wants the rendering to answer for itself.
+
+Worth finishing because it is the last **systematic** copy nobody wrote,
+`[copy-opt-in]` is a stated principle rather than an aspiration, and it is
+measurable: `examples/*/rust/**` carries the clones, so the diff *is* the
+benefit. Two recorded items are the same missing information in other clothes:
+the temporary-subject `for` loop, and the copy an adapter closure makes of a
+returned projection.
+
+### 12 — Effect transformers (E3 step 4)
+
+The last rung of the handler-control arc. A **transformer** is an effect member
+that runs a fn-typed parameter with *additional* effects available — its body
+having registered handlers for them. `Retry`, `Timeout` and async are all that
+shape, and `try` could be re-expressed as a library transformer if it reads
+better than the intrinsic.
+
+- **The gate is already built**: step 3 made fn-type effect lists real and threads
+  effects *into* a fn value instead of capturing them [fn-effects]. What remains is
+  the surface.
+- **No silent colouring** (user decision 2026-09-04): the ability to not resume is
+  declared on the effect member, never discovered from the handler.
 - **Async is explicitly not part of this arc**: it arrives later as an explicit
   effect, likely a compiler intrinsic, not as an `async`/`suspend` transform of
   the whole program.
-- **Multi-shot resumption is closed on principle**, not for want of a mechanism:
-  resuming twice duplicates a use obligation, so it cannot coexist with `Linear`.
-  (Neither target offers it either — a Kotlin `Continuation` throws on a second
-  resume, a Rust `Future` cannot be cloned.)
-
-### Two effects sharing a member name — ✅ built 2026-09-14
-
-Decided during the phase-4 rounds and built the same day (COMPLETED.md
-decision log): member names recur across effects [effect-member-overload],
-bare calls resolve by availability, and `member@Effect(args)` picks
-explicitly [effect-at] — `close@Fs(h)`, `h.close@Net()`, instance pinned by
-the call's type arguments (`next_random@Random<Int>()`). One leftover,
-deliberate: the LSP def-site table is name-keyed, so go-to-definition on a
-*shared* member name lands on one declaration (last collected) — worth a
-keyed table if it ever grates.
-
-### `platform type` — still deferred; `platform handler` shipped 2026-09-14
-
-Both were recorded when the interop redesign landed (user decision
-2026-09-05): a `platform handler` is a host implementation of an *ordinary*
-Salvo effect, constructed by `use`; a `platform type` is the type-aliasing
-gap the user accepted, with platform structs sketched as the eventual answer
-("let's leave platform type until a need arises"). `platform handler` was
-un-deferred when the need arose (`HostRawFs of RawFs`, FS-1 resolved as O-M2)
-and **built 2026-09-14** — see COMPLETED.md's decision log and
-[platform-handler]. `platform type` remains deferred; the two `platform`
-declarations are the interop surface until it is picked up.
-
-### A handler cannot dispatch to itself — recorded gap (found 2026-09-14)
-
-A handler member may not call **another member of its own effect**. Repro:
-
-```
-handler Twice of Counter {
-    fn bump() -> Int {
-        return bump() + bump()      // error: a handler member cannot call
-    }                               // `bump`, a member of `Counter` — the
-}                                   // effect its own handler implements
-```
-
-Root cause, and why it is a design question rather than a bug: inside a
-handler member the effect environment is the handler's *dependencies*
-[effect-handler-deps], and the bare member name is already taken — declaring
-the effect it implements means the handler registered **before** this one
-[effect-intercept]. So self-dispatch needs a *different* spelling, and that
-spelling is a language call (`self.bump()`, `bump@self()`, …). Neither remedy
-the general "no handler" diagnostic used to name is available in a member
-either (a member may not declare effects, and may not `use`), so the
-diagnostic now says what is actually wrong and names the workaround.
-
-**The workaround is a function**: move the shared logic into an ordinary fn
-that both members call, passing what it needs. That is what std does today.
-
-It bit in phase 4 twice and the workaround held both times: `MemFs` shares
-logic between its members through free fns in its own module
-(`mem_find_newline`, `mem_append`, and — once the `read_to` family arrived and
-each fill member wanted its returning sibling — `mem_read_line`,
-`mem_read_all`, `mem_read_bytes`). It reads fine and cost nothing but a
-parameter list, so this stays a **DECISION** without a deadline: the spelling, and whether a self-call
-may be recursive at all (a member calling itself is unbounded recursion the
-checker would not diagnose).
-
-### Two cuts inside the effect fusion
-
-Both are *reported* rather than mis-emitted [rs-effect-fusion]:
-
-- a dependent handler using its own generic parameters in a member signature;
-- a `use` whose effect instance is still generic.
-
-Each needs the fusion to derive type arguments it does not derive today. They
-used to be **divergences** (Kotlin accepted them, because generics erase);
-since 2026-09-14 Kotlin refuses a still-generic fused effect set too, in its
-own words — a fused class has no type parameters to spell a `Store<T>`
-property with, and before that the leak surfaced as a kotlinc "unresolved
-reference 'T'" [kt-effect-fusion].
-
-## Iterators
-
-**Phase 1 — ✅ complete 2026-09-10.** The reduction to `next` is complete (R0–R5, plus `for` over a generic pass and
-the generic-effect lift); COMPLETED.md holds the phase notes, the two prototypes
-that shaped them, and the `Iter<T>` design they replaced. What remains recorded
-here is not work but the accepted cuts:
-
-### Known cuts, each reported rather than mis-emitted
-
-The list the flip left behind ("Known cuts and gaps" under "R5 part 2 as built"
-in COMPLETED.md). Every one of them is a diagnostic today, so none can produce
-wrong output [backend-never-wrong]:
-
-- **A callback handed *onward*** to another storing fn stays borrowed on Rust —
-  the "does this fn store its callback?" predicate is deliberately
-  non-transitive — and rustc reports the lifetime.
-- **A *generic* `next` that performs effects** cannot be driven by `for` on
-  either backend: its effects live on a fn value the caller supplied, so the
-  handlers would have to reach through the implicit rather than being threaded
-  per turn. The non-generic case works as of 2026-09-09.
-- **A linear pass cannot be composed** — the L8 casualty above, repeated here
-  because it is the shape people will try: a wrapper pass over
-  `open_lines("a.txt")` stores its source, and storing a linear value in a
-  composite is the interim refusal.
-
-(Two entries left this list 2026-09-10, fixed rather than cut: the
-same-name-pass implicit collision, and the unchecked-cast warnings in
-generated Kotlin. See COMPLETED.md.)
-
-Two open *questions* the iterator work forwarded to the qualifier roadmap
-rather than answering: **D6** (`once` on any type — the I2b collision forces it
-in a narrower form; see COMPLETED.md) and **D7** (qualifier-conditional
-linearity). Both are under "Deductions and qualifier reasoning" below.
-
-### An early-stopping combinator closing its source — answered, not built
-
-Recorded when R5 shipped, **closed 2026-09-10**: the `?close` implicit R0
-sketched (option (d)) was never needed. `[iter-drive-in-place]` plus the
-`?Linear<It>` spread — option (a), the design chosen instead — put the release on
-the *type that owns the resource* rather than on every combinator: a `for` over a
-pass the function **owns** releases it on every exit, `break` and `return` alike,
-through the resolved `close` for a concrete pass or the implicit one for a
-generic pass. Verified on both backends for all four shapes; a hand-written
-`while` driver, the one shape no loop can help with, is caught by linearity
-("`h` still owns a linear value when it goes out of scope"). See COMPLETED.md.
-
-What the item pointed at that *is* still open is a **lazy** `take` — one that
-returns a wrapper pass instead of draining — and it belongs to L8, not here: a
-wrapper has to store its source, and storing a linear value in a composite is
-the interim refusal [linear-composite].
-
-### `defer` is deleted, and the `defers`-block proposal with it (user, 2026-09-10)
-
-`defer` is **gone from the language**: it was the partial solution to a problem
-linearity already solves in full — an obligation discharged on every path — and
-it carried its own complexity (a body checked once but applied at every exit,
-the facts it relied on having to survive to each of them, a rule against
-control flow or a throw leaving it, and two unrelated lowerings). Releasing is
-now written on each path, and the checker names the path you missed. See
-COMPLETED.md for what the removal took out and what it cost.
-
-With it goes the **`defers { … }` block proposal** deferred on 2026-09-08 (a
-`Defer` effect, cleanup registered into a *caller's* scope, all of it running at
-the end of a named block). Its "for" case — cleanup visible in signatures, and
-registering cleanup on someone else's scope — is not lost, but it is now a
-proposal to *add* a feature rather than to generalize one, so it starts from
-scratch if a customer appears. The strongest argument against it stands and is
-worth keeping: what made `defer` cheap was having **zero runtime
-representation**, and a dynamic queue costs an allocation and brings the capture
-question back.
-
-**What still uses the machinery underneath.** Both emitters keep their
-exit-splice path — Rust splices at each exit [rs-exit-splice], Kotlin wraps in
-`try`/`finally` [kt-exit-finally] — because the release a `for` owes a pass it
-owns needs exactly that. It is now compiler-internal rather than a language
-feature, which is the right side of the line: the compiler owns the value, so it
-may own its lifetime.
-
-## Shared mutable state (`Cell`)
-
-**Deliberately not before phase 5** (user decision 2026-09-09): the OTP model has
-actors own their state and message-pass, so it may remove this item's
-motivation entirely — and deciding it earlier would spend the same
-language-design call twice.
-
-An idea developed 2026-09-03 while looking for a way to keep *immutable*
-effects testable (a recording double needs state). It stands on its own
-merits and is **not** tied to that use case — most of the patterns below
-have nothing to do with effects. Open **DECISION**.
-
-### The problem it addresses (and what it unlocks)
-
-Salvo's mutation rule is about the **handle**: you may mutate through a
-path only if that path is `Mut`, which is exclusive. Several ordinary
-patterns need the opposite — mutation through a *shared* path:
-
-- two lambdas appending to one accumulator (today the first one to mutate
-  a capture *consumes* it, so the second is an error and the original is
-  dead afterwards — verified: "`total` cannot be used here: it was
-  consumed (moved) by a lambda that captures and mutates it");
-- memoization / lazy initialization behind an immutable handle;
-- counters, metrics, id generators shared by several holders;
-- a stateful handler of an effect whose other handlers want to be shared;
-- **a producer writing to a collection its caller keeps** — refused outright
-  since 2026-09-08 [iter-mut-param], and the case with the sharpest
-  requirements of the five (see "Producers: the `Mut`-parameter case (option
-  C)" below).
-
-### The proposal: a capability qualifier, not a container type
-
-`Cell` joins the intrinsic capability qualifiers (`Mut`, `Linear`,
-`once`, `proj`) rather than arriving as a std generic type
-`Cell<T>`. The family fits exactly — each intrinsic qualifier exists
-because it needs "a representation choice, a flow rule, a subtyping
-direction or a restricted position that no user declaration could
-supply", and `Cell` needs the first three:
-
-- `Mut T` — mutation permitted, only through *this* handle.
-- `Cell T` — mutation permitted through *any* handle.
-
-**Benefits over a container type:**
-
-- **No wrapper noise.** `count = count + 1` and `if count > 3`, rather
-  than `set(count, get(count) + 1)` and `if get(count) > 3`. Reads and
-  assignments keep ordinary syntax; only the *permission* differs.
-- **It inherits machinery instead of adding surface**: `canbe Cell`
-  opt-in on declarations, qualifier erasure, overload selection, and
-  D1's stripping rule — where `Cell`, being a capability rather than a
-  claim about contents, is never stripped (like `Mut` and provenance).
-- **Family membership is the documentation.** "Capability qualifiers say
-  what you may do with a handle" already exists as a concept; a std
-  container with its own API is a second thing to learn.
-- Danger stays visible in the type either way: `Cell Int` at every use
-  site, greppable, opt-in — unlike interior mutability hidden inside an
-  ordinary type.
-
-### Representation, and why it cannot panic
-
-- **Copyable contents → Rust `Cell<T>`**: `get`/`set` only, no borrow
-  guard exists, so no runtime check and no panic is *representable*
-  (verified: a shared id generator, `ids: 1 2 3`).
-- **Collections → Rust `RefCell<T>`**: a guard exists, but the only
-  operations are std primitives whose define templates the compiler
-  controls (`${list}.push(${value})`), so no Salvo code ever runs inside
-  the borrow (verified: a recording double shared by a capturing logger
-  *and* used directly, all three writes recorded).
-- Kotlin: a plain mutable field. No parity gap — both backends accept the
-  same programs.
-
-**The rule that keeps this true:** a cell may be mutated by assignment
-and by *standard-library* primitives, but never lent to a user-defined
-`Mut` parameter. Handing `&mut` into user code is what puts a borrow
-guard around a user call, which is precisely where B2's reentrancy panics
-came from (see E1a). One sentence to teach: "you can mutate a cell; you
-cannot hand its insides to a function you wrote."
-
-### Rules it drags in (the real design work)
-
-- **No state qualifiers on cell contents.** A claim like `NonEmpty` is
-  about contents, and contents can change through a handle the compiler
-  is not looking at — so `qualifier … of Cell …` must be rejected for
-  *state* claims. Provenance claims are fine (they are about where the
-  handle came from). This is the one genuine soundness rule, enforced at
-  the declaration.
-- **No shared-fate links.** Reads copy rather than lend, so
-  `let v = count` is an independent value: no link, no poison. Simpler
-  than the field case, and a direct consequence of "no handle into the
-  contents".
-- **Linear contents need `replace`.** Overwriting a cell holding a
-  `canbe linear` value would silently drop an obligation; `replace(cell,
-  v) -> T` hands the old value back and transfers the obligation, while
-  plain assignment over linear contents stays an error.
-- **Deductions say nothing.** A fn taking a `Cell` and writing it needs
-  no `Mut`, so its signature cannot report the write — acceptable only
-  because the first rule leaves no claim worth preserving.
-
-### The concession being accepted
-
-`Cell` is a sanctioned hole in "no hidden shared mutable state": two
-holders can surprise each other, and the ownership analysis stops helping
-inside a cell. That is the price of shared mutable state in any language
-with an ownership discipline; what makes it defensible is that it is
-visible in the type rather than hidden behind an ordinary one.
-
-### Producers: the `Mut`-parameter case (option C)
-
-Added 2026-09-08 with the decision that refused it for now
-([iter-mut-param]; the divergence that forced that is in COMPLETED.md, under
-"Defects found and closed").
-A producer taking `sink: Mut List<Int>` and appending to it as it yields is
-the pattern, and it is the most demanding customer this roadmap has:
-
-- **The handle outlives the call.** A producer's parameters are captured by a
-  *factory* that may mint a pass at any later time, so this is not "two
-  holders in one scope" — it is a handle stored for an unbounded period, which
-  is what makes `Rc<RefCell<…>>` (rather than a scoped `&mut`) the only Rust
-  shape that works. Every other case on the list above is at least *nameable*
-  within one scope.
-- **It multiplies.** A factory mints many passes, each capturing the same
-  cell, and they can be alive at once (`zip(p, p)`). So the borrow discipline
-  has to hold between *passes*, not just between a producer and its caller —
-  and that is exactly where a `RefCell` would panic at run time, the outcome
-  "Representation, and why it cannot panic" is written to avoid.
-- **It makes replayability a question rather than a promise.** `Iter<T>` is a
-  factory whose contract is that a second `for` starts from the beginning
-  [iter-protocol]. Sharing a cell with the caller keeps the *elements*
-  replayable while the side effect accumulates, so two loops over one factory
-  stop being interchangeable. Whether that is acceptable is a language call,
-  not a representation detail.
-
-**If `Cell` lands, this is the acceptance case to run first**, because it
-exercises the two hard parts together: a cell captured for longer than any
-scope, and several live holders derived from one capture. The narrower version
-— a producer returning `once Iter<T>`, where exactly one pass exists — needs no
-`Cell` at all and may be answerable with **shared fate** ([fate-link]) once a
-pass *is* the state machine (roadmap I2c); that is recorded under "Producer
-parameters: `Mut` refused" and is the cheaper thing to try first.
-
-### Relationship to E1
-
-`Cell` is **not load-bearing** for effects. E1's chosen strategy (B9
-handler fusion) keeps handler members able to mutate dependencies they
-receive as parameters, so recording test doubles need no interior
-mutability and effects need no immutable/mutable distinction. `Cell`
-therefore stands on the lambda/memoization/counter cases, which are real
-limitations today, and can land independently of the effects work if it is
-wanted at all.
-
-## Deductions and qualifier reasoning
-
-D1 (exhaustive and delta deductions) and D3 (refinements) are built; D5
-(qualifier subjects) and D8 (a producer's effects) were decided and landed. See
-COMPLETED.md. What is left:
-
-### D2 — Qualifier asserts (`+Q`) — **decided and built 2026-09-22**
-
-`=> p: +Q` in a function's own deduction list says the function
-**re-establishes** `Q`, trusted, and only in the file declaring `Q` (user
-decision 2026-09-22 — the narrow rule this section proposed, with the user's
-refinement that the re-application is *spelled* differently from a claim checked
-as usual, so a reader can tell which is which). The rule is [deduce-reapply];
-the record is COMPLETED.md's log. `demo/heap.sv` — the motivating example — now
-compiles and runs on both backends.
-
-**D2a is answered**: `+Q` and `as Q` stay two notions, both trusted and both
-scoped to the qualifier's own file. Establishment is *not* proven and not
-runtime-checked: a per-qualifier establishment relation would be needed to prove
-what the declaring file can simply assert, and `qualifies` cannot express a heap
-property in the first place.
-
-### D4 — Predicate `is` on union subjects (and qualifiers over unions)
-
-Motivated by an analysis of the `is` keyword (2026-09-03): `is` has one
-grammar and two evidence sources — union-arm identity, statically known
-[is-narrowing], and a runtime `qualifies` call [is-qualifies]. There is
-no parse ambiguity (one `Expr::Is` node; both forms are
-`subject is Qual* [Type] [binding]`), but `is_info` picks between them
-by the *subject's shape*: a `Ty::Union` subject **always** takes the
-arm-matching path. Consequence: a predicate qualifier can never be
-tested against a union-typed value. With `let x: Int | Str`,
-`x is Positive` matches no arm and reports "this check can never
-succeed"; the workaround is to narrow first (`x is Int && x is Positive`
-works, because the second test sees a non-union subject). The predicate
-form is shadowed by the union form, and the shadow is invisible in the
-surface syntax.
-
-Fixing it is not a checker patch — the narrowed type it should produce
-is a union whose arms carry a qualifier, so it needs qualifiers over
-unions in general (today [qual-union-arm] binds a qualifier to a single
-arm, and only an explicitly parenthesized group can be qualified
-[qual-group]).
-
-- **DECISION D4a — semantics of `x is Q` on a union subject.** Which
-  arms participate (recommendation: those whose qualifier-stripped type
-  satisfies `Q`'s `of` type), and what the check *is*: a conjunction of
-  the arm/tag test and the `qualifies` call (recommended — it is what
-  the two-step workaround does today), or `qualifies` alone.
-  Then-type: the participating arms with `Q` added.
-- **DECISION D4b — the else branch.** A failed predicate proves nothing
-  ([is-qualifies] already records "no else information"), so the
-  remaining set must *keep* the participating arms — unlike a pure arm
-  test, which subtracts them. That asymmetry is the load-bearing
-  difference and it propagates: a `when` whose arms are predicate checks
-  can never be exhaustive. Decide whether predicate checks are allowed
-  in `when` arms at all (recommendation: allow only when the arms are
-  exhaustive on tags alone, otherwise reject with a message pointing at
-  `if`/`elif`).
-- **D4c — qualifiers over unions.** Decide the shape of the narrowed
-  type: per-arm `Q A | Q B` (recommended — preserves [qual-union-arm]
-  and existing arm identity) versus a qualified group `Q (A | B)`
-  ([qual-group], which changes wrapper identity). Per-arm keeps the
-  positional-arm invariant that the checker and both emitters share.
-- **D4d — mixed checks.** `x is Positive Int` on a union: base-type arm
-  test *plus* the `qualifies` call, one lowering.
-- **Backend work.** `is_tests` and `predicate_tests` are separate side
-  tables and each emitter lowers one of them; a union subject with a
-  predicate needs a *combined* lowering (tag test `&&` qualifies call)
-  in both, and checker and emitters must agree exactly, per the
-  invariant. Effects on the `qualifies` fn stay subject to
-  [is-qualifies-effects] at every such site.
-- Sequencing: independent of D1–D3, but it shares the "what does a
-  qualifier mean over a composite type" question with D3's refinements;
-  do D4c's decision before either.
-- Not in scope: renaming `is`. The two readings are opposites in
-  *feel* — "already attached" versus "may be attached" — but both are
-  "test whether this holds now, and refine if it does"; conferring a
-  qualifier is what `-> T as Q` does [qual-ctor-fn]. User decision
-  2026-09-03: keep one `is`, revisit only if D4's rules prove confusing
-  in practice.
-
-### D6 — `once` on any type — ✅ complete 2026-09-12
-
-Decided yes and built with phase 3 (COMPLETED.md's log): the position gate
-is gone, `once` is valid on any type, and on data it drops at consuming
-positions (`once T <: T` for non-fn bases — a plain-typed holder consumes
-at most once anyway) while fn types keep the strict never-drop rule
-[once-fn]. The `once`-inference residual (auto-promoting a callee that
-calls its fn param once) stays not-built, as recorded.
-
-### D7 — Qualifier-conditional linearity — ✅ closed 2026-09-12, no surface
-
-Decided with phase 3: covered by conditional containers ([linear-generics]
-— the type-argument axis is the re-derivation of the need), no use-site
-`linear` spelling; revisit only if a customer appears that a container
-cannot express.
-
-
-### Related, independent: `!is` in expressions
-
-Negated checks (`if x !is Str { … }`) — sugar over `!(x is Str)` with the
-same fact propagation, and no binding form (a failed test binds nothing:
-`x !is T name` is a parse error). Lexing (user decision 2026-09-02): `!`
-binds *adjacently* — `x!` (assert) requires no space before `!`, `!is`
-requires no space between, `!x` (not) requires no space after, and a
-floating `!` (space on both sides) is a syntax error.
-
-The disambiguating clause, refining "not preceded *and* followed by
-alphanumerics": the left neighbour must count `)` and `]` as
-value-endings, or `names.first()!is Str` stays ambiguous — and
-`first()!` is real, common code (the M2 demo interpolates
-`${names.first()!}`). So:
-
-> `!` may not be *directly* preceded by a value-ending token
-> (identifier, literal, `)`, `]`) **and** directly followed by an
-> operand-starting token (identifier, literal, `(`, `[`) or the keyword
-> `is`. Whitespace on one side resolves it.
-
-This keeps `x!.field`, `x!)`, `x!,` legal (the following token cannot
-start an operand), rejects `x!is T` and `a!b`, and leaves `x! is T`
-(assert then test) and `x !is T` (negated test) as the two spellings.
-
-## Projections and copies — leftovers (phase 2b complete 2026-09-11)
-
-Phase 2b — `proj` everywhere, views, `?copy`, the std audit, the `iter fn`
-borrow, and the `=>` deduction respelling — is **built**, and so are the
-follow-ons: **`proj` as a type qualifier landed 2026-09-12** (option A),
-and **capturing lambdas are views + written lend entries take precedence
-over the instantiation fallback landed the same day** (user decision; both
-in COMPLETED.md's decision log with the soundness hole and the two emitter
-defects they closed). The rules live in LANGUAGE_SPEC.md ([proj-type]
-[lambda-view] [proj-anywhere] [proj-readonly] [proj-field] [proj-infer]
-[yield-proj] [copy-implicit] [copy-scalar-free] [deduce-syntax]) and
-BACKEND_SPEC.rust.md ([rs-proj]). What stays open:
-
-- **Type-mention tracing for instantiation links (refinement, recorded
-  2026-09-12).** With no written entry, a `proj`-holding instantiation
-  still links its result to *every* kept argument — including a container
-  the substituted type never mentions (`keep_all(iter(words), tags)` links
-  to `tags`). The remedy today is the written `-> … holds proj(it)` annotation,
-  which now takes precedence; the refinement would link only kept
-  arguments whose substituted type contains the projection. Build it if
-  over-linking bites where the entry is unavailable (an unannotatable
-  callee).
-- **Contract stability (revisit).** With unmentioned parameters inferred
-  [deduce-syntax], editing a body to consume or lend a parameter changes what
-  callers may do with no signature change; the old exhaustive list made moves
-  visible at a glance. Accepted for now (the hover shows the effective clause;
-  the diagnostics name the cause). If it bites, the remedy is an opt-in
-  "exhaustive" marker or a lint that asks for `!p` to be written.
-- **Re-pointing entries are declared, not verified.** `=> v.items: proj[from:
-  other]` links the caller's `v` to `other` at the call, and the emitter ties
-  the lifetimes; the *body* is trusted to perform the re-pointing. The
-  inference in `lends.rs` is return-centric — extending it to assignments
-  into a parameter's `proj` fields is the verification.
-- **Binding a view of a temporary (user, 2026-09-11 — refuse for now).** A
-  derived-return or lending call whose borrowed argument is a temporary may be
-  used within its statement — `map(iter(list(4, 5)), f)`, `for x in
-  iter(list(1, 2))` — but binding, returning or storing the view is an error
-  ("cannot bind a view of a temporary … bind that argument with `let`
-  first"). Rust exposed it (E0716); Kotlin would have run it. **Possible later
-  automation**: hoist the temporary into a fresh local that lives as long as
-  the view (`let __src = list(1, 2); let p = slice(__src)`) — exactly what the
-  user writes today. Not free of judgement: the temporary then lives to the
-  end of the block (observable only through destructors/regions, which Salvo
-  does not yet have), and a hoist inside a loop or lambda changes how often
-  it is built. Revisit once regions land.
-- **Reserved extension — link parameters (user sketch, 2026-09-11).** If the
-  conservative fallback of [proj-infer] ever bites (two sources, read
-  separately, through a fn value or effect member), the per-field explicit
-  form is a lowercase name in the generics list — `[name-casing]` already
-  makes it parse:
-  ```
-  struct Pair<T, U, a, b> { first: proj(a) T, second: proj(b) U }
-  fn get_pair<T, U>(ts: List<T>, us: List<U>, i: Int) -> Pair<T, U, ts, us> => ts, us
-  ```
-  with Rust emitting one lifetime per link parameter (today every `proj`
-  field shares one `'s`, which rustc unifies to the shortest source — sound,
-  less flexible). Elision would follow Rust's. Not built; the `.f:
-  proj(a)` entries cover per-field precision wherever there is a body.
-  * **Use case recorded 2026-09-25 (user decision): a source on a nested
-    `proj`** — `-> Mut List<proj(it) T>` where today one writes
-    `-> Mut List<proj T> holds proj(it)` [proj-infer]. It is the reading the
-    user asked for on `filter` (option A of that day's round; `holds` is
-    option B, built), and it is refused today because the link is recorded
-    against the **whole result**, not the position: the syntax would promise
-    a per-position precision the analysis does not keep (`Map<proj(k) K,
-    proj(v) V>` reads as two holdings and records one set). With link
-    parameters that precision becomes real, so the nested source stops being
-    sugar and becomes the per-position form — which is why the two are
-    sequenced this way round. When it lands: allow a source in type-argument
-    position (the parser already accepts `proj(x)` nested — it is how
-    `Emitted (proj(p) T)` works, and `first_proj_source` already declines to
-    descend into type arguments, so the *result* is not mistaken for a
-    wholesale projection), refuse `holds` where a nested source says the same
-    thing so there is one spelling per situation, and close the hole found
-    while probing this: a nested source in a **parameter** type
-    (`xs: List<proj(other) Str>`) is silently accepted and means nothing.
-- **Accumulator bodies** (`best = person; …; return best` under a projected
-  return) are out of scope: reassignable borrowed locals are a recorded
-  refinement of [readonly-return].
-
-## Standard library surface
-
-S-Str (a mutable string and the string function surface) and S-Seq (the sequence
-functions over any pass) landed 2026-09-06; **S-Col — collections** landed
-2026-09-12 (`Set`/`Map`/`SortedSet`/`SortedMap`, collection literals, universal
-struct `==`, `canbe hashed`/`canbe ordered`, the `*_of`/`*_by`/`to_*`
-conventions); see COMPLETED.md for all three, including how C-7 — the Set/Map
-pass design — was answered by prototype (snapshot passes owning a `List<T>`,
-after borrowing passes and `copy()` were both tried and failed). What is left:
-
-### S-Col leftovers — recorded, none forced
-
-- **Reachability precision.** Name-based reachability now pulls `core.set`,
-  `core.map` and the Rust `collections.rs` runtime into *every* program,
-  because `to_set`/`to_map`/`list_of` name each other across modules: a
-  hello-world went from ~300 to 569 lines of (allowed, dead) generated code.
-  Harmless — both backends tolerate unused items — but the fix is real:
-  reachability should walk the checker's *resolved* call targets rather than
-  matching names, which needs the checker to record them. Deliberately not
-  done with the collections work; it is a separate pass over `reach.rs`.
-- **`entries` and `values` passes over a Map** are deferred. A Map pass
-  yields **keys** (Python's `for k in d` precedent) because an entries pass
-  would need an owned `(K, V)` and Kotlin cannot copy a generic `V`, so
-  identity-sharing would alias mutable values and break backend parity. The
-  answer is probably the same snapshot shape the key pass uses, over a
-  `List<(K, V)>`, once tuples-of-generics are exercised enough to trust.
-- **Comparator functions for keys** stay out (intrinsic ordering only, user
-  decision 2026-09-12), and **float fields still bar `canbe hashed`**. The
-  latter is the one worth revisiting: it is a consequence of Salvo owning
-  float equality, and the future precision-specified comparison the user
-  asked for is where a hashable float would come from.
-- **`Deque<T>`** is the honest replacement for the linked list the user
-  asked about, and the recommendation was to build neither in v1. Both
-  targets ship and are proud of `ArrayDeque`/`VecDeque`, and every workload
-  people reach for a linked list for (queues, BFS frontiers, sliding
-  windows, LRU order) is served better by one: one intrinsic type, six
-  functions (`push_front`/`push_back`, `pop_front`/`pop_back`, `peek` at
-  both ends), no new concepts. Recorded as the *next* collection, when a
-  customer appears — phase 5's mailboxes may be it. (A representation
-  qualifier `Linked List<T>` was examined and rejected: it would make the
-  shared List surface *worse*, since `get(list, i)` becomes O(n), and
-  Rust's `LinkedList` has no stable cursor API so the O(1) middle insertion
-  that justifies the representation is unreachable. Salvo-proper `struct
-  Node<T> { value: T, next: Node<T> | None }` is blocked on the Rust boxing
-  rule — see "Recursive types".)
-
-### S-Col C-6 leftovers — the claims std does *not* ship
-
-C-6 landed 2026-09-13: `NonEmpty`, `Sorted` and `Distinct` over `List<T>`,
-with `non_empty_list`, the optional-dropping `first` overload, `sort`,
-`mut_sort`, `add_sorted` and `binary_search` — and, once **qualifier
-overloading** landed the same day (user decision), `NonEmpty` over `Set`,
-`Map`, `SortedSet` and `SortedMap` too, in `core.nonempty`, with the
-refinements on `add`/`put` and the `min`/`max`/`first_key`/`last_key`
-overloads that drop the optional. See COMPLETED.md. What is still not there:
-
-- **The `NonEmpty` overloads that need no claim of their own**: a `fold` with
-  no seed, and `first`-like accessors on the unordered containers (a `Set` has
-  no `first` to specialize, since it has no index).
-- **`Distinct` from `to_list` over a `SortedSet`.** That `to_list` lives in
-  `core.sorted` and a constructor must sit beside its qualifier
-  [qual-ctor-same-file], so it returns a plain list while `core.set`'s mints
-  the claim. Either move the qualifier somewhere both can see, or relax the
-  same-file rule for `as Q` on an `intrinsic`.
-- **A `Sorted` list cannot be *tested*.** No `qualifies`, because deciding it
-  compares elements — which needs the type-parameter bound the generic
-  container defect under "Open defects" also wants. With that bound, `Sorted`
-  could gain an `is_sorted` predicate and stop being mint-only.
-- **`Sorted` over the other containers** would be meaningless (the sorted pair
-  *is* the representation), but `Distinct of Set<T>` is tautological and
-  `NonEmpty` is the only claim that generalized. Worth remembering before
-  reaching for overloading again: the mechanism is general, the claims are not.
-
-### S-IO — the filesystem (phase 4) — ✅ complete 2026-09-15
-
-Decided in six rounds of user decisions and built the same day, item by item:
-the Has-accessor effect fusion, the operator-typing slice, the `@Effect`
-member-disambiguation grammar, O-R2 interception, the `platform handler`
-mechanism, effect-member overloading, the [linear-group] member-discharger
-amendment, `core.fs` + `core.hostfs` with std's two host files, `MemFs`,
-`RestrictedFs`, one overload set for members and fns, the byte payload (twice:
-`List<Byte>` first, then std's own `Bytes`), the fill-a-buffer reads, the chunk
-pass and the copy one-shots, and `examples/files/`. **The record is
-COMPLETED.md's decision log** (six entries, newest "`Bytes`, `read_to` and the
-copy one-shots"); **the as-built rules are LANGUAGE_SPEC.md's** [fs-surface],
-[fs-token], [fs-errors-at-close], [fs-bytes], [fs-read-to], [fs-host-split],
-[fs-double], [fs-restricted], [fs-v1-cuts], [byte-value] and [bytes-type]. FILE_SYSTEM.md — the plan of record, and the full option
-record — **has retired into COMPLETED.md** as its charter said, so nothing
-below points at it any more.
-
-The historical outline of an `Fs` effect (2026-09-06, deferred so that IO
-streams could be designed first) was superseded by what shipped: its two
-findings — errors returned rather than thrown, and stream operations as
-*members* so a double can fake them — are both in the built surface
-[fs-surface].
-
-#### The byte payload — ✅ answered and built 2026-09-15
-
-The question the first byte deliverable left open (Kotlin boxing `List<Byte>`,
-with no `UByteArray` rendering available under erased generics) was **decided
-by the user: a `Bytes` type of std's own** — option (b) of the three — with the
-fill-a-buffer reads and the copy one-shots on top of it. Built the same day;
-see COMPLETED.md's decision log ("`Bytes`, `read_to` and the copy one-shots")
-and the rules [bytes-type], [fs-read-to], [kt-bytes].
-
-### Leftovers found while building the fs (none blocking)
-
-- **Reachability is name-based, so `core.fs` is linked by programs that never
-  open a file**: it declares a `next` and a `to_str`, and `reach.rs` pulls in
-  every module declaring a *used name* [mod-used-only]. The consequence is
-  emitted-but-dead code (the surface, plus the 8-arm union wrappers), not
-  wrong behavior — and the dependent handler was moved to `core.hostfs`
-  precisely so the *fusion* is not dragged in with it. The fix, when it is
-  worth it: resolve fn-name usage through the checker's `call_fn` instead of
-  `name_origins`, which needs reachability to run after checking.
-- **`rename` is a keyword**, so the member is `rename_path` (both on `Fs` and
-  in `RawFs`). Making `rename` contextual in a member position is a parser
-  change nobody has asked for; the name deviates from the signed-off member
-  list deliberately.
-- **A pass's type must be *visible* for `for` to drive it**: importing the
-  `next` alone is not enough (`import fs.Lines` was needed in a scratch
-  program before `for line in p` resolved), which reads as a missing import
-  of something the value already has. Invisible in std (`core.*` is
-  implicit); worth a better diagnostic, or a rule that the subject's own
-  declaration is enough.
-- **`size(Str)` disagrees between the backends outside ASCII** (found
-  2026-09-14, pre-existing): Kotlin lowers it to `String.length` (UTF-16 code
-  units) and Rust to `chars().count()` (code points), so a string containing a
-  non-BMP character — an emoji — makes the same program print different
-  numbers, and `char_at` indexes differently with it. `byte_size` was added
-  beside it for the filesystem's offsets and is parity-safe by construction,
-  but `size`/`char_at` need a **decision**: what a `Str` index means (code
-  points, UTF-16 units, or bytes), and then one lowering per backend that says
-  so. Repro: `println("${size("a😀b")}")` prints 3 on Rust and 4 on Kotlin.
-- **A colliding call types its arguments without expected types**
-  [effect-available]: the lead-candidate machinery belongs to the fn path, so
-  inside a call whose name is both an available member and a fn, a lambda that
-  needs its parameter type from the position falls back to
-  [type-unknown-lenient]. Both backends still emit working code for the cases
-  tried (a field read through such a lambda runs identically on both), but the
-  checker is not proving it. The fix is a lead pool shared by both kinds.
-- **Kotlin's `USELESS_CAST` is suppressed rather than avoided**
-  [kt-suppress-cast]: the emitter could skip the payload cast where kotlinc's
-  smart cast already types it, but knowing exactly when is subtle, and the
-  annotation costs nothing.
-
-
-## Actors — effect handlers bound asynchronously (phase 5, complete)
-
-**Designed** (user decisions 2026-09-14/15; the four **DECISION**s this
-section used to carry are all answered — the argument trails live in
-CONCURRENCY.md, the decided summary in COMPLETED.md's decision log). The
-intended shape (user, 2026-09-09) was the Erlang/Gleam/OTP model; the design
-pass landed somewhere better: **the effect surface is the model**. An actor
-is an effect handler bound asynchronously — a state struct plus one function
-per member, run-to-completion on a small scheduler library (no runtime in
-generated code, full backend parity). Named *asynchronous effect handlers*
-after Ahman & Pretnar's Æff, its closest formal relative.
-
-**The documents**: CONCURRENCY.md (option space → the direction → the frozen
-first pass → remaining opens), CONCURRENCY_EXAMPLES.md and
-CONCURRENCY_EXAMPLES.effects.md (worked examples, the kernel and sugar tower,
-the deadlock example), DESIGN_DOC.md (the template). They stay alive until
-implementation lands, as FILE_SYSTEM.md did for phase 4.
-**LINEARITY_COLLECTIONS.md has retired** into COMPLETED.md's decision log per
-its charter: item 7 carries its content in code and in [linear-container] /
-[linear-state]. SUPERVISION.md stays until item 8 — the runtime files cite its
-section numbers, so its retirement is a sweep rather than a delete.
-
-**The four answers, one line each**: sendability = structural rule +
-diagnostic (C-4(a), `Arc`-where-sent inference as growth); a spawned actor's
-effects = handler dependencies supplied at the spawn site
-([effect-handler-deps] at a distance — construction crosses, handlers never
-do); substrate = run-to-completion on pools (`on pool(n)`, one arrival-order
-queue per actor, **bound explicit and required**); async **dissolves** (no
-colouring — the 2026-09-04 record honoured by making the question moot).
-
-**First-pass grammar (frozen)**: `send fn` members with explicit `Reply<T>`
-parameters (linear, statically one-shot); `replyto k(captures)` /
-`replyto! k(captures)` (the gate: bounded selective receive, one outstanding
-per actor); `r.send(v)` discharges; `spawn H(args) with Handler(...), addr
-on pool(n)`; lowercase `[use, spawn]`; `use addr`; `waitfor` as main's
-explicit bridge, and **the program ends when `main` returns**. Deadlock
-baseline: the effect-graph cycle check — **built 2026-09-16**, with gate cycles
-as errors and blocking-send cycles as warnings. The sugar tower (`-> T` + call
-syntax, `then`/`then!`, `defer`, merge/join, the gate member-set
-generalization) comes in later passes, each with its own decision surface.
-
-**What remains before the build: nothing — the decision space is empty.**
-The supervision/monitors design was the last prerequisite and is **decided**
-(user, 2026-09-15; SUPERVISION.md — death = a faulted activation, `watch`
-with a linear `Exit` token as the whole monitor surface, dead-target
-sends/fulfils as silent no-ops plus the idle-with-parked-gates runtime
-report, supervision as a pattern with no syntax). Its opening requirement
-(LC-4's dying-with-obligations) is answered there.
-
-**The implementation**, per the first-pass plan in CONCURRENCY.md. **A
-program spawns, sends, parks continuations, bridges, and watches its
-children die — on both backends, with identical output** (2026-09-15/16; the
-build records and what each slice cost are in COMPLETED.md's decision log). Everything landed the same day: the
-scheduler library, the declaration forms, the expression forms, the types, the
-checker rules, the emitters' first cut — then the respelling sweep, the
-`actor effect` kind, the forwarding stub, **dependent-handler spawns**, and
-**`replyto` / `@self`**. The smallest running program is the counter in both
-backends' codegen tests: `spawn Counting() on pool(1)`,
-`counter.bump(2)`, `waitfor out: Reply<Int> { counter.total(out) }`, printing
-`sum 5` from Kotlin and Rust alike; the one that shows what the surface is
-*for* is the fetcher beside it, which parks a continuation for a database
-actor's answer and fulfils `main`'s token from inside its own activation.
-As-built rules: LANGUAGE_SPEC.md's "Asynchronous effect handlers"
-([actor-kind] … [actor-types], [actor-watch], [actor-deadlock-cycle]) plus
-[linear-opaque], [rs-actor] and [kt-actor].
-
-**The agreed sequence for the rest of phase 5** (user decisions 2026-09-15,
-after reading EFFECT_UNIFICATION.md's plan): the two surface changes that
-document decided go **first**, because both touch landed surface and every
-later slice adds sites to them; the emitters follow; **the call-member sugar
-pass and the rest of the sugar tower leave phase 5 altogether** (below, "The
-sugar pass — after phase 5"). Every item here is a *diagnostic* in the
-compiler today, so its own output is the work list.
-
-1. ✅ **The respelling sweep — done 2026-09-15.** `Pid<E>` → `Addr<E>` and
-   `self.k(…)` → `k@self(…)`, both landed with their spec rules
-   ([actor-types], [actor-self-send], [actor-use-addr]) and the old spellings
-   now plain parse errors. What it cost and what it simplified is in
-   COMPLETED.md's log; the one thing worth carrying: `@self` as a *selector*
-   deleted the rule that a handler member may not declare a variable named
-   `self`, because nothing can shadow a selector.
-2. ✅ **`actor effect` and its refusal list — done 2026-09-15.** The kind
-   marker, `send fn` requiring it, the declaration-site refusals (kept
-   parameters, `Mut` parameters, `proj` returns, non-sendable payloads) and the
-   binding gate on `spawn` / `use addr` / `Addr<E>` — which **closes
-   CONCURRENCY.md's carried named question**: a plain effect is never
-   actor-backed. Sendability landed with it, as decided. Rules:
-   [actor-effect-kind], [actor-sendable]. The emitters' gates now key on the
-   kind rather than on "has send members".
-3. ✅ **The forwarding stub — done 2026-09-15.** `__Stub_E` beside each async
-   effect, implementing it by sending to an addr; `use addr` binds one exactly
-   as a handler instance is bound, in both backends and in both fusion modes.
-   The refactor that made it cheap is the one item 4 needs: each backend's
-   `use` path now takes the *expression* that builds an instance
-   (`emit_fusion_instance` / `bind_effect_instance`) instead of a handler
-   declaration, so nothing downstream knows which kind it got. Verified by a
-   compile-and-run case per backend, with `[Log]` travelling down an ordinary
-   effect list into a function that never learns it is an actor
-   ([actor-use-addr], [rs-actor], [kt-actor]).
-4. ✅ **Dependent-handler spawns — done 2026-09-15.** Every realistic handler
-   needed it (`Counting [Log]`, std's `DefaultFs [RawFs]`), and it landed as
-   the survey predicted: one **checker table** (`spawn_dep_items` — which
-   clause item satisfied which declared dependency, which `check_spawn`
-   already knew while matching), then each backend's own shape for "the child
-   owns its environment". Rust emits a **generic flat provider** `__Prov_H<__D0,
-   …>` beside the handler, `__Proc_H` holds it, and `handle` builds the
-   existing `__Deps_H` view over it ([rs-actor]); Kotlin repeats the
-   handler's carrier type parameter on `__Proc_H` and has the *spawn site*
-   build an `__Fx_N` from the clause ([kt-actor]). Both make a clause item
-   into an instance the way item 3's refactor made one — a construction is
-   `D(args)`, an addr is the forwarding stub — so a dependency swaps between a
-   local handler and an actor with no change to the child. Verified by a
-   compile-and-run case per backend with one dependency supplied as a
-   construction and another as an addr, identical output on both, plus the
-   written-order swap and a plain-effect dependency with a constructor
-   argument. **The two "not emitted yet" refusals in `emit_spawn` are gone**;
-   what `emit_spawn` still refuses is a generic handler. Two defects surfaced
-   on the way and were **both fixed the same day** — an effect member name
-   colliding with a std fn, and consuming a handler's stored values; each
-   turned out to have a *silently wrong output* half, and both records are in
-   COMPLETED.md.
-5. ✅ **`replyto` and `@self` emission — done 2026-09-15.** The slice the phase
-   was blocked on: **request/response now works without `main` in the loop**.
-   Three design points were settled first (user decisions, D5-a/b/c):
-   * **The address**: a generated `__addr` field on any handler of an `async
-     effect`, written by `__Proc_H` from the activation's `SalvoCtx`. Chosen
-     over threading `SalvoCtx` into the member (which would land on the
-     effect *trait*, and so on the stub, the fusion and `__Impl_H`) and over a
-     runtime thread-local. Its absence doubles as the **self-send's
-     discriminator**, which is what lets `k@self(…)` have both its readings
-     without compiling the member twice.
-   * **The parked table**: `__parked: slot → __Cont_E` on the same handler,
-     with `__Cont_E` beside `__Msg_E` carrying each target member's parameters
-     minus the trailing answer. On the handler because the *mint* happens in a
-     member body, which cannot see the actor struct — and this left
-     `SalvoProcess::resume`'s decided signature untouched, which was the point.
-   * **`replyto` under a `use` binding**: refused **statically**, at the `use`
-     site — a handler that parks may only be spawned. Bound synchronously its
-     mint targets a *local* instance with no mailbox and no dispatcher, so the
-     continuation would silently never run. The gate is syntactic per handler
-     (effects propagate, so a `use` site cannot know which members a scope
-     reaches); it does not touch Example 6's binding swap, which is a spawn
-     clause.
-   * **Remote mints stay out** (user decision 2026-09-15): `replyto` resolves
-     lexically only in this pass. The generalized mint (EU-7b) makes the mint
-     itself send-like — capacity reserved in the *target's* queue, so it can
-     block and contributes its own wait-for edge — and belongs with the sugar
-     pass; a target reached through the effect list is a diagnostic naming the
-     workaround, which needs nothing new (a token is a linear value: mint it
-     where `k` lives and pass it).
-
-   Verified by three compile-and-run cases per backend with identical output:
-   a fetcher parking a continuation for a database's answer and only then
-   fulfilling `main`'s token (`got row 7`); the gate, whose ordering *is* the
-   assertion (`reply R, user late`); and both readings of `k@self` answering
-   the same thing. **All four "not emitted yet" refusals are gone** — including
-   the two whose text still named the pre-item-1 `self.k(…)` spelling.
-6. ✅ **`watch` and the deadlock baseline — done 2026-09-16.** The monitor
-   surface and the static check, both on both backends with identical output.
-   Three design points were settled first (user decisions, D6-a/b/c): `watch`
-   as an `intrinsic fn` in `core.actor` rather than a member of the
-   capability-only `spawn` effect; `Exit` a plain struct whose value the
-   **watch site** builds, since the runtime cannot construct a Salvo struct
-   (and a `resume`-side special case would have been silently wrong the moment
-   a program fulfilled a `Reply<Exit>` itself); and the cycle check's two
-   severities — a gate cycle is an error, a **blocking-send cycle a warning**
-   (the user's amendment: the compiler already has a warning severity, so the
-   honest edge set is the full one). Interception is exempt, which no design
-   document had anticipated: a handler of `E` declaring `[E]` is an `E → E`
-   edge by construction and can never deadlock, because the dependency binds
-   outward. A `[spawn]`-propagation defect surfaced and was fixed the same day.
-   Rules: [actor-watch], [actor-deadlock-cycle], [actor-spawn-effect]; the
-   record is in COMPLETED.md's log. **Two gaps recorded, not closed**:
-   * **A self-send into a full own mailbox wedges the actor**, and
-     `k@self(…)` deliberately contributes no edge — warning on every self-send
-     would drown the form, and the runtime's idle report cannot see it (a
-     blocked sender is not idle). The alternatives when it bites: exempt a
-     self-send from the queue bound in both runtimes (a semantics call), or
-     warn at the form. **DECISION** when it matters.
-   * **The graph is over actor types, not instances**, so a chain of
-     same-protocol workers reads as a self-loop, and a handler's declared
-     dependencies stand in for what its members reach. Stratification (a tier
-     qualifier on an addr) and the fallbacks (a timeout form, a per-edge
-     reentrant opt-in) stay unbuilt until the false positives are *observed*.
-     The timeout form's prerequisite — a timer, which the language does not
-     have — landed with step 5 of the second sequence ([time-timer]); the
-     hand-written timeout shape (two bare `replyto` mints racing into a
-     pending map, loser finds `None`) needs only its T-1 to become writable.
-7. ✅ **Linearity in collections — done 2026-09-16.** L8's answer, built: a
-   container is linear exactly when its element type is, so
-   `waiting: Mut List<Reply<Str>>` in handler state works — `add` parks a
-   token, `remove_first` answers one, `drain` is the terminal, and a container
-   that is never drained is a leak naming `drain`. Five build-time decisions
-   (D7-a…e, user 2026-09-16) settled the surface; the one that changed the
-   design document's sketch is the terminal — a **consuming callback**
-   (`drain(list, each)`) rather than `for x in drain(list)`, since a `for`
-   cannot consume a linear temporary [iter-drive-in-place] and no implicit
-   discharge site exists. Rules: [linear-container], [linear-state], a
-   rewritten [linear-composite], [rs-state-take], [rs-linear-move],
-   [kt-linear-container]; the record is in COMPLETED.md's log. **Three things
-   left behind**, below: the effectful-discharger gap, the list's missing
-   positional write, and bare obligations in state.
-
-   * **An effectful discharger cannot drain a container.** A lambda performs
-     only the effects its *type* declares [fn-effects], and `drain`'s callback
-     type is pure — so `close(s: InStream) [Fs]`, or anything that logs, cannot
-     fill it, which makes a `List<InStream>` undrainable. Reply tokens are
-     unaffected (`send(r, v)` is pure), which is why the slice shipped. Two
-     candidate answers, both **DECISION**s: a `for`-driven terminal (a
-     `let`-bound drain pass, which needs a rule for what discharges a pass that
-     stopped early), or letting a *pure* callback position accept an effectful
-     argument by widening the call's own requirements (effect polymorphism at
-     the call site, which is E3 step 4's neighbourhood). Worth doing when a
-     real program wants it; the workaround meanwhile is a discharger that takes
-     the effect's *handler* as data, or draining into a plain list first.
-   * **No positional list write**: `replace(list, i, v)` would have to answer
-     `None` for an out-of-range index and drop the value it was handed. Take an
-     element out and add a new one, or key the collection with a `Map` (whose
-     `replace` has no such hole). Add it if a customer appears, with a
-     `Ok T | Err T`-shaped answer.
-   * **A bare obligation in handler state is refused**, naming the container:
-     taking it out would leave a hole nothing could fill, so its obligation
-     would have no reachable discharge. It is also what keeps LC-4 sound on
-     Rust, where a non-`Default` field has no representable temporarily-empty
-     state. A `linear struct Gather` living *in* a map is the shape that works,
-     and is what the examples use.
-8. ✅ **Propagation and retirement — done 2026-09-16.** The phase's four
-   working documents are gone (CONCURRENCY.md, SUPERVISION.md, the two
-   CONCURRENCY_EXAMPLES files and EFFECT_UNIFICATION.md, after
-   LINEARITY_COLLECTIONS.md with item 7), their decided content living in the
-   rules and in COMPLETED.md's log, and every citation of them in code, tests
-   and specs now points at a rule label instead. **`examples/actors/` is the
-   worked example** — six sections from the smallest actor to death and
-   watching, plus the same handler bound synchronously — which is what replaced
-   the examples files' sketches: running code beats prose the moment the
-   feature exists. The `Reply<T>` reservation rule moved into [actor-types]
-   where the type is defined, and the one thing the documents still had open —
-   the spawn-line respelling — is now a **DECISION** in this file (below).
-   Two things fell out of writing the example: the `while <call> is T` defect
-   (**fixed the same day** — [is-bind-once]) and that **nothing in the suite
-   read the examples** (now two guards per backend).
-
-**The leftovers the checker slice found are all closed** (2026-09-15) — the
-record, with what each taught, is in COMPLETED.md's decision log; the last of
-them, self-sends, was a user decision the same day (`k@self(…)`, respelled to
-`k@self(…)` by item 1 above).
-
-**Deferred out of the phase**: [fate-lambda] moves to the call-sugar pass —
-no first-pass form crosses a closure (spawn-`use` arguments, `replyto`
-captures, and `waitfor`'s token are all *values*). The recorded refinement
-(`move`-closure emission with hoisted clones, treatment for captured
-effect-handler locals) is unchanged, just re-scheduled.
-
-**Regions rode along as planned** (user, 2026-09-10, confirmed 2026-09-15):
-an actor **is** a region; sendability and region-escape are one check.
-
-**What was already in place carried its weight**: send-as-move was ordinary
-consumption; linearity survived sends [linear-obligation] and became the
-reply-token guarantee; supervision-as-handler became interception across the
-scheduler boundary (CONCURRENCY_EXAMPLES.effects.md, Example 4).
-
-## The spawn line — ✅ decided and built 2026-09-16
-
-The cumbersome three-clause spawn line is gone: **the mailbox moved to the
-handler** (`mailbox { capacity: 16 }`, a slot whose braces are a `Mailbox`
-struct literal with the type elided), so a spawn now reads
-`spawn H(args) with deps on pool(2)` — what to run, what it depends on, where.
-The record, the options considered and what the survey of *other* actor
-parameters settled (mailbox shape belongs to the handler, placement to the
-spawn site) are in COMPLETED.md's log; the rules are [actor-mailbox] and
-[actor-spawn-expr].
-
-What that leaves for the spawn line itself, if it is ever revisited:
-**continuation-line clauses** (each clause may start on its own line, as a
-deduction clause may) were part of the recommendation and are *not* built — two
-clauses fit on a line, so the need went away with `capacity`. And **placement**
-is where the remaining knobs would go: `on pool(2).throughput(50)` or
-`on pinned()` if a fairness or affinity control is ever wanted, which is the
-half of the parameter survey the spawn site owns.
-
-## The sugar pass — after phase 5 (user decision 2026-09-15)
-
-Deferred out of the phase deliberately: phase 5 delivers the **explicit**
-surface (tokens and reply parameters written out), and every layer of sugar
-above it becomes a later item with its own decision surface. What is already
-*decided* about it, so the pass starts from a plan rather than a blank page
-(EFFECT_UNIFICATION.md, EU-6 and EU-7b):
-
-- **Per-kind `-> T`** (EU-6 = (a)): plain effects unchanged forever; inside an
+- **Multi-shot resumption is closed on principle**: resuming twice duplicates a
+  use obligation, so it cannot coexist with `Linear`. (Neither target offers it
+  either.)
+
+Two related recorded items: a **handler cannot dispatch to itself** — inside a
+member the bare member name is already taken (it means the handler registered
+*before* this one [effect-intercept]), so self-dispatch needs a different
+spelling, and that spelling is a language call (`self.bump()`, `bump@self()`, …);
+the workaround (a free fn both members call) is what std does and has cost
+nothing. And **two cuts inside the effect fusion** stay *reported* rather than
+mis-emitted [rs-effect-fusion]: a dependent handler using its own generic
+parameters in a member signature, and a `use` whose effect instance is still
+generic.
+
+### 13 — The sugar pass (after the explicit surface, decided 2026-09-15)
+
+Phase 5 delivered the **explicit** actor surface (tokens and reply parameters
+written out); every layer of sugar above it is a later item with its own decision
+surface. What is already decided, so the pass starts from a plan:
+
+- **Per-kind `-> T`** (EU-6): plain effects unchanged forever; inside an
   `actor effect`, `fn m(a) -> T` means an implicit trailing `Reply<T>`,
-  fulfil-at-every-return, and caller-side call syntax = auto-mint + gate. This
-  is why item 2 above keeps `send fn` rather than making it implicit: the
-  non-send forms are stated *against* it — `send fn m(a)` is no completion,
-  `fn m(a) -> T` a call member, `fn m(a) -> None` the acknowledged form.
-- **The generalized mint** (EU-7b): `replyto k(c)` resolves lexically against
-  the enclosing handler, else through the effect list as a *remote* mint — a
-  curried, capacity-reserved, one-shot send. Reservation happens at mint time
-  in the token's target, so discharge never blocks; mint sites contribute
-  deadlock edges like sends. A bare `k` naming both an enclosing member and an
-  in-scope async member is **refused**, naming `k@self` and `k@E`; a remote
-  mint where no actor exists is refused, naming `waitfor`. `replyto!` and
-  self-targets stay lexical to handler bodies.
+  fulfil-at-every-return, and caller-side call syntax = auto-mint + gate. This is
+  why `send fn` stayed explicit: the non-send forms are stated *against* it.
+- **The generalized mint** (EU-7b): `replyto k(c)` resolves lexically against the
+  enclosing handler, else through the effect list as a *remote* mint — a curried,
+  capacity-reserved, one-shot send, with reservation at mint time so discharge
+  never blocks, and mint sites contributing deadlock edges like sends.
 - **Two stub readings appear here, and only here.** An answering member cannot
-  have one implementation for both bindings: from an actor the call parks,
-  from synchronous code it must block — which `main` may do and an actor may
-  not (EU-2, and point 2 of the unification's stated intent). The first pass
-  has one stub precisely because nothing answers.
+  have one implementation for both bindings: from an actor the call parks, from
+  synchronous code it must block.
 - Then the rest of the tower, each its own call: `then`/`then!`, `defer`,
   merge/join, the gate's member-set generalization.
-- **Watch item, carried**: a helper that must create self-targeted or gated
-  continuations in *data-dependent number* still cannot be written outside a
-  handler body. If that bites, the recorded shape to revisit is EU-7(a)'s
-  narrow running-in entry — but the **general alternative is now built**: a
-  free `send fn` is a `replyto` target [free-send-fn] [task-mint], the mint is
-  legal in any function, and the token carries a `Task` arm, which extends the
-  send kind rather than re-running the rejected full unification. `waitfor` is
-  a placement-gated capability effect with uniform pump semantics
-  [waitfor-effect] [waitfor-pump] — the concrete form of EU-2's block reading
-  ("from synchronous code it must block"). What the watch item still names is
-  *self-targeted or gated* continuations, which a task cannot supply: it has no
-  mailbox to gate and no members to target.
+- [fate-lambda] belongs here — no first-pass form crosses a closure. The recorded
+  refinement is `move`-closure emission with hoisted clones, plus a treatment for
+  captured effect-handler locals.
 
+### 14 — Shared mutable state: `Cell` (DECISION)
 
-## Laziness, after concurrency (user decision 2026-09-10)
+Deferred until after actors deliberately, because the OTP answer is that actors
+own their state and message-pass — which may remove the motivation. The full
+design (a capability *qualifier* rather than a container type, the representation
+per backend, why it cannot panic, the rules it drags in, and the producer case
+that is its hardest customer) is recorded in COMPLETED.md's "Shared mutable state
+(`Cell`)" section, moved there with this consolidation. The question to answer
+first is whether shared mutable state joins the language at all.
 
-std's lazy pair (`map_lazy`/`filter_lazy`, composed passes that computed as they
-were driven) was **removed** 2026-09-10 rather than carried along, and the
-question reopens after phase 5. The reason for removing it now: laziness was
-touching three unsettled decisions at once — L8 (a composed pass stores its
-source, so a linear one is refused), sendability (`Rc<dyn Fn…>` in a fn-typed
-field is not `Send`), and the shape of the combinator surface itself — and it was
-the *least* settled of the four, so it was the one to take off the table.
+When it is taken, it should be decided **on one table** with the rest of the
+sharing story: shared-immutable versus shared-mutable, invalidation-checked
+versus unchecked (today's fate links, frozen `Reg`, `canbe` groups, `Cell`) —
+with the observation that `proj` is the degenerate group (a read-only member of a
+singleton group under maximal invalidation sensitivity), so the two are points on
+one dial rather than two features.
 
-**The direction to try when it is picked up** (the user's, stated with the
-removal): standard laziness *couples data to the functions over it*, and the two
-should stay separate. What is wanted instead is a good way to **compose
-functions — `iter fn`s included — into pipeline functions**, which then mint a
-fresh pass from data supplied independently. So `map`-then-`filter` would build a
-*function*, not a wrapped data structure, and the data arrives at the end.
+### 15 — Regions (designed 2026-09-10, unbuilt)
 
-What the existing implementation already contributes, so this is not a blank
-page:
+Fully designed and recorded: `effect Region` with an intrinsic handler, `Reg` as
+an intrinsic provenance qualifier, regional-by-birth defaults, `reg`/`unreg`, the
+freeze (dropping `Mut` makes handles duplicable, kills fate links and makes state
+qualifiers permanent), and the escape rule. Kotlin erases it entirely; Rust stages
+it — v1 `Rc<T>` [rs-region-rc], v2 a real arena with one mechanical lifetime per
+delimiter [rs-region-arena]. The design, the R2 rejection (regions manage memory
+and lifetime, never obligations) and what it retires for frozen values are in
+COMPLETED.md's "Regions" section, moved there with this consolidation.
 
-- **An `iter fn` is already "a function that mints a pass"**, and its pass is
-  unnameable by design — which is exactly the shape a pipeline function wants to
-  return. `?iter` as an implicit (2026-09-10) is already the mechanism for "take
-  the data, mint the pass" in a *generic* function.
-- **A pass is only a struct with a `next`** [iter-protocol], so a pipeline that
-  does need state has somewhere to put it without new language surface.
-- **Effects on fn types** [fn-effects] already thread a callback's effects to
-  whoever calls the value, which a pipeline of effectful steps needs.
+Still open when it is picked up: the exact freeze spelling (`^Mut` as an
+expression, freeze-by-position, or both); cross-region operations (out of v1);
+`unreg` of a deeply regional structure copying deeply; and folding D7's
+`Local`/`Escaping` watch-list entry into the design.
 
-Questions to answer with it, all of them consequences of composing functions
-rather than data:
+### 16 — Laziness, after concurrency (direction decided 2026-09-10)
 
-- **What composes, and how it is spelled.** Two `(T) -> U` steps compose
-  obviously; an `iter fn` (subject → pass) composed with a step is a different
-  arrow, and a filter changes the *count* of elements rather than their type.
-  Whether all three are one notion or three is the first call.
-- **Where the state lives.** If a pipeline function is a value, and a stage needs
-  per-run state, the state must be minted per drive rather than captured once —
-  which is the replay property `iter fn` already has (it copies its subject at
-  the mint) and the thing a stored composed pass got wrong.
-- **Does it dissolve the L8 casualty or inherit it?** A pipeline that holds only
-  *functions* stores no source, so "can you lazily `map` over a file's lines?"
-  may become yes without widening the composite rule at all. That is the
-  strongest argument for this direction and it should be tested first.
-- **Sendability.** If a pipeline is a value holding fn-typed fields, phase 5's
-  `Rc`-is-not-`Send` question applies to it directly; if it is a *function*, it
-  may not.
+std's lazy pair was **removed** rather than carried along, and the question
+reopens here. The direction is the user's: standard laziness *couples data to the
+functions over it*, and the two should stay separate — so what is wanted is a good
+way to **compose functions (`iter fn`s included) into pipeline functions**, which
+then mint a fresh pass from data supplied independently. `map`-then-`filter` would
+build a *function*, not a wrapped data structure, and the data arrives at the end.
 
-## Regions — designed (user decisions 2026-09-10), built with phase 5
+What the existing implementation contributes: an `iter fn` is already "a function
+that mints a pass" whose pass is unnameable by design; a pass is only a struct
+with a `next` [iter-protocol]; effects on fn types already thread a callback's
+effects to whoever calls the value [fn-effects].
 
-Raised by the user: model Vale-style regions as effects — a scope explicitly
-opens a region, functions declare that they use the caller's region, the way
-`try`/`throw` works. Designed across one session (this supersedes the first
-write-up of the same day; the decision record is in COMPLETED.md). The design
-calls are made; the build is scheduled **into phase 5**, where its customers
-live.
+Questions to answer with it: what composes and how it is spelled (two `(T) -> U`
+steps compose obviously, an `iter fn` is a different arrow, and a filter changes
+the *count* of elements); where per-run state lives (minted per drive, which is
+the replay property `iter fn` already has); whether it dissolves the L8 casualty
+or inherits it (a pipeline holding only *functions* stores no source, so
+"lazily `map` over a file's lines?" may become yes without widening
+[linear-composite] at all — the strongest argument for this direction, and the
+thing to test first); and sendability.
 
-### What transfers from Vale, and what does not
+### 17 — Recursive types (DECISION, end of the queue)
 
-Vale's regions exist to remove *generational-reference* runtime checks; that
-motivation does not transfer — Salvo's safety is static. What transfers is
-**region-scoped data** (a value that may not outlive a scope) and
-**scope-wide immutability** as a fact the checker can use. Said plainly: a
-region is a lifetime with a coarser grain and a friendlier name, and it
-spends part of the "no lifetimes in the source" premise deliberately — one
-binder per scope instead of a lifetime per value.
+Investigated 2026-09-12; nothing needs it, and List-mediated recursion covers its
+customers (trees, ASTs, JSON) meanwhile. Where it stands: nothing rejects a
+recursive type, so `struct Node { value: Int, next: Node | None }` passes the
+checker, runs on Kotlin and dies at rustc with E0072 — an accept/reject
+divergence. Recursion **through `List<T>` already works end to end on both
+backends**.
 
-### The decided reading: R1 — values may not outlive their region
+- **Step 1, the diagnostic** (a defect fix, independent of the feature): an SCC
+  walk over the type graph (struct fields, union arms, alias expansions;
+  `List`/array/fn-typed edges do **not** count — they indirect already) and an
+  error at the declaration naming the field that closes the cycle, with the
+  `List<T>` encoding as the named remedy. [type-no-cycle] landed the declaration
+  refusal for the *direct* case 2026-09-25; the union-arm case is what is left.
+- **Step 2, the feature**: a boxing rule for the Rust backend — where the box goes
+  (minimal-edge boxing, the presumption), transparency at every use site (literals
+  wrap, reads autoderef, matches need explicit derefs since box patterns are not
+  stable, partial moves keep working, `Mut` paths get `&mut` via `DerefMut`,
+  `copy` deep-clones), and **non-regular (polymorphic) recursion refused in
+  Salvo** — a type may recurse only at its own instantiation, or Rust
+  monomorphizes forever while Kotlin's erasure accepts it.
+- **The semantic edges**, each a small language call: **constructibility**
+  (`struct A { a: A }` has no base case — refuse cycles with no optional/union
+  escape arm, recommended); **depth, not cycles** (values are acyclic, so
+  `to_str`/equality/drop terminate, but each recurses per node and a 100k chain
+  overflows generated `toString`/derived `Drop` — accept-and-document for v1);
+  **linearity stays out** (refuse recursion + linearity in one declaration for
+  v1); and an `iter fn` over a recursive subject snapshots per field, which is a
+  deep copy.
 
-R1 (region-scoped data plus scope immutability) is the design. R2 — the
-region *owns cleanup obligations* and bulk-discharges them at close — is
-**rejected** (user, 2026-09-10): linearity cleanup stays explicit, per path,
-because discharge can be a *choice* (`stop` vs `join` on a thread handle),
-can need context the scope does not hold (`remove(cache, handle)`), and
-discharge functions can use effects, which an implicit close has no business
-supplying (the first two are the examples recorded under L8). Regions manage
-**memory and lifetime, never obligations** — linear values are exempt below —
-which also avoids the `defer` trap ("a block whose end runs cleanup") by
-construction rather than by rule.
+## Recorded, not scheduled
 
-### The design
+Each was considered and deliberately parked. Nothing here is blocking, and
+several are "revisit only if a customer appears".
 
-- **`effect Region`, with an intrinsic handler.** `Region` is an ordinary
-  effect whose members are `reg` and `unreg`; the `region { … }` delimiter
-  registers the **intrinsic handler** for its scope. This keeps "an effect is
-  a capability with a handler" true — `Throw` remains the single handler-less
-  exception — while regions inherit the full effect machinery: `[Region]` in
-  effect lists, outward propagation, "no delimiter above you" diagnostics,
-  innermost-wins. No labelled regions in v1 (precedent: no labelled throws).
-  `main` may open `region { }` but may not declare `[Region]` — no caller.
-- **`Reg`, an intrinsic provenance qualifier**, marks membership — provenance
-  because mutation can never invalidate where a handle came from. Merely
-  *holding* a `Reg T` needs no effect entry (having one proves a region is
-  open below you); `[Region]` is declared by whoever calls `reg`/`unreg` or
-  constructs into the caller's region, per ordinary effect rules. The
-  register/region double reading of `reg` is intentional; spec prose must
-  keep the bare word "register" for handlers and `use`.
-- **Transitive through projections**: a projection of a `Reg` value is `Reg`
-  (`node.name` on a `Reg Node` is `Reg Str`), so inner tags carry no
-  information and are rejected (`Reg List<Reg Node>` is an error; write
-  `Reg List<Node>`). Whether propagation-through-projection becomes a
-  *general* per-qualifier property (L8 wants something adjacent for
-  obligations) is **deferred until more examples exist** (user, 2026-09-10).
-  It cannot be uniform: `Authenticated Request` must not project to
-  `Authenticated Str`.
-- **Inverted defaults — regional by birth.** Every value constructed in
-  region context (lexically inside `region { }`, or in the body of a fn
-  declaring `[Region]`) is `Reg`. `reg(v)` moves an outside value in — a
-  consuming deduction, no copy. `unreg(v)` takes a copy out:
-  `fn unreg<T>(value: Reg T) [Region] -> T` — the copy is built into => value
-  the function, since duplicable handles mean exclusivity can never be
-  proven; it **elides when the argument is a fresh construction**, which is
-  also the opt-out-at-construction spelling (`unreg(Summary { … })`). `copy`
-  respects ambient placement (a copy made in region context is `Reg`);
-  `unreg` is the override.
-- **Exemptions.** Copy scalars (`Int`, `Bool`, …) are never `Reg` — no
-  lifetime to manage, nothing to tag. Linear values are implicitly
-  un-regional: a `: Linear` construction in region context is an ordinary
-  value under the existing per-path discharge rules (see the R2 rejection).
-- **`Mut` interplay — the freeze.** A `Reg` value with a `Mut` handle follows
-  today's rules unchanged (exclusive handle, fate links, deductions) — this
-  is how anything is *built* inside a region, and it matches the arena
-  reality (allocation hands back exclusive access). The **freeze** is
-  dropping the `Mut` — widening (`^Mut`) or moving into a non-`Mut` position —
-  after which the value gets the regional treatment: handles freely
-  duplicable, **no shared-fate links**, and **state qualifiers permanent**
-  (nothing can ever mutate a frozen value, so `Reg NonEmpty List<Int>` never
-  loses `NonEmpty` — the exact mirror of `Cell`'s "no state qualifiers on
-  contents").
-- **The escape rule.** Nothing carrying a region's provenance may escape its
-  delimiter — as the block's value, by `return` or `break`-with-value, or by
-  storage into an outer variable or literal. The existing consumption/flow
-  analysis is the machinery; the diagnostic names the escape event and the
-  remedy ("`unreg(v)` to take a copy out"). Ordinary locals declared in the
-  block are untouched — the region delimits only its members, and both
-  disciplines coexist in one scope with the qualifier saying which one a
-  value is under.
-
-### What it retires, for frozen `Reg` values
-
-| today | frozen `Reg` value |
-|---|---|
-| returning a kept parameter's projection is a move / needs `copy` | legal — the return borrows the region, not the parameter |
-| derived returns (`proj(p)`, generated lifetimes) | unnecessary — projections are `Reg` automatically |
-| shared fate: links, root mutation poisons derivatives | no links exist; nothing can mutate a frozen root |
-| storing one value in two literals consumes it at the first | handles duplicate freely |
-| re-test (`is NonEmpty`) after every mutating call | claims are permanent |
-
-Honest framing, kept from the first write-up: this is a **second axis**, not
-a reduction of the first. Deductions, `Mut`, shared fate and `Linear` all
-remain, unchanged, for un-regional values. The D7 watch-list entry
-`Local`/`Escaping` is this idea under a smaller name; fold it into this
-design when phase 5 picks it up.
-
-### Backend lowering, staged
-
-- **Kotlin**: erased entirely — `region { }` is a plain block, `Reg T` is
-  `T`, `reg`/`unreg` are identity/copy. The same story as deductions
-  [qual-erasure].
-- **Rust v1 [rs-region-rc]**: `Reg T` → `Rc<T>`, `reg` → `Rc::new`, `unreg` →
-  clone-out. Zero lifetimes in generated signatures — the first write-up's
-  concern that regions put `'r` everywhere is answered by staging, not
-  denied. The escape rule is enforced *semantically* from day one even
-  though `Rc` would not dangle, deliberately, so v2 is a pure representation
-  swap. Flag: `Rc` is not `Send` — the same phase-5 blocker as
-  [rs-fn-field].
-- **Rust v2 [rs-region-arena]**: a real arena (hand-rolled in emitted
-  `core/` while output stays a single `rustc` invocation), `Reg T` → `&'r T`,
-  one mechanical lifetime per delimiter, `[Region]` fns get `'r` threaded
-  like an effect parameter. The recorded hard part is drop glue for regional
-  collections (a `Reg List` owns a heap buffer that must not leak past the
-  region).
-
-### Why phase 5 (user, 2026-09-10)
-
-An actor in the OTP model *is* a region: a private heap, bulk-freed on
-death, with "leaving the region requires move/copy" as the sendability rule.
-The null hypothesis for the phase-5 design session is that `region { }` is
-the **sequential special case of an actor** — one that runs inline and dies
-at the brace — giving one concept instead of two. The escaping-closure fix
-[fate-lambda] is already a phase-5 prerequisite, and R1 is its notation.
-Deciding regions standalone earlier would spend part of the same design call
-twice — the reasoning that already deferred `Cell`.
-
-### Still open when phase 5 picks this up
-
-- The exact freeze spelling: `^Mut` as an expression, freeze-by-position
-  only, or both.
-- Cross-region operations (Vale's "read an outer region while building an
-  inner one") — deliberately out of v1.
-- `unreg` of a deeply regional structure must copy deeply — same per-backend
-  rules as `copy`, including its refuse-rather-than-diverge cases.
-- Folding D7's `Local`/`Escaping` watch-list entry into this design.
-
-## Recursive types — unscheduled, after the sequence
-
-Investigated 2026-09-12 (probes against that evening's debug binary; raised by
-the collections design's linked-list question, which it outgrew). Deliberately **at
-the end of the queue**: nothing in phases 3–5 needs it (user, 2026-09-12). Its
-customers are trees, ASTs and JSON-shaped data — and, until it is built,
-List-mediated recursion (below) covers them.
-
-### Where things stand today: a hole, not a rule
-
-Nothing in the checker or resolver rejects a recursive type; no spec rule
-mentions them. The consequences, all verified by probe:
-
-- `struct Node { value: Int, next: Node | None }` **passes the checker on both
-  backends**. Kotlin emits `data class Node(val value: Int, val next: Node?)`
-  — compiles and runs, references are free indirection. Rust emits
-  `pub next: Option<Node>` and dies downstream with rustc's E0072 ("recursive
-  type has infinite size"), with no Salvo diagnostic. The same happens for
-  recursion through a union arm (`type Tree = Int | Branch`,
-  `Branch { left: Tree, right: Tree }` → `Union2<i32, Branch>`, E0072).
-  This accept/reject divergence is the open defect recorded above.
-- **Recursion through `List<T>` already works end to end on both backends**
-  (probe: `struct Tree { value: Int, kids: List<Tree> }` with a recursive
-  `total` — compiled under rustc, ran, correct output). `Vec` is heap
-  indirection, so the shape is representable today. Trees are therefore
-  *usable now* under this encoding; only direct field and union-arm recursion
-  is broken.
-- `check.rs` was already written defensively: its type-walking predicates
-  carry cycle guards ("recursive struct: already being checked"; the
-  depth-guarded transitive-linearity walk), so the checker survives recursive
-  declarations even though nothing admits them.
-
-### Step 1 — the diagnostic (a defect fix, independent of the feature)
-
-Close the [backend-never-wrong] hole now or with the feature, but decide it is
-owed: an SCC walk over the type graph (struct fields, union arms, alias
-expansions; `List`/array/fn-typed edges do **not** count as cycle edges —
-they indirect already) and an error at the declaration naming the field that
-closes the cycle, with the `List<T>` encoding as the named remedy. Cheap,
-and honest whichever way the feature decision goes.
-
-### Step 2 — the feature: a boxing rule for the Rust backend
-
-Kotlin needs nothing. Rust needs compiler-inserted indirection, and the
-design questions are:
-
-- **Where the box goes** — minimal-edge boxing (box only the field/arm edges
-  that close a cycle, which is rustc's own hint) versus boxing every
-  recursive-type field. Minimal is the presumption. Placement interacts with
-  the union representation: for `Tree = Int | Branch` the box can wrap the
-  arm payload (`Union2<i32, Box<Branch>>`) or the field inside `Branch`, and
-  the choice lands on every generated arm accessor and match.
-- **Transparency at every use site.** A boxed field must behave exactly like
-  an unboxed one: literals wrap (`Box::new`), reads autoderef, union matches
-  see through the box (box patterns are not stable Rust, so emitted matches
-  need explicit derefs), partial moves out of a boxed field keep working
-  (they do, through `Box`), `Mut` paths get `&mut` via `DerefMut`, `copy`
-  deep-clones (`Box<T: Clone>`). **Precedent that this is tractable**: the
-  emitter already renders fn-typed fields differently from fn-typed values —
-  `Rc` wrap at stores, clone at reads [rs-fn-field] — and the recorded
-  drop-conversion machinery shows wrap/unwrap at checker-known sites is
-  established. New spec rule on the Rust side (`rs-box`-shaped), nothing on
-  Kotlin's.
-- **Non-regular (polymorphic) recursion must be refused in Salvo.**
-  `struct Node<T> { next: Node<List<T>> | None }` monomorphizes to infinitely
-  many types on Rust while Kotlin's erasure accepts it — a second silent
-  divergence hiding behind the first, currently surfacing (if at all) as
-  Rust's recursion-limit error. The rule: a type may recurse only at its own
-  instantiation.
-
-### The semantic edges (each small, each a language call)
-
-- **DECISION — constructibility.** `struct A { a: A }` has no base case: no
-  value of it can ever be built. Refuse cycles with no optional/union escape
-  arm at the declaration (recommended), or let them exist vacuously.
-- **DECISION — depth, not cycles.** Actual *cyclic* values appear
-  unconstructible — a cycle needs aliasing plus mutation through the alias,
-  which ownership refuses (and boxed Rust representation could not hold one)
-  — so `to_str`/equality/drop always terminate. But each recurses per node:
-  a 100k-node chain overflows the stack in Kotlin's generated
-  `toString`/`equals` and Rust's derived `Debug` and `Drop` (a known real
-  Rust wart). Accept-and-document (recommended for v1) or emit iterative
-  drop glue for recursive types.
-- **Linearity stays out, together.** A recursive `linear struct` (a chain of
-  obligations) would ask the discharge analysis to walk a runtime-sized
-  structure at compile time; refuse recursion + linearity in the same
-  declaration for v1. The existing cycle guards keep the *predicates*
-  terminating meanwhile.
-- **`iter fn` snapshot note**: an `iter fn` over a recursive subject
-  snapshots per field — a deep copy, correct but O(n) where O(1) is assumed;
-  document when the feature lands.
-
-### Verification shapes, when picked up
-
-The three probes above (direct field, union arm, `List`-mediated), each
-compiled *and run* on both backends; a match through a boxed union arm; a
-partial move out of a boxed field; `copy` of a recursive value; the
-polymorphic-recursion refusal; and the constructibility refusal. The probes
-are re-writable in minutes (they were built against `tmp/`, not kept).
-
-## Consolidated leftovers
-
-Small recorded remainders, each also noted in its own milestone section or spec
-rule, collected here for findability. They are not a queue: nothing here is
-blocking, and several are "revisit only if a customer appears".
-
-- **Fresh-suite speed, remaining steps toward ~10–15s** (goal set by the
-  user 2026-09-12; the kotlinc batching landed the same day — see
-  COMPLETED.md decision log — bringing a fresh run to ~50s, and
-  `[profile.dev] opt-level = 1` (2026-09-21) holds it at **~1m40 for 1237
-  tests**, the `kotlinc_compiles_and_runs_every_case` driver's ~99s being
-  the wall the rest of the suite runs underneath). What is left,
-  in impact order: the CLI suites (`run_tests`, `platform_tests`,
-  `analyze_tests`: ~16s max single test; each spawns `salvo run`/`compile`
-  which pays its own kotlinc), the rust codegen suite (~4.8s max under
-  contention; a shared-runtime batch or precompiled `libcore` would cut
-  it), and running the batched Kotlin programs in one JVM instead of one
-  `kotlin` launch each (~0.4s per program). A *warm*-run idea recorded
-  2026-09-21: every golden test re-reads, re-parses and re-checks `std/`
-  (`build_program`); the parse could be cached today (`OnceLock` over the
-  parsed modules — AST is `Clone`), but the *check* cannot be without
-  incremental checking, and at opt-level 1 the per-test cost is ~0.07s —
-  measure before bothering. Past those, the floor is the
-  matrix size itself — trimming compile-and-run cases whose behavior the
-  goldens already pin.
-
-- ~~The spawn's `with` clause renames to `using`~~ — superseded 2026-09-20:
-  the clause word is **`with`**, on both `use` and `spawn`, landing with the
-  spawn-inheritance arc (the decision round is in COMPLETED.md's log).
-- **`const` bindings** (user intent, stated 2026-09-19 while refining the
-  shareable-handler taxonomy): a binding form that forbids reassignment.
-  Announced, not designed — no syntax round yet. Its first customer is
-  already recorded: the shareable-handler taxonomy's rung 1 (COMPLETED.md's
-  decision-round entry) keys on *no mutable
-  state*, which today means "no fields, no `Mut` constructor parameters";
-  `const` immutable fields would join the allowance (const restricts the
-  binding, not the contents, so a `const` field of a `Mut` type still counts
-  as mutable state).
-- **`once` inference**: a callee calling its fn param at most once does
-  not auto-promote to `once`; written only [once-fn]. Same
-  written-validates/unwritten-infers pattern as deductions when taken.
-- **Returning/storing capture-carrying closures**: rustc lifetime error
-  the checker does not reject; the recorded refinement is
-  `move`-closure emission with hoisted clones, pending a treatment for
-  captured effect-handler locals [fate-lambda].
-- **Exactly-once closures**: a `once` lambda may not consume a *linear*
-  capture (the closure would inherit the obligation) [linear-lambda];
-  supporting it means linear fn values.
-- **Reassignable borrowed locals** (accumulator bodies in derived-return
-  fns: `best = person; …; return best`) are rejected by provenance
-  validation; supporting them is the recorded [readonly-return]
-  refinement.
-- **Same-call borrow/move (E0505 shape)**: one call that passes a
-  borrow-emitted local *and* moves its root is checker-legal
-  (left-to-right model) but rustc-rejected — loud, rare
-  [rs-borrow-locals].
-- **Internal qualifier unification** and **L5 field-disjoint precision** are
-  both still unforced — see "L7 remainders" and "L5" above.
-
-- `salvo lsp`: go-to-definition [lsp-definition] and doc-comment hover
-  [doc-comment] landed, including nested declarations — struct fields,
-  handler state, effect/handler/qualifier members — and, since 2026-09-11,
-  `params` groups, names reached through an `import`, a predicate
-  qualifier's short `qualifies` body [doc-qualifies-body], and fate links
-  at a variable's *declaration* as well as its uses. Still open: `[symbol]`
-  resolution is name-based over the AST rather than
-  import-visibility-exact [doc-symbol-ref]. Also still open:
-  incremental analysis if workspaces outgrow
-  re-check-everything-per-keystroke, and a `positionEncoding` negotiation
-  for UTF-8-native clients. Signature *hover* still covers fn decls only
-  — effect members and define fns have no `FnKey` (go-to-definition does
-  reach effect members, via `def_refs`). Not built, and unforced: hovering
-  a fate *root* to see what derives from it (the reverse direction).
-- **A generic `List<T>` cannot be interpolated** [interp-to-str]: an opaque
-  `T` has no text form, so std's list renderer cannot reach its elements.
-  The fix is composing an element `?to_str` at the interpolation site, and
-  it needs two existing limits lifted: `resolve_implicit_fn` skips
-  candidates that themselves take implicit parameters, and `implicit_args`
-  is keyed by *call* spans, which an interpolation does not have. Unforced —
-  the remedy is a `to_str` of your own — but it is the natural next step if
-  interpolation of generic containers is wanted.
-- **Predicate `is` on a union subject** is now roadmap phase **D4**, not
-  a leftover: a `Ty::Union` subject always takes the arm-matching path,
-  so `x is Positive` on `Int | Str` errors ("this check can never
-  succeed") instead of calling `qualifies` — narrow first
-  (`x is Int && x is Positive`). Lifting it requires qualifiers over
-  unions [is-qualifies] [qual-union-arm].
-- Struct destructuring ignores predicate-qualifier field overrides
-  (deliberate: bindings get the declared type; direct accesses get the
-  override + cast).
-- Constructing a nested qualified union group in one expression works for
-  *distinct* qualifiers as of 2026-09-10 (`emitted(ok(x))`); repeating the
-  **same** one (`ok(ok("yes"))` into `Ok (Ok Str | Err Int) | …`) still needs an
-  annotated intermediate `let`, and cannot be fixed by a rule — a flat
-  qualifier list deduplicates, so `Ok Ok Str` *is* `Ok Str`. The no-arm
-  diagnostic names the workaround [qual-group].
-- Deduction inference does not track bare-parameter value flow out of
-  branch/loop tails as a move (documented leniency in [deduce-infer]).
-- **Array elements never narrow** ([flow-place] narrows variables, field chains
-  and tuple positions): an unknown index may alias any element, so a constant
-  one is not treated specially either — the expectation it would set is the
-  reason.
-- Module reachability is name-based and conservative: a local variable
-  shadowing a std fn name still pulls that std module in (harmless
-  extra output, never a missing module).
-- **Operator typing — ✅ decided and built 2026-09-14** ([op-arith]
-  [op-order] [op-bool] [op-promote] [op-convert] [lit-adopt]; the
-  `==`/`!=` slice was 2026-09-12's). One deliberate exclusion carried
-  forward: **`Byte` is not operator-numeric** until the byte surface and
-  the `UByte` lowering land with the filesystem work — its arithmetic
-  would diverge (signed on the JVM, unsigned on Rust) today. Generic
-  (`Ty::Var`) operands stay lenient like `Unknown`, a documented leftover
-  matching the equality slice.
-
-- **Where dot-notation is normalized** [fn-dot] — revisit whether the
-  receiver-as-argument-0 rewrite could happen *earlier* in the pipeline than
-  it does. Not prioritized (user, 2026-09-17); recorded because a defect
-  came out of it. Today the rewrite happens twice over, and never in the
-  AST: `check_call` builds `all_args` with the base at index 0 before
-  handing it to `resolve_named_call`, and each emitter redoes the same
-  normalization from its own symbol tables (with an internal-error branch
-  for the case where it disagrees with the checker
-  [backend-never-wrong]). So everything downstream of *resolution* sees a
-  normalized argument list, but anything that inspects the *written*
-  expression must re-derive the shift by hand — `links_for_value` does, in
-  two places; `constructor_operand` did not, and counted written arguments
-  instead. That is what made `return list.get(0)` fail its
-  `proj(list)` return check: the one-argument unwrap that a `proj`-arm
-  union return needs [proj-anywhere] took the *index* for the borrowed value
-  (fixed 2026-09-17 by scoping the unwrap to union returns; the same unwrap
-  had been silently accepting a one-argument call that borrows nothing).
-  - It cannot move into `salvo-syntax`: the name must resolve to a declared
-    fn or effect member (whole-program scope, and the crate parses one
-    module at a time), and an `Addr<E>` receiver is *not* argument 0
-    [actor-use-addr] — `p.total(out)` and `list.get(0)` are the same shape
-    and differ only by the receiver's type. The same
-    receiver-at-index-0 form also appears as `Expr::Scoped`
-    (`xs.add@core.list(y)`) and `Expr::EffectScoped` (`s.close@Fs()`)
-    [fn-overload-at] [effect-at].
-  - Two shapes worth weighing when it is picked up: (a) the cheap one —
-    record the normalized argument list per call span in a side table
-    beside `derived_calls` / `lending_calls` / `fn_value_calls`, and have
-    downstream shape tests and both emitters read *that* instead of the
-    written arguments; (b) a real normalization pass after types are known,
-    which removes the shape from the AST for everyone but is a much larger
-    change. Either kills the bug class; only (b) removes the duplication.
+- **Pick chains** (`^Ok?: Err?: err(_)`) — recorded rather than scheduled at the
+  user's call: the same program is expressible today with one pick plus a `when`,
+  so a chain buys brevity and the evidence that would settle it is *a real program
+  in `examples/` or `std/` that reads worse without one*. Decided and still
+  standing if built: picks consume arms **in order**, and the empty pick may appear
+  anywhere in the chain. Cost: `Expr::Elvis` needs `picks: Vec<ElvisPick>`, the
+  checker consumes arms pick by pick, both emitters emit an `if`/`else if` chain;
+  the parser's lookahead already exists.
+- **Value-level parity for hash and random.** Callable `hash` lowers to each
+  backend's **native** hashing, so hash *values* diverge across backends —
+  accepted deliberately, on the analogy of random numbers. The shape and the
+  high-level guarantees are identical (`eq(a,b)` ⇒ `hash(a) == hash(b)` within one
+  execution). The possible future reversal, for hash and random *together*:
+  language-defined algorithms implemented identically in both runtimes (the
+  rejected sketch: FNV-1a 64 over a canonical byte encoding). Until then a program
+  must not print or persist a hash value and expect cross-backend identity.
+- **Platform-handler thread-safety contract (DECISION).** A platform handler is
+  *assumed* thread-safe (user decision 2026-09-20) and nothing validates it. The
+  divergence to close: Kotlin binds the raw host instance while Rust shares it
+  through the per-effect lock adapter, so a *non-conforming* host races on Kotlin
+  and is accidentally serialized on Rust. Two emissions would restore parity —
+  **(a)** drop the Rust lock for a handler that declares the contract (`&self`
+  members, `Arc<H>`, which also makes rustc machine-check half the contract), or
+  **(b)** serialize both by putting Kotlin's platform bindings behind
+  `__Mon_E`. (a) as the declared path, (b) as the undeclared fallback. The
+  DECISION is the contract's surface: where the declaration lives, what it
+  asserts, and what the undeclared case means. `salvo platform generate` should
+  print the chosen contract into the host file it writes.
+- **`on_idle`'s predicate (DECISION).** The hook fires on the strict quiescence
+  condition while the deadlock report fires on a weaker one, so a program stuck
+  *with a parked frame* gets the report and exit 1 where the relaxed reading would
+  let it react. One line in each runtime either way; the argument for relaxing is
+  consistency, the argument against is that `on_idle`'s meaning drifts toward
+  "nobody can move", which is the report's job.
+- **`size(Str)` outside ASCII (DECISION).** Kotlin lowers it to `String.length`
+  (UTF-16 code units), Rust to `chars().count()` (code points), so
+  `println("${size("a😀b")}")` prints 3 on Rust and 4 on Kotlin. Needs a decision
+  about what a `Str` index *means*, then one lowering per backend. `byte_size` is
+  parity-safe by construction and is what the filesystem uses.
+- **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
+  language; recorded 2026-09-17 when the tuple form shipped instead.
+- **`platform type`** — deferred by decision; `platform effect` and
+  `platform handler` are the whole interop surface until a need arises.
+- **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
+  first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
+  mutable state", which today means "no fields, no `Mut` constructor parameters";
+  `const` immutable fields would join the allowance.
+- **`Deque<T>`** — the honest replacement for a linked list, and the next
+  collection when a customer appears: one intrinsic type, six functions, no new
+  concepts. (A representation qualifier `Linked List<T>` was examined and
+  rejected: it would make the shared `List` surface worse, and Rust's
+  `LinkedList` has no stable cursor API.)
+- **`entries`/`values` passes over a Map** — deferred: an entries pass needs an
+  owned `(K, V)` and Kotlin cannot copy a generic `V`, so identity-sharing would
+  alias mutable values. The answer is probably the snapshot shape the key pass
+  uses, over a `List<(K, V)>`.
+- **Test-suite speed** — the stamp key stays **keyed on the generated sources**
+  (user decision 2026-09-25): it cannot go stale, and that is worth more than the
+  seconds a cheaper key would save. If it ever bites, the options in order:
+  a source-keyed stamp plus an emitter-version token; caching the emission beside
+  the verdict; emitting `std` once per source and running many; shrinking the
+  registry. Measure first: how much of the Kotlin binary's ~15s is `std`
+  re-emission versus per-case work.
+- **Locators through opaque anchors, branded tokens, and the bounds-check
+  mitigation ladder** — the group-borrowing ladder's recorded refinements, with
+  GhostCell declined on the record (a brand is a scope-bound *lifetime* and actor
+  state escapes every scope) and raw pointers / `RefCell` rejected. In
+  COMPLETED.md's log for 2026-09-24/25.
+- **In-place writes during iteration** — refused by the driven-origins rule
+  [iter-fn]. The contents-versus-replacement distinction [deduce-field] is what
+  would license it, and the locator model already makes the shape renderable.
+- **Field-set inference for [deduce-field]**, and qualifiers on struct fields:
+  v1/v2 are written-only, so an unannotated fn keeps the conservative whole-value
+  event.
+- **`once` inference**, **returning/storing capture-carrying closures**,
+  **exactly-once closures consuming a linear capture**, **reassignable borrowed
+  locals** (accumulator bodies under a projected return), **same-call borrow/move
+  (E0505 shape)**, **the internal qualifier unification**, **L5 field-disjoint
+  precision**, **`NotEq` over any `?eq`-capable subject**, **link parameters**
+  (with the nested-`proj` source they would make real), and **type-mention tracing
+  for instantiation links** — all unforced, each recorded with its shape where its
+  rule lives.
+- **The linear instantiation ban misses generic effect members** — a hole in what
+  shipped: `[linear-generics]` is checked in `resolve_named_call`, and an effect
+  member's own generics are not covered, so a linear value can be smuggled
+  through one.
+- **Nested patterns** (`let ((a, b), c) = …`) are refused in a `let` as in a
+  loop, and **struct patterns bind by field name only** (no `..` rest, no nested
+  field pattern, no binding of a projection).
+- **A generic `List<T>` cannot be interpolated** [interp-to-str] — waits on
+  step 6's lift plus `implicit_args` being keyed by something an interpolation
+  has.
+- **Emission marks everything public**, by decision: [mod-export] is a checker
+  rule. Narrowing generated visibility would buy dead-code warnings the suite
+  already tolerates and needs the reachability pass to agree.
+- **No re-export**, so a facade module declares wrappers; the spelling would be
+  `export import a.B`, currently a targeted parse error. And **no example shows
+  `export`**, because every program in `examples/` is a single file — a two-file
+  example would fix that and would be the tree's first multi-module one.
+- **Where dot-notation is normalized** [fn-dot] — the receiver-as-argument-0
+  rewrite happens twice and never in the AST, so anything inspecting the *written*
+  expression must re-derive the shift (one defect came from exactly that). Two
+  shapes when it is picked up: record the normalized argument list per call span
+  in a side table (cheap), or a real normalization pass after types are known
+  (removes the duplication). It cannot move into `salvo-syntax`: the name must
+  resolve, and an `Addr<E>` receiver is not argument 0.
+- **Actor-surface prose is owed in `docs/language/`.** Every actor rule is in
+  LANGUAGE_SPEC.md, and docs/language/ has the "Where work runs" and "Time"
+  chapters — both of which assume vocabulary the document never introduces
+  (`actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch`).
+- **Actor leftovers, each with a named trigger**: a self-send into a full own
+  mailbox wedges and `k@self` deliberately contributes no deadlock edge
+  (**DECISION** when it matters); the deadlock graph is over actor *types*, not
+  instances, so a chain of same-protocol workers reads as a self-loop
+  (stratification and the timeout form wait for observed false positives —
+  writable now that `Timer` exists); the report names actors by index rather than
+  by handler and member; a one-thread pool whose occupant sends into a full
+  mailbox on that same pool still hangs (only the `main` case is caught); a `use`
+  site does not check the `[spawn]` capability; a main-pool task whose answer
+  arrives after `main`'s last wait never runs, silently; an effectful discharger
+  cannot `drain` a container; there is no positional list write; `on_idle`'s
+  refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
+  bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
+  the pump rule removed.
+- **Multi-effect and mixed-handler leftovers**: a same-named member across two
+  faces still needs `@Effect` at the call even where the parameters distinguish it
+  ([effect-at] keys on the name); a dependent multi-face handler is untested;
+  mixed handlers with dependencies, overloaded servant members and several faces
+  were first-slice cuts; one lock behind several faces has no backend
+  representation; generic-instance dependencies stay fusion-pinned (the
+  representation now exists, so lifting the `handler_handle_deps` exclusion is
+  engineering); a `with` item may not have dependencies of its own, and `main`'s
+  platform-effect parameters cannot be captured as handles.
+- **`local` inference** — the checker writing `local` for you, lifting the
+  virality down local-trafficking call chains (the deduction pattern: written
+  validates, unwritten infers). **Note (user, 2026-09-26): the meaning of `local`
+  is itself being revisited** — a round of questions about `println`'s
+  `local Console` dependency was deferred with "I might have misunderstood what
+  `local` means", so re-read [use-local] and [effect-local] with the user before
+  building anything here.
+- **`fn qualifies@Positive`** — migrating qualifier bodies' `fn qualifies` to the
+  `@`-scoped shape canonicals used. Note that the shape it would migrate *to*
+  changed on 2026-09-26 [fn-attached], so this is now "should a qualifier's
+  `qualifies` be declared on its subject type?" and wants re-deciding rather than
+  implementing. Handler members stay put: they interact with handler state.
+- **Constants: literal establishment and constant subtyping** — the refinement
+  round's two remainders. Literal establishment is `listen(8080)` proving itself
+  (compile-time evaluation of `qualifies`); constant subtyping is
+  `InRange(10, 20)` fitting an `InRange(0, 100)` position, which needs
+  per-qualifier semantics for what the constants *mean* — **DECISION**-shaped
+  when it is wanted.
+- **`enumerate`'s claimed `index` field and a claimed `keys` pass** — left out of
+  pass minting by design: a dependent claim on a struct field names a value the
+  struct does not contain, and the map pass walks a key snapshot. The snapshot
+  form (`keys -> List<KeyOf(map) K>`) waits for step 7's variance round.
+- **The `Bytes` span twin** needs same-name-different-subject value slots.
+- **Binding a view of a temporary** is refused for now (user, 2026-09-11); the
+  possible automation is hoisting the temporary into a fresh local, which is what
+  the user writes today — not free of judgement, since the temporary then lives to
+  the end of the block and a hoist inside a loop changes how often it is built.
+- **A runtime file name silently clobbers an emitted std module of the same
+  name** — worked around by naming the runtime files `hosttime.{rs,kt}`, not
+  fixed: extend the **companion** collision check [backend-companion] to the
+  runtime files, or namespace them under `salvo_rt/`.
+- **`to_str(Duration)` stops at seconds**, and there is no `to_str` for `Instant`
+  or `Tick`: a wall-clock text form is a date (the calendar layer's), and a
+  monotonic reading has no rendering beyond its number. **Cancellation is not in
+  the timer surface** (recorded by decision), and **the wall-clock layer is
+  designed but unbuilt** — `DateTime` as the calendar view of an `Instant` in a
+  zone, `Period`, the two bridges, and a `WallClock` effect whose member must
+  **not** be named `now`.
+- **The unified test clock fakes `Ticker`; the `Clock` face is untested**, and a
+  handler that waits on a *positive* deadline still wedges a `ManualTime` test —
+  though it now says so, via the deadlock report. Every clock reading through the
+  unified form is a round trip, which is the stance's remaining cost; the recorded
+  upgrade is scheduler-owned virtual time.
+- **The parked-obligation gap in the deadlock graph**: an actor gated on a token a
+  *task* must discharge has a wait-for edge pointing at no effect node.
+- **Array elements never narrow**, **deduction inference does not track
+  bare-parameter value flow out of branch/loop tails as a move**, **module
+  reachability is conservative for non-fn names**, **a private type in an
+  exported signature is an opaque type and nothing checks the author meant it**,
+  **struct destructuring ignores predicate-qualifier field overrides**,
+  **repeating the *same* qualifier in a nested group needs an annotated
+  intermediate `let`**, **`Byte` is not operator-numeric**, and **generic
+  (`Ty::Var`) operands stay lenient** — each documented where its rule lives.
+- **LSP**: `[symbol]` resolution is name-based over the AST rather than
+  import-visibility-exact [doc-symbol-ref]; no incremental analysis; no
+  `positionEncoding` negotiation for UTF-8-native clients; signature *hover*
+  covers fn decls only (effect members and define fns have no `FnKey`); the
+  def-site table is name-keyed, so go-to-definition on a shared effect-member
+  name lands on one declaration; and hovering a fate *root* to see what derives
+  from it is not built.
+- **Fresh-suite speed, remaining steps toward ~10–15s**: the CLI suites (each
+  spawns `salvo run`/`compile` and pays its own kotlinc), the rust codegen suite
+  (a shared-runtime batch or precompiled `libcore`), and running the batched
+  Kotlin programs in one JVM instead of one `kotlin` launch each. Past those the
+  floor is the matrix size itself.
