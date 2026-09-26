@@ -2,7 +2,6 @@ use crate::core_bytes::*;
 use crate::core_checked::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
-use crate::core_nonempty::*;
 use crate::core_result::*;
 use crate::core_sorted::*;
 use crate::core_string::*;

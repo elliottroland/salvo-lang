@@ -616,9 +616,10 @@ Conventions:
   So `list_of()` is empty, `list_of(1, 2, 3)` and `list_of(a, ...rest)` are
   `NonEmpty`, and nothing is checked at run time [qual-ctor-predicate]. Built
   for `list_of`/`mut_list_of`, whose `NonEmpty` is declared in the same file
-  [qual-ctor-same-file]; `set_of`/`map_of` and the sorted pair still have the
-  single variadic shape, because their `NonEmpty` lives in `core.nonempty`
-  (ROADMAP.md).
+  [qual-ctor-same-file]. `set_of`/`map_of` and the sorted pair keep the single
+  variadic shape: their `NonEmpty` now lives beside them (2026-09-26), so the
+  two-shape convention is *available* to them and adding it is an std API
+  question rather than a blocked one (ROADMAP.md).
   * A **lone `...spread` reaches neither shape**: a spread may not supply a
     required parameter [fn-variadic], and the empty shape takes no arguments.
     An array becomes a list through `map_to` or a loop with `add`.
@@ -1241,9 +1242,19 @@ Conventions:
 * [qual-overload] **A qualifier name may be declared over several subject
   types**, and which one a use means is decided by the subject — the way a
   function overload is decided by its arguments (user decision 2026-09-13).
-  std declares `NonEmpty` five times over: `of List<T>` in `core.list`, and
-  `of Set<T>`, `of Map<K, V>`, `of SortedSet<T>`, `of SortedMap<K, V>` in
-  `core.nonempty`.
+  std declares `NonEmpty` five times over, each **beside the container it
+  claims** (2026-09-26): `of List<T>` in `core.list`, `of Set<T>` in
+  `core.set`, `of Map<K, V>` in `core.map`, and `of SortedSet<T>` /
+  `of SortedMap<K, V>` in `core.sorted`.
+  * The four gathered in a `core.nonempty` of their own until 2026-09-26, for
+    one reason: `min(NonEmpty SortedSet<T>)` has to delegate to the plain
+    `min`, and `min@core.sorted(set)` re-picks the `NonEmpty` overload — a
+    selector names a module, and within it the qualified argument still ranks
+    first. `rename fn min_opt = min<T>(set: SortedSet<T>)` is what dissolved
+    the module: it takes the plain overload out of the shared name *in that
+    file only* (a rename is not importable [fn-rename]), which is the same
+    escape `first(NonEmpty List<T>)` makes by delegating to `get`
+    [col-of-nonempty].
   * The subject is keyed **syntactically, by the `of` type's base name**
     (`List`, `Set`, …). A generic `of` (`qualifier Ok<T> of T`) has no base
     name, accepts every subject, and so cannot be told apart from another

@@ -15,8 +15,6 @@ pub mod core_iterator;
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
-#[path = "core/nonempty.rs"]
-pub mod core_nonempty;
 #[path = "core/result.rs"]
 pub mod core_result;
 #[path = "core/set.rs"]

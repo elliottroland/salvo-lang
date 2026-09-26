@@ -2,7 +2,6 @@ use crate::collections::*;
 use crate::core_checked::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
-use crate::core_nonempty::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;

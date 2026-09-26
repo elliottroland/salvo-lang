@@ -66,7 +66,6 @@ import salvo.*
 import salvo.core.checked.*
 import salvo.core.iterator.*
 import salvo.core.map.*
-import salvo.core.nonempty.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*
@@ -250,45 +249,8 @@ fun<K> next__7(p: MapKeyYield<K>): Union2<K, Finished> {
     return U2_1<K, Finished>(emitted(key))
 }
 
-// ===== core/nonempty.kt =====
-package salvo.core.nonempty
-
-import salvo.core.list.*
-import salvo.core.map.*
-import salvo.core.set.*
-import salvo.core.sorted.*
-import salvo.core.string.*
-
-fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
-    return set.size > 0
-}
-
 fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {
     return map.size > 0
-}
-
-fun<T> NonEmpty_qualifies(set: java.util.SortedSet<T>): Boolean {
-    return set.size > 0
-}
-
-fun<K, V> NonEmpty_qualifies(map: java.util.SortedMap<K, V>): Boolean {
-    return map.size > 0
-}
-
-fun<T> min(set: java.util.SortedSet<T>): T {
-    return (set.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.nonempty:58:12"))
-}
-
-fun<T> max(set: java.util.SortedSet<T>): T {
-    return (set.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.nonempty:62:12"))
-}
-
-fun<K, V> first_key(map: java.util.SortedMap<K, V>): K {
-    return (map.keys.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.nonempty:66:12"))
-}
-
-fun<K, V> last_key(map: java.util.SortedMap<K, V>): K {
-    return (map.keys.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.nonempty:70:12"))
 }
 
 // ===== core/result.kt =====
@@ -308,7 +270,7 @@ package salvo.core.set
 import salvo.*
 import salvo.core.iterator.*
 import salvo.core.list.*
-import salvo.core.nonempty.*
+import salvo.core.map.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
@@ -330,6 +292,10 @@ fun<T> next__9(p: SetYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
+fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
+    return set.size > 0
+}
+
 // ===== core/sorted.kt =====
 package salvo.core.sorted
 
@@ -344,6 +310,30 @@ fun<T> iter__7(set: java.util.SortedSet<T>): SetYield<T> {
 
 fun<K, V> iter__8(map: java.util.SortedMap<K, V>): MapKeyYield<K> {
     return MapKeyYield(items = map.keys.toMutableList(), at = 0)
+}
+
+fun<T> NonEmpty_qualifies(set: java.util.SortedSet<T>): Boolean {
+    return set.size > 0
+}
+
+fun<K, V> NonEmpty_qualifies(map: java.util.SortedMap<K, V>): Boolean {
+    return map.size > 0
+}
+
+fun<T> min(set: java.util.SortedSet<T>): T {
+    return (set.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:160:12"))
+}
+
+fun<T> max(set: java.util.SortedSet<T>): T {
+    return (set.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:164:12"))
+}
+
+fun<K, V> first_key(map: java.util.SortedMap<K, V>): K {
+    return (map.keys.firstOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:168:12"))
+}
+
+fun<K, V> last_key(map: java.util.SortedMap<K, V>): K {
+    return (map.keys.lastOrNull() ?: throw AssertionError("salvo: value is absent at core.sorted:172:12"))
 }
 
 // ===== core/string.kt =====

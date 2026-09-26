@@ -65,14 +65,13 @@ design.
   left as its own slice). `DefaultFs` stays in `fs.host` rather than the surface
   module — the fusion gate reads reachable modules, so a `fs.mem` test would
   otherwise be fused by a handler it never registers.
-- **(d) `core.nonempty` dissolves into the collections.** Its `NonEmpty`
-  qualifiers move next to the containers they claim, as `core.list`'s already is.
-  The blocker to solve first is [qual-ctor-same-file]: a constructor must be
-  declared in its qualifier's file, which is why the claims were gathered in one
-  module in the first place — so either the element-taking constructors move with
-  them (delegating with `set_of@core.set(…)`, the pattern `min`/`max` already
-  use) or the rule is relaxed for an `intrinsic`'s `+Q` return. This also closes
-  the recorded "`NonEmpty` constructor convention — the siblings" item.
+- **(d) ✅ `core.nonempty` dissolves into the collections** — built 2026-09-26
+  [qual-overload] (COMPLETED.md's log). Each `NonEmpty` sits beside its
+  container; the four ordered accessors delegate through a `rename fn`, which is
+  what let the module go. The recorded "`NonEmpty` constructor convention — the
+  siblings" item is now *unblocked* rather than closed: `set_of(first, ...rest)
+  -> +NonEmpty Set<T>` siblings are writable where they were not, and whether
+  std should have them is an API question.
 - **(e) `throw` out of `core`.** The module moves like `time` did, so a program
   that never throws never links it. Every user of `Throw`/`try` gains an import,
   which is the sweep.

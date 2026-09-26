@@ -551,18 +551,8 @@ fn resolve_refn<'p>(
     let entry = match matched.as_slice() {
         [one] => *one,
         [] => {
-            let shapes: Vec<String> = candidates
-                .iter()
-                .map(|c| {
-                    let params: Vec<String> = c
-                        .decl
-                        .params
-                        .iter()
-                        .map(|p| format!("{}: {}", p.name.name, p.ty))
-                        .collect();
-                    format!("`{name}({})`", params.join(", "))
-                })
-                .collect();
+            let shapes: Vec<String> =
+                candidates.iter().map(|c| written_shape(name, c.decl)).collect();
             errors.push(FileDiagnostic::error(
                 file_idx,
                 decl.name.span,
@@ -859,6 +849,32 @@ fn base_names<'t>(ty: &'t Type, out: &mut Vec<&'t Ident>) {
     }
 }
 
+
+/// A candidate rendered the way a `refn` or a `rename` has to **write** it:
+/// its own type parameters in front of the parameter list, because that is the
+/// spelling the matcher accepts (`min<T>(set: SortedSet<T>)`). Printing the
+/// list without them offers a shape that does not match, which is a diagnostic
+/// that sends the reader into the trap it is warning about.
+fn written_shape(name: &str, decl: &salvo_syntax::ast::FnDecl) -> String {
+    let mut gs: Vec<&str> = decl.generics.iter().map(|g| g.name.as_str()).collect();
+    for (g, _) in &decl.generic_canbe {
+        if !gs.contains(&g.name.as_str()) {
+            gs.push(g.name.as_str());
+        }
+    }
+    let generics = if gs.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", gs.join(", "))
+    };
+    let ps: Vec<String> = decl
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name.name, p.ty))
+        .collect();
+    format!("`{name}{generics}({})`", ps.join(", "))
+}
+
 /// A parameter list rendered for overload matching [qual-refn-match]: each
 /// parameter's name, flags and type, with type parameters replaced by their
 /// *position*, so a refinement need not use the same names.
@@ -893,15 +909,7 @@ pub(crate) fn match_overload<'p>(
         [one] => Ok(**one),
         _ => Err(candidates
             .iter()
-            .map(|c| {
-                let ps: Vec<String> = c
-                    .decl
-                    .params
-                    .iter()
-                    .map(|p| format!("{}: {}", p.name.name, p.ty))
-                    .collect();
-                format!("`{name}({})`", ps.join(", "))
-            })
+            .map(|c| written_shape(name, c.decl))
             .collect()),
     }
 }

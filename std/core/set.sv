@@ -137,3 +137,20 @@ export fn next<T>(p: Mut SetYield<T>) [] -> Emitted T | Finished => p: Mut {
     p.at = p.at + 1
     return emitted(elem)
 }
+
+// [qual-overload] The claim over an unordered set, beside `core.list`'s
+// `NonEmpty of List<T>`. One qualifier name, five subject types: which one a
+// use means is decided by the subject, the way a function overload is decided
+// by its arguments — which is what makes `NonEmpty` mean what it says about
+// whatever it qualifies rather than needing a `NonEmptySet`.
+//
+// `add` cannot promise it — a mutating function may not hand back a qualifier
+// it has never heard of — so the qualifier says it on `add`'s behalf
+// [qual-refn].
+export qualifier NonEmpty<T> of Set<T> {
+    fn qualifies(set: Set<T>) [] -> Bool {
+        return size(set) > 0
+    }
+
+    refn add(set: Mut Set<T>, elem: T) => set: +NonEmpty
+}

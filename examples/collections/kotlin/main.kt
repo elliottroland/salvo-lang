@@ -5,7 +5,6 @@ import salvo.core.console.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
-import salvo.core.nonempty.*
 import salvo.core.set.*
 import salvo.core.sorted.*
 import salvo.core.string.*

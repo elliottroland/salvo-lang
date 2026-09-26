@@ -190,3 +190,13 @@ export fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
     p.at = p.at + 1
     return emitted(key)
 }
+
+// [qual-overload] The same claim over a map, where `put` is the operation that
+// establishes it and cannot say so itself [qual-refn].
+export qualifier NonEmpty<K, V> of Map<K, V> {
+    fn qualifies(map: Map<K, V>) [] -> Bool {
+        return size(map) > 0
+    }
+
+    refn put(map: Mut Map<K, V>, key: K, value: V) => map: +NonEmpty
+}

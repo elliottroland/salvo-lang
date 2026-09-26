@@ -1,7 +1,8 @@
 use crate::collections::*;
+use crate::core_array::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
-use crate::core_nonempty::*;
+use crate::core_map::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
@@ -23,4 +24,8 @@ pub fn next__9<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     }
     p.at = p.at + 1;
     return Union2::<T, Finished>::U1(emitted(elem.as_ref().unwrap().clone()));
+}
+
+pub fn NonEmpty__Set_qualifies<T: Clone>(set: &SalvoSet<T>) -> bool {
+    return (set.len() as i32) > 0;
 }

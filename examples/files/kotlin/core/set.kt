@@ -4,7 +4,7 @@ import salvo.*
 import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
-import salvo.core.nonempty.*
+import salvo.core.map.*
 import salvo.core.sorted.*
 import salvo.core.string.*
 
@@ -24,4 +24,8 @@ fun<T> next__9(p: SetYield<T>): Union2<T, Finished> {
     }
     p.at = p.at + 1
     return U2_1<T, Finished>(emitted(elem))
+}
+
+fun<T> NonEmpty_qualifies(set: Set<T>): Boolean {
+    return set.size > 0
 }

@@ -114,3 +114,60 @@ export intrinsic fn to_str<K, V>(map: SortedMap<K, V>) [] -> Str => map
 export fn iter<K, V>(map: SortedMap<K, V>) [] -> Mut MapKeyYield<K> => map {
     return Mut MapKeyYield<K> { items: keys(map), at: 0 }
 }
+
+// The plain, optional-answering forms, taken out of the shared name *inside
+// this module* so the `NonEmpty` overloads below can delegate to them without
+// re-picking themselves [fn-rename]. A rename is not importable, so every
+// other module still sees one `min`, one `max`, one `first_key`, one
+// `last_key`.
+rename fn min_opt = min<T>(set: SortedSet<T>)
+rename fn max_opt = max<T>(set: SortedSet<T>)
+rename fn first_key_opt = first_key<K, V>(map: SortedMap<K, V>)
+rename fn last_key_opt = last_key<K, V>(map: SortedMap<K, V>)
+
+// [qual-overload] `NonEmpty` over the two ordered containers, as `core.set`
+// and `core.map` declare it over theirs.
+export qualifier NonEmpty<T> of SortedSet<T> {
+    fn qualifies(set: SortedSet<T>) [] -> Bool {
+        return size(set) > 0
+    }
+
+    refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
+}
+
+export qualifier NonEmpty<K, V> of SortedMap<K, V> {
+    fn qualifies(map: SortedMap<K, V>) [] -> Bool {
+        return size(map) > 0
+    }
+
+    refn put(map: Mut SortedMap<K, V>, key: K, value: V) => map: +NonEmpty
+}
+
+// The dividend, and the reason the claim is worth carrying: the cheap-at-
+// either-end operations of an ordered tree answer with an element instead of
+// an optional. Ranked above the plain ones because they demand more of their
+// argument [fn-overload-rank].
+//
+// Each delegates through a **renamed** plain overload rather than through the
+// shared name: `min@core.sorted(set)` would pick *this* overload again — the
+// selector names a module, and within it a `NonEmpty` argument still ranks
+// this one first — and recurse forever. `rename fn` takes the plain one out of
+// the shared name *here only* (a rename is not importable [fn-rename]), which
+// is the same escape `first(NonEmpty List<T>)` makes by delegating to `get`
+// [col-of-nonempty]. It is why these four used to live in a module of their
+// own.
+export fn min<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
+    return min_opt(set)!
+}
+
+export fn max<T>(set: NonEmpty SortedSet<T>) [] -> T => set {
+    return max_opt(set)!
+}
+
+export fn first_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
+    return first_key_opt(map)!
+}
+
+export fn last_key<K, V>(map: NonEmpty SortedMap<K, V>) [] -> K => map {
+    return last_key_opt(map)!
+}

@@ -1,6 +1,7 @@
 package salvo.core.map
 
 import salvo.*
+import salvo.core.bytes.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.set.*
@@ -31,4 +32,8 @@ fun<K> next__7(p: MapKeyYield<K>): Union2<K, Finished> {
     }
     p.at = p.at + 1
     return U2_1<K, Finished>(emitted(key))
+}
+
+fun<K, V> NonEmpty_qualifies(map: Map<K, V>): Boolean {
+    return map.size > 0
 }

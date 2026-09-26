@@ -133,6 +133,38 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`core.nonempty` dissolves into the collections (2026-09-26).** ROADMAP step
+1(d). Each `NonEmpty` now sits beside the container it claims — `core.set`,
+`core.map`, `core.sorted` (twice) — joining `core.list`'s, and the four
+`NonEmpty` accessors (`min`, `max`, `first_key`, `last_key`) moved with them
+[qual-overload].
+
+- **The blocker was not the one the ROADMAP recorded.** It expected
+  [qual-ctor-same-file] (a constructor must be declared in its qualifier's
+  file) to be in the way; the actual obstacle was the one the module's own
+  header had written down: `min(NonEmpty SortedSet<T>)` must delegate to the
+  plain `min`, and `min@core.sorted(set)` re-picks the `NonEmpty` overload —
+  a selector names a *module*, and within it the qualified argument still ranks
+  first — so it recurses forever. `core.list`'s `first` escapes by delegating
+  to `get` instead; the four ordered accessors had no such neighbour.
+- **`rename fn` is the escape**, and it is the mechanism the ambiguity round
+  already named as a remedy: `rename fn min_opt = min<T>(set: SortedSet<T>)` in
+  `core/sorted.sv` takes the plain overload out of the shared name *in that
+  module only* (a rename is not importable [fn-rename]), so the `NonEmpty`
+  overload delegates to `min_opt` and every other module still sees one `min`.
+  No rule needed relaxing and no constructor had to move.
+- **A diagnostic fixed on the way, found by falling into it.** The matcher's
+  "this names no `min` in scope" listed candidates *without* their type
+  parameters — `min(set: SortedSet<T>)` — which is not a spelling the matcher
+  accepts: the generics go on the target, `min<T>(set: SortedSet<T>)`. Copying
+  the shape the diagnostic printed produced "unknown type `T`" and a failed
+  match, which read like a missing feature and was a missing `<T>`. Both
+  overload-naming diagnostics (a `refn`'s and a `rename`'s, one matcher) now
+  render the candidate's own generics, so the shape offered is the shape that
+  works.
+- The goldens lost `core/nonempty.{rs,kt}` and gained its contents in the three
+  container modules; no example's output changed.
+
 **The filesystem leaves `core` (2026-09-26, user decision — built).** ROADMAP
 step 1(c). Module **`fs`** holds the surface, `fs.host` the machine's
 filesystem, `fs.mem` the in-memory double and `fs.restricted` the sandbox

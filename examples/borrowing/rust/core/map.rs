@@ -33,3 +33,7 @@ pub fn next__7<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     p.at = p.at + 1;
     return Union2::<K, Finished>::U1(emitted(key.as_ref().unwrap().clone()));
 }
+
+pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &SalvoMap<K, V>) -> bool {
+    return (map.len() as i32) > 0;
+}

@@ -4,7 +4,6 @@ import salvo.*
 import salvo.core.bytes.*
 import salvo.core.checked.*
 import salvo.core.list.*
-import salvo.core.nonempty.*
 import salvo.core.result.*
 import salvo.core.sorted.*
 import salvo.core.string.*

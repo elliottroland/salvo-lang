@@ -15,8 +15,6 @@ pub mod core_iterator;
 pub mod core_list;
 #[path = "core/map.rs"]
 pub mod core_map;
-#[path = "core/nonempty.rs"]
-pub mod core_nonempty;
 #[path = "core/set.rs"]
 pub mod core_set;
 #[path = "core/sorted.rs"]
@@ -29,7 +27,6 @@ use crate::core_console::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
-use crate::core_nonempty::*;
 use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::core_string::*;
