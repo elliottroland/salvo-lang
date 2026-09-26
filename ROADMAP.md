@@ -43,11 +43,11 @@ and field narrowing, deductions with refinements, the iterator reduction to
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, and the comparison/hashing capabilities.
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1540 tests green.
+targets and the output they print. 1544 tests green.
 
 ## The sequence
 
-### 1 — The std reorganisation (started 2026-09-26; steps b–e open)
+### 1 — ✅ The std reorganisation (complete 2026-09-26)
 
 One theme: std's shape. Step (a) landed with the sitting that scheduled the rest,
 and each remaining step is mechanical but wide — the sweeps are the cost, not the
@@ -61,7 +61,7 @@ design.
   bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
 - **(c) ✅ The filesystem out of `core`** — built 2026-09-26 [fs-module]
   [fs-host-split] (COMPLETED.md's log). Modules `fs`, `fs.host`, `fs.mem`,
-  `fs.restricted`, unprefixed (user decision: (B1), with step 9's `std.` prefix
+  `fs.restricted`, unprefixed (user decision: (B1), with step 8's `std.` prefix
   left as its own slice). `DefaultFs` stays in `fs.host` rather than the surface
   module — the fusion gate reads reachable modules, so a `fs.mem` test would
   otherwise be fused by a handler it never registers.
@@ -81,25 +81,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — A task body's effects (recorded 2026-09-26; analysed, not built)
-
-A free `send fn` may declare no effects [free-send-fn], and the user's decision
-is that it should **inherit them from the function that minted the reply**: the
-restriction was written when there were no thread-shareable handlers, and there
-are now.
-
-Lifting the refusal is one line in the checker and the program then type-checks;
-the **emission** is the work. A mint becomes
-`Box::new(move |v| report(__c0, *v))`, and an effectful target needs its handler
-arguments *inside* that closure, which must be `Send + 'static`. The machinery
-exists: spawn-inheritance built fused handle bundles (`__Hs_N`,
-[rs-handle-bundle]) for exactly "carry this scope's shareable handlers into a
-child". The slice: synthesise the target's effect arguments at the mint from the
-minting scope's handles (the checker's `spawn_dep_items` is the precedent),
-capture the bundle, and pass it per activation on both backends. A probe is in
-`tmp/task1`.
-
-### 3 — The two open defects
+### 2 — The two open defects
 
 Both are findings from the 2026-09-25 defect round, and both are *reported* by a
 target compiler rather than silently wrong.
@@ -148,7 +130,7 @@ target compiler rather than silently wrong.
   field type against the value's type) before the enclosing call's substitution
   is solved.
 
-### 4 — Project manifest and LSP source-root discovery (DECISION, then build)
+### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
 
 **The defect**: editing std with the *repository root* as the editor's workspace
 folder produces ~750 lines of spurious diagnostics, because the LSP takes the
@@ -179,7 +161,7 @@ each a CLI flag today), whether `run`/`compile`/`test` read it too (they should,
 or the LSP and the CLI disagree about what a project is), and what root discovery
 does with no manifest in sight (fall back to `rootUri`, today's behaviour).
 
-### 5 — Consistency passes the 2026-09-26 ambiguity round left
+### 4 — Consistency passes the 2026-09-26 ambiguity round left
 
 Three narrower questions, all downstream of "refuse to choose" (COMPLETED.md's
 log for the round itself).
@@ -208,7 +190,7 @@ log for the round itself).
   semantics [effect-intercept], and a fn-typed local shadowing a name outright is
   the caller's explicit choice).
 
-### 6 — Recursive implicit resolution, so a tuple can have a `cmp`
+### 5 — Recursive implicit resolution, so a tuple can have a `cmp`
 
 [col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
 do, comparing lexicographically", and that is true of the two *backends* rather
@@ -236,9 +218,9 @@ tuple or list key. That is already true; declaring it makes it look intended.
 
 Two recorded items wait on the same lift: `expect_eq` on a generic container
 cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
-(step 9) needs it.
+(step 8) needs it.
 
-### 7 — Qualifiers are droppable, then variance
+### 6 — Qualifiers are droppable, then variance
 
 - **Qualifiers are droppable on assignment** (user decision 2026-09-23, not
   built). A variable's type may never *widen*, but a qualifier is by definition
@@ -280,7 +262,7 @@ cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
 
-### 8 — Mutating through a union arm (DECISION)
+### 7 — Mutating through a union arm (DECISION)
 
 One shape is **refused on Rust and accepted on Kotlin**, which is a divergence
 closed by restriction on one side and therefore a decision rather than a resting
@@ -317,7 +299,7 @@ what a `Mut` arm means for the *parameter* that carries it.
 makes the two sides of the compiler disagree about what a signature means, which
 is how the original defect happened.
 
-### 9 — Testing, beyond the MVP (decided 2026-09-23, not built)
+### 8 — Testing, beyond the MVP (decided 2026-09-23, not built)
 
 The framework's core is built and `salvo test` runs std's own suite. What was
 deliberately cut, in the order the decisions put it:
@@ -336,7 +318,7 @@ deliberately cut, in the order the decisions put it:
   determinism guarantee; shrinking by replaying the generator over a shrunken draw
   stream. Two prerequisites: std needs wrapping/bit `Long` intrinsics for a
   pure-Salvo splitmix64 (parity by construction — a recommendation, not yet
-  decided), and step 6's implicit lift.
+  decided), and step 5's implicit lift.
 - **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
   [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
   over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and
@@ -367,7 +349,7 @@ deliberately cut, in the order the decisions put it:
   migrates the compiler's own e2e suite onto `salvo test` (user decision: leave
   it).
 
-### 10 — The assertion trap policy (A-6, decided 2026-09-23, not built)
+### 9 — The assertion trap policy (A-6, decided 2026-09-23, not built)
 
 Three failure classes still take the hosts' behaviour:
 
@@ -383,7 +365,7 @@ Three failure classes still take the hosts' behaviour:
   today Kotlin wraps silently while Rust refuses a constant fold and panics in
   debug.
 
-### 11 — One read, one mode: the rendering that reports a reference
+### 10 — One read, one mode: the rendering that reports a reference
 
 Three slices landed 2026-09-23 [rs-read-mode]; what is left is the **refactor the
 section is named after**. The slices work because their sites know the shape they
@@ -414,7 +396,7 @@ benefit. Two recorded items are the same missing information in other clothes:
 the temporary-subject `for` loop, and the copy an adapter closure makes of a
 returned projection.
 
-### 12 — Effect transformers (E3 step 4)
+### 11 — Effect transformers (E3 step 4)
 
 The last rung of the handler-control arc. A **transformer** is an effect member
 that runs a fn-typed parameter with *additional* effects available — its body
@@ -444,7 +426,7 @@ mis-emitted [rs-effect-fusion]: a dependent handler using its own generic
 parameters in a member signature, and a `use` whose effect instance is still
 generic.
 
-### 13 — The sugar pass (after the explicit surface, decided 2026-09-15)
+### 12 — The sugar pass (after the explicit surface, decided 2026-09-15)
 
 Phase 5 delivered the **explicit** actor surface (tokens and reply parameters
 written out); every layer of sugar above it is a later item with its own decision
@@ -467,7 +449,7 @@ surface. What is already decided, so the pass starts from a plan:
   refinement is `move`-closure emission with hoisted clones, plus a treatment for
   captured effect-handler locals.
 
-### 14 — Shared mutable state: `Cell` (DECISION)
+### 13 — Shared mutable state: `Cell` (DECISION)
 
 Deferred until after actors deliberately, because the OTP answer is that actors
 own their state and message-pass — which may remove the motivation. The full
@@ -484,7 +466,7 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 15 — Regions (designed 2026-09-10, unbuilt)
+### 14 — Regions (designed 2026-09-10, unbuilt)
 
 Fully designed and recorded: `effect Region` with an intrinsic handler, `Reg` as
 an intrinsic provenance qualifier, regional-by-birth defaults, `reg`/`unreg`, the
@@ -500,7 +482,7 @@ expression, freeze-by-position, or both); cross-region operations (out of v1);
 `unreg` of a deeply regional structure copying deeply; and folding D7's
 `Local`/`Escaping` watch-list entry into the design.
 
-### 16 — Laziness, after concurrency (direction decided 2026-09-10)
+### 15 — Laziness, after concurrency (direction decided 2026-09-10)
 
 std's lazy pair was **removed** rather than carried along, and the question
 reopens here. The direction is the user's: standard laziness *couples data to the
@@ -523,7 +505,7 @@ or inherits it (a pipeline holding only *functions* stores no source, so
 [linear-composite] at all — the strongest argument for this direction, and the
 thing to test first); and sendability.
 
-### 17 — Recursive types (DECISION, end of the queue)
+### 16 — Recursive types (DECISION, end of the queue)
 
 Investigated 2026-09-12; nothing needs it, and List-mediated recursion covers its
 customers (trees, ASTs, JSON) meanwhile. Where it stands: nothing rejects a
@@ -649,7 +631,7 @@ several are "revisit only if a customer appears".
   loop, and **struct patterns bind by field name only** (no `..` rest, no nested
   field pattern, no binding of a projection).
 - **A generic `List<T>` cannot be interpolated** [interp-to-str] — waits on
-  step 6's lift plus `implicit_args` being keyed by something an interpolation
+  step 5's lift plus `implicit_args` being keyed by something an interpolation
   has.
 - **Emission marks everything public**, by decision: [mod-export] is a checker
   rule. Narrowing generated visibility would buy dead-code warnings the suite
@@ -713,7 +695,7 @@ several are "revisit only if a customer appears".
 - **`enumerate`'s claimed `index` field and a claimed `keys` pass** — left out of
   pass minting by design: a dependent claim on a struct field names a value the
   struct does not contain, and the map pass walks a key snapshot. The snapshot
-  form (`keys -> List<KeyOf(map) K>`) waits for step 7's variance round.
+  form (`keys -> List<KeyOf(map) K>`) waits for step 6's variance round.
 - **The `Bytes` span twin** needs same-name-different-subject value slots.
 - **Binding a view of a temporary** is refused for now (user, 2026-09-11); the
   possible automation is hoisting the temporary into a fresh local, which is what

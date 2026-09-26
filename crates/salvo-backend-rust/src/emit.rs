@@ -5335,6 +5335,43 @@ impl<'p> Emitter<'p> {
                 if let Some(bundle) = self.handle_bundle_param(f) {
                     params.push(bundle);
                 }
+            } else if f.is_send {
+                // [task-effects] [rs-task] A **task body** takes its inherited
+                // effects as *owned handles* (`__Mon_E`) rather than
+                // `&mut dyn E`. Two reasons, both about outliving the frame:
+                // the mint's closure is `move` and `'static`, so it cannot hold
+                // a borrow to hand over; and a task may itself mint a task,
+                // which needs a handle to clone — the shape that made the
+                // nested case fail before this. A `__Mon_E` implements the
+                // effect's own trait, so ordinary dispatch inside the body is
+                // `&mut param`, which is what `is_local` already spells.
+                for (ty, rendered) in effects {
+                    let param = self.unique_name(effect_param_name(&rendered));
+                    let handle_ty = match &ty {
+                        Some(t) => {
+                            let t = t.clone();
+                            self.handle_type_of(&t)
+                        }
+                        None => {
+                            let (base, args) = split_rendered_generic(&rendered);
+                            let mon = self.effect_path(&base, &monitor_struct_name(&base));
+                            if args.is_empty() {
+                                mon
+                            } else {
+                                format!("{mon}<{}>", args.join(", "))
+                            }
+                        }
+                    };
+                    self.effect_env.push(EffectEntry {
+                        ty,
+                        key: rendered.clone(),
+                        var: param.clone(),
+                        is_local: true,
+                        handle_var: Some(param.clone()),
+                    });
+                    self.bindings.insert(param.clone(), BindKind::Owned);
+                    params.push(format!("mut {param}: {handle_ty}"));
+                }
             } else {
                 for (ty, rendered) in effects {
                     let param = self.unique_name(effect_param_name(&rendered));
@@ -12236,7 +12273,7 @@ impl<'p> Emitter<'p> {
         // the continuation, and the runtime schedules it on the pool the mint
         // chose. That is the whole of the task kernel's emission.
         if let Some(key) = self.checked.replyto_tasks.get(&(self.file_idx, span)).copied() {
-            return self.emit_task_mint(member, key, captures, pool);
+            return self.emit_task_mint(member, key, captures, pool, span);
         }
         let Some(target) = self
             .checked
@@ -12293,6 +12330,7 @@ impl<'p> Emitter<'p> {
         key: salvo_core::FnKey,
         captures: &[Expr],
         pool: Option<&Expr>,
+        span: Span,
     ) -> String {
         let Some(target) = self.fn_by_key(key) else {
             self.error(format!(
@@ -12313,6 +12351,30 @@ impl<'p> Emitter<'p> {
         let name = self.rust_fn_name(target);
         let mut lets = String::new();
         let mut args: Vec<String> = Vec::new();
+        // [task-effects] [rs-task] The effects the task inherits, first and in
+        // the target's declared order. The closure is `move` and outlives the
+        // minting frame, so a `&mut dyn E` from this scope is unusable: what
+        // travels is the **owned handle**, the effect's `__Mon_E`, which is
+        // `Clone` and implements the effect's own trait — so `&mut` of it *is*
+        // the `&mut dyn E` the target's signature asks for, with no bundle and
+        // no signature change [rs-handle-bundle]. Bound outside the closure so
+        // the handle is the one registered at the mint.
+        let inherited = self
+            .checked
+            .task_mint_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        for (i, ty) in inherited.iter().enumerate() {
+            let Some(code) = self.inherited_dep_handle(ty) else {
+                return "todo!()".to_string();
+            };
+            lets.push_str(&format!("let __e{i} = {code}; "));
+            // Cloned *inside* the closure rather than moved out of the capture:
+            // the scheduler's callback is a `Fn`, so a capture may not be
+            // consumed, and a `__Mon_E` clone is a handle to the same instance.
+            args.push(format!("__e{i}.clone()"));
+        }
         for (i, c) in captures.iter().enumerate() {
             let code = self.emit_owned(c);
             lets.push_str(&format!("let __c{i} = {code}; "));

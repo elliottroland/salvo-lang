@@ -12062,6 +12062,88 @@ const TASK_KERNEL_OUTPUT: &str = "row=70
 placed=40
 ";
 
+/// [task-effects] A task body's effects are **inherited from the frame that
+/// minted it** (user decision 2026-09-26). Two shapes in one program, because
+/// they exercise different halves: a task minted from a frame that *binds* the
+/// handler, and a task that itself mints a task on another pool — which is the
+/// case that needs the inherited handle to be *owned*, since the second closure
+/// has to hold one too.
+const TASK_EFFECTS: &str = r#"
+send fn report(out: Reply<Int>, n: Int) [Console] => !out, !n {
+    println("task saw ${n}")
+    out.send(n * 2)
+}
+
+send fn chain(out: Reply<Int>, n: Int) [Console] => !out, !n {
+    println("chain saw ${n}")
+    let inner = waitfor r: Reply<Int> {
+        let k = replyto report(r)
+        k.send(n + 1)
+    }
+    out.send(inner)
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let direct = waitfor a: Reply<Int> {
+        let k = replyto report(a)
+        k.send(21)
+    }
+    println("direct ${direct}")
+    let nested = waitfor b: Reply<Int> {
+        let k = replyto chain(b) on pool(2)
+        k.send(10)
+    }
+    println("nested ${nested}")
+}
+"#;
+
+const TASK_EFFECTS_OUTPUT: &str = "task saw 21
+direct 42
+chain saw 10
+task saw 11
+nested 22
+";
+
+#[test]
+fn rustc_compiles_and_runs_a_task_that_inherits_effects() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", TASK_EFFECTS)]);
+    run_rust_files(&files, "task-effects", TASK_EFFECTS_OUTPUT);
+}
+
+/// [task-effects] [rs-task] The lowering: the inherited handle is an **owned**
+/// `__Mon_E` bound outside the closure and cloned inside it, so nothing borrows
+/// the minting frame — and a task's own effect parameters are owned handles for
+/// the same reason, which is what lets `chain` mint `report`.
+#[test]
+fn an_inherited_effect_travels_as_an_owned_handle() {
+    let files = generate(&[("main.sv", TASK_EFFECTS)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs");
+    let text = &main.content;
+    // A task body takes the handle, not a `&mut dyn`.
+    assert!(
+        text.contains("pub fn report(mut console: crate::core_console::__Mon_Console"),
+        "a task's effect parameter is an owned handle:\n{text}"
+    );
+    // The mint binds it outside the closure and clones it in.
+    assert!(
+        text.contains("let __e0 = ") && text.contains("report(__e0.clone()"),
+        "the mint hands over an owned clone:\n{text}"
+    );
+    // And nothing borrowed the frame for it.
+    assert!(
+        !text.contains("report(&mut console"),
+        "a borrow of the minting frame cannot cross:\n{text}"
+    );
+}
+
 #[test]
 fn rustc_compiles_and_runs_the_task_kernel() {
     if !rustc_available() {

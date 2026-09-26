@@ -536,6 +536,16 @@ pub struct Checked {
     /// resolved through the scope ladder and the emitters need the declaration
     /// the checker picked, not a name to re-resolve.
     pub replyto_tasks: HashMap<Key, FnKey>,
+    /// [task-effects] The effect instances a **task mint** inherits from the
+    /// minting scope, keyed by the `replyto` span and in the target's declared
+    /// order — so the emitters pass one argument per entry, in the order the
+    /// target's parameters expect them.
+    ///
+    /// Resolved here rather than in the emitters for the reason
+    /// `spawn_dep_items` is: the scope ladder and the shareability rule are the
+    /// checker's, and a backend re-deriving them would be a second
+    /// implementation of [effect-local].
+    pub task_mint_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-use-addr] The effect each `use addr` statement binds, keyed by
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
@@ -3310,22 +3320,50 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        // The first-pass cut: `[waitfor]` is a capability the placement check
-        // validates [waitfor-dedicated]; anything else names an instance that
-        // would have to be supplied, and a task has no scope to supply it from.
+        // [task-effects] An ordinary effect is **inherited from the frame that
+        // mints** (user decision 2026-09-26): the restriction here was written
+        // when there were no thread-shareable handlers, and there are now — a
+        // shareable binding yields an owned handle that crosses the seam, which
+        // is exactly what `spawn` inheritance carries into a child
+        // [spawn-inherit]. The mint site resolves it and says so when the scope
+        // has nothing to give.
+        //
+        // Two forms still cannot be: `[use]`/`[spawn]` are capabilities of the
+        // *frame* (a task has no scope to register a handler in and nothing
+        // would see it), and a `local` effect is the one availability whose
+        // whole point is that it does not travel [effect-local].
         for eff in f.effects.iter().flatten() {
-            let span = match eff {
-                EffectRef::Use(sp) | EffectRef::Spawn(sp) => *sp,
-                EffectRef::Effect(r) | EffectRef::LocalEffect(r) => r.span,
+            let (span, why) = match eff {
+                EffectRef::Use(sp) => (
+                    *sp,
+                    "`use` registers handlers for the rest of a scope, and a scheduled body \
+                     has no scope anything else can see"
+                        .to_string(),
+                ),
+                EffectRef::Spawn(sp) => (
+                    *sp,
+                    "`spawn` places work on a pool from the frame that has one, and a \
+                     scheduled body is already that work"
+                        .to_string(),
+                ),
+                EffectRef::LocalEffect(r) => (
+                    r.span,
+                    format!(
+                        "a `local {}` binding is the one availability that does not travel \
+                         [effect-local] — declare it without `local` if the handler is \
+                         shareable",
+                        r.name.name
+                    ),
+                ),
+                // Inherited at the mint.
+                EffectRef::Effect(_) => continue,
             };
             self.error(
                 span,
                 format!(
-                    "`send fn {}` cannot declare `{eff}`: a scheduled body runs detached from \
-                     the frame that minted it, so there is no scope to supply a handler from. \
-                     Take an `{ADDR_TYPE}` as a capture and send to it — reaching an actor \
-                     needs no effect declaration — or do the effectful work in the function \
-                     that mints",
+                    "`send fn {}` cannot declare `{eff}`: {why}. Take an `{ADDR_TYPE}` as a \
+                     capture and send to it — reaching an actor needs no effect declaration \
+                     — or do that work in the function that mints",
                     f.name.name
                 ),
             );
@@ -13343,6 +13381,101 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// is legal in any function; and there **is** a placement, because the
     /// continuation has to run somewhere — the pool current at the mint unless
     /// an `on` clause says otherwise, since whoever creates work pays for it.
+    /// [task-effects] The effects a task mint inherits, resolved against the
+    /// minting scope exactly as a `spawn`'s synthesized dependencies are
+    /// [spawn-inherit]: an availability the scope guarantees is *shareable*
+    /// yields an owned handle that can cross the seam, a `local` one cannot,
+    /// and an ambiguity between two compatible instances is refused rather than
+    /// guessed.
+    ///
+    /// Recorded in `task_mint_effects` in the target's declared order, and in
+    /// `handle_captures` so the Rust emitter's pre-scan mints the eager handle
+    /// the closure clones — the same two facts a shareable `use` records.
+    fn resolve_task_effects(&mut self, target: &'p FnDecl, span: Span) {
+        let declared: Vec<Ty> = target
+            .effects
+            .iter()
+            .flatten()
+            .filter_map(|eff| match eff {
+                EffectRef::Effect(r) => self.lower_effect_ref(r),
+                _ => None,
+            })
+            .collect();
+        if declared.is_empty() {
+            return;
+        }
+        let visible = self.visible_avail();
+        let mut resolved: Vec<Ty> = Vec::new();
+        for want in &declared {
+            let exact = visible.iter().find(|c| c.ty == *want).cloned();
+            let found = match exact {
+                Some(a) => Some(a),
+                None => {
+                    let compatible: Vec<&EffectAvail> = visible
+                        .iter()
+                        .filter(|c| unify(want, &c.ty, &mut HashMap::new()))
+                        .collect();
+                    match compatible.len() {
+                        1 => Some(compatible[0].clone()),
+                        0 => None,
+                        _ => {
+                            self.error(
+                                span,
+                                format!(
+                                    "`send fn {}` performs `{want}`, and this scope has \
+                                     several instances the task could inherit ({}): the mint \
+                                     carries one, so bind only the instance this task means",
+                                    target.name.name,
+                                    compatible
+                                        .iter()
+                                        .map(|c| c.ty.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ),
+                            );
+                            continue;
+                        }
+                    }
+                }
+            };
+            let Some(avail) = found else {
+                self.error(
+                    span,
+                    format!(
+                        "`send fn {}` performs `{want}`, which a task inherits from the frame \
+                         that mints it — and this scope has no handler for it. Bind one before \
+                         the mint, or declare `{want}` here so it is supplied from further out",
+                        target.name.name
+                    ),
+                );
+                continue;
+            };
+            // [effect-local] The one availability that cannot cross the seam:
+            // a scope-local binding is not shareable by declaration, so there
+            // is no handle to hand a detached body.
+            if avail.local {
+                self.error(
+                    span,
+                    format!(
+                        "`send fn {}` performs `{want}`, but this scope's binding of it is \
+                         `local` — a scheduled body runs after the scope ends, so a local \
+                         binding has nothing to give it [effect-local]. Bind it shareable, or \
+                         do that work in the function that mints",
+                        target.name.name
+                    ),
+                );
+                continue;
+            }
+            resolved.push(avail.ty.clone());
+        }
+        if resolved.len() == declared.len() {
+            self.out
+                .handle_captures
+                .insert(self.key(span), resolved.clone());
+            self.out.task_mint_effects.insert(self.key(span), resolved);
+        }
+    }
+
     fn check_task_mint(
         &mut self,
         member: &Ident,
@@ -13450,6 +13583,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [lsp-definition] The mint names a function, so it is a reference
             // to it like any call.
             self.out.fn_refs.insert(self.key(member.span), key);
+            self.resolve_task_effects(target, span);
         }
         let answer = param_tys.last().cloned().unwrap_or(Ty::Unknown);
         Ty::Named {

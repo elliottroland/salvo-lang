@@ -4357,6 +4357,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_a_handler_of_several_effects,
     kotlinc_compiles_and_runs_the_waitfor_package,
     kotlinc_compiles_and_runs_the_task_kernel,
+    kotlinc_compiles_and_runs_a_task_that_inherits_effects,
     kotlinc_compiles_and_runs_obligations_in_a_collection,
     kotlinc_compiles_and_runs_the_time_surface,
     kotlinc_compiles_and_runs_a_real_timer,
@@ -12640,6 +12641,77 @@ fn main() [use, spawn] {
 const TASK_KERNEL_OUTPUT: &str = "row=70
 placed=40
 ";
+
+/// [task-effects] A task body's effects are inherited from the frame that
+/// minted it (user decision 2026-09-26). The Rust backend runs this program
+/// verbatim and both must print these lines byte for byte — on the JVM a
+/// handler reference is already a shareable handle [kt-monitor], so what the
+/// Rust side needs an owned `__Mon_E` for is simply a captured `val` here.
+const TASK_EFFECTS: &str = r#"
+send fn report(out: Reply<Int>, n: Int) [Console] => !out, !n {
+    println("task saw ${n}")
+    out.send(n * 2)
+}
+
+send fn chain(out: Reply<Int>, n: Int) [Console] => !out, !n {
+    println("chain saw ${n}")
+    let inner = waitfor r: Reply<Int> {
+        let k = replyto report(r)
+        k.send(n + 1)
+    }
+    out.send(inner)
+}
+
+fn main() [use, spawn] -> None {
+    use StdOutConsole()
+    let direct = waitfor a: Reply<Int> {
+        let k = replyto report(a)
+        k.send(21)
+    }
+    println("direct ${direct}")
+    let nested = waitfor b: Reply<Int> {
+        let k = replyto chain(b) on pool(2)
+        k.send(10)
+    }
+    println("nested ${nested}")
+}
+"#;
+
+const TASK_EFFECTS_OUTPUT: &str = "task saw 21
+direct 42
+chain saw 10
+task saw 11
+nested 22
+";
+
+fn kotlinc_compiles_and_runs_a_task_that_inherits_effects() -> KotlinCase {
+    kotlin_case(
+        generate_files(&[("main.sv", TASK_EFFECTS)]),
+        "task-effects",
+        TASK_EFFECTS_OUTPUT,
+    )
+}
+
+/// [task-effects] [kt-task] The inherited handler is bound to a `val` outside
+/// the lambda and passed as the leading argument, so what the task runs with is
+/// the handler registered at the mint.
+#[test]
+fn an_inherited_effect_is_captured_at_the_mint() {
+    let files = generate_files(&[("main.sv", TASK_EFFECTS)]);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt");
+    let text = &main.content;
+    assert!(
+        text.contains("val __e0 = ") && text.contains("report(__e0,"),
+        "the handler is captured at the mint:\n{text}"
+    );
+    assert!(
+        text.contains("fun report(console: Console"),
+        "a task body still takes the handler it performs through:\n{text}"
+    );
+}
 
 fn kotlinc_compiles_and_runs_the_task_kernel() -> KotlinCase {
     kotlin_case(

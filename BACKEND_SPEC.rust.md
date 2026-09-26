@@ -1271,6 +1271,22 @@ surface and must not be fused by a handler it never registers.
 Emitting a dependent handler with the fusion off is an internal codegen
 error naming the handler, so the two halves cannot silently disagree.
 
+**[task-effects] [rs-task] An inherited effect travels as an owned handle.** A
+task's closure is `move` and `'static`, so a `&mut dyn E` from the minting frame
+cannot go in it. What travels is the effect's **`__Mon_E`**, which is `Clone`
+*and* implements the effect's own trait — so no bundle and no new ABI is needed:
+the mint binds `let __e0 = <handle>.clone();` outside the closure and passes
+`__e0.clone()` inside it (cloned rather than moved, because the scheduler's
+callback is a `Fn` and a capture may not be consumed).
+
+A **task body's own** effect parameters are therefore owned handles too
+(`mut console: __Mon_Console`, not `&mut dyn Console`), registered as `is_local`
+so ordinary dispatch inside the body is `&mut param`. That is what lets a task
+mint a task: the nested mint needs a handle to clone, and a borrow would have
+had none. Found by writing the two-level program — the one-level case compiled
+with a borrow and said nothing.
+
+
 **The Has-accessor trait, beside every effect.** In fusion mode
 `emit_effect` emits a second trait next to each effect trait:
 

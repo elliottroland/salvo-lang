@@ -598,6 +598,12 @@ where Rust had to build the fusion to get the same programs running
   * A dependent handler cannot be emitted with the fusion off (it is an
     internal codegen error naming the handler), which is the other half of
     why the split is structural rather than tidiness.
+* [task-effects] [kt-task] An inherited effect is a captured `val`: the mint
+  binds the handler outside the lambda (`val __e0 = console;`) and passes it as
+  the leading argument, so the task runs with the handler registered at the
+  mint. A task body's signature is unchanged — a JVM reference is already a
+  shareable handle [kt-monitor], which is the whole of why this backend needed
+  one line where Rust needed an owned-handle convention.
 * [effect-handler-deps] A handler's dependencies emit as **one stored fused
   value**, built at the `use` site and held for the handler's lifetime (user
   decision 2026-09-14):

@@ -1537,17 +1537,38 @@ send fn finish(xs: Mut List<Int>, out: Reply<Int>, total: Int) => !xs, !out, !to
         "mutating across the boundary would share: {mutable:?}"
     );
 
-    let effects = errors(
+    // [task-effects] An *ordinary* effect is no longer refused here — it is
+    // inherited from the frame that mints (2026-09-26). What stays refused is
+    // the pair that belongs to a frame rather than to a body.
+    let uses = errors(
         "\
-send fn finish(out: Reply<Int>, total: Int) [Log] => !out, !total {
+send fn finish(out: Reply<Int>, total: Int) [use] => !out, !total {
     out.send(total)
 }
 ",
     );
     assert!(
-        effects.iter().any(|m| m.contains("cannot declare `Log`")
-            && m.contains("no scope to supply a handler from")),
-        "the first-pass cut, with its remedy named: {effects:?}"
+        uses.iter().any(|m| m.contains("cannot declare `use`")
+            && m.contains("no scope anything else can see")),
+        "a task has no scope to register a handler in: {uses:?}"
+    );
+
+    let local = errors(
+        "\
+effect Log {
+    fn note(m: Str) -> None
+}
+
+send fn finish(out: Reply<Int>, total: Int) [local Log] => !out, !total {
+    out.send(total)
+}
+",
+    );
+    assert!(
+        local
+            .iter()
+            .any(|m| m.contains("does not travel") && m.contains("[effect-local]")),
+        "a local binding is the one availability that cannot cross: {local:?}"
     );
 
     let generic = errors(
@@ -1560,6 +1581,75 @@ send fn finish<T>(out: Reply<T>, value: T) => !out, !value {
     assert!(
         generic.iter().any(|m| m.contains("cannot be generic")),
         "a mint carries no type arguments: {generic:?}"
+    );
+}
+
+/// [task-effects] A task body's effects are **inherited from the frame that
+/// mints it** (user decision 2026-09-26): the mint resolves them against the
+/// minting scope, exactly as a `spawn` resolves a synthesized dependency
+/// [spawn-inherit]. What the checker owes is the failure cases, because the
+/// remedy differs per case: nothing in scope, several candidates, or a binding
+/// whose whole point is that it does not travel.
+#[test]
+fn a_task_inherits_its_effects_from_the_mint() {
+    const TARGET: &str = "\
+effect Notes {
+    fn note(m: Str) -> None => m
+}
+
+handler Quiet() of Notes {
+    fn note(m: Str) -> None => m {
+    }
+}
+
+send fn finish(label: Str, total: Int) [Notes] => !label, !total {
+    note(label)
+}
+";
+    // Bound in the minting scope: inherited, and clean.
+    let ok = errors(&format!(
+        "{TARGET}
+fn go() [use] -> None {{
+    use Quiet()
+    let k = replyto finish(\"done\")
+    k.send(1)
+}}
+"
+    ));
+    assert!(ok.is_empty(), "a bound handler is inherited: {ok:?}");
+
+    // Nothing in scope: the mint says so, and names the remedies.
+    let missing = errors(&format!(
+        "{TARGET}
+fn go() [] -> None {{
+    let k = replyto finish(\"done\")
+    k.send(1)
+}}
+"
+    ));
+    assert!(
+        missing
+            .iter()
+            .any(|m| m.contains("performs `Notes`") && m.contains("no handler for it")),
+        "the mint is where the handler has to be: {missing:?}"
+    );
+
+    // A `local` binding cannot cross the seam, and the diagnostic says which
+    // rule refused it.
+    let local = errors(&format!(
+        "{TARGET}
+fn go() [use] -> None {{
+    use local Quiet()
+    let k = replyto finish(\"done\")
+    k.send(1)
+}}
+"
+    ));
+    assert!(
+        local
+            .iter()
+            .any(|m| m.contains("is `local`") && m.contains("[effect-local]")),
+        "a local binding has nothing to give a detached body: {local:?}"
     );
 }
 

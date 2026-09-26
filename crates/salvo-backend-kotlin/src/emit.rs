@@ -6551,7 +6551,7 @@ impl<'p> Emitter<'p> {
             .get(&(self.file_idx, span))
             .copied()
         {
-            return self.emit_task_mint(member, key, captures, pool);
+            return self.emit_task_mint(member, key, captures, pool, span);
         }
         let Some(target) = self
             .checked
@@ -6595,6 +6595,7 @@ impl<'p> Emitter<'p> {
         key: salvo_core::FnKey,
         captures: &[Expr],
         pool: Option<&Expr>,
+        span: Span,
     ) -> String {
         let Some(target) = self.fn_by_key(key) else {
             self.error(format!(
@@ -6615,6 +6616,22 @@ impl<'p> Emitter<'p> {
         let name = self.kotlin_fn_name(target);
         let mut lets = String::new();
         let mut args: Vec<String> = Vec::new();
+        // [task-effects] The effects the task inherits come first, in the
+        // target's declared order, exactly as they do at an ordinary call —
+        // bound to `val`s *outside* the lambda so the handler captured is the
+        // one registered at the mint. On the JVM a handler reference is already
+        // a shareable handle [kt-monitor], so there is nothing to convert.
+        let inherited = self
+            .checked
+            .task_mint_effects
+            .get(&(self.file_idx, span))
+            .cloned()
+            .unwrap_or_default();
+        for (i, ty) in inherited.iter().enumerate() {
+            let code = self.thread_effect_fused_by_ty(ty);
+            lets.push_str(&format!("val __e{i} = {code}; "));
+            args.push(format!("__e{i}"));
+        }
         for (i, c) in captures.iter().enumerate() {
             let code = self.emit_expr(c);
             lets.push_str(&format!("val __c{i} = {code}; "));

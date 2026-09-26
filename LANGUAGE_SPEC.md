@@ -4521,15 +4521,32 @@ docs/language/ remains the source of truth for everything that does.
   * `send` stays **contextual** at item level for the reasons it is contextual
     in a member list: `send` is an ordinary name and `r.send(v)` is how a token
     is discharged.
-  * **First-pass cuts**, each a diagnostic: **no effects but `[waitfor]`** — a
-    scheduled body runs detached from the frame that minted it, so there is no
-    scope to supply a handler from, and capturing the minting scope's handlers
-    would send values that scope still owns; the remedy the diagnostic names is
-    an `Addr` capture, which needs no effect declaration [actor-use-addr].
-    Lifting it for *actor-backed* effects (whose provider is an addr stub, and
-    so sendable) is the recorded growth point. And **no generics**: a mint
-    carries captures and no type arguments, so there would be nothing to choose
-    an instantiation by.
+  * **No generics**: a mint carries captures and no type arguments, so there
+    would be nothing to choose an instantiation by.
+* [task-effects] **A task body's effects are inherited from the frame that
+  mints it** (user decision 2026-09-26). A free `send fn` declares them
+  ordinarily (`[Console]`), and the **mint** — not the declaration — is where
+  they are supplied: `replyto report(out)` resolves each against the minting
+  scope and hands the task a handle. The first-pass cut was "no effects but
+  `[waitfor]`", written before there were thread-shareable handlers; there are
+  now, and this is the same inheritance `spawn` carries into a child
+  [spawn-inherit].
+  * **Resolution is the mint's, and it is the checker's** — one implementation,
+    reused: the exact instance if the scope has it, otherwise the single
+    compatible one, with an ambiguity refused rather than guessed. Three
+    failures, each naming its own remedy: nothing in scope (bind a handler
+    before the mint, or declare the effect on the minting function so it is
+    supplied from further out), several candidates, and a **`local`** binding —
+    the one availability whose whole point is that it does not travel
+    [effect-local], so a body that runs after the scope ends has nothing to
+    take from it.
+  * **Two forms still cannot be declared on a task**, because they are
+    capabilities of a *frame* rather than of a body: `[use]` registers handlers
+    for the rest of a scope and a scheduled body has no scope anything else can
+    see, and `[spawn]` places work on a pool from the frame that has one — a
+    task already *is* that work. `[waitfor]` is unchanged.
+  * An `Addr` capture remains the way to reach an **actor** from a task, and
+    needs no effect declaration [actor-use-addr].
 * [task-mint] **`replyto` targets any send-kind function** (user decision
   2026-09-17, FC-2), which is what makes the mint legal in **any** function:
 

@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1540 tests, complete: the toolchain tests are
+cargo test                  # 1544 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,44 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**A task body's effects are inherited from the frame that mints it (2026-09-26,
+user decision — built).** ROADMAP step 2. A free `send fn` declares `[Console]`
+ordinarily and the **mint** supplies it, resolved against the minting scope the
+way a `spawn`'s synthesized dependency is [task-effects] [spawn-inherit]. The
+restriction it replaces was written before there were thread-shareable handlers.
+
+- **The design the ROADMAP planned was not needed, and the reason is worth
+  keeping.** It expected the fused handle bundle (`__Hs_N`, [rs-handle-bundle])
+  to carry the handles into the closure. It does not have to: a `__Mon_E`
+  **implements the effect's own trait**, so `&mut` of one *is* the `&mut dyn E` a
+  target's signature asks for. The mint binds `let __e0 = <handle>.clone();`
+  outside the closure and passes a clone inside — no bundle, no new ABI, and the
+  target's ordinary signature untouched. Reading the generated `impl Console for
+  __Mon_Console` is what turned a planned week into an afternoon.
+- **One signature change was needed, and only the two-level program found it.**
+  A task may itself mint a task, and the nested mint needs a *handle* to clone —
+  which a `&mut dyn E` parameter cannot give. So a task body's own effect
+  parameters are owned handles (`mut console: __Mon_Console`), registered as
+  `is_local` so dispatch inside the body is `&mut param`. The one-level case
+  compiled happily with a borrow and said nothing; the nested case failed with
+  "no handle in scope for inherited dependency `Console`". Writing the program
+  one level deeper than the probe is what exposed it.
+- **Kotlin needed one line**: a captured `val` before the lambda and a leading
+  argument inside it. A JVM reference is already a shareable handle
+  [kt-monitor], which is why the two backends' costs differed so much here.
+- **What stays refused, and now for a stated reason each**: `[use]` registers
+  handlers for the rest of a scope and a scheduled body has no scope anything
+  else can see; `[spawn]` places work on a pool from the frame that has one and
+  a task already *is* that work; and a `local` binding is the one availability
+  that does not travel [effect-local], so the *mint* refuses it — the diagnostic
+  lands where the handler would have come from, not on the declaration.
+- Tests: `a_task_inherits_its_effects_from_the_mint` (inherited, nothing in
+  scope, and a `local` binding), the two lowering assertions, and a
+  compile-and-run pair over a program with both shapes — a task minted from a
+  binding frame and a task minting a task on another pool — printing five
+  identical lines on both backends. The old `[free-send-fn]` effect-refusal test
+  became the `use`/`local` pair.
 
 **`throw` leaves `core` (2026-09-26).** ROADMAP step 1(e), and the last of the
 std reorganisation. `import throw` brings `Throw`, `try`'s `Thrown` arm and
