@@ -1291,6 +1291,15 @@ impl<'p> Emitter<'p> {
                 )
             }
         };
+        // [placeholder] `for _ in xs` drives the pass and binds nothing: `_` is
+        // not a name Kotlin accepts for a `val`, and there is nothing the body
+        // could read it by. The element is still *produced* — the arm test is
+        // what ends the loop — so only the binding line goes.
+        let bind = if matches!(pattern, Pattern::Ident(id) if id.name == "_") {
+            String::new()
+        } else {
+            format!("{inner_pad}val {var} = {read}\n")
+        };
         // [iter-drive-in-place] A pass the fn *keeps* is advanced where it
         // lives, so the caller sees the position the loop reached. Kotlin's
         // local would have aliased it anyway; naming the subject directly is
@@ -1300,7 +1309,7 @@ impl<'p> Emitter<'p> {
                 "{pad}while (true) {{\n\
                  {inner_pad}val {step} = {callee}({lead}{subject})\n\
                  {inner_pad}if ({step} !is {arm}) {{ break }}\n\
-                 {inner_pad}val {var} = {read}\n"
+                 {bind}"
             );
         }
         format!(
@@ -1308,7 +1317,7 @@ impl<'p> Emitter<'p> {
              {pad}while (true) {{\n\
              {inner_pad}val {step} = {callee}({lead}{place})\n\
              {inner_pad}if ({step} !is {arm}) {{ break }}\n\
-             {inner_pad}val {var} = {read}\n"
+             {bind}"
         )
     }
 
@@ -6949,6 +6958,12 @@ impl<'p> Emitter<'p> {
     /// loop and both pattern kinds, and it is the Rust backend's shape too.
     fn for_pattern_var(&mut self, pattern: &Pattern, body_indent: usize) -> String {
         match pattern {
+            // [placeholder] `for _ in xs` binds nothing, and Kotlin has no
+            // wildcard in a `for` header (`for (_ in …)` is behind an
+            // experimental flag), so the loop takes a name the body cannot
+            // reach. The *pass* lowering skips the binding line entirely; this
+            // is the native `for`, where the header must name something.
+            Pattern::Ident(id) if id.name == "_" => self.unique_name("__ignored".to_string()),
             Pattern::Ident(id) => kt_ident(&id.name),
             Pattern::Tuple { .. } | Pattern::Struct { .. } => {
                 let temp = self.unique_name("__elem".to_string());

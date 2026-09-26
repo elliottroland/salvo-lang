@@ -4269,7 +4269,46 @@ fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
     kotlin_case(files, "distinct_pair", "11 3 17 8\n")
 }
 
+/// [placeholder] `for _ in …` drives a pass and binds nothing. Kotlin has no
+/// wildcard in a `for` header, so the two lowerings differ: the pass loop drops
+/// its `val` line, the native `for` names a local the body cannot reach. Source
+/// and expected stdout are verbatim the Rust backend's
+/// `rustc_compiles_and_runs_placeholder_loops`.
+const PLACEHOLDER_LOOP_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let hits: Mut List<Int> = mut_list_of()
+    // [placeholder] Two loops that bind nothing, in one function: neither
+    // introduces a name, so neither can collide with the other.
+    for _ in range(0, 3) {
+        add(hits, 1)
+    }
+    for _ in range(0, 2) {
+        add(hits, 2)
+    }
+    // A native `for` over a list, and a real binder beside a placeholder.
+    for _ in list_of(7, 8) {
+        add(hits, 3)
+    }
+    for i in range(0, 3) {
+        for _ in range(0, i) {
+            add(hits, 4)
+        }
+    }
+    println("${size(hits)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_placeholder_loops() -> KotlinCase {
+    let program = build_program(&[("main.sv", PLACEHOLDER_LOOP_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "placeholder-loops", "10\n")
+}
+
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_placeholder_loops,
     kotlinc_compiles_and_runs_a_held_identity,
     kotlinc_compiles_and_runs_a_mixed_identity,
     kotlinc_compiles_and_runs_a_generic_written_identity,

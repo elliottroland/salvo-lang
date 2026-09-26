@@ -13875,6 +13875,10 @@ impl<'p> Emitter<'p> {
     /// one shape then serves tuples and structs alike.
     fn for_pattern_var(&mut self, pattern: &Pattern, by_ref: bool, body_indent: usize) -> String {
         match pattern {
+            // [placeholder] `for _ in xs` drives the pass and binds nothing, so
+            // the pattern is the wildcard itself: `mut _` is not a binding Rust
+            // accepts, and there is nothing to register as one.
+            Pattern::Ident(id) if id.name == "_" => "_".to_string(),
             Pattern::Ident(id) => {
                 // [rs-borrow-locals] A by-reference loop binds `&T`.
                 if by_ref {

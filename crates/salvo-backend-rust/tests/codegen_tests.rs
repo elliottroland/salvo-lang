@@ -14627,3 +14627,37 @@ fn main() [use] {
         "got {errors:?}"
     );
 }
+
+/// [placeholder] `for _ in …` binds nothing: `mut _` is not a binding Rust
+/// accepts, so the loop takes the wildcard pattern. Source and expected stdout
+/// are verbatim the Kotlin backend's `kotlinc_compiles_and_runs_placeholder_loops`.
+const PLACEHOLDER_LOOP_DEMO: &str = r#"
+fn main() [use] {
+    use StdOutConsole()
+    let hits: Mut List<Int> = mut_list_of()
+    // [placeholder] Two loops that bind nothing, in one function: neither
+    // introduces a name, so neither can collide with the other.
+    for _ in range(0, 3) {
+        add(hits, 1)
+    }
+    for _ in range(0, 2) {
+        add(hits, 2)
+    }
+    // A native `for` over a list, and a real binder beside a placeholder.
+    for _ in list_of(7, 8) {
+        add(hits, 3)
+    }
+    for i in range(0, 3) {
+        for _ in range(0, i) {
+            add(hits, 4)
+        }
+    }
+    println("${size(hits)}")
+}
+"#;
+
+#[test]
+fn rustc_compiles_and_runs_placeholder_loops() {
+    let files = generate(&[("main.sv", PLACEHOLDER_LOOP_DEMO)]);
+    run_rust_files(&files, "placeholder-loops", "10\n");
+}

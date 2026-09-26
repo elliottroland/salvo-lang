@@ -480,6 +480,14 @@ Conventions:
   where `x Ok?: err(_)` needs it.
   * It is not a name: it cannot be declared, shadowed or captured. The word is
     reserved, and appeared in no `.sv` source when it was.
+  * **A `for` binder may be `_`**: `for _ in range(0, 3) { … }` drives the pass
+    and binds nothing, which is how a loop that repeats *n* times is written.
+    The element is still produced — the `Finished` arm is what ends the loop —
+    so only the binding goes. Each backend renders that in its own terms: Rust
+    binds the wildcard pattern (`mut _` is not a binding it accepts), and Kotlin
+    drops the `val` line for a pass loop and names an unreachable local for a
+    native `for`, which has no wildcard form. Two such loops in one function are
+    independent, since neither introduces a name to collide.
   * Reading it is an **error** until a construct binds it, not a silent
     `Unknown`.
   * Considered and rejected for now (user decision 2026-09-21): a general rule
