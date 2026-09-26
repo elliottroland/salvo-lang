@@ -18156,6 +18156,27 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A rule change whose sweep is "move a declaration" wants a *position-aware*
+  transform, not a regex over the file** (2026-09-26). Moving every
+  `fn cmp@Person(…)` into its struct's body across the codegen suites looked like
+  a two-line script; the first version searched for the struct from the *start of
+  the file* each time and piled six unrelated fixtures' declarations into one
+  shared constant, which then failed as "`Person` has no `hash`" in a test about
+  something else entirely. The second version walked backwards from each
+  declaration to the nearest preceding struct of that name. The tell that
+  something is wrong is a failure in a test whose subject you did not touch.
+- **Putting a type in a `core` signature links its module into every program**
+  (2026-09-26). `swap` answering a `Checked<Bool>` means every program that uses a
+  list now emits `core/checked.{rs,kt}` — visible as a diff in *every* golden and
+  every example. Harmless (both backends tolerate unused items) and worth knowing
+  before the diff arrives: the reachability cost of a std return type is paid by
+  all of std's consumers.
+- **The editor grammar is generated** from `crates/salvo-cli/src/lang.rs`
+  (`salvo lang tm-grammar`), and a test asserts the checked-in file matches
+  (2026-09-26). Editing `vscode/syntaxes/salvo.tmLanguage.json` by hand is
+  therefore always wrong, and the "stale grammar" failure is what says so. When a
+  keyword is missing from highlighting, the fix is in the generator's pattern
+  list.
 - **`rust_fn_name` matches an overload by *pointer*, so never hand it a clone.**
   Nothing in its signature says so — it takes `&FnDecl` — but its final step is
   `std::ptr::eq` against the program's own declarations, so a cloned decl falls
