@@ -11,6 +11,8 @@ pub mod scheduler;
 pub mod hosttime;
 #[path = "core/actor.rs"]
 pub mod core_actor;
+#[path = "core/checked.rs"]
+pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]

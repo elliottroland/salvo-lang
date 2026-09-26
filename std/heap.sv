@@ -114,7 +114,9 @@ fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
     }
 
     if smallest != i {
-        list.swap(smallest, i)
+        // In range by construction (`smallest` is `i`, a child index, or one
+        // below `n`), so there is nothing to check [col-bounds].
+        ignore(list.swap(smallest, i))
         heapify_part(list, n, smallest)
     }
 }
@@ -153,9 +155,9 @@ export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
             break
         }
 
-        // A total exchange, so nothing can be dropped by it; it answers `false`
-        // out of range, which cannot happen here [col-bounds].
-        heap.swap(i, i_parent)
+        // Nothing can be dropped by an exchange, and out of range cannot happen
+        // here — so the answer is `ignore`d rather than read [col-bounds].
+        ignore(heap.swap(i, i_parent))
         i = i_parent
     }
 }
@@ -179,8 +181,9 @@ export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
     if heap.size() == 1 {
         return remove_first(heap)!
     }
-    // Swap them, so that we don't have to shift everything
-    heap.swap(0, heap.size() - 1)
+    // Swap them, so that we don't have to shift everything. Both indices are in
+    // range (the one-element heap returned above), so the answer is `ignore`d.
+    ignore(heap.swap(0, heap.size() - 1))
     let elem = heap.remove_at(heap.size() - 1)!
     // The root is a valid index (the early return above handled the
     // one-element heap, and `remove_at` left at least one element), and the
@@ -204,9 +207,9 @@ export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
             break
         }
 
-        // Otherwise, we swap and proceed down the new path — the total
-        // exchange, since both indices carry the claim, and it preserves
-        // them [qual-preserve].
+        // Otherwise, we swap and proceed down the new path — the **total**
+        // exchange, since both indices carry the claim, so there is no answer to
+        // check and it preserves the claims [qual-preserve].
         heap.swap(i, i_child)
         i = i_child
     }

@@ -96,7 +96,9 @@ export fn get<T>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 // keeps: existing `Idx` claims survive [qual-preserve].
 export fn swap<T>(list: Mut List<T>, i: Idx(list) Int, j: Idx(list) Int) [] -> None
 => list: Mut, list: preserve Idx, i, j {
-    swap(list, i + 0, j + 0)
+    // The claims make failure impossible here, which is what lets the total
+    // overload discharge the obligation without reading it.
+    ignore(swap(list, i + 0, j + 0))
     return None
 }
 
@@ -177,7 +179,14 @@ export intrinsic fn remove_at<T canbe linear>(list: Mut List<T>, index: Int) [] 
 // the call, and rather than the hosts' own behaviour because `Vec::swap` panics
 // where a JVM list throws — the same program would fail differently on the two
 // backends [backend-parity].
-export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Bool
+//
+// Wrapped in a [Checked], so the answer cannot be dropped by accident (user
+// decision 2026-09-26): the bug this reports is invisible at the call site, which
+// is exactly the case the obligation exists for. `detach` it to read the answer,
+// or `ignore` it to say that not looking was the intent. The **total** overload
+// above answers plain `None` — where both indices carry `Idx` claims there is no
+// failure to check.
+export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Checked<Bool>
 => list: Mut, i, j
 
 // [linear-container] There is deliberately **no** positional write for a list

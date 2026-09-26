@@ -537,6 +537,16 @@ Conventions:
     `MutableList(n, init)`) or to `.map(init)` rather than being invoked
     inline: an immediately applied lambda literal has no expected type, and
     kotlinc then demands an explicit parameter type.
+* [checked-type] **`Checked<T>` is std's "you must look at this"**: a
+  `linear struct` in `core.checked` wrapping a value whose obligation is
+  discharged by `detach` (read it) or `ignore` (say you meant not to). Dropping
+  one is the ordinary linear error [linear-group], which is the whole mechanism —
+  no new rule, just the obligation applied to an *answer*.
+  * In `core` because std's own returns carry it ([col-bounds]'s `swap`), and a
+    type in a returned position must be visible wherever the function is.
+  * `ignore` refuses a **linear** `T`: discarding the wrapper would discharge the
+    inner obligation too, which nothing has looked at. `detach` takes
+    `<T canbe linear>` and hands the obligation on.
 * [col-bounds] **An index-taking operation answers; it does not fail.** An
   out-of-range index is an ordinary outcome in Salvo, reported the way the
   operation's own shape allows, and identically on both backends — never a panic,
@@ -553,6 +563,15 @@ Conventions:
     JVM list throws, and `setCharAt` throws where a slice write would panic — so
     the same program would fail differently per backend [backend-parity]. The
     answer is ignorable, and at a known-good index that is what a caller does.
+  * **A list write's answer is a `Checked<Bool>`** (user decision 2026-09-26):
+    `swap` hands back an obligation, so the answer cannot be dropped by accident
+    — `detach` it to read, `ignore` it to say the miss was expected
+    [linear-group]. The failure this reports is precisely the one with no symptom
+    at the call site, which is what the wrapper exists for. The **total** `swap`
+    overload — both indices carrying `Idx` claims — answers plain `None`: there
+    is no failure to check, and it discharges the inner call's obligation itself.
+    `set` on a `Mut Str`/`Mut Bytes` keeps the bare `Bool` for now; the list is
+    where the surface was reshaped.
   * An out-of-range write **never grows the value**: that would make a `set` an
     `append`, and the buffer is the caller's.
   * There is **no positional write for a list** at all [linear-container]: the

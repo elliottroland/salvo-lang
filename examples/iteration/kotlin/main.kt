@@ -47,7 +47,7 @@ fun next__13(p: Countdown): Union2<Int, Finished> {
     return U2_1<Int, Finished>(emitted(now))
 }
 
-fun take__2(console: Console, p: Countdown, count: Int) {
+fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
         val __loop1_step = next__13(p)
@@ -153,7 +153,7 @@ fun main() {
     val xs = listOf<Int>(1, 2, 3, 4)
     describe_container(console, xs)
     val p = countdown(5)
-    take__2(console, p, 2)
+    take(console, p, 2)
     println(console, "2. rest sums to ${sum_of(p, ::next__13)}")
     val h = Halving(start = 20)
     var __loop3_pass = iter__10(h)

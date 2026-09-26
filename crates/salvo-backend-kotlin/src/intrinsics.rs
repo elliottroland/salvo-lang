@@ -238,11 +238,12 @@ pub fn fn_call(
         // [col-bounds] Written out rather than `java.util.Collections.swap`,
         // which throws out of range where this answers `false` — and which
         // would need an import for three statements.
+        // The answer is a `Checked<Bool>` [col-bounds], built here.
         ("swap", Some("List")) => format!(
-            "({}).let {{ __l -> ({}).let {{ __i -> ({}).let {{ __j -> \
+            "Checked(({}).let {{ __l -> ({}).let {{ __i -> ({}).let {{ __j -> \
              if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) {{ \
              val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true }} \
-             else false }} }} }}",
+             else false }} }} }})",
             a(0),
             a(1),
             a(2)

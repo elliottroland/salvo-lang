@@ -1,4 +1,5 @@
 use crate::core_bytes::*;
+use crate::core_checked::*;
 use crate::core_iterator::*;
 use crate::core_list::*;
 use crate::core_map::*;
@@ -58,7 +59,7 @@ pub fn ignore__2(e: FsError) {
     drop(e);
 }
 
-pub fn detach(e: FsError) -> Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError> {
+pub fn detach__2(e: FsError) -> Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError> {
     let mut kind = e.kind.clone();
     drop(e);
     return kind;

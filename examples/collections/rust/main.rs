@@ -5,6 +5,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "core/checked.rs"]
+pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]

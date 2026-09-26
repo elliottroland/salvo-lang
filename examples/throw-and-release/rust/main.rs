@@ -7,6 +7,8 @@ pub mod seq;
 pub mod collections;
 #[path = "core/bytes.rs"]
 pub mod core_bytes;
+#[path = "core/checked.rs"]
+pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/fs.rs"]

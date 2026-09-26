@@ -401,10 +401,13 @@ pub fn fn_call(
         // a `Bool` instead — so the bounds are tested here. A negative `i32`
         // becomes a huge `usize`, which the length test rejects, so one
         // comparison per index covers both ends.
+        // The answer is a `Checked<Bool>` [col-bounds], so it is built here:
+        // `core::checked::Checked` is an ordinary generated struct.
         ("swap", Some("List")) => format!(
             "{{ let __i = {}; let __j = {}; \
+             Checked {{ value: \
              if __i < {}.len() && __j < {}.len() {{ {}.swap(__i, __j); true }} \
-             else {{ false }} }}",
+             else {{ false }} }} }}",
             index(1),
             index(2),
             a(0),

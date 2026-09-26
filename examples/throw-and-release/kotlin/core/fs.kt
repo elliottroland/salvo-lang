@@ -2,6 +2,7 @@ package salvo.core.fs
 
 import salvo.*
 import salvo.core.bytes.*
+import salvo.core.checked.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
@@ -51,7 +52,7 @@ fun ignore__2(e: FsError) {
     (e).let {}
 }
 
-fun detach(e: FsError): Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError> {
+fun detach__2(e: FsError): Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError> {
     val kind = e.kind
     (e).let {}
     return kind

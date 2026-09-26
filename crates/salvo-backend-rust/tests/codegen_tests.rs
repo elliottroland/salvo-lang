@@ -8959,10 +8959,10 @@ fn main() [use] {
     // [col-bounds] A total exchange, and the one positional write a list of
     // obligations can have: nothing enters, nothing leaves, nothing is dropped.
     let xs: Mut List<Str> = mut_list_of("a", "b", "c")
-    println("swapped ${swap(xs, 0, 2)} ${to_str(xs)}")
-    println("in place ${swap(xs, 1, 1)} ${to_str(xs)}")
-    println("past the end ${swap(xs, 0, 3)} ${to_str(xs)}")
-    println("negative ${swap(xs, -1, 0)} ${to_str(xs)}")
+    println("swapped ${detach(swap(xs, 0, 2))} ${to_str(xs)}")
+    println("in place ${detach(swap(xs, 1, 1))} ${to_str(xs)}")
+    println("past the end ${detach(swap(xs, 0, 3))} ${to_str(xs)}")
+    println("negative ${detach(swap(xs, -1, 0))} ${to_str(xs)}")
 
     // Reads answer an optional, at either end, for a literal as for a variable.
     if get(xs, -1) is None {
@@ -8987,7 +8987,7 @@ fn main() [use] {
 
     // The heap's own move, in the spelling it uses [fn-dot].
     let heap: Mut List<Int> = mut_list_of(5, 9, 7)
-    heap.swap(0, 2)
+    ignore(heap.swap(0, 2))
     println("sifted ${to_str(heap)}")
 }
 "#;
@@ -9057,7 +9057,7 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>) [] -> None
             if cmp(list.get(at)!, list.get(smaller)!) <= 0 {
                 break
             }
-            list.swap(at, smaller)
+            ignore(list.swap(at, smaller))
             at = copy(smaller)
         }
     }
@@ -9074,7 +9074,7 @@ export fn heap_push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) [] -> None
         if cmp(heap.get(parent)!, heap.get(i)!) <= 0 {
             break
         }
-        heap.swap(i, parent)
+        ignore(heap.swap(i, parent))
         i = copy(parent)
     }
 }
@@ -9090,7 +9090,7 @@ export fn heap_pop<T>(heap: Heap<T>(?cmp) Mut List<T>) [] -> T?
 export fn heap_pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) [] -> T
 => heap: +Heap<T>(?cmp) Mut {
     let last = size(heap) - 1
-    heap.swap(0, last)
+    ignore(heap.swap(0, last))
     let least = heap.remove_at(last)!
     let i = 0
     while i < size(heap) {
@@ -9105,7 +9105,7 @@ export fn heap_pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) [] -> T
         if cmp(heap.get(i)!, heap.get(smaller)!) <= 0 {
             break
         }
-        heap.swap(i, smaller)
+        ignore(heap.swap(i, smaller))
         i = copy(smaller)
     }
     return least

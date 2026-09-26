@@ -2,6 +2,25 @@
 source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
 expression: combined
 ---
+// ===== core/checked.kt =====
+package salvo.core.checked
+
+data class Checked<T>(
+    val value: T,
+)
+
+fun<T> checked(value: T): Checked<T> {
+    return Checked(value = value)
+}
+
+fun<T> ignore(checked: Checked<T>) {
+    (checked).let {}
+}
+
+fun<T> detach(checked: Checked<T>): T {
+    return checked.value
+}
+
 // ===== core/console.kt =====
 package salvo.core.console
 
@@ -44,6 +63,7 @@ fun finished(): Finished {
 package salvo.core.list
 
 import salvo.*
+import salvo.core.checked.*
 import salvo.core.iterator.*
 import salvo.core.map.*
 import salvo.core.nonempty.*
@@ -64,7 +84,7 @@ fun<T> get(list: List<T>, index: Int): T {
 }
 
 fun<T> swap(list: MutableList<T>, i: Int, j: Int) {
-    (list).let { __l -> (i + 0).let { __i -> (j + 0).let { __j -> if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) { val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true } else false } } }
+    ignore(Checked((list).let { __l -> (i + 0).let { __i -> (j + 0).let { __j -> if (__i >= 0 && __i < __l.size && __j >= 0 && __j < __l.size) { val __t = __l[__i]; __l[__i] = __l[__j]; __l[__j] = __t; true } else false } } }))
     return
 }
 
@@ -87,7 +107,7 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 }
 
 fun<T> first(list: List<T>): T {
-    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:250:12"))
+    return (list.getOrNull(0) ?: throw AssertionError("salvo: value is absent at core.list:259:12"))
 }
 
 fun<T> iter__3(list: List<T>): ListYield<T> {

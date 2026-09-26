@@ -2,6 +2,7 @@
 package salvo
 
 import salvo.core.bytes.*
+import salvo.core.checked.*
 import salvo.core.console.*
 import salvo.core.fs.*
 import salvo.core.hostfs.*

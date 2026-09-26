@@ -109,7 +109,9 @@ test "add and swap preserve Idx claims" {
     let i = 1
     assert!(i is Idx(xs))
     add(xs, 4)
-    swap(xs, i + 1, i + 1)
+    // `i + 1` carries no claim, so this is the fallible overload: its answer is
+    // a `Checked<Bool>` and has to be looked at [col-bounds].
+    expect(detach(swap(xs, i + 1, i + 1)), "in range, so it swapped")
     expect_eq(get(xs, i), 2)
 }
 
@@ -169,4 +171,15 @@ test "a pick with a value right side joins like an if" {
     let picked = 5 Idx(xs)?: 0
     // 5 is out of range, so the right side's value is the expression's.
     expect_eq(picked + 0, 0)
+}
+
+test "an out-of-range swap answers false, and the answer cannot be dropped" {
+    // [col-bounds] The failure a swap reports is invisible at the call site,
+    // which is why the answer is a `Checked`: `detach` reads it, `ignore` says
+    // the miss was expected. Dropping it is a compile-time error.
+    let xs: Mut List<Int> = [1, 2]
+    expect(!detach(swap(xs, 0, 9)), "out of range, so nothing moved")
+    expect_eq(to_str(xs), "[1, 2]")
+    ignore(swap(xs, 0, 1))
+    expect_eq(to_str(xs), "[2, 1]")
 }

@@ -2,6 +2,7 @@
 package salvo
 
 import salvo.core.actor.*
+import salvo.core.checked.*
 import salvo.core.console.*
 import salvo.core.iterator.*
 import salvo.core.list.*

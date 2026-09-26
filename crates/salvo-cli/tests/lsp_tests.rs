@@ -1491,8 +1491,8 @@ fn hover_works_in_a_std_shadowing_file() {
     );
     let value = hover(&mut lsp, 40, &uri, line, col + 1);
     assert!(
-        value.contains("-> Bool"),
-        "expected the Bool swap's signature: {value}"
+        value.contains("-> Checked<Bool>"),
+        "expected the fallible swap's signature: {value}"
     );
     assert!(
         value.contains("- `[list: preserve Idx]` — from `Idx`"),

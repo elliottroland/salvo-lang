@@ -7,6 +7,8 @@ pub mod seq;
 pub mod collections;
 #[path = "core/array.rs"]
 pub mod core_array;
+#[path = "core/checked.rs"]
+pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
@@ -75,7 +77,7 @@ pub fn next__13(p: &mut Countdown) -> Union2<i32, Finished> {
     return Union2::<i32, Finished>::U1(emitted(now));
 }
 
-pub fn take__2(console: &mut dyn Console, p: &mut Countdown, count: i32) {
+pub fn take(console: &mut dyn Console, p: &mut Countdown, count: i32) {
     let mut seen = 0;
     while let Union2::U1(mut n) = next__13(p) {
         println(console, &(format!("2. got {}", n)));
@@ -180,7 +182,7 @@ pub fn main() {
     let mut xs = vec![1, 2, 3, 4];
     describe_container(&mut console, &xs);
     let mut p = countdown(5);
-    take__2(&mut console, &mut p, 2);
+    take(&mut console, &mut p, 2);
     println(&mut console, &(format!("2. rest sums to {}", sum_of::<Countdown>(&mut p, &mut |__i0| next__13(__i0)))));
     let mut h = Halving { start: 20 };
     let mut __loop3_pass = iter__10(&h);

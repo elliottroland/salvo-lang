@@ -2,6 +2,26 @@
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
 expression: combined
 ---
+// ===== core/checked.rs =====
+use crate::core_iterator::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Checked<T: Clone + 'static> {
+    pub value: T,
+}
+
+pub fn checked<T: Clone>(value: T) -> Checked<T> {
+    return Checked { value: value };
+}
+
+pub fn ignore<T: Clone>(checked: Checked<T>) {
+    drop(checked);
+}
+
+pub fn detach<T: Clone>(checked: Checked<T>) -> T {
+    return checked.value;
+}
+
 // ===== core/console.rs =====
 use crate::core_iterator::*;
 use crate::core_string::*;
@@ -101,6 +121,7 @@ pub fn finished() -> Finished {
 
 // ===== core/list.rs =====
 use crate::collections::*;
+use crate::core_checked::*;
 use crate::core_iterator::*;
 use crate::core_map::*;
 use crate::core_nonempty::*;
@@ -127,7 +148,7 @@ pub fn get__loc<T: Clone>(list: &Vec<T>, index: &i32) -> usize {
 }
 
 pub fn swap<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32) {
-    { let __i = (*i + 0) as i64 as usize; let __j = (*j + 0) as i64 as usize; if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } };
+    ignore({ let __i = (*i + 0) as i64 as usize; let __j = (*j + 0) as i64 as usize; Checked { value: if __i < list.len() && __j < list.len() { list.swap(__i, __j); true } else { false } } });
     return;
 }
 
@@ -136,12 +157,12 @@ pub fn at<T: Clone>(list: &mut Vec<T>, index: i32) -> Option<&T> {
 }
 
 pub fn update<T: Clone>(list: &mut Vec<T>, index: &i32, f: &mut impl FnMut(&mut T)) {
-    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:131:7"));
+    f(list.get_mut((*index) as usize).expect("salvo: value is absent at core.list:133:7"));
     return;
 }
 
 pub fn update2<T: Clone>(list: &mut Vec<T>, i: &i32, j: &i32, f: &mut impl FnMut(&mut T, &mut T)) {
-    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:144:5");
+    let (__pm0, __pm1) = salvo_pair_mut(&mut list[..], (*i) as usize, (*j) as usize).expect("salvo: value is absent at core.list:146:5");
     f(__pm0, __pm1);
     return;
 }
@@ -151,7 +172,7 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 }
 
 pub fn first<T: Clone>(list: &Vec<T>) -> &T {
-    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:250:12");
+    return list.get((0) as i64 as usize).expect("salvo: value is absent at core.list:259:12");
 }
 
 pub fn iter__3<T: Clone>(list: &Vec<T>) -> ListYield<'_, T> {
@@ -433,6 +454,8 @@ pub mod unions;
 pub mod seq;
 #[path = "collections.rs"]
 pub mod collections;
+#[path = "core/checked.rs"]
+pub mod core_checked;
 #[path = "core/console.rs"]
 pub mod core_console;
 #[path = "core/iterator.rs"]
