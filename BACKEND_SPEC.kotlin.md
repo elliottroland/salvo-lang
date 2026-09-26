@@ -122,6 +122,8 @@ Conventions:
   * `copy` is the copy constructor **for both shapes**: a plain `Bytes` may be
     the very object something else holds as a `Mut Bytes`, so identity would
     alias it [kt-copy].
+  * An `Addr`/`Pool` is a scheduler index (an `Int`), so its copy is the
+    reference itself — identity, like a scalar (found by `net`, 2026-09-26).
   * The constructors take an `Array<UByte>`, not a `vararg UByte`: a vararg of
     an unsigned type *is* a `UByteArray`, which still needs an
     `@ExperimentalUnsignedTypes` opt-in — at the *call site*, i.e. in
@@ -862,13 +864,20 @@ where Rust had to build the fusion to get the same programs running
     `HostRawFs` (2026-09-14), whose members return `Union2<Long, Union8<…>>`
     — a skeleton that does not compile is a skeleton that fails at its one
     job.
-  * **A shared platform binding is the raw host instance** — no `__Mon_E`
-    wrapper, no `synchronized` ([use-local], user decision 2026-09-20: a
-    platform handler is assumed thread-safe by its design and classifies
-    bare). JVM references make the instance freely shareable; the Rust
-    backend shares the same instance through its lock adapter as `&mut
-    self` mechanics ([rs-platform-handler], where the residual divergence
-    for a *non-conforming* host is recorded).
+  * **Sharing follows the declared contract** [threadsafe-platform] (user
+    decision 2026-09-26). An **undeclared** platform handler classifies as a
+    monitor and its `use` wraps the host in the effect's `synchronized`
+    wrapper — `__Mon_E(salvo.platform.M.H(args))` — so the instance is
+    serialized here exactly as Rust's lock adapter serializes it there, and
+    a host that did not claim safety cannot race on this backend any more.
+    A **`threadsafe`** one classifies bare and binds the raw instance: a JVM
+    reference is already the shared handle, so nothing else is generated
+    (Rust needs an `Arc` adapter and a `&self` twin trait for the same
+    binding, [rs-platform-handler]). The Kotlin host stays on trust — no
+    compiler check of the contract exists on this backend.
+  * **The skeleton prints the contract** in both shapes above the class: the
+    threadsafe one says there is no lock and names what synchronization the
+    host owes; the undeclared one says the compiler serializes the instance.
 * [kt-copy] `copy(x)` lowers type-directedly:
   * *identity* (emits just the argument) when the type is transitively
     immutable — scalars, `Str`, `None`, non-`Mut` lists of immutable
@@ -876,7 +885,9 @@ where Rust had to build the fusion to get the same programs running
     struct types (any `canbe Mut` declaration included) whose value is
     not `Mut`-qualified and whose fields are transitively immutable
     [struct-mut]. Duplicating a reference to immutable data *is* a
-    copy on the JVM.
+    copy on the JVM. An `Addr`/`Pool` is identity too: a scheduler index
+    (an `Int`), so its copy is the reference itself (found by `net`,
+    2026-09-26).
   * `Mut List<E>` with immutable `E` → `.toMutableList()`;
   * `Mut Str` → `StringBuilder(sb)` [kt-mut-str];
   * a `Mut` struct whose fields are all transitively immutable →

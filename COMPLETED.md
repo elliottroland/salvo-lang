@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1551 tests, complete: the toolchain tests are
+cargo test                  # 1565 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,239 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ① — `threadsafe` and the wire (2026-09-26 —
+built).** The first step of ROADMAP.md section 2, on both backends with
+identical output; **1565 tests** (+14), fresh nextest 1m58.
+
+*`threadsafe platform handler`* [threadsafe-platform]: the contextual word
+before `platform` (refused before `platform effect` with a diagnostic saying
+why), `HandlerDecl.threadsafe`. The checker classifies a platform handler
+**shareable either way** — a **monitor** without the word, **bare** with it —
+so nothing depending on a platform-backed effect writes `local`, as before.
+Rust: an undeclared host keeps the effect's lock adapter (now a semantic
+claim mirrored by Kotlin, not a sharing mechanic Kotlin lacked); a
+`threadsafe` one gets a generated **`__Shared_H` trait** (`&self` members,
+`Send + Sync`) beside its declaration and an **`__Arc_H` adapter** the `use`
+constructs, so the host compiles under shared access and rustc refuses a
+`RefCell`. Kotlin: an undeclared host is wrapped in `__Mon_E` — **the
+divergence closed**: a silent host is serialized on both backends. `salvo
+platform generate` prints the contract into the skeleton in both shapes, and
+the threadsafe Rust skeleton's receivers are `&self`. `HostRawFs` reviewed:
+plain hash-map state, stays undeclared (comments in `std/fs/host.sv` and the
+two host files say why). Rules: [threadsafe-platform] in LANGUAGE_SPEC,
+rewritten [rs-platform-handler]/[kt-platform-handler] bullets, a Backends.md
+section.
+
+*Module `net`* [net-transport] [net-host] [net-mem]: `NodeEndpoint`,
+`NetError`, `actor effect Inbound { send fn frame(from, data) }`, `effect
+Transport { listen, unlisten, deliver, local_endpoint }`; `threadsafe platform
+handler HostTcpTransport(bind)` with a host per backend in
+`std/platform/net.{rs,kt}` (one TCP connection per peer, hello + 4-byte
+length-prefixed frames, an acceptor thread per `listen` and a reader per
+connection, each frame a send through `__Stub_Inbound`); and the double —
+`actor effect MemNet` / `handler MemNetwork` (listener table, `partition` /
+`heal` / `kill` / `delivered`, `route` answering `Addr<Inbound>?`) with a
+**stateless** `MemTransport(me, net) of Transport` per virtual node whose
+`deliver` waits on the network for the route. Verified by a `MemTransport`
+compile-and-run case per backend (two nodes, a partition, a heal, an
+unlistened endpoint, a killed node — identical output) and a **localhost TCP
+smoke test** per backend on its own port.
+
+**What building it settled or found:**
+
+* **The inbound half needs nothing new.** Bytes arrive on a host thread and
+  become an activation through the forwarding stub the compiler already emits
+  per actor effect — an `Addr` is a `usize`/`Int` the host can hold, and
+  `__Stub_Inbound::new(addr).frame(from, data)` is the host→scheduler door
+  the timer already uses. The alternative (a platform handler *of an actor
+  effect*) would have been a new form for no gain.
+* **A live listener is an outside source of work the scheduler must be
+  told about.** The first TCP run on Rust printed `salvo: deadlock: nothing
+  can run while main waits` while the frame was in flight on the socket
+  thread — the exact "a platform handler with a thread of its own can make
+  idle stale" caveat [actor-on-idle] had named. Both runtimes gained an
+  `externals` count (`salvo_external_begin/end`, `SalvoSched.externalBegin/
+  End`) consulted by `quiet()` beside pending timers; `listen` bumps it,
+  `unlisten` releases it. Kotlin had passed the same program by timing luck.
+* **`MemNet` is an actor and `MemTransport` is stateless because of a
+  recorded gap**: a stateful handler of *several plain effects* cannot be
+  shared (one lock behind several faces has no backend form), so the fault
+  controls could not be a second face on `MemTransport` the way `ManualTime`
+  carries `TimerCtl` (actor faces are free). The split reads better anyway —
+  faults belong to the network — and is recorded in [net-mem].
+* **`__Shared_H` is emitted always, `__Arc_H` only when used.** std's host
+  companion is copied whenever `net` is reachable and implements the trait,
+  so the trait must exist; the adapter names the host struct and would
+  demand a companion nobody wrote for a customer's unbound handler. The
+  checker gained `Checked.used_handlers` for the gate.
+* **Two emitter gaps closed**: `send(reply, None)` on Rust boxed an
+  `Option<_>` rustc could not infer — now typed from the token's payload
+  [rs-actor]; `copy` of an `Addr`/`Pool` on Kotlin was refused — both are
+  scheduler indices, identity under [kt-copy].
+* **Overload-index pinning in tests is brittle against std growth.**
+  `NodeEndpoint : auto Hashed<self>` added one `eq` overload to std and four
+  backend tests asserting `eq__4` broke; they now read the mangled name off
+  the emitted definition (`mangled_name` helper). Every example regenerated
+  for the same reason (mangling shifts in `time`).
+* **Ordering in a TCP test is by data dependency, not by sleep.** The smoke
+  test's first shape raced (`hello: sent` vs the frame's arrival); the
+  `Echoing` actor now answers a `Reply` the frame fills, and `main` waits on
+  it before printing.
+* Test bodies have no `spawn` [test-body], so `net` has no `.test.sv` annex
+  yet; its coverage is the compile-and-run pair until the actor-testing slice.
+
+**Actors across machines — the network round (2026-09-26, user decisions; step
+① built the same day — above).** A read-only session wrote NETWORK_POOLS.md to DESIGN_DOC.md's
+shape, and five rounds of user decisions the same day settled every question it
+opened. The one-line shape: **the network enters at the actor group, never at
+the spawn** — every actor is spawned by the node that hosts it, what crosses the
+wire is addresses and messages, and a function declaring `[E]` never learns
+whether `E` is one local handler, an actor, or a group across a fleet. The
+decisions, each the user's:
+
+1. **Salvo owns serialization.** A compiler-defined canonical encoding with
+   codecs generated for both backends, so a Kotlin node and a Rust node are
+   members of one group — the argument that decided against handing bytes to
+   the host. **Serializable by default, `noremote` the opt-out** on a type
+   (transitive through fields; process-local handles `noremote` by
+   construction), checked at the **crossing site**: an `Addr<E>` is
+   serializable iff every payload of `E` is. The opt-in marker
+   (`: auto Wire<self>`) was refused as the Akka experience — forgotten at the
+   leaf, reported at the root.
+2. **The platform owns the transport only.** A `Transport` platform effect with
+   `HostTcpTransport` in std's `platform/` tree and a `MemTransport` double;
+   membership, routing and everything above the wire are Salvo in std, so they
+   are one semantics on both backends and testable without a network. Handing
+   discovery/membership to the host (a `platform effect Cluster`) was refused
+   because it makes the same program behave differently under partition on the
+   two backends and makes a cross-backend group impossible.
+3. **`threadsafe platform handler H of E`** closes the 2026-09-20 assumption: a
+   marker on the *handler* declaration (the class is what is or is not safe;
+   two handlers of one effect differ), a whole-handler claim; **undeclared =
+   serialized on both backends** — Kotlin gains the `synchronized` wrapper to
+   match Rust's lock, so a silent host works identically everywhere and the lock
+   cost is confined to hosts that did not say they are safe; declared = Rust
+   `&self` members over `Arc<H>` (rustc then machine-checks half the contract:
+   a `RefCell` in the host no longer compiles), Kotlin raw. `salvo platform
+   generate` prints the contract into the skeleton it writes. The user chose
+   the longer word over `shared` because it says exactly what is claimed.
+4. **Effect-typed generic parameters on declarations**: effects, handlers and
+   structs may take `<E>` standing for an effect when every use is inside
+   `Addr<E>` — what `watch<E>` already had for a function [effect-not-data].
+   Forced by `ActorGroup<E>`, `ActorChanges<E>`, `Pick<E>`.
+5. **No remote spawn.** The first draft had a node as a `Remote Pool` and
+   `spawn H() on node(...)`; the user asked whether it was needed for anything,
+   and every use (a node with a GPU, map tasks, singleton failover, scale-out)
+   had a local-spawn-plus-join answer. Its costs were unpriced: a remote spawn
+   is a round trip disguised as an expression or a pre-allocated-identity
+   protocol, and it forces the target to have the handler compiled in. The
+   user's own sketch ("a process must spawn at least one of *its own* actors")
+   never had it. **Withdrawn**, with `Remote Pool`, `node`, `anywhere`,
+   `thread_on`. Also withdrawn: the network *inside* the thread pool (Orleans;
+   taxes every site), a coordinating supervisor as the spawn path (a handler is
+   not a value), and a `use remote` binding kind.
+6. **One `Addr<E>`**, routable `(node, id, bits)`, locality a runtime fact.
+   `Reply<T>` a routable one-shot with its mint-time reservation unchanged.
+   A `Remote Addr<E>` provenance qualifier was refused because the precision
+   does not survive a `List`; a `network effect` kind because the crossing-site
+   check made it unnecessary. **Plain effects bind locally until the sugar
+   pass's answering stub**; mixed handlers bridge meanwhile.
+7. **Failure**: unreachable is dead (Erlang's rule; Akka's `Unreachable` state
+   was refused as a state nobody can act on soundly); node departure is
+   `NodeChanges.left(n, why)`; **credit-based back-pressure** across the wire so
+   a declared `capacity` stays true and `pending(addr)` for a remote member *is*
+   the credit balance; at-most-once, in order per `(sender, target)`. Sends
+   never throw (they enqueue); a synchronous remote call throwing belongs to the
+   answering stub.
+8. **Authority**: node-group name + shared secret/TLS at the handshake;
+   **unguessable bits in every addr that crosses the wire** (E/CapTP's Swiss
+   number), so "who holds which face decides what they may do" survives the
+   network.
+9. **Compatibility is per protocol.** A canonical hash per actor effect,
+   exchanged in the handshake and compared at `attach`/`join`, **never at
+   decode** — exhaustive `when` over positional union arms means an old node
+   has no value to construct for an arm it lacks, so Salvo cannot decode
+   leniently and must refuse early. A mixed fleet during a rolling deploy is
+   legal on every protocol that did not change. "One program per node group"
+   was withdrawn as a requirement once the hash was per protocol; several
+   programs sharing protocol modules are legal. The user-facing label is the
+   manifest's `version` plus a lock file (effect → declared version, hash; a
+   protocol change without a bump fails the build), landing with the manifest
+   DECISION; readable through `build()`, `protocol<E>()`, `Build` on every
+   `Node`. Schema evolution (tags, defaults) recorded, not built: unions cannot
+   evolve, and "a protocol gains a message" is a new arm.
+10. **Two membership levels, both actors until the sugar pass.** `NodeGroup`
+    (members `Node { id, endpoint, build }`; `members`, `subscribe`, `leave`;
+    `NodeChanges`) whose **handlers are the mechanisms** — `GossipNodeGroup
+    (name, seeds, split)` with the partition policy as its argument,
+    `StaticNodeGroup`, `MemNodeGroup`, a shop's `HeartbeatNodeGroup` over a
+    `Ddb` platform effect (heartbeat rows with a TTL; no gossip, no split brain
+    — a node that cannot reach the store is itself the one that left). A
+    separate `NodeDiscovery` effect was tried twice and collapsed: its
+    `authoritative()` flag was a plain handler steering a std actor's algorithm,
+    which meant the algorithm *was* the mechanism. `NodeEndpoint` is what a
+    mechanism knows before contact; a `Node` is minted by the handshake. And
+    `ActorGroup<E>` (members `Addr<E>` on any node; one gossiping replica per
+    node; `attach<E>(nodes)` with the name defaulting to the effect,
+    `attach<E>(name, nodes)` for several groups of one effect; `join(group,
+    addr)`; `ActorChanges<E>`). Both are actors because they must *receive*
+    (peer merges, watched members' `Exit`s, transport upcalls) and only an
+    actor can; the read-side cost (`members` is a `waitfor`) is the sugar pass's
+    to remove. The naming rule: node groups and actor groups visibly distinct
+    (`NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` vs `ActorGroup<E>`/
+    `ActorGroupView<E>`/`ActorView<E>`/`ActorChanges<E>`); nothing called plain
+    "group", "cluster", "registry", "discovery" or "seeds".
+11. **Groups are a library kit, not a type**, under the user's guideline
+    "a minimal set of tools the user builds from, then convenience for common
+    cases". An `AddrGroup<E>` intrinsic type was designed (rounds 1–2) and
+    withdrawn (round 3): a hand-written router is a dozen lines per effect, and
+    what only first-class support buys is the hop-free pick and the ordering
+    guard. The kit: `pending(addr)`; **`Pick<E>` as an effect** — `fn choose
+    (view: ActorGroupView<E>) -> Addr<E>?`, `None` parks — with std handlers
+    `LeastLoaded`, `Sharded` (key marked by a `Key` qualifier on a protocol
+    parameter; per-key ordering is the policy's gift, not the type's) and
+    `Elected` (`[Leader]`, a std effect a Salvo election or an etcd/lease
+    platform handler serves — nine lines); a generated **`route(group)`
+    stub** declaring `of any E`, picking on the sender's thread against a
+    `View<E>` monitor mirrored from `ActorChanges<E>`. Policies that must read
+    the message or the replies (scatter, hedge, retry) are per-protocol
+    handlers `of any E` — the line between generic pick and protocol-specific
+    handler is the line between `Addr<E>` and a handler. `Any` as a handler
+    name collided with the keyword, hence `LeastLoaded`. `ActorView<E>
+    { addr, pending, local }` is a view of the *actor* behind a handle, which is
+    also why **`Addr<E>` keeps its name** (re-asked, re-declined: naming the
+    handle `Actor<E>` would blur the handle/actor distinction that makes stale
+    addrs safe).
+12. **`[any E]` and `of any E`** — the weaker claim (no ordering, no shared
+    state between sends) on both the requirement and the binding, viral
+    downward like `local`, bare `[E]` keeping the strong meaning so no existing
+    program changes and binding a group under `[E]` is an error at the `use`.
+    The user's point that decided it ships *with* the library: a router without
+    the claim **hides** the lost ordering. Two orthogonal weakenings, not one
+    spectrum — `local` weakens seam rights, `any` weakens one-ness; `remote` was
+    refused as the word because a remote single addr keeps ordering and a local
+    group loses it. `volatile` refused (C's meaning is a different loss).
+13. **std vs examples**: std ships the kit, `Leader`, `serve(nodes)`,
+    `node_of(addr)`; `examples/cluster/` ships election (Raft as flagship),
+    singleton, map/reduce, scatter, hedge. Supervision's "a pattern with no
+    syntax" posture, applied.
+14. **Testing**: `MemTransport` with `partition`/`heal`/`kill`/`delay`, so both
+    groups run unchanged over it under `salvo test` and the codecs are exercised
+    byte-for-byte across backends; one localhost smoke test per backend.
+    Deterministic simulation as a scheduler mode is recorded as the direction
+    `step()` points at.
+15. **The build sequence** is ROADMAP.md section 2. Library first; every step on
+    `MemTransport` before a socket.
+
+What the round surfaced for other sections: the sugar pass gains two concrete
+targets (`members()` as a plain read; `replyto` onto another actor's member);
+the manifest DECISION gains a second customer (the version label and lock
+file); the deadlock graph's per-program scope is a recorded gap of the same
+shape as "over types, not instances". The cross-language survey (Erlang,
+Akka/Pekko, Orleans, Ray, Cloud Haskell, Unison, E/CapTP, Raft) and every
+option refused live in NETWORK_POOLS.md until the sequence lands, then here by
+reference.
 
 **A fn-typed slot with an opaque return infers its lend (2026-09-26, user
 decision — built).** The last defect of the 2026-09-25 round

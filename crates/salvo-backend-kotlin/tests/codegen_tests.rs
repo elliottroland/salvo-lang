@@ -185,6 +185,26 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
 
 /// Emits one source (plus std) — the Rust backend's `generate` by another
 /// name, since this crate's `generate_demo` is fixed to `DEMO`.
+/// The mangled name of an overload in emitted text: the identifier starting
+/// with `prefix` (`fun eq__`) whose definition is followed by `signature`.
+/// Overload indices depend on how many overloads std declares, so a test
+/// that means "the mangling is kept" reads the index rather than pinning it.
+fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
+    let mut at = 0;
+    while let Some(i) = text[at..].find(prefix) {
+        let start = at + i + "fun ".len();
+        let end = start
+            + text[start..]
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(0);
+        if text[end..].starts_with(signature) {
+            return text[start..end].to_string();
+        }
+        at = end.max(start + 1);
+    }
+    panic!("no `{prefix}…{signature}` in:\n{text}");
+}
+
 fn generate_files(extra: &[(&str, &str)]) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let program = build_program(extra);
     salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
@@ -3463,11 +3483,17 @@ fn a_mixed_identity_fill_pairs_both_slots() {
         .content
         .clone();
     assert!(
-        kt.contains("salvo.SalvoHashSet<Point>(::by_x, ::eq__4)"),
+        kt.contains(&format!(
+            "salvo.SalvoHashSet<Point>(::by_x, ::{})",
+            mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
+        )),
         "the written hash pairs with the generated eq: {kt}"
     );
     assert!(
-        kt.contains("salvo.SalvoHashMap<Point, Int>(::by_x, ::eq__4)"),
+        kt.contains(&format!(
+            "salvo.SalvoHashMap<Point, Int>(::by_x, ::{})",
+            mangled_name(&kt, "fun eq__", "(a: Point, b: Point)")
+        )),
         "and for a map too: {kt}"
     );
 }
@@ -4454,6 +4480,9 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_try_mutation,
     kotlinc_compiles_and_runs_a_platform_effect,
     kotlinc_compiles_and_runs_a_platform_handler,
+    kotlinc_compiles_and_runs_a_threadsafe_platform_handler,
+    kotlinc_compiles_and_runs_the_mem_transport,
+    kotlinc_compiles_and_runs_the_tcp_transport_on_localhost,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -8845,6 +8874,281 @@ fn kotlinc_compiles_and_runs_a_platform_handler() -> KotlinCase {
     assert_ne!(host, skeleton.content, "the stub should have been replaced");
     let files = generate_platform_handler_demo_with(&host);
     kotlin_case(files, "platform-handler", "boot@42\n")
+}
+
+// ===== [threadsafe-platform] the thread-safety contract =====
+
+/// [threadsafe-platform] [kt-platform-handler] An **undeclared** platform
+/// handler binds as a monitor (user decision 2026-09-26): the `use` site wraps
+/// the host in the effect's `synchronized` wrapper, so this backend now
+/// serializes the instance exactly as Rust does — the divergence closed.
+#[test]
+fn an_undeclared_platform_handler_is_serialized_behind_the_monitor() {
+    let files = generate_platform_handler_demo_with(&platform_handler_skeleton().content);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        "expected the monitor wrapper around the undeclared host, got:\n{src}"
+    );
+}
+
+/// The demo with the contract declared: the host promises concurrent safety,
+/// so the compiler binds the raw instance.
+const THREADSAFE_PLATFORM_HANDLER_DEMO: &str = r#"
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+threadsafe platform handler HostRawClock(offset: Int) of RawClock
+
+effect Clock {
+    fn stamp(label: Str) -> Str => label
+}
+
+handler DefaultClock [RawClock] of Clock {
+    fn stamp(label: Str) -> Str => label {
+        return "${label}@${raw_now()}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawClock(35)
+    use DefaultClock()
+    println(stamp("boot"))
+}
+"#;
+
+fn threadsafe_platform_handler_program() -> Program {
+    build_program(&[("main.sv", THREADSAFE_PLATFORM_HANDLER_DEMO)])
+}
+
+fn threadsafe_platform_handler_skeleton() -> salvo_backend_kotlin::EmittedFile {
+    let program = threadsafe_platform_handler_program();
+    let mut files = salvo_backend_kotlin::platform_skeletons(&program)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares a platform handler");
+    files.remove(0)
+}
+
+fn generate_threadsafe_platform_handler_demo_with(
+    host: &str,
+) -> Vec<salvo_backend_kotlin::EmittedFile> {
+    let mut program = threadsafe_platform_handler_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.kt"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
+    salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [threadsafe-platform] [kt-platform-handler] A **`threadsafe`** platform
+/// handler binds the raw host instance — no `__Mon_E` — and its skeleton
+/// prints the contract the implementer signs. The undeclared skeleton says
+/// what the compiler does instead.
+#[test]
+fn a_threadsafe_platform_handler_binds_raw_and_its_skeleton_prints_the_contract() {
+    let skeleton = threadsafe_platform_handler_skeleton();
+    let files = generate_threadsafe_platform_handler_demo_with(&skeleton.content);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.kt")
+        .expect("main.kt should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("salvo.platform.main.HostRawClock(35)")
+            && !src.contains("__Mon_RawClock(salvo.platform.main.HostRawClock(35))"),
+        "a threadsafe host binds raw, got:\n{src}"
+    );
+    for expected in [
+        "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
+        "NO\n// lock around it",
+        "class HostRawClock(private val offset: Int) : RawClock {",
+        "[threadsafe-platform]",
+    ] {
+        assert!(
+            skeleton.content.contains(expected),
+            "expected `{expected}` in:\n{}",
+            skeleton.content
+        );
+    }
+    let plain = platform_handler_skeleton();
+    assert!(
+        plain.content.contains("the compiler SERIALIZES this instance"),
+        "expected the serialized contract on the undeclared skeleton:\n{}",
+        plain.content
+    );
+}
+
+/// [threadsafe-platform] End to end under kotlinc with the threadsafe
+/// skeleton's stub filled in — the same output as the undeclared run and as
+/// the Rust backend's.
+fn kotlinc_compiles_and_runs_a_threadsafe_platform_handler() -> KotlinCase {
+    let skeleton = threadsafe_platform_handler_skeleton();
+    let host = skeleton.content.replace(
+        "TODO(\"implement RawClock.raw_now\")",
+        "return offset + 7",
+    );
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_threadsafe_platform_handler_demo_with(&host);
+    kotlin_case(files, "threadsafe-platform-handler", "boot@42\n")
+}
+
+// ===== the network sequence, step ①: `net` and `MemTransport` =====
+
+/// The Rust backend's `NET_MEM_TRANSPORT`, verbatim, with the same expected
+/// output — the parity assertion for the wire's double.
+const NET_MEM_TRANSPORT: &str = r#"import net
+
+actor effect Counting {
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Receiving(label: Str) [Console] of Inbound, Counting {
+    mailbox { capacity: 16 }
+    seen: Int = 0
+
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        seen = seen + 1
+        println("${label} <- ${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+    }
+
+    send fn total(out: Reply<Int>) => !out {
+        out.send(seen)
+    }
+}
+
+fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => label, outcome {
+    when outcome {
+        is Ok { println("${label}: sent") }
+        is Err {
+            let e: NetError = outcome
+            println("${label}: ${to_str(e)}")
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let c = NodeEndpoint { host: "c", port: 9 }
+    let workers = pool(2)
+    let net = spawn MemNetwork() on workers
+    use MemTransport(copy(a), copy(net))
+
+    let (in_a, _count_a) = spawn Receiving("a") on workers
+    let (in_b, count_b) = spawn Receiving("b") on workers
+    report("listen a", listen(copy(a), in_a))
+    report("listen b", listen(copy(b), in_b))
+
+    report("hello", deliver(copy(b), to_bytes("hello")))
+    net.partition(copy(a), copy(b))
+    report("lost", deliver(copy(b), to_bytes("lost")))
+    net.heal(copy(a), copy(b))
+    report("again", deliver(copy(b), to_bytes("again")))
+    report("void", deliver(copy(c), to_bytes("void")))
+    net.kill(copy(b))
+    report("dead", deliver(copy(b), to_bytes("dead")))
+
+    let got = waitfor out: Reply<Int> { count_b.total(out) }
+    let routed = waitfor out: Reply<Int> { net.delivered(out) }
+    println("b saw ${got}, routed ${routed}")
+}
+"#;
+
+const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nb <- a:1: hello\nlost: unreachable: b:1\nagain: sent\nb <- a:1: again\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw 2, routed 2\n";
+
+/// [threadsafe-platform] A program that never binds `HostTcpTransport`
+/// constructs no host class (the shipped companion is copied with `net`, as
+/// every companion is, but nothing names it).
+#[test]
+fn an_unused_threadsafe_platform_handler_is_never_constructed() {
+    let files = generate_files(&[("main.sv", NET_MEM_TRANSPORT)]);
+    let all: String = files.iter().map(|f| f.content.as_str()).collect();
+    assert!(
+        !all.contains("salvo.platform.net.HostTcpTransport("),
+        "an unused platform handler was constructed:\n{all}"
+    );
+}
+
+/// The `MemTransport` double end to end under kotlinc.
+fn kotlinc_compiles_and_runs_the_mem_transport() -> KotlinCase {
+    let files = generate_files(&[("main.sv", NET_MEM_TRANSPORT)]);
+    kotlin_case(files, "net-mem-transport", NET_MEM_TRANSPORT_OUTPUT)
+}
+
+/// [threadsafe-platform] The real wire on localhost under kotlinc — the Rust
+/// backend's `NET_TCP_SMOKE` on this backend's own port.
+const NET_TCP_SMOKE: &str = r#"import net
+import time
+
+actor effect Seen {
+    send fn wait_one(out: Reply<Str>) => !out
+}
+
+// Records the one frame it expects and answers whoever asked for it —
+// ordering by data dependency, since the frame arrives on a socket thread.
+handler Echoing() of Inbound, Seen {
+    mailbox { capacity: 16 }
+    got: Str = ""
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        got = "${to_str(from)}: ${str_of_bytes(data) ?: "?"}"
+        let text = copy(got)
+        drain(waiting, r -> send(r, copy(text)))
+        waiting = mut_list_of()
+    }
+
+    send fn wait_one(out: Reply<Str>) => !out {
+        if got == "" {
+            add(waiting, out)
+            return
+        }
+        send(out, copy(got))
+    }
+}
+
+fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => label, outcome {
+    when outcome {
+        is Ok { println("${label}: sent") }
+        is Err {
+            let e: NetError = outcome
+            println("${label}: ${to_str(e)}")
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let me = NodeEndpoint { host: "127.0.0.1", port: 47321 }
+    let nobody = NodeEndpoint { host: "127.0.0.1", port: 47322 }
+    use HostTcpTransport(copy(me))
+    let workers = pool(2)
+    let (echo, seen) = spawn Echoing() on workers
+    report("listen", listen(copy(me), echo))
+    report("void", deliver(copy(nobody), to_bytes("nobody home")))
+    report("hello", deliver(copy(me), to_bytes("hello over tcp")))
+    let frame = waitfor out: Reply<Str> { seen.wait_one(out) }
+    println("me <- ${frame}")
+    println("local ${to_str(local_endpoint())}")
+}
+"#;
+
+const NET_TCP_SMOKE_OUTPUT: &str = "listen: sent\nvoid: unreachable: 127.0.0.1:47322\nhello: sent\nme <- 127.0.0.1:47321: hello over tcp\nlocal 127.0.0.1:47321\n";
+
+fn kotlinc_compiles_and_runs_the_tcp_transport_on_localhost() -> KotlinCase {
+    let files = generate_files(&[("main.sv", NET_TCP_SMOKE)]);
+    kotlin_case(files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT)
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====

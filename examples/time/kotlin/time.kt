@@ -94,10 +94,10 @@ fun abs(d: Duration): Duration {
     return d
 }
 
-fun to_str__3(d: Duration): String {
+fun to_str__5(d: Duration): String {
     if (d.nanos < 0) {
         val positive = Duration(nanos = 0L - d.nanos)
-        return "-${to_str__3(positive)}"
+        return "-${to_str__5(positive)}"
     }
     if (d.nanos == (0).toLong()) {
         return "0s"
@@ -375,38 +375,38 @@ fun earliest_due(deadlines: List<Long>, target: Long): Int? {
     return best
 }
 
-fun cmp(a: Duration, b: Duration): Int {
+fun cmp__2(a: Duration, b: Duration): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash(value: Duration): Long {
+fun hash__2(value: Duration): Long {
     return value.hashCode().toLong()
 }
 
-fun eq(a: Duration, b: Duration): Boolean {
+fun eq__2(a: Duration, b: Duration): Boolean {
     return a == b
 }
 
-fun cmp__2(a: Instant, b: Instant): Int {
+fun cmp__3(a: Instant, b: Instant): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__2(value: Instant): Long {
+fun hash__3(value: Instant): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__2(a: Instant, b: Instant): Boolean {
+fun eq__3(a: Instant, b: Instant): Boolean {
     return a == b
 }
 
-fun cmp__3(a: Tick, b: Tick): Int {
+fun cmp__4(a: Tick, b: Tick): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__3(value: Tick): Long {
+fun hash__4(value: Tick): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__3(a: Tick, b: Tick): Boolean {
+fun eq__4(a: Tick, b: Tick): Boolean {
     return a == b
 }

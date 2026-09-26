@@ -1667,9 +1667,11 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   name (`__Impl_H`) stay names, never paths — a platform handler has no
   dependencies, so the dependent shape never applies to one.
   * The skeleton is `pub struct H { p: T, … }` with `impl H { pub fn new(p:
-    T, …) -> Self }` and `impl <path>::E for H` with every member stubbed —
-    named after the *handler*, and with a `new` because the `use` site calls
-    one, exactly as it does for a generated handler struct.
+    T, …) -> Self }` and an impl with every member stubbed — of
+    `<path>::E` (`&mut self`) for an undeclared handler, of `__Shared_H`
+    (`&self`) for a `threadsafe` one [threadsafe-platform] — named after
+    the *handler*, and with a `new` because the `use` site calls one,
+    exactly as it does for a generated handler struct.
   * A `use` whose declaring module has no host companion is a codegen error
     naming `salvo platform generate` [backend-never-wrong]; std's companion
     is shipped in `std/platform/` rather than generated [platform-tree].
@@ -1680,24 +1682,28 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
     of the same crate, so without them the skeleton does not compile — which
     stayed invisible until a `platform handler` whose members trade in more
     than primitives arrived (`HostRawFs`, 2026-09-14).
-  * **A shared platform binding goes through the lock adapter** even though
-    it classifies bare ([use-local], user decision 2026-09-20): the emitted
-    trait's members take `&mut self`, and the local binding coexisting with
-    captured handles needs shared ownership — which `__Lock_E`'s `Arc`
-    provides and the host struct (no `Clone`, real host state) cannot. This
-    is the mechanics of sharing on this backend, not a semantic monitor —
-    Kotlin shares the raw instance [kt-platform-handler] — and for a host
-    that honors the thread-safety assumption the two are observationally
-    equivalent: same instance, same calls, same results. The **residual
-    divergence** is the failure mode when the assumption is *false*: a
-    non-thread-safe host races on Kotlin but is accidentally serialized
-    here, so a buggy host can appear to work on Rust and break on Kotlin —
-    and a host member that blocks waiting for another thread to enter a
-    *sibling* member would deadlock here and proceed there (both are
-    outside "thread-safe by design"). The recorded follow-up (ROADMAP) — a
-    declaration-level thread-safety contract — is also what would let this
-    backend drop the lock (e.g. `&self` members over `Arc<H>`) and close
-    the gap outright.
+  * **Sharing follows the declared contract** [threadsafe-platform] (user
+    decision 2026-09-26). An **undeclared** platform handler classifies as a
+    monitor and its `use` wraps the host in the effect's lock adapter
+    (`__Lock_E::new(H::new(args))`) — as this backend always did, now as a
+    semantic claim mirrored by Kotlin's `__Mon_E` rather than a sharing
+    mechanic Kotlin lacked. A **`threadsafe`** one classifies bare and its
+    declaring module gains two generated items: `pub trait __Shared_H: Send +
+    Sync` — the effect's members with **`&self`** receivers, which the host
+    struct implements — and `pub struct __Arc_H { inner: Arc<H> }`,
+    `Clone` by `Arc` bump, implementing the effect's own `&mut self` trait by
+    forwarding. The `use` site constructs `__Arc_H::new(H::new(args))`, named
+    through the declaring module's path like the module's effects. The host
+    is thereby compiled under shared access: a `RefCell` field no longer
+    compiles, a `Mutex`/`RwLock`/atomic does — the half of the contract
+    rustc checks. A `threadsafe` host of an effect with a mutably lending
+    member is refused (a borrow cannot leave `&self` mutably).
+  * **The skeleton prints the contract** in both shapes: the threadsafe one
+    opens with the signing comment, has no `#[derive(Clone)]`, and
+    implements `<own_path>::__Shared_H` with `&self` receivers; the
+    undeclared one says the compiler serializes the instance and implements
+    `<effect_path>::E` with `&mut self`. Regenerating after toggling the word
+    changes the receivers.
 * [rs-copy] `copy(x)` lowers to `.clone()` on the argument's place:
   a bare identifier clones its binding place (whatever its binding
   mode — every generated type derives or is `Clone`, and generic
@@ -2272,6 +2278,10 @@ Both are reported at the `use`/handler that causes them, never mis-emitted.
   * **Still refused** (each a diagnostic, none silent): spawning a **generic**
     handler and a **generic effect** as a protocol.
 
+  * `send(reply, None)` boxes a **typed** `None`: a bare `None` is an
+    `Option<_>` rustc cannot infer, so the box is `Box::<Option<T>>::new(None)`
+    with `T` read off the token's checked payload (`net`'s
+    `Reply<Addr<Inbound>?>`, 2026-09-26).
 ## Deliberate cuts ([backend-never-wrong])
 
 Reported as codegen errors, never silent wrong code:

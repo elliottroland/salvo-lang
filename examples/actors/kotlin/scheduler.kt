@@ -185,7 +185,29 @@ object SalvoSched {
      * — and one that does has exactly one, never a thread per timer.
      */
     private var timerThread = false
+    /**
+     * [threadsafe-platform] Outside sources of work the scheduler cannot see:
+     * a host thread that may send at any moment (a transport's socket
+     * reader). Bumped by [externalBegin]/[externalEnd] from host code. While
+     * one is registered the program is neither quiescent nor deadlocked,
+     * exactly as with a pending timer — the [actor-on-idle] caveat made a fact
+     * the runtime is told.
+     */
+    private var externals = 0
     private val here = ThreadLocal.withInitial { SalvoHere(MAIN_POOL, null) }
+
+    /** [threadsafe-platform] A host thread that may inject work is open. */
+    fun externalBegin() {
+        lock.withLock { externals += 1 }
+    }
+
+    /** [threadsafe-platform] …and is gone; wakes waiters so idleness can settle. */
+    fun externalEnd() {
+        lock.withLock {
+            if (externals > 0) externals -= 1
+            cv.signalAll()
+        }
+    }
 
     /** Creates a pool of [n] daemon worker threads and answers its id. */
     fun pool(n: Int): Int = poolWithSink(n, null, null)
@@ -599,6 +621,7 @@ object SalvoSched {
         actors.all { deliverable(it) == null } &&
             pools.all { it.tasks.isEmpty() } &&
             timers.isEmpty() &&
+            externals == 0 &&
             waiters.none { it.parked && it.filled }
 
     /**

@@ -74,6 +74,14 @@ pub const UNREACHABLE_FORM: &str = "unreachable";
 /// colouring functions.
 pub const ACTOR_MODIFIER: &str = "actor";
 
+/// [threadsafe-platform] The contextual modifier that states a platform
+/// handler's thread-safety contract: `threadsafe platform handler H of E`
+/// (user decision 2026-09-26). The host class may be entered concurrently
+/// from any thread; without it the compiler serializes the instance on both
+/// backends. Contextual like `actor` — an ordinary identifier everywhere
+/// else — and the only word it may precede is `platform`.
+pub const THREADSAFE_MODIFIER: &str = "threadsafe";
+
 /// [actor-mailbox] The contextual name of an actor handler's settings slot:
 /// `mailbox { capacity: 16 }` (user decision 2026-09-16). Contextual like every
 /// other word this phase added — a state field may still be called `mailbox`;
@@ -624,24 +632,31 @@ impl<'s> Parser<'s> {
             // says so rather than reporting a bare parse error.
             TokenKind::KwPlatform => {
                 self.bump();
+                self.parse_platform_rest(false)
+            }
+            // [threadsafe-platform] `threadsafe platform handler H of E`: the
+            // host class is safe to enter concurrently, so the compiler shares
+            // it without a lock on either backend. Contextual: `threadsafe`
+            // is an ordinary name everywhere but directly before `platform`.
+            TokenKind::Ident(name)
+                if name == THREADSAFE_MODIFIER
+                    && matches!(self.peek_at(1).kind, TokenKind::KwPlatform) =>
+            {
+                let span = self.peek().span;
+                self.bump();
+                self.bump();
                 match self.kind() {
-                    TokenKind::KwEffect => self.parse_effect(true).map(Item::Effect),
-                    // [platform-handler] `platform handler HostRawFs of RawFs`:
-                    // a host implementation of an *ordinary* Salvo effect,
-                    // registered with `use` like any handler.
-                    TokenKind::KwHandler => self
-                        .parse_handler_flavored(false, true)
-                        .map(Item::Handler),
+                    TokenKind::KwHandler => self.parse_platform_rest(true),
                     other => {
-                        let span = self.peek().span;
                         let found = other.describe();
                         self.error(
                             format!(
-                                "expected `effect` or `handler` after `platform`, found \
-                                 {found}: a platform declaration is either the group of \
-                                 functions the host implements (`platform effect`) or a \
-                                 host implementation of a Salvo effect (`platform \
-                                 handler`)"
+                                "expected `handler` after `threadsafe platform`, found \
+                                 {found}: the thread-safety contract is a claim about a \
+                                 host class, so it belongs on a `platform handler` — a \
+                                 `platform effect` names members the host implements \
+                                 and has no instance to be safe or unsafe \
+                                 [threadsafe-platform]"
                             ),
                             span,
                         );
@@ -1676,16 +1691,50 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_handler(&mut self, intrinsic: bool) -> Option<HandlerDecl> {
-        self.parse_handler_flavored(intrinsic, false)
+        self.parse_handler_flavored(intrinsic, false, false)
+    }
+
+    /// What follows `platform` (and `threadsafe platform`): `effect` or
+    /// `handler`, with the diagnostic naming both forms rather than a bare
+    /// "expected item". `threadsafe` is only meaningful on the handler form;
+    /// the caller has already refused it before `effect`.
+    fn parse_platform_rest(&mut self, threadsafe: bool) -> Option<Item> {
+        match self.kind() {
+            // [platform-effect] `platform effect E { ... }`: the members are
+            // implemented by the host in the target language.
+            TokenKind::KwEffect => self.parse_effect(true).map(Item::Effect),
+            // [platform-handler] `platform handler HostRawFs of RawFs`: a
+            // host implementation of an *ordinary* Salvo effect, registered
+            // with `use` like any handler.
+            TokenKind::KwHandler => self
+                .parse_handler_flavored(false, true, threadsafe)
+                .map(Item::Handler),
+            other => {
+                let span = self.peek().span;
+                let found = other.describe();
+                self.error(
+                    format!(
+                        "expected `effect` or `handler` after `platform`, found {found}: \
+                         a platform declaration is either the group of functions the \
+                         host implements (`platform effect`) or a host implementation \
+                         of a Salvo effect (`platform handler`)"
+                    ),
+                    span,
+                );
+                None
+            }
+        }
     }
 
     /// `handler`, `intrinsic handler` [backend-intrinsic] and
     /// `platform handler` [platform-handler] share every piece of grammar:
     /// the two modifiers differ only in who supplies the members.
+    /// `threadsafe` [threadsafe-platform] rides on the platform form.
     fn parse_handler_flavored(
         &mut self,
         intrinsic: bool,
         platform: bool,
+        threadsafe: bool,
     ) -> Option<HandlerDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwHandler)?.span;
@@ -1772,6 +1821,7 @@ impl<'s> Parser<'s> {
             docs,
             intrinsic,
             platform,
+            threadsafe,
             name,
             generics,
             params,
@@ -2255,9 +2305,10 @@ impl<'s> Parser<'s> {
                     | TokenKind::KwProvenance
                     | TokenKind::KwLinear
                     | TokenKind::KwParams
-            ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER),
+            ) || matches!(next, TokenKind::Ident(w) if w == "iter" || w == "send" || w == ACTOR_MODIFIER || w == THREADSAFE_MODIFIER),
             "iter" | "send" => matches!(next, TokenKind::KwFn),
             ACTOR_MODIFIER => matches!(next, TokenKind::KwEffect),
+            THREADSAFE_MODIFIER => matches!(next, TokenKind::KwPlatform),
             _ => false,
         }
     }

@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 138
 expression: "parse_clean(&corpus(\"effects.sv\"))"
 ---
 Module {
@@ -174,6 +175,7 @@ Module {
                 exported: false,
                 intrinsic: false,
                 platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "CyclicRandom",
                     span: 124..136,
@@ -417,6 +419,7 @@ Module {
                 exported: false,
                 intrinsic: false,
                 platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "StdOutConsole",
                     span: 290..303,

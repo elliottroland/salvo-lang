@@ -3314,15 +3314,12 @@ Conventions:
   * **Bare** — a stateless handler: shareable without a lock, nothing
     changes at the binding. On Rust the struct derives `Clone` so a seam
     can box a clone; a stateless clone is observationally the instance.
-    A **platform handler classifies bare too** (user decision 2026-09-20):
-    it is *assumed thread-safe by its design* — its state is the host's and
-    invisible here, so this is an assumption, not a proof, and a way to
-    validate/specify it is future work (ROADMAP). The point is that nothing
-    depending on a platform-backed effect ever writes `local`
-    (`DefaultFs [RawFs]` stays annotation-free). Kotlin shares the raw host
-    instance; Rust shares it through the lock adapter as a mechanical
-    consequence of `&mut self` members ([rs-platform-handler]), not as a
-    semantic monitor.
+    A **platform handler classifies bare only when it says so** —
+    `threadsafe platform handler` [threadsafe-platform] (user decision
+    2026-09-26, replacing the 2026-09-20 assumption); an undeclared one
+    classifies as a **monitor**. Either way nothing depending on a
+    platform-backed effect ever writes `local` (`DefaultFs [RawFs]` stays
+    annotation-free), since a monitor is shareable too.
   * **Monitor** — a stateful handler: lock-shaped from birth, effectively
     `let h = spawn H(args); use h` ([monitor-handler]'s form, minus the
     words). Intrinsic handlers are the emitters' own structs, so their
@@ -5191,6 +5188,84 @@ the same day. **Not part of `core`**: the surface is imported, and one
     what it uniquely buys is now only that agreement, since [actor-on-idle]
     already supplies the sequencing. Revisit if the dedicated thread the unified
     clock costs, or the advance ergonomics, start to bite.
+
+## Network (std, module `net`) — step ① of the network sequence
+
+The wire under actors across machines (user decisions 2026-09-26; ROADMAP.md
+section 2). The design's one line: **the network enters at the actor group,
+never at the spawn** — every actor is spawned by the node that hosts it, and
+what crosses the wire is addresses and messages. This module is the bottom of
+that stack and knows nothing about groups, nodes or protocols: it moves frames
+between endpoints and delivers what arrives into the scheduler.
+
+* [net-transport] `effect Transport` is the wire, a **plain** effect whose
+  members are calls on the caller's thread: `listen(at: NodeEndpoint, sink:
+  Addr<Inbound>)`, `unlisten(at)`, `deliver(to: NodeEndpoint, frame: Bytes) ->
+  Ok None | Err NetError`, `local_endpoint()`. Frames are opaque `Bytes` — the
+  codecs (step ②) sit one level up. `NetError = Unreachable | WireFailed`.
+  * **Delivery is at most once and in order per (sender, receiver) pair**, and
+    nothing more: `Ok` from `deliver` means the transport *accepted* the frame
+    (written to a connected socket), never that the far side has it.
+    Anything stronger is a protocol over this, not a promise of it.
+  * **Inbound is an actor effect**, `actor effect Inbound { send fn frame(from:
+    NodeEndpoint, data: Bytes) }`, because bytes arrive on a thread the
+    scheduler does not own and a send is the only door in [actor-effect-kind].
+    A node that wants to receive spawns an actor serving `Inbound` and hands
+    its addr to `listen`; the host forwards every arriving frame through the
+    generated stub (`__Stub_Inbound` / the Kotlin twin) — the same
+    host→runtime upcall the timer makes [time-timer], and nothing new: an
+    `Addr` is a scheduler index the host can hold, and the stub already
+    exists per actor effect [actor-use-addr].
+  * `NodeEndpoint { host: Str, port: Int }` is where a transport can dial,
+    known **before** any contact — hashable and ordered, so it keys maps and
+    sorts in a membership list. Distinct from the `Node` step ④ mints *after*
+    a handshake.
+* [net-host] `threadsafe platform handler HostTcpTransport(bind: NodeEndpoint)
+  of Transport` is std's first `threadsafe` host [threadsafe-platform] — a
+  transport is reached from every pool at once — with one class per backend
+  in `std/platform/net.{rs,kt}`, both signing the contract. The wire is
+  identical on both: one TCP connection per peer, opened lazily by the first
+  `deliver`; it opens with a **hello** (the sender's endpoint) and then carries
+  frames, each a 4-byte big-endian length and that many bytes. `listen` runs
+  one acceptor thread per endpoint and one reader per connection; a failed
+  connection is dropped and the next `deliver` reconnects.
+  * **An open listener is registered with the scheduler as an outside source
+    of work** (`salvo_external_begin/end`, `SalvoSched.externalBegin/End`):
+    while one is open the program is neither quiescent nor deadlocked, exactly
+    as with a pending timer — a frame may still arrive from a thread the
+    scheduler does not run. This is [actor-on-idle]'s "a platform handler with
+    a thread of its own can make idle stale" caveat made a fact the runtime is
+    told rather than guesses. Found the moment the first TCP smoke test ran:
+    without it the Rust runtime declared `main`'s wait a deadlock while the
+    frame was in flight on the socket.
+* [net-mem] The double, in two pieces mirroring what a network is: **one
+  network many nodes share** and **one transport per node** over it. `actor
+  effect MemNet` (handler `MemNetwork`) holds the listener table and the
+  faults a test scripts — `partition(a, b)` / `heal(a, b)` sever and restore a
+  pair, `kill(node)` takes a node off until something `attach`es there again,
+  `delivered(out)` counts routed frames; `route(from, to, out: Reply<Addr<
+  Inbound>?>)` answers the listener or `None`. `handler MemTransport(me:
+  NodeEndpoint, net: Addr<MemNet>) of Transport` is **stateless** — the
+  network holds everything — so a `use` binds it bare and shareable; its
+  `deliver` waits on the network for the route (a `waitfor` on the caller's
+  thread, serving the caller's pool meanwhile [waitfor-pump]) and sends to
+  the listener. It runs the same `Inbound` actors, frames and `Err`s the real
+  transport does; what it does not do is serialize, so a codec bug is
+  invisible here until step ② encodes on both sides of `deliver`.
+  * Why two pieces rather than one handler with a fault face: a handler of
+    *several plain effects* cannot yet be shared stateful (one lock behind
+    several faces has no backend form — the monitor spawn's recorded gap), so
+    the controls could not ride on `MemTransport` as a second face the way
+    `ManualTime` carries `TimerCtl` (actor faces are free). The split also
+    reads better: faults belong to the network, not to one node.
+  * Test bodies have no `spawn` [test-body], so `net` is covered by a
+    compile-and-run case per backend (identical output) rather than a
+    `.test.sv` annex until the actor-testing slice lands.
+* Two emitter facts the module surfaced, both fixed with it: **`send(reply,
+  None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
+  now typed from the token's payload (`Box::<Option<usize>>::new(None)`)
+  [rs-actor]; and **`copy` of an `Addr`/`Pool` on Kotlin** was refused — both
+  are scheduler indices, so a copy is the reference itself [kt-copy].
 
 ## Deductions
 
@@ -7085,17 +7160,10 @@ replaced the working document TESTING.md).
     constructed inside the program, not handed to it. Constructor
     parameters are passed through to the host class
     (`use HostS3("bucket")`).
-  * Under [use-local] a platform handler is **assumed thread-safe by its
-    design** (user decision 2026-09-20) and classifies bare/stateless, so
-    handlers depending on its effect share with no `local E` anywhere. The
-    assumption is unvalidated for now — a declaration-level contract (and
-    what the compiler could check of it) is a follow-up (ROADMAP). Sharing
-    mechanics differ per backend ([rs-platform-handler],
-    [kt-platform-handler]): Kotlin shares the raw host instance, Rust
-    shares it behind the per-effect lock adapter because its members take
-    `&mut self` — for a host that honors the assumption the two are
-    observationally equivalent, and the residual divergence is recorded
-    with the follow-up.
+  * Under [use-local] a platform handler classifies **shareable** — as a
+    monitor unless it declares `threadsafe` [threadsafe-platform], bare when
+    it does — so handlers depending on its effect share with no `local E`
+    anywhere, whichever the host declared.
   * Nothing is emitted for the declaration itself: the effect's
     interface/trait is emitted as any effect's, and the `use` site
     constructs the *host's* class by name — `salvo.platform.<module>.H`
@@ -7116,6 +7184,43 @@ replaced the working document TESTING.md).
     host writes one concrete class, as for a platform effect).
   * A `platform handler` of a *platform effect* is the ordinary
     "platform effects have no Salvo handler" error [platform-effect].
+* [threadsafe-platform] `threadsafe platform handler H of E` states the host
+  class's **thread-safety contract** (user decision 2026-09-26, closing the
+  2026-09-20 "assumed thread-safe" stance): the instance may be entered
+  concurrently from any thread, because the host synchronizes internally or
+  holds nothing that needs it. The word is contextual (an ordinary identifier
+  everywhere but directly before `platform`), a whole-handler claim (no
+  per-member form), and legal only on the handler form — before `platform
+  effect` it is a parse error saying why (an effect names members, and has no
+  instance to be safe or unsafe).
+  * **Undeclared = serialized on both backends.** A platform handler without
+    the word classifies as a **monitor** under [use-local]: Rust wraps the
+    host in the effect's lock adapter, Kotlin in the effect's `synchronized`
+    wrapper (`__Mon_E`). A host that did not claim safety therefore behaves
+    identically everywhere and pays only the lock — the *safe* default, and
+    the one the pre-2026-09-26 Kotlin emission lacked (it bound the raw
+    instance, so a non-conforming host raced there and was accidentally
+    serialized on Rust).
+  * **Declared = shared raw.** A `threadsafe` handler classifies **bare**:
+    Kotlin binds the raw instance; Rust shares it as `Arc<H>` through a
+    generated `&self` twin of the effect's trait, so the host is compiled
+    under shared access and rustc refuses interior mutability that is not
+    `Sync` — the half of the contract a compiler can check
+    ([rs-platform-handler]). The Kotlin host stays on trust.
+  * **`salvo platform generate` prints the contract** into the skeleton it
+    writes, in both shapes, so the person implementing the host signs what
+    the compiler assumes: the threadsafe skeleton's receivers are `&self`
+    (Rust) and the comment says there is no lock; the undeclared skeleton
+    says the compiler serializes the instance. Regenerating after adding or
+    removing the word changes the skeleton's shape.
+  * A `threadsafe` handler of an effect with a **mutably lending** member is
+    refused on Rust [backend-never-wrong]: a shared host cannot hand out a
+    mutable borrow of its state through `&self`. Drop the word or answer
+    owned values.
+  * The first customer is the network sequence's `Transport` (ROADMAP.md
+    section 2), called from every pool; std's `HostRawFs` keeps plain
+    hash-map state on both backends and stays undeclared, so it is now
+    serialized on Kotlin as it always was on Rust.
 * [platform-tree] The host implementations live in the source root's
   **`platform/` tree**, mirroring the source layout: `platform/app/entry.kt`
   implements the platform effects *and platform handlers*

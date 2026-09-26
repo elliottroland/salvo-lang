@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
+assertion_line: 88
 expression: "parse_clean(&std_core(\"console.sv\"))"
 ---
 Module {
@@ -112,6 +113,7 @@ Module {
                 exported: true,
                 intrinsic: true,
                 platform: false,
+                threadsafe: false,
                 name: Ident {
                     name: "StdOutConsole",
                     span: 154..167,

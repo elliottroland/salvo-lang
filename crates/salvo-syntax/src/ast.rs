@@ -447,6 +447,16 @@ pub struct HandlerDecl {
     /// *the compiler* implements the members, `platform` means the *build*
     /// does — and the grammar admits only one of them.
     pub platform: bool,
+    /// [threadsafe-platform] `threadsafe platform handler H of E` (user
+    /// decision 2026-09-26): the host class may be entered concurrently from
+    /// any thread — it synchronizes internally, or holds nothing that needs
+    /// it. A shareable `use` of it then binds **bare** on both backends (Rust
+    /// shares an `Arc<H>` through `&self` members, Kotlin the raw instance).
+    /// Without the word a platform handler binds as a **monitor** on both
+    /// backends — serialized behind a lock — so a host that did not claim
+    /// safety works identically everywhere, at the cost of the lock. Only
+    /// meaningful with `platform`; the parser refuses it elsewhere.
+    pub threadsafe: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
     /// Constructor parameters, e.g. `(values: T[])`.

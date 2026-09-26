@@ -176,6 +176,15 @@ pub fn emit_program_reporting(
             if let Item::Effect(e) = item {
                 effect_paths.insert(e.name.name.clone(), prefix.clone());
             }
+            // [threadsafe-platform] [rs-platform-handler] A threadsafe
+            // platform handler's `__Arc_H` adapter is generated into its
+            // declaring module, so a `use` in any other module names it
+            // through the same prefix table.
+            if let Item::Handler(h) = item {
+                if h.platform && h.threadsafe {
+                    effect_paths.insert(h.name.name.clone(), prefix.clone());
+                }
+            }
         }
     }
 
@@ -594,7 +603,7 @@ pub fn platform_skeletons(
                 .and_then(|m| path_to(m));
             match effect_path {
                 Some(path) => {
-                    body.push_str(&emitter.host_handler_impl(h, &path));
+                    body.push_str(&emitter.host_handler_impl(h, &path, &own_path));
                     if path != own_path {
                         impl_paths.insert(path);
                     }
@@ -3275,7 +3284,7 @@ impl<'p> Emitter<'p> {
     /// generated trait of the ordinary effect it handles. The `use` site
     /// constructs exactly this — `HostX::new(args)` — so neither the name nor
     /// the constructor is the host's to choose.
-    fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str) -> String {
+    fn host_handler_impl(&mut self, h: &HandlerDecl, effect_path: &str, own_path: &str) -> String {
         let of = self.emit_type(&h.of[0]);
         let Some(effect) = type_base_name(&h.of[0])
             .and_then(|n| self.symbols.effects.get(n))
@@ -3289,12 +3298,38 @@ impl<'p> Emitter<'p> {
             return String::new();
         };
         let name = rs_ident(&h.name.name);
-        // [use-local] Stateless (bodyless, ctor params only), so a shareable
-        // binding is bare and a seam clones it into a handle — `Clone` is
-        // part of the thread-safety contract (user decision 2026-09-20:
-        // platform/intrinsic handlers are assumed thread-safe; the written
-        // contract is a follow-up).
-        let mut out = format!("\n#[derive(Clone)]\npub struct {name} {{\n");
+        // [threadsafe-platform] The contract, printed where the implementer
+        // signs it. Two shapes: a `threadsafe` host implements the `&self`
+        // twin trait and is shared as an `Arc` with no lock, so its receivers
+        // are `&self` and its state must be `Sync`; an undeclared host
+        // implements the effect's own trait with `&mut self` and is
+        // serialized by the compiler on both backends.
+        let mut out = if h.threadsafe {
+            format!(
+                "\n// `threadsafe platform handler {}` — THE CONTRACT YOU ARE SIGNING:\n\
+                 // this instance is shared across every thread of the program with NO\n\
+                 // lock around it. Every member below may run concurrently with every\n\
+                 // other, so the receivers are `&self`, any mutable state needs its own\n\
+                 // synchronization (`Mutex`, `RwLock`, atomics — a `RefCell` will not\n\
+                 // compile), and rustc enforces `Send + Sync` on this struct. If the\n\
+                 // host cannot promise that, delete `threadsafe` from the Salvo\n\
+                 // declaration: the compiler then serializes the instance for you and\n\
+                 // the receivers become `&mut self` [threadsafe-platform].\n\
+                 pub struct {name} {{\n",
+                h.name.name
+            )
+        } else {
+            format!(
+                "\n// `platform handler {}` — the compiler SERIALIZES this instance: every\n\
+                 // member runs under one lock on both backends, so the receivers are\n\
+                 // `&mut self` and plain fields are fine. If the host synchronizes\n\
+                 // internally and wants to run concurrently, declare it `threadsafe\n\
+                 // platform handler` in Salvo and regenerate: the receivers become\n\
+                 // `&self` and the lock goes away [threadsafe-platform].\n\
+                 pub struct {name} {{\n",
+                h.name.name
+            )
+        };
         for p in &h.params {
             let ty = self.param_type(&p.ty, p.variadic, ParamMode::Owned);
             out.push_str(&format!("    {}: {ty},\n", rs_ident(&p.name.name)));
@@ -3324,10 +3359,22 @@ impl<'p> Emitter<'p> {
             }
             out.push_str("        }\n    }\n}\n");
         }
-        out.push_str(&format!(
-            "\nimpl {effect_path}::{} for {name} {{\n",
-            rs_ident(&effect.name.name)
-        ));
+        // [threadsafe-platform] Which trait, and which receiver: the `&self`
+        // twin (`__Shared_H`, generated into the declaring module and in
+        // scope through `use own_path::*`) for a threadsafe host, the effect's
+        // own `&mut self` trait otherwise.
+        let (trait_path, receiver) = if h.threadsafe {
+            (
+                format!("{own_path}::{}", host_shared_trait_name(&h.name.name)),
+                "&self",
+            )
+        } else {
+            (
+                format!("{effect_path}::{}", rs_ident(&effect.name.name)),
+                "&mut self",
+            )
+        };
+        out.push_str(&format!("\nimpl {trait_path} for {name} {{\n"));
         for (i, f) in effect.fns.iter().enumerate() {
             if !f.generics.is_empty() {
                 continue;
@@ -3339,7 +3386,7 @@ impl<'p> Emitter<'p> {
             );
             let ret = self.emit_return_type(f.return_type.as_ref());
             out.push_str(&format!(
-                "    fn {}(&mut self{params}){ret} {{\n        \
+                "    fn {}({receiver}{params}){ret} {{\n        \
                  todo!(\"implement {}.{}\")\n    }}\n",
                 self.member_name(effect, i),
                 effect.name.name,
@@ -3501,6 +3548,19 @@ impl<'p> Emitter<'p> {
         // effect's, emitted as any effect's is — which is what the host
         // struct implements.
         if h.platform {
+            // [threadsafe-platform] …except the two items a `threadsafe` one
+            // adds beside its declaration: the `&self` twin trait the host
+            // implements — always, since a shipped host companion (std's
+            // `platform/net.rs`) is copied whenever its module is reachable
+            // and names the trait — and the `Arc` adapter the `use` site
+            // constructs, only when some `use` does: the adapter names the
+            // host *struct*, so emitting it unused would demand a companion
+            // nobody wrote (a customer's threadsafe handler in a program that
+            // never binds it).
+            if h.threadsafe {
+                let used = self.checked.used_handlers.contains(h.name.name.as_str());
+                return self.emit_host_arc_adapter(h, used);
+            }
             return String::new();
         }
         // [effect-handler-deps] Dependencies are the handler's own effect
@@ -7600,6 +7660,22 @@ fn lock_struct_name(effect: &str) -> String {
     format!("__Lock_{}", rs_ident(effect))
 }
 
+/// [threadsafe-platform] [rs-platform-handler] The `&self` twin of the
+/// effect's trait that a `threadsafe` platform host implements:
+/// `__Shared_HostTcpTransport`. Per *handler*, since the host is the
+/// implementor and a second (unsafe) host of the same effect implements the
+/// effect's own trait instead.
+fn host_shared_trait_name(handler: &str) -> String {
+    format!("__Shared_{}", rs_ident(handler))
+}
+
+/// [threadsafe-platform] [rs-platform-handler] The lock-free sharing adapter
+/// over a `threadsafe` host: `__Arc_HostTcpTransport`, holding `Arc<H>` and
+/// implementing the effect's trait by forwarding to `__Shared_H`.
+fn host_arc_adapter_name(handler: &str) -> String {
+    format!("__Arc_{}", rs_ident(handler))
+}
+
 /// [mixed-handler] [rs-mixed] The façade of a mixed handler:
 /// `__Fac_CyclicRandom`, the servant's addr plus the constructor parameters
 /// plus the sync member bodies — per *handler*, since the bodies are its.
@@ -9445,16 +9521,13 @@ impl<'p> Emitter<'p> {
             arg_code.join(", ")
         );
         // [rs-monitor] A monitor binding wraps in the per-effect lock
-        // adapter. [rs-platform-handler] A **platform handler** classifies
-        // bare (assumed thread-safe, user decision 2026-09-20) but shares
-        // through the same adapter on this backend: its members take
-        // `&mut self`, and a local binding coexisting with captured handles
-        // needs shared ownership — which `Arc` provides and the host struct
-        // (no `Clone`, real host state) cannot. The lock is the mechanics of
-        // sharing here, not a semantic monitor claim; Kotlin shares the raw
-        // instance.
-        let lock_shared =
-            kind == salvo_core::UseKind::Monitor || (kind != salvo_core::UseKind::Local && decl.platform);
+        // adapter. [rs-platform-handler] [threadsafe-platform] A platform
+        // handler *without* `threadsafe` classifies as a monitor since
+        // 2026-09-26 (user decision), so it arrives here as `Monitor` and
+        // takes the same lock — now a semantic claim on both backends, not
+        // this backend's sharing mechanics. A `threadsafe` one classifies
+        // bare and is wrapped below in its `Arc` adapter instead.
+        let lock_shared = kind == salvo_core::UseKind::Monitor;
         if lock_shared {
             if let Some((Some(Ty::Named { name, .. }), _)) = faces.first() {
                 // The lock adapter is generic only over the handler, so its
@@ -9464,6 +9537,18 @@ impl<'p> Emitter<'p> {
                     self.effect_path(name, &lock_struct_name(name))
                 );
             }
+        }
+        // [rs-platform-handler] [threadsafe-platform] A `threadsafe` platform
+        // handler shares the host instance as `Arc<H>` with **no lock**: the
+        // generated `__Arc_H` adapter implements the effect's `&mut self`
+        // trait by forwarding to the host's `&self` members (a parallel
+        // `__Shared_H` trait the skeleton implements), so the host is
+        // compiled under shared access and rustc checks the half of the
+        // contract it can — interior mutability must be `Sync`. Cloning the
+        // adapter bumps the `Arc`, which is what a seam's handle needs and
+        // what the host struct itself (real state, no `Clone`) cannot give.
+        if kind == salvo_core::UseKind::Bare && decl.platform && decl.threadsafe {
+            ctor = format!("{}::new({ctor})", self.host_arc_adapter_path(&handler_name));
         }
         // [use-local] The eager handle: minted beside the binding when a
         // later construction in this file captures the effect. A monitor's
@@ -9566,6 +9651,115 @@ impl<'p> Emitter<'p> {
         }
         // Not a handler name, so it is an addr — already a handle.
         self.emit_owned(item)
+    }
+
+    /// [threadsafe-platform] [rs-platform-handler] The path of a `threadsafe`
+    /// platform handler's `__Arc_H` adapter: generated into the declaring
+    /// module, so named through the same prefix table as that module's
+    /// effects. Recording the host module here is what makes the `use` demand
+    /// a companion file exactly as `handler_ctor_path` does.
+    fn host_arc_adapter_path(&mut self, handler: &str) -> String {
+        if let Some(module) = self.symbols.handler_modules.get(handler) {
+            self.platform_hosts.insert((*module).clone());
+        }
+        self.effect_path(handler, &host_arc_adapter_name(handler))
+    }
+
+    /// [threadsafe-platform] [rs-platform-handler] What a `threadsafe
+    /// platform handler H of E` emits into its declaring module: a
+    /// **`__Shared_H` trait** — the effect's members with `&self` receivers,
+    /// which the host struct implements — and an **`__Arc_H` adapter** holding
+    /// `Arc<H>` and implementing the effect's own `&mut self` trait by
+    /// forwarding. The `use` site constructs the adapter around the host;
+    /// cloning it bumps the `Arc`, which is the handle a seam needs; and the
+    /// host is compiled under shared access, so rustc refuses a host whose
+    /// interior mutability is not `Sync` — the half of the contract the
+    /// compiler can check. Kotlin needs neither piece: an object reference is
+    /// already the shared handle [kt-platform-handler].
+    ///
+    /// A member that **lends** has no `&self` reading — a borrow out of shared
+    /// state is what `&self` cannot hand back mutably — so such an effect is
+    /// refused here rather than mis-emitted [backend-never-wrong].
+    fn emit_host_arc_adapter(&mut self, h: &HandlerDecl, with_adapter: bool) -> String {
+        let Some(effect) = h
+            .of
+            .first()
+            .and_then(type_base_name)
+            .and_then(|n| self.symbols.effects.get(n))
+            .copied()
+        else {
+            self.error(format!(
+                "internal: threadsafe platform handler `{}` implements no declared \
+                 effect",
+                h.name.name
+            ));
+            return String::new();
+        };
+        if effect.fns.iter().any(|f| {
+            f.return_type
+                .as_ref()
+                .is_some_and(|rt| fn_type_lends_mut(rt))
+        }) {
+            self.error(format!(
+                "`threadsafe platform handler {}` implements `{}`, whose members lend \
+                 mutably: a shared host cannot hand out a mutable borrow of its own \
+                 state through `&self`, so this handler cannot be `threadsafe` — drop \
+                 the word (the instance is then serialized behind a lock) or make the \
+                 effect answer owned values [threadsafe-platform]",
+                h.name.name, effect.name.name
+            ));
+            return String::new();
+        }
+        let shared = host_shared_trait_name(&h.name.name);
+        let arc = host_arc_adapter_name(&h.name.name);
+        let trait_name = self.effect_path(&effect.name.name, &rs_ident(&effect.name.name));
+        let mut shared_members = String::new();
+        let mut forwards = String::new();
+        for (i, f) in effect.fns.iter().enumerate() {
+            if !f.generics.is_empty() {
+                continue;
+            }
+            let member = self.member_name(effect, i);
+            let params = format!(
+                "{}{}",
+                self.emit_member_param_list(f),
+                self.emit_member_implicits(f)
+            );
+            let ret = self.emit_return_type(f.return_type.as_ref());
+            let mut args: Vec<String> = f
+                .params
+                .iter()
+                .filter(|p| !p.implicit)
+                .map(|p| rs_ident(&p.name.name))
+                .collect();
+            args.extend(self.implicits_of(f).iter().map(|imp| rs_ident(&imp.name)));
+            let args = args.join(", ");
+            shared_members.push_str(&format!("    fn {member}(&self{params}){ret};\n"));
+            forwards.push_str(&format!(
+                "    fn {member}(&mut self{params}){ret} {{\n        \
+                 self.inner.{member}({args})\n    }}\n"
+            ));
+        }
+        let mut out = format!(
+            "\n// [threadsafe-platform] [rs-platform-handler] The `&self` twin of `{}`\n\
+             // that the threadsafe host `{}` implements: the host synchronizes\n\
+             // internally, and rustc checks that what it holds is `Sync`.\n\
+             pub trait {shared}: Send + Sync {{\n{shared_members}}}\n",
+            effect.name.name, h.name.name
+        );
+        if with_adapter {
+            let host = self.handler_ctor_path(&h.name.name, h);
+            out.push_str(&format!(
+                "\n// The lock-free sharing adapter a `use` constructs around the host.\n\
+                 pub struct {arc} {{\n    inner: std::sync::Arc<{host}>,\n}}\n\n\
+                 impl Clone for {arc} {{\n    fn clone(&self) -> Self {{\n        \
+                 Self {{ inner: self.inner.clone() }}\n    }}\n}}\n\n\
+                 impl {arc} {{\n    pub fn new(inner: {host}) -> Self {{\n        \
+                 Self {{ inner: std::sync::Arc::new(inner) }}\n    }}\n}}\n\n\
+                 impl {trait_name} for {arc} {{\n{forwards}}}\n"
+            ));
+        }
+        out
     }
 
     /// [use-local] [effect-handler-deps] The shared dependency-form
@@ -15483,6 +15677,29 @@ impl<'p> Emitter<'p> {
         }
         if f.name.name != "copy" || args.len() != 1 {
             let recv = f.params.first().and_then(|p| type_base_name(&p.ty));
+            // [rs-actor] `send(reply, None)`: a bare `None` boxes as an
+            // `Option<T>` rustc cannot infer, so the box is typed from the
+            // token's checked payload. Any other value carries its own type.
+            if f.name.name == "send"
+                && recv == Some("Reply")
+                && args.len() == 2
+                && matches!(args[1], Expr::Ident(id) if id.name == "None")
+            {
+                let payload = match self.ty_of(args[0].span()).map(|t| t.strip_quals().clone()) {
+                    Some(Ty::Named { name, args: targs }) if name == "Reply" && targs.len() == 1 => {
+                        Some(targs[0].clone())
+                    }
+                    _ => None,
+                };
+                if let Some(ty) = payload {
+                    if ty_is_concrete(&ty) {
+                        let rs = self.rust_ty(&ty);
+                        let tok = self.emit_expr(args[0]);
+                        self.needs_scheduler = true;
+                        return format!("({tok}).send(Box::<{rs}>::new(None))");
+                    }
+                }
+            }
             let arg_code = self.intrinsic_arg_code(f, args);
             // [rs-mut-str] The same for the string helper trait: `set`'s
             // lowering is a method from the generated support module.

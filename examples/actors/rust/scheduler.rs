@@ -185,6 +185,16 @@ struct Sched {
     /// scan per wake is cheaper than keeping a heap ordered under a lock the
     /// whole scheduler shares.
     timers: Vec<(i64, SalvoReply, FiredOf)>,
+    /// [threadsafe-platform] Outside sources of work the scheduler cannot
+    /// see: a host thread that may send at any moment — a transport's
+    /// socket reader, an OS event loop. Bumped by `salvo_external_begin` /
+    /// `salvo_external_end` from host code. While one is registered the
+    /// program is neither quiescent nor deadlocked, exactly as with a
+    /// pending timer: work is on its way from a thread the scheduler does not
+    /// run. This is the "a platform handler with a thread of its own can
+    /// make idle stale" caveat of [actor-on-idle], made a fact the runtime
+    /// is told rather than one it must guess.
+    externals: usize,
     /// [time-timer] Whether the deadline thread is running. Started by the
     /// first `salvo_after`, so a program that never sets a timer has no timer
     /// thread — and one that does has exactly one, never a thread per timer.
@@ -211,6 +221,7 @@ fn state() -> &'static (Mutex<Sched>, Condvar) {
                 main_waits: 0,
                 idle_hooks: Vec::new(),
                 timers: Vec::new(),
+                externals: 0,
                 timer_thread: false,
             }),
             Condvar::new(),
@@ -301,6 +312,7 @@ fn quiet(s: &Sched) -> bool {
     s.actors.iter().all(|p| deliverable(p).is_none())
         && s.pools.iter().all(|p| p.tasks.is_empty())
         && s.timers.is_empty()
+        && s.externals == 0
         && s.waiters
             .iter()
             .all(|w| !(w.parked.is_some() && w.value.is_some()))
@@ -649,6 +661,25 @@ pub fn salvo_on_idle(pool: usize, notify: SalvoReply, idle: IdleOf) {
 ///
 /// A delay of zero or less fires at the next look rather than immediately:
 /// the answer is always a *later* activation, never a call inside `after`.
+/// [threadsafe-platform] A host declares that a thread of its own may inject
+/// work — a listener is open. Pair with `salvo_external_end` when it closes.
+/// While any source is registered, neither the idle hook nor the deadlock
+/// report fires: an answer may still arrive from outside.
+pub fn salvo_external_begin() {
+    let (lock, _) = state();
+    lock.lock().unwrap().externals += 1;
+}
+
+/// [threadsafe-platform] The outside source is gone; the scheduler may settle
+/// again. Wakes every waiter so a program that was only ever waiting on the
+/// wire gets its idle report now rather than never.
+pub fn salvo_external_end() {
+    let (lock, cv) = state();
+    let mut s = lock.lock().unwrap();
+    s.externals = s.externals.saturating_sub(1);
+    cv.notify_all();
+}
+
 pub fn salvo_after(delay: i64, done: SalvoReply, fired: FiredOf) {
     let (lock, cv) = state();
     let mut s = lock.lock().unwrap();

@@ -41,9 +41,10 @@ designated `close`, effects through handler dependencies, `throw`/`try`, places
 and field narrowing, deductions with refinements, the iterator reduction to
 `next`, the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
-group borrowing, the testing framework, and the comparison/hashing capabilities.
+group borrowing, the testing framework, the comparison/hashing capabilities, and
+the wire under actors across machines (`net`, step ① of the network sequence).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1551 tests green.
+targets and the output they print. 1565 tests green.
 
 ## The sequence
 
@@ -81,7 +82,78 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Recorded: the restrictive reading of a fn-typed slot's lend
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; step ① ✅ built)
+
+The design round is complete — sixteen decisions, all the user's, taken in five
+rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
+machines — the network round"). NETWORK_POOLS.md holds the argument trail and
+is deleted when the last step lands. The one-line shape: **the network enters
+at the actor group, never at the spawn.** Every actor is spawned by the node
+that hosts it; what crosses the wire is addresses and messages; a function
+declaring `[E]` never learns whether `E` is one local handler, an actor, or a
+group of a hundred across a fleet.
+
+The layering, bottom up, and the order it is built in (each step runs on
+`MemTransport` under `salvo test` before it touches a socket):
+
+1. ✅ **`threadsafe platform handler` and the wire — built 2026-09-26**
+   (COMPLETED.md's log, "The network sequence, step ①"). [threadsafe-platform]
+   closed the thread-safety DECISION: undeclared = serialized on both
+   backends, declared = Rust `&self` over `Arc<H>` / Kotlin raw, the contract
+   printed into the skeleton. Module `net` [net-transport] [net-host]
+   [net-mem]: `Transport`, `Inbound`, `NodeEndpoint`, `HostTcpTransport`
+   (`threadsafe`, one host per backend), and the double as `MemNetwork` (an
+   actor: `partition`/`heal`/`kill`/`delivered`) plus a stateless
+   `MemTransport` per virtual node. Both runtimes gained an outside-source
+   count so an open listener is neither idle nor a deadlock. **Left for
+   later steps**: `delay(node, d)` on the double (needs a `Timer` in the
+   network actor — trivial once step ④ wants it); a `.test.sv` annex for
+   `net` (test bodies have no `spawn`); and the multi-face stateful monitor
+   gap, which is why the double is two pieces.
+2. **Codecs and the protocol hash.** A compiler-defined canonical encoding
+   (positional; union arms by declared index), an encoder/decoder generated
+   per type on both backends so a Kotlin node and a Rust node share a group;
+   **serializable by default, `noremote` the opt-out** on a type, transitive;
+   process-local handles `noremote` by construction. One canonical hash per
+   actor effect.
+3. **Routable `Addr<E>`/`Reply<T>`** — `(node, id, bits)`, locality a runtime
+   fact, unguessable bits so the two-face guarantee survives the wire;
+   credit-based back-pressure so `capacity` stays true remotely; at-most-once,
+   in order per pair.
+4. **`NodeGroup`** — one actor effect (`members`, `subscribe`, `leave`;
+   `NodeChanges.joined/left`), **handlers are the mechanisms**:
+   `MemNodeGroup` and `StaticNodeGroup` first (poll and diff), then
+   `GossipNodeGroup(name, seeds, split)` with the partition policy as its
+   argument; the handshake (name, secret/TLS, protocol-hash table) common to
+   all. A `HeartbeatNodeGroup` over a `Ddb` platform effect is the interop
+   example.
+5. **Effect-typed generic parameters on declarations** (`<E>` on effects,
+   handlers and structs when every use is inside `Addr<E>`), then
+   **`ActorGroup<E>`** — a gossiping replica per node, `attach<E>(nodes)` (name
+   defaulting to the effect), `join(group, addr)`, `members`, `subscribe`,
+   `ActorChanges<E>`; `pending(addr)`; the **crossing-site `noremote` check**
+   (`attach<E>` refused when `E` has a `noremote` payload).
+6. **`[any E]` / `of any E`** — the weaker claim (no ordering, no shared state
+   between sends), on both the requirement and the binding, viral downward
+   like `local`; bare `[E]` keeps the strong meaning. With it the
+   hand-written router example.
+7. **`Pick<E>`** — `fn choose(view: ActorGroupView<E>) -> Addr<E>?`, `None`
+   parks — with std handlers `LeastLoaded`, `Sharded` (a `Key` qualifier on a
+   protocol parameter) and `Elected` (`[Leader]`, a std effect a Salvo election
+   or a platform handler serves); the generated **`route(group)` stub**
+   declaring `of any E`, fed by a `View<E>` monitor.
+8. **`examples/cluster/`** (Raft as the flagship, singleton, map/reduce,
+   scatter, hedge) and N-10's user-facing half — the manifest's `version` plus
+   a lock file — **which waits on section 4's manifest DECISION.**
+
+Both groups stay **actors until the sugar pass** (section 13), which thereby
+gains two concrete targets: `members()` as a plain read (the answering stub)
+and `replyto` onto another actor's member (the remote mint). Recorded gap: the
+deadlock graph is per program, so a wait cycle closing through a handler in
+*another* program of the same node group is invisible — the same shape as the
+"over types, not instances" gap, same deferred remedy.
+
+### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
 Both defects of the 2026-09-25 round are closed — a bare generic struct literal
 now determines its type arguments [struct-literal-arg], and a fn-typed slot whose
@@ -118,7 +190,7 @@ What the second one left open, deliberately, is the reading it chose *against*:
   diagnostic per clause, naming every source, and silent where the return is
   concrete.
 
-### 3 — Project manifest and LSP source-root discovery (DECISION, then build)
+### 4 — Project manifest and LSP source-root discovery (DECISION, then build)
 
 **The defect**: editing std with the *repository root* as the editor's workspace
 folder produces ~750 lines of spurious diagnostics, because the LSP takes the
@@ -148,8 +220,13 @@ workaround alone.
 each a CLI flag today), whether `run`/`compile`/`test` read it too (they should,
 or the LSP and the CLI disagree about what a project is), and what root discovery
 does with no manifest in sight (fall back to `rootUri`, today's behaviour).
+**A second customer since 2026-09-26**: the network sequence's version label
+(section 2, step 8) wants a `version` field in the manifest plus a lock file the
+build maintains — effect → (declared version, protocol hash) — so a protocol
+change without a version bump fails the build. The manifest's shape should be
+decided with that in view.
 
-### 4 — Consistency passes the 2026-09-26 ambiguity round left
+### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
 Three narrower questions, all downstream of "refuse to choose" (COMPLETED.md's
 log for the round itself).
@@ -178,7 +255,7 @@ log for the round itself).
   semantics [effect-intercept], and a fn-typed local shadowing a name outright is
   the caller's explicit choice).
 
-### 5 — Recursive implicit resolution, so a tuple can have a `cmp`
+### 6 — Recursive implicit resolution, so a tuple can have a `cmp`
 
 [col-hashed-ordered] says "a `List` or a tuple qualifies exactly when its elements
 do, comparing lexicographically", and that is true of the two *backends* rather
@@ -208,7 +285,7 @@ Two recorded items wait on the same lift: `expect_eq` on a generic container
 cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
 (step 8) needs it.
 
-### 6 — Qualifiers are droppable, then variance
+### 7 — Qualifiers are droppable, then variance
 
 - **Qualifiers are droppable on assignment** (user decision 2026-09-23, not
   built). A variable's type may never *widen*, but a qualifier is by definition
@@ -250,7 +327,7 @@ cannot resolve a `to_str` [interp-to-str], and property testing's `?generate`
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
 
-### 7 — Mutating through a union arm (DECISION)
+### 8 — Mutating through a union arm (DECISION)
 
 One shape is **refused on Rust and accepted on Kotlin**, which is a divergence
 closed by restriction on one side and therefore a decision rather than a resting
@@ -287,7 +364,7 @@ what a `Mut` arm means for the *parameter* that carries it.
 makes the two sides of the compiler disagree about what a signature means, which
 is how the original defect happened.
 
-### 8 — Testing, beyond the MVP (decided 2026-09-23, not built)
+### 9 — Testing, beyond the MVP (decided 2026-09-23, not built)
 
 The framework's core is built and `salvo test` runs std's own suite. What was
 deliberately cut, in the order the decisions put it:
@@ -337,7 +414,7 @@ deliberately cut, in the order the decisions put it:
   migrates the compiler's own e2e suite onto `salvo test` (user decision: leave
   it).
 
-### 9 — The assertion trap policy (A-6, decided 2026-09-23, not built)
+### 10 — The assertion trap policy (A-6, decided 2026-09-23, not built)
 
 Three failure classes still take the hosts' behaviour:
 
@@ -353,7 +430,7 @@ Three failure classes still take the hosts' behaviour:
   today Kotlin wraps silently while Rust refuses a constant fold and panics in
   debug.
 
-### 10 — One read, one mode: the rendering that reports a reference
+### 11 — One read, one mode: the rendering that reports a reference
 
 Three slices landed 2026-09-23 [rs-read-mode]; what is left is the **refactor the
 section is named after**. The slices work because their sites know the shape they
@@ -384,7 +461,7 @@ benefit. Two recorded items are the same missing information in other clothes:
 the temporary-subject `for` loop, and the copy an adapter closure makes of a
 returned projection.
 
-### 11 — Effect transformers (E3 step 4)
+### 12 — Effect transformers (E3 step 4)
 
 The last rung of the handler-control arc. A **transformer** is an effect member
 that runs a fn-typed parameter with *additional* effects available — its body
@@ -414,7 +491,7 @@ mis-emitted [rs-effect-fusion]: a dependent handler using its own generic
 parameters in a member signature, and a `use` whose effect instance is still
 generic.
 
-### 12 — The sugar pass (after the explicit surface, decided 2026-09-15)
+### 13 — The sugar pass (after the explicit surface, decided 2026-09-15)
 
 Phase 5 delivered the **explicit** actor surface (tokens and reply parameters
 written out); every layer of sugar above it is a later item with its own decision
@@ -437,7 +514,7 @@ surface. What is already decided, so the pass starts from a plan:
   refinement is `move`-closure emission with hoisted clones, plus a treatment for
   captured effect-handler locals.
 
-### 13 — Shared mutable state: `Cell` (DECISION)
+### 14 — Shared mutable state: `Cell` (DECISION)
 
 Deferred until after actors deliberately, because the OTP answer is that actors
 own their state and message-pass — which may remove the motivation. The full
@@ -454,7 +531,7 @@ with the observation that `proj` is the degenerate group (a read-only member of 
 singleton group under maximal invalidation sensitivity), so the two are points on
 one dial rather than two features.
 
-### 14 — Regions (designed 2026-09-10, unbuilt)
+### 15 — Regions (designed 2026-09-10, unbuilt)
 
 Fully designed and recorded: `effect Region` with an intrinsic handler, `Reg` as
 an intrinsic provenance qualifier, regional-by-birth defaults, `reg`/`unreg`, the
@@ -470,7 +547,7 @@ expression, freeze-by-position, or both); cross-region operations (out of v1);
 `unreg` of a deeply regional structure copying deeply; and folding D7's
 `Local`/`Escaping` watch-list entry into the design.
 
-### 15 — Laziness, after concurrency (direction decided 2026-09-10)
+### 16 — Laziness, after concurrency (direction decided 2026-09-10)
 
 std's lazy pair was **removed** rather than carried along, and the question
 reopens here. The direction is the user's: standard laziness *couples data to the
@@ -493,7 +570,7 @@ or inherits it (a pipeline holding only *functions* stores no source, so
 [linear-composite] at all — the strongest argument for this direction, and the
 thing to test first); and sendability.
 
-### 16 — Recursive types (DECISION, end of the queue)
+### 17 — Recursive types (DECISION, end of the queue)
 
 Investigated 2026-09-12; nothing needs it, and List-mediated recursion covers its
 customers (trees, ASTs, JSON) meanwhile. Where it stands: nothing rejects a
@@ -545,18 +622,9 @@ several are "revisit only if a customer appears".
   language-defined algorithms implemented identically in both runtimes (the
   rejected sketch: FNV-1a 64 over a canonical byte encoding). Until then a program
   must not print or persist a hash value and expect cross-backend identity.
-- **Platform-handler thread-safety contract (DECISION).** A platform handler is
-  *assumed* thread-safe (user decision 2026-09-20) and nothing validates it. The
-  divergence to close: Kotlin binds the raw host instance while Rust shares it
-  through the per-effect lock adapter, so a *non-conforming* host races on Kotlin
-  and is accidentally serialized on Rust. Two emissions would restore parity —
-  **(a)** drop the Rust lock for a handler that declares the contract (`&self`
-  members, `Arc<H>`, which also makes rustc machine-check half the contract), or
-  **(b)** serialize both by putting Kotlin's platform bindings behind
-  `__Mon_E`. (a) as the declared path, (b) as the undeclared fallback. The
-  DECISION is the contract's surface: where the declaration lives, what it
-  asserts, and what the undeclared case means. `salvo platform generate` should
-  print the chosen contract into the host file it writes.
+- **Platform-handler thread-safety contract — decided 2026-09-26**, as
+  `threadsafe platform handler`; built as step ① of the network sequence
+  (section 2). What used to be the DECISION here is in COMPLETED.md's log.
 - **`on_idle`'s predicate (DECISION).** The hook fires on the strict quiescence
   condition while the deadlock report fires on a weaker one, so a program stuck
   *with a parked frame* gets the report and exit 1 where the relaxed reading would

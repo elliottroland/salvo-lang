@@ -935,6 +935,63 @@ fn platform_handler_takes_constructor_parameters() {
     assert_eq!(h.params[0].name.name, "bucket");
 }
 
+// --- the thread-safety contract [threadsafe-platform] ---
+
+/// [threadsafe-platform] `threadsafe platform handler H of E` parses as a
+/// platform handler carrying the contract flag; without the word the flag is
+/// off. `export` precedes it as it precedes every modifier.
+#[test]
+fn threadsafe_platform_handler_parses_with_the_flag() {
+    let source = "threadsafe platform handler HostTcp(port: Int) of Transport\n\
+                  export threadsafe platform handler HostUdp of Transport\n\
+                  platform handler HostRawFs of RawFs\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let flags: Vec<(bool, bool, bool)> = module
+        .items
+        .iter()
+        .map(|item| match item {
+            salvo_syntax::ast::Item::Handler(h) => (h.platform, h.threadsafe, h.exported),
+            _ => panic!("expected a handler item"),
+        })
+        .collect();
+    assert_eq!(flags, vec![(true, true, false), (true, true, true), (true, false, false)]);
+}
+
+/// [threadsafe-platform] The contract is a claim about a host *class*, so it
+/// belongs on a `platform handler` only: before `platform effect` it is an
+/// error naming the reason.
+#[test]
+fn threadsafe_on_a_platform_effect_is_an_error_naming_the_form() {
+    let source = "threadsafe platform effect Telemetry {\n    fn emit(s: Str) -> None\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics.iter().any(|d| d.is_error()
+            && d.message.contains("expected `handler` after `threadsafe platform`")
+            && d.message.contains("[threadsafe-platform]")),
+        "expected the misplaced-`threadsafe` error, got: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+/// [threadsafe-platform] Contextual, like `actor` and `send`: `threadsafe`
+/// stays an ordinary identifier everywhere but directly before `platform`.
+#[test]
+fn threadsafe_is_an_ordinary_identifier_elsewhere() {
+    let source = "fn main() -> None {\n    let threadsafe = 1\n    threadsafe(threadsafe)\n}\n\
+                  fn threadsafe(n: Int) -> None => n {\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        !diagnostics.iter().any(|d| d.is_error()),
+        "unexpected errors: {:?}",
+        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
 /// [platform-handler] A plain or `intrinsic` handler is not a platform
 /// handler — the flag defaults off, so nothing existing changes meaning.
 #[test]

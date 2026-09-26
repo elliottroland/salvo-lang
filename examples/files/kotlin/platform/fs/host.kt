@@ -87,6 +87,12 @@ private class Writing(val path: String, val stream: BufferedOutputStream, var po
     var failed: Kind? = null
 }
 
+// `platform handler HostRawFs` — the compiler SERIALIZES this instance: every
+// member runs under one `synchronized` monitor on both backends, so the plain
+// hash maps below are fine. If the host ever synchronizes internally and wants
+// to run concurrently, declare it `threadsafe platform handler` in Salvo
+// [threadsafe-platform]. Reviewed 2026-09-26: an open-file table keyed by
+// handle is inherently one-writer state, so undeclared is the right call.
 class HostRawFs : RawFs {
     private var nextHandle: Long = 0
     private val reading = HashMap<Long, Reading>()

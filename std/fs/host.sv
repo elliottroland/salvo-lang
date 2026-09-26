@@ -76,7 +76,10 @@ export effect RawFs {
 }
 
 // The one implementation of `RawFs`: a host class per backend, shipped with
-// std [platform-handler].
+// std [platform-handler]. Deliberately *not* `threadsafe`
+// [threadsafe-platform]: an open-file table keyed by handle is one-writer
+// state, so the compiler serializes the instance on both backends and the
+// host keeps plain maps.
 export platform handler HostRawFs of RawFs
 
 export handler DefaultFs [RawFs] of Fs {

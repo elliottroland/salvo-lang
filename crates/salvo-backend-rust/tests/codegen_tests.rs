@@ -34,6 +34,26 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     }
 }
 
+/// The mangled name of an overload in emitted text: the identifier starting
+/// with `prefix` (`fn eq__`) whose definition is followed by `signature`.
+/// Overload indices depend on how many overloads std declares, so a test
+/// that means "the mangling is kept" reads the index rather than pinning it.
+fn mangled_name(text: &str, prefix: &str, signature: &str) -> String {
+    let mut at = 0;
+    while let Some(i) = text[at..].find(prefix) {
+        let start = at + i + "fn ".len();
+        let end = start
+            + text[start..]
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(0);
+        if text[end..].starts_with(signature) {
+            return text[start..end].to_string();
+        }
+        at = end.max(start + 1);
+    }
+    panic!("no `{prefix}…{signature}` in:\n{text}");
+}
+
 fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
     let program = build_program(extra);
     salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
@@ -4440,6 +4460,167 @@ fn rustc_compiles_and_runs_a_platform_handler() {
     assert_ne!(host, skeleton.content, "the stub should have been replaced");
     let files = generate_platform_handler_demo_with(&host);
     run_rust_files(&files, "platform-handler", "boot@42\n");
+}
+
+// ===== [threadsafe-platform] the thread-safety contract =====
+
+/// [threadsafe-platform] [rs-platform-handler] An **undeclared** platform
+/// handler binds as a monitor (user decision 2026-09-26): the `use` site
+/// wraps the host in the effect's lock adapter, so the instance is serialized
+/// — on this backend as before, and now as a semantic claim rather than a
+/// sharing mechanic.
+#[test]
+fn an_undeclared_platform_handler_is_serialized_behind_the_lock() {
+    let files = generate_platform_handler_demo_with(&platform_handler_skeleton().content);
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs should be generated");
+    let src = &main.content;
+    assert!(
+        src.contains("__Lock_RawClock::new(crate::platform_main::HostRawClock::new(35))"),
+        "expected the lock adapter around the undeclared host, got:\n{src}"
+    );
+    assert!(
+        !src.contains("__Shared_HostRawClock") && !src.contains("__Arc_HostRawClock"),
+        "an undeclared host gets no `&self` twin or `Arc` adapter:\n{src}"
+    );
+}
+
+/// The demo above with the contract declared: the host promises concurrent
+/// safety, so the compiler shares it without a lock.
+const THREADSAFE_PLATFORM_HANDLER_DEMO: &str = r#"
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+threadsafe platform handler HostRawClock(offset: Int) of RawClock
+
+effect Clock {
+    fn stamp(label: Str) -> Str => label
+}
+
+handler DefaultClock [RawClock] of Clock {
+    fn stamp(label: Str) -> Str => label {
+        return "${label}@${raw_now()}"
+    }
+}
+
+fn main() [use] {
+    use StdOutConsole()
+    use HostRawClock(35)
+    use DefaultClock()
+    println(stamp("boot"))
+}
+"#;
+
+fn threadsafe_platform_handler_program() -> salvo_core::Program {
+    build_program(&[("main.sv", THREADSAFE_PLATFORM_HANDLER_DEMO)])
+}
+
+fn threadsafe_platform_handler_skeleton() -> salvo_backend_rust::EmittedFile {
+    let program = threadsafe_platform_handler_program();
+    let mut files = salvo_backend_rust::platform_skeletons(&program, None)
+        .unwrap_or_else(|errors| panic!("skeleton errors:\n{}", errors.join("\n")));
+    assert_eq!(files.len(), 1, "one module declares a platform handler");
+    files.remove(0)
+}
+
+fn generate_threadsafe_platform_handler_demo_with(
+    host: &str,
+) -> Vec<salvo_backend_rust::EmittedFile> {
+    let mut program = threadsafe_platform_handler_program();
+    program.companions.push(salvo_core::CompanionFile {
+        rel_path: std::path::PathBuf::from("platform/main.rs"),
+        module: salvo_core::ModulePath(vec!["main".into()]),
+        content: host.to_string(),
+        platform: true,
+    });
+    salvo_backend_rust::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    })
+}
+
+/// [threadsafe-platform] [rs-platform-handler] A **`threadsafe`** platform
+/// handler is shared as an `Arc` with no lock: the declaring module gains the
+/// `&self` twin trait `__Shared_H` and the `__Arc_H` adapter implementing the
+/// effect's own trait by forwarding, and the `use` site constructs the
+/// adapter around the host. No `__Lock_E` anywhere near it.
+#[test]
+fn a_threadsafe_platform_handler_shares_an_arc_with_no_lock() {
+    let files = generate_threadsafe_platform_handler_demo_with(
+        &threadsafe_platform_handler_skeleton().content,
+    );
+    let main = files
+        .iter()
+        .find(|f| f.rel_path == std::path::Path::new("main.rs"))
+        .expect("main.rs should be generated");
+    let src = &main.content;
+    for expected in [
+        "pub trait __Shared_HostRawClock: Send + Sync {",
+        "fn raw_now(&self) -> i32;",
+        "pub struct __Arc_HostRawClock {",
+        "inner: std::sync::Arc<crate::platform_main::HostRawClock>,",
+        "impl crate::RawClock for __Arc_HostRawClock {",
+        "fn raw_now(&mut self) -> i32 {\n        self.inner.raw_now()",
+        "__Arc_HostRawClock::new(crate::platform_main::HostRawClock::new(35))",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("__Lock_RawClock::new("),
+        "a threadsafe host must not be wrapped in the lock adapter:\n{src}"
+    );
+}
+
+/// [threadsafe-platform] [platform-tree] The skeleton prints the contract the
+/// implementer signs and takes `&self` receivers implementing the twin trait,
+/// so a host whose state is not `Sync` fails to compile under rustc.
+#[test]
+fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
+    let file = threadsafe_platform_handler_skeleton();
+    let src = &file.content;
+    for expected in [
+        "`threadsafe platform handler HostRawClock` — THE CONTRACT YOU ARE SIGNING",
+        "NO\n// lock around it",
+        "pub struct HostRawClock {",
+        "impl crate::__Shared_HostRawClock for HostRawClock {",
+        "fn raw_now(&self) -> i32 {",
+        "[threadsafe-platform]",
+    ] {
+        assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
+    }
+    assert!(
+        !src.contains("#[derive(Clone)]"),
+        "a threadsafe host is shared through an `Arc`, not cloned:\n{src}"
+    );
+    // And the undeclared skeleton says what the compiler does instead.
+    let plain = platform_handler_skeleton();
+    assert!(
+        plain.content.contains("the compiler SERIALIZES this instance")
+            && plain.content.contains("fn raw_now(&mut self) -> i32 {"),
+        "expected the serialized contract on the undeclared skeleton:\n{}",
+        plain.content
+    );
+}
+
+/// [threadsafe-platform] End to end under rustc with the *generated*
+/// threadsafe skeleton, one `&self` stub filled in. Same program, same
+/// output as the undeclared run — the contract changes the sharing, never
+/// the answer — and byte-identical to the Kotlin backend's.
+#[test]
+fn rustc_compiles_and_runs_a_threadsafe_platform_handler() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let skeleton = threadsafe_platform_handler_skeleton();
+    let host = skeleton
+        .content
+        .replace("todo!(\"implement RawClock.raw_now\")", "self.offset + 7");
+    assert_ne!(host, skeleton.content, "the stub should have been replaced");
+    let files = generate_threadsafe_platform_handler_demo_with(&host);
+    run_rust_files(&files, "threadsafe-platform-handler", "boot@42\n");
 }
 
 // ===== [rs-fn-param-convention] generic fn-typed parameters =====
@@ -12745,6 +12926,186 @@ fn rustc_compiles_and_runs_a_real_timer() {
     run_rust_files(&files, "time-timer", TIME_TIMER_OUTPUT);
 }
 
+// ===== the network sequence, step ①: `net` and `MemTransport` =====
+
+/// Two virtual nodes over one `MemNetwork`: an `Inbound` actor per node, a
+/// delivery, a partition that makes the same delivery `Unreachable`, a heal, a
+/// frame to an endpoint nobody listens at, and a killed node. What this
+/// exercises: a platform *effect's* shape realised by a pure-Salvo double
+/// (`MemTransport` is a stateless handler over an actor), the host→scheduler
+/// door (`Inbound` is an actor effect and `deliver` sends to it), and a
+/// `waitfor` inside a plain handler's member (the route lookup) serving its
+/// pool while it waits. Both backends print this text byte for byte.
+const NET_MEM_TRANSPORT: &str = r#"import net
+
+actor effect Counting {
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Receiving(label: Str) [Console] of Inbound, Counting {
+    mailbox { capacity: 16 }
+    seen: Int = 0
+
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        seen = seen + 1
+        println("${label} <- ${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+    }
+
+    send fn total(out: Reply<Int>) => !out {
+        out.send(seen)
+    }
+}
+
+fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => label, outcome {
+    when outcome {
+        is Ok { println("${label}: sent") }
+        is Err {
+            let e: NetError = outcome
+            println("${label}: ${to_str(e)}")
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let c = NodeEndpoint { host: "c", port: 9 }
+    let workers = pool(2)
+    let net = spawn MemNetwork() on workers
+    use MemTransport(copy(a), copy(net))
+
+    let (in_a, _count_a) = spawn Receiving("a") on workers
+    let (in_b, count_b) = spawn Receiving("b") on workers
+    report("listen a", listen(copy(a), in_a))
+    report("listen b", listen(copy(b), in_b))
+
+    report("hello", deliver(copy(b), to_bytes("hello")))
+    net.partition(copy(a), copy(b))
+    report("lost", deliver(copy(b), to_bytes("lost")))
+    net.heal(copy(a), copy(b))
+    report("again", deliver(copy(b), to_bytes("again")))
+    report("void", deliver(copy(c), to_bytes("void")))
+    net.kill(copy(b))
+    report("dead", deliver(copy(b), to_bytes("dead")))
+
+    let got = waitfor out: Reply<Int> { count_b.total(out) }
+    let routed = waitfor out: Reply<Int> { net.delivered(out) }
+    println("b saw ${got}, routed ${routed}")
+}
+"#;
+
+const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nb <- a:1: hello\nlost: unreachable: b:1\nagain: sent\nb <- a:1: again\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw 2, routed 2\n";
+
+/// [threadsafe-platform] A `threadsafe` platform handler nobody binds emits
+/// its `&self` twin trait (std's shipped host companion implements it, and is
+/// copied whenever `net` is reachable) but **not** its `Arc` adapter, which
+/// names the host struct — and nothing constructs the host.
+#[test]
+fn an_unused_threadsafe_platform_handler_emits_its_trait_but_no_adapter() {
+    let files = generate(&[("main.sv", NET_MEM_TRANSPORT)]);
+    let all: String = files.iter().map(|f| f.content.as_str()).collect();
+    assert!(
+        all.contains("pub trait __Shared_HostTcpTransport: Send + Sync {"),
+        "expected the twin trait for the shipped host to implement:\n{all}"
+    );
+    assert!(
+        !all.contains("pub struct __Arc_HostTcpTransport") && !all.contains("HostTcpTransport::new("),
+        "an unused threadsafe platform handler emitted its adapter or constructed the host:\n{all}"
+    );
+}
+
+/// The `MemTransport` double end to end under rustc.
+#[test]
+fn rustc_compiles_and_runs_the_mem_transport() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NET_MEM_TRANSPORT)]);
+    run_rust_files(&files, "net-mem-transport", NET_MEM_TRANSPORT_OUTPUT);
+}
+
+/// [threadsafe-platform] The real wire, on localhost: `HostTcpTransport` is
+/// std's first `threadsafe` platform handler, so this is the `Arc`-shared,
+/// `&self`-membered host compiled and run under rustc — and the host→scheduler
+/// door for real: a frame read on a socket thread becomes an activation
+/// through `__Stub_Inbound`. One smoke test per backend; everything else about
+/// the network runs on `MemTransport`. The port is this backend's own so the
+/// two suites can run at once.
+const NET_TCP_SMOKE: &str = r#"import net
+import time
+
+actor effect Seen {
+    send fn wait_one(out: Reply<Str>) => !out
+}
+
+// Records the one frame it expects and answers whoever asked for it —
+// ordering by data dependency, since the frame arrives on a socket thread.
+handler Echoing() of Inbound, Seen {
+    mailbox { capacity: 16 }
+    got: Str = ""
+    waiting: Mut List<Reply<Str>> = mut_list_of()
+
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        got = "${to_str(from)}: ${str_of_bytes(data) ?: "?"}"
+        let text = copy(got)
+        drain(waiting, r -> send(r, copy(text)))
+        waiting = mut_list_of()
+    }
+
+    send fn wait_one(out: Reply<Str>) => !out {
+        if got == "" {
+            add(waiting, out)
+            return
+        }
+        send(out, copy(got))
+    }
+}
+
+fn report(label: Str, outcome: Ok None | Err NetError) [Console] -> None => label, outcome {
+    when outcome {
+        is Ok { println("${label}: sent") }
+        is Err {
+            let e: NetError = outcome
+            println("${label}: ${to_str(e)}")
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let me = NodeEndpoint { host: "127.0.0.1", port: 47311 }
+    let nobody = NodeEndpoint { host: "127.0.0.1", port: 47312 }
+    use HostTcpTransport(copy(me))
+    let workers = pool(2)
+    let (echo, seen) = spawn Echoing() on workers
+    report("listen", listen(copy(me), echo))
+    report("void", deliver(copy(nobody), to_bytes("nobody home")))
+    report("hello", deliver(copy(me), to_bytes("hello over tcp")))
+    let frame = waitfor out: Reply<Str> { seen.wait_one(out) }
+    println("me <- ${frame}")
+    println("local ${to_str(local_endpoint())}")
+}
+"#;
+
+const NET_TCP_SMOKE_OUTPUT: &str = "listen: sent\nvoid: unreachable: 127.0.0.1:47312\nhello: sent\nme <- 127.0.0.1:47311: hello over tcp\nlocal 127.0.0.1:47311\n";
+
+#[test]
+fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
+    let all: String = files.iter().map(|f| f.content.as_str()).collect();
+    assert!(
+        all.contains("__Arc_HostTcpTransport::new(crate::platform_net::HostTcpTransport::new("),
+        "expected the threadsafe host behind its Arc adapter:\n{all}"
+    );
+    run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);
+}
+
 /// [time-manual] Virtual time, in pure Salvo, through a two-face handler.
 #[test]
 fn rustc_compiles_and_runs_manual_time() {
@@ -13466,10 +13827,16 @@ fn a_mixed_identity_fill_pairs_both_slots() {
         "and for a map too: {rust}"
     );
     // Each marker calls its identity by the name that identity is *emitted*
-    // under: the generated structural member is mangled (`eq__4`), and a marker
-    // that lost the mangling was rustc's E0425 in the value path beside it.
+    // under: the generated structural member is mangled (`eq__N`, N being
+    // however many `eq` overloads std happens to declare before it), and a
+    // marker that lost the mangling was rustc's E0425 in the value path
+    // beside it. Read the index off the emitted definition rather than
+    // pinning it, so a new `auto Hashed` struct in std does not break this.
+    let mangled_eq = mangled_name(&rust, "fn eq__", "(a: &Point, b: &Point)");
     assert!(
-        rust.contains("fn eq(__a: &Point, __b: &Point) -> bool { eq__4(__a, __b) }"),
+        rust.contains(&format!(
+            "fn eq(__a: &Point, __b: &Point) -> bool {{ {mangled_eq}(__a, __b) }}"
+        )),
         "a marker keeps its target's mangling: {rust}"
     );
 }
@@ -13609,7 +13976,10 @@ fn a_held_identity_is_shared_and_a_written_one_owned() {
     // And the caller's written fills at those kept positions arrive owned.
     assert!(
         rust.contains("std::sync::Arc::new(move |__i0| by_x(__i0))")
-            && rust.contains("std::sync::Arc::new(move |__i0, __i1| eq__4(__i0, __i1))"),
+            && rust.contains(&format!(
+                "std::sync::Arc::new(move |__i0, __i1| {}(__i0, __i1))",
+                mangled_name(&rust, "fn eq__", "(a: &Point, b: &Point)")
+            )),
         "written fills at kept positions are owned, and keep their mangling: {rust}"
     );
 }

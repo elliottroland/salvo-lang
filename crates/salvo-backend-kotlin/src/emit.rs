@@ -1993,7 +1993,34 @@ impl<'p> Emitter<'p> {
                 .collect();
             format!("({})", params.join(", "))
         };
-        let mut out = format!("\nclass {}{ctor} : {of} {{\n", kt_ident(&h.name.name));
+        // [threadsafe-platform] [kt-platform-handler] The contract, printed
+        // where the implementer signs it. Kotlin shares an object reference
+        // either way; what differs is whether the compiler wraps the
+        // instance in the effect's `synchronized` monitor (`__Mon_E`) — it
+        // does unless the declaration says `threadsafe`.
+        let contract = if h.threadsafe {
+            format!(
+                "\n// `threadsafe platform handler {}` — THE CONTRACT YOU ARE SIGNING:\n\
+                 // this instance is shared across every thread of the program with NO\n\
+                 // lock around it. Every member below may run concurrently with every\n\
+                 // other, so any mutable state needs its own synchronization\n\
+                 // (`ConcurrentHashMap`, atomics, `synchronized` blocks of your own). If\n\
+                 // the host cannot promise that, delete `threadsafe` from the Salvo\n\
+                 // declaration: the compiler then serializes the instance for you\n\
+                 // [threadsafe-platform].\n",
+                h.name.name
+            )
+        } else {
+            format!(
+                "\n// `platform handler {}` — the compiler SERIALIZES this instance: every\n\
+                 // member runs under one `synchronized` monitor on both backends, so\n\
+                 // plain fields are fine. If the host synchronizes internally and wants\n\
+                 // to run concurrently, declare it `threadsafe platform handler` in\n\
+                 // Salvo and regenerate [threadsafe-platform].\n",
+                h.name.name
+            )
+        };
+        let mut out = format!("{contract}class {}{ctor} : {of} {{\n", kt_ident(&h.name.name));
         for (i, f) in effect.fns.iter().enumerate() {
             let member_saved = self.enter_generics(&f.generics);
             let params = self.emit_member_param_list_with_implicits(f);
@@ -8102,6 +8129,10 @@ impl<'p> Emitter<'p> {
             Ty::Named { name, args } => match name.as_str() {
                 "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool"
                 | "Str" | "None" => true,
+                // [actor-types] [kt-actor] An addr or a pool is a scheduler
+                // index — an `Int` — so copying one is the reference itself;
+                // nothing reachable through it is the holder's to mutate.
+                "Addr" | "Pool" => true,
                 // A non-`Mut` list is read-only [type-canbe-mut].
                 "List" => args.iter().all(|a| self.ty_immutable(a, visiting)),
                 _ => {

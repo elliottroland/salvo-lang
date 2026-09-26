@@ -97,3 +97,32 @@ println("gates ${settled.parked_gates}, tokens ${settled.parked_tokens}")
 The token is minted like any other and **consumed** by the registration, so a hook you forget to register is the ordinary linearity error rather than a request that quietly never answers. The answer is edge-triggered and one-shot, because delivering it is itself work and ends the idleness that produced it: hearing about the next one means registering again. And it says what it says only while nothing outside the scheduler injects work — a platform handler with a thread of its own can make "idle" stale.
 
 Finally, what a task body may *do*. It is ordinary Salvo, with one restriction: it declares no effects. A task runs detached from the frame that minted it — that frame may have returned by the time it runs — so there is no scope left to supply its handlers from. Reaching an actor needs no effect declaration, so the way to give a task a capability is to hand it an `Addr` as a capture and send to it; anything else belongs in the function that mints. A task may wait (`waitfor` needs no declaration anywhere), and a wait serves the pool it runs on.
+
+## Across machines — the wire (step ① of the network sequence)
+
+Actors will run across a network, and the design that lands them (user decisions 2026-09-26; ROADMAP.md section 2) has one line: **the network enters at the actor group, never at the spawn.** Every actor is spawned by the node that hosts it, on its own pools; what crosses the wire is addresses and messages; a function declaring `[E]` never learns whether `E` is one local handler, an actor, or a group of a hundred across a fleet. The groups, the codecs and the routing arrive in later steps. What exists now is the bottom of the stack, module `net`: the wire.
+
+```
+import net
+
+handler Receiving() [Console] of Inbound {           // frames arrive as messages
+    mailbox { capacity: 16 }
+    send fn frame(from: NodeEndpoint, data: Bytes) => !from, !data {
+        println("${to_str(from)}: ${str_of_bytes(data) ?: "?"}")
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let me = NodeEndpoint { host: "127.0.0.1", port: 7000 }
+    use HostTcpTransport(copy(me))                    // the wire: a host class
+    listen(copy(me), spawn Receiving() on pool(1))    // receive here
+    deliver(copy(me), to_bytes("hello"))              // Ok: accepted by the wire
+}
+```
+
+Two halves, deliberately asymmetric. **Outbound** is a plain effect, `Transport`: `deliver(to, frame)` is a call on the sender's thread that answers whether the frame was handed to the wire — `Ok` means accepted, never that the far side has it. **Inbound** is an *actor* effect: bytes arrive on a thread the host owns, and the only way work from a foreign thread enters the scheduler is a send. So a node that wants to receive spawns an actor serving `Inbound` and registers its addr with `listen`, and the transport sends every arriving frame to it. Delivery is at most once and in order per pair, and nothing more; anything stronger is a protocol over this.
+
+`HostTcpTransport` is the machine's transport and std's first **`threadsafe` platform handler** (Backends.md) — a transport is reached from every pool at once, so the host synchronizes itself and the compiler shares it with no lock. Its listener also tells the scheduler that an outside source of work is open, so a program waiting for a frame is neither idle nor deadlocked while the wire may still deliver one.
+
+`MemTransport` is the double every later step tests on: one `MemNetwork` actor many virtual nodes share (with `partition`, `heal` and `kill` as its members, so a test scripts the faults), and one `MemTransport(me, net)` per node. It runs the same `Inbound` actors, frames and errors the real transport does, in one process, on both backends, with identical output.

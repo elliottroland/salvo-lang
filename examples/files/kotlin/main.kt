@@ -359,7 +359,7 @@ fun<__Fx> sandbox_edges(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val __fx = __Fx_1(StdOutConsole())
-    val __fx2 = __Fx_2(__fx.__fx_Console, salvo.platform.fs.host.HostRawFs())
+    val __fx2 = __Fx_2(__fx.__fx_Console, __Mon_RawFs(salvo.platform.fs.host.HostRawFs()))
     val __fx3 = __Fx_3(__fx2.__fx_Console, DefaultFs(__fx2), __fx2.__fx_RawFs)
     val root = "tmp/files-example"
     val made = __fx3.__fx_Fs.create_dirs(root)

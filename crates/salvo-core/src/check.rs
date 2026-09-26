@@ -461,6 +461,12 @@ pub struct Checked {
     /// — never off their own re-derivation (checker and emitter must
     /// agree).
     pub use_kinds: HashMap<Key, UseKind>,
+    /// [threadsafe-platform] The handlers some `use` statement in the
+    /// program constructs, by name. What lets a backend emit a platform
+    /// handler's sharing adapter — which names the host class, and so
+    /// demands the host companion — only for handlers a program actually
+    /// binds, rather than for every one a reachable module declares.
+    pub used_handlers: std::collections::HashSet<String>,
     /// Effect instances resolved for a `use`d handler's *dependencies*
     /// [effect-handler-deps], in the handler's declaration order (keyed by
     /// the `use` statement span). Only present when the handler declares
@@ -7080,6 +7086,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             UseKind::Local
         };
         self.out.use_kinds.insert(self.key(span), kind);
+        self.out.used_handlers.insert(id.name.clone());
         self.finish_use(id, concrete, deps, kind, with_items, span);
     }
 
@@ -7454,16 +7461,20 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.generics = saved;
-        // [platform-handler] A platform handler is **assumed thread-safe by
-        // its design** (user decision 2026-09-20, second round): it
-        // classifies as bare/stateless — no `local E` anywhere near it, and
-        // no lock imposed on a host that does its own synchronization. Its
-        // state is the host's and invisible here, so this is an assumption,
-        // not a proof; a way to validate/specify it is future work
-        // (ROADMAP). The Rust lowering still shares the instance through
-        // the lock adapter — a mechanical consequence of `&mut self`
-        // members, not a semantic claim ([rs-platform-handler]).
-        let stateful = !decl.state.is_empty();
+        // [platform-handler] [threadsafe-platform] A platform handler's
+        // state is the host's and invisible here, so its shareability is a
+        // *contract*, not a proof — and since 2026-09-26 (user decision) the
+        // contract is written: `threadsafe platform handler` classifies
+        // **bare** (the host synchronizes internally; both backends share the
+        // raw instance, Rust through `&self` members over an `Arc`), and a
+        // platform handler *without* the word classifies as a **monitor** —
+        // serialized behind a lock on both backends, so a host that did not
+        // claim safety behaves identically everywhere and pays only the lock.
+        // Neither is an error: the undeclared case is the safe default, and
+        // the word is the opt-out. (Until 2026-09-26 the assumption ran the
+        // other way — assumed thread-safe, unvalidated — with the two
+        // backends sharing differently; [rs-platform-handler] records it.)
+        let stateful = !decl.state.is_empty() || (decl.platform && !decl.threadsafe);
         // A stateful shared binding is one instance behind one lock; several
         // faces would need one lock behind several effect types, which has
         // no backend representation yet (the monitor spawn's rule).

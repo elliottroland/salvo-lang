@@ -249,16 +249,37 @@ fn a_platform_handler_is_registered_with_use_like_any_handler() {
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
 }
 
-/// [platform-handler] [use-local] A platform handler is **assumed
-/// thread-safe by its design** (user decision 2026-09-20): it classifies
-/// bare/stateless, so a handler depending on its effect binds shareable
-/// with no `local E` anywhere — the `DefaultFs [RawFs]` shape. Validating
-/// or specifying the assumption is future work (ROADMAP).
+/// [platform-handler] [use-local] [threadsafe-platform] A platform handler
+/// classifies **shareable** either way (user decision 2026-09-26): without
+/// `threadsafe` as a monitor (serialized behind a lock on both backends),
+/// with it bare (shared raw). Either satisfies a bare `[RawFs]`, so a handler
+/// depending on its effect binds shareable with no `local E` anywhere — the
+/// `DefaultFs [RawFs]` shape — whichever the host declared. The two kinds are
+/// told apart in the backends' emission tests (lock adapter / `__Mon_E`
+/// present or absent).
 #[test]
-fn a_platform_handler_shares_bare_and_needs_no_local_dependency() {
+fn a_platform_handler_shares_and_needs_no_local_dependency() {
     let errs = messages(&src(
         "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
          platform handler HostRawFs of RawFs\n\n\
+         effect Fs {\n    fn shut(handle: Int) -> Bool => handle\n}\n\n\
+         handler DefaultFs [RawFs] of Fs {\n    \
+         fn shut(handle: Int) -> Bool => handle {\n        \
+         return raw_close(handle)\n    }\n}\n\n\
+         fn close_it(handle: Int) [Fs] -> Bool {\n    return shut(handle)\n}\n\n\
+         fn main() [use] -> None {\n    use HostRawFs()\n    use DefaultFs()\n    \
+         close_it(1)\n}\n",
+    ));
+    assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [threadsafe-platform] The declared form checks identically: `threadsafe`
+/// changes how the instance is shared, never whether it may be.
+#[test]
+fn a_threadsafe_platform_handler_shares_and_needs_no_local_dependency() {
+    let errs = messages(&src(
+        "effect RawFs {\n    fn raw_close(handle: Int) [] -> Bool => handle\n}\n\n\
+         threadsafe platform handler HostRawFs of RawFs\n\n\
          effect Fs {\n    fn shut(handle: Int) -> Bool => handle\n}\n\n\
          handler DefaultFs [RawFs] of Fs {\n    \
          fn shut(handle: Int) -> Bool => handle {\n        \

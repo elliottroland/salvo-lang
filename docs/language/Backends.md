@@ -141,6 +141,19 @@ Three restrictions, each following from the implementation not being Salvo's:
 * **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] of Clock` is exactly that.
 * **Not generic**, for the reason a platform effect is not: the host writes one concrete class.
 
+### The thread-safety contract: `threadsafe`
+
+A `use` of a platform handler binds shareable like any handler's, and the instance may be reached from every thread of the program. Whether that is safe is a fact about the *host class*, which the compiler cannot see — so the declaration states it:
+
+```
+threadsafe platform handler HostTcpTransport(port: Int) of Transport
+platform handler HostRawFs of RawFs
+```
+
+**Without the word, the compiler serializes the instance** — every member runs under one lock, on both backends — so a host that keeps plain fields and never thought about threads works identically everywhere and pays only the lock. `HostRawFs` is written that way. **With `threadsafe`, the host promises it may be entered concurrently** (it synchronizes internally, or holds nothing that needs it) and the compiler shares the raw instance with no lock. On Rust the promise is half-checked: the host's members take `&self`, so a field that is not `Sync` does not compile; on Kotlin the host is trusted.
+
+`salvo platform generate` prints whichever contract the declaration made into the skeleton it writes, so the person implementing the host signs what the compiler assumes — and regenerating after adding or removing the word changes the skeleton's shape (the Rust receivers switch between `&self` and `&mut self`).
+
 The two forms answer different questions. Use a `platform effect` when the *capability* is the host's and the program is a guest in the host's process — the host constructs everything and owns `main`. Use a `platform handler` when the capability is the language's, several implementations exist, and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses the second form itself, and ships its host classes the same way — under `std`'s own `platform/` tree, one file per backend.
 
 # Specific backend details

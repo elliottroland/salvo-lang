@@ -84,6 +84,13 @@ struct Writing {
     failed: Option<Kind>,
 }
 
+// `platform handler HostRawFs` — the compiler SERIALIZES this instance: every
+// member runs under one lock on both backends, so the receivers are
+// `&mut self` and the plain hash maps below are fine. If the host ever
+// synchronizes internally and wants to run concurrently, declare it
+// `threadsafe platform handler` in Salvo and switch the receivers to `&self`
+// [threadsafe-platform]. Reviewed 2026-09-26: an open-file table keyed by
+// handle is inherently one-writer state, so undeclared is the right call.
 pub struct HostRawFs {
     next_handle: i64,
     reading: HashMap<i64, Reading>,
