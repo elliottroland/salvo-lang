@@ -3435,11 +3435,11 @@ export fn by_x(p: Point) -> Long => p {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let s: Mut Set<Point> = mut_set_of(hash = by_x)
+    let s: Mut Set<Point> = mut_set_of(hash = by_x, eq = eq)
     add(s, Point {x: 1, y: 1})
     add(s, Point {x: 1, y: 2})
     add(s, Point {x: 1, y: 1})
-    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x)
+    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x, eq = eq)
     put(m, Point {x: 5, y: 0}, 1)
     put(m, Point {x: 5, y: 0}, 2)
     let v = get(m, Point {x: 5, y: 0})
@@ -3485,14 +3485,18 @@ fn kotlinc_compiles_and_runs_a_mixed_identity() -> KotlinCase {
 /// parameter name and a named one is `::name`, and the container takes two
 /// functions either way.
 const GENERIC_MIXED_DEMO: &str = r#"
-// A generic identity that needs no capability of its own.
+// Generic identities, both written at the constructor — one source, so the rule
+// allows it. The subject is a type *variable*, which no marker type can name.
+export fn wide_hash<T>(a: T) -> Long => a {
+    return 1
+}
+
 export fn all_same<T>(a: T, b: T) -> Bool => a, b {
     return true
 }
 
-// One slot forwarded (`hash`), one written at the constructor (`eq`).
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
-    let s: Mut Set<T> = mut_set_of(eq = all_same)
+    let s: Mut Set<T> = mut_set_of(hash = wide_hash, eq = all_same)
     add(s, a)
     add(s, b)
     return s
@@ -3504,12 +3508,55 @@ fn main() [use] -> None {
 }
 "#;
 
-fn kotlinc_compiles_and_runs_a_generic_mixed_identity() -> KotlinCase {
+fn kotlinc_compiles_and_runs_a_generic_written_identity() -> KotlinCase {
     let program = build_program(&[("main.sv", GENERIC_MIXED_DEMO)]);
     let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
         panic!("codegen errors:\n{}", errors.join("\n"));
     });
-    kotlin_case(files, "generic_mixed_identity", "2\n")
+    kotlin_case(files, "generic_written_identity", "1\n")
+}
+
+/// [cmp-carry] [kt-keyed] An identity assembled from **two different sources** —
+/// `hash` forwarded from the fn's own implicit, `eq` resolved — byte-identical to
+/// the Rust backend's `rustc_compiles_and_runs_an_identity_from_two_sources`,
+/// where the shape closed two defects. This backend always handled it; the case
+/// is here so the two stay verified together [backend-parity].
+const MIXED_SOURCE_DEMO: &str = r#"
+struct Point : auto Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+export fn by_x(p: Point) -> Long => p {
+    return to_long(p.x)
+}
+
+// Declares only `?hash`, individually — no group spread anywhere. Inside, the
+// container's `hash` is *forwarded* from this parameter while its `eq` is
+// *resolved* to Point's generated one. Nobody writes anything at the
+// constructor.
+// Holding the *pair* rather than half of it: both members are then forwarded,
+// which is one source.
+fn collect(a: Point, b: Point, ?Hashed<Point>) -> Set<Point> => !a, !b {
+    let s: Mut Set<Point> = mut_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s = collect(Point {x: 1, y: 1}, Point {x: 1, y: 2}, hash = by_x, eq = eq)
+    println("${size(s)}")
+}
+"#;
+
+fn kotlinc_compiles_and_runs_a_held_identity() -> KotlinCase {
+    let program = build_program(&[("main.sv", MIXED_SOURCE_DEMO)]);
+    let files = salvo_backend_kotlin::emit_program(&program).unwrap_or_else(|errors| {
+        panic!("codegen errors:\n{}", errors.join("\n"));
+    });
+    kotlin_case(files, "held_identity", "2\n")
 }
 
 /// [cmp-carry] [kt-keyed] [implicit-intrinsic] The other half of a mixed fill:
@@ -3524,7 +3571,7 @@ fn a_host_slot_in_a_mixed_pair_becomes_its_lowering() {
          return true\n}\n\
          fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let s: Mut Set<Int> = mut_set_of(eq = all_same)\n    \
+         let s: Mut Set<Int> = mut_set_of(hash = hash, eq = all_same)\n    \
          add(s, 1)\n    \
          println(\"${size(s)}\")\n}\n",
     )]);
@@ -4225,8 +4272,9 @@ fn kotlinc_compiles_and_runs_distinct_pair_calls() -> KotlinCase {
 }
 
 const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
+    kotlinc_compiles_and_runs_a_held_identity,
     kotlinc_compiles_and_runs_a_mixed_identity,
-    kotlinc_compiles_and_runs_a_generic_mixed_identity,
+    kotlinc_compiles_and_runs_a_generic_written_identity,
     kotlinc_compiles_and_runs_a_generic_keyed_container,
     kotlinc_compiles_and_runs_elem_mut_handles,
     kotlinc_compiles_and_runs_distinct_pair_calls,

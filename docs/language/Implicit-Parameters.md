@@ -67,6 +67,29 @@ implicit parameters in their own right, so they are called unqualified inside
 the body and overridden by their own names outside it. A `params` group is
 never a value — it exists only to keep a signature short.
 
+Overriding "one or both" is the usual freedom: a group is a convenience for the
+declaration, not a contract the caller must fill wholesale. Some members are only
+meaningful together, though, and a clause says which:
+
+```
+params Hashed<T> => eq with hash {
+    fn hash(value: T) -> Long
+    fn eq(a: T, b: T) -> Bool
+}
+```
+
+`eq with hash` means the two are **one decision**: a call writes both, forwards
+both, or leaves both to resolution, and mixing those is an error that names the
+fix. A hash and an equality have to agree — equal values must hash equally — and
+a container that buckets by the hash would never consult an equality somebody
+else chose, so half a pair is either invisible or broken.
+
+`with` is symmetric (agreement has no direction) and chains: `a with b with c`
+makes the three one class. A function may add relations of its own —
+`fn f<T>(?Hashed<T>, ?at: …) => at with hash` — but never drop one it inherited
+by spreading a group; declaring the members individually (`?hash: …, ?eq: …`) is
+how a signature takes them unrelated.
+
 `core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
 `Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Yield<It, T>`
 (`next`), `Locate<C, L, T>` (`at`). A type joins any of them by declaring the

@@ -494,6 +494,7 @@ Module {
                         span: 3119..3162,
                     },
                 ],
+                deductions: [],
                 span: 3093..3175,
             },
         ),

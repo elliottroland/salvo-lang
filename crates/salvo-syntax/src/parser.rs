@@ -1581,6 +1581,37 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::KwParams)?.span;
         let name = self.ident_type("params group")?;
         let generics = self.parse_generics();
+        // [implicit-with] The group's own clause, before the body: `params
+        // Hashed<T> => eq with hash { … }`. Spreading a group opts into its
+        // deductions along with its members (user decision 2026-09-26), so the
+        // clause is written where the members are.
+        let mut deductions: Vec<Deduction> = Vec::new();
+        if self.at(&TokenKind::FatArrow) {
+            let arrow = self.bump().span;
+            loop {
+                let Some(entry) = self.parse_deduction_entry() else {
+                    return None;
+                };
+                if !matches!(entry.kind, DeductionKind::With { .. }) {
+                    self.error(
+                        "a params group's clause states only which of its members are \
+                         filled together (`=> eq with hash`): it has no body and no \
+                         parameters of its own",
+                        entry.span,
+                    );
+                    return None;
+                }
+                deductions.push(entry);
+                deductions.extend(std::mem::take(&mut self.pending_deductions));
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            if deductions.is_empty() {
+                self.error("expected a deduction entry after `=>`", arrow);
+                return None;
+            }
+        }
         self.expect(&TokenKind::LBrace)?;
         let mut fns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
@@ -1594,6 +1625,7 @@ impl<'s> Parser<'s> {
             name,
             generics,
             fns,
+            deductions,
             span: start.to(end),
         })
     }
@@ -2323,6 +2355,49 @@ impl<'s> Parser<'s> {
                 span: start.to(end),
                 target: DeductionTarget::Param { name, path: Vec::new() },
                 kind: DeductionKind::CanBe { others, anchored },
+            });
+        }
+        // [implicit-with] `=> eq with hash`, and chains (`a with b with c`) —
+        // implicit parameters that are only meaningful together (user decision
+        // 2026-09-26). Shaped like `canbe` above, and symmetric for a related
+        // reason: the entry states a relation between parameters rather than a
+        // property of one.
+        if self.at(&TokenKind::KwWith) {
+            let mut others: Vec<Ident> = Vec::new();
+            while self.eat(&TokenKind::KwWith).is_some() {
+                let other = self.ident()?;
+                end = other.span;
+                others.push(other);
+            }
+            let Some(name) = target else {
+                self.error(
+                    "a `with` entry names implicit parameters, not a result path",
+                    start.to(end),
+                );
+                return None;
+            };
+            if !path.is_empty() {
+                self.error(
+                    "a `with` entry's subject is a parameter, not a field path",
+                    start.to(end),
+                );
+            }
+            for subject in plural_subjects {
+                self.pending_deductions.push(Deduction {
+                    span: start.to(end),
+                    target: DeductionTarget::Param {
+                        name: subject,
+                        path: Vec::new(),
+                    },
+                    kind: DeductionKind::With {
+                        others: others.clone(),
+                    },
+                });
+            }
+            return Some(Deduction {
+                span: start.to(end),
+                target: DeductionTarget::Param { name, path: Vec::new() },
+                kind: DeductionKind::With { others },
             });
         }
         let kind = if self.eat(&TokenKind::Colon).is_some() {

@@ -2589,12 +2589,8 @@ Conventions:
   * **A group is a convenience, not a contract** (user decision 2026-09-26): a
     caller may fill any subset of its members, and a **mixed fill** — one
     member written, the rest left to resolution — is honoured rather than
-    refused. `mut_set_of(hash = by_x)` keeps the `eq` resolution finds and both
-    backends key the container by the pair [cmp-carry]. `?Hashed<T>` is the
-    case that argues the other way, since a hash and an equality only mean
-    something together; the proposal for a group that *must* be filled as a
-    unit (`atomic params`) is recorded in ROADMAP with its motivating example,
-    and until it is decided a group imposes nothing.
+    refused. What a group *may* state is that some of its members go together
+    [implicit-with].
   * A group is never a value, which is what keeps it free of any runtime
     representation: neither backend knows groups exist. Declaring one as a
     struct of fn-typed fields instead is possible since [rs-fn-field] (a
@@ -2728,7 +2724,57 @@ Conventions:
   * Without it the generic half of a sequence function would only work with
     a written type-argument list: the lambda would be checked against an
     unbound `T`, and `U` would then be undeterminable [call-type-args].
-* [implicit-resolve]'s candidate test is **parameter-contravariant**: a
+* [implicit-with] **Implicits that are filled together.** A deduction clause
+  entry relates two implicit parameters — `=> eq with hash` — and says they are
+  one decision: a call fills every member of the relation **from one source**, or
+  leaves them all alone (user decision 2026-09-26). It is written on a function,
+  or on a `params` group, which is where a group states what its members mean
+  together:
+
+  ```
+  fn f<T>(?func: (T) -> Bool, ?other: (T, T) -> Int) => func with other
+
+  params Hashed<T> => eq with hash {
+      fn hash(value: T) -> Long
+      fn eq(a: T, b: T) -> Bool
+  }
+  ```
+
+  * **Why a group would want one**: `?Hashed<T>` is the motivating case. A hash
+    and an equality are meaningful only as a pair (`eq(x, y)` implies
+    `hash(x) == hash(y)`), and a container buckets by the hash *first*, so a
+    custom equality beside a resolved hash quietly does nothing rather than
+    failing [cmp-carry]. `with` turns that into a diagnostic.
+  * **The three sources** are what a call site can supply: the caller **wrote**
+    the member (`eq = all_same`), the enclosing fn **forwarded** its own, or
+    **resolution** found a declaration [implicit-resolve]. Mixing them across one
+    relation is the error; the remedy is to **write them out**
+    (`mut_set_of(hash = by_x, eq = eq)`), which states the agreement instead of
+    assembling it. Where a member is *forwarded*, writing it out is impossible —
+    a keyed container's identity has to be a name a type can carry — so the
+    remedy there is to hold the whole group, and the diagnostic says which
+    applies.
+  * **Symmetric**, because the relation states that two implicits must *agree*
+    and agreement has no direction. `?Hashed<T>` looks directed — writing `eq`
+    alone is always wrong while writing `hash` alone is often fine — but a hash
+    written against a coarse declared `eq` breaks the implication too, and the
+    checker cannot tell those apart without reasoning about what a body reads.
+    Where a relation genuinely *is* directed the honest statement is a
+    derivation, not this word.
+  * **Transitive by the check**, so the relations form **components**: "if any
+    member of a component is filled, every member must be" already forces the
+    closure in one pass. A **chain** is therefore one entry — `a with b with c`
+    binds all three — and the diagnostic names the whole component rather than
+    one missing partner.
+  * **A signature may add pairs and never remove them.** A fn's own clause unions
+    with the clause of every group it **spreads**, because spreading a group opts
+    into its deductions along with its members. Declaring the same functions
+    *individually* is how a signature takes them unbound — which is what makes
+    "never remove" cost nothing.
+  * A `with` naming something that is not an implicit parameter of the signature
+    is an error: only a `?name` position is *filled*.
+
+* [implicit-resolve]* [implicit-resolve]'s candidate test is **parameter-contravariant**: a
   visible `size(list: List<T>) -> Int` fills a position wanting
   `(Mut List<Int>) -> Int`, because reading a list that happens to be
   mutable is what it does. (`is_subtype` compares fn parameters invariantly

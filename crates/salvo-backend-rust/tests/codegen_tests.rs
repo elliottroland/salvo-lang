@@ -13229,11 +13229,11 @@ export fn by_x(p: Point) -> Long => p {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    let s: Mut Set<Point> = mut_set_of(hash = by_x)
+    let s: Mut Set<Point> = mut_set_of(hash = by_x, eq = eq)
     add(s, Point {x: 1, y: 1})
     add(s, Point {x: 1, y: 2})
     add(s, Point {x: 1, y: 1})
-    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x)
+    let m: Mut Map<Point, Int> = mut_map_of(hash = by_x, eq = eq)
     put(m, Point {x: 5, y: 0}, 1)
     put(m, Point {x: 5, y: 0}, 2)
     let v = get(m, Point {x: 5, y: 0})
@@ -13256,12 +13256,19 @@ fn a_mixed_identity_fill_pairs_both_slots() {
     // The written `hash` and the generated `eq`, as one marker pair — a written
     // fill is a carried identity now, which is what the checker was missing.
     assert!(
-        rust.contains("SalvoSet::from_elements::<__Hash_by_x_Point, __Eq_eq__Point_Point, _>"),
-        "the written hash pairs with the resolved eq: {rust}"
+        rust.contains("SalvoSet::from_elements::<__Hash_by_x_Point, __Eq_eq_Point, _>"),
+        "the written hash pairs with the written eq: {rust}"
     );
     assert!(
-        rust.contains("SalvoMap::from_entries::<__Hash_by_x_Point, __Eq_eq__Point_Point, _>"),
+        rust.contains("SalvoMap::from_entries::<__Hash_by_x_Point, __Eq_eq_Point, _>"),
         "and for a map too: {rust}"
+    );
+    // Each marker calls its identity by the name that identity is *emitted*
+    // under: the generated structural member is mangled (`eq__4`), and a marker
+    // that lost the mangling was rustc's E0425 in the value path beside it.
+    assert!(
+        rust.contains("fn eq(__a: &Point, __b: &Point) -> bool { eq__4(__a, __b) }"),
+        "a marker keeps its target's mangling: {rust}"
     );
 }
 
@@ -13275,19 +13282,24 @@ fn rustc_compiles_and_runs_a_mixed_identity() {
     run_rust_files(&files, "mixed_identity", "2 1 2\n");
 }
 
-/// [cmp-carry] [rs-stored-implicit] The two features crossed: a **mixed fill
-/// inside a generic body**, where one slot is the capability the function was
-/// handed and the other is a name. A marker cannot be mixed into a value pair,
-/// so the named slot becomes a closure of its own beside the forwarded handle.
+/// [cmp-carry] [rs-stored-implicit] [implicit-with] Identities **written out
+/// inside a generic body**, which is the only way to name them there: an identity
+/// group is filled from one source, so a forwarded member cannot sit beside a
+/// written one. The subject is a type variable, which no marker type can name, so
+/// the container is keyed by values here too.
 const GENERIC_MIXED_DEMO: &str = r#"
-// A generic identity that needs no capability of its own.
+// Generic identities, both written at the constructor — one source, so the rule
+// allows it. The subject is a type *variable*, which no marker type can name.
+export fn wide_hash<T>(a: T) -> Long => a {
+    return 1
+}
+
 export fn all_same<T>(a: T, b: T) -> Bool => a, b {
     return true
 }
 
-// One slot forwarded (`hash`), one written at the constructor (`eq`).
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
-    let s: Mut Set<T> = mut_set_of(eq = all_same)
+    let s: Mut Set<T> = mut_set_of(hash = wide_hash, eq = all_same)
     add(s, a)
     add(s, b)
     return s
@@ -13300,7 +13312,7 @@ fn main() [use] -> None {
 "#;
 
 #[test]
-fn a_generic_body_mixes_a_forwarded_and_a_named_identity() {
+fn a_generic_body_writes_both_identities_out() {
     let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
     let rust = files
         .iter()
@@ -13308,23 +13320,137 @@ fn a_generic_body_mixes_a_forwarded_and_a_named_identity() {
         .expect("main.rs")
         .content
         .clone();
+    // No marker can name a type variable, so both written identities become
+    // closures — and the fn carries the store's bounds even though none of its
+    // own implicits is kept.
     assert!(
         rust.contains(
-            "SalvoSet::with_fns(std::sync::Arc::clone(&hash), \
+            "SalvoSet::with_fns(std::sync::Arc::new(move |__v: &T| wide_hash(__v)), \
              std::sync::Arc::new(move |__a: &T, __b: &T| all_same(__a, __b)))"
         ),
-        "the forwarded handle is shared and the named identity wrapped: {rust}"
+        "a written identity over a type variable is a closure: {rust}"
+    );
+    assert!(
+        rust.contains("pub fn gather<T: Clone + Send + 'static>"),
+        "a fn building a value-keyed container carries the store's bounds: {rust}"
     );
 }
 
 #[test]
-fn rustc_compiles_and_runs_a_generic_mixed_identity() {
+fn rustc_compiles_and_runs_a_generic_written_identity() {
     if !rustc_available() {
         eprintln!("skipping: rustc not found on PATH");
         return;
     }
     let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
-    run_rust_files(&files, "generic_mixed_identity", "2\n");
+    run_rust_files(&files, "generic_written_identity", "1\n");
+}
+
+/// [cmp-carry] [rs-stored-implicit] [implicit-with] A fn that **holds the whole
+/// identity** and a caller that **writes it out** — the legal shape of what was
+/// once an identity assembled from two sources. Found 2026-09-26 while answering
+/// what "filled" means for the fill-together rule, and it closed two defects
+/// [backend-never-wrong]:
+///
+///  * the value path **cloned** the declaration it names, and `rust_fn_name`
+///    identifies an overload by pointer — so a generated structural member
+///    (`eq__4`) came out as the unmangled `eq`, rustc's E0425;
+///  * a **written** fill at a kept position was still handed over as a borrow,
+///    rustc's E0308, because only the forwarded and resolved fills had learned
+///    the owned convention.
+const MIXED_SOURCE_DEMO: &str = r#"
+struct Point : auto Hashed<self> {
+    x: Int,
+    y: Int
+}
+
+export fn by_x(p: Point) -> Long => p {
+    return to_long(p.x)
+}
+
+// Declares only `?hash`, individually — no group spread anywhere. Inside, the
+// container's `hash` is *forwarded* from this parameter while its `eq` is
+// *resolved* to Point's generated one. Nobody writes anything at the
+// constructor.
+// Holding the *pair* rather than half of it: both members are then forwarded,
+// which is one source.
+fn collect(a: Point, b: Point, ?Hashed<Point>) -> Set<Point> => !a, !b {
+    let s: Mut Set<Point> = mut_set_of()
+    add(s, a)
+    add(s, b)
+    return s
+}
+
+fn main() [use] -> None {
+    use StdOutConsole()
+    let s = collect(Point {x: 1, y: 1}, Point {x: 1, y: 2}, hash = by_x, eq = eq)
+    println("${size(s)}")
+}
+"#;
+
+#[test]
+fn a_held_identity_is_shared_and_a_written_one_owned() {
+    let files = generate(&[("main.sv", MIXED_SOURCE_DEMO)]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    // Both members are forwarded, so the container shares both handles.
+    assert!(
+        rust.contains(
+            "SalvoSet::with_fns(std::sync::Arc::clone(&hash), std::sync::Arc::clone(&eq))"
+        ),
+        "a forwarded pair is shared, not rebuilt: {rust}"
+    );
+    // And the caller's written fills at those kept positions arrive owned.
+    assert!(
+        rust.contains("std::sync::Arc::new(move |__i0| by_x(__i0))")
+            && rust.contains("std::sync::Arc::new(move |__i0, __i1| eq__4(__i0, __i1))"),
+        "written fills at kept positions are owned, and keep their mangling: {rust}"
+    );
+}
+
+#[test]
+fn rustc_compiles_and_runs_a_held_identity() {
+    if !rustc_available() {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let files = generate(&[("main.sv", MIXED_SOURCE_DEMO)]);
+    run_rust_files(&files, "held_identity", "2\n");
+}
+
+/// [rs-stored-implicit] A **written lambda** at a kept position: `move` is only
+/// legal directly before a closure's `|`, so it attaches to the lambda rather
+/// than to a parenthesized expression.
+#[test]
+fn a_written_lambda_at_a_kept_position_moves() {
+    let files = generate(&[(
+        "main.sv",
+        "struct Point : auto Hashed<self> {\n    \
+         x: Int,\n    \
+         y: Int\n}\n\
+         fn collect(a: Point, ?Hashed<Point>) -> Set<Point> => !a {\n    \
+         let s: Mut Set<Point> = mut_set_of()\n    \
+         add(s, a)\n    \
+         return s\n}\n\
+         fn main() [use] -> None {\n    \
+         use StdOutConsole()\n    \
+         let s = collect(Point {x: 1, y: 1}, hash = (p: Point) -> to_long(p.x), eq = eq)\n    \
+         println(\"${size(s)}\")\n}\n",
+    )]);
+    let rust = files
+        .iter()
+        .find(|f| f.rel_path.to_string_lossy() == "main.rs")
+        .expect("main.rs")
+        .content
+        .clone();
+    assert!(
+        rust.contains("std::sync::Arc::new(move |p: &Point|"),
+        "the lambda itself is moved, not a parenthesized copy of it: {rust}"
+    );
 }
 
 /// [cmp-carry] [rs-borrows] A declared identity over a **Copy scalar** takes its
@@ -13340,7 +13466,7 @@ fn a_scalar_identitys_marker_derefs_its_arguments() {
          return true\n}\n\
          fn main() [use] -> None {\n    \
          use StdOutConsole()\n    \
-         let s: Mut Set<Int> = mut_set_of(eq = all_same)\n    \
+         let s: Mut Set<Int> = mut_set_of(hash = hash, eq = all_same)\n    \
          add(s, 1)\n    \
          println(\"${size(s)}\")\n}\n",
     )]);

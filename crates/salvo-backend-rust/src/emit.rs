@@ -1413,6 +1413,9 @@ struct Emitter<'p> {
     /// these is one of these. Empty in a program that builds no keyed
     /// container inside a generic fn, which is the usual case.
     stored_implicits: HashSet<(salvo_core::FnKey, String)>,
+    /// [rs-stored-implicit] The fns building a container keyed by values, whose
+    /// generics therefore carry the store's `Send + 'static`.
+    value_keyed_fns: HashSet<salvo_core::FnKey>,
     /// [rs-stored-implicit] The key of the top-level fn being emitted, for
     /// asking whether one of *its* implicits is kept. `None` inside a member,
     /// which cannot be generic and so cannot carry a forwarded identity.
@@ -1502,11 +1505,15 @@ struct LendMutDemand {
 /// parameter has to be owned too, since what it passes on is a handle it must
 /// hold. One pass per fn body per round, to a fixpoint — the set is tiny (empty
 /// in most programs), so the rounds are cheap.
-fn stored_implicit_demand(
-    program: &Program,
-    checked: &Checked,
-) -> HashSet<(salvo_core::FnKey, String)> {
+fn stored_implicit_demand(program: &Program, checked: &Checked) -> StoredImplicits {
     let mut demand: HashSet<(salvo_core::FnKey, String)> = HashSet::new();
+    // [rs-stored-implicit] The fns that *build* a value-keyed container, which is
+    // a wider set than the ones holding a kept capability: writing both members
+    // of an identity out is the only way to name identities in a generic body
+    // [implicit-with], and such a container is keyed by values too — its subject
+    // being a type variable, no marker can name it. Those fns need the store's
+    // bounds on their generics even when no implicit of theirs is kept.
+    let mut value_keyed: HashSet<salvo_core::FnKey> = HashSet::new();
     // Every fn body, with its key and the span it covers: the map from a
     // construction (or a call) back to the fn whose parameters are in play.
     let mut bodies: Vec<(salvo_core::FnKey, usize, Span)> = Vec::new();
@@ -1540,10 +1547,28 @@ fn stored_implicit_demand(
         let Some(key) = enclosing(*file_idx, *span) else {
             continue;
         };
+        let subject = args.first();
+        let generic_subject = subject.is_some_and(|t| {
+            let names: Vec<&str> = program
+                .modules
+                .get(key.file)
+                .and_then(|m| m.items.get(key.item))
+                .and_then(|it| match it {
+                    Item::Fn(f) => Some(f.generics.iter().map(|g| g.name.as_str()).collect()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            ty_mentions_any(t, &names)
+        });
+        let mut carries_binder = false;
         for a in args {
             if let Ty::FnName(FnId::Binder(n)) = a {
                 demand.insert((key, n.clone()));
+                carries_binder = true;
             }
+        }
+        if carries_binder || (generic_subject && args.iter().any(|a| matches!(a, Ty::FnName(_)))) {
+            value_keyed.insert(key);
         }
     }
     // The closure: forwarding an implicit into an owned position.
@@ -1575,7 +1600,36 @@ fn stored_implicit_demand(
             break;
         }
     }
-    demand
+    // A fn that only *forwards* a kept capability calls one that keeps it, and
+    // the callee's bounds are the caller's to satisfy.
+    for (key, _) in &demand {
+        value_keyed.insert(*key);
+    }
+    StoredImplicits {
+        owned: demand,
+        value_keyed,
+    }
+}
+
+/// [rs-stored-implicit] What `stored_implicit_demand` answers: which implicits
+/// arrive owned, and which fns build a container keyed by *values* (so their
+/// generics carry the store's bounds).
+struct StoredImplicits {
+    owned: HashSet<(salvo_core::FnKey, String)>,
+    value_keyed: HashSet<salvo_core::FnKey>,
+}
+
+/// Whether a type mentions any of `names` as a bare type name or type variable.
+fn ty_mentions_any(ty: &Ty, names: &[&str]) -> bool {
+    match ty.strip_quals() {
+        Ty::Var(g) => names.contains(&g.as_str()),
+        Ty::Named { name, args } => {
+            (args.is_empty() && names.contains(&name.as_str()))
+                || args.iter().any(|a| ty_mentions_any(a, names))
+        }
+        Ty::Tuple(parts) => parts.iter().any(|t| ty_mentions_any(t, names)),
+        _ => false,
+    }
 }
 
 fn lend_mut_demand(program: &Program, checked: &Checked) -> LendMutDemand {
@@ -2011,7 +2065,9 @@ impl<'p> Emitter<'p> {
         file_name: &str,
     ) -> Self {
         let lend_mut = lend_mut_demand(program, checked);
-        let stored_implicits = stored_implicit_demand(program, checked);
+        let stored = stored_implicit_demand(program, checked);
+        let stored_implicits = stored.owned;
+        let value_keyed_fns = stored.value_keyed;
         Emitter {
             symbols,
             checked,
@@ -2119,6 +2175,7 @@ impl<'p> Emitter<'p> {
             is_temp_id: 0,
             in_iterator_fn: false,
             stored_implicits,
+            value_keyed_fns,
             current_fn_key: None,
             gen_fields: HashSet::new(),
             gen_slots: HashSet::new(),
@@ -5059,9 +5116,7 @@ impl<'p> Emitter<'p> {
                 // `Send + 'static` — the bounds the runtime's stores declare.
                 // A Salvo type always satisfies both; this only spells what the
                 // container needs at the one place it is needed.
-                if fn_key.is_some_and(|k| {
-                    self.stored_implicits.iter().any(|(key, _)| *key == k)
-                }) {
+                if fn_key.is_some_and(|k| self.value_keyed_fns.contains(&k)) {
                     format!("{}: Clone + Send + 'static", g.name)
                 } else {
                     format!("{}: Clone", g.name)
@@ -5440,6 +5495,7 @@ impl<'p> Emitter<'p> {
                         borrowed_arms: Vec::new(),
                         binder: false,
                         slot: None,
+                        bound: None,
                     });
                     self.bindings
                         .insert(p.name.name.clone(), BindKind::SelfField);
@@ -6636,13 +6692,26 @@ impl<'p> Emitter<'p> {
                 _ => None,
             })
             .collect();
-        // The value form is for a **forwarded** capability. With none the
-        // markers are the rendering — zero-sized and statically dispatched — so
-        // this path stays out of the way of every ordinary container.
-        if !ids.iter().any(|id| matches!(id, FnId::Binder(_))) {
+        let subject = args.first()?.clone();
+        // The value form is for an identity no **marker type** can express, and
+        // there are two such shapes — both of them inside generic code:
+        //
+        //  * a **forwarded capability**, which is a parameter rather than a name
+        //    [cmp-carry], and
+        //  * any identity whose **subject is a type variable**: a marker is a
+        //    top-level `struct` with an `impl SalvoHash<T>`, and `T` is not in
+        //    scope there. This is reachable since an identity group must be
+        //    filled from one source [implicit-with] — writing both members out
+        //    is the only way to name identities in a generic body, and it was
+        //    rustc's E0425 before the value form took it (2026-09-26).
+        //
+        // With neither, the markers are the rendering — zero-sized and
+        // statically dispatched — so this path stays out of the way of every
+        // ordinary container.
+        let forwarded = ids.iter().any(|id| matches!(id, FnId::Binder(_)));
+        if !forwarded && !self.ty_mentions_generic(&subject) {
             return None;
         }
-        let subject = args.first()?.clone();
         // Which identity each slot is, by position: the hash pair carries two,
         // the sorted pair one.
         let kinds: &[&str] = if ids.len() == 2 {
@@ -6674,6 +6743,21 @@ impl<'p> Emitter<'p> {
         Some(out.join(", "))
     }
 
+    /// Whether a type mentions a generic that is in scope here — so it cannot be
+    /// named at item level, where a marker `struct` and its `impl` would have to
+    /// sit.
+    fn ty_mentions_generic(&self, ty: &Ty) -> bool {
+        match ty.strip_quals() {
+            Ty::Var(g) => self.generics.contains(g),
+            Ty::Named { name, args } => {
+                (args.is_empty() && self.generics.contains(name))
+                    || args.iter().any(|a| self.ty_mentions_generic(a))
+            }
+            Ty::Tuple(parts) => parts.iter().any(|t| self.ty_mentions_generic(t)),
+            _ => false,
+        }
+    }
+
     /// [cmp-carry] [rs-stored-implicit] A **named** identity as an owned value,
     /// for a container that is keyed by functions because another of its slots
     /// is a forwarded capability. The subject is a type variable here (that is
@@ -6681,13 +6765,16 @@ impl<'p> Emitter<'p> {
     /// and no mode analysis is needed.
     fn identity_value_of(&mut self, id: &FnId, subject: &Ty, kind: &str) -> Option<String> {
         let elem = self.rust_ty(subject);
-        let decl = self
+        // The declaration itself, **not a clone**: `rust_fn_name` identifies an
+        // overload by pointer, so a copy silently loses the mangling and emits
+        // the unmangled name — which for a generated structural member
+        // (`eq__4`) was rustc's E0425 [backend-never-wrong], found 2026-09-26.
+        let decl: Option<&'p FnDecl> = self
             .checked
             .carried_identities
             .get(&(id.clone(), subject.clone()))
             .copied()
-            .and_then(|k| self.fn_by_key(k))
-            .cloned();
+            .and_then(|k| self.fn_by_key(k));
         let Some(decl) = decl else {
             self.error(format!(
                 "the `{id}` this collection is keyed by has no resolved declaration \
@@ -6722,7 +6809,7 @@ impl<'p> Emitter<'p> {
                 "std::sync::Arc::new({sig} {{ <{marker} as {tr}<{elem}>>::{call} }})"
             ));
         }
-        let target = self.rust_fn_name(&decl);
+        let target = self.rust_fn_name(decl);
         Some(match kind {
             "hash" => format!("std::sync::Arc::new(move |__v: &{elem}| {target}(__v))"),
             _ => format!(
@@ -15666,7 +15753,35 @@ impl<'p> Emitter<'p> {
     /// `&T`, `None` for by value), which is what the adapter has to bridge to
     /// the written fn's own convention — and what a *lambda* argument binds
     /// its parameters under, exactly as in a written fn-typed position.
-    fn implicit_value(&mut self, value: &Expr, arity: usize, handed: &[Option<bool>]) -> String {
+    /// [rs-stored-implicit] `stored` marks a position the callee **keeps** — it
+    /// hands the capability to a keyed container it builds [cmp-carry] — so the
+    /// value goes over owned, behind an `Arc`, rather than as a borrow of a
+    /// temporary closure. Missing this made a *written* fill at a kept position
+    /// rustc's E0308 (found 2026-09-26: the caller of a fn whose own `?hash`
+    /// is kept).
+    fn implicit_value(
+        &mut self,
+        value: &Expr,
+        arity: usize,
+        handed: &[Option<bool>],
+        stored: bool,
+    ) -> String {
+        // A kept position takes the value owned, so its adapter is a `move`
+        // closure; a borrowed one stays exactly as it was — the convention for
+        // every position that is *not* kept is unchanged. `move` is only legal
+        // directly before a closure's `|`, so it is added to a closure and never
+        // to a parenthesized expression.
+        let wrap = |code: String| {
+            if !stored {
+                return format!("&mut {code}");
+            }
+            let owned = if code.starts_with('|') {
+                format!("move {code}")
+            } else {
+                code
+            };
+            format!("std::sync::Arc::new({owned})")
+        };
         if let Expr::Ident(id) = value {
             let is_local = self.bindings.contains_key(id.name.as_str());
             if !is_local {
@@ -15691,11 +15806,11 @@ impl<'p> Emitter<'p> {
                                 None => code.clone(),
                             })
                             .collect();
-                        return format!(
-                            "&mut |{}| {target}({})",
+                        return wrap(format!(
+                            "|{}| {target}({})",
                             ps.join(", "),
                             args.join(", ")
-                        );
+                        ));
                     }
                 }
             }
@@ -15718,7 +15833,12 @@ impl<'p> Emitter<'p> {
             );
         }
         let code = self.emit_owned(value);
-        format!("&mut ({code})")
+        // A written lambda goes over as itself so `move` can attach to it; any
+        // other expression keeps its parentheses.
+        if stored && code.starts_with('|') {
+            return wrap(code);
+        }
+        wrap(format!("({code})"))
     }
 
     /// [rs-fn-param-convention] One argument of an adapter closure that wraps
@@ -15887,7 +16007,8 @@ impl<'p> Emitter<'p> {
                         Some(a) => {
                             let handed =
                                 position_refmut.get(name).cloned().unwrap_or_default();
-                            out.push(self.implicit_value(&a.value, *arity, &handed))
+                            let keeps = stored.contains(name);
+                            out.push(self.implicit_value(&a.value, *arity, &handed, keeps))
                         }
                         None => {
                             self.error(format!(

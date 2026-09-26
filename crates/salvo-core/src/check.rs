@@ -907,6 +907,15 @@ pub enum CompareVia {
     Implicit(String),
 }
 
+/// `a`, `a and b`, `a, b and c` — for a diagnostic that lists names.
+fn join_and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [head @ .., last] => format!("{} and {last}", head.join(", ")),
+    }
+}
+
 /// One implicit parameter of a fn [implicit-param], after group expansion.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImplicitParam {
@@ -940,6 +949,14 @@ pub struct ImplicitParam {
     /// before any resolution by name: that is the whole point of putting the
     /// ordering in the type.
     pub binder: bool,
+    /// [implicit-with] The index of the **fill-together component** this
+    /// parameter belongs to, `None` when nothing binds it. A `with` entry —
+    /// on the fn (`=> eq with hash`) or on a group it spreads
+    /// (`params Hashed<T> => eq with hash`) — puts its members in one
+    /// component, and a call must fill every member of a component from the
+    /// *same source* (user decision 2026-09-26). Symmetric and transitive, so
+    /// the components are the connected classes of the declared pairs.
+    pub bound: Option<usize>,
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -3666,6 +3683,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // carry `?cmp`.
                 binder: false,
                 slot: None,
+                bound: None,
             });
         }
         for g in &f.implicit_groups {
@@ -3747,6 +3765,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     borrowed_arms,
                     binder: false,
                     slot: None,
+                    bound: None,
                 });
             }
         }
@@ -3825,6 +3844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 borrowed_arms: Vec::new(),
                 binder: true,
                 slot,
+                bound: None,
             });
         }
         // [cmp-auto] [implicit-group] Two spreads asking for the **same
@@ -3864,7 +3884,114 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
+        self.bind_implicits_together(f, &mut merged);
         merged
+    }
+
+    /// [implicit-with] Assigns the **fill-together components**: the connected
+    /// classes of every `with` pair this signature is subject to (user decision
+    /// 2026-09-26).
+    ///
+    /// Two sources, unioned — a function may *add* pairs and never remove them:
+    ///
+    ///  * the fn's own clause (`=> eq with hash`), and
+    ///  * the clause of every `params` group it **spreads**, because spreading a
+    ///    group opts into its deductions along with its members. Declaring the
+    ///    same functions *individually* is therefore how a signature takes them
+    ///    unbound, which is what makes "never remove" cost nothing.
+    ///
+    /// Symmetric, so a pair is one undirected edge; transitive by the check, so
+    /// the components are what matters rather than the pairs. A name that is not
+    /// an implicit parameter of this signature is reported where it is written.
+    fn bind_implicits_together(&mut self, f: &'p FnDecl, implicits: &mut [ImplicitParam]) {
+        let mut edges: Vec<(&Ident, &Ident)> = Vec::new();
+        let collect = |list: &'p [ast::Deduction], edges: &mut Vec<(&'p Ident, &'p Ident)>| {
+            for d in list {
+                let ast::DeductionKind::With { others } = &d.kind else {
+                    continue;
+                };
+                let ast::DeductionTarget::Param { name, .. } = &d.target else {
+                    continue;
+                };
+                // A chain is one component, so consecutive links are enough.
+                let mut left = name;
+                for right in others {
+                    edges.push((left, right));
+                    left = right;
+                }
+            }
+        };
+        if let Some(own) = &f.deductions {
+            collect(own, &mut edges);
+        }
+        for g in &f.implicit_groups {
+            if let Some(group) = self.scope.param_groups.get(g.name.name.as_str()).copied() {
+                collect(&group.deductions, &mut edges);
+            }
+        }
+        if edges.is_empty() {
+            return;
+        }
+        // Union-find over the parameter names, by index into `implicits`.
+        let mut parent: Vec<usize> = (0..implicits.len()).collect();
+        fn find(parent: &mut Vec<usize>, mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            i
+        }
+        let mut joined = false;
+        for (a, b) in edges {
+            let ia = implicits.iter().position(|p| p.name == a.name);
+            let ib = implicits.iter().position(|p| p.name == b.name);
+            match (ia, ib) {
+                (Some(ia), Some(ib)) => {
+                    let (ra, rb) = (find(&mut parent, ia), find(&mut parent, ib));
+                    if ra != rb {
+                        parent[rb] = ra;
+                    }
+                    joined = true;
+                }
+                _ => {
+                    // The clause names something this signature does not have.
+                    // Reported where it is written, naming the side that is
+                    // missing — a `with` over ordinary parameters is a mistake
+                    // too, since only an implicit is *filled*.
+                    let missing = if ia.is_none() { &a.name } else { &b.name };
+                    let span = if ia.is_none() { a.span } else { b.span };
+                    self.error(
+                        span,
+                        format!(
+                            "`{missing}` is not an implicit parameter of this \
+                             signature, so it cannot be filled together with \
+                             anything: a `with` entry relates the `?name` positions \
+                             a call fills [implicit-with]"
+                        ),
+                    );
+                }
+            }
+        }
+        if !joined {
+            return;
+        }
+        // Number the components that actually hold more than one member: a
+        // singleton binds nothing.
+        let mut ids: HashMap<usize, usize> = HashMap::new();
+        let mut sizes: HashMap<usize, usize> = HashMap::new();
+        for i in 0..implicits.len() {
+            let root = find(&mut parent, i);
+            *sizes.entry(root).or_insert(0) += 1;
+        }
+        for i in 0..implicits.len() {
+            let root = find(&mut parent, i);
+            if sizes.get(&root).copied().unwrap_or(0) < 2 {
+                continue;
+            }
+            let next = ids.len();
+            let id = *ids.entry(root).or_insert(next);
+            implicits[i].bound = Some(id);
+        }
     }
 
     /// The fn type a *declared* fn has as a value: parameters, result,
@@ -4024,6 +4151,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let mut filled: Vec<ImplicitArg> = Vec::new();
+        // [implicit-with] Where each **bound** parameter's value came from, for
+        // the one-source check below.
+        let mut sources: Vec<(usize, &str, &'static str)> = Vec::new();
         for imp in implicits {
             // The type as this call needs it, with the callee's type
             // arguments substituted in.
@@ -4033,6 +4163,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             else {
                 continue;
             };
+            if let Some(component) = imp.bound {
+                sources.push((
+                    component,
+                    imp.name.as_str(),
+                    match &arg {
+                        ImplicitArg::Given { .. } => "written here",
+                        ImplicitArg::Forwarded { .. } => "forwarded from this function",
+                        ImplicitArg::Resolved { .. } | ImplicitArg::OriginNext { .. } => {
+                            "resolved by name"
+                        }
+                    },
+                ));
+            }
             let filled_arg = arg.clone();
             // [cmp-binder] What filled a **binder** becomes part of the call's
             // type: `empty_heap(…)` answers `Heap(cmp@Person) Mut List<Person>`
@@ -4097,6 +4240,76 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ),
                 );
             }
+        }
+        // [implicit-with] **One source per component** (user decision
+        // 2026-09-26): the members of a fill-together component are one
+        // decision, so they arrive all written, all forwarded, or all resolved.
+        // Mixing them is how an unchecked pair gets built — a hash a caller
+        // chose beside an equality resolution found, with nothing saying the two
+        // agree — and the fix is always to *write them out*, which is why the
+        // diagnostic says so.
+        let mut components: Vec<usize> = sources.iter().map(|(c, _, _)| *c).collect();
+        components.sort_unstable();
+        components.dedup();
+        for component in components {
+            let members: Vec<(&str, &'static str)> = sources
+                .iter()
+                .filter(|(c, _, _)| *c == component)
+                .map(|(_, name, src)| (*name, *src))
+                .collect();
+            let mut kinds: Vec<&'static str> = members.iter().map(|(_, s)| *s).collect();
+            kinds.sort_unstable();
+            kinds.dedup();
+            if kinds.len() < 2 {
+                continue;
+            }
+            let shown: Vec<String> = members
+                .iter()
+                .map(|(name, src)| format!("`{name}` is {src}"))
+                .collect();
+            let names: Vec<String> = members.iter().map(|(n, _)| format!("{n} = …")).collect();
+            let all: Vec<String> = members.iter().map(|(n, _)| format!("`{n}`")).collect();
+            // The remedy is **writing them out**, except where one member is a
+            // capability this function was handed: a container's identity has to
+            // be a name a type can carry [cmp-carry], and an implicit parameter
+            // is not one — so there the fix is to hold the whole pair and let
+            // every member forward.
+            let forwarded: Vec<&str> = members
+                .iter()
+                .filter(|(_, src)| *src == "forwarded from this function")
+                .map(|(n, _)| *n)
+                .collect();
+            let remedy = if forwarded.is_empty() {
+                format!(
+                    "Write them out at the call (`{callee}(…, {})`), so the \
+                     agreement between them is stated rather than assembled",
+                    names.join(", ")
+                )
+            } else {
+                format!(
+                    "Either declare the rest of them too, so every one is \
+                     forwarded from here — which is what spreading the whole \
+                     group does — or write them all out at the call \
+                     (`{callee}(…, {})`); {} cannot be written out, being a \
+                     capability this function was handed rather than a name",
+                    names.join(", "),
+                    join_and(
+                        &forwarded
+                            .iter()
+                            .map(|n| format!("`{n}`"))
+                            .collect::<Vec<_>>()
+                    )
+                )
+            };
+            self.error(
+                span,
+                format!(
+                    "{} of `{callee}` are filled together, but they come from \
+                     different places here: {}. {remedy} [implicit-with]",
+                    join_and(&all),
+                    shown.join(" and ")
+                ),
+            );
         }
         self.out.implicit_args.insert(self.key(span), filled);
     }
@@ -7414,6 +7627,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     borrowed_arms: Vec::new(),
                     binder: false,
                     slot: None,
+                    bound: None,
                 })
                 .collect();
             self.generics = saved;
@@ -14843,10 +15057,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 // [qual-preserve] About other values' claims,
                                 // not this parameter's own list.
                                 | ast::DeductionKind::Preserve(_)
-                                // [canbe-entry] A relation between two
-                                // parameters; it says nothing about either
-                                // one's qualifier list.
-                                | ast::DeductionKind::CanBe { .. } => {
+                                // [canbe-entry] [implicit-with] A relation
+                                // between two parameters; it says nothing about
+                                // either one's qualifier list.
+                                | ast::DeductionKind::CanBe { .. }
+                                | ast::DeductionKind::With { .. } => {
                                     (true, QualEffect::KeepAll)
                                 }
                                 ast::DeductionKind::Exhaustive { quals, reapplied } => {

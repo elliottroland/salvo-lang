@@ -1639,6 +1639,16 @@ fn render_declared(list: &[salvo_syntax::ast::Deduction]) -> String {
                     let head = if *anchored { "canbe in" } else { "canbe" };
                     format!("{t} {head} {}", shown.join("|"))
                 }
+                // [implicit-with] The fill-together relation, as written: a
+                // chain renders as one entry, which is how it was read.
+                DeductionKind::With { others } => format!(
+                    "{t} with {}",
+                    others
+                        .iter()
+                        .map(|i| i.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(" with ")
+                ),
                 DeductionKind::Moved => format!("!{t}"),
                 DeductionKind::Deferred => format!("defer {t}"),
                 DeductionKind::Exhaustive { quals, reapplied }

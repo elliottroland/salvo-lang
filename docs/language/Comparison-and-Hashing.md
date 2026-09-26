@@ -188,13 +188,35 @@ An annotation that names a pair does not *choose* it — it has to agree with
 what the constructor resolved, because what fills the slot is what the
 container is actually keyed by.
 
-Writing **one** slot and leaving the other is allowed: a parameter group is a
-convenience for the declaration, not a contract the caller has to fill
-wholesale, so `mut_set_of(hash = by_x)` keeps whatever `eq` resolution finds.
-Be careful with it, though — a hash and an equality are only meaningful
-together (equal values must hash equally), and a container looks up by the hash
-*first*, so a custom equality beside the host's hash quietly does nothing rather
-than failing.
+A hash and an equality are only meaningful **together**: equal values must hash
+equally, and a container looks up by the hash first, so a custom equality beside
+somebody else's hash would quietly do nothing rather than fail. `Hashed` says so
+in its own declaration:
+
+```
+params Hashed<T> => eq with hash {
+    fn hash(value: T) -> Long
+    fn eq(a: T, b: T) -> Bool
+}
+```
+
+`=> eq with hash` means the two are one decision, so a call supplies both or
+neither — writing one and leaving the other to be found is an error that names
+the fix:
+
+```
+// Refused: `eq` is written here, `hash` would be resolved.
+let s: Mut Set<Point> = mut_set_of(eq = same_age)
+
+// Written out — now the pair is stated rather than assembled.
+let s: Mut Set<Point> = mut_set_of(hash = age_hash, eq = same_age)
+```
+
+A function that *holds* an identity says the same thing by taking the whole
+group: `fn collect<T>(x: T, ?Hashed<T>)` forwards both members to whatever it
+builds, where taking only `?hash` would leave the equality to be found. Taking
+the two as separate implicit parameters instead (`?hash: …, ?eq: …`) is how a
+signature opts out of the pairing, since the relation travels with the group.
 
 A **generic** function builds one the same way, by declaring the capability and
 letting the constructor's own slots be filled from it:

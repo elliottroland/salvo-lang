@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1509 tests, complete: the toolchain tests are
+cargo test                  # 1523 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -133,6 +133,94 @@ what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
 
+**`with` in a deduction clause: implicits that are filled together
+(2026-09-26, user decision — built).** The shape is the user's: state the relation
+where the declaration knows about it, per function or on the `params` group, and
+spell it like `canbe` — `=> eq with hash`. A call then fills every member of the
+relation **from one source** or leaves them all alone, which closes the defect
+underneath it: half-filling `?Hashed<T>` built a pair nobody had checked, and
+because a hash container buckets by hash *first*, the written slot quietly did
+nothing rather than failing.
+
+- **`with` is symmetric**, because the relation states that two implicits must
+  *agree* and agreement has no direction. `?Hashed<T>` looks directed — writing
+  `eq` alone is always wrong while writing `hash` alone is often fine — but a hash
+  written against a coarse *declared* `eq` breaks `eq(x,y) ⇒ hash(x)==hash(y)`
+  too, and the checker cannot tell those apart without reasoning about what a body
+  reads. Symmetry costs nothing because a generated member is nameable, which a
+  probe confirmed: `mut_set_of(hash = by_x, eq = eq)` compiles, so "coarser hash,
+  structural equality" stays expressible and becomes *authored* rather than
+  assembled.
+- **Transitive by the check**, so the implementation is union-find over the
+  declared pairs and a **chain** (`a with b with c`) is one class: "if any member
+  is filled, all are" already forces the closure in one pass. The diagnostic
+  therefore names the whole component.
+- **Three sources, not two.** The obvious trigger is "one member written, another
+  resolved", but probing what *filled* should mean turned up a pair that arrives
+  with nothing written at all: a fn declaring only `?hash` forwards it into a
+  container whose `eq` resolution supplies. So the rule reads the **source** of
+  each fill (`ImplicitArg::{Given, Forwarded, Resolved}`) and requires one, which
+  the user chose over the written-only reading — the narrower rule would have left
+  a hole of exactly the kind the feature exists to close.
+- **The remedy is named in the diagnostic, and it is not always the same one.**
+  Writing them out is the fix for a written/resolved mix. A *forwarded* member
+  cannot be written out at all — a keyed container's identity has to be a name a
+  type can carry [cmp-carry], and an implicit parameter is not one — so there the
+  fix is to hold the whole group and let every member forward, and the message
+  says which case it is looking at.
+- **A signature may add relations and never remove them**: a fn's clause unions
+  with the clause of every group it *spreads*, because spreading a group opts into
+  its deductions along with its members. Declaring the same functions
+  **individually** is how a signature takes them unrelated, which is what makes
+  "never remove" cost nothing (user decision 2026-09-26).
+- `=>` on a group reads as "using this group includes opting into these
+  deductions", which is why the clause sits in the same place it does on a
+  function.
+
+**One hole the rule opened, and closed.** Requiring one source makes *writing both
+out* the only way to name identities inside a generic body — and a written
+identity at a type variable used to take the **marker** path, where a marker is a
+top-level `struct` with an `impl SalvoHash<T>` and `T` is not in scope: rustc's
+E0425. The Rust value path's trigger is now the honest one — a forwarded
+capability **or a subject that mentions a generic** — and the `Send + 'static`
+bounds follow the same condition, through a demand set that now answers two facts
+(which implicits arrive owned, and which fns build a value-keyed container).
+
+Tests: nine in a new `crates/salvo-core/tests/with_tests.rs` (the written/resolved
+mix, the forwarded/resolved mix, both legal spellings, an unfilled group, members
+declared individually, a fn adding its own pair, a chain, and a `with` over a
+non-implicit), two parser tests, and the affected codegen tests respelled to the
+legal form — which is also a small demonstration of the rule's reach: every test
+that half-filled a pair was exercising something no author should write.
+
+**Two defects in the mixed-identity work, found by probing a design question
+(2026-09-26).** Asking what "filled" should mean for a fill-together rule (ROADMAP,
+`with` in a deduction clause) produced a program nobody had written before: a fn
+declaring only `?hash`, building a `Set` whose `hash` is *forwarded* from that
+parameter while its `eq` is *resolved* from the struct's declaration, with nothing
+written at the constructor. Kotlin ran it; Rust would not compile it, twice over
+[backend-never-wrong].
+
+- **`rust_fn_name` identifies an overload by pointer**, and
+  `identity_value_of` had **cloned** the declaration it names — so a generated
+  structural member came out as the unmangled `eq` instead of `eq__4`: rustc's
+  E0425. The marker path next to it was right all along because it keeps the
+  `&'p FnDecl`. A clone that loses meaning is worth remembering as a gotcha: the
+  function's contract is pointer identity, and nothing in its signature says so.
+- **A *written* fill at a kept position was still handed over as a borrow** —
+  only the forwarded and resolved fills had learned the owned convention
+  [rs-stored-implicit] — so the caller passed `&mut |…|` into an
+  `Arc<dyn Fn …>` parameter: rustc's E0308. `implicit_value` now takes the
+  `stored` flag, and because `move` is legal only directly before a closure's
+  `|`, it attaches to a closure and never to a parenthesized expression (a
+  written *lambda* at a kept position is the case that distinguishes them).
+
+Tests: `an_identity_from_two_sources_names_and_owns_both`,
+`a_written_lambda_at_a_kept_position_moves`, and a compile-and-run pair on both
+backends. The lesson is the method rather than the bugs: the two were invisible
+to every test in the suite and fell out of taking a design question seriously
+enough to write the program it was about.
+
 **A parameter group is a convenience, not a contract — a mixed identity fill is
 honoured (2026-09-26, user decision).** Found while lowering the generic-body
 case: filling *one* slot of `?Hashed<T>` and leaving the other to resolution was
@@ -170,9 +258,18 @@ answer; and a custom `eq` beside the host's `hash` is an inconsistent pair the
 container never consults, because it buckets by hash first — `mut_set_of(eq =
 all_same)` over `1` and `2` prints `2` on **both** backends, identically and for
 the same reason. That is honoured-as-written and still reads as a bug, which is
-why the user recorded the `atomic params` idea (a group that must be filled as a
-unit) in ROADMAP with this example as its motivation, rather than making
-`?Hashed<T>` a special case now.
+why the user recorded a way to *say* so in ROADMAP with this example as its
+motivation, rather than making `?Hashed<T>` a special case now: a **deduction
+clause over implicits** (`=> eq with hash`, per function or on the group), whose
+`with` is symmetric — it states that two implicits must agree, and agreement has
+no direction — and transitive by the same check applied to a component. An
+earlier `atomic params` sketch (all-or-nothing on the whole group) was replaced
+by it the same day: the relation belongs between *members*, so a group of three
+can bind two and leave the third free, and nothing new sits on the group's
+declaration. Symmetry costs nothing because a generated member is nameable —
+`mut_set_of(hash = by_x, eq = eq)` compiles today (probed), so "coarser hash,
+structural equality" stays expressible and becomes something the author states
+rather than something resolution happened to supply.
 
 Tests: `a_mixed_identity_fill_pairs_both_slots` on both backends (the written
 `hash` paired with the `eq` that `: auto Hashed<self>` generated),
@@ -17952,6 +18049,29 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **`rust_fn_name` matches an overload by *pointer*, so never hand it a clone.**
+  Nothing in its signature says so — it takes `&FnDecl` — but its final step is
+  `std::ptr::eq` against the program's own declarations, so a cloned decl falls
+  through to the *unmangled* name. That turned a generated structural member
+  (`eq__4`) into `eq` and shipped rustc's E0425 (2026-09-26). `fn_by_key` returns
+  `&'p FnDecl`, tied to the program rather than to the emitter, precisely so the
+  reference can be held across `&mut self` calls — take it and keep it. The same
+  trap applies to any helper keyed on declaration identity
+  (`erased_sig`'s collision check, the pass-driving lookups that were fixed on
+  2026-09-25 by comparing *declarations*).
+- **When a new convention is added to a position, sweep every way that position
+  can be filled.** The owned-`Arc` convention for a kept capability was wired
+  into the *forwarded* and *resolved* fills and not the **written** one, which
+  compiled fine until somebody wrote it (2026-09-26). The checker's
+  `ImplicitArg` enum is the checklist — `Given`, `Forwarded`, `Resolved`,
+  `OriginNext` — and a convention that does not cover all of them is a
+  [backend-never-wrong] risk rather than a gap.
+- **A design question is worth writing the program it is about.** Both defects
+  above were invisible to 1509 tests and surfaced within a minute of probing
+  "what does *filled* mean?" with real source. The question also turned out to
+  have real content because of it: the forwarded-plus-resolved pair arrives with
+  nothing written at the call site, which no written-only rule would catch.
 
 - **Reproduce the filed repro before fixing it — the filing may be stale or
   half the story.** In the 2026-09-25 defect round, one entry's repro no longer

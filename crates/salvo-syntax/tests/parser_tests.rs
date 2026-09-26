@@ -252,6 +252,62 @@ fn unterminated_string_is_an_error() {
         .any(|d| d.is_error() && d.message.contains("unterminated string")));
 }
 
+// --- `with`: implicits filled together [implicit-with] ---
+
+/// [implicit-with] `=> eq with hash` on a function and on a `params` group, and
+/// a **chain** (`a with b with c`), which is one entry naming the rest
+/// (user decision 2026-09-26).
+#[test]
+fn with_entries_relate_implicit_parameters() {
+    use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item};
+    let source = "params Hashed<T> => eq with hash {\n    \
+                  fn hash(value: T) -> Long\n    \
+                  fn eq(a: T, b: T) -> Bool\n\
+                  }\n\n\
+                  fn f<T>(?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool) -> None \
+                  => a with b with c {\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    let Item::Params(group) = &module.items[0] else { panic!("params") };
+    assert_eq!(group.deductions.len(), 1, "one entry");
+    let DeductionTarget::Param { name, .. } = &group.deductions[0].target else {
+        panic!("param target")
+    };
+    assert_eq!(name.name, "eq");
+    let DeductionKind::With { others } = &group.deductions[0].kind else { panic!("with") };
+    assert_eq!(others.len(), 1);
+    assert_eq!(others[0].name, "hash");
+
+    // A chain is one entry naming every later member.
+    let Item::Fn(f) = &module.items[1] else { panic!("fn") };
+    let clause = f.deductions.as_ref().expect("clause");
+    let chain = clause
+        .iter()
+        .find_map(|d| match &d.kind {
+            DeductionKind::With { others } => Some(others),
+            _ => None,
+        })
+        .expect("a with entry");
+    assert_eq!(
+        chain.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+        vec!["b", "c"]
+    );
+}
+
+/// A group has no body and no parameters of its own, so its clause states only
+/// which members are filled together.
+#[test]
+fn a_params_groups_clause_takes_only_with_entries() {
+    let source = "params Hashed<T> => !hash {\n    fn hash(value: T) -> Long\n}\n";
+    let (_, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.message.contains("states only which of its members are filled together")),
+        "{diagnostics:?}"
+    );
+}
+
 // --- `canbe` opt-ins [canbe-optin] ---
 
 // [canbe-optin] [struct-mut] [type-canbe-mut] `canbe` opts declarations
@@ -1485,6 +1541,11 @@ fn the_deduction_clause_parses_every_entry_form() {
                 let head = if *anchored { "CanBeIn" } else { "CanBe" };
                 format!("{head}[{}]", shown.join("|"))
             }
+            // [implicit-with] The fill-together relation.
+            DeductionKind::With { others } => format!(
+                "With[{}]",
+                others.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(" ")
+            ),
         }
     }
 }

@@ -515,7 +515,10 @@ pub(crate) fn from_written(
                 // keptness or qualifiers: it is a statement about *which
                 // parameters may coincide*, read by the call-site legality
                 // rules and by the Rust anchor rendering.
-                DeductionKind::CanBe { .. } => {
+                // [implicit-with] The fill-together relation is the same shape:
+                // a statement about which *implicits* travel together, read
+                // where a call fills them.
+                DeductionKind::CanBe { .. } | DeductionKind::With { .. } => {
                     return ParamDeduction {
                         param: name,
                         kept: true,

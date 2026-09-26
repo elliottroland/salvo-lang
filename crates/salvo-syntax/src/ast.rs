@@ -166,6 +166,12 @@ pub struct ParamsDecl {
     pub generics: Vec<Ident>,
     /// Member signatures: bodiless, like an effect's [effect-decl].
     pub fns: Vec<FnDecl>,
+    /// [implicit-with] The group's own deduction clause — `params Hashed<T>
+    /// => eq with hash { … }` — which travels with its members wherever the
+    /// group is spread: spreading a group opts into its deductions along with
+    /// its functions (user decision 2026-09-26). Only `with` entries are
+    /// meaningful here; a group has no body and no parameters of its own.
+    pub deductions: Vec<Deduction>,
     pub span: Span,
 }
 
@@ -724,6 +730,14 @@ pub enum DeductionKind {
     /// *element* of the named container paths, so two parameters anchored
     /// in the same path may coincide.
     CanBe { others: Vec<Vec<Ident>>, anchored: bool },
+    /// [implicit-with] `=> eq with hash` — two **implicit** parameters that
+    /// are only meaningful together, so a call fills them from one source or
+    /// not at all (user decision 2026-09-26). Symmetric, because the relation
+    /// states that the two must *agree* and agreement has no direction, and
+    /// transitive by the check: a `with` component is one class. The target is
+    /// the left subject and `others` the rest of the chain
+    /// (`a with b with c` is one entry naming `b` and `c`).
+    With { others: Vec<Ident> },
 }
 
 // --- Types ---

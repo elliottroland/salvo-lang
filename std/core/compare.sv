@@ -50,7 +50,15 @@ export params Eq<T> {
 // member nothing reads, and keeping the two apart is what lets one program hold
 // a `Set<Person>` by all fields beside a `SortedSet<Person>(by_age)` by rank
 // without either being a lie.
-export params Hashed<T> {
+// [implicit-with] The two are filled **together**: a hash and an equality are
+// only meaningful as a pair, and a container looks up by the hash first, so a
+// custom equality beside a resolved hash quietly does nothing rather than
+// failing. `=> eq with hash` makes a call state the pair or leave it alone —
+// write both (`mut_set_of(hash = by_x, eq = eq)`) when one of them differs
+// (user decision 2026-09-26).
+//
+// `Ordered` needs no such clause: one member cannot disagree with itself.
+export params Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
 }
