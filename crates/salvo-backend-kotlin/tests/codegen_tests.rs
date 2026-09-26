@@ -4485,6 +4485,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlinc_compiles_and_runs_the_tcp_transport_on_localhost,
     kotlinc_compiles_and_runs_the_wire_format,
     kotlinc_compiles_and_runs_two_nodes_over_mem_transport,
+    kotlinc_compiles_and_runs_node_groups_over_mem_transport,
     kotlinc_compiles_and_runs_member_overloads,
     kotlinc_compiles_and_runs_member_modes,
     kotlinc_compiles_and_runs_a_linear_token_closed_by_a_member,
@@ -9314,6 +9315,120 @@ const NODES_DEMO_OUTPUT: &str = "is proxy: true\ncredits after a beat: 2\ntotal 
 fn kotlinc_compiles_and_runs_two_nodes_over_mem_transport() -> KotlinCase {
     let files = generate_files(&[("main.sv", NODES_DEMO)]);
     kotlin_case(files, "net-two-nodes", NODES_DEMO_OUTPUT)
+}
+
+// ===== the network sequence, step ④: node groups =====
+
+/// The Rust backend's `NODE_GROUP_DEMO`, verbatim [node-group].
+const NODE_GROUP_DEMO: &str = r#"import net
+import time
+
+handler Announcing(label: Str) [Console] of NodeChanges {
+    mailbox { capacity: 32 }
+    send fn joined(n: Node) => !n { println("${label}: + ${to_str(n.at)}") }
+    send fn left(n: Node, why: Str) => !n, !why { println("${label}: - ${to_str(n.at)} (${why})") }
+}
+
+actor effect Boot {
+    send fn boot(done: Reply<Addr<NodeGroup>>) => !done
+}
+
+// Brings up node B from a pool of its own: transport, wire, listener, and its
+// group over the same endpoint list.
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>, gossip: Bool) [Transport, spawn] of Boot {
+    mailbox { capacity: 1 }
+    send fn boot(done: Reply<Addr<NodeGroup>>) => !done {
+        let p = pool(1)
+        route_frames(spawn Sending() with MemTransport(copy(at), copy(net)) on p)
+        listen(copy(at), spawn Receiving() on p)
+        add_route(this_node(), copy(at))
+        if gossip {
+            let group = start_group(spawn GossipNodeGroup("mesh", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+            done.send(group)
+            return
+        }
+        let group = start_group(spawn StaticNodeGroup("demo", copy(at), copy(all)) with MemTransport(copy(at), copy(net)) on p)
+        done.send(group)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdOutConsole()
+    let a = NodeEndpoint { host: "a", port: 1 }
+    let b = NodeEndpoint { host: "b", port: 1 }
+    let all = [copy(a), copy(b)]
+    let net = spawn MemNetwork() on pool(1)
+
+    // Node A: this one.
+    use MemTransport(copy(a), copy(net))
+    let pa = pool(1)
+    route_frames(spawn Sending() on pa)
+    listen(copy(a), spawn Receiving() on pa)
+    add_route(this_node(), copy(a))
+    let group_a = start_group(spawn StaticNodeGroup("demo", copy(a), copy(all)) on pa)
+    group_a.subscribe(spawn Announcing("a") on pa)
+
+    // Node B: hosted beside it.
+    let pb = pool_at(new_node(), 1)
+    let booter = spawn Booting(copy(b), copy(all), copy(net), false) with MemTransport(copy(b), copy(net)) on pb
+    let group_b = waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+
+    // Give the handshake a moment, then read both views.
+    let timer = spawn DefaultTimer() on pool(1)
+    let _t = waitfor f: Reply<Fired> { timer.after(millis(400), f) }
+    let seen_a = waitfor out: Reply<List<Node>> { group_a.members(out) }
+    let seen_b = waitfor out: Reply<List<Node>> { group_b.members(out) }
+    println("a sees ${size(seen_a)}: ${names_of(seen_a)}")
+    println("b sees ${size(seen_b)}: ${names_of(seen_b)}")
+    let first_b = get(seen_b, 0)
+    if !(first_b is None) {
+        println("b knows a's Counter protocol: ${!(peer_protocol(first_b.id, "Counter") is None)}")
+    }
+
+    // B leaves; A hears it.
+    group_b.leave()
+    let _t2 = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
+    let after = waitfor out: Reply<List<Node>> { group_a.members(out) }
+    println("a sees ${size(after)} after b left")
+
+    // Gossip: three fresh nodes on a second network, each seeded with the
+    // first only, converge on a full mesh through introductions.
+    let net2 = spawn MemNetwork() on pool(1)
+    let x = NodeEndpoint { host: "x", port: 2 }
+    let y = NodeEndpoint { host: "y", port: 2 }
+    let z = NodeEndpoint { host: "z", port: 2 }
+    let gx = boot_node(copy(x), [copy(x)], copy(net2))
+    let gy = boot_node(copy(y), [copy(x)], copy(net2))
+    let gz = boot_node(copy(z), [copy(x)], copy(net2))
+    let _t3 = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
+    let sx = waitfor out: Reply<List<Node>> { gx.members(out) }
+    let sy = waitfor out: Reply<List<Node>> { gy.members(out) }
+    let sz = waitfor out: Reply<List<Node>> { gz.members(out) }
+    println("mesh: x sees ${size(sx)}, y sees ${size(sy)}, z sees ${size(sz)}")
+}
+
+fn boot_node(at: NodeEndpoint, seeds: List<NodeEndpoint>, net: Addr<MemNet>) [spawn] -> Addr<NodeGroup> => !at, !seeds, !net {
+    let p = pool_at(new_node(), 1)
+    let booter = spawn Booting(copy(at), seeds, copy(net), true) with MemTransport(at, net) on p
+    return waitfor done: Reply<Addr<NodeGroup>> { booter.boot(done) }
+}
+
+actor effect Counter { send fn bump(n: Int) => !n }
+
+fn names_of(nodes: List<Node>) -> Str => nodes {
+    let out: Mut Str = mut_str()
+    for n in nodes {
+        append(out, to_str(n.at))
+    }
+    return to_str(out)
+}
+"#;
+
+const NODE_GROUP_DEMO_OUTPUT: &str = "a: + b:1\na sees 1: b:1\nb sees 1: a:1\nb knows a's Counter protocol: true\na: - b:1 (left)\na sees 0 after b left\nmesh: x sees 2, y sees 2, z sees 2\n";
+
+fn kotlinc_compiles_and_runs_node_groups_over_mem_transport() -> KotlinCase {
+    let files = generate_files(&[("main.sv", NODE_GROUP_DEMO)]);
+    kotlin_case(files, "net-node-groups", NODE_GROUP_DEMO_OUTPUT)
 }
 
 // ===== [kt-fn-mangling] overload dispatch is the checker's, not Kotlin's =====

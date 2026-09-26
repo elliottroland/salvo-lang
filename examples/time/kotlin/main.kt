@@ -236,6 +236,7 @@ class __Actor_Napping<__Fx>(private val handler: Napping<__Fx>) : salvo.SalvoAct
 }
 
 fun main() {
+    salvo.SalvoSched.setProtocols(listOf(Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Session", salvo.main.__PROTO_Session), Pair("Sleeper", salvo.main.__PROTO_Sleeper), Pair("Timer", salvo.time.__PROTO_Timer), Pair("TimerCtl", salvo.time.__PROTO_TimerCtl)))
     val __fx = __Fx_1(StdOutConsole())
     val budget = millis(1500L)
     println(__fx, "budget ${to_str__5(budget)}, doubled ${to_str__5(times(budget, 2L))}, in millis ${to_millis(budget)}")

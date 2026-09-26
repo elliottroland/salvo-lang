@@ -147,3 +147,13 @@ An `Addr<E>` that crosses the wire arrives as a **proxy**: the same type, the sa
 What keeps it honest across a machine is what keeps it honest across a thread. The mailbox's `capacity` is enforced by **credits**: a proxy sends only when the far mailbox has granted room, blocks at zero exactly as a local send blocks on a full queue, and is granted a credit back as each message is dequeued. And an address carries **unguessable bits** minted at the spawn, checked on delivery, so an addr is a capability on the wire as it is in memory — the administrative face of a two-face handler cannot be reached by whoever holds only the public one.
 
 A process is one node; it may also **host virtual nodes** (`new_node()`, `pool_at(node, n)`), which is how a test runs two nodes in one process over `MemTransport` and exercises every remote path — proxies, credits, frames, remote replies — with no socket, on both backends, printing the same thing.
+
+### Node groups
+
+Which nodes exist is a **membership** question, and the answer is an actor effect, `NodeGroup`, whose handlers are the mechanisms. A node joins by spawning one on its own pool — `StaticNodeGroup("demo", me, all)` when the fleet is fixed, `GossipNodeGroup("mesh", me, seeds)` when it is not — and asks it `members(out)` or `subscribe(w)` to hear `NodeChanges.joined` and `left`. The handshake underneath is the runtime's and common to every mechanism: the group's name (so two deployments on one network refuse each other by name), the node's endpoint, and its protocol table, which is what lets a node refuse to talk to a peer whose version of a protocol differs before a single message is decoded.
+
+```
+let group = start_group(spawn GossipNodeGroup("mesh", copy(me), seeds) on p)
+group.subscribe(spawn Announcing() on p)                    // "+ b:1", "- b:1 (left)"
+let peers = waitfor out: Reply<List<Node>> { group.members(out) }
+```

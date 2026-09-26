@@ -2847,6 +2847,40 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [protocol-hash] [kt-wire] `SalvoSched.setProtocols(listOf(…))` for every
+    /// actor effect in the program with a wire form, or nothing. The constants
+    /// live in each effect's package, named through the module's import.
+    fn protocol_table_prelude(&mut self, indent: usize) -> String {
+        let mut entries: Vec<String> = Vec::new();
+        let mut effects: Vec<&EffectDecl> = self.symbols.effects.values().copied().collect();
+        effects.sort_by(|a, b| a.name.name.cmp(&b.name.name));
+        for e in effects {
+            if !e.is_actor || !e.generics.is_empty() || !e.fns.iter().any(|f| f.is_send) {
+                continue;
+            }
+            if !self.effect_has_wire_form(e) || !self.checked.protocol_hashes.contains_key(&e.name.name) {
+                continue;
+            }
+            // Only effects of modules this program emits: `effect_paths` is
+            // the package prefix table for exactly those.
+            let Some(prefix) = self.effect_paths.get(&e.name.name).cloned() else { continue };
+            entries.push(format!(
+                "Pair(\"{}\", {prefix}__PROTO_{})",
+                e.name.name,
+                kt_ident(&e.name.name)
+            ));
+        }
+        if entries.is_empty() {
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let pad = "    ".repeat(indent);
+        format!(
+            "{pad}salvo.SalvoSched.setProtocols(listOf({}))\n",
+            entries.join(", ")
+        )
+    }
+
     /// [wire-format] Whether every payload of an actor effect has a wire form.
     fn effect_has_wire_form(&self, e: &EffectDecl) -> bool {
         let empty = HashMap::new();
@@ -3431,6 +3465,12 @@ impl<'p> Emitter<'p> {
         // member with dependencies) opens by combining its per-effect
         // values into the fused carrier the rest of the body threads.
         out.push_str(&body_prelude);
+        // [protocol-hash] [node-group] `main` opens by telling the scheduler
+        // this program's protocol table (every actor effect with a wire form
+        // and its hash), which the handshake carries.
+        if is_main {
+            out.push_str(&self.protocol_table_prelude(indent + 1));
+        }
         out.push_str(&body_out);
         out.push_str(&format!("{pad}}}\n"));
 
@@ -8377,6 +8417,58 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     let a = self.emit_expr(args[0]);
                     return format!("salvo.SalvoSched.credits({a})");
+                }
+                // [node-group] The handshake surface.
+                "set_group" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let name = self.emit_expr(args[0]);
+                    let at = self.emit_expr(args[1]);
+                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
+                    let codec = self.kotlin_codec_expr(&ep);
+                    return format!(
+                        "salvo.SalvoSched.setGroup({name}, salvo.salvoEncode({at}, {codec}).toByteArray())"
+                    );
+                }
+                "hello_frame" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    self.needs_bytes = true;
+                    return "salvo.SalvoBytes(salvo.SalvoSched.helloFrame())".to_string();
+                }
+                "leave_group" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "salvo.SalvoSched.leaveGroup()".to_string();
+                }
+                "peer_protocol" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_expr(args[0]);
+                    let proto = self.emit_expr(args[1]);
+                    return format!("salvo.SalvoSched.peerProtocol({node}, {proto})");
+                }
+                "watch_peers" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let sink = self.emit_expr(args[0]);
+                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
+                    let codec = self.kotlin_codec_expr(&ep);
+                    let msg = msg_class_name("PeerEvents");
+                    return format!(
+                        "salvo.SalvoSched.watchPeers({sink}, {{ __n, __ep, __t -> \
+                         {msg}.Hello(__n, salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec})!!, __t) }}, \
+                         {{ __n -> {msg}.Gone(__n) }}, \
+                         {{ __ps -> {msg}.Introduced(__ps.mapNotNull {{ salvo.salvoDecode(salvo.SalvoBytes(it), {codec}) }}) }})"
+                    );
+                }
+                "introduce" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let node = self.emit_expr(args[0]);
+                    let peers = self.emit_expr(args[1]);
+                    let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
+                    let codec = self.kotlin_codec_expr(&ep);
+                    return format!(
+                        "salvo.SalvoSched.introduce({node}, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
+                    );
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

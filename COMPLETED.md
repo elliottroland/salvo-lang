@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1578 tests, complete: the toolchain tests are
+cargo test                  # 1579 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,50 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ④ — node groups (2026-09-26 — built).** One
+actor effect, `NodeGroup`, whose handlers are the mechanisms; the handshake
+in the runtime; two mechanisms in std. **1579 tests** (+1: a group
+compile-and-run case per backend — static group with a join, a leave and the
+protocol table exchanged, then a three-node gossip mesh — identical output).
+Rule: [node-group].
+
+*What landed.* Runtime (both): HELLO/ACK/LEAVE/INTRO frames, per-node group
+state (name, endpoint, events sink with three builders), the peer protocol
+table, `salvo_set_protocols` registered from `main`'s prologue (both
+emitters), `set_group`, `watch_peers`, `hello_frame`, `leave_group`,
+`peer_protocol`, `introduce`; a LEAVE kills the departed node's proxies and
+fires their watches. std `net`: `Node`, `NodeGroup`, `NodeChanges`,
+`PeerEvents`, `start_group`, `StaticNodeGroup`, `GossipNodeGroup`.
+
+*What building it settled or found:*
+
+* **Introductions became frames after the deadlock graph spoke.** Gossip's
+  first shape had a `NodeLink` actor effect the group actor both served and
+  sent to, and the send-cycle warning fired on every program importing
+  `net`. The warning was right about the shape, so the shape changed: an
+  INTRO frame arriving as `PeerEvents.introduced` gives the group an effect
+  it only ever serves. The general lesson is recorded in [node-group]: a
+  std actor should not send the protocol it serves.
+* **A handler cannot name its own addr**, so `join(events)` takes the
+  `PeerEvents` face back from the spawner; `start_group` is the two-line
+  helper that makes `start_group(spawn StaticNodeGroup(…) on p)` the whole
+  spelling.
+* **A private plain `fn` inside an actor handler is not callable from its
+  members** (only face members and `@self` sends resolve); gossip's `dial`
+  is a module-level function taking the handler's state as `Mut`.
+* **The handshake's builders run with the lock released** — the hello
+  builder decodes an endpoint, the intro builder several — the same
+  two-phase rule step ③ established.
+* **A member parameter named differently from the effect's was rendered as
+  a borrow** (`peer_at: &NodeEndpoint` against an owned dispatch): the
+  handler's members now name their parameters as the effect does and consume
+  them, which is what `=> !at` says anyway.
+* **Recorded follow-ups**: gossip's partition/unreachable policy (a failed
+  `deliver` should become `left(n, "unreachable")`; today only a LEAVE is a
+  departure), `HeartbeatNodeGroup` as the interop example, and `Build` /
+  `build()` / `protocol<E>()` as the readable version surface, which waits on
+  the manifest DECISION with the rest of N-10's label.
 
 **The network sequence, step ③ — routable addresses (2026-09-26 — built).**
 An `Addr<E>` crosses the wire and comes back as a proxy; a message to it is a

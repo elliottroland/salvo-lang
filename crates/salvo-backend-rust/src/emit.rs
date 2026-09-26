@@ -3295,6 +3295,38 @@ impl<'p> Emitter<'p> {
         out
     }
 
+    /// [protocol-hash] [rs-wire] `salvo_set_protocols(vec![…])` for every
+    /// actor effect in the program with a wire form, or nothing.
+    fn protocol_table_prelude(&mut self, indent: usize) -> String {
+        let mut entries: Vec<String> = Vec::new();
+        let mut effects: Vec<&EffectDecl> = self.symbols.effects.values().copied().collect();
+        effects.sort_by(|a, b| a.name.name.cmp(&b.name.name));
+        for e in effects {
+            if !e.is_actor || !e.generics.is_empty() || !e.fns.iter().any(|f| f.is_send) {
+                continue;
+            }
+            if !self.effect_has_wire_form(e) || !self.checked.protocol_hashes.contains_key(&e.name.name) {
+                continue;
+            }
+            // Only effects of modules this program emits: the table names the
+            // constant beside each message enum.
+            if !self.effect_paths.contains_key(&e.name.name) {
+                continue;
+            }
+            let proto = self.effect_path(&e.name.name, &protocol_const_name(&e.name.name));
+            entries.push(format!("(\"{}\".to_string(), {proto}.to_string())", e.name.name));
+        }
+        if entries.is_empty() {
+            return String::new();
+        }
+        self.needs_scheduler = true;
+        let pad = "    ".repeat(indent);
+        format!(
+            "{pad}crate::scheduler::salvo_set_protocols(vec![{}]);\n",
+            entries.join(", ")
+        )
+    }
+
     /// [wire-format] Whether every payload of an actor effect has a wire
     /// form — the gate for its message codec, hash constant, and the typed
     /// send path.
@@ -6316,6 +6348,14 @@ impl<'p> Emitter<'p> {
             // by combining its `&mut dyn` parameters into the fused value
             // the rest of the body threads.
             out.push_str(&body_prelude);
+            // [protocol-hash] [node-group] `main` opens by telling the
+            // scheduler this program's protocol table — every actor effect
+            // with a wire form and its hash — which is what a handshake
+            // carries and `attach<E>` compares. Emitted only where there is
+            // something to say, so a program with no actors mounts nothing.
+            if is_main {
+                out.push_str(&self.protocol_table_prelude(indent + 1));
+            }
             out.push_str(&self.emit_block_stmts(body, indent + 1, StmtCtx::Normal));
             // [rs-throw-controlflow] A `None`-returning fn that may throw
             // still has to produce a `ControlFlow` value on the way out.
@@ -16066,6 +16106,64 @@ impl<'p> Emitter<'p> {
                     // `emit_read` of a narrowed optional answers a `&usize`;
                     // an addr is `Copy`, so a deref-by-clone normalises both.
                     return format!("crate::scheduler::salvo_credits(({a}).clone()).map(|c| c as i32)");
+                }
+                // [node-group] The handshake surface.
+                "set_group" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let name = self.emit_read(args[0]);
+                    let at = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_set_group(({name}).clone(), crate::wire::salvo_encode(&{at}))"
+                    );
+                }
+                "hello_frame" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "crate::scheduler::salvo_hello_frame()".to_string();
+                }
+                "leave_group" if args.is_empty() => {
+                    self.needs_scheduler = true;
+                    return "crate::scheduler::salvo_leave_group()".to_string();
+                }
+                "peer_protocol" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    let node = self.emit_read(args[0]);
+                    let proto = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_peer_protocol(({node}) as u64, &{proto})"
+                    );
+                }
+                "watch_peers" if args.len() == 1 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let sink = self.emit_read(args[0]);
+                    let msg = self.effect_path("PeerEvents", &msg_enum_name("PeerEvents"));
+                    let ep = self.rust_ty(&Ty::Named {
+                        name: "NodeEndpoint".to_string(),
+                        args: Vec::new(),
+                    });
+                    // The three builders: the runtime holds numbers and bytes
+                    // and cannot construct a Salvo struct, so the registration
+                    // site supplies them [actor-watch].
+                    return format!(
+                        "crate::scheduler::salvo_watch_peers(({sink}).clone(), \
+                         |__n, __ep, __t| Box::new({msg}::Hello(__n as i64, \
+                         crate::wire::salvo_decode::<{ep}>(__ep).expect(\"a peer's endpoint\"), \
+                         __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), \
+                         |__n| Box::new({msg}::Gone(__n as i64)), \
+                         |__ps| Box::new({msg}::Introduced(__ps.iter().filter_map(|__p| \
+                         crate::wire::salvo_decode::<{ep}>(__p)).collect())))"
+                    );
+                }
+                "introduce" if args.len() == 2 => {
+                    self.needs_scheduler = true;
+                    self.needs_wire = true;
+                    let node = self.emit_read(args[0]);
+                    let peers = self.emit_read(args[1]);
+                    return format!(
+                        "crate::scheduler::salvo_introduce(({node}) as u64, \
+                         &({peers}).iter().map(|__p| crate::wire::salvo_encode(__p)).collect::<Vec<_>>())"
+                    );
                 }
                 "route_frames" if args.len() == 1 => {
                     self.needs_scheduler = true;

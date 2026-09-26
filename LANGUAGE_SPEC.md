@@ -5376,6 +5376,46 @@ between endpoints and delivers what arrives into the scheduler.
   remote member's load (step ⑤) — and answers `None` for a local actor.
   Delivery is **at most once, in order per (sender, receiver) pair**: the
   transport's guarantee, and nothing more.
+* [node-group] **Membership of nodes is one actor effect whose handlers are
+  the mechanisms** (step ④, user decision 2026-09-26, after a separate
+  `NodeDiscovery` effect collapsed twice: its `authoritative()` flag was a
+  plain handler steering a std actor's algorithm, which meant the algorithm
+  *was* the mechanism). `actor effect NodeGroup { join(events), members(out),
+  subscribe(w), leave() }`, `NodeChanges { joined(n), left(n, why) }`, `Node {
+  id: Long, at: NodeEndpoint }` — what a mechanism knows *after* contact,
+  where a `NodeEndpoint` is what it knows before. `start_group(spawn H(…) on
+  p)` sends the `join` with the `PeerEvents` face a spawn answers (a handler
+  cannot name its own addr).
+  * **The handshake is the runtime's**, common to every mechanism: a HELLO
+    frame (group name, the sender's endpoint, its **protocol table** — every
+    actor effect with a wire form and its hash, registered by `main`'s
+    prologue via `salvo_set_protocols`) sent through the transport directly
+    since no route exists yet; an ACK back with the same; the group name
+    compared on both sides so two deployments on one network refuse each
+    other by name; the route and the peer's table learnt; a LEAVE on
+    departure, which also kills every proxy of an actor on that node (sends
+    become the silent no-op, watches fire with `node left`). The group actor
+    hears about it through `actor effect PeerEvents { hello(node, at,
+    protocols), gone(node), introduced(peers) }`, registered with
+    `watch_peers`. `peer_protocol(node, name)` answers a peer's hash for a
+    protocol — what `attach<E>` compares (step ⑤).
+  * **Introductions are frames, not a protocol**: `introduce(node, peers)`
+    sends an INTRO frame that arrives as `PeerEvents.introduced`. Gossip
+    was first written with a `NodeLink` actor effect the group both served
+    and sent to, and the deadlock graph warned of the `NodeLink → NodeLink`
+    send cycle on every program importing `net` [actor-deadlock-cycle] — a
+    correct warning about an inherent cycle, so the cycle was removed:
+    the group serves `PeerEvents` and never sends it.
+  * **std ships two mechanisms**: `StaticNodeGroup(name, me, all)` — every
+    endpoint known up front, a HELLO to each — and `GossipNodeGroup(name, me,
+    seeds)` — a HELLO to the seeds, and on every `hello` the newcomer is
+    introduced to everyone known and everyone known to the newcomer, so any
+    connected seed set converges on a full mesh (three nodes each seeded with
+    the first see two peers each). Both `[Transport, spawn]`, both bound per
+    node. **Recorded follow-ups**: a partition policy for gossip (unannounced
+    departure is only a LEAVE today; a failed `deliver` should become
+    `left(n, "unreachable")`), and `HeartbeatNodeGroup` over a `Ddb` platform
+    effect as the interop example.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)

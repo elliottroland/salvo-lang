@@ -44,7 +44,7 @@ bridge), time, free concurrency, shareable-by-default handlers, refinement types
 group borrowing, the testing framework, the comparison/hashing capabilities, and
 the wire under actors across machines (`net`, step ① of the network sequence).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1578 tests green.
+targets and the output they print. 1579 tests green.
 
 ## The sequence
 
@@ -82,7 +82,7 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–③ ✅ built)
+### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–④ ✅ built)
 
 The design round is complete — sixteen decisions, all the user's, taken in five
 rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
@@ -124,13 +124,14 @@ The layering, bottom up, and the order it is built in (each step runs on
    double; std `net`'s routing surface. **Left**: several remote senders may
    over-subscribe a mailbox by one each (the initial grant is "at least one");
    a malformed remote answer is dropped silently.
-4. **`NodeGroup`** — one actor effect (`members`, `subscribe`, `leave`;
-   `NodeChanges.joined/left`), **handlers are the mechanisms**:
-   `MemNodeGroup` and `StaticNodeGroup` first (poll and diff), then
-   `GossipNodeGroup(name, seeds, split)` with the partition policy as its
-   argument; the handshake (name, secret/TLS, protocol-hash table) common to
-   all. A `HeartbeatNodeGroup` over a `Ddb` platform effect is the interop
-   example.
+4. ✅ **`NodeGroup` — built 2026-09-26** (COMPLETED.md's log, "step ④").
+   [node-group]: the handshake (name, protocol table, LEAVE) in the runtime,
+   `StaticNodeGroup` and `GossipNodeGroup` in std, `PeerEvents` with
+   introductions as frames. **Left**: the partition/unreachable policy for
+   gossip (a failed `deliver` → `left(n, "unreachable")`); the shared
+   secret/TLS half of N-6 at the handshake (the name is compared, the secret
+   is not yet carried); `HeartbeatNodeGroup` over a `Ddb` platform effect as
+   the interop example.
 5. **Effect-typed generic parameters on declarations** (`<E>` on effects,
    handlers and structs when every use is inside `Addr<E>`), then
    **`ActorGroup<E>`** — a gossiping replica per node, `attach<E>(nodes)` (name

@@ -1,6 +1,6 @@
 ---
 source: crates/salvo-backend-kotlin/tests/codegen_tests.rs
-assertion_line: 4867
+assertion_line: 4868
 expression: combined
 ---
 // ===== core/checked.kt =====
@@ -1240,6 +1240,20 @@ object SalvoSched {
     private val exportedTasks = HashMap<Long, Triple<Int, (Any?) -> Unit, (ByteArray) -> Pair<Boolean, Any?>>>()
     /** [addr-routable] Frames (from, to, bytes) for nodes with no route or wire yet. */
     private val parkedFramesOut = mutableListOf<Triple<Long, Long, ByteArray>>()
+    /** [node-group] Per hosted node: group name, own encoded endpoint, link face, events sink + builders. */
+    private class GroupState {
+        var name = ""
+        var endpoint = ByteArray(0)
+        var sink: Int? = null
+        var hello: ((Long, ByteArray, List<Pair<String, String>>) -> Any?)? = null
+        var gone: ((Long) -> Any?)? = null
+        var intro: ((List<ByteArray>) -> Any?)? = null
+    }
+    private val groups = HashMap<Long, GroupState>()
+    /** [protocol-hash] Every peer's protocol table, by node. */
+    private val peerProtocols = HashMap<Long, Map<String, String>>()
+    /** [protocol-hash] This program's own table, registered at start-up. */
+    private var protocols: List<Pair<String, String>> = emptyList()
     /** Frames staged under the lock, sent once it is released. */
     private val outbox = ThreadLocal.withInitial { mutableListOf<Triple<ByteArray, ByteArray, (ByteArray, ByteArray) -> Unit>>() }
     // [main-pool] Pool 0 exists from the start and belongs to main.
@@ -2266,6 +2280,133 @@ object SalvoSched {
         lock.withLock { waiters[wid].decode = decode }
     }
 
+    /** [protocol-hash] Registers this program's protocol table. */
+    fun setProtocols(table: List<Pair<String, String>>) {
+        lock.withLock { protocols = table }
+    }
+
+    /** [node-group] The current node joins group [name] at [endpoint]. */
+    fun setGroup(name: String, endpoint: ByteArray) {
+        lock.withLock {
+            val g = groups.getOrPut(pools[currentPool()].node) { GroupState() }
+            g.name = name
+            g.endpoint = endpoint
+        }
+    }
+
+    /** [node-group] Where the current node's peer events go, with the three builders. */
+    fun watchPeers(
+        sink: Int,
+        hello: (Long, ByteArray, List<Pair<String, String>>) -> Any?,
+        gone: (Long) -> Any?,
+        intro: (List<ByteArray>) -> Any?,
+    ) {
+        lock.withLock {
+            val g = groups.getOrPut(pools[currentPool()].node) { GroupState() }
+            g.sink = sink
+            g.hello = hello
+            g.gone = gone
+            g.intro = intro
+        }
+    }
+
+    /** [node-group] Tells peer [to] about [peers] (encoded endpoints): an INTRO frame. */
+    fun introduce(to: Long, peers: List<ByteArray>) {
+        lock.withLock {
+            val node = pools[currentPool()].node
+            val out = java.io.ByteArrayOutputStream()
+            val d = java.io.DataOutputStream(out)
+            d.writeByte(7); d.writeLong(to); d.writeLong(node); d.writeInt(peers.size)
+            for (p in peers) { d.writeInt(p.size); d.write(p) }
+            routeFrame(node, to, out.toByteArray())
+        }
+        flushOut()
+    }
+
+    private fun enqueueEvent(sink: Int, msg: Any?) {
+        lock.withLock {
+            if (!actors[sink].dead) {
+                actors[sink].queue.addLast(SalvoEntry.User(msg, null))
+                actors[sink].userLen += 1
+            }
+            cv.signalAll()
+        }
+    }
+
+    private fun handshakeBody(node: Long, kind: Int, to: Long): ByteArray? {
+        val g = groups[node] ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        val d = java.io.DataOutputStream(out)
+        d.writeByte(kind); d.writeLong(to); d.writeLong(node)
+        val name = g.name.toByteArray(Charsets.UTF_8)
+        d.writeInt(name.size); d.write(name)
+        d.writeInt(g.endpoint.size); d.write(g.endpoint)
+        d.writeInt(protocols.size)
+        for ((pname, hash) in protocols) {
+            val nb = pname.toByteArray(Charsets.UTF_8)
+            d.writeInt(nb.size); d.write(nb)
+            d.write(hash.toByteArray(Charsets.US_ASCII))
+        }
+        return out.toByteArray()
+    }
+
+    /** [node-group] The current node's HELLO frame. */
+    fun helloFrame(): ByteArray = lock.withLock { handshakeBody(pools[currentPool()].node, 4, 0) ?: ByteArray(0) }
+
+    /** [node-group] A LEAVE to every known peer. */
+    fun leaveGroup() {
+        lock.withLock {
+            val node = pools[currentPool()].node
+            for (to in peerProtocols.keys.toList()) {
+                val out = java.io.ByteArrayOutputStream()
+                val d = java.io.DataOutputStream(out)
+                d.writeByte(6); d.writeLong(to); d.writeLong(node)
+                routeFrame(node, to, out.toByteArray())
+            }
+        }
+        flushOut()
+    }
+
+    /** [protocol-hash] A peer's hash for a protocol, or `null`. */
+    fun peerProtocol(node: Long, protocol: String): String? = lock.withLock { peerProtocols[node]?.get(protocol) }
+
+    private fun deliverHandshake(kind: Int, d: java.io.DataInputStream, toRead: Long): Boolean {
+        val from = d.readLong()
+        val nameBytes = ByteArray(d.readInt()); d.readFully(nameBytes)
+        val name = String(nameBytes, Charsets.UTF_8)
+        val endpoint = ByteArray(d.readInt()); d.readFully(endpoint)
+        val count = d.readInt()
+        val table = ArrayList<Pair<String, String>>(count)
+        for (i in 0 until count) {
+            val nb = ByteArray(d.readInt()); d.readFully(nb)
+            val hb = ByteArray(16); d.readFully(hb)
+            table.add(Pair(String(nb, Charsets.UTF_8), String(hb, Charsets.US_ASCII)))
+        }
+        val (sink, hello) =
+            lock.withLock {
+                val here = pools[currentPool()].node
+                val node = if (kind == 4) here else toRead
+                val g = groups[node] ?: return false
+                if (g.name != name) return false
+                routes[from] = endpoint
+                peerProtocols[from] = table.toMap()
+                if (kind == 4) {
+                    handshakeBody(node, 5, from)?.let { routeFrame(node, from, it) }
+                }
+                val parked = ArrayList(parkedFramesOut)
+                parkedFramesOut.clear()
+                for ((f, n, fr) in parked) routeFrame(f, n, fr)
+                cv.signalAll()
+                Pair(g.sink, g.hello)
+            }
+        flushOut()
+        // Built with the lock released: the builder decodes the endpoint.
+        if (sink != null && hello != null) {
+            enqueueEvent(sink, hello(from, endpoint, table))
+        }
+        return true
+    }
+
     /**
      * [addr-routable] [wire-format] Delivers one frame that arrived on the
      * wire. Anything malformed, misaddressed or with mismatched bits is
@@ -2278,6 +2419,54 @@ object SalvoSched {
             try {
                 val kind = d.readUnsignedByte()
                 val toNode = d.readLong()
+                if (kind == 4 || kind == 5) {
+                    return deliverHandshake(kind, d, toNode)
+                }
+                if (kind == 6) {
+                    val from = d.readLong()
+                    val sink =
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            routes.remove(from)
+                            peerProtocols.remove(from)
+                            // Every proxy of an actor on the departed node is dead
+                            // [node-exit]: sends are the silent no-op, watches fire.
+                            for ((r, idx) in proxies) {
+                                if (r.node == from && !actors[idx].dead) {
+                                    actors[idx].dead = true
+                                    actors[idx].exitReason = "node left"
+                                    val ws = ArrayList(actors[idx].watchers)
+                                    actors[idx].watchers.clear()
+                                    for ((w, exit) in ws) deliverReply(w, exit("node left"))
+                                }
+                            }
+                            cv.signalAll()
+                            groups[toNode]?.let { g -> g.sink?.let { s -> Pair(s, g.gone) } }
+                        }
+                    if (sink != null && sink.second != null) {
+                        enqueueEvent(sink.first, sink.second!!(from))
+                    }
+                    flushOut()
+                    return true
+                }
+                if (kind == 7) {
+                    d.readLong() // from
+                    val count = d.readInt()
+                    val peers = ArrayList<ByteArray>(count)
+                    for (i in 0 until count) {
+                        val p = ByteArray(d.readInt()); d.readFully(p)
+                        peers.add(p)
+                    }
+                    val sink =
+                        lock.withLock {
+                            if (!hostedNodes.contains(toNode)) return false
+                            groups[toNode]?.let { g -> g.sink?.let { s -> Pair(s, g.intro) } }
+                        }
+                    if (sink != null && sink.second != null) {
+                        enqueueEvent(sink.first, sink.second!!(peers))
+                    }
+                    return true
+                }
                 // Two phases around every decode: header checked and decoder
                 // found under the lock, payload decoded with it released, the
                 // value delivered under the lock again.

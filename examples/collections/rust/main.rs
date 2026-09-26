@@ -117,12 +117,12 @@ pub fn main() {
     let mut a = Point { x: 1, y: 2 };
     let mut b = Point { x: 1, y: 2 };
     let mut c = Point { x: 1, y: 9 };
-    let mut same = eq__5(&a, &b);
+    let mut same = eq__6(&a, &b);
     let mut before = cmp__5(&a, &c) < 0;
     println(&mut console, &(format!("4. equal {}, ordered {}", same, before)));
     let mut n1 = Note { text: "same".to_string() };
     let mut n2 = Note { text: "same".to_string() };
-    let mut notes_equal = eq__6(&n1, &n2);
+    let mut notes_equal = eq__7(&n1, &n2);
     println(&mut console, &(format!("4. plain struct equality {}", notes_equal)));
     let mut squares = (0..(4)).map(|i| i * i).collect::<Vec<_>>();
     println(&mut console, &(format!("5. generated {}", format!("[{}]", squares.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
@@ -174,16 +174,16 @@ pub fn cmp__5(a: &Point, b: &Point) -> i32 {
     (Ord::cmp(a, b) as i32)
 }
 
-pub fn hash__5(value: &Point) -> i64 {
+pub fn hash__6(value: &Point) -> i64 {
     let mut __h = std::hash::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut __h);
     (std::hash::Hasher::finish(&__h) as i64)
 }
 
-pub fn eq__5(a: &Point, b: &Point) -> bool {
+pub fn eq__6(a: &Point, b: &Point) -> bool {
     (a == b)
 }
 
-pub fn eq__6(a: &Note, b: &Note) -> bool {
+pub fn eq__7(a: &Note, b: &Note) -> bool {
     (a == b)
 }

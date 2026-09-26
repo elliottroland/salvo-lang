@@ -187,6 +187,248 @@ export handler Receiving() of Inbound {
     }
 }
 
+// ----------------------------------------------------------- node group ----
+
+// [node-group] A member of a node group: the identity the handshake minted and
+// the endpoint it answers at. What a mechanism knows *after* contact; a
+// `NodeEndpoint` is what it knows before.
+export struct Node : auto Hashed<self> {
+    id: Long,
+    at: NodeEndpoint
+}
+
+// [node-group] Membership of **nodes**: one actor effect, whose handlers are
+// the mechanisms — a fixed list, gossip over seeds, a heartbeat store. Every
+// handler serves this face the same way; what differs is how it learns who is
+// there and how it notices who has gone.
+export actor effect NodeGroup {
+    // Start the mechanism: register this node's group and its events face
+    // with the runtime, then find the others. [events] is the group actor's
+    // own `PeerEvents` addr, which the spawn answered — a handler cannot name
+    // its own addr, so the spawner hands it back; [start_group] does exactly
+    // this for the pair a spawn answers.
+    send fn join(events: Addr<PeerEvents>) => !events
+    // Everyone this node currently knows, itself excluded.
+    send fn members(out: Reply<List<Node>>) => !out
+    // Hear about arrivals and departures.
+    send fn subscribe(w: Addr<NodeChanges>) => !w
+    // Tell every peer this node is going, and stop.
+    send fn leave()
+}
+
+// [node-group] What a subscriber hears. [why] on a departure is `"left"` for
+// an announced one, or the mechanism's account of an unannounced one.
+export actor effect NodeChanges {
+    send fn joined(n: Node) => !n
+    send fn left(n: Node, why: Str) => !n, !why
+}
+
+// [node-group] The runtime's account of the handshake, delivered to whichever
+// group actor registered with [watch_peers]: a peer completed a HELLO/ACK
+// exchange (its identity, endpoint and protocol table), a peer sent LEAVE, or
+// a peer introduced others (an INTRO frame, sent with [introduce]). Introductions
+// travel as frames rather than as an actor protocol so the group serves
+// `PeerEvents` and never sends it — which keeps gossip out of the deadlock
+// graph's send-cycle warning [actor-deadlock-cycle].
+export actor effect PeerEvents {
+    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>) => !node, !at, !protocols
+    send fn gone(node: Long) => !node
+    send fn introduced(peers: List<NodeEndpoint>) => !peers
+}
+
+// [node-group] The current node joins group [name], answering at [at]: what
+// its HELLO carries and what a peer's HELLO is checked against — two nodes in
+// groups of different names refuse each other by name at the handshake.
+export intrinsic fn set_group(name: Str, at: NodeEndpoint) [] -> None => name, at
+
+// [node-group] Where the current node's peer events go.
+export intrinsic fn watch_peers(sink: Addr<PeerEvents>) [] -> None => !sink
+
+// [node-group] Tells peer [node] about [peers]: an INTRO frame, which arrives
+// there as `PeerEvents.introduced`.
+export intrinsic fn introduce(node: Long, peers: List<NodeEndpoint>) [] -> None => node, peers
+
+// [node-group] The current node's HELLO frame, to be handed to the transport
+// directly: a node with no route yet cannot be sent to any other way.
+export intrinsic fn hello_frame() [] -> Bytes
+
+// [node-group] A LEAVE to every peer the current node knows.
+export intrinsic fn leave_group() [] -> None
+
+// [protocol-hash] A peer's hash for the protocol named [protocol], as its
+// handshake carried it; `None` for an unknown peer or one without the
+// protocol. What `attach<E>` compares (step ⑤).
+export intrinsic fn peer_protocol(node: Long, protocol: Str) [] -> Str? => node, protocol
+
+// [node-group] Starts a spawned node group: `start_group(spawn StaticNodeGroup(…)
+// on p)` — the three faces a spawn answers, the `join` sent, the `NodeGroup`
+// face answered.
+export fn start_group(faces: (Addr<NodeGroup>, Addr<PeerEvents>)) [] -> Addr<NodeGroup> => !faces {
+    let (group, events) = faces
+    group.join(events)
+    return group
+}
+
+// [node-group] Fixed membership: every endpoint is known up front, so the
+// mechanism is "say HELLO to each, and report who answers". Death detection
+// is the transport's: a LEAVE, or — once step ④'s follow-up lands — a failed
+// delivery. The double every later step tests on, over `MemTransport`.
+export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoint>) [Transport, spawn]
+    of NodeGroup, PeerEvents {
+    mailbox { capacity: 64 }
+
+    known: Mut Map<Long, Node> = mut_map_of()
+    watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
+
+    send fn join(events: Addr<PeerEvents>) => !events {
+        set_group(copy(name), copy(me))
+        watch_peers(events)
+        for e in all {
+            if !eq(e, me) {
+                let _sent = deliver(copy(e), hello_frame())
+            }
+        }
+    }
+
+    send fn members(out: Reply<List<Node>>) => !out {
+        let all_known: Mut List<Node> = mut_list_of()
+        for id in keys(known) {
+            let n = get(known, id)
+            if !(n is None) {
+                add(all_known, copy(n))
+            }
+        }
+        out.send(all_known)
+    }
+
+    send fn subscribe(w: Addr<NodeChanges>) => !w {
+        add(watchers, w)
+    }
+
+    send fn leave() {
+        leave_group()
+    }
+
+    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>)
+        => !node, !at, !protocols {
+        if contains_key(known, node) {
+            return
+        }
+        let n = Node { id: copy(node), at: at }
+        put(known, node, copy(n))
+        for w in watchers {
+            w.joined(copy(n))
+        }
+    }
+
+    send fn gone(node: Long) => !node {
+        let n = remove(known, node)
+        if n is None {
+            return
+        }
+        for w in watchers {
+            w.left(copy(n), "left")
+        }
+    }
+
+    send fn introduced(peers: List<NodeEndpoint>) => !peers {
+        // A static group knows its list already; an introduction is news of
+        // nothing.
+    }
+}
+
+// [node-group] Gossip membership: a node knows only some [seeds] to start
+// with; every node it meets is told who else it knows, and tells everyone
+// else about it, so the group converges on a full mesh from any connected set
+// of seeds. Death is a LEAVE (or, once the failure follow-up lands, a failed
+// delivery). The mechanism most deployments want when the fleet is not fixed;
+// its partition policy is the recorded follow-up.
+export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndpoint>) [Transport, spawn]
+    of NodeGroup, PeerEvents {
+    mailbox { capacity: 64 }
+
+    known: Mut Map<Long, Node> = mut_map_of()
+    dialed: Mut Set<Str> = mut_set_of()
+    watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
+
+    send fn join(events: Addr<PeerEvents>) => !events {
+        set_group(copy(name), copy(me))
+        watch_peers(events)
+        for e in seeds {
+            dial(me, dialed, copy(e))
+        }
+    }
+
+    send fn members(out: Reply<List<Node>>) => !out {
+        let all_known: Mut List<Node> = mut_list_of()
+        for id in keys(known) {
+            let n = get(known, id)
+            if !(n is None) {
+                add(all_known, copy(n))
+            }
+        }
+        out.send(all_known)
+    }
+
+    send fn subscribe(w: Addr<NodeChanges>) => !w {
+        add(watchers, w)
+    }
+
+    send fn leave() {
+        leave_group()
+    }
+
+    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>)
+        => !node, !at, !protocols {
+        if contains_key(known, node) {
+            return
+        }
+        // Everyone already known learns of the newcomer, and the newcomer
+        // learns of everyone already known.
+        let others: Mut List<NodeEndpoint> = mut_list_of()
+        for id in keys(known) {
+            let n = get(known, id)
+            if !(n is None) {
+                add(others, copy(n.at))
+            }
+            introduce(copy(id), [copy(at)])
+        }
+        introduce(copy(node), others)
+        add(dialed, to_str(at))
+        let n = Node { id: copy(node), at: at }
+        put(known, node, copy(n))
+        for w in watchers {
+            w.joined(copy(n))
+        }
+    }
+
+    send fn gone(node: Long) => !node {
+        let n = remove(known, node)
+        if n is None {
+            return
+        }
+        for w in watchers {
+            w.left(copy(n), "left")
+        }
+    }
+
+    send fn introduced(peers: List<NodeEndpoint>) => !peers {
+        for e in peers {
+            dial(me, dialed, copy(e))
+        }
+    }
+
+}
+
+// Says HELLO to an endpoint once; the runtime's handshake does the rest.
+fn dial(me: NodeEndpoint, dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => me, dialed: Mut, !e {
+    if eq(e, me) || contains(dialed, to_str(e)) {
+        return
+    }
+    add(dialed, to_str(e))
+    let _sent = deliver(e, hello_frame())
+}
+
 // ---------------------------------------------------------------- host ----
 
 // The machine's transport: TCP, one connection per peer, length-prefixed

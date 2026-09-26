@@ -401,6 +401,7 @@ fun report_line(counter: Int, label: String, out: salvo.SalvoReply) {
 }
 
 fun main() {
+    salvo.SalvoSched.setProtocols(listOf(Pair("Counter", salvo.main.__PROTO_Counter), Pair("Desk", salvo.main.__PROTO_Desk), Pair("Faults", salvo.core.actor.__PROTO_Faults), Pair("Fragile", salvo.main.__PROTO_Fragile), Pair("Ledger", salvo.main.__PROTO_Ledger)))
     val __fx = __Fx_1(StdOutConsole())
     val workers = salvo.SalvoSched.pool(2)
     val counter = run { val __h = Counting(); salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE) }
