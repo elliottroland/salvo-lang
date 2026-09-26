@@ -30,7 +30,7 @@ pub struct EmittedFile {
 /// [mod-used-only]. Returns the files or the accumulated codegen/type
 /// errors, **dropping** any warnings: this is the shape the golden tests
 /// want. The driver calls [`emit_program_reporting`], which hands them back
-/// [qual-refn-conflict].
+/// [qual-refn-ambiguous].
 pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> {
     emit_program_reporting(program).map(|(files, _warnings)| files)
 }
@@ -41,7 +41,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 ///
 /// Two returns rather than one, because they mean different things: a
 /// warning must not stop emission (a suppressed refinement conflict leaves
-/// a legal program [qual-refn-conflict]), so it cannot travel as an error —
+/// a legal program [qual-refn-ambiguous]), so it cannot travel as an error —
 /// and it must not be silently swallowed either, or the diagnostic exists
 /// only in `salvo analyze`.
 pub fn emit_program_reporting(
@@ -53,7 +53,7 @@ pub fn emit_program_reporting(
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
-    // needs [qual-refn-conflict]. Checker diagnostics are structured;
+    // needs [qual-refn-ambiguous]. Checker diagnostics are structured;
     // render them here at the backend boundary.
     if checked.errors.iter().any(|d| d.is_error()) {
         // Every diagnostic is rendered on the failure path, warnings
@@ -685,7 +685,7 @@ pub fn platform_skeletons(program: &Program) -> Result<Vec<EmittedFile>, Vec<Str
     // surfaced here: `salvo platform generate` writes host stubs once, and
     // nagging about the program's diagnostics is the compile path's job
     // (`emit_program_reporting`) and `salvo analyze`'s
-    // [qual-refn-conflict].
+    // [qual-refn-ambiguous].
     if checked.errors.iter().any(|d| d.is_error()) {
         return Err(checked
             .errors

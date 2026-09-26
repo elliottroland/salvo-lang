@@ -544,30 +544,20 @@ fn a_target_holding_sources_is_never_deleted() {
     assert!(target.join("keep.sv").is_file(), "the file must survive");
 }
 
-/// A program whose refinements disagree [qual-refn-conflict]: legal, so it
+/// A program whose refinements disagree [qual-refn-ambiguous]: legal, so it
 /// runs, and the checker's *warning* has to reach the builder.
-const REFN_CONFLICT: &str = r#"
-qualifier Q1<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q1
-}
-
-qualifier Q2<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q2
-}
-
+const REDUNDANT_SELECTOR: &str = r#"
 fn main() [use] {
     use StdOutConsole()
     let xs: Mut List<Int> = mut_list_of()
-    add(xs, 1)
-    if xs is Q1 {
-        println("checked by hand: ${size(xs)}")
-    }
+    // The selector changes nothing here, which is a warning — and a warning
+    // must reach the builder without stopping it [fn-overload-at].
+    add@core.list(xs, 1)
+    println("checked by hand: ${size(xs)}")
 }
 "#;
 
-/// [qual-refn-conflict] [diag-structured] Non-fatal diagnostics reach the
+/// [qual-refn-ambiguous] [diag-structured] Non-fatal diagnostics reach the
 /// builder: `Backend::emit` returns them alongside the files, and the driver
 /// prints them without failing. Both halves are asserted, because either one
 /// alone is a bug — an abort would reject a legal program, and silence would
@@ -587,7 +577,7 @@ fn a_warning_reaches_the_builder_without_failing_the_run() {
             continue;
         }
         let dir = work_dir(&format!("warn_{backend}"));
-        fs::write(dir.join("main.sv"), REFN_CONFLICT).unwrap();
+        fs::write(dir.join("main.sv"), REDUNDANT_SELECTOR).unwrap();
         let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(
@@ -600,7 +590,7 @@ fn a_warning_reaches_the_builder_without_failing_the_run() {
             "{backend} stdout (stderr: {stderr})"
         );
         assert!(
-            stderr.contains("warning: the refinements of `Q1` and `Q2` disagree")
+            stderr.contains("warning: this `@core.list` is not needed")
                 && stderr.contains("main.sv:"),
             "the warning should reach the builder ({backend}), stderr: {stderr}"
         );

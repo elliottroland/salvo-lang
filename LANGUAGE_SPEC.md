@@ -615,9 +615,11 @@ Conventions:
     of it" is a refinement written by the claim's **owner**, never a wrapper
     overload at the call site.
     Consequence for user code: another qualifier refining `add` over a `List`
-    now *disagrees* with std's, so neither applies and the call warns
-    [qual-refn-conflict]. The remedy is one word — `with NonEmpty` on the
-    user's qualifier — which the diagnostic names.
+    *disagrees* with std's, so the call is refused until it names the place it
+    means [qual-refn-ambiguous]. Two remedies, both named by the diagnostic:
+    `add@place(...)` per call, or one word — `with NonEmpty` on the user's
+    qualifier — which makes the two claims co-applicable and removes the
+    disagreement altogether.
   * The overload delegates to `get(list, 0)!`, **not** to `first@core.list`:
     the scope selector names the module, and within it a `NonEmpty` argument
     re-picks this same overload, which recurses forever.
@@ -1233,7 +1235,7 @@ Conventions:
     parameter's own type: `refn add(set: Mut Set<T>, elem: T) => set:
     +NonEmpty` inside the `of Set<T>` declaration refines the `add` that takes
     a set. Two container claims therefore do *not* conflict with each other
-    [qual-refn-conflict] — they are about different subjects.
+    [qual-refn-ambiguous] — they are about different subjects.
   * Backends: erasure [qual-erasure] makes two same-named `qualifies`
     functions collide where the target has no overloading, so **Rust mangles
     the emitted name with the subject** (`Filled__List_qualifies`) and only
@@ -1244,7 +1246,7 @@ Conventions:
   [type-canbe-mut].
   * Pairwise `with` compatibility is validated at declaration sites.
   * One implementation, two callers: the declaration-site check and the
-    refinement-conflict rule [qual-refn-conflict] share
+    refinement-conflict rule [qual-refn-ambiguous] share
     `refine::quals_compatible`, since a conflict is *precisely* "these two
     could not have been written together".
   * `with` is only ever this compatibility clause; opting a declaration
@@ -1393,7 +1395,7 @@ Conventions:
     index valid; an exchange moves no boundary). Validated against the
     qualifier's **value slots** (the parameter is the value the claims
     depend on, not the claim's subject), and only a dependent qualifier
-    may appear. Preservation cannot conflict [qual-refn-conflict] and
+    may appear. Preservation cannot conflict [qual-refn-ambiguous] and
     merges across groups.
   * **In a fn's own clause**, alongside the parameter's ordinary entry
     (exempt from the once-rule — it is about *other* values' claims):
@@ -1558,7 +1560,7 @@ Conventions:
   * **A qualifier may only refine its own claim.** `NonEmpty` cannot say
     what a call does to `Sorted`. That is what makes [qual-refn-scope]'s
     opt-in honest, and it is why conflicts reduce to "two qualifiers that
-    cannot co-apply" [qual-refn-conflict].
+    cannot co-apply" [qual-refn-ambiguous].
   * A refinement's qualifier must apply to the parameter's type
     [qual-of], and each entry must name a parameter of the resolved
     overload, once.
@@ -1617,8 +1619,10 @@ Conventions:
   T) => list: +NonEmpty`); `swap` keeps.
   * Preconditions are per parameter, and two refinements of one parameter that
     require different things are two independent groups: each applies where its
-    own precondition holds, and conflicts [qual-refn-conflict] are judged within
-    a group rather than across them.
+    own precondition holds. Disagreement, however, is judged **across** groups
+    as well as within one [qual-refn-ambiguous]: two statements that apply to the
+    same call cannot establish claims that one value could not carry, whatever
+    their preconditions were.
   * A **kept** claim survives a **conditional** call, an established one does
     not: if the call may not have happened, the caller's own claim is still
     whatever it was, but nothing new has been established. (Before this rule the
@@ -1634,37 +1638,31 @@ Conventions:
   importable** — reconciling conflicting refinements is the consumer's
   call, and a library shipping its own reconciliation would move the
   conflict one level up.
-* [qual-refn-conflict] When the refinements applying to one (callee,
-  parameter) **disagree**, none of them apply (user decision
-  2026-09-06). Two additions disagree when the qualifiers could not have
-  been written together [qual-with]; an addition and a removal of the
-  same qualifier disagree outright.
-  * **Not an error**: the program compiles and the function is simply
-    less useful. But a **warning** is reported at the call site, once per
-    (callee, parameter) — silence would make an imported refinement's
-    doing nothing undiagnosable. The remedies it names are testing the
-    property with `is` (always available, since these are state claims)
-    and [qual-refn-reconcile].
-    * "Compiles" is enforced, not merely intended: each backend's
-      emission gate aborts on *errors only*, so a warning cannot stop
-      codegen.
-    * And it is *reported* on that path, not only by `salvo analyze` and
-      the language server: `Backend::emit` returns `Emitted { files,
-      warnings }`, the driver prints the warnings and carries on, and each
-      emitter has `emit_program_reporting` next to the warning-dropping
-      `emit_program` the golden tests use. Tested per backend, since both
-      the gate and the channel are duplicated in each.
-    * `salvo platform generate` deliberately does not report them: it
-      writes host stubs once, and the program's diagnostics belong to the
-      compile path.
-  * Granularity is per **parameter**: a disagreement about one parameter
-    does not cost the refinements of another.
-  * Judged in the *calling* file's scope, since that is where the
-    refinements are visible. A qualifier that file cannot see is assumed
-    compatible rather than suppressing on missing information.
-  * A single addition is also skipped when it could not co-apply with a
-    qualifier the call *preserved*: the value cannot carry both claims,
-    and knowing less is the safe direction.
+* [qual-refn-ambiguous] When the refinements applying to one (callee,
+  parameter) **disagree**, the call is an **error** (user decision 2026-09-26):
+  the compiler refuses to choose, and the diagnostic names the `f@place` that
+  picks each side. Two refinements disagree when their additions could not have
+  been written together [qual-with]; an addition and a removal of the same
+  qualifier disagree outright.
+  * Disagreement is judged across **every** applicable group, not only within
+    one: two refinements with different preconditions [qual-refn-narrow] are
+    separate groups, and before this rule both were applied in order and the
+    second addition was silently dropped for being incompatible with the first.
+    That is the shape that motivated the rule — std says `add` establishes
+    `NonEmpty`, your own qualifier says it keeps `NE`, and the caller ended up
+    with whichever group ran first.
+  * **Two refinements made by the *same* place** are an error at the
+    refinements themselves, not at the call: `f@place` picks a place, so a
+    place that disagrees with itself leaves the caller no way to choose. One of
+    them has to go, or the qualifiers have to declare `with` each other.
+  * Nothing is applied in either case, so no claim is invented from a choice
+    the program did not make.
+* [qual-refn-at] **`f@place(args)` picks the place whose statement is meant**,
+  and only that place's refinements apply — rebuilt from its own statements, so
+  a selector settles a disagreement rather than inheriting it. A place that
+  refines a callee is a legal selector even when it declares no overload of it
+  [fn-overload-at]. The unpicked statement does not apply, which is the point:
+  `add@core.list(xs, 1)` establishes `NonEmpty` and leaves `NE` behind.
 * [qual-refn-reconcile] A top-level `refn` **replaces** the qualifiers'
   own refinements for the parameters it names, rather than joining them —
   which is what makes reconciling a conflict possible at all. Same
@@ -2094,29 +2092,32 @@ Conventions:
     deliberately: `Ty::Var` identity is name-scoped per side, so a
     callee's `T` never appears inside argument types (a caller's
     same-named `T` is a different variable).
-* [fn-overload-scope] **The most specific scope that fits wins** (user
-  decision 2026-09-07). Functions arrive from ever more specific places —
-  `core`, then this file's explicit imports, then this module, then the fn's
-  own scope (fn-typed parameters, locals, implicit parameters, effect
-  members), then inner scopes — and only the most specific rung with a
-  candidate *fitting the arguments* competes.
-  * So an own-module `size(List<T>)` means *this* module's for calls in it,
-    while `size("text")` still reaches core's — the shadowing overload does
-    not fit, so it never competes. Before this rule, fns merged into one
-    flat overload set and declaration order handed the call to std, silently.
-  * The rungs above `Own` are not overload sets: a fn-typed local, parameter
-    or implicit *is* the function the caller chose and shadows the name
-    outright, an effect member takes the name before any fn does
-    (resolving across same-named effects by availability
-    [effect-member-overload]), and a rename introduces a fresh name
-    [fn-rename]. `FnEntry::rung` therefore has three values (`Core`,
-    `Import`, `Own`).
-  * **Scope beats signature**, deliberately: the alternative is a rule no
-    reader can predict without knowing std's surface. When it discards a
-    *more specific signature* from a lower rung the call gets a
-    `Severity::Warning` naming both candidates and both `@module` forms —
-    writing either silences it, since an explicit selector is the
-    confirmation.
+* [fn-overload-scope] **Scope says which functions are *visible*, never which
+  one a call means** (user decision 2026-09-26, replacing the scope-precedence
+  rule of 2026-09-07). Functions arrive from `core`, from this file's imports
+  and from this module, and **every** one that fits the arguments competes on
+  signature alone [fn-overload-rank]; no single most specific candidate is an
+  error naming the places [fn-overload-ambiguous].
+  * So a module declaring its own `size(List<T>)` does **not** quietly take
+    over `size(xs)` in its own file: both fit, neither is more specific, and
+    the call writes `size@mymodule(xs)` or `size@core.list(xs)`. The rule it
+    replaces made which one ran depend on a ladder the reader had to know std's
+    surface to predict — and the previous compromise (pick the nearer scope,
+    warn when a *more specific* signature was discarded) still chose, which is
+    what the language stopped doing.
+  * `rename fn` [fn-rename] and `import … as` are the remedies for a name used
+    often in one scope: both take one declaration out of the shared name, so
+    the calls need no selector at all. That is the intended shape for a module
+    that means to work with a shadowing overload throughout.
+  * **One declaration is one candidate.** A fn reachable by two routes — an
+    implicitly available name that is also a member of the file's own module
+    (std's `test` inside an annex, `core.list` inside `core.list`) — is not an
+    ambiguity: the pool is deduped by declaration before ranking.
+  * The rungs above the overload set are unchanged, and they *shadow* rather
+    than compete: a fn-typed local, parameter or implicit **is** the function
+    the caller chose, an effect member takes the name before any fn does
+    [effect-member-overload], and a rename introduces a fresh name. `@` is the
+    way to reach a fn a local shadows [fn-overload-at].
 * [fn-overload-rank] **Then the most specific signature**, compared **per
   argument slot** (`types::spec_cmp`, `rank_cmp`):
   1. a **type variable** says the least, structurally (`List<Int>` beats
@@ -2167,6 +2168,15 @@ Conventions:
   [effect-at].
   * A module path, not a rung keyword: `@mod`/`@import` would ask the reader
     to know which rung a name came in on (user decision 2026-09-07).
+  * The module may be one that **refines** the callee rather than declaring it
+    [qual-refn-at]: `add@mymodule(xs, 1)` names this module's statement about
+    `core.list`'s `add`. Then every declaration still competes and the selector
+    narrows the refinements instead.
+  * **A selector that changes nothing is a warning** (user decision
+    2026-09-26): if the call resolves to the same declaration without it, and
+    no refinement of that callee disagrees in this file, the `@place` is noise —
+    and noise in a disambiguation spelling reads as evidence that something is
+    ambiguous. Still a correct program, so a warning, never an error.
   * Naming a module with no *fitting* overload is an error listing the
     modules that have one — never a silent fallback.
   * It is the way out of a **shadowed** name: a local of the same name hides
@@ -7112,9 +7122,9 @@ replaced the working document TESTING.md).
   language server builds on.
   * The severity is load-bearing, not decorative: a *warning* reports
     something the author probably did not intend without rejecting the
-    program, which is what a suppressed refinement conflict needs
-    [qual-refn-conflict]. `salvo analyze` counts warnings separately and
-    exits 0 when there are no errors.
+    program, which is what a redundant selector needs [fn-overload-at].
+    `salvo analyze` counts warnings separately and exits 0 when there are no
+    errors.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
   fn-by-name uses — as `Checked::fn_refs: (file, name span) -> FnKey`.

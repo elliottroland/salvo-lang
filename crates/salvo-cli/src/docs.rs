@@ -207,7 +207,7 @@ pub fn field_section(fields: &[FieldDecl], scope: &DocScope) -> Option<String> {
 /// in another package — so a reader of `add` would otherwise have no way to
 /// learn that, in this file, it also establishes `NonEmpty`. Suppressed
 /// groups are shown too: a conflict is silent in the type system by design
-/// [qual-refn-conflict], and this is where it stops being invisible.
+/// [qual-refn-ambiguous], and this is where it stops being invisible.
 pub fn refinement_section(groups: &[RefnGroup], scope: &DocScope) -> Option<String> {
     if groups.is_empty() {
         return None;

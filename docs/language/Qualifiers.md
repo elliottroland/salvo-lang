@@ -336,14 +336,23 @@ A refinement is **trusted**, exactly as `-> +Q T` is: nothing proves that `add` 
 
 **Refinements travel with their qualifier.** A refinement declared inside `NonEmpty` applies wherever `NonEmpty` is in scope, and nowhere else — you opt into the refinements by opting into the qualifier. A qualifier may only speak about its *own* claim: `NonEmpty` cannot state what a call does to `Sorted`.
 
-**When refinements disagree, none of them apply.** Two qualifiers can both claim a call establishes them, and their claims can be mutually exclusive:
+**When refinements disagree, the call is refused.** Two qualifiers can both claim a call establishes them, and their claims can be mutually exclusive:
 
 ```
 qualifier Q1<T> of List<T> { ... refn something(list: List<T>) => list: +Q1 }
 qualifier Q2<T> of List<T> { ... refn something(list: List<T>) => list: +Q2 }
 ```
 
-Merging these would ask for `+Q1 +Q2`, which is impossible when neither declares `with` the other. That is not an error — the program still compiles, and `something` is simply a less useful function — but the compiler warns, because a refinement you imported silently doing nothing would be impossible to diagnose otherwise. You then have two remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), or state the reconciled result in your own module with a top-level `refn`:
+Merging these would ask for `+Q1 +Q2`, which is impossible when neither declares `with` the other. Rather than pick one — and leave you to work out afterwards which claim your value ended up with — the compiler refuses the call and names the place that made each statement:
+
+```
+something@lib(xs)    // `lib`'s statement: establishes Q1
+something@main(xs)   // this module's: establishes Q2
+```
+
+The place you name is the only one that applies, so what the call establishes is what you asked for. Two refinements made by the *same* place are an error where they are written instead, since no selector could separate them.
+
+The other remedies: test the property yourself with `is` after the call (always possible, since these are state qualifiers), declare `with` on your qualifier so both claims can co-apply, or state the reconciled result in your own module with a top-level `refn`:
 
 ```
 // In your own module: replaces the qualifiers' refinements for `list`.

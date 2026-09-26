@@ -106,7 +106,7 @@ pub fn main() {
     println(&mut console, &(format!("6. first is {}, no optional", first(&filled))));
     let mut growing: Vec<i32> = vec![];
     growing.push(7);
-    println(&mut console, &(format!("6. after add, first is {}", first(&growing))));
+    println(&mut console, &(format!("6. after add, first is {}", *first(&growing))));
     let mut ordered = sort::<i32>(&(vec![40, 10, 30, 20]), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));
     println(&mut console, &(format!("6. sorted {}", format!("[{}]", ordered.iter().map(|__e| __e.to_string()).collect::<Vec<_>>().join(", ")))));
     let mut __is1 = binary_search::<i32>(&ordered, &(30), &mut |__i0, __i1| (Ord::cmp(&(__i0), &(__i1)) as i32));

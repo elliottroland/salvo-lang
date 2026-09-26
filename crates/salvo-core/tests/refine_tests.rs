@@ -16,9 +16,9 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 const STD_PRELUDE: &str = "export intrinsic type Str\nexport intrinsic type Int\nexport intrinsic type Bool\n";
 
 /// Parses + resolves + checks the given files (the first is `main.sv`) and
-/// returns every diagnostic message, warnings included — a suppressed
-/// refinement conflict is a *warning* [qual-refn-conflict], so the tests
-/// have to see both severities.
+/// returns every diagnostic message, warnings included — an unnecessary
+/// selector is a *warning* [qual-refn-at], so the tests have to see both
+/// severities.
 fn diagnostics(files: &[(&str, &str)]) -> Vec<String> {
     let mut sources = SourceSet::default();
     sources.add(
@@ -154,14 +154,15 @@ fn a_refinement_can_invalidate_a_qualifier() {
     );
 }
 
-// --- Conflicts [qual-refn-conflict] ---
+// --- Conflicts [qual-refn-ambiguous] ---
 
-/// [qual-refn-conflict] Two qualifiers that cannot co-apply [qual-with]
-/// cannot both be established by one call, so *neither* refinement applies —
-/// no error, but a warning, because an imported refinement silently doing
-/// nothing would be undiscoverable.
+/// [qual-refn-ambiguous] Two qualifiers that cannot co-apply [qual-with]
+/// cannot both be established by one call, and choosing between them is not the
+/// compiler's to make (user decision 2026-09-26). Both refinements are declared
+/// **here**, so no `f@place` could separate them and the error belongs at the
+/// refinements themselves.
 #[test]
-fn conflicting_refinements_all_stand_down_with_a_warning() {
+fn conflicting_refinements_in_one_place_are_an_error() {
     let src = format!(
         "{PRELUDE}{NONEMPTY}\n\
          qualifier Sorted<T> of Store<T> {{\n    \
@@ -175,8 +176,8 @@ fn conflicting_refinements_all_stand_down_with_a_warning() {
     assert!(
         diags.iter().any(|d| d.contains("disagree about `s`")
             && d.contains("`NonEmpty` and `Sorted`")
-            && d.contains("reconcile them in a top-level `refn`")),
-        "expected a conflict warning: {diags:?}"
+            && d.contains("two statements made by the same place")),
+        "expected the declaration-site refusal: {diags:?}"
     );
     // Nothing applied, so the caller is back to the unrefined behaviour.
     assert!(
@@ -187,7 +188,7 @@ fn conflicting_refinements_all_stand_down_with_a_warning() {
     );
 }
 
-/// [qual-refn-conflict] Two *compatible* qualifiers (one declares `with` the
+/// [qual-refn-ambiguous] Two *compatible* qualifiers (one declares `with` the
 /// other) both apply: a conflict is precisely "these could not have been
 /// written together", not "there are two of them".
 #[test]
@@ -693,5 +694,107 @@ fn a_bodiless_declaration_cannot_report_a_gain() {
             .any(|e| e.contains("a bodiless declaration has nothing to establish it")),
         "{:?}",
         errors(&src)
+    );
+}
+
+// --- Ambiguity across places [qual-refn-ambiguous] ---
+
+/// The sources the cross-place tests share: `lib` owns a qualifier whose
+/// refinement establishes `LibClaim` on `push`, `main` owns one that
+/// establishes `MyClaim`, and the two are incompatible — neither declares
+/// `with` the other. This is the demo's shape: std says `add` makes a list
+/// `NonEmpty`, your own qualifier says it keeps `NE`.
+const LIB: &str = r#"export struct Store<T> canbe Mut {
+    value: T
+}
+
+export qualifier LibClaim<T> of Store<T> {
+    fn qualifies(s: Store<T>) -> Bool {
+        return true
+    }
+
+    refn push(s: Mut Store<T>, value: T) => s: +LibClaim
+}
+
+export fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
+}
+
+export fn needs_lib<T>(s: LibClaim Store<T>) [] -> Int => s {
+    return 1
+}
+"#;
+
+const MAIN_QUAL: &str = r#"import lib.Store
+import lib.push
+import lib.LibClaim
+import lib.needs_lib
+
+qualifier MyClaim<T> of Store<T> {
+    fn qualifies(s: Store<T>) -> Bool {
+        return true
+    }
+
+    refn push(s: Mut Store<T>, value: T) => s: +MyClaim
+}
+
+fn needs_mine<T>(s: MyClaim Store<T>) [] -> Int => s {
+    return 2
+}
+"#;
+
+/// [qual-refn-ambiguous] Two places refine one function incompatibly, so the
+/// call is refused and the diagnostic names the `f@place` that picks each side.
+/// Before this the groups were applied in order and the second addition was
+/// dropped for being incompatible with the first — a claim the caller could not
+/// have predicted.
+#[test]
+fn refinements_from_two_places_make_the_call_ambiguous() {
+    let main = format!("{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    push(s, 1)\n}}\n");
+    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
+    assert!(
+        diags.iter().any(|d| d.contains("`push` is ambiguous here")
+            && d.contains("push@lib(...)")
+            && d.contains("push@main(...)")),
+        "{diags:?}"
+    );
+}
+
+/// [qual-refn-at] Naming the place picks that place's statement — and only it,
+/// so the claim the call establishes is the one the program asked for.
+#[test]
+fn naming_the_place_picks_that_refinement() {
+    let main = format!(
+        "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
+         push@main(s, 1)\n    let _n = needs_mine(s)\n}}\n"
+    );
+    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
+    assert!(
+        !diags.iter().any(|d| d.contains("ambiguous") || d.contains("no matching overload")),
+        "{diags:?}"
+    );
+    // The other place, and the *other* claim follows.
+    let main = format!(
+        "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
+         push@lib(s, 1)\n    let _n = needs_lib(s)\n}}\n"
+    );
+    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
+    assert!(
+        !diags.iter().any(|d| d.contains("ambiguous") || d.contains("no matching overload")),
+        "{diags:?}"
+    );
+}
+
+/// [qual-refn-at] And the selector is honest about what it picked: naming `lib`
+/// establishes `LibClaim`, so `MyClaim` is *not* there afterwards.
+#[test]
+fn the_unpicked_refinement_does_not_apply() {
+    let main = format!(
+        "{MAIN_QUAL}\nfn f(s: Mut Store<Int>) -> None {{\n    \
+         push@lib(s, 1)\n    let _n = needs_mine(s)\n}}\n"
+    );
+    let diags = diagnostics(&[("main.sv", &main), ("lib.sv", LIB)]);
+    assert!(
+        diags.iter().any(|d| d.contains("no matching overload for `needs_mine")),
+        "{diags:?}"
     );
 }

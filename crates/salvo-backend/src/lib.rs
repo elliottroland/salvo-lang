@@ -35,7 +35,7 @@ impl std::error::Error for BackendError {}
 /// diagnostics the checker reported on the way [diag-structured].
 ///
 /// Warnings need a channel of their own because they are not failures: a
-/// suppressed refinement conflict [qual-refn-conflict] leaves a legal
+/// suppressed refinement conflict [qual-refn-ambiguous] leaves a legal
 /// program that must still compile, and reporting it through
 /// [`BackendError`] would have to abort. Rendered here rather than
 /// structured, for the same reason codegen errors are: rendering happens at

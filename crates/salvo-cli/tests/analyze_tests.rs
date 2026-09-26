@@ -1965,36 +1965,24 @@ fn main() [use] {
     );
 }
 
-/// [qual-refn-conflict] Two qualifiers whose refinements cannot both hold
-/// leave the function unrefined — deliberately *not* an error, so the
-/// program still compiles (exit 0), but a warning, so the silence is
-/// discoverable. Reported once per callee and parameter, not per call.
+/// [fn-overload-at] [diag-structured] A redundant selector is a **warning**:
+/// the program is correct, so it must still compile, and the warning has to
+/// reach the CLI's report and its JSON — a severity the emission gate ignores.
 #[test]
-fn a_refinement_conflict_warns_without_failing() {
-    let dir = src_dir("refn_conflict");
+fn a_redundant_selector_warns_without_failing() {
+    let dir = src_dir("redundant_selector");
     let source = "\
-qualifier Q1<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q1
-}
-
-qualifier Q2<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q2
-}
-
 fn main() [use] {
     let xs: Mut List<Int> = mut_list_of()
-    add(xs, 1)
-    add(xs, 2)
+    add@core.list(xs, 1)
 }
 ";
     fs::write(dir.join("main.sv"), source).unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "a conflict is not an error: {stderr}");
+    assert!(out.status.success(), "a redundant `@` is not an error: {stderr}");
     assert!(
-        stderr.contains("warning: the refinements of `Q1` and `Q2` disagree about `list`"),
+        stderr.contains("warning: this `@core.list` is not needed"),
         "stderr: {stderr}"
     );
     assert!(stderr.contains("0 errors, 1 warning"), "stderr: {stderr}");

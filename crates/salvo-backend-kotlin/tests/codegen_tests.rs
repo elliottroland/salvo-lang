@@ -376,12 +376,12 @@ fn union_wrap_requires_matching_arm() {
 export qualifier Ok<T> of T
 export qualifier Err<T> of T
 
-export fn err<T>(value: T) -> +Err T {
+export fn as_err<T>(value: T) -> +Err T {
     return value
 }
 
 export fn f() -> Ok Int | Err Str {
-    return err(true)
+    return as_err(true)
 }
 "#;
     let program = build_program(&[("bad.sv", src)]);
@@ -3767,7 +3767,9 @@ iter fn next(r: Range) -> Emitted Int | Finished {
 
 fn main() [use] -> None {
     use StdOutConsole()
-    for i in range(1, 4) {
+    // `core.range` declares a `range(Int, Int)` too, and nothing separates the
+    // two by signature, so the call names the place [fn-overload-ambiguous].
+    for i in range@main(1, 4) {
         println("${i}")
     }
 }
@@ -9262,7 +9264,7 @@ fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
     kotlin_case(files, "refn", REFN_EXPECTED)
 }
 
-/// [qual-refn-conflict] [diag-structured] A suppressed refinement conflict is
+/// [qual-refn-ambiguous] [diag-structured] A suppressed refinement conflict is
 /// a *warning*: the program is legal, so it must still emit — *and* the
 /// warning must reach the driver, or the diagnostic exists only in `salvo
 /// analyze`. Tested per backend because both the gate and the channel are
@@ -9272,36 +9274,27 @@ fn kotlinc_compiles_and_runs_a_refined_program() -> KotlinCase {
 // test would be asserting std's presence rather than the rule. Declaring
 // compatibility with std's claim is the one-word remedy a user reaches for —
 // it leaves exactly the Q1-vs-Q2 conflict this test is about.
-const REFN_CONFLICT_DEMO: &str = r#"
-qualifier Q1<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q1
-}
-
-qualifier Q2<T> of List<T> with NonEmpty {
-    fn qualifies(list: List<T>) -> Bool { return size(list) > 0 }
-    refn add(list: Mut List<T>, elem: T) => list: +Q2
-}
-
+const REDUNDANT_SELECTOR_DEMO: &str = r#"
 fn main() [use] {
     use StdOutConsole()
     let xs: Mut List<Int> = mut_list_of()
     add(xs, 1)
-    if xs is Q1 {
-        println("checked by hand: ${size(xs)}")
-    }
+    // `@core.list` changes nothing here: there is one `add` that fits and no
+    // refinement of it disagrees, so the selector is noise [fn-overload-at].
+    add@core.list(xs, 2)
+    println("size: ${size(xs)}")
 }
 "#;
 
 #[test]
-fn a_refinement_conflict_warns_without_stopping_emission() {
-    let program = build_program(&[("main.sv", REFN_CONFLICT_DEMO)]);
+fn a_redundant_selector_warns_without_stopping_emission() {
+    let program = build_program(&[("main.sv", REDUNDANT_SELECTOR_DEMO)]);
     let (files, warnings) = salvo_backend_kotlin::emit_program_reporting(&program)
         .unwrap_or_else(|errors| panic!("a warning must not stop emission: {errors:?}"));
     assert!(!files.is_empty(), "the program should still emit");
     assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
     assert!(
-        warnings[0].starts_with("warning: the refinements of `Q1` and `Q2` disagree")
+        warnings[0].starts_with("warning: this `@core.list` is not needed")
             && warnings[0].contains("main.sv:"),
         "a rendered warning with its location: {}",
         warnings[0]
@@ -9715,8 +9708,9 @@ rename fn label_small = label(n: Small Int)
 fn main() [use] {
     use StdOutConsole()
     let xs = list_of(1, 2, 3)
-    // This module's `size` wins; `@core.list` reaches std's.
-    println(size(xs))
+    // Two `size`s fit and neither is more specific, so each call names its
+    // place [fn-overload-ambiguous].
+    println(size@main(xs))
     println("core: ${size@core.list(xs)}")
     println("dot: ${xs.size@core.list()}")
     let n = 4

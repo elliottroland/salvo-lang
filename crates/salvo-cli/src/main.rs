@@ -572,7 +572,7 @@ fn build(
     // Non-fatal diagnostics reach the builder here [diag-structured]: the
     // program compiled, so these are reported and nothing else happens.
     // Printed unconditionally (not only under `--verbose`), since a warning
-    // nobody sees is the same as no warning [qual-refn-conflict].
+    // nobody sees is the same as no warning [qual-refn-ambiguous].
     for msg in &emitted.warnings {
         eprintln!("{msg}");
     }

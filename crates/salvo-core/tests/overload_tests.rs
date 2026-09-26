@@ -263,28 +263,50 @@ fn an_un_inferred_argument_produces_no_ambiguity() {
     assert!(msgs[0].contains("no function named `nope`"), "{}", msgs[0]);
 }
 
-// ===== [fn-overload-scope] the visibility ladder =====
+// ===== [fn-overload-ambiguous] scope does not decide =====
 
-/// A module's own overload beats `core`'s — the defect this decision fixed:
-/// a program that declared its own `size(List<T>)` had its calls silently
-/// routed to std's.
+/// A module's own overload does **not** beat `core`'s: two declarations that
+/// both fit and that the ranking cannot separate are an ambiguity, and the call
+/// names the place it means (user decision 2026-09-26, reversing the
+/// scope-precedence rule of 2026-09-07). The remedy is in the diagnostic.
 #[test]
-fn this_module_beats_core() {
+fn an_own_overload_does_not_silently_beat_core() {
     let src = format!(
         "{}{}",
         "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
         probe("    let xs = of_list(1, 2)\n    let _picked: Str = size(xs)")
     );
-    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-    assert!(warnings(&src).is_empty(), "no warning: same signature shape");
+    let msgs = messages(&src);
+    assert!(
+        msgs.iter().any(|m| m.contains("ambiguous call to `size(")
+            && m.contains("size@core.list(...)")
+            && m.contains("size@main(...)")),
+        "{msgs:?}"
+    );
 }
 
-/// An **import** beats `core` too, and this module beats the import.
+/// And naming the place resolves it — either place.
 #[test]
-fn the_ladder_runs_core_import_module() {
+fn naming_the_place_resolves_the_ambiguity() {
+    let src = format!(
+        "{}{}",
+        "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
+        probe(
+            "    let xs = of_list(1, 2)\n    let _mine: Str = size@main(xs)\n    \
+             let _core: Int = size@core.list(xs)"
+        )
+    );
+    assert!(messages(&src).is_empty(), "{:?}", messages(&src));
+}
+
+/// An **import** is not a tiebreaker either: with core declaring nothing of
+/// the name the import simply is the only candidate, but an own-module
+/// declaration beside it is an ambiguity like any other.
+#[test]
+fn an_import_is_not_a_tiebreaker() {
     let lib = "export fn describe(v: Int) [] -> Bool { return true }\n";
     let main_import = "import lib.describe\n\n";
-    // core has none of these, so the import wins on its own.
+    // The only candidate: nothing to choose between.
     let src = format!(
         "{main_import}{}",
         probe("    let _picked: Bool = describe(1)")
@@ -294,35 +316,33 @@ fn the_ladder_runs_core_import_module() {
         "{:?}",
         messages_files(&[("main.sv", &src), ("lib.sv", lib)])
     );
-    // With an own-module declaration of the same shape, this module wins.
+    // An own declaration of the same shape makes the call ambiguous.
     let src = format!(
         "{main_import}fn describe(v: Int) [] -> Str {{ return \"mine\" }}\n{}",
         probe("    let _picked: Str = describe(1)")
     );
     let msgs = messages_files(&[("main.sv", &src), ("lib.sv", lib)]);
-    assert!(msgs.is_empty(), "{msgs:?}");
+    assert!(
+        msgs.iter().any(|m| m.contains("ambiguous call to `describe(Int)`")
+            && m.contains("describe@lib(...)")
+            && m.contains("describe@main(...)")),
+        "{msgs:?}"
+    );
 }
 
-/// Scope beats signature — deliberately — and the call gets a **warning**
-/// naming the more specific candidate it passed over, plus both `@` forms.
+/// A **more specific signature** from a farther scope is no longer discarded
+/// with a warning: the two compete on signature alone, so the precise one
+/// wins outright. This is the case the old rule handled by picking the nearer
+/// scope and warning about it.
 #[test]
-fn scope_beats_signature_with_a_warning() {
+fn a_more_specific_signature_wins_from_any_scope() {
     let src = format!(
         "{}{}",
         "fn size(v: Any) [] -> Str => !v { return \"mine\" }\n",
-        probe("    let s = \"abc\"\n    let _picked: Str = size(s)")
+        probe("    let s = \"abc\"\n    let _picked: Int = size(s)")
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-    let warns = warnings(&src);
-    assert_eq!(warns.len(), 1, "{warns:?}");
-    assert!(
-        warns[0].contains("resolves to `size(Any)` from `main`")
-            && warns[0].contains("`size(Str)` from `core.string`")
-            && warns[0].contains("size@main(...)")
-            && warns[0].contains("size@core.string(...)"),
-        "{}",
-        warns[0]
-    );
+    assert!(warnings(&src).is_empty(), "{:?}", warnings(&src));
 }
 
 // ===== [fn-overload-at] naming the module =====
@@ -339,7 +359,6 @@ fn at_module_picks_that_modules_overload() {
         )
     );
     assert!(messages(&src).is_empty(), "{:?}", messages(&src));
-    assert!(warnings(&src).is_empty(), "an explicit `@` is the confirmation");
 }
 
 /// Naming a module that declares no fitting overload is an error listing the
@@ -379,7 +398,7 @@ fn at_module_works_in_dot_notation() {
         "{}{}",
         "fn size<T>(list: List<T>) [] -> Str => list { return \"mine\" }\n",
         probe(
-            "    let xs = of_list(1, 2)\n    let mine: Str = xs.size()\n    \
+            "    let xs = of_list(1, 2)\n    let mine: Str = xs.size@main()\n    \
              let core: Int = xs.size@core.list()"
         )
     );

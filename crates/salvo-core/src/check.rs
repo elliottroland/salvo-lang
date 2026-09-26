@@ -77,7 +77,6 @@ struct Viable<'p> {
     /// checked and *coerced* against once this candidate wins.
     pairings: Vec<(usize, Ty)>,
     rank: crate::types::RankedCandidate,
-    rung: crate::resolve::Rung,
     /// The declaring module, rendered — for `@module` matching and for the
     /// diagnostics.
     module: String,
@@ -1607,11 +1606,6 @@ struct Checker<'p, 'r> {
     /// [qual-refn] Refinements applying per (file, callee), resolved once
     /// for the whole program.
     refinements: &'r crate::refine::Refinements,
-    /// Call sites already warned about a suppressed refinement conflict
-    /// [qual-refn-conflict], keyed by (callee, parameter): the conflict is
-    /// a property of the file and the callee, not of the call, so it is
-    /// reported once rather than at every call.
-    refn_warned: HashSet<(FnKey, String)>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
     out: &'r mut Checked,
@@ -2007,7 +2001,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             symbols,
             inferred,
             refinements,
-            refn_warned: HashSet::new(),
             file_idx,
             out,
             locals: Vec::new(),
@@ -2074,7 +2067,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Reports without rejecting: the program still compiles, but
     /// something the author wrote is not doing what it looks like
-    /// [qual-refn-conflict].
+    /// [qual-refn-ambiguous].
     fn warn(&mut self, span: Span, msg: impl Into<String>) {
         self.out
             .errors
@@ -5186,6 +5179,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
             if selected.is_empty() {
+                // [qual-refn-at] The place may be one that **refines** the
+                // callee rather than declaring it: `add@mymodule` names this
+                // module's statement about `core.list`'s `add`, which is the
+                // remedy a refinement ambiguity offers
+                // [qual-refn-ambiguous]. Then every declaration still
+                // competes and the selector narrows the *refinements*.
+                let refines = matches!(sel, Selector::Module(_))
+                    && pool
+                        .iter()
+                        .any(|&i| self.module_refines(viable[i].key, &wanted));
+                if refines {
+                    return self.select_overload(name, viable, arg_tys, None, span);
+                }
                 match sel {
                     Selector::Module(_) => {
                         let mut modules: Vec<String> =
@@ -5253,39 +5259,72 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return None;
             }
         }
-        // 2. The most specific rung that has a candidate.
-        let top_rung = pool.iter().map(|&i| viable[i].rung).max()?;
-        let (chosen, shadowed): (Vec<usize>, Vec<usize>) = pool
-            .iter()
-            .copied()
-            .partition(|&i| viable[i].rung == top_rung);
-        // 3. The most specific signature within that rung.
+        // One *declaration* is one candidate, however many routes reach it: a
+        // fn can arrive both as an implicitly available name and as a member of
+        // the file's own module (std's `test` in an annex, `core.list` inside
+        // `core.list`), which is two entries for one function. Deduping here is
+        // what makes step 2's "no single winner is an error" mean what it says —
+        // it compares *alternatives*, and these are not.
+        Self::dedupe_by_declaration(&mut pool, viable);
+        // 2. The most specific *signature*, across every rung: **scope no
+        // longer breaks a tie** (user decision 2026-09-26 — "when faced with an
+        // ambiguity, refuse to choose and let the user choose instead"). Until
+        // then the nearest scope won and a discarded, more specific signature
+        // was only a warning, so which `add` a call meant depended on a rule
+        // the reader had to know std's surface to predict.
         let ranks: Vec<crate::types::RankedCandidate> =
-            chosen.iter().map(|&i| viable[i].rank.clone()).collect();
+            pool.iter().map(|&i| viable[i].rank.clone()).collect();
         let winner = match crate::types::most_specific(&ranks) {
-            Some(i) => chosen[i],
+            Some(i) => pool[i],
             None => {
                 // [type-unknown-lenient] An un-inferred argument fits every
                 // candidate, so it must not produce an ambiguity of its own:
                 // one mistake, one diagnostic.
                 if arg_tys.iter().any(ty_mentions_unknown) {
-                    return Some(chosen[0]);
+                    return Some(pool[0]);
                 }
-                let mut shown: Vec<String> = chosen
+                let mut shown: Vec<String> = pool
                     .iter()
-                    .map(|&i| Self::render_signature(name, &viable[i]))
+                    .map(|&i| {
+                        format!(
+                            "{} from `{}`",
+                            Self::render_signature(name, &viable[i]),
+                            viable[i].module
+                        )
+                    })
                     .collect();
                 shown.sort();
                 shown.dedup();
+                let mut places: Vec<String> =
+                    pool.iter().map(|&i| viable[i].module.clone()).collect();
+                places.sort();
+                places.dedup();
+                // Several places, one name: naming the place is the remedy.
+                // One place with several unrankable overloads: only a name of
+                // its own can separate them.
+                let remedy = if places.len() > 1 {
+                    let forms: Vec<String> = places
+                        .iter()
+                        .map(|m| format!("`{name}@{m}(...)`"))
+                        .collect();
+                    format!(
+                        "Name the one you mean — {} — or narrow an argument, or give \
+                         one its own name with `rename fn <new> = {name}(...)`",
+                        forms.join(" or ")
+                    )
+                } else {
+                    format!(
+                        "Narrow an argument, or give one overload its own name with \
+                         `rename fn <new> = {name}(...)`"
+                    )
+                };
                 self.error(
                     span,
                     format!(
-                        "ambiguous call to `{name}({})`: {} all fit and none is \
-                         more specific — a broader union, a smaller qualifier \
-                         set and a type variable are each less specific, but \
-                         these differ in ways the rule does not rank. Narrow an \
-                         argument, or give one overload its own name with \
-                         `rename fn <new> = {name}(...)`",
+                        "ambiguous call to `{name}({})`: {} all fit and none is more \
+                         specific — a broader union, a smaller qualifier set and a type \
+                         variable are each less specific, but these differ in ways the \
+                         rule does not rank. {remedy}",
                         shown_args(),
                         shown.join(", ")
                     ),
@@ -5293,33 +5332,82 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return None;
             }
         };
-        // The scope-override warning: a *more specific signature* was
-        // discarded because it sits on a less specific rung.
-        if at.is_none() {
-            let overridden = shadowed
-                .into_iter()
-                .find(|&i| crate::types::spec_dominates(&viable[i].rank, &viable[winner].rank));
-            if let Some(other) = overridden {
-                let chosen_sig = Self::render_signature(name, &viable[winner]);
-                let other_sig = Self::render_signature(name, &viable[other]);
-                let (chosen_mod, other_mod) =
-                    (viable[winner].module.clone(), viable[other].module.clone());
-                let other_rung = viable[other].rung.describe();
-                let chosen_rung = viable[winner].rung.describe();
+        // [fn-overload-at] A selector that changed nothing is noise, and noise
+        // in a disambiguation spelling is worse than noise: a reader takes it as
+        // evidence that something here is ambiguous. Warned, not refused — it is
+        // still a correct program, and the remedy is deleting three characters.
+        if let Some(Selector::Module(_)) = at {
+            if self
+                .unqualified_winner(viable)
+                .is_some_and(|un| std::ptr::eq(viable[un].decl, viable[winner].decl))
+                && !self.callee_refined_by_several_places(viable[winner].key)
+            {
                 self.warn(
                     span,
                     format!(
-                        "`{name}` resolves to {chosen_sig} from `{chosen_mod}` \
-                         because {chosen_rung} is the more specific scope, even \
-                         though {other_sig} from `{other_mod}` ({other_rung}) is \
-                         the more specific signature. Write \
-                         `{name}@{chosen_mod}(...)` to confirm, or \
-                         `{name}@{other_mod}(...)` to call that one"
+                        "this `@{}` is not needed: `{name}({})` resolves to the same \
+                         function without it, and no refinement of it disagrees here \
+                         [fn-overload-at]",
+                        viable[winner].module,
+                        shown_args()
                     ),
                 );
             }
         }
         Some(winner)
+    }
+
+    /// One *declaration* is one candidate: drops the duplicate entries two
+    /// routes to the same function produce.
+    fn dedupe_by_declaration(pool: &mut Vec<usize>, viable: &[Viable<'p>]) {
+        let mut seen: Vec<(Option<FnKey>, *const FnDecl)> = Vec::new();
+        pool.retain(|&i| {
+            let id = (viable[i].key, viable[i].decl as *const FnDecl);
+            if seen.contains(&id) {
+                false
+            } else {
+                seen.push(id);
+                true
+            }
+        });
+    }
+
+    /// [fn-overload-at] Which candidate a call *without* a selector would pick,
+    /// computed silently — the question "did the written selector change
+    /// anything?" needs the answer, and asking it must not report anything.
+    fn unqualified_winner(&self, viable: &[Viable<'p>]) -> Option<usize> {
+        let mut pool: Vec<usize> = (0..viable.len()).collect();
+        Self::dedupe_by_declaration(&mut pool, viable);
+        let ranks: Vec<crate::types::RankedCandidate> =
+            pool.iter().map(|&i| viable[i].rank.clone()).collect();
+        crate::types::most_specific(&ranks).map(|i| pool[i])
+    }
+
+    /// [qual-refn-at] Whether more than one place refines this callee in the
+    /// file being checked — the case where a selector is doing refinement work
+    /// even though the overload was never in doubt (the `add@mymodule` shape).
+    fn callee_refined_by_several_places(&self, key: Option<FnKey>) -> bool {
+        let Some(key) = key else { return false };
+        let mut places: Vec<&str> = Vec::new();
+        for g in self.refinements.for_call(self.file_idx, key) {
+            for st in &g.stated {
+                if !places.contains(&st.module.as_str()) {
+                    places.push(st.module.as_str());
+                }
+            }
+        }
+        places.len() > 1
+    }
+
+    /// [qual-refn-at] Whether `module` writes a refinement of this callee that
+    /// is visible in the file being checked — which is what makes it a legal
+    /// place to name on a call that declares nothing there.
+    fn module_refines(&self, key: Option<FnKey>, module: &str) -> bool {
+        let Some(key) = key else { return false };
+        self.refinements
+            .for_call(self.file_idx, key)
+            .iter()
+            .any(|g| g.sources.iter().any(|s| s.module == module))
     }
 
     /// How a candidate reads in a diagnostic: `name(ParamTy, ParamTy)`, from
@@ -5594,9 +5682,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     patterns,
                     variadic: false,
                 },
+                rung: entry.rung,
                 generics: decl.generics.iter().map(|g| g.name.clone()).collect(),
                 subst,
-                rung: entry.rung,
             });
         }
         pool
@@ -16816,7 +16904,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     continue; // duplicate, already reported
                 }
                 // One rule, one implementation: a refinement conflict
-                // [qual-refn-conflict] is *precisely* "these two could not
+                // [qual-refn-ambiguous] is *precisely* "these two could not
                 // have been written together", so the two sites must not
                 // drift. Provenance composes freely [qual-subject], and so
                 // do the compiler's own qualifiers.
@@ -16897,7 +16985,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// like `-> T as Q` [qual-ctor-fn]: no `qualifies` call is emitted.
     ///
     /// Two cases apply nothing. A group whose refinements *conflict*
-    /// [qual-refn-conflict] is suppressed, with one warning per (callee,
+    /// [qual-refn-ambiguous] is suppressed, with one warning per (callee,
     /// parameter) — no error, since the caller can still test by hand or
     /// reconcile with a top-level `refn`, but not silence either, or an
     /// imported refinement would appear to do nothing for no visible
@@ -17032,21 +17120,144 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn apply_refinements(
         &mut self,
         callee: FnKey,
+        callee_name: &str,
         param: &str,
         arg: &str,
         had: &[String],
+        // [fn-overload-at] The module the call named, when it named one: the
+        // place whose statement about this call is meant.
+        at: Option<&str>,
         span: Span,
     ) {
-        let groups: Vec<crate::refine::RefnGroup> = self
+        let mut groups: Vec<crate::refine::RefnGroup> = self
             .refinements
             .for_param_all(self.file_idx, callee, param)
             .into_iter()
             .filter(|g| g.requires.iter().all(|q| had.iter().any(|h| h == q)))
             .cloned()
             .collect();
+        // [qual-refn-at] A written selector picks the place, and a place speaks
+        // with one voice [qual-refn-ambiguous]: only refinements declared in
+        // that module apply. This is what makes the ambiguity below fixable —
+        // `add@core.list` takes the `NonEmpty` statement, `add@mymodule` the
+        // one this module's own qualifier makes. Rebuilt from that place's own
+        // statements, because the merged view is suppressed by the very
+        // disagreement the selector exists to settle.
+        if let Some(module) = at {
+            groups.retain_mut(|g| {
+                let mine: Vec<crate::refine::RefnStatement> = g
+                    .stated
+                    .iter()
+                    .filter(|st| st.module == module)
+                    .cloned()
+                    .collect();
+                if mine.is_empty() {
+                    return false;
+                }
+                let merge = |lists: Vec<&Vec<String>>| -> Vec<String> {
+                    let mut out: Vec<String> = Vec::new();
+                    for l in lists {
+                        for q in l {
+                            if !out.contains(q) {
+                                out.push(q.clone());
+                            }
+                        }
+                    }
+                    out
+                };
+                g.add = merge(mine.iter().map(|st| &st.add).collect());
+                g.remove = merge(mine.iter().map(|st| &st.remove).collect());
+                g.preserve = merge(mine.iter().map(|st| &st.preserve).collect());
+                g.conflict.clear();
+                true
+            });
+        } else if self.report_refn_ambiguity(callee_name, param, &groups, span) {
+            // Ambiguous: nothing is applied, so no claim is invented from a
+            // pick the program did not make.
+            return;
+        }
         for group in groups {
             self.apply_refinement_group(&group, callee, param, arg, span);
         }
+    }
+
+    /// [qual-refn-ambiguous] Whether the refinements speaking about one
+    /// (callee, parameter) at this call **disagree**, reported as an error
+    /// naming the `f@place` that picks each side.
+    ///
+    /// Two shapes of disagreement, one rule (user decision 2026-09-26 —
+    /// "when faced with an ambiguity, refuse to choose and let the user choose
+    /// instead"): refinements in *one* group that could not have been written
+    /// together [qual-with], and refinements in *different* groups — different
+    /// preconditions [qual-refn-narrow] — whose additions could not. The
+    /// second is the one that bit: two applicable groups were applied in
+    /// order and the second addition was silently dropped for being
+    /// incompatible with the first, so the call quietly established
+    /// `NonEmpty` where the program had just proved `NE`. The claim a caller
+    /// ends up with is exactly the kind of thing a reader cannot re-derive,
+    /// which is why the remedy is written rather than guessed.
+    fn report_refn_ambiguity(
+        &mut self,
+        callee_name: &str,
+        param: &str,
+        groups: &[crate::refine::RefnGroup],
+        span: Span,
+    ) -> bool {
+        // Every claim any applicable group speaks about, with the place that
+        // said so. A group whose own members disagree kept its names in
+        // `conflict` rather than in `add`.
+        let mut claims: Vec<(String, String)> = Vec::new();
+        for g in groups {
+            for st in &g.stated {
+                for q in &st.add {
+                    if !claims.iter().any(|(c, p)| c == q && *p == st.module) {
+                        claims.push((q.clone(), st.module.clone()));
+                    }
+                }
+            }
+        }
+        let mut worst: Option<(&(String, String), &(String, String))> = None;
+        for (i, a) in claims.iter().enumerate() {
+            for b in claims.iter().skip(i + 1) {
+                if a.0 == b.0 {
+                    continue;
+                }
+                let compatible = match (
+                    self.qualifier_named(a.0.as_str()),
+                    self.qualifier_named(b.0.as_str()),
+                ) {
+                    (Some(x), Some(y)) => crate::refine::quals_compatible(x, y),
+                    // An invisible qualifier cannot be judged, and `Mut` and
+                    // the other intrinsics compose with everything.
+                    _ => true,
+                };
+                if !compatible {
+                    worst = Some((a, b));
+                }
+            }
+        }
+        let Some(((qa, pa), (qb, pb))) = worst else {
+            return false;
+        };
+        // Same place on both sides: no selector could separate them, so the
+        // refinements themselves are the error — reported where they are
+        // declared, by `check_refn_places`. Saying it again here would name a
+        // remedy that does not work.
+        if pa == pb {
+            return true;
+        }
+        self.error(
+            span,
+            format!(
+                "`{callee_name}` is ambiguous here: `{pa}` refines it to establish \
+                 `{qa}` on `{param}` and `{pb}` refines it to establish `{qb}`, and \
+                 one value cannot carry both (neither qualifier declares `with` the \
+                 other). Name the statement you mean — `{callee_name}@{pa}(...)` or \
+                 `{callee_name}@{pb}(...)` — or give one a name of its own with \
+                 `rename fn <new> = {callee_name}(...)`"
+            ),
+        );
+        true
     }
 
     /// One group of refinements that agree about a parameter, applied.
@@ -17059,20 +17270,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         span: Span,
     ) {
         if !group.conflict.is_empty() {
-            let key = (callee, param.to_string());
-            if self.refn_warned.insert(key) {
-                let quals = group.conflict.join("` and `");
-                self.warn(
-                    span,
-                    format!(
-                        "the refinements of `{quals}` disagree about `{param}` \
-                         here, so none of them apply: `{quals}` cannot be applied \
-                         to one value (neither declares `with` the other). Test \
-                         the property with `is` after this call, or reconcile them \
-                         in a top-level `refn` in this module"
-                    ),
-                );
-            }
+            // [qual-refn-ambiguous] Reported already: by `report_refn_ambiguity`
+            // at this call when the disagreeing refinements come from different
+            // places, and at the refinements themselves when they share one
+            // (where no selector could separate them). Nothing is applied.
+            let _ = (callee, param, span);
             return;
         }
         let remove: HashSet<String> = group.remove.iter().cloned().collect();
@@ -24571,6 +24773,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // colliding name belongs to [effect-available]: the fn path below
         // takes them as they are instead of typing the arguments twice.
         let mut pre_typed: Option<Vec<Ty>> = None;
+        // The callee's own name, kept before the argument loops shadow `name`
+        // with an *argument's* — the refinement diagnostics name the callee.
+        let callee_fn_name = name.to_string();
         // 1. Effect member call: resolve which effect instance in scope
         // provides it (validating availability and disambiguating generic
         // effects). [effect-member-overload] Several effects may declare
@@ -25091,7 +25296,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     patterns,
                     variadic: collects_variadic,
                 },
-                rung: entry.rung,
                 module: entry.module.to_string(),
             });
         }
@@ -25747,7 +25951,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(key) = best.key {
                     // [qual-refn-narrow] `have` is the argument's claim *before*
                     // this call, which is what a conditional refinement reads.
-                    self.apply_refinements(key, &param.name.name, &name, &have, span);
+                    let at_module = match at {
+                        Some(sel @ Selector::Module(_)) => Some(sel.render()),
+                        _ => None,
+                    };
+                    self.apply_refinements(
+                        key,
+                        &callee_fn_name,
+                        &param.name.name,
+                        &name,
+                        &have,
+                        at_module.as_deref(),
+                        span,
+                    );
                     // [deduce-reapply] …and a claim the callee says it
                     // **establishes** is added here, with this call's type
                     // arguments and identities substituted in: that is what

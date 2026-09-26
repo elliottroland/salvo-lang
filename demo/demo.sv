@@ -38,8 +38,7 @@ fn main() [use] {
     let numbers: Mut List<Int> = [1, 2, 3, 4, 5]
 
     if numbers is NE {
-        // TODO: This should complain about ambiguity, and force me to resolve it with @mod
-        numbers.add(6)
+        numbers.add@demo(6)
         print_full_name_with(roland, numbers)
     }
 }

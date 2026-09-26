@@ -58,22 +58,24 @@ the function's own scope    // fn-typed parameters, locals, implicit parameters,
 inner scopes                // a `rename` in a block, a local in a block
 ```
 
-Only the most specific scope that has an overload *fitting the arguments* competes. So declaring your own `size(List<T>)` means calls in your module get yours — whatever the standard library declares — while `size("text")` still reaches std's, because yours does not fit:
+Scope decides what is *visible*, not what a call means. Every overload that fits the arguments competes, wherever it came from — so declaring your own `size(List<T>)` does not quietly take over `size(xs)` in your module: both fit, and the call has to say which:
 
 ```
 fn size<T>(list: List<T>) -> Int => list {
     return 99
 }
 
-size(list_of(1, 2, 3))   // 99 — this module's
-size("abcd")          // 4  — core's, the only one that fits
+size(list_of(1, 2, 3))          // error: ambiguous — two `size`s fit
+size@main(list_of(1, 2, 3))     // 99 — yours
+size@core.list(list_of(1, 2))   // 2  — std's
+size("abcd")                    // 4  — core's, the only one that fits
 ```
 
-A local variable is at the function's scope, which is the most specific of all: it hides every function of that name outright.
+If you mean to work with your own overload throughout a module, take it out of the shared name: `rename fn size2 = size(list: List<T>)`, or `import … as` for an imported one. Both leave the calls selector-free, which is the point.
 
-Scope beats *signature*, deliberately — the alternative is a rule you cannot predict without knowing std's whole surface. When a more specific signature is passed over because it sits in a less specific scope, the call gets a **warning** naming both, which you silence by saying which you meant (below).
+A local variable is different: it is not an overload but a value, so it hides every function of that name outright, and `@` is how you reach one anyway.
 
-**2. Then the most specific *signature* wins**, compared per argument:
+**2. The most specific *signature* wins**, compared per argument:
 
 - a **type variable** says the least: `describe(Int)` beats `describe<T>(T)`;
 - a **broader union** says less than a narrower one, which says less than a single arm: `Int` beats `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is the broadest type there is, so it is always last;

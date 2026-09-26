@@ -34,7 +34,7 @@
 //!   `NonEmpty` opts into what `NonEmpty` knows. A top-level `refn` is
 //!   module-scoped and not importable.
 //! * Two qualifiers can disagree, and then **neither applies**
-//!   [qual-refn-conflict] — no error, just a less useful function, plus a
+//!   [qual-refn-ambiguous] — no error, just a less useful function, plus a
 //!   warning at the call site so the silence is discoverable.
 //!
 //! This module resolves each refinement to the overload it refines
@@ -65,10 +65,25 @@ pub struct RefnSource {
     /// name), so tooling can point at it.
     pub file: usize,
     pub span: Span,
+    /// The module that file belongs to — the **place** a call names to pick
+    /// this statement over a disagreeing one [qual-refn-ambiguous].
+    pub module: String,
+}
+
+/// One refinement's own statement about a parameter, with the **place** that
+/// made it: `f@place` picks by place [qual-refn-at], and an ambiguity names the
+/// places that disagree [qual-refn-ambiguous], so the merged view below cannot
+/// answer either question on its own.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefnStatement {
+    pub module: String,
+    pub add: Vec<String>,
+    pub remove: Vec<String>,
+    pub preserve: Vec<String>,
 }
 
 /// The refinements that apply to one parameter of one call
-/// [qual-refn-conflict]: the merged additions and removals, the
+/// [qual-refn-ambiguous]: the merged additions and removals, the
 /// refinements they came from, and — when applicable refinements
 /// disagree — the qualifier names that cannot co-apply. A conflict leaves
 /// `add` and `remove` empty: none of them apply.
@@ -84,6 +99,11 @@ pub struct RefnGroup {
     pub sources: Vec<RefnSource>,
     /// Empty unless the applicable refinements conflict.
     pub conflict: Vec<String>,
+    /// What each contributing refinement said, and where it was written
+    /// [qual-refn-at] [qual-refn-ambiguous]. Kept even when the merged view is
+    /// suppressed by a conflict: a call that names a place still applies that
+    /// place's statement.
+    pub stated: Vec<RefnStatement>,
     /// [qual-refn-narrow] The qualifiers the argument must **already** carry
     /// for this group to apply: the refinement wrote a narrower parameter than
     /// the declaration it refines, so what it states is *conditional*. Empty
@@ -208,8 +228,12 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
     }
 
     // Visibility, then merging: for each file, which refinements apply,
-    // grouped per (callee, parameter) [qual-refn-conflict].
+    // grouped per (callee, parameter) [qual-refn-ambiguous].
     let mut groups: HashMap<(usize, FnKey), Vec<RefnGroup>> = HashMap::new();
+    // [qual-refn-ambiguous] Same-place disagreements already reported, keyed by
+    // the refinement and the parameter: the visibility loop below runs per
+    // *file*, and the declaration's error belongs to the declaration.
+    let mut same_place_reported: HashSet<(usize, u32, String)> = HashSet::new();
     for (file_idx, (file, _)) in program.files.iter().zip(&program.modules).enumerate() {
         let scope = &resolution.scopes[file_idx];
         // One contribution per (callee, param, refinement), tagged with
@@ -242,6 +266,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 docs: res.decl.docs.clone(),
                 file: res.file,
                 span: res.decl.name.span,
+                module: program.files[res.file].module.to_string(),
             };
             for (param, add, remove, preserve) in &res.entries {
                 let mut requires: Vec<String> = res
@@ -280,9 +305,16 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 preserve: Vec::new(),
                 sources: Vec::new(),
                 conflict: Vec::new(),
+                stated: Vec::new(),
                 requires,
             };
             for (_, source, add, remove, preserve) in list {
+                group.stated.push(RefnStatement {
+                    module: source.module.clone(),
+                    add: add.clone(),
+                    remove: remove.clone(),
+                    preserve: preserve.clone(),
+                });
                 for q in add {
                     if !group.add.contains(&q) {
                         group.add.push(q);
@@ -305,7 +337,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                     group.sources.push(source);
                 }
             }
-            // [qual-refn-conflict] Suppress a group whose members
+            // [qual-refn-ambiguous] Suppress a group whose members
             // disagree. Two additions conflict when the qualifiers could
             // not have been written together [qual-with]; an addition and
             // a removal of the same qualifier conflict outright. Never
@@ -342,6 +374,56 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             conflict.sort();
             conflict.dedup();
             if !conflict.is_empty() {
+                // [qual-refn-ambiguous] A disagreement a selector cannot
+                // separate is the refinements' own error, reported where they
+                // are written: `f@place` picks a *place*, so two incompatible
+                // statements made by **one** place leave the caller no way to
+                // choose. Reported once per pair, not once per file that sees
+                // it — the file loop would otherwise repeat it.
+                // Which places actually stated a conflicting claim: a group's
+                // sources include refinements that agree, and reporting those
+                // would name the wrong declarations.
+                let guilty: Vec<String> = group
+                    .stated
+                    .iter()
+                    .filter(|st| st.add.iter().any(|q| conflict.contains(q)))
+                    .map(|st| st.module.clone())
+                    .collect();
+                let one_place = guilty.len() > 1 && guilty.iter().all(|m| *m == guilty[0]);
+                let mut places: Vec<(String, usize, Span)> = group
+                    .sources
+                    .iter()
+                    .map(|s| (s.module.clone(), s.file, s.span))
+                    .collect();
+                places.sort_by(|a, b| {
+                    (&a.0, a.1, a.2.start, a.2.end).cmp(&(&b.0, b.1, b.2.start, b.2.end))
+                });
+                places.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
+                places.retain(|(m, ..)| guilty.contains(m));
+                if one_place {
+                    for (_, file, span) in &places {
+                        let key = (*file, span.start, group.param.clone());
+                        if !same_place_reported.insert(key) {
+                            continue;
+                        }
+                        errors.push(FileDiagnostic::error(
+                            *file,
+                            *span,
+                            format!(
+                                "this refinement and another in `{}` disagree about \
+                                 `{}`: they establish `{}`, which one value cannot \
+                                 carry (neither qualifier declares `with` the \
+                                 other). A call cannot choose between two \
+                                 statements made by the same place, so one of them \
+                                 has to go — or the qualifiers have to declare \
+                                 `with` each other",
+                                guilty[0],
+                                group.param,
+                                conflict.join("` and `")
+                            ),
+                        ));
+                    }
+                }
                 group.add.clear();
                 group.remove.clear();
                 group.conflict = conflict;

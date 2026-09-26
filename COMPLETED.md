@@ -16521,14 +16521,14 @@ open question this section recorded is answered:
   emitted where it applies [qual-refn].
 - *How refinements from several qualifiers on one function compose*: they
   merge; when they **disagree none of them apply**, with a warning
-  [qual-refn-conflict], and a top-level `refn` **replaces** them for the
+  [qual-refn-ambiguous], and a top-level `refn` **replaces** them for the
   parameters it names [qual-refn-reconcile].
 - *Whether a refinement can strengthen a contract for callers who do not
   import the qualifier*: **no.** Visibility is per file, and a fn can only
   re-promise a qualifier its own signature names [qual-refn-infer].
 
 Rules: [qual-refn], [qual-refn-match], [qual-refn-scope],
-[qual-refn-conflict], [qual-refn-reconcile], [qual-refn-infer],
+[qual-refn-ambiguous], [qual-refn-reconcile], [qual-refn-infer],
 [qual-refn-docs].
 
 ### D2, D4, D6, D7
@@ -17200,7 +17200,7 @@ cache, with per-test timings.
   (reported *once*, at the second declaration), and distinct names across
   effects staying legal).
   + 17 refinement tests (`tests/refine_tests.rs` [qual-refn]
-  [qual-refn-match] [qual-refn-scope] [qual-refn-conflict]
+  [qual-refn-match] [qual-refn-scope] [qual-refn-ambiguous]
   [qual-refn-reconcile] [qual-refn-infer], with *overload resolution* as
   the observable — a `NonEmpty` overload resolves only while the checker
   still believes the claim): a refinement re-establishing what a mutating
@@ -17434,7 +17434,7 @@ cache, with per-test timings.
   the `NonEmpty` std's `add` necessarily strips, with the no-refinement
   control failing overload resolution, and a conflict warning that leaves
   the exit code 0 and renders as `"severity": "warning"` in the JSON
-  [qual-refn-conflict]) + 2 UTF-16
+  [qual-refn-ambiguous]) + 2 UTF-16
   position-mapping unit tests (`src/lsp.rs` [cli-lsp]: multi-byte and
   supplementary-plane round-trips, clamping) + 3 LSP integration tests
   (`tests/lsp_tests.rs` [cli-lsp]: speaks framed JSON-RPC to the binary —
@@ -17491,7 +17491,7 @@ cache, with per-test timings.
   stopping the run with a single un-double-prefixed diagnostic, and the
   deletion guard refusing a target that holds a `.sv` file;
   and — per backend — a *warning* reaching the builder without failing the
-  run [qual-refn-conflict] [diag-structured]: the program's stdout asserted
+  run [qual-refn-ambiguous] [diag-structured]: the program's stdout asserted
   (so it really ran), the exit code 0, and the rendered warning with its
   location asserted on stderr. Either half alone would be a bug — an abort
   rejects a legal program, and silence leaves the diagnostic visible only in
@@ -17749,7 +17749,7 @@ cache, with per-test timings.
   body declared `var` — the traversal gap that emitted `val` and had
   kotlinc reject the output — plus the kotlinc run of the same program).
   and 2 refinement tests ([qual-refn] [qual-erasure]
-  [qual-refn-conflict]: `kotlinc_compiles_and_runs_a_refined_program` — the
+  [qual-refn-ambiguous]: `kotlinc_compiles_and_runs_a_refined_program` — the
   refined program runs, and the emitted `main` contains no `qualifies` call,
   since a refinement is trusted rather than checked; same source and same
   asserted stdout as the Rust backend, which is the parity claim itself; and
@@ -17980,7 +17980,7 @@ cache, with per-test timings.
   it replays — the same source and stdout the Kotlin backend asserts);
   and 2 refinement tests  `unsupported_claiming_producer_shapes_are_refused` — nested claiming
   producer, value-position `for`, generic effect claim); and 2 refinement tests
-  ([qual-refn] [qual-erasure] [qual-refn-conflict]:
+  ([qual-refn] [qual-erasure] [qual-refn-ambiguous]:
   `rustc_compiles_and_runs_a_refined_program`, the same source and stdout the
   Kotlin backend asserts, with no `qualifies` call in the emitted `main`; and
   a suppressed conflict still emitting and returning its rendered warning

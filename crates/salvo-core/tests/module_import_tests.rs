@@ -175,15 +175,29 @@ fn two_module_imports_of_one_type_name_warn() {
     );
 }
 
-// [mod-import-module] [fn-overload-scope] Functions need no warning: the
-// ladder ranks a bulk-imported overload below this module's, and `@module`
-// names either one.
+// [mod-import-module] [fn-overload-ambiguous] A bulk-imported overload does
+// **not** rank below this module's: both fit, nothing separates them by
+// signature, so the call names the place it means (user decision 2026-09-26).
 #[test]
-fn functions_from_a_module_import_rank_below_the_own_module() {
+fn a_module_import_competes_with_the_own_module() {
     let lib = "export fn label(n: Int) [] -> Str {\n    return \"lib\"\n}\n";
     let main = "import time\n\n\
                 fn label(n: Int) [] -> Str {\n    return \"mine\"\n}\n\n\
-                fn pick() [] -> Str {\n    return label(1)\n}\n\n\
+                fn pick() [] -> Str {\n    return label(1)\n}\n";
+    let diags = check_diags(&[("time.sv", lib), ("main.sv", main)]);
+    assert!(
+        errors(&diags)
+            .iter()
+            .any(|e| e.contains("ambiguous call to `label(Int)`")
+                && e.contains("label@time(...)")
+                && e.contains("label@main(...)")),
+        "got: {:?}",
+        errors(&diags)
+    );
+    // Either selector settles it.
+    let main = "import time\n\n\
+                fn label(n: Int) [] -> Str {\n    return \"mine\"\n}\n\n\
+                fn pick() [] -> Str {\n    return label@main(1)\n}\n\n\
                 fn pick_theirs() [] -> Str {\n    return label@time(1)\n}\n";
     let diags = check_diags(&[("time.sv", lib), ("main.sv", main)]);
     assert!(

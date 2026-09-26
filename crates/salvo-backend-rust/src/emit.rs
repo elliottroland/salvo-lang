@@ -47,7 +47,7 @@ pub fn emit_program(program: &Program) -> Result<Vec<EmittedFile>, Vec<String>> 
 ///
 /// Warnings are **dropped** here, which is the shape the golden tests want;
 /// the driver calls [`emit_program_reporting`] and hands them to the user
-/// [qual-refn-conflict].
+/// [qual-refn-ambiguous].
 pub fn emit_program_with_entry(
     program: &Program,
     entry: Option<&ModulePath>,
@@ -61,7 +61,7 @@ pub fn emit_program_with_entry(
 ///
 /// Two returns rather than one, because they mean different things: a
 /// warning must not stop emission (a suppressed refinement conflict leaves a
-/// legal program [qual-refn-conflict]), so it cannot travel as an error —
+/// legal program [qual-refn-ambiguous]), so it cannot travel as an error —
 /// and it must not be silently swallowed either, or the diagnostic exists
 /// only in `salvo analyze`.
 pub fn emit_program_reporting(
@@ -74,7 +74,7 @@ pub fn emit_program_reporting(
     // Only *errors* stop emission: a warning reports something the author
     // probably did not intend without rejecting the program
     // [diag-structured], which is what a suppressed refinement conflict
-    // needs [qual-refn-conflict]. Checker diagnostics are structured;
+    // needs [qual-refn-ambiguous]. Checker diagnostics are structured;
     // render them here at the backend boundary.
     if checked.errors.iter().any(|d| d.is_error()) {
         // Every diagnostic is rendered on the failure path, warnings
@@ -460,7 +460,7 @@ pub fn platform_skeletons(
     // surfaced here: `salvo platform generate` writes host stubs once, and
     // nagging about the program's diagnostics is the compile path's job
     // (`emit_program_reporting`) and `salvo analyze`'s
-    // [qual-refn-conflict].
+    // [qual-refn-ambiguous].
     if checked.errors.iter().any(|d| d.is_error()) {
         return Err(checked
             .errors
@@ -11163,6 +11163,21 @@ impl<'p> Emitter<'p> {
         }
     }
 
+    /// [qual-depend] A dependent claim's slot path (`numbers`, `h.tags`) as a
+    /// Rust place: the root goes through [`Self::binding_place`], so a handler
+    /// state field is reached through `self`, and every segment is escaped.
+    fn slot_place(&self, path: &str) -> String {
+        let mut parts = path.split('.');
+        let Some(root) = parts.next() else {
+            return path.to_string();
+        };
+        let mut out = self.binding_place(root);
+        for field in parts {
+            out = format!("{out}.{}", rs_ident(field));
+        }
+        out
+    }
+
     /// Whether an expression is a *pure place*: a bare identifier of a
     /// bound local/parameter or a field/index chain over one, with no
     /// coercion, narrowing unwrap, or field cast anywhere — i.e. it can
@@ -12432,7 +12447,10 @@ impl<'p> Emitter<'p> {
         let copy = self
             .ty_of(expr.span())
             .is_some_and(|t| Self::is_copy_ty(t));
-        if lends && copy {
+        // …unless the call already derefed on its own [copy-scalar-free]: a
+        // named `proj`-returning callee is handled where it is emitted, for
+        // every position rather than this one. Two derefs would be E0614.
+        if lends && copy && !self.projected_scalar_call(expr.span()) {
             return format!("*{code}");
         }
         code
@@ -12600,10 +12618,15 @@ impl<'p> Emitter<'p> {
             // parameter is `&T` [rs-borrow]; `&&T` coerces, so a plain `&`
             // covers locals and already-borrowed parameters alike.
             for a in &check.args {
+                // [qual-depend] The path is the *written* place, so its root
+                // needs the same treatment any other read of that name gets:
+                // a handler state field is reached through `self`, and a name
+                // colliding with a Rust keyword is escaped.
+                let path = self.slot_place(&a.path);
                 if a.copy {
-                    args.push(a.path.clone());
+                    args.push(path);
                 } else {
-                    args.push(format!("&{}", a.path));
+                    args.push(format!("&{path}"));
                 }
             }
             parts.push(format!("{fn_name}({})", args.join(", ")));
@@ -14640,7 +14663,56 @@ impl<'p> Emitter<'p> {
         if let Some(recv) = dot_receiver(callee) {
             self.hoisted_reads.remove(&(self.file_idx, recv.span()));
         }
+        let call = if self.projected_scalar_call(span) {
+            format!("*{call}")
+        } else {
+            call
+        };
         Self::wrap_hoisted(&hoists, call)
+    }
+
+    /// [copy-scalar-free] [rs-proj] Whether this call hands back a **borrowed
+    /// Copy scalar** that the language calls a plain value.
+    ///
+    /// A generic `-> proj(list) T` renders as `&T`, because the callee cannot
+    /// know its `T` is a scalar; instantiated at one, Salvo's type is the
+    /// scalar itself (`Ty::qualify` erases the `proj`) and every position
+    /// around the call wants a value. So the deref belongs at the call, where
+    /// both facts are known. A callee whose *declared* return is a concrete
+    /// scalar projection already renders by value and needs none — which is
+    /// exactly what `strip_top_proj_ast` answering `None` means.
+    fn projected_scalar_call(&self, span: Span) -> bool {
+        let Some(key) = self.checked.call_fn.get(&(self.file_idx, span)) else {
+            return false;
+        };
+        let Some(Item::Fn(decl)) = self
+            .program
+            .modules
+            .get(key.file)
+            .and_then(|m| m.items.get(key.item))
+        else {
+            return false;
+        };
+        // An intrinsic's lowering decides its own shape (`get` on a `List`
+        // answers `Option<&T>` and the optional paths already deref).
+        if decl.intrinsic {
+            return false;
+        }
+        let Some(ret) = decl.return_type.as_ref() else {
+            return false;
+        };
+        if strip_top_proj_ast(ret).is_none() {
+            return false;
+        }
+        matches!(
+            self.ty_of(span).map(|t| t.strip_quals().clone()),
+            Some(Ty::Named { ref name, ref args })
+                if args.is_empty()
+                    && matches!(
+                        name.as_str(),
+                        "Int" | "Long" | "Float" | "Double" | "Bool" | "Char" | "Byte"
+                    )
+        )
     }
 
     fn emit_call_inner(

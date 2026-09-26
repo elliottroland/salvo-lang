@@ -95,7 +95,7 @@ add(xs, 7)
 let seven = first(xs)            // `add` established the claim
 ```
 
-That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a function that mutates may not promise a qualifier it has never heard of — see "Deductions"), so the qualifier says it on `add`'s behalf. One consequence to know about: if your own qualifier also refines `add`, the two disagree and neither applies — declare `with NonEmpty` on yours and both survive.
+That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a function that mutates may not promise a qualifier it has never heard of — see "Deductions"), so the qualifier says it on `add`'s behalf. One consequence to know about: if your own qualifier also refines `add`, the two disagree, and a call has to say which statement it means (`add@core.list` or `add@yours`) — or you declare `with NonEmpty` on yours, and both claims survive together.
 
 `Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
 

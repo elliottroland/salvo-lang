@@ -177,7 +177,7 @@ export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? {
 export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
 => heap: +Heap<T>(?cmp) Mut {
     if heap.size() == 1 {
-        return remove_first@core.list(heap)!
+        return remove_first(heap)!
     }
     // Swap them, so that we don't have to shift everything
     heap.swap(0, heap.size() - 1)

@@ -43,7 +43,7 @@ impl FileDiagnostic {
     /// A diagnostic that reports something the author probably did not
     /// intend without rejecting the program — used where a rule
     /// deliberately degrades instead of failing (a suppressed refinement
-    /// conflict [qual-refn-conflict]).
+    /// conflict [qual-refn-ambiguous]).
     pub fn warning(file: usize, span: Span, message: impl Into<String>) -> Self {
         FileDiagnostic {
             file,
