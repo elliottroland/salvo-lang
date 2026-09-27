@@ -181,7 +181,7 @@ handler Racing() of Race {
 // changes, and every `Elected` pick follows it. A Raft would serve the same
 // effect, and nothing that routes through `Elected` would change.
 handler LastHost(nodes: Addr<NodeGroup>, me: NodeEndpoint) of Leader {
-    fn leader() -> Long? {
+    fn leader() -> NodeId? {
         let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
         let best_host = copy(me.host)
         let best = this_node()

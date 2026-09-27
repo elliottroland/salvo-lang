@@ -475,11 +475,11 @@ fun cmp__2(a: Duration, b: Duration): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__3(value: Duration): Long {
+fun hash__4(value: Duration): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__3(a: Duration, b: Duration): Boolean {
+fun eq__4(a: Duration, b: Duration): Boolean {
     return a == b
 }
 
@@ -487,11 +487,11 @@ fun cmp__3(a: Instant, b: Instant): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__4(value: Instant): Long {
+fun hash__5(value: Instant): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__4(a: Instant, b: Instant): Boolean {
+fun eq__5(a: Instant, b: Instant): Boolean {
     return a == b
 }
 
@@ -499,10 +499,10 @@ fun cmp__4(a: Tick, b: Tick): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__5(value: Tick): Long {
+fun hash__6(value: Tick): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__5(a: Tick, b: Tick): Boolean {
+fun eq__6(a: Tick, b: Tick): Boolean {
     return a == b
 }

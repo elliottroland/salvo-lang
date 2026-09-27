@@ -84,12 +84,12 @@ fun main() {
     val a = Point(x = 1, y = 2)
     val b = Point(x = 1, y = 2)
     val c = Point(x = 1, y = 9)
-    val same = eq__6(a, b)
+    val same = eq__7(a, b)
     val before = cmp__5(a, c) < 0
     println(console, "4. equal $same, ordered $before")
     val n1 = Note(text = "same")
     val n2 = Note(text = "same")
-    val notes_equal = eq__7(n1, n2)
+    val notes_equal = eq__8(n1, n2)
     println(console, "4. plain struct equality $notes_equal")
     val squares = MutableList<Int>(4, { i -> i * i })
     println(console, "5. generated ${squares.joinToString(", ", "[", "]")}")
@@ -147,14 +147,14 @@ fun cmp__5(a: Point, b: Point): Int {
     return salvo.__salvoCompare(a, b)
 }
 
-fun hash__6(value: Point): Long {
+fun hash__7(value: Point): Long {
     return value.hashCode().toLong()
 }
 
-fun eq__6(a: Point, b: Point): Boolean {
+fun eq__7(a: Point, b: Point): Boolean {
     return a == b
 }
 
-fun eq__7(a: Note, b: Note): Boolean {
+fun eq__8(a: Note, b: Note): Boolean {
     return a == b
 }

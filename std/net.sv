@@ -125,25 +125,33 @@ export intrinsic fn decode<T>(data: Bytes) [] -> T? => data
 
 // -------------------------------------------------------------- routing ----
 
-// [addr-routable] The identity of the node this code runs on. A node is a
-// process, or one of the virtual nodes a process hosts for the in-process
-// double; every actor carries the node it was spawned on, and an `Addr` that
-// crosses the wire is `(node, actor, bits)`.
-export intrinsic fn this_node() [] -> Long
+// [addr-routable] The identity of a node: a process, or one of the virtual
+// nodes a process hosts for the in-process double. Minted by the runtime at
+// start (`this_node`) or on demand (`new_node`), unique across a node group
+// with overwhelming probability, and compared everywhere — a proxy's home,
+// a `Node` in a group, the leader an election answers — so it has a wire
+// form: an `Addr` that crosses the wire is `(node, actor, bits)`.
+export struct NodeId : auto Hashed<self> {
+    id: Long
+}
+
+// [addr-routable] The identity of the node this code runs on: every actor
+// carries the node it was spawned on.
+export intrinsic fn this_node() [] -> NodeId
 
 // [addr-routable] Hosts a fresh **virtual node** in this process: the
 // in-process double of another machine. Pools made with [pool_at] belong to
 // it, actors spawned on them carry it, and an addr of one that crosses to
 // another node — virtual or not — is reached through a proxy, so every remote
 // path runs without a socket.
-export intrinsic fn new_node() [spawn] -> Long
+export intrinsic fn new_node() [spawn] -> NodeId
 
 // [addr-routable] A pool of [size] workers belonging to [node].
-export intrinsic fn pool_at(node: Long, size: Int) [spawn] -> Pool => node, size
+export intrinsic fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size
 
 // [addr-routable] Where frames for [node] go. Learnt in the handshake by a
 // `NodeGroup` (step ④); until a node has a route its frames wait.
-export intrinsic fn add_route(node: Long, at: NodeEndpoint) [] -> None => node, at
+export intrinsic fn add_route(node: NodeId, at: NodeEndpoint) [] -> None => node, at
 
 // [addr-routable] Binds the current node's outbound side: every frame the
 // runtime sends is delivered to [out], which puts it on the wire.
@@ -193,7 +201,7 @@ export handler Receiving() of Inbound {
 // the endpoint it answers at. What a mechanism knows *after* contact; a
 // `NodeEndpoint` is what it knows before.
 export struct Node : auto Hashed<self> {
-    id: Long,
+    id: NodeId,
     at: NodeEndpoint
 }
 
@@ -231,8 +239,8 @@ export actor effect NodeChanges {
 // `PeerEvents` and never sends it — which keeps gossip out of the deadlock
 // graph's send-cycle warning [actor-deadlock-cycle].
 export actor effect PeerEvents {
-    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>) => !node, !at, !protocols
-    send fn gone(node: Long) => !node
+    send fn hello(node: NodeId, at: NodeEndpoint, protocols: List<(Str, Str)>) => !node, !at, !protocols
+    send fn gone(node: NodeId) => !node
     send fn introduced(peers: List<NodeEndpoint>) => !peers
 }
 
@@ -246,7 +254,7 @@ export intrinsic fn watch_peers(sink: Addr<PeerEvents>) [] -> None => !sink
 
 // [node-group] Tells peer [node] about [peers]: an INTRO frame, which arrives
 // there as `PeerEvents.introduced`.
-export intrinsic fn introduce(node: Long, peers: List<NodeEndpoint>) [] -> None => node, peers
+export intrinsic fn introduce(node: NodeId, peers: List<NodeEndpoint>) [] -> None => node, peers
 
 // [node-group] The current node's HELLO frame, to be handed to the transport
 // directly: a node with no route yet cannot be sent to any other way.
@@ -258,7 +266,7 @@ export intrinsic fn leave_group() [] -> None
 // [protocol-hash] A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
 // protocol. What `attach<E>` compares (step ⑤).
-export intrinsic fn peer_protocol(node: Long, protocol: Str) [] -> Str? => node, protocol
+export intrinsic fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol
 
 // [node-group] Starts a spawned node group: `start_group(spawn StaticNodeGroup(…)
 // on p)` — the three faces a spawn answers, the `join` sent, the `NodeGroup`
@@ -277,7 +285,7 @@ export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoi
     of NodeGroup, PeerEvents {
     mailbox { capacity: 64 }
 
-    known: Mut Map<Long, Node> = mut_map_of()
+    known: Mut Map<NodeId, Node> = mut_map_of()
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
     send fn join(events: Addr<PeerEvents>) => !events {
@@ -309,7 +317,7 @@ export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoi
         leave_group()
     }
 
-    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>)
+    send fn hello(node: NodeId, at: NodeEndpoint, protocols: List<(Str, Str)>)
         => !node, !at, !protocols {
         if contains_key(known, node) {
             return
@@ -321,7 +329,7 @@ export handler StaticNodeGroup(name: Str, me: NodeEndpoint, all: List<NodeEndpoi
         }
     }
 
-    send fn gone(node: Long) => !node {
+    send fn gone(node: NodeId) => !node {
         let n = remove(known, node)
         if n is None {
             return
@@ -347,7 +355,7 @@ export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndp
     of NodeGroup, PeerEvents {
     mailbox { capacity: 64 }
 
-    known: Mut Map<Long, Node> = mut_map_of()
+    known: Mut Map<NodeId, Node> = mut_map_of()
     dialed: Mut Set<Str> = mut_set_of()
     watchers: Mut List<Addr<NodeChanges>> = mut_list_of()
 
@@ -378,7 +386,7 @@ export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndp
         leave_group()
     }
 
-    send fn hello(node: Long, at: NodeEndpoint, protocols: List<(Str, Str)>)
+    send fn hello(node: NodeId, at: NodeEndpoint, protocols: List<(Str, Str)>)
         => !node, !at, !protocols {
         if contains_key(known, node) {
             return
@@ -402,7 +410,7 @@ export handler GossipNodeGroup(name: Str, me: NodeEndpoint, seeds: List<NodeEndp
         }
     }
 
-    send fn gone(node: Long) => !node {
+    send fn gone(node: NodeId) => !node {
         let n = remove(known, node)
         if n is None {
             return
@@ -462,12 +470,12 @@ export actor effect ActorGroup<E> {
     // Hear about arrivals and departures.
     send fn subscribe(w: Addr<ActorChanges<E>>) => !w
     // Runtime: peer node [node] published a replica under this group's name.
-    send fn peer(node: Long) => !node
+    send fn peer(node: NodeId) => !node
     // Runtime: the replica on [from] shared everything it knows (a MEMBERS
     // frame, sent with [share_members]). Replicas talk through frames rather
     // than through addrs of one another, so the group serves `ActorGroup` and
     // never sends it — no send cycle for the deadlock graph to warn of.
-    send fn merged(from: Long, found: List<Addr<E>>) => !from, !found
+    send fn merged(from: NodeId, found: List<Addr<E>>) => !from, !found
     // The spawner hands the replica its own addr, which it publishes.
     send fn start(me: Addr<ActorGroup<E>>) => !me
 }
@@ -485,7 +493,7 @@ export intrinsic fn publish_group<E>(name: Str, me: Addr<ActorGroup<E>>) [] -> N
 
 // [actor-group] Tells the replica named [name] on peer [node] about [members]:
 // a MEMBERS frame, arriving there as `ActorGroup.merged`.
-export intrinsic fn share_members<E>(name: Str, node: Long, members: List<Addr<E>>) [] -> None
+export intrinsic fn share_members<E>(name: Str, node: NodeId, members: List<Addr<E>>) [] -> None
     => name, node, members
 
 // [actor-group] [remote-backpressure] How loaded a member looks from here:
@@ -530,7 +538,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     mailbox { capacity: 64 }
 
     all: Mut List<Addr<E>> = mut_list_of()
-    peers: Mut List<Long> = mut_list_of()
+    peers: Mut List<NodeId> = mut_list_of()
     watchers: Mut List<Addr<ActorChanges<E>>> = mut_list_of()
     self_addr: Addr<ActorGroup<E>>? = None
 
@@ -594,7 +602,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         add(watchers, w)
     }
 
-    send fn peer(node: Long) => !node {
+    send fn peer(node: NodeId) => !node {
         // [protocol-hash] A peer whose version of the protocol differs is
         // invisible: its members are never merged, and it never hears ours.
         let theirs = peer_protocol(copy(node), copy(proto.name))
@@ -608,7 +616,7 @@ export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
         share_members(copy(name), node, copy(all))
     }
 
-    send fn merged(from: Long, found: List<Addr<E>>) => !from, !found {
+    send fn merged(from: NodeId, found: List<Addr<E>>) => !from, !found {
         if !contains_node(peers, copy(from)) {
             let theirs = peer_protocol(copy(from), copy(proto.name))
             if theirs is None || !eq(theirs, proto.hash) {
@@ -652,7 +660,7 @@ fn admit<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a {
     return true
 }
 
-fn contains_node(list: List<Long>, n: Long) [] -> Bool => list, n {
+fn contains_node(list: List<NodeId>, n: NodeId) [] -> Bool => list, n {
     for x in list {
         if eq(x, n) {
             return true
@@ -679,7 +687,7 @@ fn withdraw<E>(list: Mut List<Addr<E>>, a: Addr<E>) [] -> Bool => list: Mut, !a 
 
 // [addr-routable] The node an addr lives on — for a log line, and for the
 // group's peer check.
-export intrinsic fn node_of<E>(a: Addr<E>) [] -> Long => a
+export intrinsic fn node_of<E>(a: Addr<E>) [] -> NodeId => a
 
 // ---------------------------------------------------------- the pick kit ----
 
@@ -807,13 +815,13 @@ export handler Sharded<E>() of Pick<E> {
 // election or a platform handler over a lease store serve it alike; std ships
 // [StaticLeader] for a fixed one.
 export effect Leader {
-    fn leader() -> Long?
+    fn leader() -> NodeId?
 }
 
 // [route-stub] The leader fixed by configuration — for a test, or a
 // deployment where one node is the primary by decree.
-export handler StaticLeader(node: Long) of Leader {
-    fn leader() -> Long? {
+export handler StaticLeader(node: NodeId) of Leader {
+    fn leader() -> NodeId? {
         return copy(node)
     }
 }

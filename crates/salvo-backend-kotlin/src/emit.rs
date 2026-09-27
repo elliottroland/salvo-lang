@@ -1850,6 +1850,11 @@ impl<'p> Emitter<'p> {
     /// class was given (`__c_T`). Types the predicate blocks never reach
     /// here; an intrinsic it does not know is reported, not guessed
     /// [backend-never-wrong].
+    /// [addr-routable] The rendered name of std `net`'s `NodeId`.
+    fn node_id_ty(&mut self) -> String {
+        self.kotlin_ty(&Ty::Named { name: "NodeId".to_string(), args: Vec::new() })
+    }
+
     fn kotlin_codec_expr(&mut self, ty: &Ty) -> String {
         self.needs_wire = true;
         match ty {
@@ -8634,19 +8639,24 @@ impl<'p> Emitter<'p> {
         // [addr-routable] [kt-wire] The routing intrinsics of std `net`.
         if f.intrinsic {
             match f.name.name.as_str() {
+                // [addr-routable] `NodeId` is a Salvo struct over the runtime's
+                // `Long`: built where a node is answered, read (`.id`) where
+                // one is taken.
                 "this_node" if args.is_empty() => {
                     self.needs_scheduler = true;
-                    return "salvo.SalvoSched.hereNode()".to_string();
+                    let nid = self.node_id_ty();
+                    return format!("{nid}(salvo.SalvoSched.hereNode())");
                 }
                 "new_node" if args.is_empty() => {
                     self.needs_scheduler = true;
-                    return "salvo.SalvoSched.newNode()".to_string();
+                    let nid = self.node_id_ty();
+                    return format!("{nid}(salvo.SalvoSched.newNode())");
                 }
                 "pool_at" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     let node = self.emit_expr(args[0]);
                     let n = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.poolAt({node}, {n})");
+                    return format!("salvo.SalvoSched.poolAt(({node}).id, {n})");
                 }
                 "add_route" if args.len() == 2 => {
                     self.needs_scheduler = true;
@@ -8656,7 +8666,7 @@ impl<'p> Emitter<'p> {
                     let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
                     let codec = self.kotlin_codec_expr(&ep);
                     return format!(
-                        "salvo.SalvoSched.addRoute({node}, salvo.salvoEncode({at}, {codec}).toByteArray())"
+                        "salvo.SalvoSched.addRoute(({node}).id, salvo.salvoEncode({at}, {codec}).toByteArray())"
                     );
                 }
                 "deliver_frame" if args.len() == 1 => {
@@ -8694,7 +8704,7 @@ impl<'p> Emitter<'p> {
                     self.needs_scheduler = true;
                     let node = self.emit_expr(args[0]);
                     let proto = self.emit_expr(args[1]);
-                    return format!("salvo.SalvoSched.peerProtocol({node}, {proto})");
+                    return format!("salvo.SalvoSched.peerProtocol(({node}).id, {proto})");
                 }
                 "watch_peers" if args.len() == 1 => {
                     self.needs_scheduler = true;
@@ -8703,10 +8713,11 @@ impl<'p> Emitter<'p> {
                     let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
                     let codec = self.kotlin_codec_expr(&ep);
                     let msg = msg_class_name("PeerEvents");
+                    let nid = self.node_id_ty();
                     return format!(
                         "salvo.SalvoSched.watchPeers({sink}, {{ __n, __ep, __t -> \
-                         {msg}.Hello(__n, salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec})!!, __t) }}, \
-                         {{ __n -> {msg}.Gone(__n) }}, \
+                         {msg}.Hello({nid}(__n), salvo.salvoDecode(salvo.SalvoBytes(__ep), {codec})!!, __t) }}, \
+                         {{ __n -> {msg}.Gone({nid}(__n)) }}, \
                          {{ __ps -> {msg}.Introduced(__ps.mapNotNull {{ salvo.salvoDecode(salvo.SalvoBytes(it), {codec}) }}) }})"
                     );
                 }
@@ -8718,7 +8729,7 @@ impl<'p> Emitter<'p> {
                     let ep = Ty::Named { name: "NodeEndpoint".to_string(), args: Vec::new() };
                     let codec = self.kotlin_codec_expr(&ep);
                     return format!(
-                        "salvo.SalvoSched.introduce({node}, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
+                        "salvo.SalvoSched.introduce(({node}).id, ({peers}).map {{ salvo.salvoEncode(it, {codec}).toByteArray() }})"
                     );
                 }
                 // [protocol-hash] The name and hash of a protocol named as a
@@ -8769,10 +8780,11 @@ impl<'p> Emitter<'p> {
                     let name = self.emit_expr(args[0]);
                     let me = self.emit_expr(args[1]);
                     let msg = msg_class_name("ActorGroup");
+                    let nid = self.node_id_ty();
                     return format!(
                         "run {{ val __me = {me}; salvo.SalvoSched.publish({name}, __me, __me, \
-                         {{ __n -> {msg}.Peer(__n) }}, \
-                         {{ __n, __ids -> {msg}.Merged(__n, __ids.map {{ salvo.SalvoSched.importAddr(it) }}) }}) }}"
+                         {{ __n -> {msg}.Peer({nid}(__n)) }}, \
+                         {{ __n, __ids -> {msg}.Merged({nid}(__n), __ids.map {{ salvo.SalvoSched.importAddr(it) }}) }}) }}"
                     );
                 }
                 "share_members" if args.len() == 3 => {
@@ -8780,7 +8792,7 @@ impl<'p> Emitter<'p> {
                     let name = self.emit_expr(args[0]);
                     let node = self.emit_expr(args[1]);
                     let members = self.emit_expr(args[2]);
-                    return format!("salvo.SalvoSched.shareMembers({name}, {node}, {members})");
+                    return format!("salvo.SalvoSched.shareMembers({name}, ({node}).id, {members})");
                 }
                 "pending" if args.len() == 1 => {
                     self.needs_scheduler = true;
@@ -8790,7 +8802,8 @@ impl<'p> Emitter<'p> {
                 "node_of" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     let a = self.emit_expr(args[0]);
-                    return format!("salvo.SalvoSched.addrIdentity({a}).node");
+                    let nid = self.node_id_ty();
+                    return format!("{nid}(salvo.SalvoSched.addrIdentity({a}).node)");
                 }
                 // [route-stub] The view mirror and the stub's primitives.
                 "view_set" if args.len() == 2 => {

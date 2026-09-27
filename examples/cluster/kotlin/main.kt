@@ -803,7 +803,7 @@ class __Actor_Racing(private val handler: Racing) : salvo.SalvoActor {
 
 class LastHost(private val nodes: Int, private val me: NodeEndpoint) : Leader {
 
-    override fun leader(): Long? {
+    override fun leader(): NodeId? {
         val peers = run {
             val (out, __wid) = salvo.SalvoSched.waiter()
             salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(__Codec_Node)) })
@@ -811,7 +811,7 @@ class LastHost(private val nodes: Int, private val me: NodeEndpoint) : Leader {
             salvo.SalvoSched.awaitReply(__wid) as List<Node>
         }
         var best_host = me.host
-        var best = salvo.SalvoSched.hereNode()
+        var best = NodeId(salvo.SalvoSched.hereNode())
         for (n in peers) {
             if (salvo.__salvoCompare(n.at.host, best_host) > 0) {
                 best_host = n.at.host
@@ -925,7 +925,7 @@ class Booting<__Fx>(private val at: NodeEndpoint, private val all: List<NodeEndp
         val p = salvo.SalvoSched.pool(1)
         run { val __out = run { val __h = Sending(__Fx_6(MemTransport(at, net))); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
         __fx.__fx_Transport.listen(at, run { val __h = Receiving(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
-        salvo.SalvoSched.addRoute(salvo.SalvoSched.hereNode(), salvo.salvoEncode(at, __Codec_NodeEndpoint).toByteArray())
+        salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(at, __Codec_NodeEndpoint).toByteArray())
         val group = start_group(run { val __h = StaticNodeGroup("cluster", at, all, __Fx_6(MemTransport(at, net))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); Pair(__a, __a) })
         nodes = group
         val seq = attach__2(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), group)
@@ -1017,7 +1017,7 @@ fun main() {
     val p = salvo.SalvoSched.pool(2)
     run { val __out = run { val __h = Sending(__Fx_6(__fx2.__fx_Transport)); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sending(__h), __Actor_Sending.__DECODE) }; salvo.SalvoSched.setWire { __ep, __frame -> val __to = salvo.salvoDecode(salvo.SalvoBytes(__ep), __Codec_NodeEndpoint); if (__to != null) salvo.SalvoSched.sendWire(__out, __Msg_Outbound.SendFrame(__to, salvo.SalvoBytes(__frame)), __PROTO_Outbound, __Codec___Msg_Outbound) } }
     __fx2.__fx_Transport.listen(a, run { val __h = Receiving(); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Receiving(__h), __Actor_Receiving.__DECODE) })
-    salvo.SalvoSched.addRoute(salvo.SalvoSched.hereNode(), salvo.salvoEncode(a, __Codec_NodeEndpoint).toByteArray())
+    salvo.SalvoSched.addRoute((NodeId(salvo.SalvoSched.hereNode())).id, salvo.salvoEncode(a, __Codec_NodeEndpoint).toByteArray())
     val nodes = start_group(run { val __h = StaticNodeGroup("cluster", a, all, __Fx_6(__fx2.__fx_Transport)); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_StaticNodeGroup(__h), __Actor_StaticNodeGroup.__DECODE); Pair(__a, __a) })
     val seq = attach__2(Protocol("Sequencer", salvo.main.__PROTO_Sequencer), nodes)
     join(seq, run { val __h = Sequencing("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE) })
@@ -1027,7 +1027,7 @@ fun main() {
     join(index, run { val __h = Indexing(listOf<String>("salvo", "is", "salvo")); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE) })
     val looks = attach__2(Protocol("Lookup", salvo.main.__PROTO_Lookup), nodes)
     join(looks, run { val __h = Looking("a"); salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE) })
-    val pb = salvo.SalvoSched.poolAt(salvo.SalvoSched.newNode(), 1)
+    val pb = salvo.SalvoSched.poolAt((NodeId(salvo.SalvoSched.newNode())).id, 1)
     val booter = run { val __h = Booting(b, all, network, __Fx_6(MemTransport(b, network))); salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE) }
     val remote_seq = run {
         val (done, __wid) = salvo.SalvoSched.waiter()
@@ -1049,7 +1049,7 @@ fun main() {
         salvo.SalvoSched.sendWire(seq, __Msg_ActorGroup.Members(out), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     }.size}")
-    println(__fx2, "singleton (b's sequencer is remote: ${!((salvo.SalvoSched.addrIdentity(remote_seq).node) == (salvo.SalvoSched.hereNode()))}):")
+    println(__fx2, "singleton (b's sequencer is remote: ${!eq__2(NodeId(salvo.SalvoSched.addrIdentity(remote_seq).node), NodeId(salvo.SalvoSched.hereNode()))}):")
     val __fx3 = __Fx_9(__fx2.__fx_Console, LastHost(nodes, a), __fx2.__fx_Transport)
     two_ids(__fx3, seq)
     println(__fx3, "sharded:")

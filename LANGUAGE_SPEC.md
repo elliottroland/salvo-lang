@@ -5526,6 +5526,14 @@ between endpoints and delivers what arrives into the scheduler.
   addr never learns which. The same `send`/`waitfor`/`replyto` code runs
   unchanged. `Addr<E>` has a wire form exactly when `E` has one (a proxy is
   only good for sends that can be framed), `Reply<T>` when `T` has one.
+  * **`NodeId`** (2026-09-27) is the identity of a node as a Salvo struct
+    (`struct NodeId : auto Hashed<self> { id: Long }`), answered by
+    `this_node()`/`new_node()`/`node_of(addr)` and taken by `pool_at`,
+    `Node.id`, `Leader.leader() -> NodeId?` and the mechanisms' members. It
+    has a wire form because it is compared across machines; a raw `Long` no
+    longer types as a node, so a pool cannot be placed on an arbitrary
+    number. The emitters build it around the runtime's `u64`/`Long` at every
+    intrinsic that answers a node and read `.id` at every one that takes one.
   * **A process is one node with one random identity, and may host further
     virtual nodes** — `new_node()` and `pool_at(node, n)` in std `net` — so a
     program runs several nodes in one process over `MemTransport` and every
@@ -5655,7 +5663,7 @@ between endpoints and delivers what arrives into the scheduler.
     in-flight (granted, unacknowledged) count on a proxy
     [remote-backpressure] — what a load-aware picker reads (step ⑦).
   * `eq(a: Addr<E>, b: Addr<E>)` is identity on both backends, so members can
-    be compared and deduplicated; `node_of(addr) -> Node` answers the host.
+    be compared and deduplicated; `node_of(addr) -> NodeId` answers the host.
   * **Naming**: node groups and actor groups stay visibly distinct —
     `NodeGroup`/`Node`/`NodeChanges`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorChanges<E>` (and `ActorGroupView<E>`/`ActorView<E>`
@@ -5698,7 +5706,7 @@ between endpoints and delivers what arrives into the scheduler.
     mod n` over the ordered view (a keyless send goes to the first member;
     consistent hashing is a recorded follow-up); `Elected<E>() [Leader]` —
     the member on the node `Leader.leader()` names, parking while there is
-    none. `Leader { fn leader() -> Long? }` is a plain effect a Salvo
+    none. `Leader { fn leader() -> NodeId? }` is a plain effect a Salvo
     election or a platform handler serves; std ships `StaticLeader(node)`.
   * A policy's instance `Pick<E>` is a generic effect instance whose only
     argument is an effect: [effect-generic-decl] erases it to the

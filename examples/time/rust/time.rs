@@ -728,13 +728,13 @@ pub fn cmp__2(a: &Duration, b: &Duration) -> i32 {
     (Ord::cmp(a, b) as i32)
 }
 
-pub fn hash__3(value: &Duration) -> i64 {
+pub fn hash__4(value: &Duration) -> i64 {
     let mut __h = std::hash::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut __h);
     (std::hash::Hasher::finish(&__h) as i64)
 }
 
-pub fn eq__3(a: &Duration, b: &Duration) -> bool {
+pub fn eq__4(a: &Duration, b: &Duration) -> bool {
     (a == b)
 }
 
@@ -742,13 +742,13 @@ pub fn cmp__3(a: &Instant, b: &Instant) -> i32 {
     (Ord::cmp(a, b) as i32)
 }
 
-pub fn hash__4(value: &Instant) -> i64 {
+pub fn hash__5(value: &Instant) -> i64 {
     let mut __h = std::hash::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut __h);
     (std::hash::Hasher::finish(&__h) as i64)
 }
 
-pub fn eq__4(a: &Instant, b: &Instant) -> bool {
+pub fn eq__5(a: &Instant, b: &Instant) -> bool {
     (a == b)
 }
 
@@ -756,12 +756,12 @@ pub fn cmp__4(a: &Tick, b: &Tick) -> i32 {
     (Ord::cmp(a, b) as i32)
 }
 
-pub fn hash__5(value: &Tick) -> i64 {
+pub fn hash__6(value: &Tick) -> i64 {
     let mut __h = std::hash::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut __h);
     (std::hash::Hasher::finish(&__h) as i64)
 }
 
-pub fn eq__5(a: &Tick, b: &Tick) -> bool {
+pub fn eq__6(a: &Tick, b: &Tick) -> bool {
     (a == b)
 }

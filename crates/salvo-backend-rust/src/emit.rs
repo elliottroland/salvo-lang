@@ -16533,20 +16533,25 @@ impl<'p> Emitter<'p> {
         // the constructor, as `watch` does for `Exit` [actor-watch].
         if f.intrinsic {
             match f.name.name.as_str() {
+                // [addr-routable] `NodeId` is a Salvo struct over the runtime's
+                // `u64`: built at every intrinsic that answers a node, read
+                // (`.id as u64`) at every one that takes one.
                 "this_node" if args.is_empty() => {
                     self.needs_scheduler = true;
-                    return "(crate::scheduler::salvo_here_node() as i64)".to_string();
+                    let nid = self.node_id_ty();
+                    return format!("{nid} {{ id: crate::scheduler::salvo_here_node() as i64 }}");
                 }
                 "new_node" if args.is_empty() => {
                     self.needs_scheduler = true;
-                    return "(crate::scheduler::salvo_new_node() as i64)".to_string();
+                    let nid = self.node_id_ty();
+                    return format!("{nid} {{ id: crate::scheduler::salvo_new_node() as i64 }}");
                 }
                 "pool_at" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     let node = self.emit_read(args[0]);
                     let n = self.emit_read(args[1]);
                     return format!(
-                        "crate::scheduler::salvo_pool_at(({node}) as u64, ({n}) as usize)"
+                        "crate::scheduler::salvo_pool_at(({node}).id as u64, ({n}) as usize)"
                     );
                 }
                 "add_route" if args.len() == 2 => {
@@ -16555,7 +16560,7 @@ impl<'p> Emitter<'p> {
                     let node = self.emit_read(args[0]);
                     let at = self.emit_read(args[1]);
                     return format!(
-                        "crate::scheduler::salvo_add_route(({node}) as u64, crate::wire::salvo_encode(&{at}))"
+                        "crate::scheduler::salvo_add_route(({node}).id as u64, crate::wire::salvo_encode(&{at}))"
                     );
                 }
                 "deliver_frame" if args.len() == 1 => {
@@ -16593,7 +16598,7 @@ impl<'p> Emitter<'p> {
                     let node = self.emit_read(args[0]);
                     let proto = self.emit_read(args[1]);
                     return format!(
-                        "crate::scheduler::salvo_peer_protocol(({node}) as u64, &{proto})"
+                        "crate::scheduler::salvo_peer_protocol(({node}).id as u64, &{proto})"
                     );
                 }
                 "watch_peers" if args.len() == 1 => {
@@ -16605,15 +16610,16 @@ impl<'p> Emitter<'p> {
                         name: "NodeEndpoint".to_string(),
                         args: Vec::new(),
                     });
+                    let nid = self.node_id_ty();
                     // The three builders: the runtime holds numbers and bytes
                     // and cannot construct a Salvo struct, so the registration
                     // site supplies them [actor-watch].
                     return format!(
                         "crate::scheduler::salvo_watch_peers(({sink}).clone(), \
-                         |__n, __ep, __t| Box::new({msg}::Hello(__n as i64, \
+                         |__n, __ep, __t| Box::new({msg}::Hello({nid} {{ id: __n as i64 }}, \
                          crate::wire::salvo_decode::<{ep}>(__ep).expect(\"a peer's endpoint\"), \
                          __t.iter().map(|(a, b)| (a.clone(), b.clone())).collect())), \
-                         |__n| Box::new({msg}::Gone(__n as i64)), \
+                         |__n| Box::new({msg}::Gone({nid} {{ id: __n as i64 }})), \
                          |__ps| Box::new({msg}::Introduced(__ps.iter().filter_map(|__p| \
                          crate::wire::salvo_decode::<{ep}>(__p)).collect())))"
                     );
@@ -16624,7 +16630,7 @@ impl<'p> Emitter<'p> {
                     let node = self.emit_read(args[0]);
                     let peers = self.emit_read(args[1]);
                     return format!(
-                        "crate::scheduler::salvo_introduce(({node}) as u64, \
+                        "crate::scheduler::salvo_introduce(({node}).id as u64, \
                          &({peers}).iter().map(|__p| crate::wire::salvo_encode(__p)).collect::<Vec<_>>())"
                     );
                 }
@@ -16679,10 +16685,11 @@ impl<'p> Emitter<'p> {
                     let name = self.emit_read(args[0]);
                     let me = self.emit_read(args[1]);
                     let msg = self.effect_path("ActorGroup", &msg_enum_name("ActorGroup"));
+                    let nid = self.node_id_ty();
                     return format!(
                         "{{ let __me = ({me}).clone(); crate::scheduler::salvo_publish(({name}).clone(), __me, Some((__me, \
-                         |__n| Box::new({msg}::Peer(__n as i64)), \
-                         |__n, __ids| Box::new({msg}::Merged(__n as i64, __ids.iter().map(|__r| crate::scheduler::salvo_import_addr(*__r)).collect()))))) }}"
+                         |__n| Box::new({msg}::Peer({nid} {{ id: __n as i64 }})), \
+                         |__n, __ids| Box::new({msg}::Merged({nid} {{ id: __n as i64 }}, __ids.iter().map(|__r| crate::scheduler::salvo_import_addr(*__r)).collect()))))) }}"
                     );
                 }
                 "share_members" if args.len() == 3 => {
@@ -16691,7 +16698,7 @@ impl<'p> Emitter<'p> {
                     let node = self.emit_read(args[1]);
                     let members = self.emit_read(args[2]);
                     return format!(
-                        "crate::scheduler::salvo_share_members(&{name}, ({node}) as u64, &{members})"
+                        "crate::scheduler::salvo_share_members(&{name}, ({node}).id as u64, &{members})"
                     );
                 }
                 "pending" if args.len() == 1 => {
@@ -16702,7 +16709,8 @@ impl<'p> Emitter<'p> {
                 "node_of" if args.len() == 1 => {
                     self.needs_scheduler = true;
                     let a = self.emit_read(args[0]);
-                    return format!("(crate::scheduler::salvo_addr_identity(({a}).clone()).node as i64)");
+                    let nid = self.node_id_ty();
+                    return format!("{nid} {{ id: crate::scheduler::salvo_addr_identity(({a}).clone()).node as i64 }}");
                 }
                 // [route-stub] The view mirror and the stub's primitives.
                 "view_set" if args.len() == 2 => {
@@ -18565,6 +18573,11 @@ impl<'p> Emitter<'p> {
         }
         let args: Vec<String> = type_args.iter().map(|t| self.emit_type(t)).collect();
         format!("{effect}<{}>", args.join(", "))
+    }
+
+    /// [addr-routable] The rendered path of std `net`'s `NodeId`.
+    fn node_id_ty(&mut self) -> String {
+        self.rust_ty(&Ty::Named { name: "NodeId".to_string(), args: Vec::new() })
     }
 
     /// The effect base name and rendered type arguments of a checker `Ty`.
