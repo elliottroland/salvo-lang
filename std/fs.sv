@@ -171,7 +171,7 @@ export effect Fs {
 // the host never sees an obligation.
 // ===== reading lines as a sequence =====
 
-// A pass over a stream's lines: `for line in p` drives it. It holds the
+// An iterator over a stream's lines: `for line in p` drives it. It holds the
 // stream, so it carries the obligation too — bind it, loop over it, and
 // discharge it when you are done [linear-group].
 export linear struct Lines : Yield<self, Str> canbe Mut {
@@ -179,12 +179,12 @@ export linear struct Lines : Yield<self, Str> canbe Mut {
 }
 
 // Reads `s` as a sequence of lines. The stream's obligation moves into the
-// pass, which is why closing the pass is closing the stream.
+// iterator, which is why closing the iterator is closing the stream.
 export fn lines(s: InStream) [] -> Mut Lines => !s {
     return Mut Lines { s: s }
 }
 
-// The pass's step: a line, or the end of the sequence. Declares `[Fs]`,
+// The iterator's step: a line, or the end of the sequence. Declares `[Fs]`,
 // since reading is an effect — so `for`, `map`, `filter` and `reduce`
 // inherit it at the call site.
 export fn next(p: Mut Lines) [local Fs] -> Emitted Str | Finished => p: Mut {
@@ -195,7 +195,7 @@ export fn next(p: Mut Lines) [local Fs] -> Emitted Str | Finished => p: Mut {
     }
 }
 
-// Closes the stream the pass reads, reporting what reading recorded. Named
+// Closes the stream the iterator reads, reporting what reading recorded. Named
 // `close` like every other discharger: a member and a fn of one name are one
 // overload set, and the argument type picks [effect-available].
 export fn close(p: Lines) [local Fs] -> Ok None | Err Checked<FsError> => !p {
@@ -213,7 +213,7 @@ export fn open_lines(path: Str) [local Fs] -> Ok Mut Lines | Err Checked<FsError
 
 // ===== reading bytes as a sequence =====
 
-// A pass over a stream's chunks: `for chunk in c` drives it, and each step is
+// An iterator over a stream's chunks: `for chunk in c` drives it, and each step is
 // up to [size] bytes. Like [Lines] it holds the stream, so it carries the
 // obligation too [linear-group].
 export linear struct Chunks : Yield<self, Bytes> canbe Mut {
@@ -223,13 +223,13 @@ export linear struct Chunks : Yield<self, Bytes> canbe Mut {
 }
 
 // Reads `s` as a sequence of chunks of up to [size] bytes each. The stream's
-// obligation moves into the pass, which is why closing the pass closes the
+// obligation moves into the iterator, which is why closing the iterator closes the
 // stream.
 export fn chunks(s: InStream, size: Int) [] -> Mut Chunks => !s {
     return Mut Chunks { s: s, size: size }
 }
 
-// The pass's step. Each chunk is a **fresh** buffer, deliberately: a pass that
+// The iterator's step. Each chunk is a **fresh** buffer, deliberately: an iterator that
 // handed back its own buffer would have the next step overwrite what the
 // caller is still holding. The allocation-free shape is `read_to` into a
 // buffer of your own — which is what [copy_stream] does [fs-read-to].
@@ -248,7 +248,7 @@ export fn next(p: Mut Chunks) [local Fs] -> Emitted Bytes | Finished => p: Mut {
     return emitted(data)
 }
 
-// Closes the stream the pass reads, reporting what reading recorded.
+// Closes the stream the iterator reads, reporting what reading recorded.
 export fn close(p: Chunks) [local Fs] -> Ok None | Err Checked<FsError> => !p {
     return close(p.s)
 }

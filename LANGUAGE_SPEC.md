@@ -66,7 +66,7 @@ Conventions:
     [col-hashed-ordered], because a key that can be mutated under its map is
     a bug no diagnostic would catch later.
   * `for b in data` iterates the bytes natively on both backends
-    [iter-for-native]; `BytesYield` is the pass the combinators drive
+    [iter-for-native]; `BytesYield` is the iterator the combinators drive
     [iter-protocol].
 * [lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
@@ -273,7 +273,7 @@ Conventions:
   (user decision 2026-09-23, ASSERTIONS.md A-1) the two backends disagreed about
   the leftover — rustc refused `.unwrap()` on an `i32` while kotlinc accepted
   `!!` with a warning and ran, which is [backend-never-wrong] broken at the
-  checker's expense. `Ty::Unknown` passes through [type-unknown-lenient].
+  checker's expense. `Ty::Unknown` iterators through [type-unknown-lenient].
   * A union with no `None` arm is the same mistake, since `!` removes `None`
     arms and there are none.
   * The rule makes a `!` that *becomes* provable a build error rather than dead
@@ -365,7 +365,7 @@ Conventions:
     to strip a tag here — replacing one tag with another is an `if` or a `when`,
     and `err(_)` on a `Thrown Str` honestly gives `Err Thrown Str`.
   * **One pick per `?:`.** A *chain* of picks (`r ^Ok?: Err?: err(_)`), where
-    only the last one carries a right-hand side and each earlier arm passes
+    only the last one carries a right-hand side and each earlier arm iterators
     through as a value, is **not built** — and is recorded as a question rather
     than a plan (ROADMAP.md, "Pick chains"): the same program is expressible
     with one pick and a `when`, so the case for the sugar wants a real site that
@@ -480,12 +480,12 @@ Conventions:
   where `x Ok?: err(_)` needs it.
   * It is not a name: it cannot be declared, shadowed or captured. The word is
     reserved, and appeared in no `.sv` source when it was.
-  * **A `for` binder may be `_`**: `for _ in range(0, 3) { … }` drives the pass
+  * **A `for` binder may be `_`**: `for _ in range(0, 3) { … }` drives the iterator
     and binds nothing, which is how a loop that repeats *n* times is written.
     The element is still produced — the `Finished` arm is what ends the loop —
     so only the binding goes. Each backend renders that in its own terms: Rust
     binds the wildcard pattern (`mut _` is not a binding it accepts), and Kotlin
-    drops the `val` line for a pass loop and names an unreachable local for a
+    drops the `val` line for an iterator loop and names an unreachable local for a
     native `for`, which has no wildcard form. Two such loops in one function are
     independent, since neither introduces a name to collide.
   * Reading it is an **error** until a construct binds it, not a silent
@@ -716,7 +716,7 @@ Conventions:
   [qual-ctor-same-file], and a *set* is what can honestly promise the claim —
   `to_list(set)` answers `-> +Distinct List<T>`. Mint-only, like `Sorted`.
   `to_list` over a `SortedSet` lives in `core.sorted` and so cannot mint it.
-* [col-reversed] `reversed(list)` walks a list back to front — a **pass**
+* [col-reversed] `reversed(list)` walks a list back to front — an **iterator**
   [iter-protocol], not a copy: `: Yield<self, proj T>`, so `for x in
   reversed(xs)` borrows each element [yield-proj] and `xs` stays usable.
   Kotlin's own `reversed()` answers a fresh list; a Salvo caller wanting the
@@ -732,7 +732,7 @@ Conventions:
   the store is a move, and `copy` would charge every step), while a `proj`
   **field** is the declared lend the pair needs [proj-field]. One pass
   struct serves both directions, stepped `+1` or `-1`.
-  * The pass's `next` writes the opaque lend (`-> Emitted
+  * The iterator's `next` writes the opaque lend (`-> Emitted
     Enumerated<T> | Finished holds proj(p)`) by hand: the result holds the borrow inside a *generic instantiation*
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
@@ -745,7 +745,7 @@ Conventions:
   [col-bounds]). Ranked above their plain siblings [fn-overload-rank].
   `core.map`'s `KeyOf` has its total `get` too (landed with `preserve`
   [qual-preserve], which is what lets a claim survive the `put`s between
-  the test and the read). **The index passes mint the claim**:
+  the test and the read). **The index iterators mint the claim**:
   `indices(list)` and `rev_indices(list)` emit `Idx(list) Int` elements —
   `for i in rev_indices(xs) { get(xs, i) }` is the founding example of the
   refinement-types design, total end to end — and `binary_search`'s found
@@ -1085,7 +1085,7 @@ Conventions:
     * **One lowering, both backends**: the loop header binds the element to a
       temporary and the body opens with the pattern's bindings, read off it.
       A native pattern in the header would have had to differ per backend and
-      per loop shape — Kotlin cannot destructure a pass's cast payload or a
+      per loop shape — Kotlin cannot destructure a iterator's cast payload or a
       struct at all, and Rust's `mut` bindings in a pattern cannot move out of
       a projection ([rs-borrow-locals]) — so one shape serves every loop and
       both pattern kinds.
@@ -1245,7 +1245,7 @@ Conventions:
     qualifier in a `canbe` clause is the `with` confusion above, and is
     rejected as such.
   * `once` joined the list 2026-09-07 (user decision) so a hand-written
-    **pass** can declare that driving it uses it up
+    **iterator struct** can declare that driving it uses it up
     ([iter-protocol], [once-fn]) — the alternative, inferring it from the
     presence of a `next`, would attach an obligation to someone's type on
     the strength of a method name.
@@ -1402,14 +1402,14 @@ Conventions:
     optional sibling** — with it attached, resolution re-picks the total
     overload and recurses; std's bodies re-derive a plain value
     (`index + 0`), the [col-of-nonempty] lesson in dependent form.
-  * **A pass mints claims per element** (step 5): its Yield clause's
-    element may carry a dependent claim whose slot names the pass's own
+  * **An iterator mints claims per element** (step 5): its Yield clause's
+    element may carry a dependent claim whose slot names the iterator's own
     borrowed field (`: Yield<self, Idx(self.items) Int>`), its `next`
     returns the established form (`-> Emitted (+Idx(p.items) Int) |
     Finished` — the clause and the `next` name one slot from two vantage
     points, matched by the field), and a `for` binds the claim to the
     **source's** roots — what `rev_indices(xs)` emits is an `Idx` of `xs`.
-    Sound because the source cannot be mutated while the pass lives
+    Sound because the source cannot be mutated while the iterator lives
     [proj-infer]. The element keeps every qualifier of the `Emitted` arm
     beside the protocol tag itself.
   * **`+Q` is legal anywhere in a return type** ([deduce-reapply]'s
@@ -2077,8 +2077,8 @@ Conventions:
     without a binding is read once by the test and so needs nothing.
   * `when` needs no rule of its own: its subject must already be a plain
     variable [when-union-subject].
-* [for-iter] `for x in e` drives `e` when it is a pass [iter-protocol] and
-  otherwise iterates `iter(e)` implicitly [iter-pass]; missing or ambiguous
+* [for-iter] `for x in e` drives `e` when it is an iterator [iter-protocol] and
+  otherwise iterates `iter(e)` implicitly [iter-mint]; missing or ambiguous
   `iter` resolution is an error [iter-resolve].
 
 ## Functions
@@ -2371,15 +2371,18 @@ Conventions:
 * [index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
-* [iter-resolve] A `for` subject must be an array, a **pass** — a type
-  declaring `: Yield<self, T>` [iter-protocol] [group-obligation] — or a value
-  some declared `iter` overload accepts (the implicit `iter(subject)` call);
+* [iter-resolve] A `for` subject must be an array, a **step call**
+  [iter-step-call], an **iterator struct** — a type declaring `: Yield<self, T>`
+  [iter-protocol] [group-obligation] — or a **source**: a value some declared
+  `iter` overload accepts (the implicit `iter(subject)` call), a type declaring
+  `: Iter<self, T>` [iter-group], or a generic under a `?Iter<C, T>` spread;
   anything else is an error. When the subject has a protocol-shaped `next` but
   no declaration, the error names the `: Yield<self, T>` remedy.
-  * Resolution order: arrays natively, then the declared pass
-    [iter-protocol], then `iter` [iter-pass]. The pass comes before `iter`
-    because a type with both is *already* a position in a sequence, so minting
-    a second pass from it would be wrong.
+  * Resolution order: a step call, arrays natively, then the declared iterator
+    struct [iter-protocol], then `iter` [iter-mint]. The struct comes before
+    `iter` because a type with both is *already* a position in a sequence, so
+    minting a second iterator from it would be wrong — and declaring both is
+    refused at the struct [iter-group].
   * **Both lookups match the subject by declaration, not by type name** (fixed
     2026-09-25): a `Ty::Named` carries no module, so two same-named structs in
     two modules are one type as far as unification is concerned — a user
@@ -2396,13 +2399,15 @@ Conventions:
   — it says "this call supplies a `next` for `It`" — so the loop calls that
   implicit parameter and takes the element type from its result. This is what
   lets std's own combinators be written with `for`, and any combinator of one's
-  own with them.
+  own with them. A type parameter that is a **source** under a `?Iter<C, T>`
+  spread is minted with the `iter` implicit first and driven with the `next`
+  beside it [iter-group].
   * **By name, not by shape**: the implicit must be called `next`, which is what
     `for` drives everywhere else [iter-protocol]; and it must take its state as
     `Mut It`, for the same reason a declared `next` does (the same diagnostic
     fires when it does not).
   * **The element is owned.** `next` hands the element over by value, so the
-    loop binding is *not* a projection of the pass and may be moved on — which
+    loop binding is *not* a projection of the iterator and may be moved on — which
     is what lets a combinator put each element in its output. (A native
     container loop is the other case: there the binding really is a projection
     and it links [fate-link].)
@@ -2413,37 +2418,38 @@ Conventions:
   (user decision 2026-09-12, extending the 2026-09-09 kept-parameter rule
   to locals and owned parameters — and deleting the loop's implicit
   release entirely):
-  * A pass named by a variable or parameter is advanced in place: the
+  * An iterator named by a variable or parameter is advanced in place: the
     position the loop reaches is what the owner sees next, the loop counts
-    as a **mutation** rather than a move, driving an exhausted pass again
+    as a **mutation** rather than a move, driving an exhausted iterator again
     is legal (zero iterations), and the discharge stays the owner's —
-    a linear pass is bound with `let`, driven, and explicitly discharged
+    a linear iterator is bound with `let`, driven, and explicitly discharged
     after the loop and before early exits (the ordinary all-paths
     analysis enforces it) [linear-group].
-  * Only a **temporary** subject (a minted pass, a call result) is
+  * Only a **temporary** subject (a minted iterator, a call result) is
     consumed by the loop — and a *linear* temporary is refused there
-    ("a `for` cannot consume a linear pass"): the loop never discharges
-    what it drives, so an owned linear pass has to be a named place.
+    ("a `for` cannot consume a linear iterator"): the loop never discharges
+    what it drives, so an owned linear iterator has to be a named place.
   * The in-place rule exists because the two backends disagreed without
     it: Rust bound the subject into a local — a *clone*, for a kept
     parameter's `&mut` — so the caller never saw the position the loop
     reached, while Kotlin aliased it and did [backend-parity].
-  * [linear-generics] A **generic** pass under `canbe linear` follows the
+  * [linear-generics] A **generic** iterator under `canbe linear` follows the
     same rules: drive it in place and let the owner discharge, or — for a
-    fn that owns the pass — take a **consuming callback**
-    (`end: (x: It) -> None` with `=>[end] !x`) and hand the pass to it
+    fn that owns the iterator — take a **consuming callback**
+    (`end: (x: It) -> None` with `=>[end] !x`) and hand the iterator to it
     after the loop; callers pass the type's own discharger for a linear
     pass and std's `drop` for a plain one [linear-discard]. (This
     replaces the deleted `?Linear<It>` spread.)
-* [iter-pass] `iter` converts a **container** into a fresh pass
-  (`fn iter<T>(list: List<T>) [] -> Mut ListYield<T>`), and that is the whole => !list
-  of container iteration: std declares a pass struct plus a `next` per
-  intrinsic container, so the language has no container protocol of its own
-  (user decision 2026-09-08, roadmap R5).
-  * The container is **borrowed by** the pass (a `proj` field
+* [iter-mint] `iter` converts a **container** into a fresh iterator
+  (`fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list`), and that is
+  the whole of container iteration: std declares an iterator struct plus a
+  `next` per intrinsic container, so the language has no container protocol of
+  its own (user decision 2026-09-08, roadmap R5). A type of one's own declares
+  the same through `: Iter<self, T>` [iter-group].
+  * The container is **borrowed by** the iterator (a `proj` field
     [proj-field]; user decision 2026-09-11 — until then it was moved in):
-    `iter(xs)` keeps `xs` usable and links the pass to it, so walking the
-    same container twice is `iter(xs)` twice, and mutating `xs` while a pass
+    `iter(xs)` keeps `xs` usable and links the iterator to it, so walking the
+    same container twice is `iter(xs)` twice, and mutating `xs` while an iterator
     over it lives is refused [proj-infer].
   * A `for` over a container is lowered as *mint then drive*: the checker
     records the `iter` to call beside the `next` to drive, and **both emitters
@@ -2451,18 +2457,23 @@ Conventions:
     container of one's own emitted a drive of the container itself, which the
     target compiler rejected (found while building [iter-fn], whose generated
     `iter` walks the same path).
+  * **`for` over a *generic* source** mints through the `iter` implicit a
+    `?Iter<C, T>` spread brought in, recorded as `PassMember::Implicit("iter")`
+    [iter-group].
 * [iter-for-native] A `for` over an **intrinsic container** — a list, an array,
   a `Str` — records no driver at all: the backends iterate their own data
-  natively, which neither allocates a pass nor consumes the subject. The
+  natively, which neither allocates an iterator nor consumes the subject. The
   language gets no special case (the rule is "intrinsic container", not a name
   list); the fast path is the emitters'.
 * [iter-protocol] The pull iteration protocol is declared in std
-  (`std/core/iterator.sv`), not built into the compiler: a **pass** is a
-  value some `next` accepts, and `next` reports
+  (`std/core/iterator.sv`), not built into the compiler: an **iterator
+  struct** is a value some `next` accepts, and `next` reports
   `Emitted T | Finished` (user decision 2026-09-07; the names were
-  `Next`/`Stopped` in the design). This is the manual half of the iterator
-  story — `zip`, `merge`, anything reading two sources at once — which
-  a step function expresses directly.
+  `Next`/`Stopped` in the design; "pass" was the term until 2026-09-27, when
+  the user renamed it — a value of an iterator struct is **an iterator**). This
+  is the manual half of the iterator story — `zip`, `merge`, anything reading
+  two sources at once — which a step function expresses directly; `iter fn`
+  is the sugar [iter-fn] and `Iter` the source side [iter-group].
   * `Emitted` is a *provenance qualifier* (`provenance qualifier Emitted<T>
     of T` [qual-subject]) so the element
     keeps its own type, which is also what keeps the end of a sequence of
@@ -2476,22 +2487,23 @@ Conventions:
     the struct, where a misspelled member is caught, rather than surfacing
     as "not iterable" at some loop (roadmap R2, user decisions 2026-09-08;
     this replaced `params Iterator<St, T>` and the `once` requirement). The
-    state is `Mut` because advancing a pass mutates its position.
+    state is `Mut` because advancing an iterator mutates its position.
   * Only the exact `Emitted T | Finished` shape is a driver; a `next` of
     any other shape is an ordinary function.
   * **`for` reads the declaration** — the `: Yield<self, T>` clause is the one
-    fact that makes a value a pass, and the element type is the clause's
+    fact that makes a value an iterator, and the element type is the clause's
     argument. The overload scan only resolves *which* `next` (and the arm
     identity); when the obligation is declared but unsatisfied, the error
     has already landed at the struct and the loop stays lenient, answering
     the declared element type [type-unknown-lenient]. A matching `next`
-    without the clause is not a pass ([iter-resolve] names the remedy) —
-    the tie is declared, never inferred from a method name.
+    without the clause is not an iterator ([iter-resolve] names the remedy) —
+    the tie is declared, never inferred from a method name. A step under
+    another name is driven by naming the call [iter-step-call].
   * Driving consumes the subject: it is moved into the loop, exactly as the
     `once` passes it replaced were. Drive-in-place (`Mut` borrow — "a
     second drive continues") is recorded as the eventual semantics and
     deferred with `once`-on-producers\' deletion (R5).
-  * `next` takes its state as `Mut St`: advancing a pass mutates its
+  * `next` takes its state as `Mut St`: advancing an iterator mutates its
     position, and the backends pass a mutable place. A `next` with the right
     *result* shape and a non-`Mut` state is an error saying so, rather than
     a puzzling "not iterable".
@@ -2502,7 +2514,7 @@ Conventions:
     from the declaration is exactly the checker/emitter disagreement the
     invariants forbid.
   * **Lowering** (both backends, phase I2c): the subject is moved into a
-    local — driving consumes a pass, so nothing else is looking at
+    local — driving consumes an iterator, so nothing else is looking at
     it — and each turn calls `next` on a mutable place.
     * Rust: `while let Union2::U1(mut n) = next(&mut __loop1_pass) {`. A
       `while let` re-evaluates its condition per turn, so `Finished` needs
@@ -2518,36 +2530,38 @@ Conventions:
   * An **effectful** `next` is a codegen error for now: its handlers would
     have to be threaded into every turn of the loop, which is phase I4
     [backend-never-wrong].
-* [seq-pass] std's sequence functions (`map`, `filter`, `reduce`) take their
-  subject as a **pass** and reach its `next` through a `?Yield<It, T>` spread
-  [implicit-group] — the group std declares for iteration — so any pass is a
-  subject: the one an `iter` hands back for a `List<T>`, an array or a `Str`,
-  the one an `iter fn` generates, or a pass type of one's own. A container is
-  iterated by *writing* its `iter` (`map(iter(xs), f)`), which is what keeps
-  the inference ordinary: `It` is bound by an argument, so nothing depends on
-  feeding one implicit's resolution into another (user decision 2026-09-09,
-  replacing `?Iterable`). There is no `Iterable` group and no iterator type.
-  * **std relies on the pass and never on an `iter`** (user decision
+* [seq-iterator] std's sequence functions (`map`, `filter`, `reduce`) take their
+  subject as an **iterator** and reach its `next` through a `?Yield<It, T>`
+  spread [implicit-group] — the group std declares for iteration — so any
+  iterator is a subject: the one an `iter` hands back for a `List<T>`, an array
+  or a `Str`, the one an `iter fn` mints, or an iterator struct of one's own. A
+  container is iterated by *writing* its `iter` (`map(iter(xs), f)`), which is
+  what keeps the inference ordinary: `It` is bound by an argument, so nothing
+  depends on feeding one implicit's resolution into another (user decision
+  2026-09-09, replacing `?Iterable`). There is no iterator *type*; the source
+  side of the protocol is `params Iter<C, T>` [iter-group], which a program's
+  own container-shaped combinator spreads.
+  * **std relies on the iterator and never on an `iter`** (user decision
     2026-09-10), and the reason is stronger than the inference one: a source is
-    not guaranteed to *have* a container behind it. An `iter fn`'s pass, a
-    composed pass someone wrote by hand, a hand-written `zip` — for each of those the
-    pass is all there is, so a std function that asked for an `iter` would
+    not guaranteed to *have* a container behind it. An `iter fn`'s iterator, a
+    composed iterator someone wrote by hand, a hand-written `zip` — for each of those the
+    iterator is all there is, so a std function that asked for an `iter` would
     exclude them by construction. A *program* may still write a
     container-shaped combinator (`?iter` as an implicit, whose result determines
-    the pass type [implicit-infer]); std may not.
+    the iterator type [implicit-infer]); std may not.
     * The `List` fast paths are not an exception: they are overloads on a
       concrete intrinsic type, lowered to the target's own collection
       operations, and they ask for no `iter` [fn-overload-rank].
   * **Eager, with one named variant** (user decisions 2026-09-08, 2026-09-10).
     `map`/`filter`/`reduce` return `Mut List<U>`; the default is the one that
     surprises least, and chaining works because a list has an `iter`.
-    * **Nothing in std is lazy.** `map_lazy`/`filter_lazy` — composed passes
+    * **Nothing in std is lazy.** `map_lazy`/`filter_lazy` — composed iterators
       that computed as they were driven — were **removed 2026-09-10** (user
       decision): laziness as a data structure couples the data to the functions
       over it, and the direction to try instead is composing *functions*,
-      `iter fn`s included, into pipelines that mint a pass from data supplied
+      `iter fn`s included, into pipelines that mint an iterator from data supplied
       separately. Reconsidered after concurrency lands; see ROADMAP.md. A
-      composed pass remains ordinary code for a program to write — a pass is
+      composed iterator remains ordinary code for a program to write — an iterator is
       only a struct with a `next` [iter-protocol] — and [iter-mut-param] is
       still why one carrying mutable state is refused.
     * [seq-into] `map_to`/`filter_to` put the results in a collection the
@@ -2681,7 +2695,7 @@ Conventions:
     consumes it does not fit. (Until 2026-09-09 the member's fn type was
     built without its contract, so every parameter read as
     kept-and-immutable and *no* mutating implementation could fill such a
-    position — which is every pass's `next`.)
+    position — which is every iterator's `next`.)
   * The expansion order — written implicits first, then each group's members
     in declaration order — is published by the checker as the one ordered
     list both the callee's parameters and the caller's arguments follow.
@@ -2762,8 +2776,8 @@ Conventions:
   and reads `T = Int` off the `next` that fits.
   * A designated group teaches even more directly: a `?Yield<It, T>` spread
     reads `T` off `It`'s own `: Yield<self, T>` clause, reaching through the
-    pass an `iter fn` generates [iter-fn]. That is what types a *bare*
-    lambda over an origin subject, where no declared `next` exists to resolve.
+    struct an `iter fn` generates [iter-fn]. That is what types a *bare*
+    lambda over such a subject, where no declared `next` exists to resolve.
   * Two-sided unification: the *candidate's* generics bind from the known
     part of the pattern, and then the *caller's* variables bind from the
     instantiated candidate. A part that is still one of the caller's
@@ -2775,7 +2789,7 @@ Conventions:
       **qualified argument taught the call nothing**:
       `total(list_of(1, 2, 3))`, whose argument is `NonEmpty List<Int>`
       [col-of-nonempty], left `It` unbound, so the `?next` beside it resolved
-      by rung [fn-overload-scope] and a sibling pass's `next` won — a call
+      by rung [fn-overload-scope] and a sibling iterator's `next` won — a call
       neither backend accepts, while `total([1, 2, 3])` had always worked.
   * **Repeated until it stops learning, and once more after every argument is
     typed** (user decision 2026-09-10). That is what makes a *container*-shaped
@@ -2786,9 +2800,11 @@ Conventions:
     `C` is only known after the arguments, so the sweeps between them cannot
     learn `It`, and one implicit determining another needs the sweep repeated.
     Declaration order is therefore not a constraint on the author.
-    * The motivating case is a [iter-fn] subject, whose generated pass is
+    * The motivating case is a [iter-fn] subject, whose generated struct is
       **unnameable** — so a written type-argument list is not an available
-      workaround and inferring it is the only way the shape can exist.
+      workaround and inferring it is the only way the shape can exist. The
+      `?Iter<C, T>` spread [iter-group] is this shape with the iterator
+      generic hidden.
     * **Ambiguity is accepted as the price** (user decision 2026-09-10): with
       the container type itself undetermined, several `iter`s match and the
       choice would be a guess. The remedies are the ordinary ones — a `rename`
@@ -2886,85 +2902,200 @@ Conventions:
   * Param types come from annotation or the expected fn type; early
     `return` inside expression-position lambdas is a codegen error
     (deliberate cut).
-* [iter-fn] A **`iter fn`** is a hand-written `next` whose **pass struct is
-  generated** (user decision 2026-09-09): the subject stays ordinary data, the
-  `state { … }` block declares the pass's own fields, and the compiler writes the
-  pass struct plus the `iter` that mints one. It is the third way to be
-  iterable, beside a written-out pass [iter-protocol], and the one with the
-  least to declare — the subject needs
-  no `: Yield<self, T>` clause, because the `iter fn` *is* the declaration.
+* [iter-fn] An **`iter fn`** is a hand-written `next` whose **iterator struct
+  is generated** (user decisions 2026-09-09, redesigned 2026-09-26/27): the
+  declaration is the **minter** — any name, any parameters — the `state { … }`
+  block declares the struct's own fields, the body is its `next`, and the
+  compiler writes the struct. Its type has no name a program can write; it is
+  spelled `iter T` [iter-type]. The one named `iter` with one parameter is the
+  canonical minter an `: Iter<self, T>` obligation asks for [iter-group].
 
   ```
-  struct Countdown { from: Int }
-
-  iter fn next(c: Countdown) -> Emitted Int | Finished {
+  iter fn countdown(from: Int) -> Emitted Int | Finished {
       state {
-          at: Int = c.from
+          at: Int = from
       }
       if at <= 0 { return finished() }
       at = at - 1
       return emitted(at + 1)
   }
+
+  for n in countdown(3) { … }      // 3, 2, 1
+  let p = countdown(3)             // p : iter Int — hold it, drive it yourself
   ```
 
-  * **It is a desugaring, done in the syntax crate** (`desugar::expand_pass_fns`,
-    inside `parse_module`), into a hidden `struct __Pass_<Subject> :
-    Yield<self, T> canbe Mut { __subject: proj Subject, <state fields> }`, an
-    `fn iter(s: Subject) [] -> Mut __Pass_<Subject>` whose body is the struct
-    literal (its lend of `s` inferred [proj-infer]), and the author's body as
-    `fn next(__p: Mut __Pass_<Subject>) -> Emitted T | Finished => __p: Mut`
-    with the subject and the state fields written out as field reads (a
-    `proj(s)` in the written return is redirected to `__p`
-    [yield-proj]). Nothing downstream knows the form exists, which
-    is why `for`, the combinators, `let p = iter(c)`, deductions, narrowing and
-    both emitters need no new machinery.
+  * **It is a desugaring, done in the syntax crate** (`desugar::expand_iter_fns`,
+    inside `parse_module`), into a hidden `struct __Iter_<fn>_<param types> :
+    Yield<self, T> canbe Mut { <held parameters>, <state fields> }`, a minter
+    under the `iter fn`'s own name and parameters returning `Mut __Iter_…` whose
+    body is the struct literal (its lends inferred [proj-infer]), and the
+    author's body as `fn next(__p: Mut __Iter_…) -> Emitted T | Finished => __p:
+    Mut` with the parameters and the state fields written out as field reads (a
+    `proj(xs)` in the written return is redirected to `__p` [yield-proj]; a
+    dependent claim `Idx(xs)` becomes `Idx(__p.xs)` in the `next` and
+    `Idx(self.xs)` in the obligation [qual-depend]). Nothing downstream knows
+    the form exists, which is why `for`, the combinators, `let p = countdown(3)`,
+    deductions, narrowing and both emitters need no new machinery. The struct's
+    name is keyed by the fn *and* its parameter types, since an `iter fn`
+    overloads like any fn.
   * **The `state` block is declarations only**, each with an annotation and an
-    initializer, evaluated **once per pass, at the mint**. The initializers
-    become the body of the generated `iter`, which is declared `[]` — so "no
+    initializer, evaluated **once per iterator, at the mint**. The initializers
+    become the body of the generated minter, which is declared `[]` — so "no
     effects in an initializer" is not a rule of its own but an ordinary effect
     error at the offending call. (The annotations are required for the same
-    reason a struct field's are; all three sites — struct fields, handler state,
-    `state` fields — would gain inference together.)
-  * **The pass holds as little of the subject as the body needs**, decided by a
-    scan of the body in three tiers — all observationally identical, because the
-    pass **borrows** what it holds [proj-field] and the subject cannot be
-    written while a pass over it lives [proj-infer] (user decision 2026-09-11;
-    until then the mint *copied*, the phase's last hidden copy):
-    1. the body never reads the subject (a plain counter): the pass holds
-       **nothing** of it, and the mint is `__Pass_C { at: c.from }`;
-    2. the body only ever reads *plain fields* of it, their types are visible
-       (the subject's struct is declared somewhere in the **program** — the
-       expansion runs program-wide, local declarations winning a name) and the
-       subject type is non-generic: one **`proj` field per field read**
-       (a Copy scalar stays owned [copy-scalar-free]), initialized at the mint
-       (`__Pass_Fibs { count: f.count, … }`), keeping the field's own name
-       unless a `state` field already has it;
-    3. otherwise — the subject handed on as a value, an assignment through it, a
-       generic subject, a declaration the program cannot see: the **whole
-       subject** is borrowed (`__subject: proj Subject`, minted as
-       `__subject: s`).
+    reason a struct field's are; a `state` field may be annotated `iter T`,
+    filled from its initializer [iter-type].)
+  * **The struct holds as little of each parameter as the body needs**, decided
+    by a scan of the body in three tiers — all observationally identical,
+    because the struct **borrows** what it holds [proj-field] and a parameter
+    cannot be written while an iterator over it lives [proj-infer] (user
+    decision 2026-09-11; until then the mint *copied*):
+    1. the body never reads it (a plain counter): the struct holds **nothing**
+       of it — unless a dependent claim in the return names it, which needs a
+       place to name;
+    2. it only ever reads *plain fields* of it, their types are visible (the
+       struct is declared somewhere in the **program** — the expansion runs
+       program-wide, local declarations winning a name) and the type is
+       non-generic: one **`proj` field per field read** (a Copy scalar stays
+       owned [copy-scalar-free]), initialized at the mint, keeping the field's
+       own name unless a `state` field or a parameter already has it;
+    3. otherwise — the value handed on, an assignment through it, a generic
+       type, a declaration the program cannot see: the **whole parameter** is
+       borrowed under its own name (`xs: proj List<T>`). A Copy scalar
+       parameter is simply stored by value and needs no clause entry.
   * **Borrowing rather than copying** is what keeps the backends in step
-    without a copy: a write to the subject during a drive is *refused* rather
-    than differently visible. An `iter fn` that wants a snapshot writes one
-    (`state { rows: List<Int> = copy(c.rows) }`). A *generic* subject therefore
-    needs no `copy` of a `T`, and the former Kotlin refusal [kt-copy] is gone.
-  * **The subject is read-only in the body**: it is a field of the pass typed as
-    the subject, so writing through it is the standing [struct-mut] refusal.
-  * **The generated pass is not nameable.** `__Pass_…` is the compiler's
-    namespace and a *written* type reference beginning with `_` is a parse error,
-    so a pass a program must name is written out by hand — the boundary the form
-    rests on.
-  * **Refused, each at the declaration**: a name other than `next` (it is the
-    obligation's member, and `for` reads a declaration), a parameter count other
-    than one, a `Mut` subject (advancing never writes through it), a result other
-    than `Emitted T | Finished` (the element type is read out of it), a
-    structural subject (array, tuple, union — the pass is named after the
-    subject), a `state` field without an initializer or an empty `state` block,
-    and a binding in the body that would **shadow** the subject or a `state`
-    field (it would silently mean something else).
+    without a copy: a write during a drive is *refused* rather than differently
+    visible. An `iter fn` that wants a snapshot writes one (`state { rows:
+    List<Int> = copy(c.rows) }`). A *generic* parameter therefore needs no
+    `copy` of a `T`.
+  * **The parameters are read-only in the body**: each is a field of the struct
+    typed as written, so writing through one is the standing [struct-mut]
+    refusal.
+  * **The generated struct is not nameable.** `__Iter_…` is the compiler's
+    namespace and a *written* type reference beginning with `_` is a parse
+    error, so an iterator struct a program must name is written out by hand —
+    the boundary the form rests on — and `iter T` is its spelling where a
+    pattern or a hidden generic is admitted [iter-type].
+  * **Refused, each at the declaration**: a variadic or implicit parameter (no
+    field to hold it; a stage over a *generic* source — an `iter fn` taking
+    `?Iter<C, T>` or an `iter T` parameter — is recorded in ROADMAP.md), a
+    `Mut` parameter (advancing never writes through it), a structural
+    parameter type (array, tuple, union — the struct is named after its
+    parameters), a result other than `Emitted T | Finished` (the element type
+    is read out of it), a `state` field without an initializer or an empty
+    `state` block, a `state` field named like a parameter, and a binding in the
+    body that would **shadow** a parameter or a `state` field (it would silently
+    mean something else). A `state` field of linear type is [linear-composite]'s
+    ordinary refusal at the struct: **no discharger is generated** (user
+    decision 2026-09-27 — it would have to be a member of the group to stay
+    consistent, and it is not one), so an iterator that owns a resource is
+    written by hand.
   * **Effects are ordinary effects**: each `next` is a separate call, so
     `[Console]` on an `iter fn` needs no threading of handlers across a
     suspension — a `for` passes them per turn [fn-effects].
+* [iter-type] **`iter T` is the name of an anonymous iterator**: "a `Mut` type
+  declaring `: Yield<self, T>`" (user decisions 2026-09-26/27). It means one
+  thing everywhere, read in whichever way the position allows, and **every use
+  lowers to something the program could write explicitly** — the table in
+  `docs/language/Iterators.md` is the specification, one row per position.
+  Lowered to a marker type (`Ty::iter_marker`, `Ty::Named { name: "iter" }`,
+  displayed `iter T`) that every admitting position substitutes or fills, so
+  none reaches a backend; `Mut` is implied and `Mut iter T` is refused as the
+  duplicate it is [qual-no-dup].
+  * **Group member** — the associated placeholder, one type across the group's
+    members (`params Iter<C, T> { fn iter(c: C) -> iter T; fn next(it: iter T)
+    -> … }`) [iter-group]. A member taking `iter T` is a `Mut` position, and a
+    member returning it lends every kept parameter, as a fn type with an
+    opaque return does [proj-infer-fn-type].
+  * **Spread and parameter** — a **hidden generic**, hoisted by the desugaring
+    (`desugar::hoist_iter_types`, before resolution): `?Iter<C, T>` on a fn
+    appends a fresh `__ItN` to its generics and to the spread's arguments
+    (`?Iter<C, T, __It0>`), which the checker substitutes for the placeholder
+    in every member; a parameter `it: iter T` becomes `it: Mut __ItN` plus a
+    `?Yield<__ItN, T>` spread — fresh **per occurrence**, so `chain(a: iter T,
+    b: iter T)` takes two different structs (two parameters that must be the
+    same struct write `<It>`). Hidden generics render like any other in both
+    targets; an explicit type-argument list at a call names the visible ones.
+  * **`let` annotation, `state` field, return of a fn with a body** — a
+    **pattern** filled from the value: the annotation asserts "an iterator of
+    `T`" (an iterator struct declaring `: Yield<self, T>`, a walking one's `proj
+    T` counting as `T`; a hidden generic with a `next` over it in scope) and the
+    binding keeps the concrete type; nothing is widened. A `-> iter T` fn
+    returns whichever concrete struct its body mints — callers see that type
+    through `fn_return_ty`, a **pre-pass** in `check_once` checking those
+    bodies first into a scratch `Checked` and repeating until the
+    `iter_returns` table stops growing (a delegating minter may call another
+    pattern fn) — and every path must mint the *same* struct: two anonymous
+    ones are two types, and a second differing `return` is an error naming both
+    with the remedy "fold the case into one `iter fn`, or name the struct". A
+    cycle the pre-pass cannot resolve is an error at the signature. The
+    resolved type is recorded per written span (`iter_types`) for the emitters
+    and hover.
+  * **Type of an `iter fn` call** — the concrete anonymous struct, which prints
+    as `iter T`; two from different minters never unify.
+  * **Refused, with the replacement named**: the return of a bodiless fn (no
+    body to fill it from), an effect member's parameter or return (implemented
+    per handler, one interface type needed), a fn *type* (the value's struct is
+    its own to choose), a struct or handler field (storing "some iterator
+    struct" is boxing). The remedy is the struct's name, or a generic on the
+    enclosing declaration.
+  * **Linear**: no sugar for a linear *iterator* — the struct is written out
+    with its discharger, and generic code that may receive one takes the
+    discharger as a callback [linear-generics]. Linear *elements* are fine:
+    `iter T` with `T canbe linear` needs no discharger.
+  * **Reachability** [mod-used-only]: the placeholder names no declaration, and
+    `iter` is every container's minter, so `reach.rs` skips the name — before
+    that every mention of the placeholder pulled every container module in.
+* [iter-group] **`params Iter<C, T>` is what a source is** (user decision
+  2026-09-26): `fn iter(collection: C) -> iter T` and `fn next(iterator: iter
+  T) -> Emitted T | Finished => iterator: Mut`, tied `iter with next`
+  [implicit-with] — a caller may override the minter, never the step alone,
+  since the step belongs to whatever the minter answers. `Yield` and `Iter`
+  are one protocol stated from two sides: the second member of `Iter` is
+  `Yield`'s `next` over the placeholder.
+  * **The obligation** `struct Bag : Iter<self, T>` is satisfied by an `iter fn
+    iter` over the type (the compiler writes the struct and both members) or by
+    a fn `iter` of that arity over `self` whose result is a type declaring
+    `: Yield<self, T>` (`iter_minter_satisfies`, matching the element up to a
+    renaming and modulo `proj`) — the "declared" reading, so a `P` without the
+    clause never satisfies it. The `next` member is satisfied by construction.
+    A struct declaring both `: Iter<self, T>` and `: Yield<self, T>` is refused:
+    `for x in s` would have two answers (drive `s`, or mint from it).
+  * **The spread** `?Iter<C, T>` brings in `iter: (C) -> Mut __It` and `next:
+    (Mut __It) -> Emitted T | Finished` over the hidden generic [iter-type] —
+    exactly the 2026-09-10 container-shaped combinator (`total<C, It>(c: C,
+    ?iter: (c: C) -> Mut It, ?Yield<It, Int>)`) with `It` hidden, so both
+    backends already lowered it. Inside the body, `for x in c` over the generic
+    source mints with the `iter` implicit and drives with the `next` beside it
+    (`PassDriver.mint = Some(PassMember::Implicit("iter"))`,
+    `generic_pass_elem_ty`); `iter(c)` is a `Mut __It` a `?Yield` combinator
+    accepts with the paired `next` forwarded [implicit-forward]. The pair is
+    filled at the call from whatever `C` is: an `iter fn`'s minter, a named
+    struct's, or std's own for an intrinsic container.
+  * **Lowering the lend** [rs-proj-lends]: the `iter` position's parameter is
+    named after the *group member's* (`collection`), not the spreading fn's, so
+    the Rust backend ties a lent position with a foreign name to the one
+    enclosing parameter of its type.
+* [iter-step-call] **`for` over a step call** (user decision 2026-09-26): `for
+  i in next(p)`, `for i in skip(z)` — a subject that is a *call* whose result
+  is `Emitted T | Finished` is re-invoked each turn until `Finished`, which is
+  what lets a **non-canonical** step (a second one over the same struct, one
+  under any other name) be driven at all. The general form of `for`: the
+  canonical drive is `for i in next(p)` with `next` resolved by the
+  declaration.
+  * The arguments are **evaluated on every turn** as written, so each must be a
+    **place or a literal** (`is_step_call_arg`: a variable, a field path, a
+    literal) — bind anything else with `let` first — and the callee must
+    **keep** every one of them: a step that consumes its argument cannot be
+    called twice on it (the general form of "`next` takes `Mut It`"). Both are
+    errors at the loop.
+  * A *value* of that shape that is not a call (`let r = next(p); for i in r`)
+    is an error: a union is not iterable, and only a call can be re-invoked.
+  * Recorded as `PassDriver { step_call: true, .. }` keyed by the subject's
+    span; both emitters render the call as written inside the loop header
+    (Rust `while let Union2::U1(i) = skip(&mut z) {`; Kotlin re-invokes into
+    the step local), so argument modes follow the ordinary call rules
+    [rs-borrows].
 
 * [effect-decl] `effect E<G> { fn member(...) -> T }` declares an effect:
   a set of functions available to code that depends on `E`.
@@ -3467,7 +3598,7 @@ Conventions:
     a *generic* member loses to a concrete fn, and `close(InStream)`,
     `close(OutStream)` and `close(Lines)` are three overloads of one name
     across two kinds of declaration. std needs exactly that: `close` is an
-    `Fs` member per stream token *and* the `Lines` pass's discharger
+    `Fs` member per stream token *and* the `Lines` iterator's discharger
     [fs-surface].
     * A **tie** — both sides fitting, neither more specific — is an error
       naming both remedies (`close@Fs(…)` for the member,
@@ -3807,7 +3938,7 @@ Conventions:
   (8 arms) carried by `Checked<FsError>` [checked-type], the linear stream tokens
   `InStream`/`OutStream`, `FileInfo`, the `Fs` effect (path operations
   *and* stream operations as members [effect-member-overload]), the `Lines`
-  pass, the `Chunks` pass, and the one-shots (`read_to_str`, `read_lines`,
+  iterator, the `Chunks` iterator, and the one-shots (`read_to_str`, `read_lines`,
   `write_str`, `open_lines`, `read_to_bytes`, `write_bytes_to`, `copy_stream`,
   `copy_file`). Application code declares `[Fs]` (or `[local Fs]` where a
   local binding suffices) and nothing else; the std forwarders themselves
@@ -3874,8 +4005,8 @@ Conventions:
     `raw_read_to_str`, `raw_read_line_to_str`) rather than overloading: the
     host file is *hand-written*, and an overload set would make it implement
     mangled names [fs-host-split].
-  * Riding along: `chunks(s, size)`/`open_chunks` — a pass over a stream's
-    bytes as `Lines` is over its lines, **a fresh buffer per step** (a pass
+  * Riding along: `chunks(s, size)`/`open_chunks` — an iterator over a stream's
+    bytes as `Lines` is over its lines, **a fresh buffer per step** (an iterator
     recycling its own would overwrite what the caller holds) — and the
     one-shots that keep the buffer inside std: `copy_stream(s, w)`,
     `copy_file(from, to)`, `read_to_bytes(path)`,
@@ -4815,9 +4946,9 @@ docs/language/ remains the source of truth for everything that does.
     members — and then, since 2026-09-17, against free `send fn`s
     [task-mint], which is the one case where the mint needs no enclosing
     handler at all. Naming a member of another `actor effect` in scope is a
-    *remote mint* — the generalized form (decided; ROADMAP.md's sugar pass) — and
+    *remote mint* — the generalized form (decided; ROADMAP.md's sugar iterator) — and
     is refused for now with the workaround that needs nothing new: a token is
-    an ordinary linear value, so the handler that owns `k` mints it and passes
+    an ordinary linear value, so the handler that owns `k` mints it and iterators
     it. The generalization is a later slice because it makes the mint itself
     send-like: capacity has to be reserved in the *target's* bounded queue, so
     a remote mint can block and contributes its own wait-for edge.
@@ -4858,7 +4989,7 @@ docs/language/ remains the source of truth for everything that does.
       minted**, which is why a discharge never blocks and never counts
       against the mailbox bound: the room for the answer was taken when the
       request was made. The rule generalizes unchanged when the mint does
-      (the sugar pass's remote mint reserves in *another* actor's queue, so
+      (the sugar iterator's remote mint reserves in *another* actor's queue, so
       minting becomes send-like and can block; the first pass's lexical mint
       reserves in the minting actor's own).
     * Sending to a token whose target has died is a silent no-op, as every
@@ -5150,7 +5281,7 @@ the same day. **Not part of `core`**: the surface is imported, and one
 * [time-manual] **`handler ManualTime() of Timer, TimerCtl`** is the
   pure-Salvo fake — `MemFs`'s answer applied to time [effect-handler-multi].
   Virtual time starts at zero and moves only through
-  `TimerCtl.advance(by)`, firing every deadline it passes **in deadline
+  `TimerCtl.advance(by)`, firing every deadline it iterators **in deadline
   order**, with virtual `now` standing *at* each deadline as it fires.
   * The two faces are the point: a spawn answers an addr per face, so the code
     under test holds the `Timer` and cannot reach `advance` — least authority
@@ -5538,7 +5669,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **`Key`** (`export provenance qualifier Key<T> of T`, std `net`) marks
     the parameter whose value decides the member: `send fn reserve(sku: Key
     Str, …)`. Read syntactically by the stub generator, **erased at
-    lowering**, so the parameter's type is the plain one and a caller passes
+    lowering**, so the parameter's type is the plain one and a caller iterators
     a plain value; at most one per member, refused at the declaration
     otherwise. The stub hashes the argument's wire encoding (FNV-1a, both
     backends) into `view.key`.
@@ -5608,7 +5739,7 @@ between endpoints and delivers what arrives into the scheduler.
     by either respelling.
   * [proj-infer-fn-type] **On a fn type whose return is opaque, the lend is
     inferred** (user decision 2026-09-26): a return that is a bare type
-    parameter — which every pass-minting slot has (`?iter: (c: C) -> Mut It`) —
+    parameter — which every iterator-minting slot has (`?iter: (c: C) -> Mut It`) —
     may instantiate to a type holding a borrow of what the slot was given, and
     only a lend makes that borrow nameable. So every **named, kept** position
     of such a fn type lends, conservatively, which is what this rule's fallback
@@ -5954,7 +6085,7 @@ between endpoints and delivers what arrives into the scheduler.
     out of ..."), remedy `copy`. This closed the 2026-09-02 moved-
     position parity divergence.
   * A `for`-loop binding is fresh each iteration (consuming it in the
-    body is legal; the loop re-check re-declares it per pass). When a
+    body is legal; the loop re-check re-declares it per iterator). When a
     move-mode binding consumes a loop binding — or the loop binding is
     itself moved — the loop iterates *by value* and the iterable's
     roots are consumed.
@@ -6030,7 +6161,7 @@ between endpoints and delivers what arrives into the scheduler.
   2026-09-10). A move of a projection (a consuming call, a move-mode
   binding, a store) records the path as *moved out* of its root; the root
   stays live, and its `moved_places` are flow state like any other:
-  * a read of a **disjoint** projection passes — `eat(p.tags)` then
+  * a read of a **disjoint** projection iterators — `eat(p.tags)` then
     `p.name` is legal;
   * a read **overlapping** a moved place is an error naming the field
     that left (same path, a prefix either way, or a computed index);
@@ -6132,7 +6263,7 @@ between endpoints and delivers what arrives into the scheduler.
     through qualifiers (`once () [Logger] -> None`), optionals and unions,
     and it is part of the callee's contract at call sites.
   * **Variance**: a value performing *fewer* effects fits where more are
-    expected (a pure lambda passes to a `[Logger]` position and simply
+    expected (a pure lambda iterators to a `[Logger]` position and simply
     ignores what it is given); never the reverse, which would reach a call
     site that cannot supply it. Same direction as [fn-contract] and
     [once-fn].
@@ -6141,7 +6272,7 @@ between endpoints and delivers what arrives into the scheduler.
     so it cannot silently fit a pure position. Where a fn type is written,
     its list is authoritative — including for emission, since a pure lambda
     in an effectful position must still *take* the parameters the caller
-    passes.
+    iterators.
   * **A fn value carries no capability, so it may be stored and passed
     freely** — only *calling* it needs its effects in scope. That is why
     the roadmap's third sub-item ("forbid escape") was dropped rather than
@@ -6191,7 +6322,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **On any other data type**: using means consuming — a move into a
     consuming call, a store, a `return`. (`canbe once` opt-ins are no
     longer required or meaningful; the D6 generalization covers every
-    type. Driving a named pass advances it in place
+    type. Driving a named iterator advances it in place
     [iter-drive-in-place], which is a mutation, not a use.)
   * `once` erases like every other qualifier [qual-erasure].
   * **Inverted subtyping — flagged for future review** (user decision
@@ -6516,7 +6647,7 @@ between endpoints and delivers what arrives into the scheduler.
   source (`items: proj List<T>`): the struct declares *that* it projects,
   each literal decides *what* (user decision 2026-09-11; replaces the
   pass-only exemption that first landed). Such a struct is an owned object
-  that *holds* borrows — a **view**: its `Mut` is real (a pass is advanced
+  that *holds* borrows — a **view**: its `Mut` is real (an iterator is advanced
   in place), its non-`proj` fields are its own, and it may be moved, stored
   or passed on; what it may not do is outlive its roots. A struct holding a
   view in an owned field is a view too. Writing `proj(x)` on a field
@@ -6542,7 +6673,7 @@ between endpoints and delivers what arrives into the scheduler.
     (exact for `iter(list)`; only ever over-links).
   * A written projection statement about the result must name every lend
     the body performs; it may name more (a generic body — `filter`'s
-    `add(out, x)` with `x` an element of an opaque pass — lends through
+    `add(out, x)` with `x` an element of an opaque iterator — lends through
     opacity the analysis cannot see, and the annotation is how it says so).
     A written entry takes **precedence over the instantiation fallback**
     (2026-09-12): where a substituted return holds `proj` the written
@@ -6581,18 +6712,18 @@ between endpoints and delivers what arrives into the scheduler.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a
     `Vec<&String>`) — no clone [copy-opt-in].
-* [yield-proj] A pass that walks data declares `: Yield<self, proj T>` and
+* [yield-proj] An iterator that walks data declares `: Yield<self, proj T>` and
   its `next` returns `Emitted (proj(p) T) | Finished` — the element is
-  a projection of the pass, which projects the source; a generator declares
+  a projection of the iterator, which projects the source; a generator declares
   `: Yield<self, T>` and emits owned values (user decision 2026-09-11: one
   `Yield` group, the element type argument carrying `proj`). The
   obligation and the member must agree — `proj` on one and not the other
   is an error naming the fix. Reading combinators (`?Yield<It, T>`) accept
   both. std's `ListYield`/`ArrayYield`/`StrYield` borrow (`items: proj
-  List<T>`; `StrYield` emits owned `Char`); an `iter fn`'s generated pass
-  borrows its subject (`__subject: proj Subject`, `proj` snapshot fields,
-  Copy scalars owned) and names the subject as the elements' source
-  (`Emitted (proj(b) T)`), which the desugar redirects to the pass
+  List<T>`; `StrYield` emits owned `Char`); an `iter fn`'s generated struct
+  borrows its parameters (`list: proj List<T>`, `proj` snapshot fields, Copy
+  scalars owned) and names the parameter as the elements' source
+  (`Emitted (proj(list) T)`), which the desugar redirects to the struct
   parameter. Rust: the element generic is retagged to `&T` at call sites
   whose filled `next` borrows [rs-proj-arm].
 * [copy-opt-in] **A copy never happens without the program opting in**
@@ -6601,7 +6732,7 @@ between endpoints and delivers what arrives into the scheduler.
   provides (with `?copy` for the element type [copy-implicit]), and nothing
   else. Everything std hands back either owns fresh data (`map`, `split`) or
   projects what it was given (`get`, `first`, `iter`, `filter`, `next`)
-  [proj-anywhere]; an `iter fn`'s pass borrows its subject [iter-fn]. A
+  [proj-anywhere]; an `iter fn`'s struct borrows its parameters [iter-fn]. A
   backend that would need a hidden clone to be correct reports instead
   [backend-never-wrong] [rs-proj-arm].
 * [copy-scalar-free] Moving a derived **Copy scalar** (`Int`, `Long`,
@@ -6797,7 +6928,7 @@ between endpoints and delivers what arrives into the scheduler.
     sits next to the untracked variadic boundary, and a tuple has the
     union-arm alternative for the two-things case. Neither is a customer
     shape; extend if one appears.
-  * **The casualty that remains** is the composed linear pass (a wrapper pass
+  * **The casualty that remains** is the composed linear iterator (a wrapper iterator
     over `open_lines("a")` stores its source in an unopted field). The
     fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
     shipped with phase 4 [linear-union-arm].
@@ -6897,7 +7028,7 @@ between endpoints and delivers what arrives into the scheduler.
   never promised to honor it), and **fn values** (a generic fn passed by
   name instantiates from the position's expected fn type
   [fn-value-select], and that instantiation is checked too, which is what
-  makes std's `drop` refuse a linear pass while filling the same
+  makes std's `drop` refuse a linear iterator while filling the same
   consuming-callback slot for a plain one).
   **Structs opt in the same way** (user decision 2026-09-12):
   `struct Box<T canbe linear>` with `T` reaching a field is a
@@ -6984,9 +7115,9 @@ between endpoints and delivers what arrives into the scheduler.
     state. There is no member- or field-level visibility, and the fields being
     public is load-bearing elsewhere ([time-types] rests on it). A type nobody
     exported is simply unreachable.
-  * **An `iter fn`'s generated pass type inherits its visibility** [iter-fn]: a
-    `for` over the pass needs the *type* in scope, so exporting the function
-    while hiding its pass would make the iterator undrivable from another
+  * **An `iter fn`'s generated iterator struct type inherits its visibility** [iter-fn]: a
+    `for` over the iterator needs the *type* in scope, so exporting the function
+    while hiding its struct would make the iterator undrivable from another
     module.
   * **A private type may appear in an exported signature**, and that is an
     *opaque type* rather than an error: the value flows, and only its name is

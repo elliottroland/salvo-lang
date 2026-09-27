@@ -4,12 +4,19 @@
 2. got 5
 2. got 4
 2. rest sums to 6
+2. skip 6
+2. skip 4
+2. skip 2
 2b. halving 20
 2b. halving 10
 2b. halving 5
 2b. halving 2
 2b. halving 1
-2b. summed from a held pass: 38
+2b. summed from a held iterator: 38
+2b. first from a pattern-typed fn: 10
+2c. bag 7
+2c. bag 8
+2c. total of a bag 15, of a list 10
 3. fib 0
 3. fib 1
 3. fib 1
@@ -25,3 +32,4 @@
 5. vowels: 3
 5. halving total 38
 6. collected 3
+7. evens 0 2 4 6 8 

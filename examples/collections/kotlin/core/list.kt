@@ -65,44 +65,57 @@ fun<T> next__3(p: ListYield<T>): Union2<T, Finished> {
     return U2_1<T, Finished>(emitted(elem))
 }
 
-fun<T> reversed(list: List<T>): ListRevYield<T> {
-    return ListRevYield(items = list, at = list.size - 1)
-}
-
-data class ListRevYield<T>(
-    var items: List<T>,
+data class __Iter_reversed_List<T>(
+    var list: List<T>,
     var at: Int,
 )
 
-fun<T> next__4(p: ListRevYield<T>): Union2<T, Finished> {
-    val elem = p.items.getOrNull(p.at)
+fun<T> reversed(list: List<T>): __Iter_reversed_List<T> {
+    return __Iter_reversed_List(list = list, at = list.size - 1)
+}
+
+fun<T> next__4(__p: __Iter_reversed_List<T>): Union2<T, Finished> {
+    val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return U2_2<T, Finished>(finished())
     }
-    p.at = p.at - 1
+    __p.at = __p.at - 1
     return U2_1<T, Finished>(emitted(elem))
 }
 
-fun<T> indices(list: List<T>): IdxYield<T> {
-    return IdxYield(items = list, at = 0, step = 1)
-}
-
-fun<T> rev_indices(list: List<T>): IdxYield<T> {
-    return IdxYield(items = list, at = list.size - 1, step = -1)
-}
-
-data class IdxYield<T>(
-    var items: List<T>,
+data class __Iter_indices_List<T>(
+    var list: List<T>,
     var at: Int,
-    var step: Int,
 )
 
-fun<T> next__5(p: IdxYield<T>): Union2<Int, Finished> {
-    if (p.at < 0 || p.at >= p.items.size) {
+fun<T> indices(list: List<T>): __Iter_indices_List<T> {
+    return __Iter_indices_List(list = list, at = 0)
+}
+
+fun<T> next__5(__p: __Iter_indices_List<T>): Union2<Int, Finished> {
+    if (__p.at >= __p.list.size) {
         return U2_2<Int, Finished>(finished())
     }
-    val index = p.at
-    p.at = p.at + p.step
+    val index = __p.at
+    __p.at = __p.at + 1
+    return U2_1<Int, Finished>(emitted(index))
+}
+
+data class __Iter_rev_indices_List<T>(
+    var list: List<T>,
+    var at: Int,
+)
+
+fun<T> rev_indices(list: List<T>): __Iter_rev_indices_List<T> {
+    return __Iter_rev_indices_List(list = list, at = list.size - 1)
+}
+
+fun<T> next__6(__p: __Iter_rev_indices_List<T>): Union2<Int, Finished> {
+    if (__p.at < 0) {
+        return U2_2<Int, Finished>(finished())
+    }
+    val index = __p.at
+    __p.at = __p.at - 1
     return U2_1<Int, Finished>(emitted(index))
 }
 
@@ -111,27 +124,41 @@ data class Enumerated<T>(
     val elem: T,
 )
 
-fun<T> enumerate(list: List<T>): ListEnumYield<T> {
-    return ListEnumYield(items = list, at = 0, step = 1)
-}
-
-fun<T> enumerate_rev(list: List<T>): ListEnumYield<T> {
-    return ListEnumYield(items = list, at = list.size - 1, step = -1)
-}
-
-data class ListEnumYield<T>(
-    var items: List<T>,
+data class __Iter_enumerate_List<T>(
+    var list: List<T>,
     var at: Int,
-    var step: Int,
 )
 
-fun<T> next__6(p: ListEnumYield<T>): Union2<Enumerated<T>, Finished> {
-    val elem = p.items.getOrNull(p.at)
+fun<T> enumerate(list: List<T>): __Iter_enumerate_List<T> {
+    return __Iter_enumerate_List(list = list, at = 0)
+}
+
+fun<T> next__7(__p: __Iter_enumerate_List<T>): Union2<Enumerated<T>, Finished> {
+    val elem = __p.list.getOrNull(__p.at)
     if (elem == null) {
         return U2_2<Enumerated<T>, Finished>(finished())
     }
-    val index = p.at
-    p.at = p.at + p.step
+    val index = __p.at
+    __p.at = __p.at + 1
+    return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
+}
+
+data class __Iter_enumerate_rev_List<T>(
+    var list: List<T>,
+    var at: Int,
+)
+
+fun<T> enumerate_rev(list: List<T>): __Iter_enumerate_rev_List<T> {
+    return __Iter_enumerate_rev_List(list = list, at = list.size - 1)
+}
+
+fun<T> next__8(__p: __Iter_enumerate_rev_List<T>): Union2<Enumerated<T>, Finished> {
+    val elem = __p.list.getOrNull(__p.at)
+    if (elem == null) {
+        return U2_2<Enumerated<T>, Finished>(finished())
+    }
+    val index = __p.at
+    __p.at = __p.at - 1
     return U2_1<Enumerated<T>, Finished>(emitted(Enumerated(index = index, elem = elem)))
 }
 

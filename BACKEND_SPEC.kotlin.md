@@ -219,7 +219,7 @@ Conventions:
   * A named fn passed *by value* emits the resolved declaration's mangled
     name too, which is what makes `::name` right when the name is overloaded
     [fn-value-select].
-* [kt-seq] std's sequence functions [seq-pass]: the `List` fast paths
+* [kt-seq] std's sequence functions [seq-iterator]: the `List` fast paths
   lower to Kotlin's own operations — `map`/`filter` with
   `.toMutableList()`, since the result is a `Mut List<U>`, and `reduce` to
   `.fold(init, op)`. The generic bodies are ordinary generic functions whose
@@ -399,7 +399,7 @@ Conventions:
   on every `return`/`break`/`continue` leaving the block, so one construct
   covers all exits and nothing is duplicated per exit the way the Rust splice
   is [rs-exit-splice].
-  * The only source today is the release a `for` owes a pass it owns
+  * The only source today is the release a `for` owes an iterator it owns
     ([linear-group]; the `defer` statement was the other until it was removed
     from the language, 2026-09-10 — nesting one `try` per registration is what
     gave that construct its LIFO order for free).
@@ -763,7 +763,7 @@ where Rust had to build the fusion to get the same programs running
   * [iter-fn] An `iter fn` is desugared before emission into that same shape, so
     the backend has no rule of its own for the form.
   * A `for` over a **container** calls its `iter` once before the loop and drives
-    the result [iter-pass]; a list, an array or a `String` keeps Kotlin's own
+    the result [iter-mint]; a list, an array or a `String` keeps Kotlin's own
     `for` instead [iter-for-native].
   * An **effectful `next`** takes its handlers as leading arguments, threaded
     into every turn of the loop [fn-effects].

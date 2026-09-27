@@ -32,14 +32,14 @@ export intrinsic fn byte_size(str: Str) [] -> Long => str
 // of the string.
 export intrinsic fn char_at(str: Str, index: Int) [] -> Char? => str, index
 
-// [iter-pass] A fresh pass over the characters of [str], in order — which is
+// [iter-mint] A fresh iterator over the characters of [str], in order — which is
 // what makes every sequence function work on strings.
 export fn iter(str: Str) [] -> Mut StrYield => str {
     return Mut StrYield { text: str, at: 0 }
 }
 
 // [iter-protocol] The pass a string is walked by: the string plus a position
-// in it. A `Str` is immutable, so the pass holds it and moves the index.
+// in it. A `Str` is immutable, so the iterator holds it and moves the index.
 export struct StrYield : Yield<self, Char> canbe Mut {
     // The string being walked.
     text: proj Str,
@@ -47,7 +47,7 @@ export struct StrYield : Yield<self, Char> canbe Mut {
     at: Int
 }
 
-// Advances the pass, reporting the character at its position or the end of the
+// Advances the iterator, reporting the character at its position or the end of the
 // string.
 export fn next(p: Mut StrYield) [] -> Emitted Char | Finished => p: Mut {
     let chr = char_at(p.text, p.at)

@@ -238,7 +238,7 @@ fun lines(s: InStream): Lines {
     return Lines(s = s)
 }
 
-fun<__Fx> next__11(__fx: __Fx, p: Lines): Union2<String, Finished> where __Fx : __Has_Fs {
+fun<__Fx> next__13(__fx: __Fx, p: Lines): Union2<String, Finished> where __Fx : __Has_Fs {
     val line = __fx.__fx_Fs.read_line(p.s)
     when {
         line != null -> {
@@ -273,7 +273,7 @@ fun chunks(s: InStream, size: Int): Chunks {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST")
-fun<__Fx> next__12(__fx: __Fx, p: Chunks): Union2<salvo.SalvoBytes, Finished> where __Fx : __Has_Fs {
+fun<__Fx> next__14(__fx: __Fx, p: Chunks): Union2<salvo.SalvoBytes, Finished> where __Fx : __Has_Fs {
     val got = __fx.__fx_Fs.read_bytes(p.s, p.size)
     if (got is U2_2<*, *>) {
         ignore((got.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>))
@@ -330,7 +330,7 @@ fun<__Fx> read_lines(__fx: __Fx, path: String): Union2<List<String>, Checked<Uni
     val p = lines((opened.value as InStream))
     val out: MutableList<String> = mutableListOf<String>()
     while (true) {
-        val __loop1_step = next__11(__fx, p)
+        val __loop1_step = next__13(__fx, p)
         if (__loop1_step !is U2_1<String, Finished>) { break }
         val line = __loop1_step.value
         out.add(line)

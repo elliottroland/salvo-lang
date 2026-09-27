@@ -6,7 +6,7 @@ compiler generated for it and the output it prints.
 
 | example | what it shows |
 |---|---|
-| [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written pass, an `iter fn`, a combinator of your own, and the sequence functions |
+| [`iteration/`](iteration/) | every form of iteration: native container loops, a hand-written iterator struct, `iter fn`s, a source, a step under another name, combinators of your own, and the sequence functions |
 | [`effects/`](effects/) | several effects at once: handler state, a handler that depends on another effect, interception (a handler wrapping the effect it implements), shadowing, one member name on two effects, and two instances of one generic effect |
 | [`throw-and-release/`](throw-and-release/) | `throw`/`try` and the `Ok T \| Thrown M` outcome, with a linear resource released on every path — including before a call that may throw |
 | [`qualifiers/`](qualifiers/) | where a qualifier claim comes from, what survives a call, and state versus provenance |
@@ -67,7 +67,7 @@ cargo run -- run     --backend rust   --src examples/iteration/salvo > examples/
   stdout.** That equality is the point of checking the output in: a divergence
   is a [backend-parity] defect, not an example bug.
 - **Use `std` rather than rolling your own.** An example that hand-writes a
-  list, a result type or a pass teaches the wrong thing and stops being
+  list, a result type or an iterator teaches the wrong thing and stops being
   evidence that std works. Write your own only where *that* is the subject
   (`iteration/` writes a pass by hand because the manual form is one of the
   forms it is showing).

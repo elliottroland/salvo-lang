@@ -77,7 +77,7 @@ export intrinsic fn size(data: Bytes) [] -> Int => data
 
 intrinsic fn touch(data: Mut Bytes) [] -> None => data: Mut
 
-iter fn next(c: Countdown) [] -> Emitted Int | Finished {
+iter fn iter(c: Countdown) [] -> Emitted Int | Finished {
     return finished()
 }
 
@@ -99,7 +99,7 @@ actor effect Mailer {
     );
     // Every declaration survived as its own item — the five intrinsics, the
     // `send fn`, the `actor effect`, and the `iter fn`, which expands into its
-    // pass struct plus `iter` and `next` [iter-fn].
+    // iterator struct plus the minter `iter` and its `next` [iter-fn].
     let fns: Vec<&str> = module
         .items
         .iter()

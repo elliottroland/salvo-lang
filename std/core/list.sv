@@ -204,7 +204,7 @@ export intrinsic fn swap<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -
 // container is spent, and each element's obligation continues into the
 // callback, which consumes it (`=>[each] !x`).
 //
-// It is a function rather than a `for`-shaped pass because there is then no
+// It is a function rather than a `for`-shaped iterator because there is then no
 // half-drained state to account for: a drain either happened or did not, and
 // no path can drop the elements it did not reach. The callback's own effects
 // travel to the caller [fn-effects], so draining into an effectful discharger
@@ -262,8 +262,8 @@ export fn first<T>(list: NonEmpty List<T>) [] -> proj(list) T => list {
 // Returns the number of elements in the list
 export intrinsic fn size<T canbe linear>(list: List<T>) [] -> Int => list
 
-// [iter-pass] A fresh pass over the list, which is what `for x in iter(xs)`
-// and every combinator walks. The pass **borrows** the list — it is a view
+// [iter-mint] A fresh iterator over the list, which is what `for x in iter(xs)`
+// and every combinator walks. The iterator **borrows** the list — it is a view
 // with a position [proj-field] — so iterating a list by hand keeps it
 // usable, and nothing is copied or consumed on the way [copy-opt-in].
 export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list {
@@ -272,11 +272,11 @@ export fn iter<T>(list: List<T>) [] -> Mut ListYield<T> => list {
 
 // [iter-protocol] The pass a list is walked by: the list plus a position in
 // it. An ordinary struct with an ordinary `next` — there is no special
-// container protocol, which is what "a pass is a user struct" means. The
+// container protocol, which is what "an iterator is a user struct" means. The
 // backends keep their native loop as a fast path for a `for` over a list
 // [iter-for-native], so this shape is what *combinators* see.
 export struct ListYield<T> : Yield<self, proj T> canbe Mut {
-    // The list being walked — borrowed, not owned: a pass is a position in
+    // The list being walked — borrowed, not owned: an iterator is a position in
     // someone else's data. A `proj` field makes the struct a view of
     // whatever each literal stores there [proj-field]; `iter` above lends
     // its `list`, which the checker reads off its body [proj-infer].
@@ -285,7 +285,7 @@ export struct ListYield<T> : Yield<self, proj T> canbe Mut {
     at: Int
 }
 
-// Advances the pass, reporting the element at its position or the end of the
+// Advances the iterator, reporting the element at its position or the end of the
 // list. Out of range is the end: [get] answers `None` past the last index, so
 // the bound is read rather than remembered.
 export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
@@ -297,70 +297,66 @@ export fn next<T>(p: Mut ListYield<T>) [] -> Emitted (proj(p) T) | Finished => p
     return emitted(elem)
 }
 
-// [col-reversed] Walks the list back to front. A **pass**, not a copy —
+// [col-reversed] Walks the list back to front. An **iterator**, not a copy —
 // Kotlin's `reversed()` answers a fresh list; this borrows and emits
 // projections like [iter] does, so `for x in reversed(xs)` costs nothing per
 // element. A caller wanting the reversed *list* writes `to_list(reversed(xs))`.
-export fn reversed<T>(list: List<T>) [] -> Mut ListRevYield<T> => list {
-    return Mut ListRevYield<T> { items: list, at: size(list) - 1 }
-}
-
-// [iter-protocol] The pass [reversed] answers: the list plus a descending
-// position. The same shape as `ListYield`, walked the other way.
-export struct ListRevYield<T> : Yield<self, proj T> canbe Mut {
-    // The list being walked — borrowed, not owned [proj-field].
-    items: proj List<T>,
-    // The index of the next element to emit, counting down; `-1` is the end,
-    // which [get] reports as `None` like any out-of-range index.
-    at: Int
-}
-
-export fn next<T>(p: Mut ListRevYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
-    let elem = get(p.items, p.at)
+//
+// [iter-fn] An `iter fn`: the declaration is the minter, the `state` block is
+// the iterator's own field, and the body is its `next` — the compiler writes
+// the struct, whose type is spelled `iter (proj T)` [iter-type]. `list` is
+// borrowed by the iterator [proj-field], which is what lets it emit
+// projections of it.
+export iter fn reversed<T>(list: List<T>) -> Emitted (proj(list) T) | Finished {
+    state {
+        // The index of the next element to emit, counting down; `-1` is the
+        // end, which [get] reports as `None` like any out-of-range index.
+        at: Int = size(list) - 1
+    }
+    let elem = get(list, at)
     if elem is None {
         return finished()
     }
-    p.at = p.at - 1
+    at = at - 1
     return emitted(elem)
 }
 
 // [col-idx] Walks the **indices** of the list, front to back — and every
 // emitted `Int` carries the claim: `for i in indices(xs)` makes `get(xs, i)`
-// total. Sound because the pass borrows the list [proj-field], so nothing
+// total. Sound because the iterator borrows the list [proj-field], so nothing
 // can shrink it while the loop runs [proj-infer].
-export fn indices<T>(list: List<T>) [] -> Mut IdxYield<T> => list {
-    return Mut IdxYield<T> { items: list, at: 0, step: 1 }
+//
+// The `+Idx` is [deduce-reapply]'s establishment in a return-type arm: this
+// file declares `Idx`, and the bounds test above the emit is the proof the
+// trust rests on. [qual-depend] The claim names the parameter; in the
+// generated struct's obligation it names the struct's own borrowed field, and
+// a `for` binds it to the *source* list's identity, so the claim reads
+// `Idx(xs)` in the loop body.
+export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
+    state {
+        // The index the next turn emits.
+        at: Int = 0
+    }
+    if at >= size(list) {
+        return finished()
+    }
+    let index = at.copy()
+    at = at + 1
+    return emitted(index)
 }
 
 // [col-idx] The same indices, back to front: `size(list) - 1` down to `0` —
 // **the founding example of the refinement-types design**: the descending
 // loop whose body needs no `!`.
-export fn rev_indices<T>(list: List<T>) [] -> Mut IdxYield<T> => list {
-    return Mut IdxYield<T> { items: list, at: size(list) - 1, step: -1 }
-}
-
-// [iter-protocol] The pass behind [indices] and [rev_indices]. Its element
-// claims `Idx(self.items)` — a dependent claim whose slot names the pass's
-// own borrowed field; a `for` binds it to the *source* list's identity, so
-// the claim reads `Idx(xs)` in the loop body [qual-depend].
-export struct IdxYield<T> : Yield<self, Idx(self.items) Int> canbe Mut {
-    // The list being walked — borrowed, not owned [proj-field].
-    items: proj List<T>,
-    // The index the next turn emits.
-    at: Int,
-    // `+1` ascending ([indices]) or `-1` descending ([rev_indices]).
-    step: Int
-}
-
-// The `+Idx` is [deduce-reapply]'s establishment in a return-type arm: this
-// file declares `Idx`, and the bounds test above the emit is the proof the
-// trust rests on.
-export fn next<T>(p: Mut IdxYield<T>) [] -> Emitted (+Idx(p.items) Int) | Finished => p: Mut {
-    if p.at < 0 || p.at >= size(p.items) {
+export iter fn rev_indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
+    state {
+        at: Int = size(list) - 1
+    }
+    if at < 0 {
         return finished()
     }
-    let index = p.at.copy()
-    p.at = p.at + p.step
+    let index = at.copy()
+    at = at - 1
     return emitted(index)
 }
 
@@ -378,39 +374,37 @@ export struct Enumerated<T> {
 // [col-enumerate] Walks the list front to back, pairing each element with its
 // index: `for pair in enumerate(xs)` sees `0/first`, `1/second`, … — the loop
 // that wants positions without writing index arithmetic. The element is
-// borrowed, the index is the pair's own.
-export fn enumerate<T>(list: List<T>) [] -> Mut ListEnumYield<T> => list {
-    return Mut ListEnumYield<T> { items: list, at: 0, step: 1 }
-}
-
-// [col-enumerate] The same pairs, back to front: `enumerate_rev(xs)` sees
-// `size-1/last` down to `0/first` — the descending index loop with the
-// element already in hand.
-export fn enumerate_rev<T>(list: List<T>) [] -> Mut ListEnumYield<T> => list {
-    return Mut ListEnumYield<T> { items: list, at: size(list) - 1, step: -1 }
-}
-
-// [iter-protocol] The pass behind [enumerate] and [enumerate_rev]: one
-// struct, stepped either way.
-export struct ListEnumYield<T> : Yield<self, Enumerated<T>> canbe Mut {
-    // The list being walked — borrowed, not owned [proj-field].
-    items: proj List<T>,
-    // The index of the next element to emit.
-    at: Int,
-    // `+1` ascending ([enumerate]) or `-1` descending ([enumerate_rev]).
-    step: Int
-}
-
-export fn next<T>(p: Mut ListEnumYield<T>) [] -> Emitted Enumerated<T> | Finished holds proj(p)
-=> p: Mut {
-    let elem = get(p.items, p.at)
+// borrowed, the index is the pair's own — `holds proj(list)` says the emitted
+// view borrows the list.
+export iter fn enumerate<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
+    state {
+        // The index of the next element to emit.
+        at: Int = 0
+    }
+    let elem = get(list, at)
     if elem is None {
         return finished()
     }
     // Copied, not linked: the emitted index must survive `at`'s step below,
     // the same detach `core.range`'s next does.
-    let index = p.at.copy()
-    p.at = p.at + p.step
+    let index = at.copy()
+    at = at + 1
+    return emitted(Enumerated<T> { index: index, elem: elem })
+}
+
+// [col-enumerate] The same pairs, back to front: `enumerate_rev(xs)` sees
+// `size-1/last` down to `0/first` — the descending index loop with the
+// element already in hand.
+export iter fn enumerate_rev<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
+    state {
+        at: Int = size(list) - 1
+    }
+    let elem = get(list, at)
+    if elem is None {
+        return finished()
+    }
+    let index = at.copy()
+    at = at - 1
     return emitted(Enumerated<T> { index: index, elem: elem })
 }
 

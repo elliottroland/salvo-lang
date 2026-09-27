@@ -57,7 +57,7 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
         is U2_1<*, *> -> {
             val p = lines((opened.value as InStream))
             while (true) {
-                val __loop1_step = next__11(__fx, p)
+                val __loop1_step = next__13(__fx, p)
                 if (__loop1_step !is U2_1<String, Finished>) { break }
                 val line = __loop1_step.value
                 println(__fx, "line: $line")
@@ -254,12 +254,12 @@ fun<__Fx> workflow(__fx: __Fx) where __Fx : __Has_Fs, __Fx : __Has_Console {
             val p = (ch.value as Chunks)
             var seen = 0
             while (true) {
-                val __loop2_step = next__12(__fx, p)
+                val __loop2_step = next__14(__fx, p)
                 if (__loop2_step !is U2_1<salvo.SalvoBytes, Finished>) { break }
                 val chunk = __loop2_step.value
                 seen = seen + chunk.size
             }
-            println(__fx, "pass saw $seen bytes")
+            println(__fx, "chunks saw $seen bytes")
             val done = close__2(__fx, p)
             if (done is U2_2<*, *>) {
                 println(__fx, "close failed: ${kind_name(detach((done.value as Checked<Union8<NotFound, PermissionDenied, AlreadyExists, NotADirectory, PathEscapes, InvalidUtf8, StaleHandle, IoError>>)))}")

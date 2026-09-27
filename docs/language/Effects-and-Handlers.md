@@ -379,7 +379,7 @@ effect Fs {
 
 Two members with the same name *and* the same parameter types are the error they look like — no call could tell them apart. The selector and the overload compose: `@Fs` picks the effect, the arguments pick the member.
 
-A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` pass.
+A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` iterator.
 
 ```
 fn close(p: Lines) [local Fs] -> Ok None | Err Checked<FsError> => !p {   // a function

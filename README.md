@@ -154,11 +154,13 @@ fn main() [use] {
   caller picks with `size@core.list(xs)` or `rename fn size2 = size(...)` —
   dot-notation
   (`list.size()` ≡ `size(list)`), variadics, lambdas and generics.
-  Iteration is ordinary Salvo: a **pass** is a struct with a `next`, `for` is
-  sugar for calling it until `Finished`, an `iter fn` writes the pass struct for
-  you, and `map`/`filter`/`reduce` take a pass — `params Yield<It, T>` is a
-  bundle of implicit parameters, not a trait, so a type of your own joins in by
-  declaring one function.
+  Iteration is ordinary Salvo: an **iterator struct** is a struct with a
+  `next`, `for` is sugar for calling it until `Finished`, an `iter fn` — any
+  name, any parameters — writes the struct for you and its type is spelled
+  `iter T`, a type becomes a **source** by declaring `: Iter<self, T>`, and
+  `map`/`filter`/`reduce` take an iterator — `params Yield<It, T>` and
+  `params Iter<C, T>` are bundles of implicit parameters, not traits, so a type
+  of your own joins in by declaring one function.
 - **Algebraic effects**: effects declare capabilities, handlers implement
   them, `use` registers handlers in scope — dependencies are always visible
   in signatures. A handler may itself depend on an effect (declared as an
@@ -251,12 +253,12 @@ fn main() [use] {
   `Fs` effect whose members cover paths *and* streams (so a double fakes all
   of it), linear `InStream`/`OutStream` tokens that must be closed, a linear
   error a caller cannot drop in silence (`Checked<FsError>` — `ignore` it, or
-  `detach` it to read or keep it), a `Lines` pass for `for line in p`, one-shots
+  `detach` it to read or keep it), a `Lines` iterator for `for line in p`, one-shots
   (`read_to_str`, `read_lines`, `write_str`, `copy_file`) for the common case,
   bytes as themselves (`read_bytes`/`write_bytes` over `Bytes`, sharing one
   stream and one position with the text reads), a fill-a-buffer read for the
   loop that cannot afford a payload per step (`read_to`, `read_line_to`,
-  and a `chunks` pass), and exact byte offsets —
+  and a `chunks` iterator), and exact byte offsets —
   `write` answers its byte count, `position` reports one, and
   `open_read_at(path, offset)` reopens at one, since streams stay
   forward-only. The machine's filesystem is a `platform handler` at the

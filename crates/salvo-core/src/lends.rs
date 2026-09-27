@@ -217,7 +217,11 @@ pub fn lends_of(decl: &FnDecl, env: &mut LendsEnv<'_, '_>) -> Vec<usize> {
         env.memo.insert(key, Vec::new());
         return Vec::new();
     };
-    if !holds_proj(ret, env.structs) {
+    // [iter-type] A `-> iter T` pattern names no struct, so the written
+    // type cannot say whether the result borrows; whichever iterator struct
+    // the body mints may (a walking iterator holds its source), so the
+    // inference runs on the body.
+    if !holds_proj(ret, env.structs) && salvo_syntax::desugar::split_iter_qualifier(ret).is_none() {
         env.memo.insert(key, Vec::new());
         return Vec::new();
     }
@@ -469,6 +473,19 @@ impl<'p> Walk<'_, '_, 'p> {
             return None;
         }
         let decls = (self.env.fns)(&name);
+        // Only the overloads this call can reach by arity: the union over
+        // *every* overload dragged a recursive minter's conservative self-entry
+        // into its own callers (`range(end)` delegating to `range(0, end)`,
+        // where the two-argument overload's cycle guard said "keeps both").
+        let n = all_args.len();
+        let decls: Vec<&'p FnDecl> = decls
+            .into_iter()
+            .filter(|d| {
+                let fixed = d.params.iter().filter(|p| !p.implicit && !p.variadic).count();
+                let variadic = d.params.iter().any(|p| p.variadic);
+                fixed == n || (variadic && n >= fixed)
+            })
+            .collect();
         if decls.is_empty() {
             return None;
         }

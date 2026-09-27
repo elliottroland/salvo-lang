@@ -526,19 +526,19 @@ pub struct FnDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
-    /// [iter-fn] `iter fn next(c: Countdown) -> Emitted T | Finished`: a
-    /// hand-written `next` whose **pass struct is generated**. The subject is
-    /// ordinary data; the pass's own fields are declared in the `state { … }`
-    /// block below and initialized once per pass. Named after the `iter` it
-    /// generates — that function is what a combinator or a `for` reaches it
-    /// through. Desugared away before the checker ever sees it
-    /// (`desugar::expand_iter_fns`), into a hidden struct, that `iter`, and this
-    /// body as an ordinary `next` — so nothing downstream knows the form exists.
+    /// [iter-fn] `iter fn range(start: Int, end: Int) -> Emitted T | Finished`:
+    /// a hand-written `next` whose **iterator struct is generated**. The
+    /// declaration is the *minter* — its own name and parameters — the
+    /// struct's own fields are declared in the `state { … }` block below and
+    /// initialized once per iterator, and the body is the step. Desugared away
+    /// before the checker ever sees it (`desugar::expand_iter_fns`), into a
+    /// hidden struct, the minter, and this body as an ordinary `next` — so
+    /// nothing downstream knows the form exists.
     pub is_iter: bool,
     /// [iter-fn] The `state { … }` block's fields, in declaration order. Each
     /// carries an annotation and an initializer, exactly like a handler's state
-    /// [effect-handler]; the initializer may read the subject and runs when the
-    /// pass is minted.
+    /// [effect-handler]; the initializer may read the parameters and runs when
+    /// the iterator is minted.
     pub iter_state: Vec<FieldDecl>,
     /// [actor-send-fn] `send fn bump(n: Int)`: an **asynchronous** member —
     /// a message, not a call. Sending one enqueues an invocation on the

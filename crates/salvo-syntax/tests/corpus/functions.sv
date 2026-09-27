@@ -35,23 +35,14 @@ fn do_something() {
     transform(list, i -> { return "${i}" })
 }
 
-// A pass is an ordinary struct with an ordinary `next` [iter-protocol] —
-// or, when it needs no name, an `iter fn` whose pass struct the compiler
-// writes [iter-fn].
-struct Range {
-    start: Int,
-    end: Int
-}
-
-fn range(start: Int, end: Int) -> Range {
-    return Range {start: start, end: end}
-}
-
-iter fn next(range: Range) -> Emitted Int | Finished {
+// An iterator struct is an ordinary struct with an ordinary `next`
+// [iter-protocol] — or, when it needs no name, an `iter fn` whose iterator
+// struct the compiler writes [iter-fn]: any name, any parameters.
+iter fn range(start: Int, end: Int) -> Emitted Int | Finished {
     state {
-        at: Int = range.start
+        at: Int = start
     }
-    if at >= range.end {
+    if at >= end {
         return finished()
     }
     let v = copy(at)
@@ -59,7 +50,7 @@ iter fn next(range: Range) -> Emitted Int | Finished {
     return emitted(v)
 }
 
-// The written-out form, for a pass a program has to name.
+// The written-out form, for an iterator struct a program has to name.
 struct Countdown : Yield<self, Int> canbe Mut {
     at: Int
 }

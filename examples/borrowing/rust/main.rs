@@ -192,7 +192,7 @@ pub fn main() {
     w.at = 1;
     println(&mut console, &(format!("1. window at {}: {}", w.at, peek(&w).expect("salvo: value is absent at main:206:38").name.clone())));
     let mut pass = iter__3(&roster);
-    let mut standing = filter::<ListYield<Fighter>, &Fighter>(&mut pass, &mut (|f: &&Fighter| {
+    let mut standing = filter::<ListYield<'_, Fighter>, &Fighter>(&mut pass, &mut (|f: &&Fighter| {
     let f = *f; 
     f.hp > 10
 }), &mut |__i0| next__3(__i0));

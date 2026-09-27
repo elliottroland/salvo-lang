@@ -13,7 +13,7 @@ mid-character: not valid UTF-8
 and again at close: not valid UTF-8
 filled 6 bytes in 2 reads, one buffer
 longest line: 5 characters
-pass saw 6 bytes
+chunks saw 6 bytes
 copied 23 bytes
 raw.bin is 6 bytes: 00ffc868c3a9
 failures: 2
@@ -39,7 +39,7 @@ mid-character: not valid UTF-8
 and again at close: not valid UTF-8
 filled 6 bytes in 2 reads, one buffer
 longest line: 5 characters
-pass saw 6 bytes
+chunks saw 6 bytes
 copied 23 bytes
 raw.bin is 6 bytes: 00ffc868c3a9
 failures: 2

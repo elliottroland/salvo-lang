@@ -97,7 +97,7 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
     match opened {
         Union2::U1(_) => {
             let mut p = lines(opened.u1().clone());
-            while let Union2::U1(mut line) = next__11(&mut *__fx, &mut p) {
+            while let Union2::U1(mut line) = next__13(&mut *__fx, &mut p) {
                 println(&mut *__fx, &(format!("line: {}", line)));
             }
             let mut closed = close(&mut *__fx, p);
@@ -291,10 +291,10 @@ pub fn workflow<__Fx: __Has_Fs + __Has_Console>(__fx: &mut __Fx) {
         Union2::U1(_) => {
             let mut p = ch.u1().clone();
             let mut seen = 0;
-            while let Union2::U1(mut chunk) = next__12(&mut *__fx, &mut p) {
+            while let Union2::U1(mut chunk) = next__14(&mut *__fx, &mut p) {
                 seen = seen + (chunk.len() as i32);
             }
-            println(&mut *__fx, &(format!("pass saw {} bytes", seen)));
+            println(&mut *__fx, &(format!("chunks saw {} bytes", seen)));
             let mut done = close__2(&mut *__fx, p);
             if matches!(done, Union2::U2(_)) {
                 println(&mut *__fx, &(format!("close failed: {}", kind_name(&(detach(done.u2().clone()))))));

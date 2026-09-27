@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-assertion_line: 1450
 expression: module
 ---
 Module {
@@ -54,11 +53,11 @@ Module {
         Struct(
             StructDecl {
                 docs: [
-                    "The pass over `Countdown`, generated from its `iter fn next` [iter-fn].",
+                    "The iterator struct of `iter fn iter`, generated from it [iter-fn].",
                 ],
                 exported: false,
                 name: Ident {
-                    name: "__Pass_Countdown",
+                    name: "__Iter_iter_Countdown",
                     span: 41..42,
                 },
                 generics: [],
@@ -170,7 +169,8 @@ Module {
         Fn(
             FnDecl {
                 docs: [
-                    "A fresh pass over [c] [iter-pass], generated from its `iter fn next` [iter-fn].",
+                    "",
+                    "Mints a fresh iterator (`iter Int`) — generated from `iter fn iter` [iter-fn].",
                 ],
                 exported: false,
                 intrinsic: false,
@@ -253,7 +253,7 @@ Module {
                         ],
                         base: TypeRef {
                             name: Ident {
-                                name: "__Pass_Countdown",
+                                name: "__Iter_iter_Countdown",
                                 span: 41..42,
                             },
                             args: [],
@@ -295,7 +295,7 @@ Module {
                                                     ],
                                                     base: TypeRef {
                                                         name: Ident {
-                                                            name: "__Pass_Countdown",
+                                                            name: "__Iter_iter_Countdown",
                                                             span: 41..42,
                                                         },
                                                         args: [],
@@ -333,10 +333,10 @@ Module {
                                                     span: 111..127,
                                                 },
                                             ],
-                                            span: 45..46,
+                                            span: 44..45,
                                         },
                                     ),
-                                    span: 46..47,
+                                    span: 45..46,
                                 },
                             ),
                         ],
@@ -348,7 +348,9 @@ Module {
         ),
         Fn(
             FnDecl {
-                docs: [],
+                docs: [
+                    "The step of `iter fn iter`, generated from its body [iter-fn].",
+                ],
                 exported: false,
                 intrinsic: false,
                 is_iter: false,
@@ -388,7 +390,7 @@ Module {
                             ],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "__Pass_Countdown",
+                                    name: "__Iter_iter_Countdown",
                                     span: 41..42,
                                 },
                                 args: [],
@@ -511,7 +513,7 @@ Module {
                                                     base: Ident(
                                                         Ident {
                                                             name: "__p",
-                                                            span: 47..48,
+                                                            span: 46..47,
                                                         },
                                                     ),
                                                     field: Ident {
@@ -562,7 +564,7 @@ Module {
                                     base: Ident(
                                         Ident {
                                             name: "__p",
-                                            span: 48..49,
+                                            span: 47..48,
                                         },
                                     ),
                                     field: Ident {
@@ -577,7 +579,7 @@ Module {
                                         base: Ident(
                                             Ident {
                                                 name: "__p",
-                                                span: 49..50,
+                                                span: 48..49,
                                             },
                                         ),
                                         field: Ident {
@@ -613,7 +615,7 @@ Module {
                                                         base: Ident(
                                                             Ident {
                                                                 name: "__p",
-                                                                span: 50..51,
+                                                                span: 49..50,
                                                             },
                                                         ),
                                                         field: Ident {

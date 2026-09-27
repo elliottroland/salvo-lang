@@ -28,7 +28,7 @@ test "trap_of answers None for a body that completed" {
     expect(trap_of(() -> { always_traps(200) }) is None, "200 exceeds 100")
 }
 
-test "expect_trap passes when the body traps" {
+test "expect_trap iterators when the body traps" {
     expect_trap(() -> { always_traps(1) }, "n below the bound")
 }
 

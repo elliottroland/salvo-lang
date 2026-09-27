@@ -91,7 +91,7 @@ export intrinsic fn to_str(data: Bytes) [] -> Str => data
 // `00ffc8`. The form a checksum, a digest or a wire dump wants.
 export intrinsic fn to_hex(data: Bytes) [] -> Str => data
 
-// [iter-pass] A fresh pass over the bytes of [data], in order — which is what
+// [iter-mint] A fresh iterator over the bytes of [data], in order — which is what
 // makes `for b in data` and the sequence functions work on a buffer.
 export fn iter(data: Bytes) [] -> Mut BytesYield => data {
     return Mut BytesYield { data: data, at: 0 }
@@ -106,7 +106,7 @@ export struct BytesYield : Yield<self, Byte> canbe Mut {
     at: Int
 }
 
-// Advances the pass, reporting the byte at its position or the end of the
+// Advances the iterator, reporting the byte at its position or the end of the
 // buffer.
 export fn next(p: Mut BytesYield) [] -> Emitted Byte | Finished => p: Mut {
     let b = get(p.data, p.at)

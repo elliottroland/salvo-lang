@@ -1271,6 +1271,33 @@ impl<'p> Emitter<'p> {
     ) -> String {
         let pad = "    ".repeat(indent);
         let inner_pad = "    ".repeat(indent + 1);
+        // [iter-step-call] The subject is a **step call** (`for i in next(p)`):
+        // the call itself is the loop's condition, rendered as written and
+        // re-invoked each turn. Its arguments are places or literals (the
+        // checker's rule), so re-rendering them re-reads the same values.
+        if driver.step_call {
+            self.union_sizes.insert(driver.arms);
+            let step = format!("{}_step", self.fresh_loop_var());
+            let call = self.emit_expr(iterable);
+            let var = self.for_pattern_var(pattern, indent + 1);
+            let elem = self
+                .binding_ty_text(pattern)
+                .unwrap_or_else(|| "Any?".to_string());
+            let stars = vec!["*"; driver.arms].join(", ");
+            self.note_payload_cast();
+            let arm = format!("U{}_{}<{stars}>", driver.arms, driver.emitted_arm + 1);
+            let bind = if matches!(pattern, Pattern::Ident(id) if id.name == "_") {
+                String::new()
+            } else {
+                format!("{inner_pad}val {var} = {step}.value as {elem}\n")
+            };
+            return format!(
+                "{pad}while (true) {{\n\
+                 {inner_pad}val {step} = {call}\n\
+                 {inner_pad}if ({step} !is {arm}) {{ break }}\n\
+                 {bind}"
+            );
+        }
         // [iter-generic-drive] The `next` is either a declared overload or an
         // **implicit parameter** of this body, called by its own name — a
         // generic pass has no declaration to resolve against, and the parameter
@@ -1364,10 +1391,10 @@ impl<'p> Emitter<'p> {
         };
         let loop_id = self.fresh_loop_var();
         let (place, step) = (format!("{loop_id}_pass"), format!("{loop_id}_step"));
-        // [iter-pass] The subject is a *container*, not a pass: its `iter` mints
+        // [iter-mint] The subject is a *container*, not a pass: its `iter` mints
         // one, called once before the loop.
-        let subject = match driver.mint_iter_fn {
-            Some(key) => match self.fn_by_key(key) {
+        let subject = match &driver.mint {
+            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
                 Some(decl) => {
                     let callee = self.kotlin_fn_name(decl);
                     let arg = self.emit_expr(iterable);
@@ -1378,6 +1405,13 @@ impl<'p> Emitter<'p> {
                     return String::new();
                 }
             },
+            // [iter-group] A generic source: the `iter` implicit this body was
+            // handed mints the iterator.
+            Some(salvo_core::PassMember::Implicit(name)) => {
+                let callee = kt_ident(name);
+                let arg = self.emit_expr(iterable);
+                format!("{callee}({arg})")
+            }
             None => self.emit_expr(iterable),
         };
         let var = self.for_pattern_var(pattern, indent + 1);
@@ -3819,6 +3853,20 @@ impl<'p> Emitter<'p> {
     // ================= types =================
 
     fn emit_type(&mut self, ty: &Type) -> String {
+        // [iter-type] A written `iter T` is a pattern the checker filled from a
+        // value: render what it resolved to [backend-never-wrong].
+        if salvo_syntax::desugar::split_iter_qualifier(ty).is_some() {
+            return match self.checked.iter_types.get(&(self.file_idx, ty.span())).cloned() {
+                Some(resolved) => self.kotlin_ty(&resolved),
+                None => {
+                    self.error(
+                        "an `iter T` here was not resolved to an iterator struct by the \
+                         checker, so it cannot be rendered",
+                    );
+                    "Any".to_string()
+                }
+            };
+        }
         match ty {
             Type::Named { qualifiers, base } => self.emit_named_type(qualifiers, base),
             Type::Nullable { inner, .. } => format!("{}?", self.emit_type(inner)),

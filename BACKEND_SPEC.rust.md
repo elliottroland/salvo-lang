@@ -180,7 +180,7 @@ Conventions:
   one value namespace, so the bare name is the local (E0618: "call expression
   requires function"); Kotlin needs nothing, which is why this rule is
   backend-prefixed.
-* [rs-seq] std's sequence functions [seq-pass]: the `List` fast paths
+* [rs-seq] std's sequence functions [seq-iterator]: the `List` fast paths
   lower to the generated helpers in `strings.rs`'s sibling `seq.rs` —
   `salvo_map`/`salvo_filter`/`salvo_reduce`, taking `&[T]` so a call splices
   its receiver as `&place[..]` and works for an owned `Vec`, a `&Vec` and a
@@ -245,7 +245,7 @@ Conventions:
     `iter` that mints one, and the body as the `next`. The backend has no rule
     of its own for the form.
   * A `for` over a **container** calls its `iter` once before the loop and drives
-    the result [iter-pass]; the intrinsic containers (`Vec`, arrays, `String`)
+    the result [iter-mint]; the intrinsic containers (`Vec`, arrays, `String`)
     keep their native loop instead [iter-for-native].
   * An **effectful `next`** takes its handlers as leading arguments, threaded
     into every turn of the loop from the scope the `for` is written in
@@ -256,7 +256,7 @@ Conventions:
   * [rs-fn-field] A fn-typed **field** is `Rc<dyn Fn…>`, which is what lets a
     composed pass store its source's `next`; a fn that stores a
     callback therefore takes it owned and `'static` rather than borrowed. std
-    stopped writing such a pass when the lazy pair was removed (2026-09-10);
+    stopped writing such an iterator when the lazy pair was removed (2026-09-10);
     a program may still write one.
 
 * [rs-implicit-turbofish] A **generic call that fills implicit parameters**
@@ -275,7 +275,7 @@ Conventions:
     callback does [rs-fn-field]: owned `impl Fn(…) + 'static` in the signature,
     `Rc`-held once stored, and passed by a `move` adapter at the call site. For
     a *minted origin* the adapter wraps the machine's own advance
-    (`move |__p: &mut __Pass_X| match __p.__advance() { … }`), and its parameter
+    (`move |__p: &mut __Iter_X| next(__p)`), and its parameter
     is annotated because rustc cannot infer it through the `&mut dyn FnMut`
     coercion an unkept position renders.
 * [rs-none-unit] `None` is Rust's `()`, and a fn returning it has no return
@@ -306,7 +306,7 @@ Conventions:
     dot-notation for `f(h, e)` [fn-dot], which is a language rule, not a
     backend one;
   * what this buys: a **hand-written composed pass** (a struct storing its
-    source *and* its callback) builds on both targets, so composing passes
+    source *and* its callback) builds on both targets, so composing iterators
     is available to anyone rather than only to generated std code.
 * [backend-never-wrong] A **`params` group in a struct field** is still a
   codegen error: a bundle of functions has no single type to store. The
@@ -554,7 +554,7 @@ the blanket rule:
   defeats elision even alone — `p: &mut ListEnumYield<'_, T>` has two
   input lifetimes — so `'a` is named there too, and it tags the struct's
   **inner** (source) lifetime, never the `&mut`: the returned view borrows
-  the pass's *source*, so the reborrow of `p` stays free for the next
+  the iterator's *source*, so the reborrow of `p` stays free for the next
   turn, exactly as [rs-proj-struct] ties a derived return (added
   2026-09-23 for `Enumerated<T>`, the first view struct a `next`
   answers). A **lent implicit position** (`?iter: (c: C) -> Mut It holds proj(c)`) renders `&'c C` under a lifetime `'c`
@@ -740,7 +740,7 @@ the blanket rule:
     `List<List<Double>>` and a map's value half are covered. A type holding no
     float keeps its existing rendering, so nothing else in the output moved.
 * [rs-loop-temp] **A `for` over a temporary hoists it** (built 2026-09-25,
-  closing a defect open since 2026-09-18). A pass-driving loop *binds* the pass
+  closing a defect open since 2026-09-18). An iterator-driving loop *binds* the iterator
   (`let mut __loopN_pass = …`), so a Rust temporary the subject borrows dies at
   the end of the statement it was written in (E0716) — while the language allows
   the shape deliberately ("a view of a temporary may be *used* within its
@@ -865,7 +865,7 @@ the blanket rule:
     question, open in ROADMAP.md.
   * **Why it is a rule and not an optimization**: reusing the read form was
     silently wrong. `&mut (p.as_ref().unwrap().clone())` compiles, and the
-    mutation lands on the clone — a pass driven through a narrowed handle
+    mutation lands on the clone — an iterator driven through a narrowed handle
     re-emitted its first element for ever, while Kotlin (whose smart cast
     *is* the storage) advanced. Fixed 2026-09-10; it is the one
     [backend-never-wrong] violation this compiler has shipped.
@@ -906,7 +906,7 @@ the blanket rule:
   the header binds the element, the body opens with one binding per name, read
   off it — `let k = &__elem.0;` / `let who = &__elem.name;`, registered as
   reference bindings [rs-borrow-locals]. By reference because that is the one
-  shape that serves an owned element *and* a borrowed one (a pass hands out
+  shape that serves an owned element *and* a borrowed one (an iterator hands out
   projections): reads borrow, and an owned use clones exactly as it does for a
   `&T` parameter. A native Rust pattern in the header cannot — `mut k` opts out
   of match ergonomics, so it moves out of a shared reference (`E0507`). A name
@@ -987,7 +987,7 @@ the blanket rule:
   consumes its handle, so the guard would have to own it from registration
   onward, making it unusable for the rest of the block (a `&mut` capture
   trades that for `E0499` at the next use).
-  * The only source today is the release a `for` owes a pass it owns
+  * The only source today is the release a `for` owes an iterator it owns
     ([linear-group]; the `defer` statement was the other until it was removed
     from the language, 2026-09-10).
   * The code is rendered **once**, where it is registered (in that scope, with

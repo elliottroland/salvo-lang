@@ -1,57 +1,43 @@
-// Represents a range from [start] (inclusive) to [end] (exclusive), which increments by [step].
-// The range can go in either direction.
+// A range of `Int`s from [start] (inclusive) to [end] (exclusive), stepping
+// by [step], in either direction. Written as an `iter fn` [iter-fn]: the
+// declaration is the minter and its body is the step, so `range(0, 10)` mints
+// an iterator (`iter Int` [iter-type]) and `for i in range(0, 10)` drives it.
+// There is no `Range` struct — the three parameters *are* the state, and the
+// iterator struct the compiler writes is unnameable, as every `iter fn`'s is.
 //
-// [mod-export] The struct and its `next` are exported, not only the `range`
-// functions: driving a pass needs the iteration declaration *in scope*
-// [iter-resolve], so a private `Range` made the exported constructors unusable
-// anywhere but here (user decision 2026-09-23). The price is paid by every
-// program: reachability follows names, and every program that iterates uses the
-// name `next`, so `core.range` is emitted whether or not a program ranges over
-// anything [mod-used-only] — ROADMAP.md carries that as the thing to fix.
-export struct Range {
-    start: Int
-    end: Int
-    step: Int
-}
-
-export iter fn next(range: Range) -> Emitted Int | Finished {
+// [end] is **exclusive** in both directions, and a zero step is the empty
+// range.
+export iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
     state {
-        i: Int = range.start
+        i: Int = start
     }
     let next = i.copy()
-    // [end] is **exclusive** in both directions, and a zero step is the empty
-    // range. (Until 2026-09-23 the ascending guard read `i > range.end`, so
-    // `range(3)` yielded 0..3, and the descending one stepped with `i -=
-    // range.step` — which *adds* when the step is negative, so a descending
-    // range ran away upward. Neither could be caught before: `Range` was
-    // private, so nothing outside this file could iterate one.)
     return when {
-        range.step == 0 {
+        step == 0 {
             finished()
         }
-        range.step > 0 && i >= range.end {
+        step > 0 && i >= end {
             finished()
         }
-        range.step < 0 && i <= range.end {
+        step < 0 && i <= end {
             finished()
         }
         else {
-            i += range.step
+            i += step
             emitted(next)
         }
     }
 }
 
-// Returns a range which starts at [start] (inclusive), ends before [end] (exclusive), and steps
-// each iteration by [step].
-export fn range(start: Int, end: Int, step: Int) -> Range {
-    return Range { start: start, end: end, step: step }
-}
-
-// Returns a range which starts at [start] (inclusive), ends before [end] (exclusive), and steps
-// each iteration by 1 (if start < end) or -1 (if end < start). In the case where [start] == [end],
-// the step is set to 0 and the iteration is empty.
-export fn range(start: Int, end: Int) -> Range {
+// Returns a range which starts at [start] (inclusive), ends before [end]
+// (exclusive), and steps each iteration by 1 (if start < end) or -1 (if end <
+// start). In the case where [start] == [end], the step is set to 0 and the
+// iteration is empty.
+//
+// [iter-type] `-> iter Int` on a fn with a body is a **pattern**: the fn
+// returns whichever concrete iterator struct its body mints — here the one
+// `range(start, end, step)` does — and callers see that type.
+export fn range(start: Int, end: Int) -> iter Int {
     let step = when {
         start < end { 1 }
         start > end { -1 }
@@ -60,10 +46,10 @@ export fn range(start: Int, end: Int) -> Range {
     return range(start, end, step)
 }
 
-// Returns a range which starts a 0 (inclusive), ends before [end] (exclusive), and steps each
-// iteration by 1 (if end > 0) or -1 (if end < start). In the case where [end] == 0, the step
-// is set to 0 and the iteration is empty.
-export fn range(end: Int) -> Range {
+// Returns a range which starts a 0 (inclusive), ends before [end] (exclusive),
+// and steps each iteration by 1 (if end > 0) or -1 (if end < 0). In the case
+// where [end] == 0, the step is set to 0 and the iteration is empty.
+export fn range(end: Int) -> iter Int {
     return range(0, end)
 }
 

@@ -87,7 +87,7 @@ export qualifier Distinct<T> of List<T> with NonEmpty, Sorted
 // neither does the list [col-distinct].
 export intrinsic fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 
-// Reads an element **owned** out of a snapshot the pass owns.
+// Reads an element **owned** out of a snapshot the iterator owns.
 //
 // Not `copy(get(items, i))`: copying a value of an unconstrained generic
 // type is unsupported on the Kotlin backend by construction — with erased
@@ -99,15 +99,15 @@ export intrinsic fn to_list<T>(set: Set<T>) [] -> +Distinct List<T> => set
 // general `List` accessor the same lowering would alias a mutable element.
 export intrinsic fn snapshot_at<T>(items: List<T>, index: Int) [] -> T? => items, index
 
-// [iter-pass] A fresh pass over the set's elements, in insertion order.
+// [iter-mint] A fresh iterator over the set's elements, in insertion order.
 //
-// Unlike a list's pass, which is a *position in* the data [proj-field], this
+// Unlike a list's iterator, which is a *position in* the data [proj-field], this
 // one walks a **snapshot**: a hash set has no index to walk, and the
-// alternative — holding the target's native iterator in an intrinsic pass —
+// alternative — holding the target's native iterator in an intrinsic iterator —
 // needs a borrowing intrinsic type neither backend has machinery for
 // (see COMPLETED.md). The consequences are worth knowing: `iter` copies
 // the elements out (O(n) once, then O(1) a step), and a set mutated while a
-// pass over it is live keeps yielding what it held at the mint — on both
+// iterator over it is live keeps yielding what it held at the mint — on both
 // backends alike, rather than being a race on one and a refusal on the
 // other.
 export fn iter<T>(set: Set<T>) [] -> Mut SetYield<T> => set {
@@ -115,19 +115,19 @@ export fn iter<T>(set: Set<T>) [] -> Mut SetYield<T> => set {
 }
 
 // [iter-protocol] The pass a set is walked by: a snapshot of its elements
-// plus a position in it. The snapshot is **owned** by the pass — the
+// plus a position in it. The snapshot is **owned** by the iterator — the
 // structural difference from `ListYield`, whose `items` is a projection of
-// someone else's list — and so are the elements it emits: a pass that
+// someone else's list — and so are the elements it emits: an iterator that
 // *computes* its elements owns them, where one that *walks* data borrows
 // them [iter-protocol].
 export struct SetYield<T> : Yield<self, T> canbe Mut {
-    // The elements, in insertion order, owned by this pass.
+    // The elements, in insertion order, owned by this iterator.
     items: List<T>,
     // The index of the next element to emit.
     at: Int
 }
 
-// Advances the pass, reporting the element at its position or the end of the
+// Advances the iterator, reporting the element at its position or the end of the
 // set.
 export fn next<T>(p: Mut SetYield<T>) [] -> Emitted T | Finished => p: Mut {
     let elem = snapshot_at(p.items, p.at)

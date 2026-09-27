@@ -29,7 +29,7 @@ export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj(array) T)? => arr
 
 export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
 
-// [iter-pass] A fresh pass over the array — a view of it with a position:
+// [iter-mint] A fresh iterator over the array — a view of it with a position:
 // the array is borrowed, not moved [proj-field] [proj-infer].
 export fn iter<T>(array: T[]) [] -> Mut ArrayYield<T> => array {
     return Mut ArrayYield<T> { items: array, at: 0 }
@@ -45,7 +45,7 @@ export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
     at: Int
 }
 
-// Advances the pass, reporting the element at its position or the end of the
+// Advances the iterator, reporting the element at its position or the end of the
 // array.
 export fn next<T>(p: Mut ArrayYield<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)

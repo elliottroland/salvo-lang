@@ -72,46 +72,60 @@ pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
     return Union2::U1(emitted(elem.unwrap()));
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> ListRevYield<'_, T> {
-    return ListRevYield { items: list, at: (list.len() as i32) - 1 };
-}
-
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListRevYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn next__4<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = p.items.get((p.at) as i64 as usize);
+pub fn reversed<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
+    return __Iter_reversed_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__4<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
     }
-    p.at = p.at - 1;
+    __p.at = __p.at - 1;
     return Union2::U1(emitted(elem.unwrap()));
 }
 
-pub fn indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
-    return IdxYield { items: list, at: 0, step: 1 };
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
 }
 
-pub fn rev_indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
-    return IdxYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+pub fn indices<T: Clone>(list: &Vec<T>) -> __Iter_indices_List<'_, T> {
+    return __Iter_indices_List { list: list, at: 0 };
+}
+
+pub fn next__5<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at >= (__p.list.len() as i32) {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(index));
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct IdxYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_rev_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
-    pub step: i32,
 }
 
-pub fn next__5<T: Clone>(p: &mut IdxYield<'_, T>) -> Union2<i32, Finished> {
-    if p.at < 0 || p.at >= (p.items.len() as i32) {
+pub fn rev_indices<T: Clone>(list: &Vec<T>) -> __Iter_rev_indices_List<'_, T> {
+    return __Iter_rev_indices_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__6<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at < 0 {
         return Union2::<i32, Finished>::U2(finished());
     }
-    let mut index = p.at;
-    p.at = p.at + p.step;
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
     return Union2::<i32, Finished>::U1(emitted(index));
 }
 
@@ -121,29 +135,44 @@ pub struct Enumerated<'s, T: Clone + 'static> {
     pub elem: &'s T,
 }
 
-pub fn enumerate<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
-    return ListEnumYield { items: list, at: 0, step: 1 };
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_enumerate_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
 }
 
-pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
-    return ListEnumYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_List<'_, T> {
+    return __Iter_enumerate_List { list: list, at: 0 };
+}
+
+pub fn next__7<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListEnumYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_enumerate_rev_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
-    pub step: i32,
 }
 
-pub fn next__6<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
-    let mut elem = p.items.get((p.at) as i64 as usize);
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_rev_List<'_, T> {
+    return __Iter_enumerate_rev_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__8<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
-        return Union2::<Enumerated<T>, Finished>::U2(finished());
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
     }
-    let mut index = p.at;
-    p.at = p.at + p.step;
-    return Union2::<Enumerated<T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
 }
 
 pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {

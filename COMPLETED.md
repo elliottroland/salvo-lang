@@ -19,7 +19,9 @@ with total `get`/`swap`/`substr` overloads, `preserve` entries, claim-minting
 passes, and constant slots), everything-is-an-expression control
 flow, algebraic effects with handler dependencies, non-resumption
 (`throw`/`try`), implicit parameters and obligation groups, linear types with a
-designated `close`, and pull iteration reduced to a `next` that `for` drives.
+designated `close`, and pull iteration reduced to a `next` that `for` drives —
+with `iter fn` writing the iterator struct under any name, `Iter` for sources,
+and `iter T` naming an anonymous iterator by position.
 Effect handlers also bind *asynchronously* — an actor is one, with a mailbox, a
 linear one-shot reply, `waitfor` as the bridge and a scheduler that is a library
 in each backend's runtime rather than a runtime in your code — and on that sit a
@@ -58,7 +60,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1596 tests, complete: the toolchain tests are
+cargo test                  # 1615 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +134,100 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The iterator redesign — any-name `iter fn`, `params Iter<C, T>`, the `iter T`
+placeholder, and `for` over a step call (user decisions 2026-09-26/27, built
+2026-09-27).** The user was dissatisfied with how `iter fn` and `Yield`
+interacted — the sugar was spelled `iter fn next(c: Countdown)`, "the `next` of a
+`Countdown`", which is not an iterator — and worked through five rounds of design
+in `ITER_REDUX.md` (kept as the argument trail). Three shapes were considered and
+two rejected: `Iter` as a **constructive qualifier carrying its `next` as a fn
+slot** (`qualifier Iter<It, T>(?Yield<It, T>) of It`, the heap's shape) fell to
+[qual-erasure] — every driving signature and field would have had to spell the
+claim, and a stored iterator's field would have had to name the step identity;
+`Iter` as a **declared always-on claim** on the struct fell to the user's earlier
+move away from always-on qualifiers (`linear` is a keyword, not `Linear`); and
+`Iter<T>` as an **intrinsic type** was the deleted R5 design (one type, one
+representation, boxing). What landed keeps today's iterator-struct model whole
+and adds three things:
+
+- **`iter fn <any name>(<any parameters>)`** [iter-fn]: the declaration is the
+  minter and its body the step. The hidden struct is `__Iter_<fn>_<param
+  types>` holding what the body reads of each parameter (the existing three
+  tiers, per parameter; a Copy scalar owned; a parameter a dependent claim names
+  held whole so the claim has a place), plus the `state` fields; the minter
+  keeps the fn's name and parameters; the `next` is generated over `__p`. A
+  dependent claim `Idx(list)` in the element becomes `Idx(self.list)` in the
+  obligation and `Idx(__p.list)` in the `next`. Refused: variadic or implicit
+  parameters, `Mut` parameters, a `state` field named like a parameter. **No
+  discharger is generated** (user decision 2026-09-27: it would have to be a
+  group member to be consistent), so an `iter fn` whose state would be linear
+  is [linear-composite]'s ordinary refusal and that iterator is written by
+  hand.
+- **`params Iter<C, T> => iter with next { fn iter(collection: C) -> iter T; fn
+  next(iterator: iter T) -> … }`** [iter-group], the source side of the
+  protocol. `iter T` is the placeholder — "a `Mut` type declaring `: Yield<self,
+  T>`", the user's "declared" reading — one type across both members. An
+  obligation `: Iter<self, T>` is satisfied by an `iter fn iter` or a fn `iter`
+  answering a named iterator struct (`iter_minter_satisfies`); `: Iter` beside
+  `: Yield` is refused ("two answers to `for x in s`"). A spread `?Iter<C, T>`
+  gets a **hidden generic** appended by the desugaring (`hoist_iter_types`:
+  `?Iter<C, T, __It0>` on a fn `<C, __It0>`), which the checker substitutes for
+  the placeholder in every member — exactly the 2026-09-10 container-shaped
+  combinator with `It` hidden, so both backends already lowered it. `for x in
+  c` over the generic source mints with the `iter` implicit and drives with the
+  `next` beside it (`PassDriver.mint: Option<PassMember>`).
+- **`iter T` everywhere else** [iter-type], read by position and lowering to a
+  marker `Ty` no backend sees: a **hidden generic** as a parameter (`it: iter
+  Int` → `<__It1>(it: Mut __It1, ?Yield<__It1, Int>)`, fresh per occurrence);
+  a **pattern** as a `let` annotation, a `state` field, or the return of a fn
+  with a body (filled from the value — a pre-pass in `check_once` checks
+  `-> iter T` bodies first into a scratch `Checked`, repeating until
+  `iter_returns` stops growing, and every path must mint the same struct);
+  the **concrete anonymous struct** as the type of an `iter fn` call, printing
+  as `iter Int`. `Mut` is implied (`Mut iter T` refused); refused outright in a
+  bodiless return, an effect member, a fn type and a field, each naming the
+  replacement. The user's framing — *every use of `iter T` lowers to something
+  the program could write* — is the table in `docs/language/Iterators.md`,
+  which is the page's specification.
+- **`for i in next(p)` / `for i in skip(z)`** [iter-step-call]: a subject that
+  is a call answering `Emitted T | Finished` is re-invoked each turn, which is
+  how a non-canonical step is driven at all. Arguments must be places or
+  literals and the callee must keep them; a held *result* is not iterable.
+
+**std**: `Iter` in `core/iterator.sv`; `core/range.sv` is one `iter fn range(start,
+end, step)` and two `-> iter Int` overloads delegating to it (the `Range` struct
+is gone, and with it the [mod-export] note about exporting it); `core/list.sv`'s
+`reversed`, `indices`, `rev_indices`, `enumerate`, `enumerate_rev` are five `iter
+fn`s (the `ListRevYield`/`IdxYield`/`ListEnumYield` structs are gone). The
+container iterators downstream code names (`ListYield`, `SetYield`, …) stay
+structs deliberately — an unnameable iterator cannot be stored or wrapped.
+
+**What it took beyond the design**: `member_fn_ty` lends every kept parameter of
+a member with an opaque (`iter T`) return, as [proj-infer-fn-type] does for a
+fn type (without it `?Iter`'s `iter` rendered a `FnMut(&C) -> It` with no
+lifetime tie); the Rust backend ties a lent position whose *name* is the group
+member's (`collection`) to the one enclosing parameter of its type; `rust_ty`
+now adds `'_` for a borrowing struct as `emit_type` always did (a filled pattern
+is a checker type reaching the renderer); `lends.rs` filters a call's overloads
+by arity (the two-arg `range`'s cycle-guard entry was being unioned into the
+one-arg overload's lends) and infers a `-> iter T` fn's lends from its body;
+`reach.rs` skips the name `iter` (the placeholder pulled every container module
+into every program that mentioned it). **Terminology**: "pass" → **iterator
+struct**, a value of one is **an iterator** (user decision 2026-09-27) — docs,
+spec, std comments, diagnostics and README swept; `Passes.md` is now
+`Iterators.md`; the labels `[iter-pass]`/`[seq-pass]` are `[iter-mint]`/
+`[seq-iterator]` (`rs-iter-pass`/`kt-iter-pass` stay, being backend labels
+about the deleted iterator-fn machinery's callback convention). Internal names
+(`PassDriver`, `PassMember`, `pass_elem_ty`, and the dead `origin`/
+`mint_machines`/`ORIGIN_PASS_PREFIX` residue of the deleted `yield fn`) are
+unchanged — recorded in ROADMAP.md as a cleanup. **1615 tests** (+19: 18
+checker tests in `iter_fn_tests.rs` for the group, the spread, the step call,
+each `iter T` reading and refusal, and multi-parameter/any-name `iter fn`s;
+the iteration example rewritten around the new forms and regenerated). Not
+built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
+taking an `iter T` parameter (a stage — needs the generated `next` to carry
+forwarded implicits and the obligation match to ignore them).
 
 **The network sequence, step ⑧ — `examples/cluster/` (2026-09-27 — built;
 the sequence is complete).** One program over two virtual nodes and the
@@ -9630,7 +9726,7 @@ declaring `?iter` would exclude them by construction. So the container-shaped
 combinator stays something a **program** may write, and `std/` keeps taking
 passes; verified as already true (`grep`: every `?`-spread in `std/` is
 `?Yield<It, T>`, and the `List` fast paths are overloads on a concrete intrinsic
-type that ask for no `iter`). Recorded under [seq-pass] so the next combinator
+type that ask for no `iter`). Recorded under [seq-iterator] so the next combinator
 author, and S-IO, inherit it.
 
 **`yield fn` is deleted and `pass fn` is now `iter fn` (user decisions
@@ -10088,8 +10184,8 @@ longer discharging) plus the interim composite refusal ([linear-composite]:
 a struct field, array, tuple, union arm or type argument may not *hold* a
 linear value — refused at the store, which also turned two diagnostics per
 mistake into one); and **R5**, the flip itself — `iter` returns a pass
-[iter-pass], std's combinators take a pass through a `?Yield<It, T>` spread
-[seq-pass], and the whole `Iter<T>` apparatus is deleted: the intrinsic type,
+[iter-mint], std's combinators take a pass through a `?Yield<It, T>` spread
+[seq-iterator], and the whole `Iter<T>` apparatus is deleted: the intrinsic type,
 `SalvoIter`/`Iterable` as its representation, `once` on producers, the
 effect-claim-on-a-type ([iter-effects] is now a *deleted* rule), the variance
 adapter, the per-effect-set traits, `params Iterable`, and the factory tail of
@@ -17750,7 +17846,7 @@ nothing" at the type level rather than by convention.
 
 **Deferred by decision** — see ROADMAP.md.
 
-## Test inventory (all green: 1500)
+## Test inventory (all green: 1615)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -18197,7 +18293,7 @@ cache, with per-test timings.
   the target keeps `Mut` — a `Mut Str` parameter, an optional `Mut Str?`, a
   generic position (which is what makes `copy(builder)` a builder) — nor
   for a plain `Str`).
-- **8 sequence-function tests** (`tests/seq_tests.rs` [seq-pass]
+- **8 sequence-function tests** (`tests/seq_tests.rs` [seq-iterator]
   [implicit-infer] [fn-overload-rank]: everything inferred for a list pass and
   for a `Str` pass — with a `Char` element proved by rejecting a `Str`
   operation on it; chains composing through `iter` over the previous result; a
@@ -18952,6 +19048,37 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A checker type reaching a backend's type renderer must render like the
+  written type would** (2026-09-27). The Rust `emit_type` path had always added
+  `'_` to a borrowing struct's mention and `rust_ty` had not, because nothing
+  checker-typed ever named one — until a filled `iter T` pattern did, and rustc
+  warned about an elided lifetime. When a new feature routes checker `Ty`s into
+  a renderer that used to see only written `Type`s, diff the two arms.
+- **A hidden generic's implicit position may be named after a *group member's*
+  parameter, not the fn's** (2026-09-27). [rs-proj-lends] tied a lent position
+  to the enclosing parameter by *name*; `?Iter<C, T>`'s `iter(collection: C)`
+  has no `collection` in `total(c: C, …)`, so the tie fell through and rustc
+  reported the closure's lifetime. Tie by type when the name is foreign — and
+  expect the same gap anywhere a spread's member names its own parameters.
+- **A union over every same-named overload in the lends inference includes a
+  recursive fn's own cycle-guard entry** (2026-09-27). `range(end)` delegating
+  to `range(0, end)` picked up the three-arg `range`'s conservative "keeps
+  every parameter" self-entry and reported a view of a temporary. Filter the
+  candidates by arity before unioning; the same shape will recur for any
+  overload family whose members call one another.
+- **A name that is both a type former and a fn name breaks reachability by
+  name** (2026-09-27). `iter T` mentions `iter`, and `iter` is every container
+  module's minter, so `reach.rs`'s name-based dependency scan pulled `core.set`,
+  `core.map`, `core.sorted` and `core.string` into every program that wrote the
+  placeholder. Skip type-former keywords in the scan; `proj` was already skipped
+  by never being a fn name.
+- **A pre-pass that checks bodies before their callees are resolved must run
+  into a scratch `Checked`** (2026-09-27). The return-pattern pre-pass checks
+  `-> iter T` fns first so callers see the concrete type; run into the real
+  `out`, its diagnostics and side tables (keyed by span) landed twice, and the
+  cross-round fate facts were seeded by a body checked with stale resolution.
+  Only the one table the pre-pass exists to fill (`iter_returns`) is kept.
 
 - **A synthesized declaration's spans must be unique *and* must not collide
   with the file's own** (2026-09-27). The `iter fn` precedent takes fresh

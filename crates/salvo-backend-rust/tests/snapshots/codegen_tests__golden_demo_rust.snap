@@ -1,6 +1,5 @@
 ---
 source: crates/salvo-backend-rust/tests/codegen_tests.rs
-assertion_line: 221
 expression: combined
 ---
 // ===== core/checked.rs =====
@@ -203,46 +202,60 @@ pub fn next__3<'s, T: Clone>(p: &mut ListYield<'s, T>) -> Union2<&'s T, Finished
     return Union2::U1(emitted(elem.unwrap()));
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> ListRevYield<'_, T> {
-    return ListRevYield { items: list, at: (list.len() as i32) - 1 };
-}
-
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListRevYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_reversed_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn next__4<'s, T: Clone>(p: &mut ListRevYield<'s, T>) -> Union2<&'s T, Finished> {
-    let mut elem = p.items.get((p.at) as i64 as usize);
+pub fn reversed<T: Clone>(list: &Vec<T>) -> __Iter_reversed_List<'_, T> {
+    return __Iter_reversed_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__4<'s, T: Clone>(__p: &mut __Iter_reversed_List<'s, T>) -> Union2<&'s T, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
         return Union2::U2(finished());
     }
-    p.at = p.at - 1;
+    __p.at = __p.at - 1;
     return Union2::U1(emitted(elem.unwrap()));
 }
 
-pub fn indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
-    return IdxYield { items: list, at: 0, step: 1 };
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
 }
 
-pub fn rev_indices<T: Clone>(list: &Vec<T>) -> IdxYield<'_, T> {
-    return IdxYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+pub fn indices<T: Clone>(list: &Vec<T>) -> __Iter_indices_List<'_, T> {
+    return __Iter_indices_List { list: list, at: 0 };
+}
+
+pub fn next__5<T: Clone>(__p: &mut __Iter_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at >= (__p.list.len() as i32) {
+        return Union2::<i32, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<i32, Finished>::U1(emitted(index));
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct IdxYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_rev_indices_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
-    pub step: i32,
 }
 
-pub fn next__5<T: Clone>(p: &mut IdxYield<'_, T>) -> Union2<i32, Finished> {
-    if p.at < 0 || p.at >= (p.items.len() as i32) {
+pub fn rev_indices<T: Clone>(list: &Vec<T>) -> __Iter_rev_indices_List<'_, T> {
+    return __Iter_rev_indices_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__6<T: Clone>(__p: &mut __Iter_rev_indices_List<'_, T>) -> Union2<i32, Finished> {
+    if __p.at < 0 {
         return Union2::<i32, Finished>::U2(finished());
     }
-    let mut index = p.at;
-    p.at = p.at + p.step;
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
     return Union2::<i32, Finished>::U1(emitted(index));
 }
 
@@ -252,29 +265,44 @@ pub struct Enumerated<'s, T: Clone + 'static> {
     pub elem: &'s T,
 }
 
-pub fn enumerate<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
-    return ListEnumYield { items: list, at: 0, step: 1 };
+#[derive(Clone, Debug, PartialEq)]
+pub struct __Iter_enumerate_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
+    pub at: i32,
 }
 
-pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> ListEnumYield<'_, T> {
-    return ListEnumYield { items: list, at: (list.len() as i32) - 1, step: -1 };
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_List<'_, T> {
+    return __Iter_enumerate_List { list: list, at: 0 };
+}
+
+pub fn next__7<'a, T: Clone>(__p: &mut __Iter_enumerate_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
+    if elem.is_none() {
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
+    }
+    let mut index = __p.at;
+    __p.at = __p.at + 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListEnumYield<'s, T: Clone + 'static> {
-    pub items: &'s Vec<T>,
+pub struct __Iter_enumerate_rev_List<'s, T: Clone + 'static> {
+    pub list: &'s Vec<T>,
     pub at: i32,
-    pub step: i32,
 }
 
-pub fn next__6<'a, T: Clone>(p: &mut ListEnumYield<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
-    let mut elem = p.items.get((p.at) as i64 as usize);
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> __Iter_enumerate_rev_List<'_, T> {
+    return __Iter_enumerate_rev_List { list: list, at: (list.len() as i32) - 1 };
+}
+
+pub fn next__8<'a, T: Clone>(__p: &mut __Iter_enumerate_rev_List<'a, T>) -> Union2<Enumerated<'a, T>, Finished> {
+    let mut elem = __p.list.get((__p.at) as i64 as usize);
     if elem.is_none() {
-        return Union2::<Enumerated<T>, Finished>::U2(finished());
+        return Union2::<Enumerated<'_, T>, Finished>::U2(finished());
     }
-    let mut index = p.at;
-    p.at = p.at + p.step;
-    return Union2::<Enumerated<T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
+    let mut index = __p.at;
+    __p.at = __p.at - 1;
+    return Union2::<Enumerated<'_, T>, Finished>::U1(emitted(Enumerated { index: index, elem: elem.unwrap() }));
 }
 
 pub fn sort<T: Clone>(list: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Vec<T> {
@@ -320,7 +348,7 @@ pub struct MapKeyYield<K: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__7<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
+pub fn next__9<K: Clone>(p: &mut MapKeyYield<K>) -> Union2<K, Finished> {
     let mut key = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return Union2::<K, Finished>::U2(finished());
@@ -342,7 +370,7 @@ use crate::core_sorted::*;
 use crate::core_string::*;
 use crate::unions::*;
 
-pub fn iter__6<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
+pub fn iter__5<T: Clone>(set: &SalvoSet<T>) -> SetYield<T> {
     return SetYield { items: set.iter().cloned().collect::<Vec<_>>(), at: 0 };
 }
 
@@ -352,7 +380,7 @@ pub struct SetYield<T: Clone + 'static> {
     pub at: i32,
 }
 
-pub fn next__9<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
+pub fn next__11<T: Clone>(p: &mut SetYield<T>) -> Union2<T, Finished> {
     let mut elem = p.items.get((p.at) as i64 as usize).cloned();
     if elem.is_none() {
         return Union2::<T, Finished>::U2(finished());
@@ -373,11 +401,11 @@ use crate::core_map::*;
 use crate::core_set::*;
 use crate::core_string::*;
 
-pub fn iter__7<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
+pub fn iter__6<T: Clone>(set: &SalvoSortedSet<T>) -> SetYield<T> {
     return SetYield { items: set.to_vec(), at: 0 };
 }
 
-pub fn iter__8<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
+pub fn iter__7<K: Clone, V: Clone>(map: &SalvoSortedMap<K, V>) -> MapKeyYield<K> {
     return MapKeyYield { items: map.keys(), at: 0 };
 }
 
@@ -413,7 +441,7 @@ use crate::core_set::*;
 use crate::core_sorted::*;
 use crate::unions::*;
 
-pub fn iter__9(str: &String) -> StrYield<'_> {
+pub fn iter__8(str: &String) -> StrYield<'_> {
     return StrYield { text: str, at: 0 };
 }
 
@@ -423,7 +451,7 @@ pub struct StrYield<'s> {
     pub at: i32,
 }
 
-pub fn next__10(p: &mut StrYield<'_>) -> Union2<char, Finished> {
+pub fn next__12(p: &mut StrYield<'_>) -> Union2<char, Finished> {
     let mut chr = p.text.chars().nth((p.at) as i64 as usize);
     if chr.is_none() {
         return Union2::<char, Finished>::U2(finished());
@@ -531,8 +559,8 @@ pub fn full_name(person: &Person) -> String {
 
 pub fn greet(console: &mut dyn Console, person: &Person) {
     println(console, &(format!("Hello, {}!", full_name(person))));
-    let mut __loop1_pass = iter__10(&(upto(1, 4)));
-    while let Union2::U1(mut i) = next__13(&mut __loop1_pass) {
+    let mut __loop1_pass = iter__9(&(upto(1, 4)));
+    while let Union2::U1(mut i) = next__15(&mut __loop1_pass) {
         println(console, &(format!("  {}: {}", i, person.age + i)));
     }
 }
@@ -561,12 +589,12 @@ pub fn upto(start: i32, end: i32) -> Upto {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct __Pass_Upto {
+pub struct __Iter_iter_Upto {
     pub end: i32,
     pub at: i32,
 }
 
-impl crate::wire::__Wire for __Pass_Upto {
+impl crate::wire::__Wire for __Iter_iter_Upto {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.end, out);
         crate::wire::__Wire::__enc(&self.at, out);
@@ -579,11 +607,11 @@ impl crate::wire::__Wire for __Pass_Upto {
     }
 }
 
-pub fn iter__10(r: &Upto) -> __Pass_Upto {
-    return __Pass_Upto { end: r.end, at: r.start };
+pub fn iter__9(r: &Upto) -> __Iter_iter_Upto {
+    return __Iter_iter_Upto { end: r.end, at: r.start };
 }
 
-pub fn next__13(__p: &mut __Pass_Upto) -> Union2<i32, Finished> {
+pub fn next__15(__p: &mut __Iter_iter_Upto) -> Union2<i32, Finished> {
     if __p.at >= __p.end {
         return Union2::<i32, Finished>::U2(finished());
     }

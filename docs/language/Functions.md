@@ -136,7 +136,7 @@ params Yield<It, T> {
 }
 
 // `map(p, f)` fills `next` with whichever `next` fits `p` — yours, if you
-// declared one for a pass of your own, since this module beats core.
+// declared one for an iterator of your own, since this module beats core.
 ```
 
 Beyond the declaration itself, two things hang off the arrow: effects and deductions.

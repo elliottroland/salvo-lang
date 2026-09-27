@@ -528,15 +528,15 @@ impl<'s> Parser<'s> {
                 }
                 Some(Item::Type(t))
             }
-            // [iter-fn] `iter fn next(c: Countdown) -> Emitted T | Finished` —
-            // a hand-written `next` whose pass struct is generated, named after
-            // the `iter` it generates.
+            // [iter-fn] `iter fn range(start: Int, end: Int) -> Emitted T |
+            // Finished` — a hand-written `next` whose iterator struct is
+            // generated; the declaration is the minter.
             //
-            // A **contextual** keyword, and it has to be: `iter` is the name of
-            // the function this form generates, so it must stay callable and
-            // declarable. At item level a bare identifier is otherwise a parse
-            // error, which is what makes `iter fn` unambiguous with no lookahead
-            // beyond the next token.
+            // A **contextual** keyword, and it has to be: `iter` is also the name
+            // of every container's minter and of the `iter T` type former
+            // [iter-type], so it must stay callable and declarable. At item level
+            // a bare identifier is otherwise a parse error, which is what makes
+            // `iter fn` unambiguous with no lookahead beyond the next token.
             TokenKind::Ident(name)
                 if name == "iter" && matches!(self.peek_at(1).kind, TokenKind::KwFn) =>
             {
@@ -2972,17 +2972,19 @@ impl<'s> Parser<'s> {
             _ => {}
         }
         let head = self.ident()?;
-        // [iter-fn] A leading `_` is the compiler's namespace: a generated pass
-        // struct is `__Pass_<Subject>`, and it exists as a real declaration
-        // after the desugaring, so without this a program could *name* it —
-        // and the whole point of generating it is that a pass you must name is
-        // written by hand.
+        // [iter-fn] A leading `_` is the compiler's namespace: a generated
+        // iterator struct is `__Iter_<fn>_…`, and it exists as a real
+        // declaration after the desugaring, so without this a program could
+        // *name* it — and the whole point of generating it is that an iterator
+        // struct you must name is written by hand. Its spelling is `iter T`
+        // [iter-type].
         if head.name.starts_with('_') {
             self.error(
                 format!(
-                    "`{}` is a compiler-generated name and cannot be written: a \
-                     pass a program needs to name is declared as a struct of its \
-                     own, with its own `next`",
+                    "`{}` is a compiler-generated name and cannot be written: an \
+                     iterator struct a program needs to name is declared as a \
+                     struct of its own, with its own `next` — or spelled `iter T` \
+                     where a pattern is allowed",
                     head.name
                 ),
                 head.span,

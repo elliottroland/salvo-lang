@@ -46,7 +46,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Implicit Parameters](Implicit-Parameters.md) | capabilities the compiler supplies: `?` parameters, `params` bundles, obligations on a struct, and orderings carried in a type (`Heap<T>(?cmp)`) |
 | [Lambdas and Variadics](Lambdas-and-Variadics.md) | function values and variadic arguments |
 | [Iteration](Iteration.md) | `Yield`, and `params` groups as a capability bundle |
-| [Passes](Passes.md) | how `for` really works: a pass, its `next`, and `iter fn` |
+| [Iterators](Iterators.md) | how `for` really works: an iterator struct, its `next`, `iter fn`, sources and `iter T` |
 | [Comparison and Hashing](Comparison-and-Hashing.md) | equality, ordering and hashing as declared capabilities |
 
 ### Guarantees

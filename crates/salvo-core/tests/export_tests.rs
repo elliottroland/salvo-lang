@@ -171,7 +171,7 @@ fn an_exported_iter_fn_exports_its_pass_type() {
     let lib = "export struct Countdown {\n    from: Int\n}\n\n\
                export qualifier Emitted<T> of T\n\
                export qualifier Finished of None\n\n\
-               export iter fn next(c: Countdown) [] -> Emitted Int | Finished {\n    \
+               export iter fn iter(c: Countdown) [] -> Emitted Int | Finished {\n    \
                state {\n        at: Int = c.from\n    }\n    \
                if at <= 0 {\n        return finished()\n    }\n    \
                at = at - 1\n    return emitted(at)\n}\n\n\

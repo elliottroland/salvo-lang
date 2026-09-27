@@ -1420,9 +1420,10 @@ fn a_rename_takes_no_effects_deductions_or_return_type() {
 }
 
 /// [iter-fn] The `iter fn` expansion, as the rest of the compiler sees it: a
-/// hidden `__Pass_Countdown` carrying the subject and the `state` fields, an
-/// `iter` that mints one (copying the subject, so a second drive starts over),
-/// and the author's body as an ordinary `next` with every field written out.
+/// hidden `__Iter_iter_Countdown` carrying what the body reads of the
+/// parameter and the `state` fields, a minter under the `iter fn`'s own name
+/// (borrowing the parameter), and the author's body as an ordinary `next` with
+/// every field written out.
 ///
 /// Snapshotted rather than asserted piecemeal because the *whole* shape is the
 /// contract: this is the only place the generated declarations are visible.
@@ -1433,7 +1434,7 @@ struct Countdown {
     from: Int
 }
 
-iter fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn iter(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -1465,7 +1466,7 @@ struct Countdown {
 }
 ";
     let iter_file = "\
-iter fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn iter(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = 0
     }
@@ -1481,7 +1482,7 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
             .items
             .iter()
             .find_map(|item| match item {
-                salvo_syntax::ast::Item::Struct(s) if s.name.name.starts_with("__Pass_") => {
+                salvo_syntax::ast::Item::Struct(s) if s.name.name.starts_with("__Iter_") => {
                     Some(s.fields.iter().map(|f| f.name.name.clone()).collect())
                 }
                 _ => None,
@@ -1496,7 +1497,7 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
     let (mut iter_module, diags) = salvo_syntax::parse_module_deferred(iter_file);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     let externs = salvo_syntax::desugar::struct_decls(&subject_module);
-    let diags = salvo_syntax::desugar::expand_iter_fns_with(&mut iter_module, &externs);
+    let diags = salvo_syntax::desugar::expand_iter_fns_with(&mut iter_module, &externs, &[]);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     assert_eq!(
         pass_fields(&iter_module),
@@ -1510,7 +1511,7 @@ iter fn next(c: Countdown) -> Emitted Int | Finished {
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
     assert_eq!(
         pass_fields(&fallback_module),
-        vec!["__subject".to_string(), "at".to_string()],
+        vec!["c".to_string(), "at".to_string()],
         "a single-file parse cannot see the declaration, so the whole value rides"
     );
 }

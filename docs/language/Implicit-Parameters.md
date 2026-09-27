@@ -1,7 +1,7 @@
 # Implicit parameters
 
 Some things a function needs are not really *arguments*: how to compare two
-`T`s, how to copy one, how to advance a pass. They are properties of the
+`T`s, how to copy one, how to advance an iterator. They are properties of the
 type, and repeating them at every call is noise. Salvo passes them as
 **implicit parameters** — written with `?`, resolved by the compiler from
 what is visible at the call.
@@ -129,7 +129,7 @@ function — there is nothing to register.
   Resolution runs *between* the arguments, not after them, so a variable that
   appears only in the implicit's type is still inferred. A `?Yield<It, T>`
   spread goes one step further: `T` is read off `It`'s own declaration (see
-  [Passes](Passes.md)), so the element type of a combinator is never written.
+  [Iterators](Iterators.md)), so the element type of a combinator is never written.
 
 ## A struct that requires them
 
@@ -138,7 +138,7 @@ A struct can state that its type parameter must come with a bundle, using a
 *type's*, not each function's:
 
 ```
-// core.array — the pass an array is walked by. `: Yield<self, proj T>` is the
+// core.array — the iterator an array is walked by. `: Yield<self, proj T>` is the
 // obligation: this struct comes with a `next`, and `self` names the struct.
 export struct ArrayYield<T> : Yield<self, proj T> canbe Mut {
     items: proj (T[]),

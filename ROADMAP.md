@@ -39,12 +39,13 @@ Everything the four sequences covered is built and running on **both backends
 with identical output**: shared fate and borrow emission, linearity with a
 designated `close`, effects through handler dependencies, `throw`/`try`, places
 and field narrowing, deductions with refinements, the iterator reduction to
-`next`, the collections, the filesystem, actors (spawn, send, park, watch,
+`next` (with any-name `iter fn`, `Iter` for sources and the `iter T`
+placeholder — the 2026-09-27 redesign), the collections, the filesystem, actors (spawn, send, park, watch,
 bridge), time, free concurrency, shareable-by-default handlers, refinement types,
 group borrowing, the testing framework, the comparison/hashing capabilities, and
 the wire under actors across machines (`net`, step ① of the network sequence).
 Ten worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print. 1579 tests green.
+targets and the output they print. 1615 tests green.
 
 ## The sequence
 
@@ -140,7 +141,7 @@ COMPLETED.md's log).
 What the second one left open, deliberately, is the reading it chose *against*:
 
 - **A slot could state that its fn does *not* lend.** `(c: C) -> Mut It` would
-  then mean "the pass must not borrow the container", and implicit resolution
+  then mean "the iterator must not borrow the container", and implicit resolution
   would refuse `core.list`'s borrowing `iter` for it — naming the candidate and
   `holds proj(c)` — while accepting `core.set`'s snapshotting one. The machinery
   is already there: resolution **already** compares a candidate's contract against
@@ -149,15 +150,15 @@ What the second one left open, deliberately, is the reading it chose *against*:
   small.
 - **Why it was not taken**: the restrictive reading buys nothing observable
   today. The two things it would protect — mutating or consuming the container
-  while the pass is live, and the pass outliving the container — are both accepted
+  while the iterator is live, and the iterator outliving the container — are both accepted
   under *either* reading (probed), and in a generic body there is nothing an
   opaque `C` can be done to anyway. So the restriction would have cost an
   annotation on the language's most ordinary generic-iteration signature to
   express a property nothing yet depends on.
-- **The trigger for revisiting**: a program that *needs* a pass independent of
+- **The trigger for revisiting**: a program that *needs* an iterator independent of
   its container — one that stores it, returns it past the container's life, or
-  sends it to another thread ([actor-sendable] refuses a borrowing pass, so a
-  task or actor taking a pass is the likely first customer). When that appears,
+  sends it to another thread ([actor-sendable] refuses a borrowing iterator, so a
+  task or actor taking an iterator is the likely first customer). When that appears,
   the restrictive slot becomes worth stating, and the shape is above. Note the
   matching must be **directional**: a lending slot still accepts a non-lending
   candidate, so it is subtyping on the contract rather than equality.
@@ -524,28 +525,59 @@ expression, freeze-by-position, or both); cross-region operations (out of v1);
 `unreg` of a deeply regional structure copying deeply; and folding D7's
 `Local`/`Escaping` watch-list entry into the design.
 
-### 16 — Laziness, after concurrency (direction decided 2026-09-10)
+### 16 — Composing iterators: stages over a generic source (after the redesign)
 
-std's lazy pair was **removed** rather than carried along, and the question
-reopens here. The direction is the user's: standard laziness *couples data to the
-functions over it*, and the two should stay separate — so what is wanted is a good
-way to **compose functions (`iter fn`s included) into pipeline functions**, which
-then mint a fresh pass from data supplied independently. `map`-then-`filter` would
-build a *function*, not a wrapped data structure, and the data arrives at the end.
+The iterator redesign (COMPLETED.md, 2026-09-27) settled §16's *spelling*: a
+stage is an `iter fn`. Over a **concrete** source it works today —
 
-What the existing implementation contributes: an `iter fn` is already "a function
-that mints a pass" whose pass is unnameable by design; a pass is only a struct
-with a `next` [iter-protocol]; effects on fn types already thread a callback's
-effects to whoever calls the value [fn-effects].
+```
+iter fn evens(xs: List<Int>) -> Emitted Int | Finished {
+    state { inner: Mut ListYield<Int> = iter(xs) }
+    …
+}
+```
 
-Questions to answer with it: what composes and how it is spelled (two `(T) -> U`
-steps compose obviously, an `iter fn` is a different arrow, and a filter changes
-the *count* of elements); where per-run state lives (minted per drive, which is
-the replay property `iter fn` already has); whether it dissolves the L8 casualty
-or inherits it (a pipeline holding only *functions* stores no source, so
-"lazily `map` over a file's lines?" may become yes without widening
-[linear-composite] at all — the strongest argument for this direction, and the
-thing to test first); and sendability.
+— nothing is minted until the call, per drive, so replay is free, and
+`for n in doubled(evens(xs))` chains. What is **not built** is the generic
+stage, in either of its two forms, both refused today at the `iter fn`:
+
+- **over a generic source**: `iter fn evens<C>(c: C, ?Iter<C, Int>)` with
+  `state { inner: iter Int = iter(c) }`;
+- **over an iterator**: `iter fn doubled(it: iter Int)`, the position
+  *consumed* into the hidden struct (today every `iter fn` parameter is
+  borrowed and read-only).
+
+Both need the same two things (ITER_REDUX.md, round 6): the generated `next`
+carries the **forwarded implicits** (`?Yield<It, Int>` on the hidden `next`,
+forwarded by whoever drives it), and the [group-obligation] match **ignores
+trailing implicit parameters** when checking the hidden struct's `: Yield<self,
+T>` — implicits are the callee's business, resolved at the call, not part of
+the member's shape. The alternative is storing the inner `next` as a fn-valued
+field, which [rs-stored-implicit] already lowers for keyed containers; the
+implicit-on-`next` form is cleaner. A hand-written generic stage (`struct
+MapIter<It, T, U> : Yield<self, U>` with `next(p, ?Yield<It, T>)`) hits the same
+obligation gap today, so this is a prerequisite rather than a cost of the sugar.
+
+What falls out once it lands: pipelines as values (`let pipeline = c ->
+doubled(evens(c))`, passed as `total(xs, iter = pipeline)`); `zip`, `chain`,
+`take` as `iter fn`s with iterator parameters and no hand-written struct; the
+two-sources case (`?Iter<A, T>, ?Iter<B, T>` — two implicits named `iter` and
+two named `next` at different types) as the first thing to test.
+
+What stays parked: a stage over a **linear** iterator (`Lines`). The hidden
+struct would have to be `linear` with a discharger, and the user decided
+(2026-09-27) no discharger is generated — a discharger would have to be a
+member of the group to be consistent — so that iterator is written by hand,
+and generic code that may receive one takes the discharger as a callback
+[linear-generics]. Sendability of a composed iterator is unchanged.
+
+**Cleanup riding along**: the internal names still say "pass" (`PassDriver`,
+`PassMember`, `pass_elem_ty`, `pass_driver_of`, `for_drivers`' doc) and the
+dead residue of the deleted `yield fn` origin machinery is still in the tree
+(`PassDriver.origin`, always `false`; `mint_machines`, `ORIGIN_PASS_PREFIX`,
+`pass_or_origin_elem_ty`'s origin branch, the emitters' `if driver.origin`
+arms). Rename and delete in one change, cutting by function rather than by
+region (the 2026-09-10 lesson).
 
 ### 17 — Recursive types (DECISION, end of the queue)
 
@@ -647,9 +679,9 @@ several are "revisit only if a customer appears".
   concepts. (A representation qualifier `Linked List<T>` was examined and
   rejected: it would make the shared `List` surface worse, and Rust's
   `LinkedList` has no stable cursor API.)
-- **`entries`/`values` passes over a Map** — deferred: an entries pass needs an
+- **`entries`/`values` iterators over a Map** — deferred: an entries iterator needs an
   owned `(K, V)` and Kotlin cannot copy a generic `V`, so identity-sharing would
-  alias mutable values. The answer is probably the snapshot shape the key pass
+  alias mutable values. The answer is probably the snapshot shape the key iterator
   uses, over a `List<(K, V)>`.
 - **Test-suite speed** — the stamp key stays **keyed on the generated sources**
   (user decision 2026-09-25): it cannot go stale, and that is worth more than the
@@ -746,9 +778,9 @@ several are "revisit only if a customer appears".
   `InRange(10, 20)` fitting an `InRange(0, 100)` position, which needs
   per-qualifier semantics for what the constants *mean* — **DECISION**-shaped
   when it is wanted.
-- **`enumerate`'s claimed `index` field and a claimed `keys` pass** — left out of
-  pass minting by design: a dependent claim on a struct field names a value the
-  struct does not contain, and the map pass walks a key snapshot. The snapshot
+- **`enumerate`'s claimed `index` field and a claimed `keys` iterator** — left out of
+  claim minting by design: a dependent claim on a struct field names a value the
+  struct does not contain, and the map iterator walks a key snapshot. The snapshot
   form (`keys -> List<KeyOf(map) K>`) waits for step 6's variance round.
 - **The `Bytes` span twin** needs same-name-different-subject value slots.
 - **Binding a view of a temporary** is refused for now (user, 2026-09-11); the

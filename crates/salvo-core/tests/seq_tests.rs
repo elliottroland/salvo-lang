@@ -1,4 +1,4 @@
-//! [seq-pass] [implicit-group] [implicit-infer] [fn-overload-rank] The sequence
+//! [seq-iterator] [implicit-group] [implicit-infer] [fn-overload-rank] The sequence
 //! functions — `map`, `filter`, `reduce` — and what makes them work over
 //! *any pass*.
 //!

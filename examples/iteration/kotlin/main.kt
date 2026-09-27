@@ -6,6 +6,7 @@ import salvo.core.console.*
 import salvo.core.iterator.*
 import salvo.core.list.*
 import salvo.core.map.*
+import salvo.core.range.*
 import salvo.core.seq.*
 import salvo.core.set.*
 import salvo.core.sorted.*
@@ -45,7 +46,7 @@ fun countdown(from: Int): Countdown {
     return Countdown(at = from)
 }
 
-fun next__13(p: Countdown): Union2<Int, Finished> {
+fun next__15(p: Countdown): Union2<Int, Finished> {
     if (p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -54,10 +55,19 @@ fun next__13(p: Countdown): Union2<Int, Finished> {
     return U2_1<Int, Finished>(emitted(now))
 }
 
+fun skip(p: Countdown): Union2<Int, Finished> {
+    if (p.at <= 1) {
+        return U2_2<Int, Finished>(finished())
+    }
+    val now = p.at
+    p.at = p.at - 2
+    return U2_1<Int, Finished>(emitted(now))
+}
+
 fun take(console: Console, p: Countdown, count: Int) {
     var seen = 0
     while (true) {
-        val __loop1_step = next__13(p)
+        val __loop1_step = next__15(p)
         if (__loop1_step !is U2_1<Int, Finished>) { break }
         val n = __loop1_step.value
         println(console, "2. got $n")
@@ -68,33 +78,24 @@ fun take(console: Console, p: Countdown, count: Int) {
     }
 }
 
-data class Halving(
-    val start: Int,
-)
-
-object __Codec_Halving : salvo.WireCodec<Halving> {
-    override fun enc(v: Halving, out: salvo.WireOut) {
-        salvo.IntCodec.enc(v.start, out)
-    }
-    override fun dec(inp: salvo.WireIn): Halving = Halving(salvo.IntCodec.dec(inp))
-}
-
-data class __Pass_Halving(
+data class __Iter_halving_Int(
+    var start: Int,
     var at: Int,
 )
 
-object __Codec___Pass_Halving : salvo.WireCodec<__Pass_Halving> {
-    override fun enc(v: __Pass_Halving, out: salvo.WireOut) {
+object __Codec___Iter_halving_Int : salvo.WireCodec<__Iter_halving_Int> {
+    override fun enc(v: __Iter_halving_Int, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.start, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): __Pass_Halving = __Pass_Halving(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): __Iter_halving_Int = __Iter_halving_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun iter__10(h: Halving): __Pass_Halving {
-    return __Pass_Halving(at = h.start)
+fun halving(start: Int): __Iter_halving_Int {
+    return __Iter_halving_Int(start = start, at = start)
 }
 
-fun next__14(__p: __Pass_Halving): Union2<Int, Finished> {
+fun next__16(__p: __Iter_halving_Int): Union2<Int, Finished> {
     if (__p.at <= 0) {
         return U2_2<Int, Finished>(finished())
     }
@@ -103,43 +104,61 @@ fun next__14(__p: __Pass_Halving): Union2<Int, Finished> {
     return U2_1<Int, Finished>(emitted(now))
 }
 
-data class Fibs(
-    val count: Int,
+fun halving_from_ten(): __Iter_halving_Int {
+    return halving(10)
+}
+
+data class Bag(
+    val items: List<Int>,
 )
 
-object __Codec_Fibs : salvo.WireCodec<Fibs> {
-    override fun enc(v: Fibs, out: salvo.WireOut) {
-        salvo.IntCodec.enc(v.count, out)
+object __Codec_Bag : salvo.WireCodec<Bag> {
+    override fun enc(v: Bag, out: salvo.WireOut) {
+        salvo.ListCodec(salvo.IntCodec).enc(v.items, out)
     }
-    override fun dec(inp: salvo.WireIn): Fibs = Fibs(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Bag = Bag(salvo.ListCodec(salvo.IntCodec).dec(inp))
 }
 
-fun fibs(count: Int): Fibs {
-    return Fibs(count = count)
+data class __Iter_iter_Bag(
+    var items: List<Int>,
+    var at: Int,
+)
+
+fun iter__9(bag: Bag): __Iter_iter_Bag {
+    return __Iter_iter_Bag(items = bag.items, at = 0)
 }
 
-data class __Pass_Fibs(
+fun next__17(__p: __Iter_iter_Bag): Union2<Int, Finished> {
+    val e = __p.items.getOrNull(__p.at)
+    if (e == null) {
+        return U2_2<Int, Finished>(finished())
+    }
+    __p.at = __p.at + 1
+    return U2_1<Int, Finished>(emitted(e))
+}
+
+data class __Iter_fibs_Int(
     var count: Int,
     var a: Int,
     var b: Int,
     var made: Int,
 )
 
-object __Codec___Pass_Fibs : salvo.WireCodec<__Pass_Fibs> {
-    override fun enc(v: __Pass_Fibs, out: salvo.WireOut) {
+object __Codec___Iter_fibs_Int : salvo.WireCodec<__Iter_fibs_Int> {
+    override fun enc(v: __Iter_fibs_Int, out: salvo.WireOut) {
         salvo.IntCodec.enc(v.count, out)
         salvo.IntCodec.enc(v.a, out)
         salvo.IntCodec.enc(v.b, out)
         salvo.IntCodec.enc(v.made, out)
     }
-    override fun dec(inp: salvo.WireIn): __Pass_Fibs = __Pass_Fibs(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): __Iter_fibs_Int = __Iter_fibs_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun iter__11(f: Fibs): __Pass_Fibs {
-    return __Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)
+fun fibs(count: Int): __Iter_fibs_Int {
+    return __Iter_fibs_Int(count = count, a = 0, b = 1, made = 0)
 }
 
-fun next__15(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
+fun next__18(console: Console, __p: __Iter_fibs_Int): Union2<Int, Finished> {
     if (__p.made >= __p.count) {
         println(console, "3. finished")
         return U2_2<Int, Finished>(finished())
@@ -152,37 +171,24 @@ fun next__15(console: Console, __p: __Pass_Fibs): Union2<Int, Finished> {
     return U2_1<Int, Finished>(emitted(now))
 }
 
-data class Naturals(
-    val from: Int,
-)
-
-object __Codec_Naturals : salvo.WireCodec<Naturals> {
-    override fun enc(v: Naturals, out: salvo.WireOut) {
-        salvo.IntCodec.enc(v.from, out)
-    }
-    override fun dec(inp: salvo.WireIn): Naturals = Naturals(salvo.IntCodec.dec(inp))
-}
-
-fun naturals(from: Int): Naturals {
-    return Naturals(from = from)
-}
-
-data class __Pass_Naturals(
+data class __Iter_naturals_Int(
+    var from: Int,
     var at: Int,
 )
 
-object __Codec___Pass_Naturals : salvo.WireCodec<__Pass_Naturals> {
-    override fun enc(v: __Pass_Naturals, out: salvo.WireOut) {
+object __Codec___Iter_naturals_Int : salvo.WireCodec<__Iter_naturals_Int> {
+    override fun enc(v: __Iter_naturals_Int, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.from, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): __Pass_Naturals = __Pass_Naturals(salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): __Iter_naturals_Int = __Iter_naturals_Int(salvo.IntCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun iter__12(n: Naturals): __Pass_Naturals {
-    return __Pass_Naturals(at = n.from)
+fun naturals(from: Int): __Iter_naturals_Int {
+    return __Iter_naturals_Int(from = from, at = from)
 }
 
-fun next__16(__p: __Pass_Naturals): Union2<Int, Finished> {
+fun next__19(__p: __Iter_naturals_Int): Union2<Int, Finished> {
     val now = __p.at
     __p.at = __p.at + 1
     return U2_1<Int, Finished>(emitted(now))
@@ -200,35 +206,76 @@ fun<It> sum_of(it: It, next: (It) -> Union2<Int, Finished>): Int {
     return total
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun<C, __It0> total(c: C, iter: (C) -> __It0, next: (__It0) -> Union2<Int, Finished>): Int {
+    var total = 0
+    var __loop3_pass = iter(c)
+    while (true) {
+        val __loop3_step = next(__loop3_pass)
+        if (__loop3_step !is U2_1<*, *>) { break }
+        val n = __loop3_step.value as Int
+        total = total + n
+    }
+    return total
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+fun<__It0> first__2(it: __It0, next: (__It0) -> Union2<Int, Finished>): Int {
+    while (true) {
+        val __loop4_step = next(it)
+        if (__loop4_step !is U2_1<*, *>) { break }
+        val n = __loop4_step.value as Int
+        return n
+    }
+    return -1
+}
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
 fun main() {
     val console: Console = StdOutConsole()
     val xs = listOf<Int>(1, 2, 3, 4)
     describe_container(console, xs)
     val p = countdown(5)
     take(console, p, 2)
-    println(console, "2. rest sums to ${sum_of(p, ::next__13)}")
-    val h = Halving(start = 20)
-    var __loop3_pass = iter__10(h)
+    println(console, "2. rest sums to ${sum_of(p, ::next__15)}")
+    val q = countdown(6)
     while (true) {
-        val __loop3_step = next__14(__loop3_pass)
-        if (__loop3_step !is U2_1<Int, Finished>) { break }
-        val n = __loop3_step.value
+        val __loop5_step = skip(q)
+        if (__loop5_step !is U2_1<*, *>) { break }
+        val n = __loop5_step.value as Int
+        println(console, "2. skip $n")
+    }
+    var __loop6_pass = halving(20)
+    while (true) {
+        val __loop6_step = next__16(__loop6_pass)
+        if (__loop6_step !is U2_1<Int, Finished>) { break }
+        val n = __loop6_step.value
         println(console, "2b. halving $n")
     }
-    val hp = iter__10(h)
-    println(console, "2b. summed from a held pass: ${sum_of(hp, ::next__14)}")
-    var __loop4_pass = iter__11(fibs(6))
+    val hp = halving(20)
+    println(console, "2b. summed from a held iterator: ${sum_of(hp, ::next__16)}")
+    println(console, "2b. first from a pattern-typed fn: ${first__2(halving_from_ten(), ::next__16)}")
+    val bag = Bag(items = listOf<Int>(7, 8))
+    var __loop7_pass = iter__9(bag)
     while (true) {
-        val __loop4_step = next__15(console, __loop4_pass)
-        if (__loop4_step !is U2_1<Int, Finished>) { break }
-        val n = __loop4_step.value
+        val __loop7_step = next__17(__loop7_pass)
+        if (__loop7_step !is U2_1<Int, Finished>) { break }
+        val n = __loop7_step.value
+        println(console, "2c. bag $n")
+    }
+    println(console, "2c. total of a bag ${total(bag, ::iter__9, ::next__17)}, of a list ${total(xs, ::iter__3, ::next__3)}")
+    var __loop8_pass = fibs(6)
+    while (true) {
+        val __loop8_step = next__18(console, __loop8_pass)
+        if (__loop8_step !is U2_1<Int, Finished>) { break }
+        val n = __loop8_step.value
         println(console, "3. fib $n")
     }
-    var __loop5_pass = iter__12(naturals(10))
+    var __loop9_pass = naturals(10)
     while (true) {
-        val __loop5_step = next__16(__loop5_pass)
-        if (__loop5_step !is U2_1<Int, Finished>) { break }
-        val n = __loop5_step.value
+        val __loop9_step = next__19(__loop9_pass)
+        if (__loop9_step !is U2_1<Int, Finished>) { break }
+        val n = __loop9_step.value
         if (n > 12) {
             break
         }
@@ -242,9 +289,18 @@ fun main() {
     val lengths = map(iter__3(words), { w -> w.length }, ::next__3)
     println(console, "5. lengths: ${reduce(iter__3(lengths), 0, { acc, n -> acc + n }, ::next__3)}")
     val word = "iteration"
-    val vowels = filter(iter__9(word), { c -> c == 'i' || c == 'o' }, ::next__10)
+    val vowels = filter(iter__8(word), { c -> c == 'i' || c == 'o' }, ::next__12)
     println(console, "5. vowels: ${vowels.size}")
-    println(console, "5. halving total ${reduce(iter__10(Halving(start = 20)), 0, { acc, n -> acc + n }, ::next__14)}")
-    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__13)
+    println(console, "5. halving total ${reduce(halving(20), 0, { acc, n -> acc + n }, ::next__16)}")
+    val collected = map_to(mutableListOf<Int>(), countdown(3), { n: Int -> n * 10 }, { __i0, __i1 -> __i0.add(__i1) }, ::next__15)
     println(console, "6. collected ${collected.size}")
+    val evens = StringBuilder()
+    var __loop10_pass = range(0, 10, 2)
+    while (true) {
+        val __loop10_step = next__10(__loop10_pass)
+        if (__loop10_step !is U2_1<Int, Finished>) { break }
+        val i = __loop10_step.value
+        evens.append("$i ")
+    }
+    println(console, "7. evens ${evens.toString()}")
 }

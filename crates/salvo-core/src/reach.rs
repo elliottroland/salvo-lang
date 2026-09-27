@@ -154,7 +154,7 @@ pub fn resolved_dep_files(checked: &crate::check::Checked, file_idx: usize) -> H
         if let Some(key) = driver.next.key() {
             out.insert(key.file);
         }
-        if let Some(key) = driver.mint_iter_fn {
+        if let Some(crate::PassMember::Fn(key)) = driver.mint {
             out.insert(key.file);
         }
     }
@@ -349,7 +349,12 @@ fn type_names<'p>(ty: &'p Type, used: &mut HashSet<&'p str>) {
 }
 
 fn type_ref_names<'p>(r: &'p TypeRef, used: &mut HashSet<&'p str>) {
-    used.insert(&r.name.name);
+    // [iter-type] The `iter T` placeholder names no declaration — and `iter`
+    // is also the name of every container's minter, so counting it pulled
+    // every one of those modules into whatever mentioned the placeholder.
+    if r.name.name != "iter" {
+        used.insert(&r.name.name);
+    }
     for a in &r.args {
         type_names(a, used);
     }

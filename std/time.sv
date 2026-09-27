@@ -407,7 +407,7 @@ intrinsic fn fire_after(wait: Duration, done: Reply<Fired>) [] -> None => wait, 
 // reach `advance`, while the test keeps the control addr — least authority
 // falling out of the types rather than out of discipline.
 export actor effect TimerCtl {
-    // Move virtual time forward by [by], firing every deadline it passes, in
+    // Move virtual time forward by [by], firing every deadline it iterators, in
     // deadline order.
     send fn advance(by: Duration) => !by
 }

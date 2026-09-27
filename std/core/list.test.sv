@@ -21,7 +21,7 @@ test "reversed of an empty list emits nothing" {
     expect_eq(size(seen), 0)
 }
 
-test "reversed is a pass, so the list is still usable after it" {
+test "reversed is an iterator, so the list is still usable after it" {
     let xs = list_of("a", "b")
     for _x in reversed(xs) {
     }
@@ -118,7 +118,7 @@ test "add and swap preserve Idx claims" {
 test "the founding example: a descending index loop is total" {
     // The loop the refinement-types design was opened with (2026-09-23):
     // from `size(xs) - 1` down to `0`, `get(xs, i)` answers the element —
-    // no `!` anywhere. The pass's element carries `Idx(xs)` [qual-depend],
+    // no `!` anywhere. The iterator's element carries `Idx(xs)` [qual-depend],
     // and the total `get` consumes it [col-idx].
     let xs = list_of(1, 2, 3)
     let digits = 0

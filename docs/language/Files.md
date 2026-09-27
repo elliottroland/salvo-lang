@@ -1,6 +1,6 @@
 # Files
 
-The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, an error that cannot be dropped in silence, a pass for the lines, and a `platform handler` at the very bottom.
+The filesystem is the first place all of this meets: an effect for the capability, linear tokens for the streams, an error that cannot be dropped in silence, an iterator for the lines, and a `platform handler` at the very bottom.
 
 It is **imported, not implicit**: `import fs` brings the surface, and each implementation is its own module — `fs.host` for the machine's files, `fs.mem` for an in-memory fake, `fs.restricted` for a sandbox. A whole-module import names one module, so a test that fakes the filesystem never mentions the host's, and a program that never opens a file links none of it.
 
@@ -32,7 +32,7 @@ Four things in that function are the language's, not the library's:
 * **The error carries an obligation too.** A failure arrives as `Checked<FsError>`, the same wrapper every "you must look at this" answer in the library uses. An error you do not care about takes one call to say so: `ignore(e)`. One you want to read or keep costs `detach(e)`, which hands back the plain `FsError` (a linear value may not be stored, so this is the way into a `List<FsError>`). Narrowing a result to its `Ok` arm discharges the error that was never there.
 * **Failures are returned, never thrown.** An effect member may declare no effects, `Throw` included, so every fallible member answers `Ok T | Err Checked<FsError>`.
 
-Reading the lines is ordinary iteration, over a pass that owns the stream:
+Reading the lines is ordinary iteration, over an iterator that owns the stream:
 
 ```
 fn print_file(path: Str) [Fs, Console] -> None => path {
@@ -45,7 +45,7 @@ fn print_file(path: Str) [Fs, Console] -> None => path {
     for line in p {
         println(line)
     }
-    let closed = close(p)          // closing the pass closes the stream
+    let closed = close(p)          // closing the iterator closes the stream
     if closed is Err {
         ignore(closed)
     }
@@ -99,7 +99,7 @@ while reading {
 }
 ```
 
-Or hand the loop over: `chunks(s, size)` is a pass over a stream's bytes (a fresh buffer per step) as `lines(s)` is over its lines, and the one-shots keep the buffer out of sight entirely — `copy_file(from, to)`, `copy_stream(s, w)`, `read_to_bytes(path)`, `write_bytes_to(path, data)`.
+Or hand the loop over: `chunks(s, size)` is an iterator over a stream's bytes (a fresh buffer per step) as `lines(s)` is over its lines, and the one-shots keep the buffer out of sight entirely — `copy_file(from, to)`, `copy_stream(s, w)`, `read_to_bytes(path)`, `write_bytes_to(path, data)`.
 
 Two more handlers ship beside the surface, each in its own module, and neither is a special case of anything:
 

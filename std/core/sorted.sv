@@ -62,8 +62,8 @@ export intrinsic fn to_list<T>(set: SortedSet<T>) [] -> List<T> => set
 // The text form: `{1, 2, 3}` in **sorted** order [col-to-str].
 export intrinsic fn to_str<T>(set: SortedSet<T>) [] -> Str => set
 
-// [iter-pass] A fresh pass over the elements, in order. A snapshot, like the
-// unordered collections' passes and for the same reason (there is no index
+// [iter-mint] A fresh iterator over the elements, in order. A snapshot, like the
+// unordered collections' iterators and for the same reason (there is no index
 // to walk) — see `core.set`.
 export fn iter<T>(set: SortedSet<T>) [] -> Mut SetYield<T> => set {
     return Mut SetYield<T> { items: to_list(set), at: 0 }
@@ -109,7 +109,7 @@ export intrinsic fn keys<K, V>(map: SortedMap<K, V>) [] -> List<K> => map
 // The text form: `{a: 1, b: 2}` in **key order** [col-to-str].
 export intrinsic fn to_str<K, V>(map: SortedMap<K, V>) [] -> Str => map
 
-// [iter-pass] A fresh pass over the map's **keys**, in order — the same
+// [iter-mint] A fresh iterator over the map's **keys**, in order — the same
 // reading `core.map` takes, where a value is reached with `get`.
 export fn iter<K, V>(map: SortedMap<K, V>) [] -> Mut MapKeyYield<K> => map {
     return Mut MapKeyYield<K> { items: keys(map), at: 0 }

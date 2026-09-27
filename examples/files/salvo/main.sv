@@ -62,8 +62,8 @@ fn workflow() [Fs, Console] -> None {
     }
 
     // 2. The lines, as a sequence. `lines(s)` moves the stream's obligation
-    //    into the pass, so closing the pass is closing the file — and `for`
-    //    drives it like any other pass.
+    //    into the iterator, so closing the iterator is closing the file — and
+    //    `for` drives it like any other iterator.
     let opened = open_read("notes.txt")
     when opened {
         is Ok {
@@ -252,9 +252,9 @@ fn workflow() [Fs, Console] -> None {
         is Err { println("lines open failed: ${kind_name(detach(lined))}") }
     }
 
-    // 8. Or let a pass do the loop: `chunks` is to bytes what `lines` is to
-    //    text, and each step is a fresh buffer — a pass that handed back its
-    //    own would have the next step overwrite what you are holding.
+    // 8. Or let an iterator do the loop: `chunks` is to bytes what `lines` is
+    //    to text, and each step is a fresh buffer — an iterator that handed
+    //    back its own would have the next step overwrite what you are holding.
     let ch = open_chunks("raw.bin", 4)
     when ch {
         is Ok {
@@ -263,7 +263,7 @@ fn workflow() [Fs, Console] -> None {
             for chunk in p {
                 seen = seen + size(chunk)
             }
-            println("pass saw ${seen} bytes")
+            println("chunks saw ${seen} bytes")
             let done = close(p)
             if done is Err {
                 println("close failed: ${kind_name(detach(done))}")

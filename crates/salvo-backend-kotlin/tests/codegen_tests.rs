@@ -44,7 +44,7 @@ fn upto(start: Int, end: Int) -> Upto {
     return Upto {start: start, end: end}
 }
 
-iter fn next(r: Upto) -> Emitted Int | Finished {
+iter fn iter(r: Upto) -> Emitted Int | Finished {
     state {
         at: Int = r.start
     }
@@ -847,7 +847,7 @@ fn show(step: Emitted Int | Finished) [Console] {
     }
 }
 
-iter fn next(f: Flat) -> Emitted Int | Finished {
+iter fn iter(f: Flat) -> Emitted Int | Finished {
     state { at: Int = 0, inner: Mut ListYield<Int>? = None }
     while true {
         if inner is Mut ListYield<Int> {
@@ -1505,7 +1505,7 @@ fn rolls(count: Int) -> Rolls {
     return Rolls {count: count}
 }
 
-iter fn next(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
+iter fn iter(r: Rolls) [Random<Int>] -> Emitted Int | Finished {
     state {
         made: Int = 0
     }
@@ -3788,7 +3788,7 @@ fn range(start: Int, end: Int) -> Range {
     return Range { start: start, end: end }
 }
 
-iter fn next(r: Range) -> Emitted Int | Finished {
+iter fn iter(r: Range) -> Emitted Int | Finished {
     state {
         i: Int = r.start
     }
@@ -4781,7 +4781,7 @@ fn upto(start: Int, end: Int) -> Upto {
     return Upto {start: start, end: end}
 }
 
-iter fn next(r: Upto) -> Emitted Int | Finished {
+iter fn iter(r: Upto) -> Emitted Int | Finished {
     state {
         at: Int = r.start
     }
@@ -6217,7 +6217,7 @@ export fn main() [use] -> None {
     )
 }
 
-/// [iter-pass] The same source and expected output as the Rust backend's
+/// [iter-mint] The same source and expected output as the Rust backend's
 /// `rustc_compiles_and_runs_collection_iteration` — iterating a set's
 /// elements and a map's keys [backend-parity].
 fn kotlinc_compiles_and_runs_collection_iteration() -> KotlinCase {
@@ -9892,7 +9892,7 @@ fn naturals() -> Naturals {
     return Naturals {from: 0}
 }
 
-iter fn next(n: Naturals) -> Emitted Int | Finished {
+iter fn iter(n: Naturals) -> Emitted Int | Finished {
     state {
         at: Int = n.from
     }
@@ -10496,7 +10496,7 @@ fn kotlinc_compiles_and_runs_mut_str_places() -> KotlinCase {
 
 /// `map`/`filter`/`reduce` over a `List` (the intrinsic fast path), and over
 /// the *passes* an array, a `Str`, an origin and a struct of the program's own
-/// hand out — `iter` written at each use site [seq-pass]. Shared with the Rust
+/// hand out — `iter` written at each use site [seq-iterator]. Shared with the Rust
 /// backend's `rustc_compiles_and_runs_sequences`: the *checker* picks the
 /// overloads, so the two targets must agree element for element.
 const SEQ_DEMO: &str = r#"
@@ -10520,7 +10520,7 @@ fn naturals(from: Int) -> Naturals {
     return Naturals {from: from}
 }
 
-iter fn next(n: Naturals) -> Emitted Int | Finished {
+iter fn iter(n: Naturals) -> Emitted Int | Finished {
     state {
         at: Int = n.from
     }
@@ -10558,7 +10558,7 @@ fn main() [use] {
     println("names: ${size(lens)} ${size(long)}")
     let bag = Bag {items: list_of(5, 6)}
     println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")
-    // [iter-pass] `for` over a *container of one's own*: the loop calls its
+    // [iter-mint] `for` over a *container of one's own*: the loop calls its
     // `iter` once and drives the pass that answers. Until 2026-09-09 the
     // checker recorded that mint and neither emitter made the call, so this
     // shape emitted code the target compiler rejected.
@@ -10575,7 +10575,7 @@ const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
                                iter: 10 2\nnames: 3 1\nbag: 11\n\
                                bag element 5\nbag element 6\n";
 
-/// [kt-seq] [seq-pass] A `params` group emits nothing, and the `List` fast
+/// [kt-seq] [seq-iterator] A `params` group emits nothing, and the `List` fast
 /// paths lower to Kotlin's own collection operations; the generic body is a
 /// plain generic function whose implicit parameter arrives as a trailing
 /// argument — an *adapter lambda* when the resolved `iter` is an intrinsic,
@@ -10905,7 +10905,7 @@ struct Countdown {
     from: Int
 }
 
-iter fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn iter(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -10920,7 +10920,7 @@ struct Fibs {
     count: Int
 }
 
-iter fn next(f: Fibs) -> Emitted Int | Finished {
+iter fn iter(f: Fibs) -> Emitted Int | Finished {
     state {
         a: Int = 0,
         b: Int = 1,
@@ -10941,7 +10941,7 @@ struct Noisy {
     limit: Int
 }
 
-iter fn next(n: Noisy) [Console] -> Emitted Int | Finished {
+iter fn iter(n: Noisy) [Console] -> Emitted Int | Finished {
     state {
         at: Int = 0
     }
@@ -10963,7 +10963,7 @@ fn describe(r: Row) -> Str => r {
     return "${r.label}!"
 }
 
-iter fn next(r: Row) -> Emitted Str | Finished {
+iter fn iter(r: Row) -> Emitted Str | Finished {
     state {
         left: Int = r.times
     }
@@ -11037,21 +11037,21 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // [iter-fn] Tier 1 — the body never reads the subject, so the pass holds
     // nothing of it.
     assert!(
-        src.contains("data class __Pass_Countdown(\n    var at: Int,\n)")
-            && src.contains("__Pass_Countdown(at = c.from)"),
+        src.contains("data class __Iter_iter_Countdown(\n    var at: Int,\n)")
+            && src.contains("__Iter_iter_Countdown(at = c.from)"),
         "expected a subject-free pass:\n{src}"
     );
     // Tier 2 — one snapshot field for the one subject field the body reads.
     assert!(
-        src.contains("data class __Pass_Fibs(\n    var count: Int,")
-            && src.contains("__Pass_Fibs(count = f.count, a = 0, b = 1, made = 0)")
-            && !src.contains("var __subject: Fibs"),
+        src.contains("data class __Iter_iter_Fibs(\n    var count: Int,")
+            && src.contains("__Iter_iter_Fibs(count = f.count, a = 0, b = 1, made = 0)")
+            && !src.contains("var f: Fibs"),
         "expected a per-field snapshot:\n{src}"
     );
     // Tier 3 — the whole subject is handed on, so the pass holds it.
     assert!(
-        src.contains("data class __Pass_Row(\n    var __subject: Row,")
-            && src.contains("__Pass_Row(__subject = r, left = r.times)"),
+        src.contains("data class __Iter_iter_Row(\n    var r: Row,")
+            && src.contains("__Iter_iter_Row(r = r, left = r.times)"),
         "expected the whole subject to be kept:\n{src}"
     );
     assert!(
@@ -11067,7 +11067,7 @@ fn an_iter_fn_emits_a_plain_class_and_next() {
     // module is private), and again when `reversed`/`enumerate` (then `indices`) brought
     // more (the refinement-types sequence, step 0, 2026-09-23).
     assert!(
-        src.contains("next__15(console, __loop"),
+        src.contains("next__17(console, __loop"),
         "expected the handler threaded into the drive:\n{src}"
     );
 }
@@ -11085,7 +11085,7 @@ struct Countdown {
     from: Int
 }
 
-iter fn next(c: Countdown) -> Emitted Int | Finished {
+iter fn iter(c: Countdown) -> Emitted Int | Finished {
     state {
         at: Int = c.from
     }
@@ -11289,7 +11289,7 @@ fn kotlinc_compiles_and_runs_inc_dec() -> KotlinCase {
 
 /// [iter-fn] [proj-field] [yield-proj] An `iter fn` over a *generic* subject
 /// that emits borrowed elements. The generated pass **borrows** its subject
-/// (`__subject: proj Box<T>`, user decision 2026-09-11) instead of copying it,
+/// (`b: proj Box<T>`, user decision 2026-09-11) instead of copying it,
 /// so nothing has to `copy` a value of type `T` — which is what used to refuse
 /// generic subjects on the Kotlin backend [kt-copy]. `proj(b)` in the
 /// written return names the subject; the desugar redirects it to the pass.
@@ -11298,7 +11298,7 @@ struct Box<T> {
     items: List<T>
 }
 
-iter fn next<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
+iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
     state {
         at: Int = 0
     }

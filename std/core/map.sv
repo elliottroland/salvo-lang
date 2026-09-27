@@ -143,7 +143,7 @@ export intrinsic fn to_str<K, V>(map: Map<K, V>) [] -> Str => map
 // makes a map iterable, below.
 export intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 
-// [iter-pass] A fresh pass over the map's **keys**, in insertion order.
+// [iter-mint] A fresh iterator over the map's **keys**, in insertion order.
 //
 // Iterating a map yields its keys, and a value is reached with `get`:
 //
@@ -157,31 +157,31 @@ export intrinsic fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 // ```
 //
 // That is Python's reading of `for k in d`, and here it is also the only
-// *sound* one. A pass yielding whole entries would have to hand back an
+// *sound* one. An iterator yielding whole entries would have to hand back an
 // owned `(K, V)`, and copying a value of unconstrained generic type is
 // unsupported on the Kotlin backend by construction — erased generics
 // cannot tell an immutable value from a mutable one at runtime, so it
 // refuses rather than aliasing [kt-copy]. Keys escape that because they are
 // the immutable intrinsic types [col-key-eligible]. Reaching values through
 // `get` is not a workaround but the better shape anyway: it *borrows* them
-// [copy-opt-in], where an entries pass would copy every value in the map.
+// [copy-opt-in], where an entries iterator would copy every value in the map.
 // (An `entries`/`values` surface therefore waits on a way to copy a generic
-// value, or on passes that borrow — recorded in ROADMAP.md.)
+// value, or on iterators that borrow — recorded in ROADMAP.md.)
 export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyYield<K> => map {
     return Mut MapKeyYield<K> { items: keys(map), at: 0 }
 }
 
 // [iter-protocol] The pass a map is walked by: a snapshot of its keys plus a
-// position in it, owned by the pass — the same shape `SetYield` has, and for
+// position in it, owned by the iterator — the same shape `SetYield` has, and for
 // the same reason (a hash map has no index to walk).
 export struct MapKeyYield<K> : Yield<self, K> canbe Mut {
-    // The keys, in insertion order, owned by this pass.
+    // The keys, in insertion order, owned by this iterator.
     items: List<K>,
     // The index of the next key to emit.
     at: Int
 }
 
-// Advances the pass, reporting the key at its position or the end of the map.
+// Advances the iterator, reporting the key at its position or the end of the map.
 export fn next<K>(p: Mut MapKeyYield<K>) [] -> Emitted K | Finished => p: Mut {
     let key = snapshot_at(p.items, p.at)
     if key is None {

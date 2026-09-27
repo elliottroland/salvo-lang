@@ -82,7 +82,7 @@ if i is Idx(xs) {
 
 `swap(list, i: Idx(list) Int, j: Idx(list) Int)` is the same idea for a
 mutation: two proven indices cannot be out of range, so there is no `Bool` to
-check. And the passes that *produce* indices mint the claim, which is what
+check. And the iterators that *produce* indices mint the claim, which is what
 makes a loop total end to end:
 
 ```

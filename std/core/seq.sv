@@ -1,10 +1,10 @@
-// [seq-pass] Sequence functions over **passes** [iter-protocol]: the subject
-// is a pass, and its `next` arrives as an implicit parameter through the
+// [seq-iterator] Sequence functions over **iterators** [iter-protocol]: the subject
+// is an iterator, and its `next` arrives as an implicit parameter through the
 // `?Yield<It, T>` spread [implicit-group] — so these work on std's container
-// passes (`map(iter(xs), f)`), on an `iter fn`'s result, and on a pass
+// iterators (`map(iter(xs), f)`), on an `iter fn`'s result, and on an iterator
 // type of your own the moment it declares `: Yield<self, T>`.
 //
-// The subject is written as the pass rather than as the container (user
+// The subject is written as the iterator rather than as the container (user
 // decision 2026-09-09): a container is iterated by writing its `iter`, which
 // is one call more at the use site and no cross-implicit inference in the
 // compiler. The `List` fast paths at the bottom keep the short spelling for
@@ -12,14 +12,14 @@
 //
 // **Eager**: `map` and `filter` return a `Mut List<U>`. Nothing here is lazy —
 // the lazy pair was removed 2026-09-10 (user decision) and laziness is
-// reconsidered after concurrency lands; see ROADMAP.md. A *composed* pass is
-// still perfectly writable by hand, since a pass is only a struct with a
+// reconsidered after concurrency lands; see ROADMAP.md. A *composed* iterator is
+// still perfectly writable by hand, since an iterator is only a struct with a
 // `next` [iter-protocol].
 //
 //
 // Driving is an ordinary `for`: the `?Yield<It, T>` spread is the declaration
-// the loop reads [iter-generic-drive], so a generic pass is driven exactly as a
-// named one is. `=> it: Mut` says the pass is advanced **in place** and handed
+// the loop reads [iter-generic-drive], so a generic iterator is driven exactly as a
+// named one is. `=> it: Mut` says the iterator is advanced **in place** and handed
 // back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
@@ -33,9 +33,9 @@ export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Yield<It, T>) [] -> Mut List<U
 
 // The elements of [it] that [keep] accepts, in order — as a **view**: the
 // result holds borrows of the elements, so nothing is copied [copy-opt-in],
-// and it lives no longer than the pass's source. `holds proj(it)` is the
+// and it lives no longer than the iterator's source. `holds proj(it)` is the
 // written lend [proj-infer]: a generic body cannot show the analysis that an
-// element of an opaque pass is stored, so the signature says it. For a list
+// element of an opaque iterator is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
 export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Yield<It, T>) [] -> Mut List<proj T> holds proj(it)
 => it: Mut, keep {
@@ -112,7 +112,7 @@ export fn filter_to<D, It, T>(
 // The uniform **consuming callback** for values that owe nothing: where a
 // combinator takes an `end: (x: T) -> None` that consumes (the pattern that
 // replaced the implicit release — a linear caller passes the type's own
-// discharger), a non-linear caller passes `drop`. Deliberately *without*
+// discharger), a non-linear caller iterators `drop`. Deliberately *without*
 // `canbe linear`: a linear argument is refused by the instantiation ban
 // [linear-generics], which is exactly the protection — `drop` never
 // discharges an obligation.

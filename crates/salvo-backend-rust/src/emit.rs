@@ -1355,6 +1355,12 @@ struct Emitter<'p> {
     /// Needed once the lend became inferrable — a written one was always a
     /// parameter of the enclosing signature, an inferred one need not be.
     enclosing_param_names: std::collections::HashSet<String>,
+    /// [rs-proj-lends] [iter-group] The same parameters with their checked
+    /// types, for a lent position whose *name* is a group member's rather than
+    /// this fn's (`?Iter<C, T>`'s `iter(collection: C)` spread into
+    /// `total(c: C, …)`): the borrow is tied to the one enclosing parameter
+    /// of the position's type.
+    enclosing_params: Vec<(String, Ty)>,
     /// [proj-type] The lifetime a `proj` renders under while set (`'s` inside
     /// a borrowing struct or a `next` over one, `'a` on a tied return):
     /// `&'s T` instead of the elided `&T`.
@@ -2228,6 +2234,7 @@ impl<'p> Emitter<'p> {
             emitting_producer_args: false,
             lent_position_params: Vec::new(),
             enclosing_param_names: std::collections::HashSet::new(),
+            enclosing_params: Vec::new(),
             proj_lifetime: None,
             proj_return: false,
             borrowed_arm_locals: HashMap::new(),
@@ -2439,6 +2446,21 @@ impl<'p> Emitter<'p> {
         indent: usize,
     ) -> String {
         let pad = "    ".repeat(indent);
+        // [iter-step-call] The subject is a **step call** (`for i in next(p)`):
+        // the call itself is the loop's condition, rendered as an ordinary call
+        // — argument modes and all [rs-borrows] — and re-invoked each turn. Its
+        // arguments are places or literals (the checker's rule), so
+        // re-rendering them re-reads the same values, and a `Mut` place is
+        // re-borrowed per turn.
+        if driver.step_call {
+            self.union_sizes.insert(driver.arms);
+            let arm = format!("Union{}::U{}", driver.arms, driver.emitted_arm + 1);
+            let var = self.for_pattern_var(pattern, false, indent + 1);
+            let saved = std::mem::replace(&mut self.mode, ValueMode::Own);
+            let call = self.emit_expr(iterable);
+            self.mode = saved;
+            return format!("{pad}while let {arm}({var}) = {call} {{\n");
+        }
         // [iter-generic-drive] The `next` is either a declared overload or an
         // **implicit parameter** of this body — a generic pass has no
         // declaration to resolve against, and the parameter is what the caller
@@ -2531,16 +2553,16 @@ impl<'p> Emitter<'p> {
         // written in, so a temporary the subject borrows is hoisted in front
         // of the loop (E0716 otherwise; Kotlin needs nothing).
         let temps = self.hoist_subject_temporaries(iterable, indent);
-        let subject = match driver.mint_iter_fn {
-            // [iter-pass] The subject is a *container*, not a pass: its `iter`
+        let subject = match &driver.mint {
+            // [iter-mint] The subject is a *container*, not a pass: its `iter`
             // mints one, called once before the loop. The arguments go through
             // the ordinary machinery, so the parameter's mode decides whether
             // the container is borrowed or moved [rs-borrows].
-            Some(key) => match self.fn_by_key(key) {
+            Some(salvo_core::PassMember::Fn(key)) => match self.fn_by_key(*key) {
                 Some(decl) => {
                     let callee = self.rust_fn_name(decl);
                     let params = decl.params.clone();
-                    let args = self.emit_args_for_params(&params, &[iterable], Some(key));
+                    let args = self.emit_args_for_params(&params, &[iterable], Some(*key));
                     format!("{callee}({})", args.join(", "))
                 }
                 None => {
@@ -2548,6 +2570,14 @@ impl<'p> Emitter<'p> {
                     return String::new();
                 }
             },
+            // [iter-group] A generic source: the `iter` implicit this body was
+            // handed mints the iterator. Its one parameter is the source,
+            // kept — the value is passed as the fn value's own type says.
+            Some(salvo_core::PassMember::Implicit(name)) => {
+                let callee = rs_ident(name);
+                let arg = self.emit_implicit_call_arg(iterable);
+                format!("{callee}({arg})")
+            }
             None => {
                 // [rs-read-mode] The local takes the pass over, so this is an
                 // **owned** position: a narrowed subject has to clone out of its
@@ -2563,6 +2593,34 @@ impl<'p> Emitter<'p> {
              {pad}while let {arm}({var}) = {callee}({lead}&mut {place}) {{\n",
             temps = temps.concat()
         )
+    }
+
+    /// [iter-group] The one argument of a call through the body's `iter`
+    /// implicit (the mint of a `for` over a generic source), rendered per the
+    /// implicit's own contract [fn-contract]: kept non-Copy borrows, moved or
+    /// Copy owned.
+    fn emit_implicit_call_arg(&mut self, arg: &Expr) -> String {
+        let contract = self
+            .implicits
+            .iter()
+            .find(|imp| imp.name == "iter")
+            .and_then(|imp| match imp.ty.strip_quals() {
+                Ty::Fn { contract, .. } => contract.clone(),
+                _ => None,
+            });
+        let (kept, is_mut) = contract
+            .as_ref()
+            .and_then(|c| c.first())
+            .map(|e| (e.kept, e.mutable))
+            .unwrap_or((true, false));
+        let copy = self.ty_of(arg.span()).is_some_and(|t| Self::is_copy_ty(t));
+        if kept && is_mut {
+            self.borrowed_mut_arg(arg)
+        } else if kept && !copy {
+            self.borrowed_arg(arg)
+        } else {
+            self.emit_expr(arg)
+        }
     }
 
     fn fn_by_key(&self, key: salvo_core::FnKey) -> Option<&'p FnDecl> {
@@ -5964,6 +6022,12 @@ impl<'p> Emitter<'p> {
             .filter(|p| !p.implicit)
             .map(|p| p.name.name.clone())
             .collect();
+        self.enclosing_params = f
+            .params
+            .iter()
+            .filter(|p| !p.implicit)
+            .filter_map(|p| self.ty_of(p.name.span).cloned().map(|t| (p.name.name.clone(), t)))
+            .collect();
         for imp in &self.implicits.clone() {
             // [rs-iter-pass] An iterator fn's callbacks arrive **owned** and
             // `'static`, because its pass calls them long after this returns —
@@ -6645,6 +6709,22 @@ impl<'p> Emitter<'p> {
     // ================= types =================
 
     fn emit_type(&mut self, ty: &Type) -> String {
+        // [iter-type] A written `iter T` is a pattern the checker filled from a
+        // value (a `let` annotation, a fn's return): render what it resolved
+        // to. One that reached here unresolved is a checker gap, reported
+        // rather than rendered [backend-never-wrong].
+        if salvo_syntax::desugar::split_iter_qualifier(ty).is_some() {
+            return match self.checked.iter_types.get(&(self.file_idx, ty.span())).cloned() {
+                Some(resolved) => self.rust_ty(&resolved),
+                None => {
+                    self.error(
+                        "an `iter T` here was not resolved to an iterator struct by the \
+                         checker, so it cannot be rendered",
+                    );
+                    "()".to_string()
+                }
+            };
+        }
         // [proj-type] `proj X` *is* a reference: `&X`, at whatever depth it
         // sits — a union arm (`Union2<&String, Finished>`), a type argument
         // (`Vec<&String>`), a field, a parameter. (A Copy scalar's `proj` is
@@ -7428,7 +7508,14 @@ impl<'p> Emitter<'p> {
                 if self.erased.is_erased(name) {
                     return self.emit_named_parts(name, &[]);
                 }
-                let arg_strs: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+                let mut arg_strs: Vec<String> = args.iter().map(|a| self.rust_ty(a)).collect();
+                // [rs-proj-struct] A borrowing struct carries its source's
+                // lifetime at every mention, as the written-type path renders
+                // it — a checker type reaching here (a filled `iter T` pattern
+                // [iter-type]) must agree.
+                if self.borrowing_structs.contains(name) {
+                    arg_strs.insert(0, "'_".to_string());
+                }
                 self.emit_named_parts(name, &arg_strs)
             }
             Ty::Qualified { quals, base } => {
@@ -7913,23 +8000,38 @@ impl<'p> Emitter<'p> {
                 // [rs-proj-lends] A *lent* position (`[c: proj]`) is `&T` for
                 // its own reason: the result holds a borrow of it, which a
                 // by-value parameter could not outlive (E0515).
+                // [iter-group] A lent position named after a *group member's*
+                // parameter (`iter(collection: C)`) ties to the one enclosing
+                // parameter of its type instead.
+                let lent_to: Option<String> = if kept && lent {
+                    match entry.and_then(|e| e.name.as_deref()) {
+                        Some(n) if self.enclosing_param_names.contains(n) => Some(n.to_string()),
+                        _ => {
+                            let same: Vec<&String> = self
+                                .enclosing_params
+                                .iter()
+                                .filter(|(_, t)| t.strip_quals() == p.strip_quals())
+                                .map(|(n, _)| n)
+                                .collect();
+                            if same.len() == 1 {
+                                Some(same[0].clone())
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                } else {
+                    None
+                };
                 if kept && mutable {
                     format!("&mut {base}")
-                } else if kept
-                    && lent
-                    && entry
-                        .and_then(|e| e.name.as_deref())
-                        .is_some_and(|n| self.enclosing_param_names.contains(n))
-                {
+                } else if let Some(n) = lent_to {
                     // The result's type (`It`) is fixed at the call site, so
                     // the borrow it holds cannot be a fresh per-call lifetime:
                     // it is the enclosing fn's borrow of the parameter this
                     // position is named after, `'c`, which `emit_fn` names on
                     // that parameter too. Recorded here, applied there.
-                    let named = entry.and_then(|e| e.name.clone());
-                    if let Some(n) = named {
-                        self.lent_position_params.push(n);
-                    }
+                    self.lent_position_params.push(n);
                     format!("&'c {base}")
                 } else if kept && !Self::is_copy_ty(p) {
                     format!("&{base}")
@@ -8547,8 +8649,10 @@ impl<'p> Emitter<'p> {
             return false;
         }
         let Some(callee) = callee else { return false };
+        // [iter-group] `?Iter<C, Int>` names the element second too, and its
+        // `next` is `Yield`'s over the hidden iterator.
         callee.implicit_groups.iter().any(|spread| {
-            spread.name.name == "Yield"
+            (spread.name.name == "Yield" || spread.name.name == "Iter")
                 && matches!(
                     spread.args.get(1),
                     Some(Type::Named { qualifiers, base })

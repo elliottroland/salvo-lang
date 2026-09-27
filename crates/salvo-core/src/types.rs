@@ -256,7 +256,97 @@ pub enum Ty {
     Unknown,
 }
 
+/// [iter-type] The name the placeholder type `iter T` lowers under:
+/// `Ty::Named { name: ITER_MARKER, args: [T] }`. Never the type of a value
+/// that reaches a backend — every position that admits it either substitutes
+/// a hidden generic (a `?Iter<C, T>` spread, an `iter T` parameter), fills it
+/// as a pattern from a value (a `let` annotation, a fn's return), or is a group
+/// member's placeholder. A lowercase name, so no program type can collide
+/// [name-casing].
+pub const ITER_MARKER: &str = "iter";
+
 impl Ty {
+    /// [iter-type] `iter T`, as lowered.
+    pub fn iter_marker(elem: Ty) -> Ty {
+        Ty::Named {
+            name: ITER_MARKER.to_string(),
+            args: vec![elem],
+        }
+    }
+
+    /// [iter-type] The element type, if this is the `iter T` placeholder
+    /// (qualifiers ignored — `Mut iter T` is refused where it is written, but
+    /// the lowering still has to read through it).
+    pub fn as_iter_marker(&self) -> Option<&Ty> {
+        match self.strip_quals() {
+            Ty::Named { name, args } if name == ITER_MARKER && args.len() == 1 => Some(&args[0]),
+            _ => None,
+        }
+    }
+
+    /// [iter-type] Whether the placeholder occurs anywhere in this type.
+    pub fn mentions_iter_marker(&self) -> bool {
+        match self {
+            Ty::Named { name, args } => {
+                name == ITER_MARKER || args.iter().any(|a| a.mentions_iter_marker())
+            }
+            Ty::Qualified { base, quals } => {
+                base.mentions_iter_marker()
+                    || quals.iter().any(|q| q.args.iter().any(|a| a.mentions_iter_marker()))
+            }
+            Ty::Union(arms) | Ty::Tuple(arms) => arms.iter().any(|a| a.mentions_iter_marker()),
+            Ty::Array(elem) => elem.mentions_iter_marker(),
+            Ty::Fn { params, ret, .. } => {
+                params.iter().any(|p| p.mentions_iter_marker()) || ret.mentions_iter_marker()
+            }
+            Ty::FnName(_) | Ty::ValueRef { .. } | Ty::ConstInt(_) | Ty::Var(_) | Ty::Any
+            | Ty::Never | Ty::Unknown => false,
+        }
+    }
+
+    /// [iter-type] Every occurrence of the placeholder replaced by `with` —
+    /// `Mut` added, since an iterator is always advanced in place and the
+    /// placeholder implies it. The placeholder's own element argument is
+    /// dropped: what it stood for is now `with`.
+    pub fn replace_iter_marker(&self, with: &Ty) -> Ty {
+        if self.as_iter_marker().is_some() {
+            let mut quals: Vec<Qual> = self.quals().to_vec();
+            if !quals.iter().any(|q| q.name == "Mut") {
+                quals.push(Qual {
+                    name: "Mut".to_string(),
+                    args: Vec::new(),
+                    effect: false,
+                });
+            }
+            return with.clone().qualify(quals);
+        }
+        match self {
+            Ty::Named { name, args } => Ty::Named {
+                name: name.clone(),
+                args: args.iter().map(|a| a.replace_iter_marker(with)).collect(),
+            },
+            Ty::Qualified { quals, base } => {
+                let base = base.replace_iter_marker(with);
+                base.qualify(quals.clone())
+            }
+            Ty::Union(arms) => Ty::Union(arms.iter().map(|a| a.replace_iter_marker(with)).collect()),
+            Ty::Tuple(arms) => Ty::Tuple(arms.iter().map(|a| a.replace_iter_marker(with)).collect()),
+            Ty::Array(elem) => Ty::Array(Box::new(elem.replace_iter_marker(with))),
+            Ty::Fn {
+                params,
+                ret,
+                contract,
+                effects,
+            } => Ty::Fn {
+                params: params.iter().map(|p| p.replace_iter_marker(with)).collect(),
+                ret: Box::new(ret.replace_iter_marker(with)),
+                contract: contract.clone(),
+                effects: effects.clone(),
+            },
+            other => other.clone(),
+        }
+    }
+
     pub fn named(name: impl Into<String>) -> Ty {
         Ty::Named {
             name: name.into(),
@@ -1112,6 +1202,14 @@ impl fmt::Display for Ty {
             Ty::ValueRef { path, .. } => write!(f, "{path}"),
             // [qual-const] A constant reads as it is written: `InRange(0, 65535)`.
             Ty::ConstInt(n) => write!(f, "{n}"),
+            // [iter-type] The placeholder reads as it is written: `iter Int`.
+            Ty::Named { name, args } if name == ITER_MARKER && args.len() == 1 => {
+                if matches!(args[0], Ty::Union(_) | Ty::Qualified { .. } | Ty::Fn { .. }) {
+                    write!(f, "iter ({})", args[0])
+                } else {
+                    write!(f, "iter {}", args[0])
+                }
+            }
             Ty::Named { name, args } => {
                 write!(f, "{name}")?;
                 fmt_args(f, args)

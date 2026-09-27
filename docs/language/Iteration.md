@@ -26,19 +26,22 @@ takes the element type from its result. Nothing about `for` is special-cased for
 std — this is how any combinator of your own reads.
 
 There is no `Yield` *type* and nothing implements it: `map` needs a `next` for
-whatever `it` is, and the call site supplies one. The subject is a **pass** — a
-position in a sequence — so a container is iterated by writing its `iter`:
+whatever `it` is, and the call site supplies one. The subject is an
+**iterator** — a position in a sequence — so a container is iterated by writing
+its `iter`, and an `iter fn` is called:
 
 ```
 let doubled = map(iter(xs), double)         // a list
 let letters = filter(iter("hello"), keep)   // a string's characters
-let capped = map(iter(counter(3)), double)   // a pass of your own
+let capped = map(countdown(3), double)      // an `iter fn` of your own
 ```
 
-A type of your own joins in by declaring an `iter` that hands back a pass:
+A type of your own joins in by declaring `: Iter<self, T>` and an `iter` —
+an `iter fn`, or a fn handing back a named iterator struct
+([Iterators](Iterators.md)):
 
 ```
-struct Bag {
+struct Bag : Iter<self, Int> {
     items: List<Int>
 }
 
@@ -52,6 +55,21 @@ let total = reduce(iter(bag), 0, (acc, n) -> acc + n)
 Inference runs *through* the group: `It` comes from the subject, and `T` — the
 element type — is read from `It`'s `: Yield<self, T>` clause. That is what lets
 the lambda be written bare (`n -> n * 2`) with no annotation anywhere.
+
+The other spread, `?Iter<C, T>`, is for a combinator over a **source** rather
+than an iterator: it brings in the `iter` that mints and the `next` that drives,
+over a hidden iterator type, so `total(xs)` and `total(bag)` both work and the
+body writes `for x in c`:
+
+```
+fn total<C>(c: C, ?Iter<C, Int>) -> Int => c {
+    let sum = 0
+    for n in c {
+        sum = sum + n
+    }
+    return sum
+}
+```
 
 `map`, `filter` and `reduce` are **eager**: they return a `Mut List<U>`.
 Chaining works because a list has an `iter` like anything else. Each also has a
@@ -73,14 +91,13 @@ The destination is moved in and returned, which is what makes the nested form
 work. If you want to keep hold of one across the call, rebind it:
 `let sink = map_to(sink, iter(xs), double)`.
 
-**Iterating a container consumes it**, because the pass holds it: `iter(xs)`
-moves `xs` into the pass it builds. A `for` straight over the container does
-not — that is data, and the backends walk it in place — so the copy is only
-needed where you walk the same container twice through `iter`:
-`map(iter(copy(xs)), f)`.
+**Iterating a container borrows it**: `iter(xs)` hands back an iterator that
+holds a view of `xs`, so `xs` stays usable and cannot be mutated while the
+iterator lives. A `for` straight over the container allocates nothing at all —
+that is data, and the backends walk it in place.
 
-`Yield` is the pattern, not the only instance: `core.compare` declares
-`Ordered`, `Eq` and `Hashed` the same way
+`Yield` and `Iter` are the pattern, not the only instances: `core.compare`
+declares `Ordered`, `Eq` and `Hashed` the same way
 ([Comparison, equality and hashing](Comparison-and-Hashing.md)), and
 `core.list` declares `Locate` for algorithms generic over what a *position*
 is ([Mutable handles](Mutable-Handles.md)). A type joins any of them by
@@ -90,5 +107,5 @@ declaring one function.
 
 A `params` group can also be an obligation on a **struct**, so the
 requirement travels with the type rather than with each function that takes
-it (`export struct ArrayYield<T> : Yield<self, proj T>`). See
-[Implicit parameters](Implicit-Parameters.md).
+it (`export struct ArrayYield<T> : Yield<self, proj T>`, `struct Bag :
+Iter<self, Int>`). See [Implicit parameters](Implicit-Parameters.md).
