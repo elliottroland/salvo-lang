@@ -38,6 +38,13 @@ const STD_NET: &str = concat!(
     "export intrinsic fn decode<T>(data: Bytes) [] -> T? => data\n",
     "export struct Protocol<E> { name: Str, hash: Str }\n",
     "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
+    // The pick kit's shape, enough for the erased-sibling rule [route-stub].
+    "export struct ActorGroupView<E> { key: Long? = None }\n",
+    "export effect Pick<E> { fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view }\n",
+    "export handler LeastLoaded<E>(prefer_local: Bool) of Pick<E> {\n",
+    "    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view { return None }\n}\n",
+    "export handler Sharded<E>() of Pick<E> {\n",
+    "    fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view { return None }\n}\n",
 );
 
 fn program(src: &str) -> (Program, Vec<FileDiagnostic>) {
@@ -262,4 +269,44 @@ fn effect_typed_generics_check() {
          let _p = protocol<Ping>()\n}}\n"
     ));
     assert!(errs.is_empty(), "expected no errors, got {errs:?}");
+}
+
+/// [effect-generic-decl] Two instances of an effect whose arguments are
+/// effects erase to one type, so one scope holds one: the second `use` is
+/// refused, naming the nested-block remedy; a nested scope is fine.
+#[test]
+fn two_erased_instances_cannot_share_a_scope() {
+    let src = "\
+import net
+
+actor effect Ping {
+    send fn ping(out: Reply<Str>) => !out
+}
+
+actor effect Pong {
+    send fn pong(out: Reply<Str>) => !out
+}
+
+fn inner() [use] {
+    use LeastLoaded<Pong>(true)
+}
+
+fn main() [use] {
+    use LeastLoaded<Ping>(true)
+    inner()
+    use Sharded<Pong>()
+}
+";
+    let errs: Vec<String> = program(src)
+        .1
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.message.clone())
+        .collect();
+    assert_eq!(errs.len(), 1, "{errs:?}");
+    assert!(
+        errs[0].contains("`Pick<Pong>` cannot be bound while `Pick<Ping>` is")
+            && errs[0].contains("nested block"),
+        "{errs:?}"
+    );
 }

@@ -8040,6 +8040,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .get(id.name.as_str())
             .map(|d| d.of_any.clone())
             .unwrap_or_default();
+        for effect in &concrete {
+            self.refuse_erased_sibling(effect, span);
+        }
         for (i, effect) in concrete.into_iter().enumerate() {
             self.effect_env.push(EffectAvail {
                 ty: effect,
@@ -8051,6 +8054,40 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     // ================= scopes, locals, narrowing =================
+
+    /// [effect-generic-decl] Two instances of an effect whose arguments are
+    /// all effects — `Pick<Sequencer>` beside `Pick<Inventory>` — erase to
+    /// **one** type in the output, so one scope cannot hold both: the emitters
+    /// would implement one accessor twice (and the second would win silently
+    /// in a fusion frame). Refused at the second `use`, naming the fix: a
+    /// nested block, since a binding lasts for its scope.
+    fn refuse_erased_sibling(&mut self, effect: &Ty, span: Span) {
+        let Ty::Named { name, args } = effect.strip_quals() else { return };
+        if args.is_empty() {
+            return;
+        }
+        let effect_only = args.iter().all(|a| {
+            matches!(a, Ty::Named { name, args } if args.is_empty() && self.scope.effects.contains_key(name.as_str()))
+        });
+        if !effect_only {
+            return;
+        }
+        let sibling = self.visible_avail().into_iter().find(|a| {
+            matches!(a.ty.strip_quals(), Ty::Named { name: n, args: other } if n == name && other != args)
+        });
+        if let Some(sibling) = sibling {
+            self.error(
+                span,
+                format!(
+                    "`{effect}` cannot be bound while `{}` is: an effect whose arguments are \
+                     effects is one type in the generated code, so one scope holds one \
+                     instance of `{name}` — bind this one in a nested block (`{{ use …; … }}`), \
+                     or after the other has gone out of scope [effect-generic-decl]",
+                    sibling.ty
+                ),
+            );
+        }
+    }
 
     /// [use-no-dup] [effect-intercept] The effect instances visible here,
     /// **innermost first, shadowed duplicates hidden**. `effect_env` is a
@@ -11270,6 +11307,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         for f in &h.fns {
             let matched = crate::handler_member_faces(&decls, f);
             let Some((first, first_idx)) = matched.first().copied() else {
+                // [actor-send-fn] A `send fn` no face declares has no
+                // message variant and no continuation variant to arrive on:
+                // a `k@self(…)` or `replyto k(…)` naming it would type-check
+                // and then have nothing to run. Refused here, at the
+                // declaration, naming the two remedies.
+                // [mixed-handler] Except the servant of a mixed handler,
+                // whose faces are all plain: there the private send
+                // members *are* the design, and they get their own enum.
+                let mixed = !decls.is_empty() && decls.iter().all(|e| !e.is_actor);
+                if f.is_send && !decls.is_empty() && !mixed {
+                    self.error(
+                        f.name.span,
+                        format!(
+                            "handler `{}` declares `send fn {}`, which no effect it implements \
+                             declares: a handler's members are its faces' — add `{}` to the \
+                             protocol, or give the handler a second face that declares it",
+                            h.name.name, f.name.name, f.name.name
+                        ),
+                    );
+                }
                 continue;
             };
             let Some(first_member) = first.fns.get(first_idx) else {

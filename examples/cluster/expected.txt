@@ -1,0 +1,19 @@
+nodes: 2, sequencers: 2
+singleton (b's sequencer is remote: true):
+  b#1 b#2
+sharded:
+  apple: 1 reserved on its shard so far
+  pear: 1 reserved on its shard so far
+  apple: 2 reserved on its shard so far
+  fig: 3 reserved on its shard so far
+  pear: 2 reserved on its shard so far
+  apple and apple on one shard: true
+  apple and fig on one shard: true
+  apple and pear on one shard: false
+scatter:
+  salvo: 4, actors: 1, none: 0
+hedge:
+  k1 from a
+after b left:
+  sequencers: 1
+  a#1 a#2

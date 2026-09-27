@@ -58,7 +58,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 1594 tests, complete: the toolchain tests are
+cargo test                  # 1596 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~15s warm, minutes cold
 SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
@@ -132,6 +132,32 @@ Each entry is one piece of work: what was decided, by whom, what it took, and
 what fell out of building it. Entries marked "(user decision …)" record a
 language-design call, which is the user's to make (AGENTS.md's first
 invariant).
+
+**The network sequence, step ⑧ — `examples/cluster/` (2026-09-27 — built;
+the sequence is complete).** One program over two virtual nodes and the
+in-memory transport: a singleton behind `Elected` and an election by host
+order serving `Leader`; shards by `Key` under `Sharded`; scatter (map/reduce)
+and a hedge as hand-written routers `of any E` with a collecting actor each;
+failover when node `b` leaves — its members withdrawn from every replica, the
+election answering `a`, the singleton's ids moving with nothing rebound.
+Identical output on both backends, stable across runs (the sharded section
+prints the invariant — same key, same shard — rather than which physical
+member is shard 0, which this in-process fleet's random node ids do not pin
+down). Writing it surfaced two rules the checker now states: **a handler's
+send members are its faces'** (a private `send fn` used as a `replyto`
+target type-checked and had no continuation variant to arrive on — the
+checker refuses it at the declaration, exempting mixed handlers' servants;
+three checker fixtures that relied on it now declare the member in a face),
+and **one scope holds one instance of an erased effect** (`Pick<Sequencer>`
+beside `Pick<Inventory>` implemented one Rust accessor twice; refused at the
+second `use` with the function-per-policy remedy). The codegen test harness
+also gained the drivers' `expand` pass, which it had never run. **1596
+tests** (+2 checker tests; the example is checked by the two per-backend
+example tests). **Not written**: Raft as the flagship — ROADMAP.md section 2
+says why and what it needs first. NETWORK_POOLS.md, the design's argument
+trail, is deleted with this step as planned; it is in git history up to
+`aaa45d9`, and the decisions live in this log ("Actors across machines — the
+network round").
 
 **The network sequence, step ⑦ — `Pick<E>` and the generated `route(group)`
 stub (2026-09-27 — built).** One rule, [route-stub]. The kit in std `net`:
@@ -589,8 +615,8 @@ the manifest DECISION gains a second customer (the version label and lock
 file); the deadlock graph's per-program scope is a recorded gap of the same
 shape as "over types, not instances". The cross-language survey (Erlang,
 Akka/Pekko, Orleans, Ray, Cloud Haskell, Unison, E/CapTP, Raft) and every
-option refused live in NETWORK_POOLS.md until the sequence lands, then here by
-reference.
+option refused lived in NETWORK_POOLS.md until the sequence landed (deleted
+2026-09-27 with step ⑧; in git history up to `aaa45d9`).
 
 **A fn-typed slot with an opaque return infers its lend (2026-09-26, user
 decision — built).** The last defect of the 2026-09-25 round

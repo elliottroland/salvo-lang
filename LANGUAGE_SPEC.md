@@ -4275,6 +4275,14 @@ docs/language/ remains the source of truth for everything that does.
     (user decision 2026-09-15: kept for now, revisited when the surface is
     real) — because there the member does have something true to say, even
     though a send payload always crosses the seam and so is always consumed.
+  * **A handler's send members are its faces'** (2026-09-27). A `send fn` no
+    effect the handler implements declares has no message variant and no
+    continuation variant to arrive on, so a `k@self(…)` or a `replyto k(…)`
+    naming it would type-check and run nothing: refused at the declaration,
+    naming the remedies (add it to the protocol, or give the handler a second
+    face that declares it — `examples/cluster/`'s `Delayed`). The one
+    exception is the servant of a mixed handler [mixed-handler], whose faces
+    are all plain and whose private send members are the design.
 * [actor-spawn-effect] `[spawn]` in an effect list is the **capability to
   create an actor** — lowercase and compiler-owned, like `use`, and
   contextual for the same reason `send` is. Accepted on a function and on a
@@ -5467,6 +5475,13 @@ between endpoints and delivers what arrives into the scheduler.
     scopes and the symbol table, both are rebuilt over the erased copy; the
     checker's span-keyed side tables from the original still apply, since
     erasure changes no span.
+  * **One scope, one instance of an erased effect** (2026-09-27). `Pick<A>`
+    and `Pick<B>` are one type in the output, so a `use` binding the second
+    while the first is visible is refused, naming the remedy — a nested
+    scope, which in Salvo is a function (`examples/cluster/`'s `two_ids` and
+    `shop`). Shadowing the *same* instance stays legal [effect-intercept].
+    Lifting the rule means a phantom parameter on the erased trait and a
+    marker type per effect on the Rust side; recorded in ROADMAP.md.
 * [actor-group] **`ActorGroup<E>` is the routable set of `Addr<E>` a program
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
   `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`, plus the

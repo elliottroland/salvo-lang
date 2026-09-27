@@ -16,6 +16,7 @@ compiler generated for it and the output it prints.
 | [`actors/`](actors/) | actors: an `actor effect` and `send fn`, a linear reply token, one actor answering through another (`replyto` parking a continuation), a queue of obligations drained on shutdown, death and `watch` — and the same handler bound synchronously with `use`, which is not an actor at all |
 | [`files/`](files/) | the filesystem: one `Fs` effect for paths and streams, linear tokens and a linear error, `Bytes` and text off one stream, the fill-a-buffer reads and the copy one-shots — and one program run against the disk, a sandbox and an in-memory double |
 | [`time/`](time/) | time: spans and the two timelines, reading a clock as a capability, time-as-data as the posture, a deadline as a message, and virtual time in a test — `ManualTime`'s two faces, and a test clock the timer itself backs |
+| [`cluster/`](cluster/) | actors across machines: two virtual nodes over the in-memory transport, actor groups found by name, a singleton behind an election (`Elected`), shards by `Key` (`Sharded`), scatter and hedge as hand-written routers `of any E`, and failover when a node leaves |
 
 Every one of these is **checked by the test suite** (added 2026-09-16, after
 `examples/effects/` was found broken for a day): each backend asserts that the

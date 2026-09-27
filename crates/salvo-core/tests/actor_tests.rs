@@ -1929,10 +1929,12 @@ fn two_processes_that_gate_on_each_other_are_refused() {
 actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
+    send fn placed(out: Reply<Str>, ok: Bool) => !out
 }
 
 actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
+    send fn counted(out: Reply<Bool>, n: Int) => !out
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
@@ -2028,10 +2030,12 @@ fn one_ungated_side_downgrades_the_cycle_to_a_warning() {
 actor effect OrderApi {
     send fn place(id: Int, out: Reply<Str>) => !out
     send fn open_orders(id: Int, out: Reply<Int>) => !out
+    send fn placed(out: Reply<Str>, ok: Bool) => !out
 }
 
 actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
+    send fn counted(out: Reply<Bool>, n: Int) => !out
 }
 
 handler Orders(credit: Addr<CreditApi>) of OrderApi {
@@ -2081,7 +2085,11 @@ handler Credit(orders: Addr<OrderApi>) of CreditApi {
 #[test]
 fn an_intercepting_handler_that_gates_is_not_a_cycle() {
     let src = "\
-handler Caching() [Counter] of Counter {
+actor effect CacheFill {
+    send fn answered(out: Reply<Int>, n: Int) => !out
+}
+
+handler Caching() [Counter] of Counter, CacheFill {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
@@ -2443,5 +2451,53 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
     assert!(
         errs.iter().any(|m| m.contains("carry no strength") && m.contains("declare `[any Counter]`")),
         "{errs:?}"
+    );
+}
+
+/// [actor-send-fn] A `send fn` no face declares is refused at the declaration:
+/// it would have no message variant to arrive on, so a `k@self(…)` or a
+/// `replyto k(…)` naming it would type-check and run nothing. The servant of a
+/// mixed handler [mixed-handler] — every face plain — keeps its private send
+/// members, which are the design there.
+#[test]
+fn a_private_send_member_of_an_actor_handler_is_refused() {
+    let errs = errors(
+        "\
+handler Sneaky() of Counter {
+    mailbox { capacity: 4 }
+    sum: Int = 0
+    send fn bump(n: Int) { helper@self(n) }
+    send fn total(out: Reply<Int>) { out.send(sum) }
+    send fn helper(n: Int) { sum = sum + n }
+}
+",
+    );
+    assert!(
+        errs.iter().any(|m| m.contains("declares `send fn helper`, which no effect it implements declares")
+            && m.contains("second face")),
+        "{errs:?}"
+    );
+    let errs = errors(
+        "\
+effect Random {
+    fn next() -> Int
+}
+
+handler CyclicRandom(seed: Int) of Random {
+    mailbox { capacity: 8 }
+    cursor: Int = 0
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = cursor + seed
+        out.send(cursor)
+    }
+    fn next() -> Int {
+        return waitfor out: Reply<Int> { advance@self(out) }
+    }
+}
+",
+    );
+    assert!(
+        !errs.iter().any(|m| m.contains("no effect it implements declares")),
+        "a mixed handler's servant keeps its private send members: {errs:?}"
     );
 }

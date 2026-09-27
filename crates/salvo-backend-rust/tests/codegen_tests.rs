@@ -12640,11 +12640,15 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
+    // The drivers' pre-resolution expansions [route-stub].
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
         modules,

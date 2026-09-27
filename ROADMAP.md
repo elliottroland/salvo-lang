@@ -82,84 +82,46 @@ design.
 
 **Step 1 is complete.**
 
-### 2 — Actors across machines: the network sequence (user decisions 2026-09-26; steps ①–⑦ ✅ built)
+### 2 — ✅ Actors across machines: the network sequence (complete 2026-09-27)
 
-The design round is complete — sixteen decisions, all the user's, taken in five
-rounds on 2026-09-26 and recorded in COMPLETED.md's log ("Actors across
-machines — the network round"). NETWORK_POOLS.md holds the argument trail and
-is deleted when the last step lands. The one-line shape: **the network enters
-at the actor group, never at the spawn.** Every actor is spawned by the node
-that hosts it; what crosses the wire is addresses and messages; a function
-declaring `[E]` never learns whether `E` is one local handler, an actor, or a
-group of a hundred across a fleet.
+Eight steps, sixteen user decisions (2026-09-26), all built: COMPLETED.md's log
+has one entry per step ("The network sequence, step ①" … "step ⑧") and the
+round's entry ("Actors across machines — the network round"). What the
+sequence left behind, by step — each a leftover, none a blocker:
 
-The layering, bottom up, and the order it is built in (each step runs on
-`MemTransport` under `salvo test` before it touches a socket):
-
-1. ✅ **`threadsafe platform handler` and the wire — built 2026-09-26**
-   (COMPLETED.md's log, "The network sequence, step ①"). [threadsafe-platform]
-   closed the thread-safety DECISION: undeclared = serialized on both
-   backends, declared = Rust `&self` over `Arc<H>` / Kotlin raw, the contract
-   printed into the skeleton. Module `net` [net-transport] [net-host]
-   [net-mem]: `Transport`, `Inbound`, `NodeEndpoint`, `HostTcpTransport`
-   (`threadsafe`, one host per backend), and the double as `MemNetwork` (an
-   actor: `partition`/`heal`/`kill`/`delivered`) plus a stateless
-   `MemTransport` per virtual node. Both runtimes gained an outside-source
-   count so an open listener is neither idle nor a deadlock. **Left for
-   later steps**: `delay(node, d)` on the double (needs a `Timer` in the
-   network actor — trivial once step ④ wants it); a `.test.sv` annex for
-   `net` (test bodies have no `spawn`); and the multi-face stateful monitor
-   gap, which is why the double is two pieces.
-2. ✅ **Codecs and the protocol hash — built 2026-09-26** (COMPLETED.md's
-   log, "step ②"). [wire-format] [noremote] [protocol-hash] [rs-wire]
-   [kt-wire]: the encoding stated once in `salvo-core/src/wire.rs`, codecs
-   generated per struct/union/message on both backends, `encode`/`decode` in
-   std `net` refused by the shared predicate, `__PROTO_E` constants.
-   **Recorded cuts**: keyed containers have no wire form (identity
-   capabilities would have to travel into the decoder); a generic `T` is
-   refused at `encode`; Kotlin tuples past `Triple` have no codec.
-3. ✅ **Routable `Addr<E>`/`Reply<T>` — built 2026-09-26** (COMPLETED.md's
-   log, "step ③"). [addr-routable] [addr-capability] [remote-backpressure]:
-   proxies, credits, frames, remote replies, virtual nodes for the in-process
-   double; std `net`'s routing surface. **Left**: several remote senders may
-   over-subscribe a mailbox by one each (the initial grant is "at least one");
-   a malformed remote answer is dropped silently.
-4. ✅ **`NodeGroup` — built 2026-09-26** (COMPLETED.md's log, "step ④").
-   [node-group]: the handshake (name, protocol table, LEAVE) in the runtime,
-   `StaticNodeGroup` and `GossipNodeGroup` in std, `PeerEvents` with
-   introductions as frames. **Left**: the partition/unreachable policy for
-   gossip (a failed `deliver` → `left(n, "unreachable")`); the shared
-   secret/TLS half of N-6 at the handshake (the name is compared, the secret
-   is not yet carried); `HeartbeatNodeGroup` over a `Ddb` platform effect as
-   the interop example.
-5. ✅ **Effect-typed generics and `ActorGroup<E>` — built 2026-09-26**
-   (COMPLETED.md's log, "step ⑤"). [effect-generic-decl], [actor-group]:
-   erasure in `salvo_core::erase`, `attach`/`join`/`members`/`subscribe`,
-   `ActorChanges<E>`, `protocol<E>()` as the `noremote` crossing site,
-   `pending`, `node_of`, `eq` on addresses. **Left**: a partition/unreachable
-   withdrawal follows the node-group one (step ④'s leftover).
-6. ✅ **`[any E]` / `of any E` — built 2026-09-26** (COMPLETED.md's log,
-   "step ⑥"). [effect-any]. **Left (recorded gaps)**: an `Addr<E>` answered
-   by *spawning* a router binds as an ordinary `E` under `use addr` — the
-   addr type has no room for the claim; a lambda's body is checked under
-   strong availabilities; `local`/`any` on a fn type is reported once per
-   lowering of the type (three times for a parameter), a pre-existing
-   duplication.
-7. ✅ **`Pick<E>` and the `route(group)` stub — built 2026-09-27**
-   (COMPLETED.md's log, "step ⑦"). [route-stub]: the view as the runtime's
-   mirror of the replica, `LeastLoaded`/`Sharded`/`Elected`, `Leader` with
-   `StaticLeader`, `Key` erased at lowering, the stub generated syntactically.
-   **Left**: consistent hashing for `Sharded` (today `key mod n` over the
-   ordered view, so a join reshuffles most keys); a `[keyed E]` claim for a
-   program that relies on `Sharded`'s per-key ordering; a stub for a group
-   whose replica is on another node (its view is empty and the stub parks —
-   an attach-here is the remedy, but a `resolve`-style remote mirror would
-   lift it); the stub is generated only where the module spells the
-   protocol (a `use route(g)` over a handle typed elsewhere is refused with
-   the fix named).
-8. **`examples/cluster/`** (Raft as the flagship, singleton, map/reduce,
-   scatter, hedge) and N-10's user-facing half — the manifest's `version` plus
-   a lock file — **which waits on section 4's manifest DECISION.**
+- **① wire/transport**: `delay(node, d)` on `MemNetwork`; a `.test.sv` annex
+  for `net` (test bodies have no `spawn`); the multi-face stateful monitor gap,
+  which is why the double is two pieces.
+- **② codecs**: keyed containers have no wire form; a generic `T` is refused at
+  `encode`; Kotlin tuples past `Triple` have no codec.
+- **③ routable addrs**: several remote senders may over-subscribe a mailbox by
+  one each (the initial grant is "at least one"); a malformed remote answer is
+  dropped silently.
+- **④ node groups**: the partition/unreachable policy for gossip (a failed
+  `deliver` → `left(n, "unreachable")`); the shared secret/TLS half of N-6 at
+  the handshake; `HeartbeatNodeGroup` over a `Ddb` platform effect as the
+  interop example.
+- **⑥ `any`**: an `Addr<E>` answered by *spawning* a router binds as an
+  ordinary `E` under `use addr` (the addr type has no room for the claim); a
+  lambda's body is checked under strong availabilities; `local`/`any` on a fn
+  type is reported once per lowering of the type (three times for a
+  parameter), a pre-existing duplication.
+- **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
+  ordered view, so a join reshuffles most keys); a `[keyed E]` claim for a
+  program relying on `Sharded`'s per-key ordering; a stub for a group whose
+  replica is on another node (empty view, the stub parks); the stub is
+  generated only where the module spells the protocol; two instances of an
+  erased effect (`Pick<A>`, `Pick<B>`) cannot share a scope — a function per
+  policy is the pattern, and lifting it means keeping a phantom on the erased
+  trait plus a marker type per effect on the Rust side.
+- **⑧ the example**: `examples/cluster/` ships an election by host order behind
+  `Leader`, not Raft. **Raft as a flagship example is still to be written** —
+  terms, votes, heartbeats over `Timer`, a replicated log — and wants a
+  deterministic clock across nodes first (virtual time is per process today,
+  and messages between virtual nodes run on other threads). N-10's user-facing
+  half — the manifest's `version` plus a lock file, so a protocol change
+  without a bump fails the build — **waits on section 4's manifest DECISION**
+  (that section notes it as its second customer).
 
 Both groups stay **actors until the sugar pass** (section 13), which thereby
 gains two concrete targets: `members()` as a plain read (the answering stub)

@@ -204,6 +204,23 @@ fn main() [use] {
   the pool's sink (`pool(n, sink)`), or is named on stderr. The scheduler is a library in each
   backend's runtime — no runtime baked into your code, and identical behaviour
   on both.
+- **Across machines**: the network enters at the **actor group**, never at the
+  spawn. Every actor is spawned by the node that hosts it; what crosses the
+  wire is addresses and messages, in a canonical encoding Salvo owns — a
+  Kotlin node and a Rust node are members of one group — and a type that
+  cannot cross says so (`noremote`) and is refused where it would. `Addr<E>`
+  is routable, `Reply<T>` answers across nodes, back-pressure is credit-based
+  so a mailbox's `capacity` stays true, and compatibility is a hash per
+  protocol compared at the handshake. Membership is two actor effects:
+  `NodeGroup` (the machines — a fixed list or gossip over seeds) and
+  `ActorGroup<E>` (the actors of one protocol across them, found by name).
+  `[any E]` is the honest claim for a fleet — each send may go to a different
+  member — and `use route(group)` binds it to whichever member a `Pick<E>`
+  policy chooses: `LeastLoaded`, `Sharded` by a `Key`-marked argument, or
+  `Elected` behind a `Leader` any election can serve. The platform owns the
+  transport only (`HostTcpTransport`, `threadsafe`), and `MemTransport` runs
+  the whole thing in one process with partitions and departures, which is how
+  `examples/cluster/` runs under the test suite.
 - **Time**: `Duration` for a span, `Instant` for a wall-clock point and `Tick`
   for a monotonic one — kept apart so a deadline cannot be measured against a
   clock that NTP can step. Reading either clock is a capability (`Clock`,

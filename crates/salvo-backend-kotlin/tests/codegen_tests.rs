@@ -113,11 +113,15 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     );
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
+    // The drivers' pre-resolution expansions [route-stub].
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
         modules,
@@ -4408,6 +4412,7 @@ const KOTLIN_CASES: &[fn() -> KotlinCase] = &[
     kotlin_example_qualifiers,
     kotlin_example_throw_and_release,
     kotlin_example_time,
+    kotlin_example_cluster,
     kotlinc_compiles_and_runs_unions,
     kotlinc_compiles_and_runs_qualifiers,
     a_fallible_pass_yields_a_result,
@@ -14226,11 +14231,15 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
+    // The drivers' pre-resolution expansions [route-stub].
+    let expansion = salvo_core::expand(&sources.files, &mut modules);
+    let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert!(errors.is_empty(), "expansion errors: {errors:?}");
     let program = Program {
         files: sources.files,
         modules,
@@ -14330,6 +14339,10 @@ fn kotlin_example_throw_and_release() -> KotlinCase {
 
 fn kotlin_example_time() -> KotlinCase {
     example_case("time")
+}
+
+fn kotlin_example_cluster() -> KotlinCase {
+    example_case("cluster")
 }
 
 /// Every example has a case above — checked here rather than
