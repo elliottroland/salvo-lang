@@ -229,6 +229,46 @@ built, recorded in ROADMAP.md §16: an `iter fn` over a *generic* source or
 taking an `iter T` parameter (a stage — needs the generated `next` to carry
 forwarded implicits and the obligation match to ignore them).
 
+**The `net` tidy-up (2026-09-27, user decisions — built).** Five changes
+the user asked for after reading `examples/cluster/`, each its own commit:
+(1) **`Inbound.receive_frame` / `Outbound.send_frame`** — the direction in
+the member name, "frame" kept for the parameter since it is the established
+word for a delimited unit on a stream. (2) **`NodeId`**, a struct over the
+runtime's `u64`/`Long`, replacing bare `Long` node ids everywhere a node is
+named (`this_node`, `new_node`, `pool_at`, `node_of`, `Node.id`,
+`Leader.leader()`, the mechanisms' members); it has a wire form because it is
+compared across machines. (3) **`connect(me) -> Bool` / `connected()`**
+[net-connect]: the three scheduler↔transport bindings (`route_frames`,
+`listen`, `add_route`) as one idempotent call — `connected()` reads the
+runtime's `wires` table, `connect` answers whether *this call* bound — with
+`connect(me, on: Pool)` to place the two wire actors and `connect(me,
+sending, receiving)` over actors the caller spawned. `start_group` became
+**`node_group`**, mechanisms lost their `me` parameter (they read
+`Transport.local_endpoint()`) and **assert `connected()`** as they start.
+(4) **The runtime's plumbing is private to `net`** [mod-export]: the wire
+bindings, the handshake frames, the replica's publish/share, the view mirror
+and `protocol_name`/`protocol_hash` are no longer exported, and each carries
+a comment on what it does and where in the stack it sits; the module header
+is now a bottom-up map of the six layers a reader meets. (5) **`attach(
+protocol<E>(), nodes)` → `actor_group<E>(nodes)`** — the protocol as a type
+argument, the `noremote` crossing-site check moved onto it — and **`spawn H()
+on p in group`** for `join(group, spawn H() on p)` [actor-group]: `in`, not
+`on`, because a group is where an actor is found, not where it runs (no
+remote spawn — decision 5 of the network round stands). Two emitter facts fell
+out: `actor_group<E>` is an intrinsic lowered per call to `open_group(
+protocol<E>(), …)`, because an erased generic fn cannot produce the protocol
+constant of its written `E`; and a **handle bundle is named by its shape and
+spelled through the callee's module** (`crate::net::__Hs_transport`) — the
+first cross-module call of a fn with handle requirements (`connect` from a
+program) built a same-named struct in the caller's module and failed rustc.
+**Not done, recorded**: a node group connecting the node itself — an actor's
+member cannot hand the transport it depends on to a spawn on the Rust backend
+[rs-handle-bundle], so the mechanism asserts instead, and the in-process
+double's second node spawns its wire actors `with` the transport. **1621
+tests** (+3: `in` in the parser, its two refusals in the checker, and the
+spawn-in-group case per backend; `actor_group<E>`'s crossing-site refusal).
+The cluster example's output is byte-identical before and after.
+
 **Private send members, and `?:` over a borrowed optional (2026-09-27, user
 decision — built).** Two fixes scoped in PRIVATE_SENDS.md (retired with this
 entry). **[actor-private-send]**: a handler of an actor effect may declare
@@ -19077,6 +19117,26 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A generated struct a cross-module call must name needs a name both sides
+  can compute** (2026-09-27). Handle bundles (`__Hs_N`) were numbered per
+  emitter; the callee's module minted `__Hs_1` and a caller in another module
+  minted its own `__Hs_2` of the same shape — fine while every such call was
+  intra-module, wrong the day `connect` moved into `net`. Name generated
+  items by their *shape* (`__Hs_transport`) and spell them through the
+  declaring module's path; a counter is only safe for items one module both
+  declares and uses.
+- **An erased generic fn cannot read a constant of its type argument**
+  (2026-09-27). `actor_group<E>(nodes)` as a plain std fn calling
+  `protocol<E>()` emitted `protocol<E>()` with `E` gone — the emitter needs
+  the *written* effect name to find `__PROTO_Ping`. Anything that must
+  produce a per-`E` constant is an intrinsic lowered at the call site, and
+  the fn it forwards to takes the constant as a value (`open_group(proto,
+  nodes)`).
+- **A mechanism that reads its own endpoint from the transport has one
+  source of truth** (2026-09-27). `StaticNodeGroup(name, me, all)` took `me`
+  as a parameter and so did `MemTransport(me, net)`; nothing checked they
+  agreed. `Transport.local_endpoint()` already existed; the mechanisms now
+  read it, and the constructor lost a parameter.
 - **When a construct type-checks and fails in the target compiler, the
   question is which side is wrong** (2026-09-27). Private `send fn` members
   (a `replyto partial()` target no face declares) passed the checker and
