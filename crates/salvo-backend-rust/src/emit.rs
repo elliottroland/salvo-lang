@@ -16689,6 +16689,35 @@ impl<'p> Emitter<'p> {
                     let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
                     return format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}");
                 }
+                // [actor-group] `actor_group<E>(…)` → `open_group(protocol<E>(), …)`:
+                // the protocol literal is the call site's to make.
+                "actor_group" if args.len() == 1 || args.len() == 2 => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error("`actor_group` needs an effect as its type argument");
+                        return "todo!()".to_string();
+                    };
+                    if !self.checked.protocol_hashes.contains_key(&effect) || !self.effect_paths.contains_key(&effect) {
+                        self.error(format!(
+                            "`actor_group<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
+                        ));
+                        return "todo!()".to_string();
+                    }
+                    let proto = self.effect_path(&effect, &protocol_const_name(&effect));
+                    let st = self.rust_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+                    let literal = format!("{st} {{ name: \"{effect}\".to_string(), hash: {proto}.to_string() }}");
+                    let net = self.effect_path("ActorGroup", "");
+                    let rendered: Vec<String> = args.iter().map(|a| self.emit_owned(a)).collect();
+                    return if args.len() == 1 {
+                        format!("{net}open_group({literal}, {})", rendered[0])
+                    } else {
+                        format!("{net}open_named_group({}, {literal}, {})", rendered[0], rendered[1])
+                    };
+                }
                 "publish_group" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     let name = self.emit_read(args[0]);

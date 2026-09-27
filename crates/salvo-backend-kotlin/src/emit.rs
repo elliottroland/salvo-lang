@@ -8775,6 +8775,33 @@ impl<'p> Emitter<'p> {
                     let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
                     return format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(&effect));
                 }
+                // [actor-group] `actor_group<E>(…)` → `open_group(protocol<E>(), …)`.
+                "actor_group" if args.len() == 1 || args.len() == 2 => {
+                    let target = self
+                        .checked
+                        .call_type_args
+                        .get(&(self.file_idx, span))
+                        .and_then(|tys| tys.first().cloned());
+                    let Some(Ty::Named { name: effect, .. }) = target else {
+                        self.error("`actor_group` needs an effect as its type argument");
+                        return "TODO()".to_string();
+                    };
+                    let Some(prefix) = self.effect_paths.get(&effect).cloned() else {
+                        self.error(format!(
+                            "`actor_group<{effect}>()`: `{effect}` has no wire form, so it cannot be a group's protocol"
+                        ));
+                        return "TODO()".to_string();
+                    };
+                    let st = self.kotlin_ty(&Ty::Named { name: "Protocol".to_string(), args: Vec::new() });
+                    let literal = format!("{st}(\"{effect}\", {prefix}__PROTO_{})", kt_ident(&effect));
+                    let net = self.effect_paths.get("ActorGroup").cloned().unwrap_or_default();
+                    let rendered: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                    return if args.len() == 1 {
+                        format!("{net}open_group({literal}, {})", rendered[0])
+                    } else {
+                        format!("{net}open_named_group({}, {literal}, {})", rendered[0], rendered[1])
+                    };
+                }
                 "publish_group" if args.len() == 2 => {
                     self.needs_scheduler = true;
                     let name = self.emit_expr(args[0]);

@@ -7403,8 +7403,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     format!(
                         "no route stub for `{effect}` in this module: the stub is generated \
                          where the module names the protocol as a group's — write \
-                         `protocol<{effect}>()` or the type `Addr<ActorGroup<{effect}>>` in \
-                         this module, or route from the module that attached the group \
+                         `actor_group<{effect}>(…)` or the type `Addr<ActorGroup<{effect}>>` in \
+                         this module, or route from the module that opened the group \
                          [route-stub]"
                     ),
                 );
@@ -27389,7 +27389,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // is refused (user decision 2026-09-26: at the binding, not the
         // declaration; the protocol stays a legal *local* one). The same
         // predicate the emitters generate codecs from.
-        if decl.intrinsic && decl.name.name == "protocol" && args.is_empty() {
+        // `actor_group<E>(…)` is the same site one level up: the std fn
+        // that opens a group calls `protocol<E>()` with a generic `E`, where
+        // the check cannot fire, so it fires here on the written argument.
+        let crossing = (decl.intrinsic && decl.name.name == "protocol" && args.is_empty())
+            || decl.name.name == "actor_group";
+        if crossing {
             if let Some(ast_ty) = type_args.first() {
                 if let ast::Type::Named { base, .. } = ast_ty {
                     if let Some(effect) = self.scope.effects.get(base.name.name.as_str()).copied() {
@@ -27402,12 +27407,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         span,
                                         format!(
                                             "a group of `{}` cannot span nodes: `{}.{}` takes `{pty}`, and {} — \
-                                             so `protocol<{}>()` has nothing to name on the wire. Keep the \
+                                             so `{}<{}>()` has nothing to name on the wire. Keep the \
                                              actor local, or give the payload a wire form [noremote]",
                                             effect.name.name,
                                             effect.name.name,
                                             f.name.name,
                                             block.describe(),
+                                            decl.name.name,
                                             effect.name.name
                                         ),
                                     );

@@ -848,7 +848,12 @@ object __Codec___Msg_ActorChanges : salvo.WireCodec<__Msg_ActorChanges> {
 /** [protocol-hash] The canonical hash of `ActorChanges`. */
 const val __PROTO_ActorChanges: String = "9fa424e5858bb3bd"
 
-fun attach(name: String, proto: Protocol, nodes: Int): Int {
+fun open_group(proto: Protocol, nodes: Int): Int {
+    val name = proto.name
+    return open_named_group(name, proto, nodes)
+}
+
+fun open_named_group(name: String, proto: Protocol, nodes: Int): Int {
     val (group, changes) = run { val __h = ActorGrouping(name, proto); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.pool(1), __h.__mailboxCapacity, __Actor_ActorGrouping(__h), __Actor_ActorGrouping.__DECODE); Pair(__a, __a) }
     salvo.SalvoSched.sendWire(nodes, __Msg_NodeGroup.Subscribe(changes), __PROTO_NodeGroup, __Codec___Msg_NodeGroup)
     salvo.SalvoSched.sendWire(group, __Msg_ActorGroup.Start(group), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
@@ -857,11 +862,6 @@ fun attach(name: String, proto: Protocol, nodes: Int): Int {
 
 fun join(group: Int, member: Int) {
     salvo.SalvoSched.sendWire(group, __Msg_ActorGroup.Join(member), __PROTO_ActorGroup, __Codec___Msg_ActorGroup)
-}
-
-fun attach__2(proto: Protocol, nodes: Int): Int {
-    val name = proto.name
-    return attach(name, proto, nodes)
 }
 
 class ActorGrouping(private val name: String, private val proto: Protocol) : ActorGroup, NodeChanges {

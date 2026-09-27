@@ -1354,7 +1354,12 @@ impl crate::wire::__Wire for __Msg_ActorChanges {
 /// [protocol-hash] The canonical hash of `ActorChanges`.
 pub const __PROTO_ActorChanges: &str = "9fa424e5858bb3bd";
 
-pub fn attach(name: String, proto: Protocol, nodes: usize) -> usize {
+pub fn open_group(proto: Protocol, nodes: usize) -> usize {
+    let mut name = proto.name.clone();
+    return open_named_group(name, proto, nodes);
+}
+
+pub fn open_named_group(name: String, proto: Protocol, nodes: usize) -> usize {
     let (mut group, mut changes) = ({ let __h = ActorGrouping::new(name, proto); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_pool(((1) as usize)), __cap as usize, Box::new(__Actor_ActorGrouping::new(__h)), __DECODE_ActorGrouping); (__a, __a) });
     crate::scheduler::salvo_send_wire(nodes, crate::net::__Msg_NodeGroup::Subscribe(changes), crate::net::__PROTO_NodeGroup);
     crate::scheduler::salvo_send_wire(group, crate::net::__Msg_ActorGroup::Start(group.clone()), crate::net::__PROTO_ActorGroup);
@@ -1363,11 +1368,6 @@ pub fn attach(name: String, proto: Protocol, nodes: usize) -> usize {
 
 pub fn join(group: &usize, member: usize) {
     crate::scheduler::salvo_send_wire(group.clone(), crate::net::__Msg_ActorGroup::Join(member), crate::net::__PROTO_ActorGroup);
-}
-
-pub fn attach__2(proto: Protocol, nodes: usize) -> usize {
-    let mut name = proto.name.clone();
-    return attach(name, proto, nodes);
 }
 
 pub struct ActorGrouping {

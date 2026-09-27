@@ -11,9 +11,9 @@
 //!
 //! **Syntactic, like every expansion here.** A module gets stubs when it
 //! contains a `use route(…)` statement, for every actor effect `X` it names
-//! in a `protocol<X>()` call or an `ActorGroup<X>` type — which is where a
-//! group handle comes from (`attach(protocol<X>(), nodes)`) or is written
-//! down (`g: Addr<ActorGroup<X>>`). A `use route(g)` whose `X` was never
+//! in an `actor_group<X>(…)` or `protocol<X>()` call or an `ActorGroup<X>`
+//! type — which is where a group handle comes from or is written down
+//! (`g: Addr<ActorGroup<X>>`). A `use route(g)` whose `X` was never
 //! spelled in the module is refused by the checker, naming that fix.
 //!
 //! **Spans.** Every synthesized node takes a fresh one-byte span **past the
@@ -103,7 +103,7 @@ pub fn expand_route_stubs(files: &[SourceFile], modules: &mut [Module]) -> Vec<(
             &mut |expr| {
                 if let Expr::Call { callee, type_args, .. } = expr {
                     if let Expr::Ident(id) = callee.as_ref() {
-                        if id.name == "protocol" {
+                        if id.name == "protocol" || id.name == "actor_group" {
                             for t in type_args {
                                 if let Type::Named { base, .. } = t {
                                     named.insert(base.name.name.clone());

@@ -25,11 +25,12 @@ would write the bare `[Sequencer]`, and the compiler would refuse to bind a
 router under it (`examples/actors/` has the single-actor shape).
 
 **Two nodes, one group each.** Node `a` is `main`'s own; node `b` is booted on
-a second node id by `Booting`. Each attaches a replica of every actor group —
-`attach(protocol<Sequencer>(), nodes)` — and the replicas find each other by
-name through the node group, so `seq.members(out)` on `a` lists `b`'s member
-too. The `protocol<E>()` call is also where a protocol that could not cross a
-node boundary would be refused.
+a second node id by `Booting`. Each first connects to the wire (`connect`),
+starts the node group (`node_group`), and opens a replica of every actor group
+— `actor_group<Sequencer>(nodes)` — and the replicas find each other by name
+through the node group, so `seq.members(out)` on `a` lists `b`'s member too.
+The `actor_group<E>` call is also where a protocol that could not cross a node
+boundary would be refused.
 
 **1 — singleton.** Every node hosts a `Sequencing`; ids must come from one.
 `use LastHost(nodes, a)` binds `Leader` — an election a child could run, the

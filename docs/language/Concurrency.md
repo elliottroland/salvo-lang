@@ -184,15 +184,15 @@ let peers = waitfor out: Reply<List<Node>> { group.members(out) }
 
 ### Actor groups
 
-Nodes are where actors live; the set of actors a program spreads across them is an **actor group**, `ActorGroup<E>` — an actor effect over the protocol `E`. `attach(protocol<Ping>(), nodes)` starts one on the current node and publishes it by name, so a node that attaches the same protocol to the same node group gets a replica of the same group: replicas exchange their members as nodes meet, admit each remote member once, and withdraw every member hosted on a node that leaves. `join(group, addr)` adds a member, `members(out)` answers the union as seen from here, and `subscribe(w)` delivers `ActorChanges<Ping>.joined` and `left` as ordinary messages, each carrying an `Addr<Ping>` that works wherever it arrives.
+Nodes are where actors live; the set of actors a program spreads across them is an **actor group**, `ActorGroup<E>` — an actor effect over the protocol `E`. `actor_group<Ping>(nodes)` starts one on the current node and publishes it by name, so a node that opens the same protocol to the same node group gets a replica of the same group: replicas exchange their members as nodes meet, admit each remote member once, and withdraw every member hosted on a node that leaves. `join(group, addr)` adds a member, `members(out)` answers the union as seen from here, and `subscribe(w)` delivers `ActorChanges<Ping>.joined` and `left` as ordinary messages, each carrying an `Addr<Ping>` that works wherever it arrives.
 
 ```
-let pings = attach(protocol<Ping>(), nodes)             // one replica per node
+let pings = actor_group<Ping>(nodes)             // one replica per node
 join(pings, spawn Pinging("a") on p)
 pings.subscribe(spawn Noticing("a") on p)               // "a: + a Ping (local: false)"
 ```
 
-`protocol<E>()` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and a generic that is only ever an effect is erased from the generated code.
+`actor_group<E>(…)` is where a protocol that cannot cross a node boundary is refused: if any `send fn` of `E` carries a `noremote` payload, a group of `E` cannot span nodes, and the compiler says so at that call rather than at the first remote send. The type parameter of `ActorGroup<E>` is only ever an effect, so it costs nothing at runtime — `Addr<E>` is one handle whatever `E` is, and a generic that is only ever an effect is erased from the generated code.
 
 Three small readers go with a group: `pending(addr)` answers how much a member has in front of it — its mailbox depth if it is local, the in-flight count if it is a proxy; `node_of(addr)` names the host; and two `Addr<E>` compare with `eq`.
 
@@ -220,7 +220,7 @@ actor effect Inventory {
 
 fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered
 
-let stock = attach(protocol<Inventory>(), nodes)
+let stock = actor_group<Inventory>(nodes)
 join(stock, spawn Stocking("s1") on p)
 use Sharded<Inventory>()          // the policy: the member that owns the key…
 use route(stock)                  // …and the stub, binding `any Inventory`

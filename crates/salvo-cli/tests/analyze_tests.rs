@@ -2404,7 +2404,7 @@ fn route_refusals_name_the_fix() {
     fs::write(
         dir.join("main.sv"),
         "import net\nimport lib.group_of\nimport lib.Ping\nimport lib.some_group\n\n\
-         fn main() [use] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use route(h)\n}\n",
+         fn main() [use, spawn] {\n    use LeastLoaded<Ping>(true)\n    let h = some_group()\n    use route(h)\n}\n",
     )
     .unwrap();
     fs::write(
@@ -2412,13 +2412,13 @@ fn route_refusals_name_the_fix() {
         "import net\n\nexport actor effect Ping {\n    send fn ping(out: Reply<Str>) => !out\n}\n\n\
          export fn group_of(g: Addr<ActorGroup<Ping>>) -> Addr<ActorGroup<Ping>> => !g {\n    return g\n}\n\n\
          export fn some_group() [spawn] -> Addr<ActorGroup<Ping>> {\n    \
-         return attach(protocol<Ping>(), node_group(spawn StaticNodeGroup(\"x\", list_of(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1)) on pool(1)))\n}\n",
+         return actor_group<Ping>(node_group(spawn StaticNodeGroup(\"x\", list_of(NodeEndpoint { host: \"a\", port: 1 })) with MemTransport(NodeEndpoint { host: \"a\", port: 1 }, spawn MemNetwork() on pool(1)) on pool(1)))\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("no route stub for `Ping` in this module") && stderr.contains("protocol<Ping>()"),
+        stderr.contains("no route stub for `Ping` in this module") && stderr.contains("actor_group<Ping>(…)"),
         "{stderr}"
     );
 }

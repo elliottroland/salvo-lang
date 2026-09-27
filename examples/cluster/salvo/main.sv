@@ -270,17 +270,17 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let group = node_group(spawn StaticNodeGroup("cluster", copy(all)) with MemTransport(copy(at), copy(net)) on p)
         nodes = copy(group)
 
-        let seq = attach(protocol<Sequencer>(), copy(group))
+        let seq = actor_group<Sequencer>(copy(group))
         let mine = spawn Sequencing("b") on p
         join(seq, copy(mine))
 
-        let stock = attach(protocol<Inventory>(), copy(group))
+        let stock = actor_group<Inventory>(copy(group))
         join(stock, spawn Stocking("shard-b") on p)
 
-        let index = attach(protocol<Search>(), copy(group))
+        let index = actor_group<Search>(copy(group))
         join(index, spawn Indexing(["salvo", "actors", "salvo", "nodes"]) on p)
 
-        let looks = attach(protocol<Lookup>(), group)
+        let looks = actor_group<Lookup>(group)
         let timer = spawn DefaultTimer() on p
         join(looks, spawn SlowLooking("b (slow)", timer) on p)
 
@@ -315,13 +315,13 @@ fn main() [use, spawn] {
     let _connected = connect(copy(a), copy(p))
     let nodes = node_group(spawn StaticNodeGroup("cluster", copy(all)) on p)
 
-    let seq = attach(protocol<Sequencer>(), copy(nodes))
+    let seq = actor_group<Sequencer>(copy(nodes))
     join(seq, spawn Sequencing("a") on p)
-    let stock = attach(protocol<Inventory>(), copy(nodes))
+    let stock = actor_group<Inventory>(copy(nodes))
     join(stock, spawn Stocking("shard-a") on p)
-    let index = attach(protocol<Search>(), copy(nodes))
+    let index = actor_group<Search>(copy(nodes))
     join(index, spawn Indexing(["salvo", "is", "salvo"]) on p)
-    let looks = attach(protocol<Lookup>(), copy(nodes))
+    let looks = actor_group<Lookup>(copy(nodes))
     join(looks, spawn Looking("a") on p)
 
     // Node b, and a moment for the two node groups to meet.

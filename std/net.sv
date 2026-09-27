@@ -375,7 +375,7 @@ intrinsic fn leave_group() [] -> None
 
 // [protocol-hash] A peer's hash for the protocol named [protocol], as its
 // handshake carried it; `None` for an unknown peer or one without the
-// protocol. What `attach<E>` compares (step ⑤).
+// protocol. What a replica compares before merging a peer's members.
 export intrinsic fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol
 
 // [node-group] Starts a spawned node group: `node_group(spawn StaticNodeGroup(…)
@@ -555,7 +555,7 @@ fn dial(dialed: Mut Set<Str>, e: NodeEndpoint) [Transport] -> None => dialed: Mu
 
 // ---------------------------------------------------------- actor group ----
 
-// [protocol-hash] A protocol named as a value: what `attach` is told which
+// [protocol-hash] A protocol named as a value: what a replica is told which
 // effect a group is of, so a peer whose hash for it differs is refused before
 // any message is exchanged. Built by [protocol], never by hand; `E` types the
 // value and is erased in the output [effect-generic-decl].
@@ -626,11 +626,37 @@ intrinsic fn share_members<E>(name: Str, node: NodeId, members: List<Addr<E>>) [
 // that its host has not yet dequeued. What a pick compares (step ⑦).
 export intrinsic fn pending<E>(a: Addr<E>) [] -> Int => a
 
-// [actor-group] Attaches to the group of [proto] named [name] over [nodes]: one
-// replica, spawned on the current pool, published under the name. The same
-// name from two nodes is one group. Refused — at run time, by the replica —
-// for a peer whose hash of the protocol differs: its members are never merged.
-export fn attach<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
+// [actor-group] Opens the group of protocol [E] over [nodes] on this node:
+// one replica, spawned on the current pool, published under the group's name
+// so the replicas other nodes open under the same name find it — the same
+// name from two nodes is one group. Written with the protocol as a type
+// argument, `actor_group<Ping>(nodes)`, which is also where a protocol that
+// cannot cross a node boundary is refused [noremote]. A peer whose hash of
+// the protocol differs is invisible: its members are never merged.
+//
+// A node group is about **machines** and a program has one; an actor group
+// is about the **actors of one protocol** across them, and a program opens
+// one per protocol it routes to or lists the members of.
+//
+// An intrinsic rather than a fn: the protocol's name and hash are constants
+// of the *written* `E`, and an effect-only generic is erased in the output
+// [effect-generic-decl], so only the call site can produce them. Each backend
+// lowers the call to `open_group(protocol<E>(), nodes)`.
+export intrinsic fn actor_group<E>(nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !nodes
+
+// [actor-group] Several groups of one protocol, told apart by [name].
+export intrinsic fn actor_group<E>(name: Str, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
+    => !name, !nodes
+
+// [actor-group] What `actor_group<E>` lowers to (exported for the generated
+// call, which is made from the program's own module): the replica, spawned,
+// subscribed to the node group, started.
+export fn open_group<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !proto, !nodes {
+    let name = copy(proto.name)
+    return open_named_group(name, proto, nodes)
+}
+
+export fn open_named_group<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>>
     => !name, !proto, !nodes {
     let (group, changes) = spawn ActorGrouping<E>(name, proto) on pool(1)
     nodes.subscribe(changes)
@@ -638,16 +664,10 @@ export fn attach<E>(name: Str, proto: Protocol<E>, nodes: Addr<NodeGroup>) [spaw
     return group
 }
 
-// [actor-group] Registers [member] in [group]: `join(pings, spawn Pinging() on
-// p)` is a node's whole way of hosting a member.
+// [actor-group] Registers [member] in [group]. `spawn Pinging() on p in pings`
+// is the same thing written at the spawn.
 export fn join<E>(group: Addr<ActorGroup<E>>, member: Addr<E>) [] -> None => group, !member {
     group.join(member)
-}
-
-// [actor-group] The common case: the group named after the protocol itself.
-export fn attach<E>(proto: Protocol<E>, nodes: Addr<NodeGroup>) [spawn] -> Addr<ActorGroup<E>> => !proto, !nodes {
-    let name = copy(proto.name)
-    return attach(name, proto, nodes)
 }
 
 // [actor-group] The std replica. State: members as a list of addrs (an addr

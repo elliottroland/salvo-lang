@@ -9666,7 +9666,7 @@ fn main() [use, spawn] {
     let p = pool(1)
     let _connected = connect(copy(a), copy(p))
     let nodes = node_group(spawn StaticNodeGroup("shop", [copy(a)]) on p)
-    let stock = attach(protocol<Inventory>(), nodes)
+    let stock = actor_group<Inventory>(nodes)
     join(stock, spawn Stocking("s1") on p)
     join(stock, spawn Stocking("s2") on p)
 
@@ -9708,7 +9708,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let p = pool(1)
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) with MemTransport(copy(at), copy(net)) on p)
-        let seq = attach(protocol<Sequencer>(), nodes)
+        let seq = actor_group<Sequencer>(nodes)
         let mine = spawn Sequencing("b") on p
         join(seq, copy(mine))
         done.send(mine)
@@ -9729,7 +9729,7 @@ fn main() [use, spawn] {
     let pa = pool(1)
     let _connected = connect(copy(a), copy(pa))
     let nodes = node_group(spawn StaticNodeGroup("ids", copy(all)) on pa)
-    let seq = attach(protocol<Sequencer>(), nodes)
+    let seq = actor_group<Sequencer>(nodes)
     join(seq, spawn Sequencing("a") on pa)
 
     let pb = pool_at(new_node(), 1)
@@ -9787,7 +9787,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: Addr<MemNet>) [T
         let p = pool(1)
         let _connected = connect(copy(at), spawn Sending() with MemTransport(copy(at), copy(net)) on p, spawn Receiving() on p)
         let nodes = node_group(spawn StaticNodeGroup("demo", copy(all)) with MemTransport(copy(at), copy(net)) on p)
-        let pings = attach(protocol<Ping>(), nodes)
+        let pings = actor_group<Ping>(nodes)
         join(pings, spawn Pinging("b") on p)
         done.send(pings)
     }
@@ -9804,7 +9804,7 @@ fn main() [use, spawn] {
     let pa = pool(1)
     let _connected = connect(copy(a), copy(pa))
     let nodes_a = node_group(spawn StaticNodeGroup("demo", copy(all)) on pa)
-    let pings_a = attach(protocol<Ping>(), nodes_a)
+    let pings_a = actor_group<Ping>(nodes_a)
     pings_a.subscribe(spawn Noticing("a") on pa)
     join(pings_a, spawn Pinging("a") on pa)
 

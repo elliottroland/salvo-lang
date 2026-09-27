@@ -5499,7 +5499,7 @@ between endpoints and delivers what arrives into the scheduler.
     codec for exactly the structs that pass it — so a value that encodes has
     a codec on both backends, and the two can never disagree
     [backend-never-wrong]. From step ⑤ the same predicate refuses
-    `attach<E>` of a protocol with a blocked payload — the crossing site the
+    `actor_group<E>` of a protocol with a blocked payload — the crossing site the
     user chose over the declaration.
 * [protocol-hash] **The canonical hash of an actor protocol**: FNV-1a 64
   over the canonical form — every `send fn` in declaration order as
@@ -5510,7 +5510,7 @@ between endpoints and delivers what arrives into the scheduler.
   (`__PROTO_E` on both backends). Computed by the compiler
   (`Checked.protocol_hashes`), so the two backends carry the same constant
   and no runtime hashes anything. What the handshake exchanges (step ④) and
-  `attach`/`join` compare (step ⑤), **never at decode**: exhaustive `when`
+  `actor_group`/`join` compare, **never at decode**: exhaustive `when`
   over positional arms means an old node has no value to construct for an
   arm it lacks, so compatibility is settled before a byte is read.
   * Generated only for a protocol whose every payload has a wire form; one
@@ -5628,7 +5628,7 @@ between endpoints and delivers what arrives into the scheduler.
     hears about it through `actor effect PeerEvents { hello(node, at,
     protocols), gone(node), introduced(peers) }`, registered with
     `watch_peers`. `peer_protocol(node, name)` answers a peer's hash for a
-    protocol — what `attach<E>` compares (step ⑤).
+    protocol — what `actor_group<E>` compares.
   * **Introductions are frames, not a protocol**: `introduce(node, peers)`
     sends an INTRO frame that arrives as `PeerEvents.introduced`. Gossip
     was first written with a `NodeLink` actor effect the group both served
@@ -5650,7 +5650,7 @@ between endpoints and delivers what arrives into the scheduler.
   A type parameter that occurs solely inside `Addr<…>` (or as the argument
   of another erased declaration, or nowhere at all on a struct whose every
   instantiation names an effect) carries no representation: `Addr<E>` lowers
-  to the same handle for every `E`. The checker sees `Reg<E>`, `attach<E>`,
+  to the same handle for every `E`. The checker sees `Reg<E>`, `actor_group<E>`,
   `ActorGroup<E>` as ordinary generics — `Addr<ActorGroup<Ping>>` is checked
   as such — and both emitters emit them **monomorphic**: `salvo_core::erase`
   computes the erased set as a fixpoint over the program (self-reference
@@ -5675,9 +5675,11 @@ between endpoints and delivers what arrives into the scheduler.
   spreads over its nodes**, a std actor effect: `join(member)`, `leave(member)`,
   `members(reply)`, `subscribe(who: Addr<ActorChanges<E>>)`, plus the
   mechanism's own `peer(node)`, `merged(from, found)`, `start(me)`.
-  `attach<E>(name, proto, nodes) -> Addr<ActorGroup<E>>` spawns the std
-  `ActorGrouping<E>` handler on the current node and **publishes it by
-  name**, so a replica attaching the same name on another node finds it: the
+  `actor_group<E>(nodes) -> Addr<ActorGroup<E>>` (and `actor_group<E>(name,
+  nodes)` for several groups of one protocol; renamed from `attach` 2026-09-27)
+  spawns the std `ActorGrouping<E>` handler on the current node and
+  **publishes it by name**, so a replica opened under the same name on another
+  node finds it: the
   runtime carries a NAMED frame per published name (sent in the handshake to
   every new peer, and on `publish` to every known peer) and a MEMBERS frame
   for the member exchange, both frames rather than actor sends so the group
@@ -5685,10 +5687,12 @@ between endpoints and delivers what arrives into the scheduler.
   their member sets, admit a remote member once, and withdraw every member
   hosted on a node that leaves. `join<E>(group, member)` is the ordinary
   send; `members` answers the union as seen locally.
-  * `protocol<E>() -> Protocol<E>{name, hash}` is the crossing site for
-    `noremote` [noremote]: it refuses when any `send fn` of `E` carries a
-    payload with no wire form — "a group of `E` cannot span nodes" — so an
-    `Addr<E>` that could not be routed is never published.
+  * `actor_group<E>(…)` — and `protocol<E>() -> Protocol<E>{name, hash}`
+    underneath it — is the crossing site for `noremote` [noremote]: it refuses
+    when any `send fn` of `E` carries a payload with no wire form — "a group of
+    `E` cannot span nodes" — so an `Addr<E>` that could not be routed is never
+    published. The check reads the written type argument, which is why the
+    protocol is a type argument rather than a value.
   * `pending(addr) -> Int` answers the mailbox depth of a local actor and the
     in-flight (granted, unacknowledged) count on a proxy
     [remote-backpressure] — what a load-aware picker reads (step ⑦).
@@ -5723,7 +5727,7 @@ between endpoints and delivers what arrives into the scheduler.
     (`view_set`), the stub reads it on the sender's thread (`view_members`)
     — behind the replica by one message, never in the send path, and no
     hop. A group with no replica on this node has an empty view, so its
-    stub parks: `route` a group from the node that attached it.
+    stub parks: `route` a group from the node that opened it.
   * **`Key`** (`export provenance qualifier Key<T> of T`, std `net`) marks
     the parameter whose value decides the member: `send fn reserve(sku: Key
     Str, …)`. Read syntactically by the stub generator, **erased at

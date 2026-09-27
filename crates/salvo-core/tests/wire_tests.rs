@@ -38,6 +38,8 @@ const STD_NET: &str = concat!(
     "export intrinsic fn decode<T>(data: Bytes) [] -> T? => data\n",
     "export struct Protocol<E> { name: Str, hash: Str }\n",
     "export intrinsic fn protocol<E>() [] -> Protocol<E>\n",
+    "export actor effect NodeGroup { send fn leave() }\n",
+    "export intrinsic fn actor_group<E>(nodes: Addr<NodeGroup>) [spawn] -> Int => !nodes\n",
     // The pick kit's shape, enough for the erased-sibling rule [route-stub].
     "export struct ActorGroupView<E> { key: Long? = None }\n",
     "export effect Pick<E> { fn choose(view: ActorGroupView<E>) -> Addr<E>? => !view }\n",
@@ -246,6 +248,18 @@ fn a_protocol_with_a_noremote_payload_cannot_be_named_for_a_group() {
             && errs[0].contains("`Painter.paint` takes `Canvas`")
             && errs[0].contains("[noremote]"),
         "expected the crossing-site refusal, got {errs:?}"
+    );
+    // [actor-group] The same site one level up: `actor_group<E>(…)`, where a
+    // program actually writes the protocol.
+    let errs = messages(&format!(
+        "{IMPORT}noremote struct Canvas {{ n: Int }}\n\
+         actor effect Painter {{ send fn paint(c: Canvas) => !c }}\n\
+         fn main(nodes: Addr<NodeGroup>) [spawn] -> None {{\n    let _bad = actor_group<Painter>(nodes)\n}}\n"
+    ));
+    assert_eq!(errs.len(), 1, "{errs:?}");
+    assert!(
+        errs[0].contains("a group of `Painter` cannot span nodes") && errs[0].contains("`actor_group<Painter>()`"),
+        "{errs:?}"
     );
 }
 
